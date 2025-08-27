@@ -173,4 +173,3 @@ class Validator(Network):
             self.__performance[dataset_tag]['total']['aic'] = np.mean([self.__performance[dataset_tag][key]['aic']['value']for key in self._model_def['Minimizers'].keys()])
 
         self.visualizer.showResult(dataset_tag)
-#227

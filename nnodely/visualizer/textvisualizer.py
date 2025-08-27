@@ -1,6 +1,7 @@
 import numpy as np
 from pprint import pformat
 
+from nnodely.support.utils import is_notebook
 from nnodely.visualizer.emptyvisualizer import EmptyVisualizer, color, GREEN, RED, BLUE
 
 class TextVisualizer(EmptyVisualizer):
@@ -143,7 +144,7 @@ class TextVisualizer(EmptyVisualizer):
         if self.verbose >= 1:
             eng = lambda val: np.format_float_scientific(val, precision=3)
             par = self.modely.running_parameters
-            show_epoch = 1 if par['num_of_epochs'] <= 20 else 10
+            show_epoch = 1 if par['num_of_epochs'] <= 100 else int(par['num_of_epochs']/100)
             dim = len(self.modely._model_def['Minimizers'])
             if epoch < par['num_of_epochs']:
                 print('', end='\r')
@@ -174,7 +175,6 @@ class TextVisualizer(EmptyVisualizer):
                             print(color((f'{eng(val_losses[key][epoch])}').center(9, ' ') + '|'), end='')
                         else:
                             print(color((f'{eng(train_losses[key][epoch])}').center(19, ' ') + '|'), end='')
-
                     if val_losses:
                         print(color((f'{eng(np.mean(train_loss))}').center(9, ' ') + '|'), end='')
                         print(color((f'{eng(np.mean(val_loss))}').center(9, ' ') + '|'))
@@ -193,7 +193,7 @@ class TextVisualizer(EmptyVisualizer):
     def showTrainParams(self):
         if self.verbose >= 1:
             self.__title(" nnodely Model Train Parameters ")
-            par = self.modely.get_training_info()
+            par = self.modely.getTrainingInfo()
 
             self.__paramjson("models:", par['models'])
             self.__param("num of epochs:", str(par['num_of_epochs']))
