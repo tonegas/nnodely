@@ -124,17 +124,25 @@ class ModelDef:
         self.__json = self.__rebuild_json(models_names, minimizers)
 
     def addMinimize(self, name, streamA, streamB, loss_function='mse'):
-        check(isinstance(streamA, (Output, Stream)), TypeError, 'streamA must be an instance of Output or Stream')
-        check(isinstance(streamB, (Output, Stream)), TypeError, 'streamA must be an instance of Output or Stream')
-        # check(streamA.dim == streamB.dim, ValueError, f'Dimension of streamA={streamA.dim} and streamB={streamB.dim} are not equal.')
         if 'Minimizers' not in self.__json:
             self.__json['Minimizers'] = {}
-
         check_names(name, set(self.__json['Minimizers'].keys()), 'Minimizers')
-        streams = merge(streamA.json, streamB.json)
-        streamA_name = streamA.json['Outputs'][streamA.name] if isinstance(streamA, Output) else streamA.name
-        streamB_name = streamB.json['Outputs'][streamB.name] if isinstance(streamB, Output) else streamB.name
-        self.__json = merge(self.__json, streams)
+
+        if isinstance(streamA, str):
+            streamA_name = streamA
+        else:
+            check(isinstance(streamA, (Output, Stream)), TypeError, 'streamA must be an instance of Output or Stream')
+            streamA_name = streamA.json['Outputs'][streamA.name] if isinstance(streamA, Output) else streamA.name
+            self.__json = merge(self.__json, streamA.json)
+
+        if isinstance(streamB, str):
+            streamB_name = streamB
+        else:
+            check(isinstance(streamB, (Output, Stream)), TypeError, 'streamA must be an instance of Output or Stream')
+            streamB_name = streamB.json['Outputs'][streamB.name] if isinstance(streamB, Output) else streamB.name
+            self.__json = merge(self.__json, streamB.json)
+        #check(streamA.dim == streamB.dim, ValueError, f'Dimension of streamA={streamA.dim} and streamB={streamB.dim} are not equal.')
+
         self.__json['Minimizers'][name] = {}
         self.__json['Minimizers'][name]['A'] = streamA_name
         self.__json['Minimizers'][name]['B'] = streamB_name
