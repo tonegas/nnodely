@@ -284,8 +284,4 @@ class Modely(Composer, Trainer, Loader, Validator, Exporter):
         else:
             log.warning("Test dataset is empty. Skipping test results analysis.")
 
-        ## Show the results
-        self.visualizer.showResults()
-        return self.get_training_info()
-
 nnodely = Modely

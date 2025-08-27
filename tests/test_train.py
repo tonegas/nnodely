@@ -305,7 +305,7 @@ class ModelyTrainingTest(unittest.TestCase):
         # d y_approx / d x == dy_dx
         # Se x era una time window and dy_dx dovrà essere una time window
         test.addModel('model', [approx_dy_dx])
-        test.addMinimize('sob_err', approx_dy_dx, dy_dx_target.last())
+        test.addMinimize('sob_err', 'd_out', dy_dx_target.last())
         test.neuralizeModel()
         test.loadData('data', dataset)
         test.trainModel(num_of_epochs=1000, splits=[70,20,10], lr=0.3)
