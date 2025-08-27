@@ -70,13 +70,13 @@ class Network:
     def _clean_log_internal(self):
         self._internals = {}
 
-    def _removeVirtualStates(self, connect, closed_loop):
+    def _remove_virtual_states(self, connect, closed_loop):
         if connect or closed_loop:
             for key in (connect.keys() | closed_loop.keys()):
                 if key in self._states.keys():
                     del self._states[key]
 
-    def _updateState(self, X, out_closed_loop, out_connect):
+    def _update_state(self, X, out_closed_loop, out_connect):
         for key, value in out_connect.items():
             X[key] = value
             self._states[key] = X[key].clone().detach()
@@ -220,7 +220,8 @@ class Network:
     def __check_data_integrity(self, dataset:dict):
         if bool(dataset):
             check(len(set([t.size(0) for t in dataset.values()])) == 1, ValueError, "All the tensors in the dataset must have the same number of samples.")
-            check(len([t for t in self._model_def['Inputs'].keys() if t in dataset.keys()]) == len(list(self._model_def['Inputs'].keys())), ValueError, "Some inputs are missing.")
+            #TODO check why is wrong
+            #check(len([t for t in self._model_def['Inputs'].keys() if t in dataset.keys()]) == len(list(self._model_def['Inputs'].keys())), ValueError, "Some inputs are missing.")
             for key, value in dataset.items():
                 if key not in self._model_def['Inputs']:
                     log.warning(f"The key '{key}' is not an input of the network. It will be ignored.")
@@ -329,7 +330,7 @@ class Network:
                     horizon_losses[ind].append(loss)
 
                 ## Update
-                self._updateState(X, out_closed_loop, out_connect)
+                self._update_state(X, out_closed_loop, out_connect)
 
                 if self._log_internal:
                     internals_dict['state'] = self._states

@@ -21,7 +21,7 @@ class Exporter(Network):
             self.__exporter = EmptyExporter()
 
     @enforce_types
-    def getWorkspace(self):
+    def getWorkspace(self) -> str:
         return self.__exporter.getWorkspace()
 
     @enforce_types

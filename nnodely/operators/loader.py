@@ -224,6 +224,7 @@ class Loader(Network):
             num_of_samples[key] = data[key].shape[0]
         return num_of_samples
 
+    @enforce_types
     def loadData(self, name:str,
                  source: str | dict | pd.DataFrame, *,
                  format: list | None = None,

@@ -15,6 +15,7 @@ from nnodely.layers.output import Output
 from nnodely.support.logger import logging, nnLogger
 log = nnLogger(__name__, logging.CRITICAL)
 
+
 class Trainer(Network):
     def __init__(self):
         check(type(self) is not Trainer, TypeError, "Trainer class cannot be instantiated directly")
@@ -30,7 +31,7 @@ class Trainer(Network):
         self.__optimizer = None
 
     @enforce_types
-    def addMinimize(self, name:str, streamA:Stream|Output, streamB:Stream|Output, loss_function:str='mse') -> None:
+    def addMinimize(self, name:str, streamA:str|Stream|Output, streamB:str|Stream|Output, loss_function:str='mse') -> None:
         """
         Adds a minimize loss function to the model.
 
@@ -79,7 +80,7 @@ class Trainer(Network):
         for model in kwargs['models']:
             check(model in kwargs['all_models'], ValueError, f'The model {model} is not in the model definition')
 
-    def fill_parameters(func):
+    def __fill_parameters(func):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
             sig = inspect.signature(func)
@@ -155,7 +156,7 @@ class Trainer(Network):
         for name, values in self._model_def['Minimizers'].items():
             self.__loss_functions[name] = CustomLoss(values['loss'])
 
-    def get_training_info(self):
+    def getTrainingInfo(self):
         """
         Returns a dictionary with the training parameters and information.
         Parameters
@@ -214,7 +215,7 @@ class Trainer(Network):
         check(set(keys).issubset(set(train_data.keys())), KeyError, f"Not all the mandatory keys {keys} are present in the training dataset {set(train_data.keys())}.")
 
     @enforce_types
-    @fill_parameters
+    @__fill_parameters
     def trainModel(self, *,
                    name: str | None = None,
                    models: str | list | None = None,
@@ -505,10 +506,10 @@ class Trainer(Network):
             log.info('The selected model is the LAST model of the training.')
 
         ## Remove virtual states
-        self._removeVirtualStates(connect, closed_loop)
+        self._remove_virtual_states(connect, closed_loop)
 
         ## Get trained model from torch and set the model_def
         self._model_def.updateParameters(self._model)
-        return self.get_training_info()
+
 #from 685
 #from 840
