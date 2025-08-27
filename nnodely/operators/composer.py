@@ -19,7 +19,7 @@ class Composer(Network):
         check(type(self) is not Composer, TypeError, "Composer class cannot be instantiated directly")
         super().__init__()
 
-    def __addInfo(self):
+    def __addInfo(self) -> None:
         total_params = sum(p.numel() for p in self._model.parameters() if p.requires_grad)
         self._model_def['Info']['num_parameters'] = total_params
         from nnodely import __version__
@@ -433,10 +433,10 @@ class Composer(Network):
 
                 ## Update closed_loop and connect
                 if prediction_samples:
-                    self._updateState(X, out_closed_loop, out_connect)
+                    self._update_state(X, out_closed_loop, out_connect)
 
         ## Remove virtual states
-        self._removeVirtualStates(connect, closed_loop)
+        self._remove_virtual_states(connect, closed_loop)
 
         return result_dict
 
