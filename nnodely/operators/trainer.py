@@ -13,7 +13,7 @@ from nnodely.basic.relation import Stream
 from nnodely.layers.output import Output
 
 from nnodely.support.logger import logging, nnLogger
-log = nnLogger(__name__, logging.CRITICAL)
+log = nnLogger(__name__, logging.INFO)
 
 
 class Trainer(Network):

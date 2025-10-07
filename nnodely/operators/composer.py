@@ -6,12 +6,14 @@ from nnodely.operators.network import Network
 
 from nnodely.basic.modeldef import ModelDef
 from nnodely.basic.model import Model
-from nnodely.support.utils import check, log,  TORCH_DTYPE, NP_DTYPE, enforce_types
+from nnodely.support.utils import check, TORCH_DTYPE, NP_DTYPE, enforce_types
 from nnodely.support.mathutils import argmax_dict, argmin_dict
 from nnodely.basic.relation import Stream
 from nnodely.layers.input import Input
 from nnodely.layers.output import Output
 
+from nnodely.support.logger import logging, nnLogger
+log = nnLogger(__name__, logging.WARNING)
 
 class Composer(Network):
     @enforce_types
@@ -92,8 +94,12 @@ class Composer(Network):
         if isinstance(stream_out, (Output, Stream)):
             outputs = self._model_def['Outputs']
             stream_name = outputs[stream_out.name] if stream_out.name in outputs.keys() else stream_out.name
+        else:
+            stream_name = stream_out #TODO Add tests
         if isinstance(input_in, Input):
             input_name = input_in.name
+        else:
+            input_name = input_in #TODO Add tests
         self._model_def.addConnect(stream_name, input_name, local)
 
     @enforce_types
@@ -124,8 +130,12 @@ class Composer(Network):
         if isinstance(stream_out, (Output, Stream)):
             outputs = self._model_def['Outputs']
             stream_name = outputs[stream_out.name] if stream_out.name in outputs.keys() else stream_out.name
+        else:
+            stream_name = stream_out #TODO Add tests
         if isinstance(input_in, Input):
             input_name = input_in.name
+        else:
+            input_name = input_in #TODO Add tests
         self._model_def.addClosedLoop(stream_name, input_name, local)
 
     @enforce_types
@@ -202,6 +212,11 @@ class Composer(Network):
         self._max_samples_forward = max(self._input_ns_forward.values())
         self._input_n_samples = {}
         for key, value in self._model_def['Inputs'].items():
+            if self._input_ns_forward[key] >= 0:
+                if 'closedLoop' in value:
+                    log.warning(f"Closed loop on {key} with sample in the future.")
+                if 'connect' in value:
+                    log.warning(f"Connect on {key} with sample in the future.")
             self._input_n_samples[key] = self._input_ns_backward[key] + self._input_ns_forward[key]
         self._max_n_samples = max(self._input_ns_backward.values()) + max(self._input_ns_forward.values())
 
@@ -271,10 +286,7 @@ class Composer(Network):
         check(self.neuralized, RuntimeError, "The network is not neuralized.")
 
         ## Check closed loop integrity
-        for close_in, close_out in (closed_loop | connect).items():
-            check(close_in in self._model_def['Inputs'], ValueError, f'the tag "{close_in}" is not an input variable.')
-            check(close_out in self._model_def['Outputs'], ValueError,
-                  f'the tag "{close_out}" is not an output of the network')
+        prediction_samples = self._setup_recurrent_variables(prediction_samples, all_closed_loop, all_connect)
 
         ## List of keys
         model_inputs = list(self._model_def['Inputs'].keys())
@@ -293,8 +305,11 @@ class Composer(Network):
         num_of_windows = {key: len(value) for key, value in inputs.items()} if sampled else {
             key: len(value) - self._input_n_samples[key] + 1 for key, value in inputs.items()}
 
+        if num_of_samples is not None and sampled == True:
+            log.warning(f'num_of_samples is ignored if sampled is equal to True')
+
         ## Get the maximum inference window
-        if num_of_samples:
+        if num_of_samples and not sampled:
             window_dim = num_of_samples
             for key in inputs.keys():
                 input_dim = self._model_def['Inputs'][key]['dim']

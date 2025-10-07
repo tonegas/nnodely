@@ -9,7 +9,7 @@ from nnodely.support.utils import TORCH_DTYPE, NP_DTYPE, check, enforce_types, t
 from nnodely.basic.modeldef import ModelDef
 
 from nnodely.support.logger import logging, nnLogger
-log = nnLogger(__name__, logging.CRITICAL)
+log = nnLogger(__name__, logging.WARNING)
 
 class Network:
     @enforce_types
@@ -81,7 +81,7 @@ class Network:
             X[key] = value
             self._states[key] = X[key].clone().detach()
         for key, val in out_closed_loop.items():
-            shift = val.shape[1]  ## take the output time dimension
+            shift = val.shape[1] #+ self._input_ns_forward[key]  ## take the output time dimension + forward samples
             X[key] = torch.roll(X[key], shifts=-1, dims=1)  ## Roll the time window
             X[key][:, -shift:, :] = val  ## substitute with the predicted value
             self._states[key] = X[key].clone().detach()
@@ -357,20 +357,24 @@ class Network:
 
     def _setup_recurrent_variables(self, prediction_samples, closed_loop, connect):
         ## Prediction samples
-        check(prediction_samples >= -1, KeyError, 'The sample horizon must be positive or -1 for disconnect connection!')
+        check(prediction_samples == 'auto' or prediction_samples >= -1, KeyError, "The sample horizon must be positive, -1, 'auto', for disconnect connection!")
         ## Close loop information
         for input, output in closed_loop.items():
             check(input in self._model_def['Inputs'], ValueError, f'the tag {input} is not an input variable.')
             check(output in self._model_def['Outputs'], ValueError, f'the tag {output} is not an output of the network')
-            log.warning(f'Recurrent train: closing the loop between the the input ports {input} and the output ports {output} for {prediction_samples} samples')
+            log.info(f'Recurrent train: closing the loop between the the input ports {input} and the output ports {output} for {prediction_samples} samples')
+            if self._input_ns_forward[input] >= 0:
+                    log.warning(f"Closed loop on variable '{input}' with sample in the future.")
         ## Connect information
-        for connect_in, connect_out in connect.items():
-            check(connect_in in self._model_def['Inputs'], ValueError, f'the tag {connect_in} is not an input variable.')
-            check(connect_out in self._model_def['Outputs'], ValueError, f'the tag {connect_out} is not an output of the network')
-            log.warning(f'Recurrent train: connecting the input ports {connect_in} with output ports {connect_out} for {prediction_samples} samples')
+        for input, output in connect.items():
+            check(input in self._model_def['Inputs'], ValueError, f'the tag {input} is not an input variable.')
+            check(output in self._model_def['Outputs'], ValueError, f'the tag {output} is not an output of the network')
+            log.info(f'Recurrent train: connecting the input ports {input} with output ports {output} for {prediction_samples} samples')
+            if self._input_ns_forward[input] >= 0:
+                    log.warning(f"Connect on variable '{input}' with sample in the future.")
         ## Disable recurrent training if there are no recurrent variables
         if len(connect|closed_loop|self._model_def.recurrentInputs()) == 0:
-            if prediction_samples >= 0:
+            if type(prediction_samples) is not str and prediction_samples >= 0:
                 log.warning(f"The value of the prediction_samples={prediction_samples} but the network has no recurrent variables.")
             prediction_samples = -1
         return prediction_samples

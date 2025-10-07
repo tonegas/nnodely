@@ -7,9 +7,6 @@ from nnodely.basic.model import Model
 from nnodely.support.utils import check, enforce_types
 from nnodely.support.jsonutils import merge
 
-from nnodely.support.logger import logging, nnLogger
-log = nnLogger(__name__, logging.CRITICAL)
-
 interpolation_relation_name = 'Interpolation'
 class Interpolation(NeuObj):
     """

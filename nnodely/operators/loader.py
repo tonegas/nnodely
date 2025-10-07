@@ -7,7 +7,10 @@ from collections.abc import Sequence, Callable
 
 from nnodely.basic.relation import check_names
 from nnodely.operators.network import Network
-from nnodely.support.utils import check, log, enforce_types, NP_DTYPE
+from nnodely.support.utils import check, enforce_types
+
+from nnodely.support.logger import logging, nnLogger
+log = nnLogger(__name__, logging.WARNING)
 
 class Loader(Network):
     @enforce_types
