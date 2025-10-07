@@ -35,7 +35,7 @@ from nnodely.support import logger
 major, minor = sys.version_info.major, sys.version_info.minor
 logger.LOG_LEVEL = logging.INFO
 
-__version__ = '1.5.1'
+__version__ = '1.5.2'
 
 if major < 3:
     sys.exit("Sorry, Python 2 is not supported. You need Python >= 3.10 for "+__package__+".")
