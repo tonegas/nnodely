@@ -269,7 +269,11 @@ class Network:
             if optimizer:
                 optimizer.zero_grad()
             ## Model Forward
-            _, minimize_out, _, _ = self._model(XY)  ## Forward pass
+            out, minimize_out, _, _ = self._model(XY)  ## Forward pass
+
+            if self._log_internal:
+                internals_dict = {'XY': tensor_to_list(XY), 'out': out, 'param': self._model.all_parameters}
+
             ## Loss Calculation
             total_loss = 0
             for ind, (key, value) in enumerate(self._model_def['Minimizers'].items()):
@@ -283,6 +287,10 @@ class Network:
                     total_losses[key].append(loss.detach().numpy())
                 aux_losses[ind][idx // batch_size] = loss.item()
                 total_loss += loss
+
+            if self._log_internal:
+                self._save_internal('inout_' + str(idx), internals_dict)
+
             ## Gradient step
             if optimizer:
                 total_loss.backward()

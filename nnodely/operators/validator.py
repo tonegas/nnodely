@@ -26,7 +26,7 @@ class Validator(Network):
         return ReadOnlyDict(self.__prediction)
     
     @enforce_types
-    def resultAnalysis(self,
+    def analyzeModel(self,
                        dataset: str | list | dict, *,
                        name: str | None = None,
                        minimize_gain: dict = {},

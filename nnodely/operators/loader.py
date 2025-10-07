@@ -312,6 +312,8 @@ class Loader(Network):
                 try:
                     ## read the csv
                     df = pd.read_csv(os.path.join(source, file), skiprows=skiplines, delimiter=delimiter, header=header)
+                    if not all(df.iloc[0].apply(lambda x: isinstance(x, (int, float)))):
+                        log.warning(f"The file {file} does not contain a numerical column.")
                     ## Resampling if the time column is provided (must be a Datetime object)
                     if resampling:
                         self.resamplingData(df)

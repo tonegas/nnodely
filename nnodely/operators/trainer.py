@@ -473,16 +473,16 @@ class Trainer(Network):
                 for ind, key in enumerate(self._model_def['Minimizers'].keys()):
                     val_losses[key].append(torch.mean(losses[ind]).tolist())
 
+            if callable(select_model):
+                if select_model(train_losses, val_losses, select_model_params):
+                    best_model_epoch = epoch
+                    selected_model_def.updateParameters(self._model)
+
             ## Early-stopping
             if callable(early_stopping):
                 if early_stopping(train_losses, val_losses, early_stopping_params):
                     log.info(f'Stopping the training at epoch {epoch} due to early stopping.')
                     break
-
-            if callable(select_model):
-                if select_model(train_losses, val_losses, select_model_params):
-                    best_model_epoch = epoch
-                    selected_model_def.updateParameters(self._model)
 
             ## Visualize the training...
             self.visualizer.showTraining(epoch, train_losses, val_losses)
@@ -500,6 +500,11 @@ class Trainer(Network):
 
         ## Select the model
         if callable(select_model):
+            if not val_losses:
+                # The model selected is updated for the last time by the final batch;
+                # so the minimum loss (selected model) is referred to the model before the last update.
+                # If the batch is small compared to the dataset dimension the differences in the model are small.
+                log.warning('If not validation set is provided the selected model can differ from the optimal.')
             log.info(f'Selected the model at the epoch {best_model_epoch + 1}.')
             self._model = Model(selected_model_def)
         else:

@@ -265,13 +265,15 @@ class Modely(Composer, Trainer, Loader, Validator, Exporter):
             params['test_indexes'] = self._get_batch_indexes(test_dataset, params['n_samples_test'], prediction_samples)
 
         ## Training set Results
-        self.resultAnalysis(params['XY_train'], name = params['train_tag'], minimize_gain = minimize_gain,
-                            closed_loop = closed_loop, connect = connect, prediction_samples = prediction_samples, step = params['train_step'], batch_size = params['train_batch_size'])
+        self.analyzeModel(params['XY_train'], name=params['train_tag'], minimize_gain=minimize_gain,
+                          closed_loop=closed_loop, connect=connect, prediction_samples=prediction_samples,
+                          step=params['train_step'], batch_size=params['train_batch_size'])
         
         ## Validation set Results
         if params['n_samples_val'] > 0:
-            self.resultAnalysis(params['XY_val'], name = params['val_tag'], minimize_gain = minimize_gain,
-                            closed_loop = closed_loop, connect = connect, prediction_samples = prediction_samples, step = params['val_step'], batch_size = params['val_batch_size'])
+            self.analyzeModel(params['XY_val'], name=params['val_tag'], minimize_gain=minimize_gain,
+                              closed_loop=closed_loop, connect=connect, prediction_samples=prediction_samples,
+                              step=params['val_step'], batch_size=params['val_batch_size'])
         else:
             log.warning("Validation dataset is empty. Skipping validation results analysis.")
 
@@ -279,8 +281,9 @@ class Modely(Composer, Trainer, Loader, Validator, Exporter):
         if params['n_samples_test'] > 0:
             params['test_batch_size'] = self._clip_batch_size(len(params['test_indexes']), test_batch_size)
             params['test_step'] = self._clip_step(params['step'], params['test_indexes'], params['test_batch_size'])
-            self.resultAnalysis(params['XY_test'], name = params['test_tag'], minimize_gain = minimize_gain,
-                            closed_loop = closed_loop, connect = connect, prediction_samples = prediction_samples, step = params['test_step'], batch_size = test_batch_size)
+            self.analyzeModel(params['XY_test'], name=params['test_tag'], minimize_gain=minimize_gain,
+                              closed_loop=closed_loop, connect=connect, prediction_samples=prediction_samples,
+                              step=params['test_step'], batch_size=test_batch_size)
         else:
             log.warning("Test dataset is empty. Skipping test results analysis.")
 
