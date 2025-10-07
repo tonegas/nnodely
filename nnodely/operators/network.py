@@ -363,14 +363,14 @@ class Network:
             check(input in self._model_def['Inputs'], ValueError, f'the tag {input} is not an input variable.')
             check(output in self._model_def['Outputs'], ValueError, f'the tag {output} is not an output of the network')
             log.info(f'Recurrent train: closing the loop between the the input ports {input} and the output ports {output} for {prediction_samples} samples')
-            if self._input_ns_forward[input] >= 0:
+            if self._input_ns_forward[input] > 0:
                     log.warning(f"Closed loop on variable '{input}' with sample in the future.")
         ## Connect information
         for input, output in connect.items():
             check(input in self._model_def['Inputs'], ValueError, f'the tag {input} is not an input variable.')
             check(output in self._model_def['Outputs'], ValueError, f'the tag {output} is not an output of the network')
             log.info(f'Recurrent train: connecting the input ports {input} with output ports {output} for {prediction_samples} samples')
-            if self._input_ns_forward[input] >= 0:
+            if self._input_ns_forward[input] > 0:
                     log.warning(f"Connect on variable '{input}' with sample in the future.")
         ## Disable recurrent training if there are no recurrent variables
         if len(connect|closed_loop|self._model_def.recurrentInputs()) == 0:

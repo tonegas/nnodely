@@ -29,11 +29,11 @@ class Fir(NeuObj, AutoToStream):
     ----------
     output_dimension : int, optional
         The output dimension of the FIR relation.
-    W_init : Callable, optional
+    W_init : Callable, str, optional
         A callable for initializing the parameters.
     W_init_params : dict, optional
         A dictionary of parameters for the parameter initializer.
-    b_init : Callable, optional
+    b_init : Callable, str, optional
         A callable for initializing the bias.
     b_init_params : dict, optional
         A dictionary of parameters for the bias initializer.
