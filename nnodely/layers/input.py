@@ -119,16 +119,16 @@ class Input(NeuObj):
         Examples
         --------
         Select a sample window considering a signal T = [-3,-2,-1,0,1,2] where the time vector 0 represent the last passed instant. If sw is an integer #1 represent the number of step in the past
-            >>> T.s(2) #= [-1, 0] represents two sample step in the past
+            >>> T.sw(2) #= [-1, 0] represents two sample step in the past
 
         If sw is a list [#1,#2] the numbers represent the sample indexes in the vector with the second element excluded
-            >>> T.s([-2,0])  #= [-1, 0] represents two time step in the past zero in the future
-            >>> T.s([0,1])   #= [1]     the first time in the future
-            >>> T.s([-4,-2]) #= [-3,-2]
+            >>> T.sw([-2,0])  #= [-1, 0] represents two time step in the past zero in the future
+            >>> T.sw([0,1])   #= [1]     the first time in the future
+            >>> T.sw([-4,-2]) #= [-3,-2]
 
         The total number of samples can be computed #2-#1. The offset represent the index of the vector that need to be used to offset the window
-            >>> T.s(2,offset=-2)       #= [0, 1]      the value of the window is [-1,0]
-            >>> T.s([-2,2],offset=-1)  #= [-1,0,1,2]  the value of the window is [-1,0,1,2]
+            >>> T.sw(2,offset=-2)       #= [0, 1]      the value of the window is [-1,0]
+            >>> T.sw([-2,2],offset=-1)  #= [-1,0,1,2]  the value of the window is [-1,0,1,2]
         """
         dim = copy.deepcopy(self.dim)
         json = copy.deepcopy(self.json)
