@@ -54,11 +54,19 @@ def export_python_model(model_def, model, model_path):
         file.write("import torch\n\n")
 
         ## write the connect wrap function
-        file.write(f"def {package_name}_basic_model_connect(data_in, rel):\n")
-        file.write("    virtual = torch.cat((data_in[:, 1:, :], data_in[:, :1, :]), dim=1)\n")
+        # file.write(f"def {package_name}_basic_model_update_state(data_in, rel):\n")
+        # file.write("    virtual = torch.cat((data_in[:, 1:, :], data_in[:, :1, :]), dim=1)\n")
+        # file.write("    max_dim = min(rel.size(1), data_in.size(1))\n")
+        # file.write("    virtual[:, -max_dim:, :] = rel[:, -max_dim:, :]\n")
+        # file.write("    return virtual\n\n")
+        file.write(f"def {package_name}_basic_model_update_state(data_in, rel):\n")
+        file.write("    data_out = data_in.clone()\n")
         file.write("    max_dim = min(rel.size(1), data_in.size(1))\n")
-        file.write("    virtual[:, -max_dim:, :] = rel[:, -max_dim:, :]\n")
-        file.write("    return virtual\n\n")
+        file.write("    data_out[:, -max_dim:, :] = rel[:, -max_dim:, :]\n")
+        file.write("    return data_out\n\n")
+
+        file.write(f"def {package_name}_basic_model_timeshift(data_in):\n")
+        file.write("    return torch.cat((data_in[:, 1:, :], data_in[:, :1, :]), dim=1)\n\n")
 
         for name in model_def['Functions'].keys():
             if 'Fuzzify' in name:
@@ -194,7 +202,10 @@ def export_python_model(model_def, model, model_path):
             file.write("            for key, value in results.items():\n")
             file.write("                results[key].append(out[key])\n")
             file.write("            for key, val in closed_loop.items():\n")
-            file.write("                self.states[key] = nnodely_basic_model_connect(self.states[key], val)\n")
+            file.write("                self.states[key] = nnodely_basic_model_timeshift(self.states[key])\n")
+            file.write("                self.states[key] = nnodely_basic_model_update_state(self.states[key], val)\n")
+            file.write("            for key, val in connect.items():\n")
+            file.write("                self.states[key] = nnodely_basic_model_timeshift(val)\n")
             file.write("        return results\n")
 
 def export_pythononnx_model(model_def, model_path, model_onnx_path, input_order=None, outputs_order=None):
@@ -289,9 +300,11 @@ def export_pythononnx_model(model_def, model_path, model_onnx_path, input_order=
             for idx, key in enumerate(model_outputs):
                 file.write(f"            results_{key}.append(out[{idx}])\n")
             for idx, key in enumerate(closed_loop_states):
-                file.write(f"            {key} = nnodely_basic_model_connect({key}, closed_loop[{idx}])\n")
+                file.write(f"            {key} = nnodely_basic_model_timeshift({key})\n")
+                file.write(f"            {key} = nnodely_basic_model_update_state({key}, closed_loop[{idx}])\n")
             for idx, key in enumerate(connect_states):
-                file.write(f"            {key} = connect[{idx}]\n")
+                file.write(f"            {key} = nnodely_basic_model_timeshift(connect[{idx}])\n")
+                #file.write(f"            {key} = connect[{idx}]\n")
             for idx, key in enumerate(model_outputs):
                 file.write(f"        results_{key} = torch.stack(results_{key}, dim=0)\n")
             return_str = "        return "

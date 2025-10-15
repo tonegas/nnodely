@@ -948,7 +948,7 @@ class ModelyExportTest(unittest.TestCase):
         m.resetStates()
         self.assertEqual(results_target, m(init_states_diff))
 
-        ## Test loading of all models
+        # Test loading of all models
         m.saveTorchModel()
         l = Modely(workspace=result_path, visualizer=None)
         l.addModel('model1', [modelA, modelB])
@@ -984,7 +984,7 @@ class ModelyExportTest(unittest.TestCase):
 
         results_target_m1 = {'Aout': [1.5, 4.5], 'Bout': [-20.0, 20.0]}
 
-        ## Test loading of Model1
+        # Test loading of Model1
         m.saveTorchModel(models='model1')
         l = Modely(workspace=result_path, visualizer=None)
         l.addModel('model1', [modelA, modelB])

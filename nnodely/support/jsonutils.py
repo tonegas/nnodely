@@ -378,8 +378,9 @@ def plot_graphviz_structure(json, filename='nnodely_graph', view=True): # pragma
     # Add input nodes
     for inp, data in json['Inputs'].items():
         dim = data['dim']
-        window = data['sw']
-        label = f"{inp}\nDim: {dim}\nWindow: {window}"
+        window = data['sw'] if 'sw' in data else data['tw']
+        window_tag = 'sw' if 'sw' in data else 'tw'
+        label = f"{inp}\nDim: {dim}\nWindow({window_tag}): {window}"
         dot.node(inp, label=label, fillcolor='lightgreen')
         if 'connect' in data.keys():
             dot.edge(data['connect'], inp, label='connect', color='blue', fontcolor='blue')

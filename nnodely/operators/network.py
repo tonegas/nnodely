@@ -78,7 +78,8 @@ class Network:
 
     def _update_state(self, X, out_closed_loop, out_connect):
         for key, value in out_connect.items():
-            X[key] = value
+            X[key] = torch.roll(value, shifts=-1, dims=1)  ## Roll the time window
+            X[key][:, -1, :] = float('inf') ## inf value to make clear that the last state value
             self._states[key] = X[key].clone().detach()
         for key, val in out_closed_loop.items():
             shift = val.shape[1] #+ self._input_ns_forward[key]  ## take the output time dimension + forward samples

@@ -112,7 +112,8 @@ class Fir(NeuObj, AutoToStream):
         super().__init__('P'+fir_relation_name + str(NeuObj.count))
 
         if type(self.W) is Parameter:
-            check(len(self.W.dim) == 2,ValueError,f"The values of the parameters must have two dimensions (tw/sample_rate or sw,output_dimension).")
+            check('tw' in self.W.dim or 'sw' in self.W.dim, TypeError, f'The "W" Parameter must have a time dimension or a sample dimension but got {self.W.dim}.')
+            #check(len(self.W.dim) == 2,ValueError,f"The values of the parameters must have two dimensions [tw/sample_rate,output_dimension] or [sw,output_dimension].")
             if output_dimension is None:
                 check(type(self.W.dim['dim']) is int, TypeError, 'Dimension of the parameter must be an integer for the Fir')
                 self.output_dimension = self.W.dim['dim']

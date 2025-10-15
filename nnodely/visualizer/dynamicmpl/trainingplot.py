@@ -1,4 +1,9 @@
-import sys, json
+import sys
+import os
+# append a new directory to sys.path
+sys.path.append(os.getcwd())
+
+import json
 
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
