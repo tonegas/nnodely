@@ -1,4 +1,4 @@
-import sys, os, torch, importlib
+import sys, os, torch, importlib, json
 
 from torch.fx import symbolic_trace
 
@@ -134,8 +134,8 @@ def export_python_model(model_def, model, model_path):
                     # file.write(f"        self.all_parameters[\"{param}\"] = torch.nn.Parameter(torch.{value}, requires_grad=True)\n")
                 elif 'Part' in key or 'Select' in key: # any(element in key for element in ['Part', 'Select']):
                     value = model.relation_forward[key].W
-                    temp_value = str(value).replace(')',', requires_grad=False)')
-                    file.write(f"        self.all_constants[\"{key}\"] = torch.{temp_value}\n")
+                    temp_value = json.dumps(value.tolist())
+                    file.write(f"        self.all_constants[\"{key}\"] = torch.tensor({temp_value}, requires_grad=True)\n")
             elif 'all_parameters' in attr:
                 key = attr.split('.')[-1]
                 file.write(f"        self.all_parameters[\"{key}\"] = torch.nn.Parameter(torch.tensor({model.all_parameters[key].tolist()}), requires_grad=True)\n")
