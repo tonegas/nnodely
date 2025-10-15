@@ -664,6 +664,25 @@ class ModelyRecurrentPredictTest(unittest.TestCase):
         self.assertEqual(results['out2'], [33.0, 57.0, 85.0, 69.0])
         self.assertEqual(test.states['in3'], [[[5.], [30.], [float('inf')]]])
 
+        ## Test remove connect
+        test.removeConnection('in3')
+        test.neuralizeModel()
+        results = test(inputs={'in1': [[1], [2], [3], [4], [5], [6], [7], [8], [9]],
+                               'in2': [[1], [2], [3], [4], [5], [6], [7], [8], [9]],
+                               'in3': [[1], [2], [3], [4], [5], [6]]}, prediction_samples=-1)
+        self.assertEqual(results['out1'], [15.0, 20.0, 25.0, 30.0])
+        self.assertEqual(results['out2'], [21.0, 29.0, 37.0, 45.0])
+
+        ## Test connect via string
+        test.addConnect('out1', 'in3')
+        test.neuralizeModel()
+
+        results = test(inputs={'in1': [[1], [2], [3], [4], [5], [6], [7], [8], [9]],
+                               'in2': [[1], [2], [3], [4], [5], [6], [7], [8], [9]]}, prediction_samples=3)
+        self.assertEqual(results['out1'], [15.0, 20.0, 25.0, 30.0])
+        self.assertEqual(results['out2'], [30.0, 55.0, 85.0, 105.0])
+        self.assertEqual(test.states['in3'], [[[25.], [30.], [float('inf')]]])
+
     def test_predict_values_and_connect_variables_2models_more_window_connect_predict(self):
         NeuObj.clearNames()
         ## Model1
@@ -923,6 +942,56 @@ class ModelyRecurrentPredictTest(unittest.TestCase):
         test.resetStates()
         self.assertEqual({'out1': [[-10.0, -16.0],[-16.0,465.0],[465.0,1291.0]], 'out2': [[[-34.0, -86.0]],[[-140.0,-230.0]],[[2230.0, 3102.0]]]},
                          test({'in1': [[1.0, 2.0], [2.0, 3.0]], 'in2': [-10, -16, -5, 2, 3]}, prediction_samples=2, num_of_samples=3))
+
+    def test_predict_values_linear_and_fir_2models_more_window_closed_loop_on_models(self):
+        NeuObj.clearNames()
+        input1 = Input('in1',dimensions=2)
+        W = Parameter('W', values=[[-1],[-5]])
+        b = Parameter('b', values=1)
+        relation1 = Linear(W=W, b=b)(input1.sw(2))
+
+        # input2 = Input('inout') #TODO loop forever
+        # test.addConnect(output1, input1) # With this
+        input2 = Input('in2')
+        a = Parameter('a', sw=5, values=[[1,3],[2,4],[3,5],[4,6],[5,7]])
+        relation2 = Fir(output_dimension=2,W=a)(input2.sw(5))
+
+        output1 = Output('out1', relation1)
+        output2 = Output('out2', relation2)
+
+        test = Modely(visualizer=None, seed=42)
+        test.addModel('model', [output1,output2])
+
+        test.addClosedLoop(output1, input2)
+        test.addClosedLoop(output2, input1)
+
+        test.neuralizeModel()
+        self.assertEqual({'out1': [[-10.0, -16.0]], 'out2': [[[-34.0, -86.0]]]},
+                         test({'in1': [[1.0, 2.0], [2.0, 3.0]], 'in2': [-10, -16, -5, 2, 3]}))
+        self.assertEqual({'out1': [[-10.0, -16.0]], 'out2': [[[-34.0, -86.0]]]},
+                         test({'in1': [[1.0, 2.0], [2.0, 3.0]], 'in2': [-10, -16, -5, 2, 3]},prediction_samples=0))
+
+        self.assertEqual({'out1': [[-10.0, -16.0],[-16.0,465.0]], 'out2': [[[-34.0, -86.0]],[[-140.0,-230.0]]]},
+                         test({'in1': [[1.0, 2.0], [2.0, 3.0]], 'in2': [-10, -16, -5, 2, 3]}, prediction_samples=1, num_of_samples=2))
+        self.assertEqual({'out1': [[465.0,1291.0]], 'out2': [[[2230.0, 3102.0]]]}, test())
+        test.resetStates()
+        self.assertEqual({'out1': [[-10.0, -16.0],[-16.0,465.0],[465.0,1291.0]], 'out2': [[[-34.0, -86.0]],[[-140.0,-230.0]],[[2230.0, 3102.0]]]},
+                         test({'in1': [[1.0, 2.0], [2.0, 3.0]], 'in2': [-10, -16, -5, 2, 3]}, prediction_samples=2, num_of_samples=3))
+
+        test.removeConnection('in1')
+        test.removeConnection('in2')
+        self.assertEqual({'out1': [[-10.0, -16.0]], 'out2': [[[-34.0, -86.0]]]},
+                         test({'in1': [[1.0, 2.0], [2.0, 3.0]], 'in2': [-10, -16, -5, 2, 3]}))
+        self.assertEqual({'out1': [[-10.0, -16.0]], 'out2': [[[-34.0, -86.0]]]},
+                         test({'in1': [[1.0, 2.0], [2.0, 3.0]], 'in2': [-10, -16, -5, 2, 3]}))
+
+        test.addClosedLoop('out1', 'in2')
+        test.addClosedLoop('out2', 'in1')
+        test.neuralizeModel()
+        self.assertEqual({'out1': [[-10.0, -16.0], [-16.0, 465.0], [465.0, 1291.0]],
+                          'out2': [[[-34.0, -86.0]], [[-140.0, -230.0]], [[2230.0, 3102.0]]]},
+                         test({'in1': [[1.0, 2.0], [2.0, 3.0]], 'in2': [-10, -16, -5, 2, 3]}, prediction_samples=2,
+                              num_of_samples=3))
 
     def test_predict_values_linear_and_fir_2models_more_window_closed_loop_predict(self):
         NeuObj.clearNames()

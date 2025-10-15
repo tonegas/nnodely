@@ -91,16 +91,7 @@ class Composer(Network):
             >>> relation = Fir(x.last())
             >>> model.addConnect(relation, y)
         """
-        if isinstance(stream_out, (Output, Stream)):
-            outputs = self._model_def['Outputs']
-            stream_name = outputs[stream_out.name] if stream_out.name in outputs.keys() else stream_out.name
-        else:
-            stream_name = stream_out #TODO Add tests
-        if isinstance(input_in, Input):
-            input_name = input_in.name
-        else:
-            input_name = input_in #TODO Add tests
-        self._model_def.addConnect(stream_name, input_name, local)
+        self._model_def.addConnection(stream_out, input_in,'connect', local)
 
     @enforce_types
     def addClosedLoop(self, stream_out:str|Output|Stream, input_in:str|Input, *, local:bool=False) -> None:
@@ -127,16 +118,7 @@ class Composer(Network):
             >>> relation = Fir(x.last())
             >>> model.addClosedLoop(relation, y)
         """
-        if isinstance(stream_out, (Output, Stream)):
-            outputs = self._model_def['Outputs']
-            stream_name = outputs[stream_out.name] if stream_out.name in outputs.keys() else stream_out.name
-        else:
-            stream_name = stream_out #TODO Add tests
-        if isinstance(input_in, Input):
-            input_name = input_in.name
-        else:
-            input_name = input_in #TODO Add tests
-        self._model_def.addClosedLoop(stream_name, input_name, local)
+        self._model_def.addConnection(stream_out, input_in,'closedLoop', local)
 
     @enforce_types
     def removeConnection(self, input_in:str|Input) -> None:
