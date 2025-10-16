@@ -6,6 +6,7 @@ from nnodely.support.utils import check, check_and_get_list
 from nnodely.support.jsonutils import merge, subjson_from_model,subjson_from_relation, check_model, get_models_json
 from nnodely.basic.relation import MAIN_JSON, Stream, check_names
 from nnodely.layers.output import Output
+from nnodely.layers.input import Input
 
 from nnodely.support.logger import logging, nnLogger
 log = nnLogger(__name__, logging.INFO)
@@ -66,24 +67,30 @@ class ModelDef:
     def isDefined(self):
         return self.__json is not None
 
-    def addConnect(self, stream_name:str, input_name:str, local:bool = False):
-        input_name = check_and_get_list(input_name, set(self.__json['Inputs'].keys()),
-                                       lambda name: f"The name {name} is not part of the available inputs")[0]
-        stream_name = check_and_get_list(stream_name, set(self.__json['Relations'].keys()),
-                                        lambda name: f"The name {name} is not part of the available relations")[0]
-        self.__json['Inputs'][input_name]['connect'] = stream_name
-        self.__json['Inputs'][input_name]['local'] = int(local)
+    def addConnection(self, stream_out:str|Output|Stream, input_in:str|Input, type:str, local:bool = False):
+        outputs = self.__json['Outputs']
 
-    def addClosedLoop(self, stream_name:str, input_name:str, local:bool = False):
+        if isinstance(stream_out, (Output, Stream)):
+            stream_name = outputs[stream_out.name] if stream_out.name in outputs.keys() else stream_out.name
+        else:
+            output_name = check_and_get_list(stream_out, set(outputs.keys()),
+                                             lambda name: f"The name {name} is not part of the available Outputs")[0]
+            stream_name = outputs[output_name]
+
+        if isinstance(input_in, Input):
+            input_name = input_in.name
+        else:
+            input_name = input_in #TODO Add tests
+
         input_name = check_and_get_list(input_name, set(self.__json['Inputs'].keys()),
-                                       lambda name: f"The name {name} is not part of the available inputs")[0]
+                                       lambda name: f"The name {name} is not part of the available Inputs")[0]
         stream_name = check_and_get_list(stream_name, set(self.__json['Relations'].keys()),
-                                        lambda name: f"The name {name} is not part of the available relations")[0]
-        self.__json['Inputs'][input_name]['closedLoop'] = stream_name
+                                        lambda name: f"The name {name} is not part of the available Relations")[0]
+        self.__json['Inputs'][input_name][type] = stream_name
         self.__json['Inputs'][input_name]['local'] = int(local)
 
     def removeConnection(self, name_list:str|list[str]):
-        name_list = check_and_get_list(name_list, set(self.__json['Inputs'].keys()), lambda name: f"The name {name} is not part of the available inputs")
+        name_list = check_and_get_list(name_list, set(self.__json['Inputs'].keys()), lambda name: f"The name {name} is not part of the available Inputs")
         for input_in in name_list:
             if 'closedLoop' in self.__json['Inputs'][input_in].keys():
                 del self.__json['Inputs'][input_in]['closedLoop']
