@@ -234,7 +234,8 @@ class SamplePart(Stream, ToStream):
         check(j > backward_idx and j <= forward_idx, ValueError, 'j must be in the sample window of the input')
         dim = copy.deepcopy(obj.dim)
         dim['sw']  = j - i
-        super().__init__(samplepart_relation_name + str(Stream.count),obj.json,dim)
+        name = samplepart_relation_name + str(Stream.count)
+        super().__init__(name,obj.json,dim)
         if obj.name in all_inputs:
             rel = [samplepart_relation_name,[obj.name],-1,[i,j]]
         else:
