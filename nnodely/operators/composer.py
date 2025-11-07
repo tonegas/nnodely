@@ -6,7 +6,7 @@ from nnodely.operators.network import Network
 
 from nnodely.basic.modeldef import ModelDef
 from nnodely.basic.model import Model
-from nnodely.support.utils import check, TORCH_DTYPE, NP_DTYPE, enforce_types
+from nnodely.support.utils import check, TORCH_DTYPE, NP_DTYPE, enforce_types, tensor_to_list
 from nnodely.support.mathutils import argmax_dict, argmin_dict
 from nnodely.basic.relation import Stream
 from nnodely.layers.input import Input
@@ -213,7 +213,7 @@ class Composer(Network):
         self.visualizer.showBuiltModel()
 
     @enforce_types
-    def __call__(self, inputs:dict={}, *, sampled:bool=False, closed_loop:dict={}, connect:dict={}, prediction_samples:str|int='auto', num_of_samples:int|None=None) -> dict:
+    def __call__(self, inputs:dict={}, *, sampled:bool=False, closed_loop:dict={}, connect:dict={}, prediction_samples:str|int='auto', num_of_samples:int|None=None, log_internal:bool=False) -> dict:
         """
         Performs inference on the model.
 
@@ -358,6 +358,8 @@ class Composer(Network):
         result_dict = {}
         for key in self._model_def['Outputs'].keys():
             result_dict[key] = []
+        if log_internal:
+            internals_dict = {'ingress': [], 'state': [], 'closedLoop': [], 'connect': []}
 
         ## Inference
         with (torch.enable_grad() if self._get_gradient_on_inference() else torch.inference_mode()):
@@ -414,6 +416,10 @@ class Composer(Network):
                     count -= 1
                 ## Forward pass
                 result, _, out_closed_loop, out_connect = self._model(X)
+                if log_internal:
+                    internals_dict['ingress'].append(tensor_to_list(X)) 
+                    internals_dict['closedLoop'].append(out_closed_loop)
+                    internals_dict['connect'].append(out_connect)
 
                 if init_states:
                     for key in init_states:
@@ -431,10 +437,10 @@ class Composer(Network):
                 ## Update closed_loop and connect
                 if prediction_samples:
                     self._update_state(X, out_closed_loop, out_connect)
-
+                    
         ## Remove virtual states
         self._remove_virtual_states(connect, closed_loop)
 
-        return result_dict
+        return result_dict if not log_internal else (result_dict, internals_dict)
 
 

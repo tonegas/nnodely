@@ -1439,6 +1439,74 @@ class ModelyRecurrentPredictTest(unittest.TestCase):
         result = m({'x': [-0.2], 'y': [0.5]}, connect={'y2': 'out1'}, num_of_samples=10, prediction_samples='auto')
         self.TestAlmostEqual([a.tolist() for a in x_data[0:10]], result['out2'])
 
+    def test_inference_sampled_data(self):
+        NeuObj.clearNames()
+        data_folder = os.path.join(os.path.dirname(__file__), 'get_samples_data/')
+        ## the state is saved inside the model so the memory is shared between different calls
+        x = Input('x')
+        y_state = Input('y')
+        x_p = Parameter('x_p', sw=2, dimensions=1, values=[[1.0],[1.0]])
+        y_p = Parameter('y_p', sw=3, dimensions=1, values=[[2.0],[2.0],[2.0]])
+        x_fir = Fir(W=x_p)(x.sw([-2, 0]))
+        y_fir = Fir(W=y_p)(y_state.sw([0, 3]))
+        y_fir.closedLoop(y_state)
+        out_x = Output('out_x', x_fir)
+        out_y = Output('out_y', y_fir)
+        out = Output('out',x_fir+y_fir)
+
+        test = Modely(visualizer=None, seed=42)
+        test.addModel('out_all',[out, out_x, out_y])
+        test.neuralizeModel(0.1)
+
+        data_struct = ['x','y']
+        test.loadData(name='dataset', source=data_folder, format=data_struct, skiplines=1)
+
+        ## Using vectorized data
+        result, logs = test(inputs={'x':[1,2,3,4,5,6], 'y':[1,2,3,4,5,6,7]}, prediction_samples=3, log_internal=True)
+        self.assertEqual(result['out_x'], [3.0, 5.0, 7.0, 9.0, 11.0])
+        self.assertEqual(result['out_y'], [12.0, 34.0, 98.0, 288.0, 36.0])
+        self.assertEqual(result['out'], [x+y for x, y in zip(result['out_x'], result['out_y'])])
+        self.assertDictEqual(logs['ingress'][0], {'x': [[[1.0], [2.0]]], 'y': [[[1.0], [2.0], [3.0]]]})
+        self.assertDictEqual(logs['ingress'][1], {'x': [[[2.0], [3.0]]], 'y': [[[2.0], [3.0], [12.0]]]})
+        self.assertDictEqual(logs['ingress'][2], {'x': [[[3.0], [4.0]]], 'y': [[[3.0], [12.0], [34.0]]]})
+        self.assertDictEqual(logs['ingress'][3], {'x': [[[4.0], [5.0]]], 'y': [[[12.0], [34.0], [98.0]]]})
+        self.assertDictEqual(logs['ingress'][4], {'x': [[[5.0], [6.0]]], 'y': [[[5.0], [6.0], [7.0]]]})
+        self.assertDictEqual(logs['closedLoop'][0], {'y': torch.tensor([[[12.]]])})
+        self.assertDictEqual(logs['closedLoop'][1], {'y': torch.tensor([[[34.]]])})
+        self.assertDictEqual(logs['closedLoop'][2], {'y': torch.tensor([[[98.]]])})
+
+        ## Using sampled data
+        test.resetStates()
+        result, logs = test(inputs={'x':[[1,2],[2,3],[3,4],[4,5],[5,6]], 'y':[[1,2,3],[2,3,4],[3,4,5],[4,5,6],[5,6,7]]}, sampled=True, prediction_samples=3, log_internal=True)
+        self.assertEqual(result['out_x'], [3.0, 5.0, 7.0, 9.0, 11.0])
+        self.assertEqual(result['out_y'], [12.0, 34.0, 98.0, 288.0, 36.0])
+        self.assertEqual(result['out'], [x+y for x, y in zip(result['out_x'], result['out_y'])])
+        self.assertDictEqual(logs['ingress'][0], {'x': [[[1.0], [2.0]]], 'y': [[[1.0], [2.0], [3.0]]]})
+        self.assertDictEqual(logs['ingress'][1], {'x': [[[2.0], [3.0]]], 'y': [[[2.0], [3.0], [12.0]]]})
+        self.assertDictEqual(logs['ingress'][2], {'x': [[[3.0], [4.0]]], 'y': [[[3.0], [12.0], [34.0]]]})
+        self.assertDictEqual(logs['ingress'][3], {'x': [[[4.0], [5.0]]], 'y': [[[12.0], [34.0], [98.0]]]})
+        self.assertDictEqual(logs['ingress'][4], {'x': [[[5.0], [6.0]]], 'y': [[[5.0], [6.0], [7.0]]]})
+        self.assertDictEqual(logs['closedLoop'][0], {'y': torch.tensor([[[12.]]])})
+        self.assertDictEqual(logs['closedLoop'][1], {'y': torch.tensor([[[34.]]])})
+        self.assertDictEqual(logs['closedLoop'][2], {'y': torch.tensor([[[98.]]])})
+
+        # ## Using get_sampled from a dataset
+        test.resetStates()
+        inputs = test.getSamples('dataset', window=5)
+        result, logs = test(inputs=inputs, sampled=True, prediction_samples=3, log_internal=True)
+        self.assertEqual(result['out_x'], [3.0, 5.0, 7.0, 9.0, 11.0])
+        self.assertEqual(result['out_y'], [12.0, 34.0, 98.0, 288.0, 36.0])
+        self.assertEqual(result['out'], [x+y for x, y in zip(result['out_x'], result['out_y'])])
+        self.assertDictEqual(logs['ingress'][0], {'x': [[[1.0], [2.0]]], 'y': [[[1.0], [2.0], [3.0]]]})
+        self.assertDictEqual(logs['ingress'][1], {'x': [[[2.0], [3.0]]], 'y': [[[2.0], [3.0], [12.0]]]})
+        self.assertDictEqual(logs['ingress'][2], {'x': [[[3.0], [4.0]]], 'y': [[[3.0], [12.0], [34.0]]]})
+        self.assertDictEqual(logs['ingress'][3], {'x': [[[4.0], [5.0]]], 'y': [[[12.0], [34.0], [98.0]]]})
+        self.assertDictEqual(logs['ingress'][4], {'x': [[[5.0], [6.0]]], 'y': [[[5.0], [6.0], [7.0]]]})
+        self.assertDictEqual(logs['closedLoop'][0], {'y': torch.tensor([[[12.]]])})
+        self.assertDictEqual(logs['closedLoop'][1], {'y': torch.tensor([[[34.]]])})
+        self.assertDictEqual(logs['closedLoop'][2], {'y': torch.tensor([[[98.]]])})
+
+
     # def test_state_initialization_inference(self):
     #     NeuObj.clearNames()
     #     x = Input('x')

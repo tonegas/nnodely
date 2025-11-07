@@ -173,6 +173,8 @@ class ModelDef:
                 self.__sample_time = 1
 
         self.__json['Info'] = {"SampleTime": self.__sample_time}
+        if 'SampleTime' in self.__json['Constants']:
+            self.__json['Constants']['SampleTime'] = {'dim': 1, 'values': self.__sample_time}
 
         check(self.__json['Inputs'] != {}, RuntimeError, "No model is defined!")
         json_inputs = self.__json['Inputs']
