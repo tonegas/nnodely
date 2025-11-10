@@ -254,6 +254,7 @@ class Trainer(Network):
             The name of datasets to use for validation.
         dataset : str or None, optional
             The name of the datasets to use for training, validation and test.
+            If dataset is None and train_dataset is None, the model will use all the datasets loaded inside nnodely.
         splits : list or None, optional
             A list of 3 elements specifying the percentage of splits for training, validation, and testing. The three elements must sum up to 100! default is [100, 0, 0]
             The parameter splits is only used when 'dataset' is not None.
