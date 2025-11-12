@@ -14,16 +14,16 @@ class MPLNotebookVisualizer(TextVisualizer):
         if self.test:
             plt.ion()
 
-    def showStartTraining(self):
-        pass
-
     def showEndTraining(self, epoch, train_losses, val_losses):
         train_tag = self.modely.running_parameters['train_tag']
         val_tag = self.modely.running_parameters['val_tag']
         for key in self.modely.json['Minimizers'].keys():
             fig = plt.figure()
             ax = fig.add_subplot(111)
-            plots.plot_training(ax, f"Training on {train_tag} and {val_tag}", key, train_losses[key], val_losses[key])
+            if val_losses:
+                plots.plot_training(ax, f"Training on {train_tag} and {val_tag}", key, train_losses[key], val_losses[key])
+            else:
+                plots.plot_training(ax, f"Training on {train_tag}", key, train_losses[key])
         plt.show()
 
     def showResult(self, name_data):

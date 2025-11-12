@@ -96,7 +96,7 @@ class ModelyTrainingTest(unittest.TestCase):
         relation.closedLoop(input1)
         output1 = Output('out', relation)
 
-        test = Modely(visualizer=None,seed=42)
+        test = Modely(visualizer=None, seed=42)
         test.addModel('model', output1)
         test.addMinimize('error1', target1.last(), output1)
         test.addMinimize('error2', target2.last(), output1)
@@ -107,7 +107,7 @@ class ModelyTrainingTest(unittest.TestCase):
         test.loadData(name='dataset', source=dataset)
 
         # Test prediction
-        test.analyzeModel('dataset')
+        test.analyzeModel('dataset',prediction_samples=-1)
         self.assertEqual({'A': [[[2.0]],[[2.0]],[[2.0]],[[2.0]],[[2.0]],[[2.0]],[[2.0]],[[2.0]],[[2.0]],[[2.0]]],
                                'B': [[[2.0]],[[2.0]],[[2.0]],[[2.0]],[[2.0]],[[2.0]],[[2.0]],[[2.0]],[[2.0]],[[2.0]]]},
                          test.prediction['dataset']['error1'])
@@ -198,6 +198,12 @@ class ModelyTrainingTest(unittest.TestCase):
         self.assertAlmostEqual(np.sum((np.array(A).flatten()-np.array(B).flatten())**2)/30.0, test.performance['dataset3']['error1']['mse'], places=3)
         self.assertAlmostEqual(np.sum((np.array(C).flatten()-np.array(B).flatten())**2)/30.0, test.performance['dataset3']['error2']['mse'], places=3)
         self.assertAlmostEqual((np.sum((np.array(A).flatten()-np.array(B).flatten())**2)/30.0+np.sum((np.array(C).flatten()-np.array(B).flatten())**2)/30.0)/2.0, test.performance['dataset3']['total']['mean_error'], places=3)
+
+        dataset = {'out1': [2,2,2,2,2,2,2,2,2,2], 'out2': [3,3,3,3,3,3,3,3,3,3]}
+        test.loadData(name='dataset4', source=dataset)
+        test.trainModel(dataset='dataset4', prediction_samples=0)
+        test.analyzeModel('dataset4', prediction_samples=-1)
+
 
     def test_analysis_results_closed_loop(self):
         NeuObj.clearNames()

@@ -32,7 +32,7 @@ class Validator(Network):
                   minimize_gain: dict = {},
                   closed_loop: dict = {},
                   connect: dict = {},
-                  prediction_samples: int | str = -1,
+                  prediction_samples: int | str = 0,
                   step: int = 0,
                   batch_size: int | None = None
                 ) -> None:
@@ -69,7 +69,7 @@ class Validator(Network):
                     batch_indexes = list(range(n_samples - prediction_samples))
 
                 ## Update with virtual states
-                self._model.update(closed_loop=closed_loop, connect=connect)
+                self._model.update(closed_loop = closed_loop, connect = connect)
                 self._recurrent_inference(data, batch_indexes, batch_size, minimize_gain, prediction_samples,
                                           step, non_mandatory_inputs, mandatory_inputs, losses,
                                           total_losses = total_losses, A = A, B = B)
@@ -151,7 +151,7 @@ class Validator(Network):
                        minimize_gain: dict = {},
                        closed_loop: dict = {},
                        connect: dict = {},
-                       prediction_samples: int | str = -1, #TODO uniform to training set to 0
+                       prediction_samples: int | str = 0,
                        step: int = 0,
                        batch_size: int | None = None
                        ) -> None:
