@@ -35,27 +35,33 @@ def plot_results(ax, name_data, key, A, B, sample_time):
     ax.set_title(f'{key} on the dataset {name_data}')
     A_t = np.transpose(np.array(A))
     B_t = np.transpose(np.array(B))
-    for ind_win in range(A_t.shape[0]):
-        for ind_dim in range(A_t.shape[1]):
+    color_real = 'tab:blue'
+    color_pred = 'tab:orange'
+    for ind_dim in range(A_t.shape[0]):
+        for ind_win in range(A_t.shape[1]):
             if len(A_t.shape) == 3:
-                num_samples = len(A_t[ind_win, ind_dim])
+                num_samples = len(A_t[ind_dim, ind_win])
                 time_array = np.linspace(0, (num_samples - 1) * sample_time, num_samples)
-                ax.plot(time_array, A_t[ind_win, ind_dim],
-                        label=f'real')
-                ax.plot(time_array, B_t[ind_win, ind_dim], '-.',
-                        label=f'prediction')
-                correlation = np.corrcoef(A_t[ind_win, ind_dim],B_t[ind_win, ind_dim])[0, 1]
+                ax.plot(time_array, A_t[ind_dim, ind_win], color=color_real, label=f'real')
+                ax.plot(time_array, B_t[ind_dim, ind_win], '-.', color=color_pred, label=f'prediction')
+                correlation = np.corrcoef(A_t[ind_dim, ind_win],B_t[ind_dim, ind_win])[0, 1]
                 ax.text(0.05, 0.95, f'Correlation: {correlation:.2f}', transform=ax.transAxes, verticalalignment='top')
             else:
                 num_samples = A_t.shape[3]
+                correlation_list = []
+                first = True
                 for idx in range(A_t.shape[2]):
                     time_array = np.linspace(idx * sample_time, (idx + num_samples - 1) * sample_time, num_samples)
-                    ax.plot(time_array, A_t[ind_win, ind_dim, idx],
-                            label=f'real')
-                    ax.plot(time_array, B_t[ind_win, ind_dim, idx], '-.',
-                            label=f'prediction')
-                    correlation = np.corrcoef(A_t[ind_win, ind_dim, idx],B_t[ind_win, ind_dim, idx])[0, 1]
-                    ax.text(0.05, 0.95, f'Correlation: {correlation:.2f}', transform=ax.transAxes, verticalalignment='top')
+                    if first:
+                        ax.plot(time_array, A_t[ind_dim, ind_win, idx], color=color_real, label=f'real')
+                        ax.plot(time_array, B_t[ind_dim, ind_win, idx],'-.', color=color_pred,  label=f'prediction')
+                        first = False
+                    else:
+                        ax.plot(time_array, A_t[ind_dim, ind_win, idx], color=color_real)
+                        ax.plot(time_array, B_t[ind_dim, ind_win, idx], '-.', color=color_pred)
+                    correlation_list.append(np.corrcoef(A_t[ind_dim, ind_win, idx],B_t[ind_dim, ind_win, idx])[0, 1])
+                correlation = np.mean(correlation_list)
+                ax.text(0.05, 0.95, f'Correlation: {correlation:.2f}', transform=ax.transAxes, verticalalignment='top')
 
     ax.grid(True)
     ax.legend(loc='best')

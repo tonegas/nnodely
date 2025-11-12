@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import numpy as np
 
 from nnodely.visualizer.textvisualizer import TextVisualizer
 from nnodely.layers.fuzzify import return_fuzzify
@@ -13,11 +14,16 @@ class MPLNotebookVisualizer(TextVisualizer):
         if self.test:
             plt.ion()
 
+    def showStartTraining(self):
+        pass
+
     def showEndTraining(self, epoch, train_losses, val_losses):
+        train_tag = self.modely.running_parameters['train_tag']
+        val_tag = self.modely.running_parameters['val_tag']
         for key in self.modely.json['Minimizers'].keys():
             fig = plt.figure()
             ax = fig.add_subplot(111)
-            plots.plot_training(ax, "Training", key, train_losses[key], val_losses[key])
+            plots.plot_training(ax, f"Training on {train_tag} and {val_tag}", key, train_losses[key], val_losses[key])
         plt.show()
 
     def showResult(self, name_data):
@@ -25,8 +31,18 @@ class MPLNotebookVisualizer(TextVisualizer):
         for key in self.modely.json['Minimizers'].keys():
             fig = plt.figure()
             ax = fig.add_subplot(111)
-            plots.plot_results(ax, name_data, key, self.modely.prediction[name_data][key]['A'],
-                               self.modely.prediction[name_data][key]['B'], self.modely._model_def['Info']["SampleTime"])
+            np_data_A = np.array(self.modely.prediction[name_data][key]['A'])
+            if len(np_data_A.shape) > 3 and np_data_A.shape[1] > 20:
+                np_data_B = np.array(self.modely.prediction[name_data][key]['B'])
+                indices = np.linspace(0, np_data_A.shape[1] - 1, 20, dtype=int)
+                data_A = np_data_A[:, indices, :, :].tolist()
+                data_B = np_data_B[:, indices, :, :].tolist()
+            else:
+                data_A = self.modely.prediction[name_data][key]['A']
+                data_B = self.modely.prediction[name_data][key]['B']
+
+            plots.plot_results(ax, name_data, key, data_A,
+                               data_B, self.modely._model_def['Info']["SampleTime"])
         plt.show()
 
     def showWeights(self, weights = None):
