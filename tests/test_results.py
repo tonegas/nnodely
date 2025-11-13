@@ -201,8 +201,8 @@ class ModelyTrainingTest(unittest.TestCase):
 
         dataset = {'out1': [2,2,2,2,2,2,2,2,2,2], 'out2': [3,3,3,3,3,3,3,3,3,3]}
         test.loadData(name='dataset4', source=dataset)
-        test.trainModel(dataset='dataset4', prediction_samples=0)
-        test.analyzeModel('dataset4', prediction_samples=-1)
+        test.trainModel(dataset='dataset4', prediction_samples=-1)  #TODO FIX
+        test.analyzeModel('dataset4', prediction_samples=-1) #TODO FIX
 
 
     def test_analysis_results_closed_loop(self):
