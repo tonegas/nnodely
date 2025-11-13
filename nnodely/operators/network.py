@@ -1,6 +1,5 @@
 import copy
 from collections import defaultdict
-from unittest import result
 
 import numpy as np
 import  torch, random
@@ -304,11 +303,11 @@ class Network:
     def _recurrent_inference(self, data, batch_indexes, batch_size, loss_gains, prediction_samples,
                              step, non_mandatory_inputs, mandatory_inputs, loss_functions,
                              shuffle = False, optimizer = None,
-                             total_losses = None, A = None, B = None):
+                             total_losses = None, A = None, B = None, idxs = None):
         indexes = copy.deepcopy(batch_indexes)
         aux_losses = torch.zeros([len(self._model_def['Minimizers']), round((len(indexes) + step) / (batch_size + step))])
         X = {}
-        batch_val = 0
+        batch_idx = 0
         while len(indexes) >= batch_size:
             selected_indexes = self._get_not_mandatory_inputs(data, X, non_mandatory_inputs, indexes, batch_size, step, shuffle)
             horizon_losses = {ind: [] for ind in range(len(self._model_def['Minimizers']))}
@@ -316,6 +315,9 @@ class Network:
                 optimizer.zero_grad()  ## Reset the gradient
 
             for horizon_idx in range(prediction_samples + 1):
+                # Save the indexes
+                if idxs is not None:
+                    idxs[horizon_idx].append([idx + horizon_idx for idx in selected_indexes])
                 ## Get data
                 for key in mandatory_inputs:
                     X[key] = data[key][[idx + horizon_idx for idx in selected_indexes]]
@@ -343,13 +345,13 @@ class Network:
 
                 if self._log_internal:
                     internals_dict['state'] = self._states
-                    self._save_internal('inout_' + str(batch_val) + '_' + str(horizon_idx), internals_dict)
+                    self._save_internal('inout_' + str(batch_idx) + '_' + str(horizon_idx), internals_dict)
 
             ## Calculate the total loss
             total_loss = 0
             for ind, key in enumerate(self._model_def['Minimizers'].keys()):
                 loss = sum(horizon_losses[ind]) / (prediction_samples + 1)
-                aux_losses[ind][batch_val] = loss.item()
+                aux_losses[ind][batch_idx] = loss.item()
                 if total_losses is not None:
                     total_losses[key].append(loss.detach().numpy())
                 total_loss += loss
@@ -358,8 +360,8 @@ class Network:
             if optimizer:
                 total_loss.backward()  ## Backpropagate the error
                 optimizer.step()
-                self.visualizer.showWeightsInTrain(batch=batch_val)
-            batch_val += 1
+                self.visualizer.showWeightsInTrain(batch=batch_idx)
+            batch_idx += 1
 
         ## return the losses
         return aux_losses

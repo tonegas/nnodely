@@ -17,11 +17,12 @@ if line:
         key = data_point['key']
         A = data_point['prediction_A']
         B = data_point['prediction_B']
+        data_idxs = data_point['data_idxs']
         sample_time = data_point['sample_time']
 
         fig, ax = plt.subplots()
         ax.cla()
-        plots.plot_results(ax, name_data, key, A, B, sample_time)
+        plots.plot_results(ax, name_data, key, A, B, data_idxs, sample_time)
         plt.show()
 
     except ValueError:

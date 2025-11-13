@@ -22,11 +22,14 @@ class ModelyTestVisualizer(unittest.TestCase):
         self.x = x = Input('x')
         self.y = y = Input('y')
         self.z = z = Input('z')
+        self.a = a = Input('a', dimensions=2)
+        self.b = b = Input('b', dimensions=2)
 
         ## create the relations
         def myFun(K1, p1, p2):
             return K1 * p1 * p2
 
+        P_time = Parameter('P_time', dimensions=2, sw=5, values=[[0,0],[-0.1,0.1],[-0.2,0.2],[-0.3,0.3],[-0.4,0.4]])
         K_x = Parameter('k_x', dimensions=1, tw=1, init='init_constant', init_params={'value': 1})
         K_y = Parameter('k_y', dimensions=1, tw=1)
         w = Parameter('w', dimensions=1, tw=1, init='init_constant', init_params={'value': 1})
@@ -68,6 +71,11 @@ class ModelyTestVisualizer(unittest.TestCase):
         self.out7 = Output('out7', parfun_zz(z.last()))
         self.out8 = Output('out8', Fir(parfun_x(x.tw(1)) + parfun_y(y.tw(1), c_v)) + Fir(parfun_zz(x.tw(5), t_5, c_5_2)))
         self.out9 = Output('out9', Fir(parfun_2d(x.tw(1)) + parfun_3d(x.tw(1),x.tw(1))))
+        self.out10 = Output('out10', a.sw(5)+P_time)
+        self.out11 = Output('out11', TimeConcatenate(TimeConcatenate(
+                            TimeConcatenate(Integrate(a.last()),Integrate(a.last())),
+                            TimeConcatenate(Integrate(a.last()),Integrate(a.last()))
+        ),Integrate(a.last()))+P_time)
 
     def setUp(self):
         # Reindirizza stdout e stderr
@@ -222,3 +230,29 @@ class ModelyTestVisualizer(unittest.TestCase):
             plot_structure(example.json, filename='results/structure_plot', library='invalid_library')
         plot_structure(example.json, filename='results/structure_plot', library='matplotlib', view=False)
         #plot_structure(example.json, filename='results/structure_plot', library='graphviz', view=False)
+
+    def test_window_vector_plot(self):
+        m = MPLNotebookVisualizer(5, test=True)
+        test = Modely(visualizer=m, seed=42)
+        test.addModel('modelA', self.out10)
+        test.addMinimize('error1', self.b.sw(5), self.out10, loss_function='rmse')
+        test.neuralizeModel()
+        data_x = np.sin(np.arange(0.0, 5, 0.01))
+        data_y = np.cos(np.arange(0.0, 5, 0.01))
+        data_a = np.transpose(np.array([data_x,data_y]))
+        dataset = {'a':data_a, 'b': data_a}
+        test.loadData(name='dataset', source=dataset)
+        test.analyzeModel()
+
+    def test_window_vector_plot_recurrent(self):
+        m = MPLNotebookVisualizer(5, test=True)
+        test = Modely(visualizer=m, seed=42)
+        test.addModel('modelA', self.out10)
+        test.addMinimize('error1', self.b.sw(5), self.out11, loss_function='rmse')
+        test.neuralizeModel(0.1)
+        data_x = np.sin(np.arange(0.0, 5, 0.01))
+        data_y = np.cos(np.arange(0.0, 5, 0.01))
+        data_a = np.transpose(np.array([data_x,data_y]))
+        dataset = {'a':data_a, 'b': data_a}
+        test.loadData(name='dataset', source=dataset)
+        test.analyzeModel(prediction_samples=20)

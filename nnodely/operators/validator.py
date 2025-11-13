@@ -42,6 +42,7 @@ class Validator(Network):
             self.__prediction[dataset_tag] = {}
             A = {}
             B = {}
+            idxs = None
             total_losses = {}
 
             # Create the losses
@@ -58,6 +59,9 @@ class Validator(Network):
             if prediction_samples >= 0:
                 mandatory_inputs, non_mandatory_inputs = self._get_mandatory_inputs(connect,closed_loop)
 
+                idxs = []
+                for horizon_idx in range(prediction_samples + 1):
+                    idxs.append([])
                 for key, value in self._model_def['Minimizers'].items():
                     total_losses[key], A[key], B[key] = [], [], []
                     for horizon_idx in range(prediction_samples + 1):
@@ -72,8 +76,10 @@ class Validator(Network):
                 self._model.update(closed_loop = closed_loop, connect = connect)
                 self._recurrent_inference(data, batch_indexes, batch_size, minimize_gain, prediction_samples,
                                           step, non_mandatory_inputs, mandatory_inputs, losses,
-                                          total_losses = total_losses, A = A, B = B)
+                                          total_losses = total_losses, A = A, B = B, idxs = idxs)
 
+                for horizon_idx in range(prediction_samples + 1):
+                    idxs[horizon_idx] = np.concatenate(idxs[horizon_idx])
                 for key, value in self._model_def['Minimizers'].items():
                     for horizon_idx in range(prediction_samples + 1):
                         if A is not None:
@@ -136,6 +142,8 @@ class Validator(Network):
                 self.__prediction[dataset_tag][key]['A'] = A_np.tolist()
                 self.__prediction[dataset_tag][key]['B'] = B_np.tolist()
 
+            if idxs is not None:
+                self.__prediction[dataset_tag]['idxs'] = np.array(idxs).tolist()
             self.__performance[dataset_tag]['total'] = {}
             self.__performance[dataset_tag]['total']['mean_error'] = np.mean([value for key,value in total_losses.items()])
             self.__performance[dataset_tag]['total']['fvu'] = np.mean([self.__performance[dataset_tag][key]['fvu']['total'] for key in self._model_def['Minimizers'].keys()])

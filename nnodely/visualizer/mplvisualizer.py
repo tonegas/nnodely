@@ -100,20 +100,23 @@ class MPLVisualizer(TextVisualizer):
             self.__process_results[name_data][key] = subprocess.Popen(['python', self.__time_series_visualizer_script], stdin=subprocess.PIPE,
                                                     text=True)
             np_data_A = np.array(self.modely.prediction[name_data][key]['A'])
-            if len(np_data_A.shape) > 3 and np_data_A.shape[1] > 20:
+            if len(np_data_A.shape) > 3 and np_data_A.shape[1] > 50:
                 np_data_B = np.array(self.modely.prediction[name_data][key]['B'])
-                indices = np.linspace(0, np_data_A.shape[1] - 1, 20, dtype=int)
+                indices = np.linspace(0, np_data_A.shape[1] - 1, 50, dtype=int)
                 data_A = np_data_A[:, indices, :, :].tolist()
                 data_B = np_data_B[:, indices, :, :].tolist()
+                data_idxs = np.array(self.modely.prediction[name_data]['idxs'])[:,indices].tolist()
             else:
                 data_A = self.modely.prediction[name_data][key]['A']
                 data_B = self.modely.prediction[name_data][key]['B']
+                data_idxs = None
 
             data = {"name_data": name_data,
                     "key": key,
                     "performance": self.modely.performance[name_data][key],
                     "prediction_A": data_A,
                     "prediction_B": data_B,
+                    "data_idxs": data_idxs,
                     "sample_time": self.modely._model_def['Info']["SampleTime"]}
             try:
                 # Send data to the visualizer process
