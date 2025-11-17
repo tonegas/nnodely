@@ -178,6 +178,7 @@ class Sum(Stream, ToStream):
         obj = toStream(obj)
         check(type(obj) is Stream, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for sum operation.")
+        obj.dim['dim'] = 1
         super().__init__(sum_relation_name + str(Stream.count),obj.json,obj.dim)
         self.json['Relations'][self.name] = [sum_relation_name,[obj.name]]
 
@@ -313,7 +314,7 @@ class Sum_Layer(nn.Module):
         super(Sum_Layer, self).__init__()
 
     def forward(self, inputs):
-        return torch.sum(inputs, dim = 2)
+        return torch.sum(inputs, dim = 2, keepdim = True)
 
 def createSum(name, *inputs):
     """
