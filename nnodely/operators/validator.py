@@ -210,9 +210,8 @@ class Validator(Network):
                 tag = name
             n_samples_val = next(iter(data_val.values())).size(0) if data_val else 0
             n_samples_test = next(iter(data_test.values())).size(0) if data_test else 0
-            train_tag = f"{tag}_train"
 
-            self.__analyze(data_train, train_tag, minimize_gain, closed_loop, connect, prediction_samples, step, batch_size)
+            self.__analyze(data_train, f"{tag}_train", minimize_gain, closed_loop, connect, prediction_samples, step, batch_size)
             if n_samples_val > 0:
                 self.__analyze(data_val, f"{tag}_val", minimize_gain, closed_loop, connect, prediction_samples, step, batch_size)
             if n_samples_test > 0:

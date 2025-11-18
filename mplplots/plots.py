@@ -42,7 +42,6 @@ def plot_results(ax, name_data, key, A, B, data_idxs, sample_time):
     rgb_B = mcolors.to_rgb(color_B)
     delta = 0.1
 
-    correlation = np.empty(A_t.shape)
     if len(A_t.shape) == 3:
         # Print without prediction samples
         time_array = []
@@ -51,15 +50,30 @@ def plot_results(ax, name_data, key, A, B, data_idxs, sample_time):
             time_array.append(np.linspace(0, (num_samples - 1) * sample_time, num_samples) + sample_time * o)
         time_array = np.array(time_array)
         for ind_dim in range(A_t.shape[0]):
-            first = True
-            for ind_el in range(A_t.shape[2]):
-                ax.plot(time_array[:,ind_el], A_t[ind_dim,:,ind_el], color=tuple((x + delta*ind_dim)%1.0001 for x in rgb_A), label=f'A_{ind_dim}' if first else None)
-                ax.plot(time_array[:,ind_el], B_t[ind_dim,:,ind_el], '-.', color=tuple((x + delta*ind_dim)%1.0001 for x in rgb_B), label=f'B_{ind_dim}' if first else None)
-                first = False
-                for ind_win in range(A_t.shape[1]):
-                    correlation[ind_dim,ind_win,ind_el] = np.corrcoef(A_t[ind_dim,ind_win,ind_el], B_t[ind_dim,ind_win,ind_el])[0, 1]
-            ax.text(0.05, 0.95-0.05*ind_dim, f'Correlation A_{ind_dim} - B_{ind_dim}: {np.mean(correlation, axis=(1, 2))[ind_dim]:.2f}', transform=ax.transAxes, verticalalignment='top')
+            # Print the marker only if the output have a time window
+            ax.plot(time_array[0,:], A_t[ind_dim, 0, :],
+                    color=tuple((x + delta * ind_dim) % 1.0001 for x in rgb_A),
+                    marker='s' if A_t.shape[1] > 1 else None, markersize=2,
+                    label=f'A_{ind_dim}')
+            ax.plot(time_array[0,:], B_t[ind_dim, 0, :], '-.',
+                    color=tuple((x + delta * ind_dim) % 1.0001 for x in rgb_B),
+                    marker='o' if A_t.shape[1] > 1 else None, markersize=2,
+                    label=f'B_{ind_dim}')
+            if A_t.shape[1] > 1 :
+                correlation = np.empty((A_t.shape[0],A_t.shape[2]))
+                for ind_el in range(A_t.shape[2]):
+                    ax.plot(time_array[:,ind_el], A_t[ind_dim,:,ind_el],  color=tuple((x + delta*ind_dim)%1.0001 for x in rgb_A))
+                    ax.plot(time_array[:,ind_el], B_t[ind_dim,:,ind_el], '-.',  color=tuple((x + delta*ind_dim)%1.0001 for x in rgb_B))
+                    correlation[ind_dim, ind_el] = np.corrcoef(A_t[ind_dim,:,ind_el], B_t[ind_dim,:,ind_el])[0, 1]
+                    ax.text(0.05, 0.95 - 0.05 * ind_dim,
+                            f'Correlation A_{ind_dim} - B_{ind_dim}: {np.mean(correlation, axis=1)[ind_dim]:.2f}',
+                            transform=ax.transAxes, verticalalignment='top')
+            else:
+                correlation = np.empty((A_t.shape[0],))
+                correlation[ind_dim] = np.corrcoef(A_t[ind_dim, 0], B_t[ind_dim, 0])[0, 1]
+                ax.text(0.05, 0.95-0.05*ind_dim, f'Correlation A_{ind_dim} - B_{ind_dim}: {correlation[ind_dim]:.2f}', transform=ax.transAxes, verticalalignment='top')
     else:
+        correlation = np.empty(A_t.shape)
         for ind_dim in range(A_t.shape[0]):
             first = True
             ax.scatter(idxs_t[:,0] * sample_time, A_t[ind_dim, 0, :, 0], marker='s', s=6,
@@ -69,7 +83,7 @@ def plot_results(ax, name_data, key, A, B, data_idxs, sample_time):
             for ind_el in range(A_t.shape[2]):
                 time_array = idxs_t[ind_el] * sample_time
                 # Print the marker only if the output have a time window
-                ax.plot(time_array, A_t[ind_dim, 0, ind_el], '-', marker = 's' if A_t.shape[1] > 1 else None, markersize=2,
+                ax.plot(time_array, A_t[ind_dim, 0, ind_el], marker = 's' if A_t.shape[1] > 1 else None, markersize=2,
                         color=tuple((x + delta * ind_dim) % 1.0001 for x in rgb_A),
                         label=f'A_{ind_dim}' if first else None)
                 ax.plot(time_array, B_t[ind_dim, 0, ind_el], '-.', marker = 'o' if A_t.shape[1] > 1 else None, markersize=2,
