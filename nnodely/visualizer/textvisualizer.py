@@ -249,7 +249,7 @@ class TextVisualizer(EmptyVisualizer):
     def showResult(self, name_data):
         eng = lambda val: np.format_float_scientific(val, precision=3)
         if self.verbose >= 1:
-            dim_loss = len(max(self.modely._model_def['Minimizers'].keys(),key=len))
+            dim_loss = max(5,len(max(self.modely._model_def['Minimizers'].keys(),key=len)))
             loss_type_list = set([value["loss"] for ind, (key, value) in enumerate(self.modely._model_def['Minimizers'].items())])
             self.__title(f" nnodely Model Results for {name_data} ", dim_loss + 2 + (len(loss_type_list) + 2) * 20)
             print(color('|' + (f'Loss').center(dim_loss, ' ') + '|'), end='')
