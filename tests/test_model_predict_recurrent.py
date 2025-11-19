@@ -980,6 +980,7 @@ class ModelyRecurrentPredictTest(unittest.TestCase):
 
         test.removeConnection('in1')
         test.removeConnection('in2')
+        test.neuralizeModel()
         self.assertEqual({'out1': [[-10.0, -16.0]], 'out2': [[[-34.0, -86.0]]]},
                          test({'in1': [[1.0, 2.0], [2.0, 3.0]], 'in2': [-10, -16, -5, 2, 3]}))
         self.assertEqual({'out1': [[-10.0, -16.0]], 'out2': [[[-34.0, -86.0]]]},

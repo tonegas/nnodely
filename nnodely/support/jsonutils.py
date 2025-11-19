@@ -225,9 +225,7 @@ def subjson_from_minimize(json, minimizers:str|list):
             minimizers_json = subjson_from_relation(json, rel_name)
             sub_json = merge(sub_json, minimizers_json)
         sub_json['Minimizers'] = { key : json['Minimizers'][key] for key in minimizers }
-        # if len(relations_name) != 0:
-        #     minimizers_json = subjson_from_relation(self.__json, list(relations_name))
-        #     new_json = merge(new_json, minimizers_json)
+
     return sub_json
 
 def stream_to_str(obj, type = 'Stream'):
