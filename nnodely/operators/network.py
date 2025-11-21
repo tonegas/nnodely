@@ -260,11 +260,17 @@ class Network:
         if shuffle:
             randomize = torch.randperm(n_samples)
             data = {key: val[randomize] for key, val in data.items()}
+
         ## Initialize the train losses vector
         aux_losses = torch.zeros([len(self._model_def['Minimizers']), n_samples // batch_size])
         for idx in range(0, (n_samples - batch_size + 1), batch_size):
             ## Build the input tensor
             XY = {key: val[idx:idx + batch_size] for key, val in data.items()}
+            for key in self._model_def.recurrentInputs().keys():
+                if key not in XY.keys():
+                    window_size = self._input_n_samples[key]
+                    dim = self._model_def['Inputs'][key]['dim']
+                    XY[key] = torch.zeros(size=(batch_size, window_size, dim), dtype=TORCH_DTYPE, requires_grad=True)
             ## Reset gradient
             if optimizer:
                 optimizer.zero_grad()
