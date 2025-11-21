@@ -212,6 +212,22 @@ def subjson_from_model(json, models:str|list):
             log.warning(f'The input {key} is "closedLoop" outside the model connection removed for subjson')
     return final_json
 
+def subjson_from_minimize(json, minimizers:str|list):
+    from nnodely.basic.relation import MAIN_JSON
+    json = copy.deepcopy(json)
+    sub_json = copy.deepcopy(MAIN_JSON)
+
+    if 'Minimizers' in json:
+        rel_A = [json['Minimizers'][key]['A'] for key in minimizers]
+        rel_B = [json['Minimizers'][key]['B'] for key in minimizers]
+        relations_name = set(rel_A) | set(rel_B)
+        for rel_name in relations_name:
+            minimizers_json = subjson_from_relation(json, rel_name)
+            sub_json = merge(sub_json, minimizers_json)
+        sub_json['Minimizers'] = { key : json['Minimizers'][key] for key in minimizers }
+
+    return sub_json
+
 def stream_to_str(obj, type = 'Stream'):
     from nnodely.visualizer.emptyvisualizer import color, GREEN
     from pprint import pformat

@@ -53,6 +53,7 @@ class Trainer(Network):
         """
         self._model_def.addMinimize(name, streamA, streamB, loss_function)
         self.visualizer.showaddMinimize(name)
+        self._neuralized = False
 
     @enforce_types
     def removeMinimize(self, name_list:list|str) -> None:
@@ -70,6 +71,7 @@ class Trainer(Network):
             >>> model.removeMinimize(['minimize_op1', 'minimize_op2'])
         """
         self._model_def.removeMinimize(name_list)
+        self._neuralized = False
 
     def __preliminary_checks(self, **kwargs):
         check(self._data_loaded, RuntimeError, 'There is no data loaded! The Training will stop.')

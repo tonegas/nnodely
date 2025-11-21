@@ -3,7 +3,7 @@ import copy
 import numpy as np
 
 from nnodely.support.utils import check, check_and_get_list
-from nnodely.support.jsonutils import merge, subjson_from_model,subjson_from_relation, check_model, get_models_json
+from nnodely.support.jsonutils import merge, subjson_from_model, subjson_from_minimize, check_model, get_models_json
 from nnodely.basic.relation import MAIN_JSON, Stream, check_names
 from nnodely.layers.output import Output
 from nnodely.layers.input import Input
@@ -37,17 +37,11 @@ class ModelDef:
         self.__json[key] = value
 
     def __rebuild_json(self, models_names, minimizers):
-        new_json = subjson_from_model(self.__json, list(models_names))
-
-        if 'Minimizers' in self.__json:
-            rel_A = [self.__json['Minimizers'][key]['A'] for key in minimizers]
-            rel_B = [self.__json['Minimizers'][key]['B'] for key in minimizers]
-            relations_name = set(rel_A) | set(rel_B)
-            if len(relations_name) != 0:
-                minimizers_json = subjson_from_relation(self.__json, list(relations_name))
-                new_json = merge(new_json, minimizers_json)
-
-        return copy.deepcopy(new_json)
+        models_json = subjson_from_model(self.__json, list(models_names))
+        if 'Minimizers' in self.__json and len(minimizers) > 0:
+            minimizers_json = subjson_from_minimize(self.__json, list(minimizers))
+            models_json = merge(models_json, minimizers_json)
+        return copy.deepcopy(models_json)
 
     def recurrentInputs(self):
         return {key:value for key, value in self.__json['Inputs'].items() if ('closedLoop' in value.keys() or 'connect' in value.keys())}

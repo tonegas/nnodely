@@ -48,6 +48,7 @@ class Composer(Network):
             >>> model.addModel('example_model', [out])
         """
         self._model_def.addModel(name, stream_list)
+        self._neuralized = False
 
     @enforce_types
     def removeModel(self, name_list:list|str) -> None:
@@ -65,6 +66,7 @@ class Composer(Network):
             >>> model.removeModel(['sub_model1', 'sub_model2'])
         """
         self._model_def.removeModel(name_list)
+        self._neuralized = False
 
     @enforce_types
     def addConnect(self, stream_out:str|Output|Stream, input_in:str|Input, *, local:bool=False) -> None:
@@ -92,6 +94,7 @@ class Composer(Network):
             >>> model.addConnect(relation, y)
         """
         self._model_def.addConnection(stream_out, input_in,'connect', local)
+        self._neuralized = False
 
     @enforce_types
     def addClosedLoop(self, stream_out:str|Output|Stream, input_in:str|Input, *, local:bool=False) -> None:
@@ -119,6 +122,7 @@ class Composer(Network):
             >>> model.addClosedLoop(relation, y)
         """
         self._model_def.addConnection(stream_out, input_in,'closedLoop', local)
+        self._neuralized = False
 
     @enforce_types
     def removeConnection(self, input_in:str|Input) -> None:
@@ -149,6 +153,7 @@ class Composer(Network):
         else:
             input_name = input_in
         self._model_def.removeConnection(input_name)
+        self._neuralized = False
 
     @enforce_types
     def neuralizeModel(self, sample_time:float|int|None = None, *, clear_model:bool = False, model_def:dict|None = None) -> None:
