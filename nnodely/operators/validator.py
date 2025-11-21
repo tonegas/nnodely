@@ -26,9 +26,10 @@ class Validator(Network):
         return ReadOnlyDict(self.__prediction)
 
     @enforce_types
-    def __analyze(self,
+    def _analyze(self,
                   dataset: dict,
                   dataset_tag: str,
+                  indexes: list = None,
                   minimize_gain: dict = {},
                   closed_loop: dict = {},
                   connect: dict = {},
@@ -67,14 +68,10 @@ class Validator(Network):
                     for horizon_idx in range(prediction_samples + 1):
                         A[key].append([])
                         B[key].append([])
-                if type(dataset) is not dict and dataset in self._multifile.keys(): ## Multi-file Dataset
-                    batch_indexes = self._get_batch_indexes(dataset, prediction_samples)
-                else:
-                    batch_indexes = list(range(n_samples - prediction_samples))
 
                 ## Update with virtual states
                 self._model.update(closed_loop = closed_loop, connect = connect)
-                self._recurrent_inference(data, batch_indexes, batch_size, minimize_gain, prediction_samples,
+                self._recurrent_inference(data, indexes, batch_size, minimize_gain, prediction_samples,
                                           step, non_mandatory_inputs, mandatory_inputs, losses,
                                           total_losses = total_losses, A = A, B = B, idxs = idxs)
 
@@ -194,25 +191,77 @@ class Validator(Network):
         if dataset is None:
             dataset = list(self._data.keys())
 
+        data = self._get_data(dataset) 
+        n_samples = len(data[list(data.keys())[0]])
+        data_tag = self._get_tag(dataset) if name is None else name
+        indexes = list(range(n_samples))
+        dataset_name = data_tag.replace('_train','').replace('_val','').replace('_test','')
+        if prediction_samples > 0 and dataset_name in self._multifile.keys():
+            forbidden_idxs = []
+            for i in self._multifile[dataset_name]:
+                if i < indexes[-1]:
+                    forbidden_idxs.extend(range((i) - prediction_samples, (i), 1))
+            indexes = [idx for idx in indexes if idx not in forbidden_idxs]
+            indexes = indexes[:-prediction_samples]
+
         # If splits is None it uses all the dataset
         if splits is None:
-            if name is None:
-                data_tag = self._get_tag(dataset)
-            else:
-                data_tag = name
             data = self._get_data(dataset)
-            self.__analyze(data, data_tag, minimize_gain, closed_loop, connect, prediction_samples, step, batch_size)
+            self._analyze(data, data_tag, indexes, minimize_gain, closed_loop, connect, prediction_samples, step, batch_size)
         else:
             data_train, data_val, data_test = self._setup_dataset(None, None, None, dataset, splits)
-            if name is None:
-                tag = self._get_tag(dataset)
-            else:
-                tag = name
             n_samples_val = next(iter(data_val.values())).size(0) if data_val else 0
             n_samples_test = next(iter(data_test.values())).size(0) if data_test else 0
 
-            self.__analyze(data_train, f"{tag}_train", minimize_gain, closed_loop, connect, prediction_samples, step, batch_size)
+            self._analyze(data_train, f"{data_tag}_train", indexes, minimize_gain, closed_loop, connect, prediction_samples, step, batch_size)
             if n_samples_val > 0:
-                self.__analyze(data_val, f"{tag}_val", minimize_gain, closed_loop, connect, prediction_samples, step, batch_size)
+                self._analyze(data_val, f"{data_tag}_val", indexes, minimize_gain, closed_loop, connect, prediction_samples, step, batch_size)
             if n_samples_test > 0:
-                self.__analyze(data_test, f"{tag}_test", minimize_gain, closed_loop, connect, prediction_samples, step, batch_size)
+                self._analyze(data_test, f"{data_tag}_test", indexes, minimize_gain, closed_loop, connect, prediction_samples, step, batch_size)
+
+
+    @enforce_types
+    def analyzeModel(self,
+                dataset: str | list | dict | None = None, *,
+                tag: str | None = None,
+                minimize_gain: dict = {},
+                closed_loop: dict = {},
+                connect: dict = {},
+                prediction_samples: int | str = 0,
+                step: int = 0,
+                batch_size: int | None = None
+                ) -> None:
+        """
+        The function is used to analyze the performance of the model on the provided dataset.
+
+        Parameters
+        ----------
+        dataset : str | list | dict
+            Dataset to analyze the performance of the model on.
+        tag : str or None
+            Label to be used in the plots
+        minimize_gain : dict
+            A dictionary specifying the gain for each minimization loss function.
+        closed_loop : dict or None, optional
+            A dictionary specifying closed loop connections. The keys are input names and the values are output names. Default is None.
+        connect : dict or None, optional
+            A dictionary specifying connections. The keys are input names and the values are output names. Default is None.
+        step : int or None, optional
+            The step size to analyze the model on the provided dataset. A big value will result in less data used for each epochs and a faster train. Default is None.
+        prediction_samples : int or None, optional
+            The size of the prediction horizon. Number of samples at each recurrent window Default is None.
+        batch_size :
+            The batch size use for analyse the performance of the model on the provided dataset.
+
+
+        """
+        # Get the dataset if is None take all datasets
+        if tag is None:
+            tag = dataset if isinstance(dataset, str) else 'default'
+        if dataset is None:
+            dataset = list(self._data.keys())
+
+        data = self._get_data(dataset) 
+        n_samples = next(iter(data.values())).size(0)
+        indexes = self._get_batch_indexes(dataset, n_samples, prediction_samples)
+        self._analyze(data, tag, indexes, minimize_gain, closed_loop, connect, prediction_samples, step, batch_size)

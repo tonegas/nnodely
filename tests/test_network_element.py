@@ -457,6 +457,7 @@ class ModelyNetworkBuildingTest(unittest.TestCase):
         rel6 = y.last() / (5 * y.last())
         rel7 = y.last() * (k * y.last())
         rel8 = y.last() / (k * y.last())
+        rel9 = Sum(y.last())
 
         out = Output('out', rel1)
         out2 = Output('out2', rel2)
@@ -466,8 +467,9 @@ class ModelyNetworkBuildingTest(unittest.TestCase):
         out6 = Output('out6', rel6)
         out7 = Output('out7', rel7)
         out8 = Output('out8', rel8)
+        out9 = Output('out9', rel9)
         example = Modely(visualizer=None, seed=42)
-        example.addModel('out', [out,out2,out3,out4,out5,out6,out7,out8])
+        example.addModel('out', [out,out2,out3,out4,out5,out6,out7,out8,out9])
         example.neuralizeModel(0.25)
 
         self.assertEqual(rel1.dim['dim'], 10)
@@ -478,3 +480,4 @@ class ModelyNetworkBuildingTest(unittest.TestCase):
         self.assertEqual(rel6.dim['dim'], 10)
         self.assertEqual(rel7.dim['dim'], 10)
         self.assertEqual(rel8.dim['dim'], 10)
+        self.assertEqual(rel9.dim['dim'], 1)
