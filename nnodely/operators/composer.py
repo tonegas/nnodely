@@ -396,6 +396,10 @@ class Composer(Network):
                                 (prediction_samples != 'auto')
                         ):
                             X[key] = inputs[key][idx:idx + 1] if sampled else inputs[key][:,idx:idx + self._input_n_samples[key]]
+                            if 0 in X[key].shape:
+                                window_size = self._input_n_samples[key]
+                                dim = json_inputs[key]['dim']
+                                X[key] = torch.zeros(size=(1, window_size, dim), dtype=TORCH_DTYPE, requires_grad=False)
                         ## if it is a state AND
                         ## if prediction_samples = 'auto' and there are not enough samples OR
                         ## it is the first iteration with prediction_samples = None
