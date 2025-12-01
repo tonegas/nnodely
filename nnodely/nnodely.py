@@ -8,6 +8,7 @@ from nnodely.operators.trainer import Trainer
 from nnodely.operators.loader import Loader
 from nnodely.operators.validator import Validator
 from nnodely.operators.exporter import Exporter
+from nnodely.basic.modeldef import ModelGraph
 
 # nnodely packages
 from nnodely.visualizer import EmptyVisualizer, TextVisualizer
@@ -286,5 +287,55 @@ class Modely(Composer, Trainer, Loader, Validator, Exporter):
                               step=params['test_step'], batch_size=test_batch_size)
         else:
             log.warning("Test dataset is empty. Skipping test results analysis.")
+
+
+MODELGRAPH = None
+def _set_current_modely(m):
+    global MODELGRAPH 
+    MODELGRAPH = m
+def get_current_modely() -> ModelGraph:
+    check(MODELGRAPH is not None, RuntimeError, "No current Modely object found. " \
+    "Please instantiate a Modely object first.")
+    return MODELGRAPH
+
+class Modely():
+    @enforce_types
+    def __init__(self, *,
+                 #visualizer:str|EmptyVisualizer|None = 'Standard',
+                 #exporter:str|EmptyExporter|None = 'Standard',
+                 seed:int|None = None,
+                 workspace:str|None = None,
+                 log_internal:bool = False,
+                 save_history:bool = False):
+
+        ## Set the random seed for reproducibility
+        if seed is not None:
+            self.resetSeed(seed)
+
+        ## Prepare the model definition
+        self.model_graph = ModelGraph()
+        _set_current_modely(self.model_graph)
+
+    @enforce_types
+    def resetSeed(self, seed:int) -> None:
+        """
+        Resets the random seed for reproducibility.
+
+        This method sets the seed for various random number generators used in the project to ensure reproducibility of results.
+
+        :param seed: The seed value to be used for the random number generators.
+        :type seed: int
+
+        Example:
+            >>> model = nnodely()
+            >>> model.resetSeed(42)
+        """
+        torch.manual_seed(seed)  ## set the pytorch seed
+        torch.cuda.manual_seed_all(seed)
+        random.seed(seed)  ## set the random module seed
+        np.random.seed(seed)  ## set the numpy seed
+
+    
+
 
 nnodely = Modely

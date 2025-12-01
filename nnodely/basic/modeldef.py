@@ -2,6 +2,8 @@ import copy
 
 import numpy as np
 
+import networkx as nx
+
 from nnodely.support.utils import check, check_and_get_list
 from nnodely.support.jsonutils import merge, subjson_from_model, subjson_from_minimize, check_model, get_models_json
 from nnodely.basic.relation import MAIN_JSON, Stream, check_names
@@ -228,3 +230,136 @@ class ModelDef:
                 if key in model.all_parameters:
                     self.__json['Parameters'][key]['values'] = model.all_parameters[key].tolist()
 
+'''
+Base class to define the model definition graph and the json
+Provide json parsing and building utilities
+from graph to json and viceversa
+'''
+class ModelGraph:
+    def __init__(self,):
+        self.model_graph = nx.DiGraph()
+        self.tags = []
+        self.counter = 0
+
+    def set_node(self, node_name, type, **attrs):
+        self.model_graph.add_node(node_name, type=type, **attrs)
+
+    def set_edge(self, from_node, to_node, **attrs):
+        self.model_graph.add_edge(from_node, to_node, **attrs)
+
+    def set_node_attr(self, node_name, **attrs):
+        for k, v in attrs.items():
+            self.model_graph.nodes[node_name][k] = v
+    
+    def set_edge_attr(self, from_node, to_node, **attrs):
+        for k, v in attrs.items():
+            self.model_graph.edges[from_node, to_node][k] = v
+    
+    def get_node_attr(self, node_name, attr_name):
+        return self.model_graph.nodes[node_name].get(attr_name, None)
+    
+    def get_edge_attr(self, from_node, to_node, attr_name):
+        return self.model_graph.edges[from_node, to_node].get(attr_name, None)
+    
+    def plot_graph(self):
+        import matplotlib.pyplot as plt
+        pos = nx.spring_layout(self.model_graph)
+        node_colors = []
+        for n, attrs in self.model_graph.nodes(data=True):
+            ntype = attrs.get("type")
+            if ntype == "Input":
+                node_colors.append('lightblue')
+            elif ntype == "Constant":
+                node_colors.append('lightgreen')
+            elif ntype == "Parameter":
+                node_colors.append('orange')
+            elif ntype == "Function":
+                node_colors.append('yellow')
+            elif ntype == "Output":
+                node_colors.append('pink')
+            else:
+                node_colors.append('lightgrey')
+
+        nx.draw(self.model_graph, pos, with_labels=True, node_color=node_colors, arrows=True)
+        plt.show()
+
+    def to_graph(model_json):
+        """
+        Convert the nnodely JSON dictionary into a directed NetworkX graph.
+        """
+        G = nx.DiGraph()
+
+        # ---- Add Inputs ----
+        for name, attrs in model_json.get("Inputs", {}).items():
+            G.add_node(name, type="Input", **attrs)
+
+        # ---- Add Constants ----
+        for name, attrs in model_json.get("Constants", {}).items():
+            G.add_node(name, type="Constant", **attrs)
+
+        # ---- Add Parameters ----
+        for name, attrs in model_json.get("Parameters", {}).items():
+            G.add_node(name, type="Parameter", **attrs)
+
+        # ---- Add Functions ----
+        for name, attrs in model_json.get("Functions", {}).items():
+            G.add_node(name, type="Function", **attrs)
+
+        # ---- Add Relations (Blocks) ----
+        relations = model_json.get("Relations", {})
+
+        for node_name, rel in relations.items():
+            block_type = rel[0]
+            inputs = rel[1]
+
+            # attach entire relation info for later serialization
+            G.add_node(node_name, type=block_type, relation=rel)
+
+            # add edges from inputs to node
+            for inp in inputs:
+                if isinstance(inp, str):  # simple case (string reference)
+                    G.add_edge(inp, node_name)
+
+        # ---- Add Output mapping ----
+        for out_name, src in model_json.get("Outputs", {}).items():
+            G.add_node(out_name, type="Output")
+            G.add_edge(src, out_name)
+
+        return G
+
+    def to_json(G):
+        """
+        Serialize a NetworkX nnodely graph back into the original JSON structure.
+        """
+        out = {
+            "Inputs": {},
+            "Constants": {},
+            "Parameters": {},
+            "Functions": {},
+            "Relations": {},
+            "Outputs": {}
+        }
+
+        # Categorize nodes by type
+        for n, attrs in G.nodes(data=True):
+            ntype = attrs.get("type")
+
+            if ntype == "Input":
+                out["Inputs"][n] = {k: v for k, v in attrs.items() if k != "type"}
+            elif ntype == "Constant":
+                out["Constants"][n] = {k: v for k, v in attrs.items() if k != "type"}
+            elif ntype == "Parameter":
+                out["Parameters"][n] = {k: v for k, v in attrs.items() if k != "type"}
+            elif ntype == "Function":
+                out["Functions"][n] = {k: v for k, v in attrs.items() if k != "type"}
+            elif ntype == "Output":
+                # Output always has exactly 1 input
+                src = next(G.predecessors(n))
+                out["Outputs"][n] = src
+            else:
+                # Relations (Add, Fir, TimePart, etc.)
+                rel = attrs.get("relation")
+                if rel:
+                    out["Relations"][n] = rel
+
+        return out

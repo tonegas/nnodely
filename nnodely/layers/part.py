@@ -3,7 +3,7 @@ import copy
 import torch.nn as nn
 import torch
 
-from nnodely.basic.relation import ToStream, Stream, toStream
+from nnodely.basic.relation import ToStream, Stream, toStream, Relation
 from nnodely.basic.model import Model
 from nnodely.support.utils import check, enforce_types
 from nnodely.support.jsonutils import merge
@@ -544,3 +544,92 @@ setattr(Model, sampleselect_relation_name, createSampleSelect)
 
 setattr(Model, timepart_relation_name, createTimePart)
 setattr(Model, timeconcatenate_relation_name, createTimeConcatenate)
+
+timepart_relation_name = 'TimePart'
+
+class TimePart(Stream, Relation):
+    """
+    Represents a part of a stream in the neural network model along the time dimension (second dimension).
+
+    Parameters
+    ----------
+    obj : Stream
+        The stream object to create a part from.
+    i : int or float
+        The starting index of the part.
+    j : int or float
+        The ending index of the part.
+    offset : int or float, optional
+        The offset for the part. Default is None.
+
+    Attributes
+    ----------
+    name : str
+        The name of the part.
+    dim : dict
+        A dictionary containing the dimensions of the part.
+    json : dict
+        A dictionary containing the configuration of the part.
+
+    Examples
+    --------
+    .. image:: https://colab.research.google.com/assets/colab-badge.svg
+        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb
+        :alt: Open in Colab
+
+    Example:
+        >>> x = Input('x').sw(10)
+        >>> time_part = TimePart(x, i=0, j=5)
+
+    Raises
+    ------
+    KeyError
+        If the input does not have a time window.
+    ValueError
+        If the indices i and j are out of range or if i is not smaller than j.
+    IndexError
+        If the offset is not within the time window.
+    """
+    @enforce_types
+    def __init__(self, obj:Stream, i:int|float, j:int|float, offset:int|float|None = None):
+        check(type(obj) is Stream, TypeError, f"The type of {obj} is {type(obj)} and is not supported for TimePart operation.")
+        check('tw' in obj.attrs, KeyError, 'Input must have a time window')
+        check(i < j, ValueError, 'the start index i must be smaller than the end index j')
+        tw = self.mg.get_node_attr(obj.name, 'tw')
+        backward_idx = tw[0]
+        forward_idx = tw[1]
+        check(i >= backward_idx and i < forward_idx, ValueError, 'i must be in the time window of the input')
+        check(j > backward_idx and j <= forward_idx, ValueError, 'j must be in the time window of the input')
+        self.attrs = {'dim': obj.attrs['dim'], 'tw': j - i}
+        super().__init__(timepart_relation_name, self.attrs)
+        #rel = [timepart_relation_name,[obj.name],[i,j]]
+        # if offset is not None:
+        #     check(i <= offset < j, IndexError,"The offset must be inside the time window")
+        #     rel.append(offset)
+        # self.json['Relations'][self.name] = rel
+
+class TimePart_Layer(nn.Module):
+    #: :noindex:
+    def __init__(self, dim, part, offset):
+        super(TimePart_Layer, self).__init__()
+        back, forw = part[0], part[1]
+        self.offset = offset
+
+        # Create the selection matrix W
+        self.W = torch.zeros(size=(forw - back, int(dim)))
+        for i in range(forw - back):
+            self.W[i, back + i] = 1
+
+    def forward(self, x):
+        if self.offset is not None:
+            x = x - x[:, self.offset].unsqueeze(1)
+        result = torch.einsum('bij,ki->bkj', x, self.W)
+        return result
+
+def createTimePart(self, *inputs):
+    if len(inputs) > 2: ## offset
+        return TimePart_Layer(dim=inputs[0], part=inputs[1], offset=inputs[2])
+    else:
+        return TimePart_Layer(dim=inputs[0], part=inputs[1], offset=None)
+
+setattr(Model, timepart_relation_name, createTimePart)
