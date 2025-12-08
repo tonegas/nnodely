@@ -41,7 +41,7 @@ class MPLNotebookVisualizer(TextVisualizer):
             else:
                 data_A = self.modely.prediction[name_data][key]['A']
                 data_B = self.modely.prediction[name_data][key]['B']
-                data_idxs = None
+                data_idxs = self.modely.prediction[name_data]['idxs'] if len(np_data_A.shape) > 3 else None
 
             plots.plot_results(ax, name_data, key, data_A,
                                data_B, data_idxs, self.modely._model_def['Info']["SampleTime"])

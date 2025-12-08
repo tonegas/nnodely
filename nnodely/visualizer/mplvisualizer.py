@@ -111,7 +111,7 @@ class MPLVisualizer(TextVisualizer):
             else:
                 data_A = self.modely.prediction[name_data][key]['A']
                 data_B = self.modely.prediction[name_data][key]['B']
-                data_idxs = None
+                data_idxs = self.modely.prediction[name_data]['idxs'] if len(np_data_A.shape) > 3 else None
 
             data = {"name_data": name_data,
                     "key": key,
