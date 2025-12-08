@@ -481,3 +481,36 @@ class ModelyNetworkBuildingTest(unittest.TestCase):
         self.assertEqual(rel7.dim['dim'], 10)
         self.assertEqual(rel8.dim['dim'], 10)
         self.assertEqual(rel9.dim['dim'], 1)
+
+    def test_rungekutta(self):
+        NeuObj.clearNames()
+        x = Input('x')
+
+        def fun(x):
+            return x
+
+        fe_rel = ForwardEuler(f=fun)(x.last())
+        rk2_rel = RK2(f=fun)(x.last())
+        rk4_rel = RK4(f=fun)(x.last())
+
+        out_fe = Output('fe', fe_rel)
+        out_rk2 = Output('rk2', rk2_rel)
+        out_rk4 = Output('rk4', rk4_rel)
+
+        model = Modely(visualizer=TextVisualizer(verbose=5))
+        model.addModel('model', [out_fe, out_rk2, out_rk4])
+        model.neuralizeModel(1)
+
+        inputs = {'x': [[1.0], [2.0]]}
+        result = model(inputs=inputs)
+        # expected: fe -> [2.0, 4.0], rk2 -> [2.5, 5.0]
+        self.TestAlmostEqual([2.0, 4.0], result['fe'])
+        self.TestAlmostEqual([2.5, 5.0], result['rk2'])
+        self.TestAlmostEqual([2.708333, 5.41666], result['rk4'])
+
+        # now test with step h = 0.1
+        model.neuralizeModel(0.1, clear_model=True)
+        result = model(inputs=inputs)
+        self.TestAlmostEqual([1.1, 2.2], result['fe'])
+        self.TestAlmostEqual([1.105, 2.21], result['rk2'])
+        self.TestAlmostEqual([1.10517, 2.21034], result['rk4'])
