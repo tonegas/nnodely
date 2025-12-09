@@ -151,6 +151,15 @@ class ModelyTrainingTest(unittest.TestCase):
         self.assertAlmostEqual(np.sum((np.array(A).flatten()-np.array(B).flatten())**2)/24.0, test.performance['dataset3']['error1']['mse'], places=3)
         self.assertAlmostEqual(np.sum((np.array(C).flatten()-np.array(B).flatten())**2)/24.0, test.performance['dataset3']['error2']['mse'], places=3)
         self.assertAlmostEqual((np.sum((np.array(A).flatten()-np.array(B).flatten())**2)/24.0+np.sum((np.array(C).flatten()-np.array(B).flatten())**2)/24.0)/2.0, test.performance['dataset3']['total']['mean_error'], places=3)
+        test.analyzeModel(splits=[50,30,20], dataset='dataset3', prediction_samples=1, batch_size=1)
+        A =[[[[11.0]], [[12.0]], [[13.0]], [[14.0]]], [[[12.0]], [[13.0]], [[14.0]], [[15.0]]], [[[13.0]], [[14.0]], [[15.0]], [[16.0]]], 
+            [[[14.0]], [[15.0]], [[16.0]], [[17.0]]], [[[15.0]], [[16.0]], [[17.0]], [[18.0]]], [[[16.0]], [[17.0]], [[18.0]], [[19.0]]]]
+        B =[[[[2.0]], [[4.0]], [[6.0]], [[8.0]]], [[[4.0]], [[8.0]], [[12.0]], [[16.0]]], [[[8.0]], [[16.0]], [[24.0]], [[32.0]]], 
+            [[[16.0]], [[32.0]], [[48.0]], [[64.0]]], [[[32.0]], [[64.0]], [[96.0]], [[128.0]]], [[[64.0]], [[128.0]], [[192.0]], [[256.0]]]]
+        C = [[[[10.0]], [[20.0]], [[30.0]], [[40.0]]], [[[20.0]], [[30.0]], [[40.0]], [[50.0]]], [[[30.0]], [[40.0]], [[50.0]], [[60.0]]], 
+             [[[40.0]], [[50.0]], [[60.0]], [[70.0]]], [[[50.0]], [[60.0]], [[70.0]], [[80.0]]], [[[60.0]], [[70.0]], [[80.0]], [[90.0]]]]
+        self.assertEqual({'A': A, 'B': B}, test.prediction['dataset3']['error1'])
+        self.assertEqual({'A': C, 'B': B}, test.prediction['dataset3']['error2'])
 
         test.analyzeModel('dataset3', prediction_samples=5, batch_size=4)
         A =[[[[11.0]], [[12.0]], [[13.0]], [[14.0]]],
