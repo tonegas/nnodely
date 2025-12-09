@@ -203,14 +203,17 @@ class ModelyTestVisualizer(unittest.TestCase):
         dataset = {'x': data_x, 'y': data_y, 'z': a * data_x + b * data_y}
         params = {'num_of_epochs': 1, 'lr': 0.01}
         test.loadData(name='dataset', source=dataset)  # Create the dataset
-        test.trainAndAnalyze(optimizer='SGD', splits=[70,20,10], training_params=params)  # Train the traced model
+        test.trainAndAnalyze(optimizer='SGD', splits=[70,20,10], training_params=params)  # Train the traced mode
+        m.closePlots()
         list_of_functions = list(test.json['Functions'].keys())
         try:
             for f in list_of_functions:
                 m.showFunctions(f)
         except ValueError:
             pass
+        m.closePlots()
         test.trainAndAnalyze(optimizer='SGD', splits=[70, 20, 10], training_params=params, closed_loop={'x':'out2'}, prediction_samples=5)
+        m.closePlots()
 
 
     def test_structure_plot(self):

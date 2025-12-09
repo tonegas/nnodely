@@ -79,6 +79,8 @@ class MPLNotebookVisualizer(TextVisualizer):
                         plots.plot_2d_function(plt, fun, x, params, output, function_input_list)
         plt.show()
 
+    def closePlots(self):
+        plt.close()
 
 
 
