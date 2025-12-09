@@ -385,7 +385,6 @@ class Composer(Network):
                         X[key] = X[key].requires_grad_(True)
                 ## reset states
                 if count == 0 or prediction_samples == 'auto':
-                    init_states = []
                     count = prediction_samples
                     for key in non_mandatory_inputs:  ## Get non mandatory data (from inputs, from states, or with zeros)
                         ## If it is given as input AND
@@ -396,10 +395,10 @@ class Composer(Network):
                                 (prediction_samples != 'auto')
                         ):
                             X[key] = inputs[key][idx:idx + 1] if sampled else inputs[key][:,idx:idx + self._input_n_samples[key]]
-                            if 0 in X[key].shape:
-                                window_size = self._input_n_samples[key]
-                                dim = json_inputs[key]['dim']
-                                X[key] = torch.zeros(size=(1, window_size, dim), dtype=TORCH_DTYPE, requires_grad=False)
+                            # if 0 in X[key].shape:
+                            #     window_size = self._input_n_samples[key]
+                            #     dim = json_inputs[key]['dim']
+                            #     X[key] = torch.zeros(size=(1, window_size, dim), dtype=TORCH_DTYPE, requires_grad=False)
                         ## if it is a state AND
                         ## if prediction_samples = 'auto' and there are not enough samples OR
                         ## it is the first iteration with prediction_samples = None
@@ -429,11 +428,6 @@ class Composer(Network):
                     internals_dict['ingress'].append(tensor_to_list(X)) 
                     internals_dict['closedLoop'].append(out_closed_loop)
                     internals_dict['connect'].append(out_connect)
-
-                if init_states:
-                    for key in init_states:
-                        del self._model.connect_update[key]
-                    init_states = []
 
                 ## Append the prediction of the current sample to the result dictionary
                 for key in self._model_def['Outputs'].keys():

@@ -426,6 +426,7 @@ class ModelyPredictTest(unittest.TestCase):
         results = test({'in1': [1,2]})
         self.assertEqual((1,2), np.array(results['out']).shape)
         self.TestAlmostEqual(results['out'], [[0.7576315999031067, 1.5152631998062134]])
+        test({'in1': [[1, 2]]}, num_of_samples=5, sampled=True)
         results = test({'in1': [[1,2]]}, sampled=True)
         self.assertEqual((1,2), np.array(results['out']).shape)
         self.TestAlmostEqual(results['out'], [[0.7576315999031067, 1.5152631998062134]])
