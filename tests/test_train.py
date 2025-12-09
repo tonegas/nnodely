@@ -290,7 +290,7 @@ class ModelyTrainingTest(unittest.TestCase):
             return (3 * x ** 2 * a) + (2 * x * b) + c * torch.cos(x)
 
         fun = ParamFun(parametric_fun,['a','b','c','d'])(x_last)
-        approx_dy_dx = Output('d_out', Derivate(fun, x_last))
+        approx_dy_dx = Output('d_out', Differentiate(fun, x_last))
 
         test = Modely(visualizer=None, seed=12)
 

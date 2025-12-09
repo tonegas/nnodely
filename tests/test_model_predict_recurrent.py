@@ -1364,7 +1364,7 @@ class ModelyRecurrentPredictTest(unittest.TestCase):
         p=Parameter('fir',sw=1,values=[[-0.5]])
 
         fun = Sin(x_last) + Fir(W=p)(x_last) + Cos(y_last)
-        out_der = Derivate(fun, x_last) + Derivate(fun, y_last)
+        out_der = Differentiate(fun, x_last) + Differentiate(fun, y_last)
         out_der.closedLoop(x)
         out = Output('out', out_der)
 
@@ -1399,7 +1399,7 @@ class ModelyRecurrentPredictTest(unittest.TestCase):
         y_last = y.last()
         p1 = Parameter('p1', sw=1, values=[[-0.5]])
         fun = Sin(x_last) + Fir(W=p1)(x_last) + Cos(y_last)
-        out_der = Derivate(fun, x_last) + Derivate(fun, y_last)
+        out_der = Differentiate(fun, x_last) + Differentiate(fun, y_last)
 
         x2 = Input('x2')
         y2 = Input('y2')
@@ -1407,7 +1407,7 @@ class ModelyRecurrentPredictTest(unittest.TestCase):
         y2_last = y2.last()
         p2 = Parameter('p2', sw=1, values=[[3]])
         fun2 = Sin(x2_last) + Fir(W=p2)(x2_last) + Cos(y2_last)
-        out_der2 = Derivate(fun2, x2_last) + Derivate(fun2, y2_last)
+        out_der2 = Differentiate(fun2, x2_last) + Differentiate(fun2, y2_last)
         out_der.connect(x2)
 
         out1 = Output('out1', out_der)

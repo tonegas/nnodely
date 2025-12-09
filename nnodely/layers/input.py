@@ -4,7 +4,7 @@ from nnodely.basic.relation import NeuObj, Stream, ToStream
 from nnodely.support.utils import check, enforce_types
 from nnodely.support.jsonutils import merge, stream_to_str
 from nnodely.layers.part import SamplePart, TimePart
-from nnodely.layers.timeoperation import Derivate, Integrate
+from nnodely.layers.timeoperation import Differentiate, Integrate
 
 class Input(NeuObj):
     """
@@ -224,7 +224,7 @@ class Input(NeuObj):
         if order > 0:
             o = self.last()
             for i in range(order):
-                o = Derivate(o, der_name = der_name, int_name = int_name, method = method)
+                o = Differentiate(o, der_name = der_name, int_name = int_name, method = method)
         elif order < 0:
             o = self.last()
             for i in range(-order):

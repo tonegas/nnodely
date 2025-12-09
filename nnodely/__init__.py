@@ -17,7 +17,7 @@ from nnodely.layers.fuzzify import Fuzzify
 from nnodely.layers.part import Part, Select, Concatenate, SamplePart, SampleSelect, TimePart, TimeConcatenate
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.equationlearner import EquationLearner
-from nnodely.layers.timeoperation import Integrate, Derivate
+from nnodely.layers.timeoperation import Integrate, Differentiate
 from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.rungekutta import ForwardEuler, RK2, RK4
 
@@ -65,7 +65,7 @@ __all__ = [
     'TimePart',  'TimeConcatenate',
     'LocalModel',
     'EquationLearner',
-    'Integrate',  'Derivate',
+    'Integrate',  'Differentiate',
     'Interpolation',
     'ForwardEuler', 'RK2', 'RK4',
     'TextVisualizer', 'MPLVisualizer', 'MPLNotebookVisualizer',
