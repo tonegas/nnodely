@@ -68,9 +68,11 @@ class MPLVisualizer(TextVisualizer):
             for key in self.modely._model_def['Minimizers'].keys():
                 if val_losses:
                     val_loss = val_losses[key][epoch]
+                    title = f"Training on {train_tag} and {val_tag}"
                 else:
                     val_loss = []
-                data = {"title":f"Training on {train_tag} and {val_tag}", "key": key, "last": num_of_epochs - (epoch + 1), "epoch": epoch,
+                    title = f"Training on {train_tag}"
+                data = {"title":title, "key": key, "last": num_of_epochs - (epoch + 1), "epoch": epoch,
                         "train_losses": train_losses[key][epoch], "val_losses": val_loss}
                 try:
                     # Send data to the visualizer process
@@ -100,16 +102,16 @@ class MPLVisualizer(TextVisualizer):
             self.__process_results[name_data][key] = subprocess.Popen(['python', self.__time_series_visualizer_script], stdin=subprocess.PIPE,
                                                     text=True)
             np_data_A = np.array(self.modely.prediction[name_data][key]['A'])
-            if len(np_data_A.shape) > 3 and np_data_A.shape[1] > 50:
+            if len(np_data_A.shape) > 3 and np_data_A.shape[1] > 30:
                 np_data_B = np.array(self.modely.prediction[name_data][key]['B'])
-                indices = np.linspace(0, np_data_A.shape[1] - 1, 50, dtype=int)
+                indices = np.linspace(0, np_data_A.shape[1] - 1, 30, dtype=int)
                 data_A = np_data_A[:, indices, :, :].tolist()
                 data_B = np_data_B[:, indices, :, :].tolist()
                 data_idxs = np.array(self.modely.prediction[name_data]['idxs'])[:,indices].tolist()
             else:
                 data_A = self.modely.prediction[name_data][key]['A']
                 data_B = self.modely.prediction[name_data][key]['B']
-                data_idxs = None
+                data_idxs = self.modely.prediction[name_data]['idxs'] if len(np_data_A.shape) > 3 else None
 
             data = {"name_data": name_data,
                     "key": key,

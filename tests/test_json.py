@@ -725,7 +725,7 @@ class ModelyJsonTest(unittest.TestCase):
         output2 = Output('out2', input1)
         output3 = Output('out3', input1)
 
-        test = Modely(visualizer=TextVisualizer(), seed=42)
+        test = Modely(visualizer=None, seed=42)
         test.addModel('model', [output1, output2, output3])
         test.addMinimize('error1', input1, output1)
         test_json_1 = test.json

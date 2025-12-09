@@ -103,7 +103,7 @@ def plot_results(ax, name_data, key, A, B, data_idxs, sample_time):
 
     ax.grid(True)
     ax.legend(loc='best')
-    ax.set_xlabel('Time (s)')
+    ax.set_xlabel('Time [s]')
     ax.set_ylabel(f'Value {key}')
 
     # min_val = min([min(A), min(B)])

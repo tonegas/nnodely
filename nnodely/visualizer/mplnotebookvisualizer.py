@@ -32,16 +32,16 @@ class MPLNotebookVisualizer(TextVisualizer):
             fig = plt.figure()
             ax = fig.add_subplot(111)
             np_data_A = np.array(self.modely.prediction[name_data][key]['A'])
-            if len(np_data_A.shape) > 3 and np_data_A.shape[1] > 50:
+            if len(np_data_A.shape) > 3 and np_data_A.shape[1] > 30:
                 np_data_B = np.array(self.modely.prediction[name_data][key]['B'])
-                indices = np.linspace(0, np_data_A.shape[1] - 1, 50, dtype=int)
+                indices = np.linspace(0, np_data_A.shape[1] - 1, 30, dtype=int)
                 data_A = np_data_A[:, indices, :, :].tolist()
                 data_B = np_data_B[:, indices, :, :].tolist()
                 data_idxs = np.array(self.modely.prediction[name_data]['idxs'])[:,indices].tolist()
             else:
                 data_A = self.modely.prediction[name_data][key]['A']
                 data_B = self.modely.prediction[name_data][key]['B']
-                data_idxs = None
+                data_idxs = self.modely.prediction[name_data]['idxs'] if len(np_data_A.shape) > 3 else None
 
             plots.plot_results(ax, name_data, key, data_A,
                                data_B, data_idxs, self.modely._model_def['Info']["SampleTime"])

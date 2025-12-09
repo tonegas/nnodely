@@ -261,11 +261,11 @@ class Stream(Relation):
         Stream
             A Stream of the signal represents the integral or derivation operation.
         """
-        from nnodely.layers.timeoperation import Derivate, Integrate
+        from nnodely.layers.timeoperation import Differentiate, Integrate
         check(order != 0, ValueError, "The order must be a positive or negative integer not a zero")
         if order > 0:
             for i in range(order):
-                o = Derivate(self, der_name = der_name, int_name = int_name, method = method)
+                o = Differentiate(self, der_name = der_name, int_name = int_name, method = method)
         elif order < 0:
             for i in range(-order):
                 o = Integrate(self, der_name = der_name, int_name = int_name, method = method)

@@ -497,7 +497,7 @@ class ModelyNetworkBuildingTest(unittest.TestCase):
         out_rk2 = Output('rk2', rk2_rel)
         out_rk4 = Output('rk4', rk4_rel)
 
-        model = Modely(visualizer=TextVisualizer(verbose=5))
+        model = Modely(visualizer=None)
         model.addModel('model', [out_fe, out_rk2, out_rk4])
         model.neuralizeModel(1)
 

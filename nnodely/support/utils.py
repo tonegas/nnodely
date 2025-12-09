@@ -142,7 +142,9 @@ def tensor_to_list(data):
 def get_batch_size(n_samples, batch_size = None, predicion_samples = 0):
     batch_size = batch_size if batch_size is not None else n_samples
     predicion_samples = 0 if predicion_samples == -1 else predicion_samples #This value is used to disconnect the connect
-    return batch_size if batch_size <= n_samples - predicion_samples else max(0, n_samples - predicion_samples)
+    batch_size = batch_size if batch_size <= n_samples - predicion_samples else max(0, n_samples - predicion_samples)
+    check(batch_size > 0, ValueError, f'The batch_size must be greater than 0.')
+    return batch_size
 
 def check_and_get_list(name_list, available_names, error_fun):
     if type(name_list) is str:
