@@ -197,7 +197,7 @@ class MPLVisualizer(TextVisualizer):
     def closeTraining(self, minimizer = None):
         if minimizer is None:
             for key in self.modely._model_def['Minimizers'].keys():
-                if key in self.__process_training and type(self.__process_training[key]) is not None and self.__process_training[key].poll() is None:
+                if key in self.__process_training and self.__process_training[key] is not None and self.__process_training[key].poll() is None:
                     self.__process_training[key].terminate()
                     self.__process_training[key].wait()
                 self.__process_training[key] = None
