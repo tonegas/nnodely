@@ -326,9 +326,9 @@ class ClosedLoop(Stream, ToStream):
 
 class Input(Stream):
     def __init__(self, name:str, *, dimensions:int = 1):
+        check(type(dimensions) == int, TypeError,"The dimensions must be a integer")
         self.name = name
         self.attrs = {'dim': dimensions}
-        check(type(dimensions) == int, TypeError,"The dimensions must be a integer")
         super().__init__(self, name, self.attrs)
 
     @enforce_types
