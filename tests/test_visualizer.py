@@ -211,8 +211,7 @@ class ModelyTestVisualizer(unittest.TestCase):
         except ValueError:
             pass
         test.trainAndAnalyze(optimizer='SGD', splits=[70, 20, 10], training_params=params, closed_loop={'x':'out2'}, prediction_samples=5)
-        m.closeTraining()
-        m.closeResult()
+
 
     def test_structure_plot(self):
         clearNames()
