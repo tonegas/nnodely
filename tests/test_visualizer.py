@@ -145,8 +145,8 @@ class ModelyTestVisualizer(unittest.TestCase):
 
         test.neuralizeModel(0.5)
 
-        data_x = np.arange(0.0, 10, 0.1)
-        data_y = np.arange(0.0, 10, 0.1)
+        data_x = np.arange(0.0, 1000, 0.1)
+        data_y = np.arange(0.0, 1000, 0.1)
         a, b = -1.0, 2.0
         dataset = {'x': data_x, 'y': data_y, 'z': a * data_x + b * data_y}
         params = {'num_of_epochs': 10, 'lr': 0.01}
@@ -164,6 +164,10 @@ class ModelyTestVisualizer(unittest.TestCase):
         with self.assertRaises(ValueError):
             m.showFunctions(list_of_functions[1])
         m.closeFunctions()
+        test.trainAndAnalyze(optimizer='SGD', splits=[70, 20, 10], training_params=params, closed_loop={'x': 'out2'},
+                             prediction_samples=5)
+        m.closeResult()
+        m.closeTraining()
 
     def test_export_mplvisualizer2(self):
         clearNames(['x', 'F'])
@@ -193,8 +197,8 @@ class ModelyTestVisualizer(unittest.TestCase):
 
         test.neuralizeModel(1)
 
-        data_x = np.arange(0.0, 10, 0.1)
-        data_y = np.arange(0.0, 10, 0.1)
+        data_x = np.arange(0.0, 1000, 0.1)
+        data_y = np.arange(0.0, 1000, 0.1)
         a, b = -1.0, 2.0
         dataset = {'x': data_x, 'y': data_y, 'z': a * data_x + b * data_y}
         params = {'num_of_epochs': 1, 'lr': 0.01}
@@ -206,6 +210,9 @@ class ModelyTestVisualizer(unittest.TestCase):
                 m.showFunctions(f)
         except ValueError:
             pass
+        test.trainAndAnalyze(optimizer='SGD', splits=[70, 20, 10], training_params=params, closed_loop={'x':'out2'}, prediction_samples=5)
+        m.closeTraining()
+        m.closeResult()
 
     def test_structure_plot(self):
         clearNames()

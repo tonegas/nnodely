@@ -52,10 +52,10 @@ class MPLVisualizer(TextVisualizer):
     def showTraining(self, epoch, train_losses, val_losses):
         if epoch == 0:
             for key in self.__process_training.keys():
-                if self.__process_training[key].poll() is None:
+                if self.__process_training[key] is not None and self.__process_training[key].poll() is None:
                     self.__process_training[key].terminate()
                     self.__process_training[key].wait()
-                self.__process_training[key] = {}
+                self.__process_training[key] = None
 
             self.__process_training = {}
             for key in self.modely._model_def['Minimizers'].keys():
@@ -200,7 +200,7 @@ class MPLVisualizer(TextVisualizer):
                 if key in self.__process_training and self.__process_training[key].poll() is None:
                     self.__process_training[key].terminate()
                     self.__process_training[key].wait()
-                self.__process_training[key] = {}
+                self.__process_training[key] = None
         else:
             self.__process_training[minimizer].terminate()
             self.__process_training[minimizer].wait()
