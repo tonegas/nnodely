@@ -224,6 +224,7 @@ class Validator(Network):
     def analyzeModel(self,
                 dataset: str | list | dict | None = None, *,
                 tag: str | None = None,
+                splits: list | None = None,
                 minimize_gain: dict = {},
                 closed_loop: dict = {},
                 connect: dict = {},
@@ -261,7 +262,43 @@ class Validator(Network):
         if dataset is None:
             dataset = list(self._data.keys())
 
-        data = self._get_data(dataset) 
-        n_samples = next(iter(data.values())).size(0)
-        indexes = self._get_batch_indexes(dataset, n_samples, prediction_samples)
-        self._analyze(data, tag, indexes, minimize_gain, closed_loop, connect, prediction_samples, step, batch_size)
+        if splits: ## splits is used
+            ## Get the dataset
+            XY_train, XY_val, XY_test = self._setup_dataset(None, None, None, dataset, splits)
+            n_samples_train = next(iter(XY_train.values())).size(0)
+            n_samples_val = next(iter(XY_val.values())).size(0) if XY_val else 0
+            n_samples_test = next(iter(XY_test.values())).size(0) if XY_test else 0
+            tag = self._get_tag(dataset)
+            train_tag = f"{tag}_train"
+            val_tag = f"{tag}_val" if n_samples_val > 0 else None
+            test_tag = f"{tag}_test" if n_samples_test > 0 else None
+
+            train_indexes, val_indexes = [], []
+            train_indexes = self._get_batch_indexes(dataset, n_samples_train, prediction_samples)
+            check(len(train_indexes) > 0, ValueError,
+                  'The number of valid train samples is less than the number of prediction samples.')
+            if n_samples_val > 0:
+                val_indexes = self._get_batch_indexes(dataset, n_samples_train + n_samples_val, prediction_samples)
+                val_indexes = [i - n_samples_train for i in val_indexes if i >= n_samples_train]
+            if n_samples_test > 0:
+                test_indexes = self._get_batch_indexes(dataset, n_samples_train + n_samples_val + n_samples_test, prediction_samples)
+                test_indexes = [i - (n_samples_train+n_samples_val)for i in test_indexes if i >= (n_samples_train+n_samples_val)]
+            ## Training set Results
+            self._analyze(XY_train, dataset_tag=train_tag, indexes=train_indexes, minimize_gain=minimize_gain,
+                            closed_loop=closed_loop, connect=connect, prediction_samples=prediction_samples,
+                            step=step, batch_size=batch_size)
+            ## Validation set Results
+            if n_samples_val > 0:
+                self._analyze(XY_val, dataset_tag=val_tag, indexes=val_indexes, minimize_gain=minimize_gain,
+                                closed_loop=closed_loop, connect=connect, prediction_samples=prediction_samples,
+                                step=step, batch_size=batch_size)
+            ## Test set Results
+            if n_samples_test > 0:
+                self._analyze(XY_test, dataset_tag=test_tag, indexes=test_indexes, minimize_gain=minimize_gain,
+                                closed_loop=closed_loop, connect=connect, prediction_samples=prediction_samples,
+                                step=step, batch_size=batch_size)
+        else:
+            data = self._get_data(dataset) 
+            n_samples = next(iter(data.values())).size(0)
+            indexes = self._get_batch_indexes(dataset, n_samples, prediction_samples)
+            self._analyze(data, tag, indexes, minimize_gain, closed_loop, connect, prediction_samples, step, batch_size)
