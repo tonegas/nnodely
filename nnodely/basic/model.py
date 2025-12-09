@@ -9,8 +9,6 @@ from itertools import product
 from nnodely.support.utils import TORCH_DTYPE
 from nnodely.support import initializer
 
-
-
 @torch.fx.wrap
 def update_state(data_in, rel):
     #virtual = torch.roll(data_in, shifts=-1, dims=1)

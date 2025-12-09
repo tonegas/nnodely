@@ -51,8 +51,8 @@ class Validator(Network):
             for name, values in self._model_def['Minimizers'].items():
                 losses[name] = CustomLoss(values['loss'])
 
-            data = self._get_data(dataset)
-            n_samples = len(data[list(data.keys())[0]])
+            #data = self._get_data(dataset)
+            n_samples = len(dataset[list(dataset.keys())[0]])
 
             batch_size = get_batch_size(n_samples, batch_size, prediction_samples)
             prediction_samples = self._setup_recurrent_variables(prediction_samples, closed_loop, connect)
@@ -71,7 +71,7 @@ class Validator(Network):
 
                 ## Update with virtual states
                 self._model.update(closed_loop = closed_loop, connect = connect)
-                self._recurrent_inference(data, indexes, batch_size, minimize_gain, prediction_samples,
+                self._recurrent_inference(dataset, indexes, batch_size, minimize_gain, prediction_samples,
                                           step, non_mandatory_inputs, mandatory_inputs, losses,
                                           total_losses = total_losses, A = A, B = B, idxs = idxs)
 
@@ -90,7 +90,7 @@ class Validator(Network):
                     total_losses[key], A[key], B[key] = [], [], []
 
                 self._model.update(disconnect=True)
-                self._inference(data, n_samples, batch_size, minimize_gain, losses,
+                self._inference(dataset, n_samples, batch_size, minimize_gain, losses,
                                 total_losses = total_losses, A = A, B = B)
 
                 for key, value in self._model_def['Minimizers'].items():
