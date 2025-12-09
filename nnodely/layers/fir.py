@@ -29,11 +29,11 @@ class Fir(NeuObj, AutoToStream):
     ----------
     output_dimension : int, optional
         The output dimension of the FIR relation.
-    W_init : Callable, optional
+    W_init : Callable, str, optional
         A callable for initializing the parameters.
     W_init_params : dict, optional
         A dictionary of parameters for the parameter initializer.
-    b_init : Callable, optional
+    b_init : Callable, str, optional
         A callable for initializing the bias.
     b_init_params : dict, optional
         A dictionary of parameters for the bias initializer.
@@ -83,14 +83,14 @@ class Fir(NeuObj, AutoToStream):
 
     Example - passing a parameter:
         >>> input = Input('in')
-        >>> par = Parameter('par', dimensions=3, sw=2, init=init_constant)
+        >>> par = Parameter('par', dimensions=3, sw=2, init='init_constant')
         >>> relation = Fir(W=par)(input.sw(2))
 
     Example - parameters initialization:
         >>> x = Input('x')
         >>> F = Input('F')
-        >>> fir_x = Fir(W_init=init_negexp)(x.tw(0.2)) 
-        >>> fir_F = Fir(W_init=init_constant, W_init_params={'value':1})(F.last())
+        >>> fir_x = Fir(W_init='init_negexp')(x.tw(0.2))
+        >>> fir_F = Fir(W_init='init_constant', W_init_params={'value':1})(F.last())
 
     """
     @enforce_types
@@ -112,7 +112,8 @@ class Fir(NeuObj, AutoToStream):
         super().__init__('P'+fir_relation_name + str(NeuObj.count))
 
         if type(self.W) is Parameter:
-            check(len(self.W.dim) == 2,ValueError,f"The values of the parameters must have two dimensions (tw/sample_rate or sw,output_dimension).")
+            check('tw' in self.W.dim or 'sw' in self.W.dim, TypeError, f'The "W" Parameter must have a time dimension or a sample dimension but got {self.W.dim}.')
+            #check(len(self.W.dim) == 2,ValueError,f"The values of the parameters must have two dimensions [tw/sample_rate,output_dimension] or [sw,output_dimension].")
             if output_dimension is None:
                 check(type(self.W.dim['dim']) is int, TypeError, 'Dimension of the parameter must be an integer for the Fir')
                 self.output_dimension = self.W.dim['dim']

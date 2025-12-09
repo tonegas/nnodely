@@ -4,6 +4,7 @@ from nnodely.basic.model import Model
 from nnodely.basic.modeldef import ModelDef
 from nnodely.operators.network import Network
 from nnodely.support.utils import check, enforce_types
+from nnodely.basic.relation import Stream, NeuObj
 
 
 class Exporter(Network):
@@ -21,7 +22,7 @@ class Exporter(Network):
             self.__exporter = EmptyExporter()
 
     @enforce_types
-    def getWorkspace(self):
+    def getWorkspace(self) -> str:
         return self.__exporter.getWorkspace()
 
     @enforce_types
@@ -172,6 +173,19 @@ class Exporter(Network):
         """
         model_def = self.__exporter.loadModel(name, model_folder)
         check(model_def, RuntimeError, "Error to load the network.")
+        new_tags = (list(model_def['Inputs'].keys()) +
+                    list(model_def['Functions'].keys()) +
+                    list(model_def['Relations'].keys()) +
+                    list(model_def['Parameters'].keys())+
+                    list(model_def['Constants'].keys()))
+        ## TODO: setting the Stream.count is not enough, we need a global tag manager
+        # old_tags = list(self._model_def['Functions'].keys()) + list(self._model_def['Relations'].keys()) + list(self._model_def['Parameters'].keys()) if self._model_def is not None else []
+        # check that there are no common tags
+        # common_tags = set(new_tags).intersection(set(old_tags))
+        # check(len(common_tags) == 0, RuntimeError, f"The model contains some tags that are already present in the current model: {common_tags}.\n Please rename them before loading the model.")
+        #check(Stream.count == 0, RuntimeError, "There are some defined Stream, loadModel can be called only at the beginning, when the neural graph is empty.")
+        Stream.count = Stream.count + len(new_tags) + 1
+        NeuObj.count = NeuObj.count + len(new_tags) + 1
         self._model_def = ModelDef(model_def)
         self._model = None
         self._neuralized = False

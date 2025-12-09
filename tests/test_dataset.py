@@ -39,6 +39,61 @@ class ModelyCreateDatasetTest(unittest.TestCase):
         self.assertEqual([[1.225]], test._data['dataset_1']['out'][0].tolist())
         self.assertEqual([[[1.225]], [[1.224]], [[1.222]], [[1.22]], [[1.217]], [[1.214]], [[1.211]], [[1.207]], [[1.204]], [[1.2]]], test._data['dataset_1']['out'].tolist())
 
+    def test_build_dataset_tuple(self):
+        NeuObj.clearNames()
+        inputA = Input('inA')
+        inputB = Input('inB')
+        out = Output('out', Fir(inputA.tw(0.05)+inputB.tw(0.05)))
+
+        test = Modely(visualizer=None)
+        test.addModel('out', out)
+        test.neuralizeModel(0.01)
+
+        data_struct = ['','y1','x2','y2','','A1x','A1y','B1x','B1y','','A2x','A2y','B2x','out','','x3',('inA','inB'),'theta','time']
+        test.loadData(name='dataset_1', source=train_folder, format=data_struct, skiplines=4, delimiter='\t', header=None)
+        self.assertEqual((11,5,1), test._data['dataset_1']['inA'].shape)
+        self.assertEqual([[0.984],[0.983],[0.982],[0.98],[0.977]], test._data['dataset_1']['inA'][0].tolist())
+        self.assertEqual((11,5,1), test._data['dataset_1']['inB'].shape)
+        self.assertEqual([[0.984],[0.983],[0.982],[0.98],[0.977]], test._data['dataset_1']['inB'][0].tolist())
+
+        out = Output('out2', Fir(inputA.tw(0.05)))
+
+        test2 = Modely(visualizer=None)
+        test2.addModel('out2', out)
+        test2.neuralizeModel(0.01)
+
+        data_struct = ['','y1','x2','y2','','A1x','A1y','B1x','B1y','',('A2x','f'),'A2y','B2x','out','','x3',('inA','inB'),'theta','time']
+        test2.loadData(name='dataset_1', source=train_folder, format=data_struct, skiplines=4, delimiter='\t', header=None)
+        self.assertEqual((11,5,1), test._data['dataset_1']['inA'].shape)
+        self.assertEqual([[0.984],[0.983],[0.982],[0.98],[0.977]], test._data['dataset_1']['inA'][0].tolist())
+
+    def test_build_dataset_tuple_dim(self):
+        NeuObj.clearNames()
+        inputA1 = Input('inA1')
+        inputA = Input('inA', dimensions=3)
+        inputB = Input('inB', dimensions=3)
+        out = Output('out', inputA1.sw(1)+Fir(Linear(inputA.tw(0.05)+inputB.tw(0.05))))
+
+        test = Modely(visualizer=None)
+        test.addModel('out', out)
+        test.neuralizeModel(0.01)
+
+        data_struct = ['','y1','x2','y2','',('A1x','inA1'),'A1y','B1x','B1y','','A2x','A2y','B2x','out','','x3',('inA','inB'),'theta','time']
+        test.loadData(name='dataset_1', source=train_folder, format=data_struct, skiplines=4, delimiter='\t', header=None)
+        self.assertEqual((11,5,3), test._data['dataset_1']['inA'].shape)
+        self.assertEqual([[0.984,12.493, 0.0],[0.983,12.493, 0.01],[0.982,12.495, 0.02],[0.98,12.498, 0.03],[0.977,12.502, 0.04]], test._data['dataset_1']['inA'][0].tolist())
+        self.assertEqual((11,5,3), test._data['dataset_1']['inB'].shape)
+        self.assertEqual([[0.984, 12.493, 0.0], [0.983, 12.493, 0.01], [0.982, 12.495, 0.02], [0.98, 12.498, 0.03],
+                          [0.977, 12.502, 0.04]], test._data['dataset_1']['inB'][0].tolist())
+
+        with self.assertRaises(ValueError):
+            data_struct = ['','y1','x2','y2','',('inA1','inA'),'A1y','B1x','B1y','','A2x','A2y','B2x','out','','x3',('inA','inB'),'theta','time']
+            test.loadData(name='dataset_2', source=train_folder, format=data_struct, skiplines=4, delimiter='\t', header=None)
+
+        with self.assertRaises(ValueError):
+            data_struct = ['','y1','x2','y2','',('inA1','inA'),'A1y','B1x','B1y','','A2x','A2y','B2x','out','','x3','inB','theta','time']
+            test.loadData(name='dataset_3', source=train_folder, format=data_struct, skiplines=4, delimiter='\t', header=None)
+
     def test_build_multi_dataset_simple(self):
         NeuObj.clearNames()
         input = Input('in1')
@@ -625,7 +680,9 @@ class ModelyCreateDatasetTest(unittest.TestCase):
         self.assertEqual(test._num_of_samples['dataset3'], 45) ## 50 - 5
 
         ## train one dataset using splits
-        tp = test.trainModel(dataset='dataset1', splits=[80, 10, 10], prediction_samples=3, num_of_epochs=1)
+        test.trainModel(dataset='dataset1', splits=[80, 10, 10], prediction_samples=3, num_of_epochs=1)
+        tp = test.getTrainingInfo()
+
         self.assertEqual(tp['n_samples_train'], 36) ## 45 * 0.8
         self.assertEqual(tp['n_samples_val'], 4) ## 45 * 0.1
         self.assertEqual(tp['n_samples_test'], 5) ## 45 * 0.1
@@ -633,7 +690,9 @@ class ModelyCreateDatasetTest(unittest.TestCase):
         self.assertEqual(test.running_parameters['val_indexes'], [0])
 
         ## train using one dataset for train and one for validation
-        tp = test.trainModel(train_dataset='dataset1', validation_dataset='dataset2', prediction_samples=3, num_of_epochs=1)
+        test.trainModel(train_dataset='dataset1', validation_dataset='dataset2', prediction_samples=3, num_of_epochs=1)
+        tp = test.getTrainingInfo()
+
         self.assertEqual(tp['n_samples_train'], 45)
         self.assertEqual(tp['n_samples_val'], 45)
         self.assertEqual(tp['n_samples_test'], 0)
@@ -641,7 +700,9 @@ class ModelyCreateDatasetTest(unittest.TestCase):
         self.assertEqual(test.running_parameters['val_indexes'], [0, 1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41])
 
         ## train using two dataset for train and one for validation
-        tp = test.trainModel(train_dataset=['dataset1', 'dataset2'], validation_dataset='dataset3', prediction_samples=3, num_of_epochs=1)
+        test.trainModel(train_dataset=['dataset1', 'dataset2'], validation_dataset='dataset3', prediction_samples=3, num_of_epochs=1)
+        tp = test.getTrainingInfo()
+
         self.assertEqual(tp['n_samples_train'], 90) ## 45 + 45
         self.assertEqual(tp['n_samples_val'], 45)
         self.assertEqual(tp['n_samples_test'], 0)
@@ -650,7 +711,9 @@ class ModelyCreateDatasetTest(unittest.TestCase):
         self.assertEqual(test.running_parameters['val_indexes'], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41])
 
         ## train using two dataset for train and two for validation
-        tp = test.trainModel(train_dataset=['dataset1', 'dataset2'], validation_dataset=['dataset2','dataset3'], prediction_samples=3, num_of_epochs=1)
+        test.trainModel(train_dataset=['dataset1', 'dataset2'], validation_dataset=['dataset2','dataset3'], prediction_samples=3, num_of_epochs=1)
+        tp = test.getTrainingInfo()
+
         self.assertEqual(tp['n_samples_train'], 90) ## 45 + 45
         self.assertEqual(tp['n_samples_val'], 90)
         self.assertEqual(tp['n_samples_test'], 0)
@@ -660,7 +723,9 @@ class ModelyCreateDatasetTest(unittest.TestCase):
                                                45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86])
 
         ## train using two dataset for train and two for validation (dataset4 is ignored)
-        tp = test.trainModel(train_dataset=['dataset1', 'dataset2'], validation_dataset=['dataset2','dataset3','dataset4'], num_of_epochs=1, prediction_samples=3)
+        test.trainModel(train_dataset=['dataset1', 'dataset2'], validation_dataset=['dataset2','dataset3','dataset4'], num_of_epochs=1, prediction_samples=3)
+        tp = test.getTrainingInfo()
+
         self.assertEqual(tp['n_samples_train'], 90) ## 45 + 45
         self.assertEqual(tp['n_samples_val'], 90)
         self.assertEqual(tp['n_samples_test'], 0)
@@ -670,7 +735,9 @@ class ModelyCreateDatasetTest(unittest.TestCase):
                                                45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86])
 
         ## Use all datasets by default
-        tp = test.trainModel(splits=[80, 10, 10], prediction_samples=3)
+        test.trainModel(splits=[80, 10, 10], prediction_samples=3)
+        tp = test.getTrainingInfo()
+
         self.assertEqual(tp['n_samples_train'], 108) ## (45+45+45) * 0.8
         self.assertEqual(tp['n_samples_val'], 14) ## 135 * 0.1
         self.assertEqual(tp['n_samples_test'], 13) ## 135 * 0.1
@@ -680,7 +747,9 @@ class ModelyCreateDatasetTest(unittest.TestCase):
         self.assertEqual(test.running_parameters['val_indexes'], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
 
         ## splits multifile
-        tp = test.trainModel(dataset=['dataset1', 'dataset2', 'dataset3'], splits=[80, 10, 10], prediction_samples=3)
+        test.trainModel(dataset=['dataset1', 'dataset2', 'dataset3'], splits=[80, 10, 10], prediction_samples=3)
+        tp = test.getTrainingInfo()
+
         self.assertEqual(tp['n_samples_train'], 108) ## (45+45+45) * 0.8
         self.assertEqual(tp['n_samples_val'], 14) ## 90 * 0.1
         self.assertEqual(tp['n_samples_test'], 13) ## 90 * 0.1
@@ -690,7 +759,9 @@ class ModelyCreateDatasetTest(unittest.TestCase):
         self.assertEqual(test.running_parameters['val_indexes'], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
 
         ## train one dataset using splits
-        tp = test.trainModel(dataset='dataset1', splits=[80, 10, 10], num_of_epochs=1)
+        test.trainModel(dataset='dataset1', splits=[80, 10, 10], num_of_epochs=1)
+        tp = test.getTrainingInfo()
+
         self.assertEqual(tp['n_samples_train'], 36) ## 45 * 0.8
         self.assertEqual(tp['n_samples_val'], 4) ## 45 * 0.1
         self.assertEqual(tp['n_samples_test'], 5) ## 45 * 0.1
@@ -698,7 +769,9 @@ class ModelyCreateDatasetTest(unittest.TestCase):
         self.assertEqual(test.running_parameters['val_indexes'], list(range(4)))
 
         ## train using one dataset for train and one for validation
-        tp = test.trainModel(train_dataset='dataset1', validation_dataset='dataset2', num_of_epochs=1)
+        test.trainModel(train_dataset='dataset1', validation_dataset='dataset2', num_of_epochs=1)
+        tp = test.getTrainingInfo()
+
         self.assertEqual(tp['n_samples_train'], 45)
         self.assertEqual(tp['n_samples_val'], 45)
         self.assertEqual(tp['n_samples_test'], 0)
@@ -706,7 +779,9 @@ class ModelyCreateDatasetTest(unittest.TestCase):
         self.assertEqual(test.running_parameters['val_indexes'], list(range(45)))
 
         ## train using two dataset for train and one for validation
-        tp = test.trainModel(train_dataset=['dataset1', 'dataset2'], validation_dataset='dataset3', num_of_epochs=1)
+        test.trainModel(train_dataset=['dataset1', 'dataset2'], validation_dataset='dataset3', num_of_epochs=1)
+        tp = test.getTrainingInfo()
+
         self.assertEqual(tp['n_samples_train'], 90) ## 45 + 45
         self.assertEqual(tp['n_samples_val'], 45)
         self.assertEqual(tp['n_samples_test'], 0)
@@ -714,7 +789,9 @@ class ModelyCreateDatasetTest(unittest.TestCase):
         self.assertEqual(test.running_parameters['val_indexes'], list(range(45)))
 
         ## train using two dataset for train and two for validation
-        tp = test.trainModel(train_dataset=['dataset1', 'dataset2'], validation_dataset=['dataset2','dataset3'], num_of_epochs=1)
+        test.trainModel(train_dataset=['dataset1', 'dataset2'], validation_dataset=['dataset2','dataset3'], num_of_epochs=1)
+        tp = test.getTrainingInfo()
+
         self.assertEqual(tp['n_samples_train'], 90) ## 45 + 45
         self.assertEqual(tp['n_samples_val'], 90)
         self.assertEqual(tp['n_samples_test'], 0)
@@ -722,7 +799,9 @@ class ModelyCreateDatasetTest(unittest.TestCase):
         self.assertEqual(test.running_parameters['val_indexes'], list(range(90)))
 
         ## train using two dataset for train and two for validation (dataset4 is ignored)
-        tp = test.trainModel(train_dataset=['dataset1', 'dataset2'], validation_dataset=['dataset2','dataset3','dataset4'], num_of_epochs=1)
+        test.trainModel(train_dataset=['dataset1', 'dataset2'], validation_dataset=['dataset2','dataset3','dataset4'], num_of_epochs=1)
+        tp = test.getTrainingInfo()
+
         self.assertEqual(tp['n_samples_train'], 90) ## 45 + 45
         self.assertEqual(tp['n_samples_val'], 90)
         self.assertEqual(tp['n_samples_test'], 0)
@@ -730,7 +809,9 @@ class ModelyCreateDatasetTest(unittest.TestCase):
         self.assertEqual(test.running_parameters['val_indexes'], list(range(90)))
 
         ## splits multifile
-        tp = test.trainModel(dataset=['dataset1', 'dataset2', 'dataset3'], splits=[80, 10, 10])
+        test.trainModel(dataset=['dataset1', 'dataset2', 'dataset3'], splits=[80, 10, 10])
+        tp = test.getTrainingInfo()
+
         self.assertEqual(tp['n_samples_train'], 108) ## (45+45+45) * 0.8
         self.assertEqual(tp['n_samples_val'], 14) ## 90 * 0.1
         self.assertEqual(tp['n_samples_test'], 13) ## 90 * 0.1

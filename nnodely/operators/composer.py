@@ -6,12 +6,14 @@ from nnodely.operators.network import Network
 
 from nnodely.basic.modeldef import ModelDef
 from nnodely.basic.model import Model
-from nnodely.support.utils import check, log,  TORCH_DTYPE, NP_DTYPE, enforce_types
+from nnodely.support.utils import check, TORCH_DTYPE, NP_DTYPE, enforce_types, tensor_to_list
 from nnodely.support.mathutils import argmax_dict, argmin_dict
 from nnodely.basic.relation import Stream
 from nnodely.layers.input import Input
 from nnodely.layers.output import Output
 
+from nnodely.support.logger import logging, nnLogger
+log = nnLogger(__name__, logging.WARNING)
 
 class Composer(Network):
     @enforce_types
@@ -19,7 +21,7 @@ class Composer(Network):
         check(type(self) is not Composer, TypeError, "Composer class cannot be instantiated directly")
         super().__init__()
 
-    def __addInfo(self):
+    def __addInfo(self) -> None:
         total_params = sum(p.numel() for p in self._model.parameters() if p.requires_grad)
         self._model_def['Info']['num_parameters'] = total_params
         from nnodely import __version__
@@ -46,6 +48,7 @@ class Composer(Network):
             >>> model.addModel('example_model', [out])
         """
         self._model_def.addModel(name, stream_list)
+        self._neuralized = False
 
     @enforce_types
     def removeModel(self, name_list:list|str) -> None:
@@ -63,6 +66,7 @@ class Composer(Network):
             >>> model.removeModel(['sub_model1', 'sub_model2'])
         """
         self._model_def.removeModel(name_list)
+        self._neuralized = False
 
     @enforce_types
     def addConnect(self, stream_out:str|Output|Stream, input_in:str|Input, *, local:bool=False) -> None:
@@ -89,12 +93,8 @@ class Composer(Network):
             >>> relation = Fir(x.last())
             >>> model.addConnect(relation, y)
         """
-        if isinstance(stream_out, (Output, Stream)):
-            outputs = self._model_def['Outputs']
-            stream_name = outputs[stream_out.name] if stream_out.name in outputs.keys() else stream_out.name
-        if isinstance(input_in, Input):
-            input_name = input_in.name
-        self._model_def.addConnect(stream_name, input_name, local)
+        self._model_def.addConnection(stream_out, input_in,'connect', local)
+        self._neuralized = False
 
     @enforce_types
     def addClosedLoop(self, stream_out:str|Output|Stream, input_in:str|Input, *, local:bool=False) -> None:
@@ -121,12 +121,8 @@ class Composer(Network):
             >>> relation = Fir(x.last())
             >>> model.addClosedLoop(relation, y)
         """
-        if isinstance(stream_out, (Output, Stream)):
-            outputs = self._model_def['Outputs']
-            stream_name = outputs[stream_out.name] if stream_out.name in outputs.keys() else stream_out.name
-        if isinstance(input_in, Input):
-            input_name = input_in.name
-        self._model_def.addClosedLoop(stream_name, input_name, local)
+        self._model_def.addConnection(stream_out, input_in,'closedLoop', local)
+        self._neuralized = False
 
     @enforce_types
     def removeConnection(self, input_in:str|Input) -> None:
@@ -157,6 +153,7 @@ class Composer(Network):
         else:
             input_name = input_in
         self._model_def.removeConnection(input_name)
+        self._neuralized = False
 
     @enforce_types
     def neuralizeModel(self, sample_time:float|int|None = None, *, clear_model:bool = False, model_def:dict|None = None) -> None:
@@ -202,6 +199,11 @@ class Composer(Network):
         self._max_samples_forward = max(self._input_ns_forward.values())
         self._input_n_samples = {}
         for key, value in self._model_def['Inputs'].items():
+            if self._input_ns_forward[key] >= 0:
+                if 'closedLoop' in value:
+                    log.warning(f"Closed loop on {key} with sample in the future.")
+                if 'connect' in value:
+                    log.warning(f"Connect on {key} with sample in the future.")
             self._input_n_samples[key] = self._input_ns_backward[key] + self._input_ns_forward[key]
         self._max_n_samples = max(self._input_ns_backward.values()) + max(self._input_ns_forward.values())
 
@@ -216,7 +218,7 @@ class Composer(Network):
         self.visualizer.showBuiltModel()
 
     @enforce_types
-    def __call__(self, inputs:dict={}, *, sampled:bool=False, closed_loop:dict={}, connect:dict={}, prediction_samples:str|int='auto', num_of_samples:int|None=None) -> dict:
+    def __call__(self, inputs:dict={}, *, sampled:bool=False, closed_loop:dict={}, connect:dict={}, prediction_samples:str|int='auto', num_of_samples:int|None=None, log_internal:bool=False) -> dict:
         """
         Performs inference on the model.
 
@@ -271,10 +273,7 @@ class Composer(Network):
         check(self.neuralized, RuntimeError, "The network is not neuralized.")
 
         ## Check closed loop integrity
-        for close_in, close_out in (closed_loop | connect).items():
-            check(close_in in self._model_def['Inputs'], ValueError, f'the tag "{close_in}" is not an input variable.')
-            check(close_out in self._model_def['Outputs'], ValueError,
-                  f'the tag "{close_out}" is not an output of the network')
+        prediction_samples = self._setup_recurrent_variables(prediction_samples, all_closed_loop, all_connect)
 
         ## List of keys
         model_inputs = list(self._model_def['Inputs'].keys())
@@ -293,8 +292,11 @@ class Composer(Network):
         num_of_windows = {key: len(value) for key, value in inputs.items()} if sampled else {
             key: len(value) - self._input_n_samples[key] + 1 for key, value in inputs.items()}
 
+        if num_of_samples is not None and sampled == True:
+            log.warning(f'num_of_samples is ignored if sampled is equal to True')
+
         ## Get the maximum inference window
-        if num_of_samples:
+        if num_of_samples and not sampled:
             window_dim = num_of_samples
             for key in inputs.keys():
                 input_dim = self._model_def['Inputs'][key]['dim']
@@ -361,6 +363,8 @@ class Composer(Network):
         result_dict = {}
         for key in self._model_def['Outputs'].keys():
             result_dict[key] = []
+        if log_internal:
+            internals_dict = {'ingress': [], 'state': [], 'closedLoop': [], 'connect': []}
 
         ## Inference
         with (torch.enable_grad() if self._get_gradient_on_inference() else torch.inference_mode()):
@@ -381,7 +385,6 @@ class Composer(Network):
                         X[key] = X[key].requires_grad_(True)
                 ## reset states
                 if count == 0 or prediction_samples == 'auto':
-                    init_states = []
                     count = prediction_samples
                     for key in non_mandatory_inputs:  ## Get non mandatory data (from inputs, from states, or with zeros)
                         ## If it is given as input AND
@@ -392,6 +395,10 @@ class Composer(Network):
                                 (prediction_samples != 'auto')
                         ):
                             X[key] = inputs[key][idx:idx + 1] if sampled else inputs[key][:,idx:idx + self._input_n_samples[key]]
+                            # if 0 in X[key].shape:
+                            #     window_size = self._input_n_samples[key]
+                            #     dim = json_inputs[key]['dim']
+                            #     X[key] = torch.zeros(size=(1, window_size, dim), dtype=TORCH_DTYPE, requires_grad=False)
                         ## if it is a state AND
                         ## if prediction_samples = 'auto' and there are not enough samples OR
                         ## it is the first iteration with prediction_samples = None
@@ -417,11 +424,10 @@ class Composer(Network):
                     count -= 1
                 ## Forward pass
                 result, _, out_closed_loop, out_connect = self._model(X)
-
-                if init_states:
-                    for key in init_states:
-                        del self._model.connect_update[key]
-                    init_states = []
+                if log_internal:
+                    internals_dict['ingress'].append(tensor_to_list(X)) 
+                    internals_dict['closedLoop'].append(out_closed_loop)
+                    internals_dict['connect'].append(out_connect)
 
                 ## Append the prediction of the current sample to the result dictionary
                 for key in self._model_def['Outputs'].keys():
@@ -433,11 +439,11 @@ class Composer(Network):
 
                 ## Update closed_loop and connect
                 if prediction_samples:
-                    self._updateState(X, out_closed_loop, out_connect)
-
+                    self._update_state(X, out_closed_loop, out_connect)
+                    
         ## Remove virtual states
-        self._removeVirtualStates(connect, closed_loop)
+        self._remove_virtual_states(connect, closed_loop)
 
-        return result_dict
+        return result_dict if not log_internal else (result_dict, internals_dict)
 
 

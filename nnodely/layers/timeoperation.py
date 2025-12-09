@@ -14,7 +14,7 @@ SOLVERS = {
 
 # Binary operators
 int_relation_name = 'Integrate'
-der_relation_name = 'Derivate'
+der_relation_name = 'Differentiate'
 
 class Integrate(Stream, ToStream):
     """
@@ -36,9 +36,9 @@ class Integrate(Stream, ToStream):
         output_int = solver.integrate(output)
         super().__init__(output_int.name, output_int.json, output_int.dim)
 
-class Derivate(Stream, ToStream):
+class Differentiate(Stream, ToStream):
     """
-    This operation Derivate a Stream with respect to time or another Stream
+    This operation Differentiate a Stream with respect to time or another Stream
 
     Parameters
     ----------
@@ -65,16 +65,16 @@ class Derivate(Stream, ToStream):
                 self.json['Inputs'][i]['type'] = 'derivate'
 
 
-class Derivate_Layer(nn.Module):
+class Differentiate_Layer(nn.Module):
     #: :noindex:
     def __init__(self):
-        super(Derivate_Layer, self).__init__()
+        super(Differentiate_Layer, self).__init__()
 
     def forward(self, *inputs):
         return torch.autograd.grad(inputs[0], inputs[1], grad_outputs=torch.ones_like(inputs[0]), create_graph=True, retain_graph=True, allow_unused=False)[0]
 
 def createAdd(name, *inputs):
     #: :noindex:
-    return Derivate_Layer()
+    return Differentiate_Layer()
 
 setattr(Model, der_relation_name, createAdd)

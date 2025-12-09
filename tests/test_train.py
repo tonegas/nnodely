@@ -290,7 +290,7 @@ class ModelyTrainingTest(unittest.TestCase):
             return (3 * x ** 2 * a) + (2 * x * b) + c * torch.cos(x)
 
         fun = ParamFun(parametric_fun,['a','b','c','d'])(x_last)
-        approx_dy_dx = Output('d_out', Derivate(fun, x_last))
+        approx_dy_dx = Output('d_out', Differentiate(fun, x_last))
 
         test = Modely(visualizer=None, seed=12)
 
@@ -305,7 +305,7 @@ class ModelyTrainingTest(unittest.TestCase):
         # d y_approx / d x == dy_dx
         # Se x era una time window and dy_dx dovrà essere una time window
         test.addModel('model', [approx_dy_dx])
-        test.addMinimize('sob_err', approx_dy_dx, dy_dx_target.last())
+        test.addMinimize('sob_err', 'd_out', dy_dx_target.last())
         test.neuralizeModel()
         test.loadData('data', dataset)
         test.trainModel(num_of_epochs=1000, splits=[70,20,10], lr=0.3)

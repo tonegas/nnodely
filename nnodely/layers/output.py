@@ -5,7 +5,7 @@ from nnodely.support.utils import enforce_types
 from nnodely.support.jsonutils import stream_to_str
 
 from nnodely.support.logger import logging, nnLogger
-log = nnLogger(__name__, logging.CRITICAL)
+log = nnLogger(__name__, logging.INFO)
 
 class Output(NeuObj):
     """

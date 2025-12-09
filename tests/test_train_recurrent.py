@@ -48,7 +48,7 @@ class ModelyTrainingTest(unittest.TestCase):
 
         test = Modely(visualizer=None, seed=42, log_internal=True)
         test.addModel('model', output)
-        test.addMinimize('out', target.next(), relation)
+        test.addMinimize('out', target.next(), 'out')
         test.neuralizeModel(0.01)
 
         dataset = {'x': [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20], 'target': [21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40]}
@@ -69,6 +69,17 @@ class ModelyTrainingTest(unittest.TestCase):
                        prediction_samples=2, step=0, shuffle_data=True)
         # ( number_samples - window_size - prediction_samples )// (batch_size + step=0) * (predictoin_samples+1)
         self.assertEqual((20-1-2)//2*3, len(test.internals.keys()))
+        with self.assertRaises(ValueError):
+            test.trainModel(dataset='dataset', splits=[40,30,30], optimizer='SGD', lr=0.01, num_of_epochs=1, train_batch_size=2,
+                            prediction_samples=50, step=0, shuffle_data=True)
+        with self.assertRaises(ValueError):
+            test.trainModel(dataset='dataset', splits=[40,10,40], optimizer='SGD', lr=0.01, num_of_epochs=1, train_batch_size=2,
+                            prediction_samples=50, step=0, shuffle_data=True)
+
+        from nnodely.support.earlystopping import early_stop_patience, select_best_model
+        test.trainModel(train_dataset='dataset', optimizer='SGD', lr=0.01, num_of_epochs=15,
+                        train_batch_size=2,  early_stopping=early_stop_patience, early_stopping_params={'patience':2}, select_model=select_best_model,
+                        prediction_samples=2, step=0, shuffle_data=True)
 
     def test_train_multifiles(self):
         NeuObj.clearNames()
@@ -80,7 +91,7 @@ class ModelyTrainingTest(unittest.TestCase):
 
         test = Modely(visualizer=None, log_internal=True)
         test.addModel('model', output)
-        test.addMinimize('error', output, x.next())
+        test.addMinimize('error', 'out', x.next())
         test.neuralizeModel(0.01)
 
         ## The folder contains 3 files with 10, 20 and 30 samples respectively
@@ -645,10 +656,10 @@ class ModelyTrainingTest(unittest.TestCase):
                                   'out2': [[[(4*-1+5*-5+1.0)*4.0+(0*-1+0*-5+1.0)*5.0]]],
                                   'out3': [[[(-15)*1.0+(4*-1+2*-5+1.0)*2.0+(6*-1+5*-5+1.0)*3.0+(4*-1+5*-5+1.0)*4.0+(0*-1+0*-5+1.0)*5.0]]],
                                   'out4': [[[(4*-1+5*-5+1.0)*4.0+(0*-1+0*-5+1.0)*5.0]]]}, test.internals['inout_0_3']['out'])
-        self.assertDictEqual({'inout': [[[0.0],[0.0], [0.0], [-15.0], [-13.0]]]}, test.internals['inout_0_0']['state'])
-        self.assertDictEqual({'inout': [[[0.0],[0.0], [-15.0], [-13.0], [-30.0]]]}, test.internals['inout_0_1']['state'])
-        self.assertDictEqual({'inout': [[[0.0], [-15.0], [-13.0], [-30.0], [-28.0]]]}, test.internals['inout_0_2']['state'])
-        self.assertDictEqual({'inout': [[[-15.0], [-13.0], [-30.0], [-28.0], [1.0]]]}, test.internals['inout_0_3']['state'])
+        self.assertDictEqual({'inout': [[[0.0],[0.0], [-15.0], [-13.0], [np.inf]]]}, test.internals['inout_0_0']['state'])
+        self.assertDictEqual({'inout': [[[0.0], [-15.0], [-13.0], [-30.0], [np.inf]]]}, test.internals['inout_0_1']['state'])
+        self.assertDictEqual({'inout': [[[-15.0], [-13.0], [-30.0], [-28.0], [np.inf]]]}, test.internals['inout_0_2']['state'])
+        self.assertDictEqual({'inout': [[[-13.0], [-30.0], [-28.0], [1.0], [np.inf]]]}, test.internals['inout_0_3']['state'])
         # Replace instead of roll
         # self.assertDictEqual({'inout': [[[0.0], [0.0], [-15.0], [-13.0], [0.0]]]}, test.internals['inout_0_0']['state'])
         # self.assertDictEqual({'inout': [[[0.0], [-15.0], [-13.0], [-30.0], [0.0]]]}, test.internals['inout_0_1']['state'])
@@ -680,9 +691,9 @@ class ModelyTrainingTest(unittest.TestCase):
                                    'out2': [[[(6*-1+5*-5+1.0)*4.0+(4*-1+5*-5+1.0)*5.0]]],
                                    'out3': [[[(-15)*2.0+(4*-1+2*-5+1.0)*3.0+(6*-1+5*-5+1.0)*4.0+(4*-1+5*-5+1.0)*5.0]]],
                                    'out4': [[[(6*-1+5*-5+1.0)*4.0+(4*-1+5*-5+1.0)*5.0]]]}, test.internals['inout_0_2']['out'])
-        self.assertDictEqual({'inout': [[[0.0], [0.0], [0.0], [-15.0], [-13.0]]]}, test.internals['inout_0_0']['state'])
-        self.assertDictEqual({'inout': [[[0.0], [0.0], [-15.0], [-13.0], [-30.0]]]}, test.internals['inout_0_1']['state'])
-        self.assertDictEqual({'inout': [[[0.0], [-15.0], [-13.0], [-30.0], [-28.0]]]}, test.internals['inout_0_2']['state'])
+        self.assertDictEqual({'inout': [[[0.0], [0.0], [-15.0], [-13.0], [np.inf]]]}, test.internals['inout_0_0']['state'])
+        self.assertDictEqual({'inout': [[[0.0], [-15.0], [-13.0], [-30.0], [np.inf]]]}, test.internals['inout_0_1']['state'])
+        self.assertDictEqual({'inout': [[[-15.0], [-13.0], [-30.0], [-28.0], [np.inf]]]}, test.internals['inout_0_2']['state'])
         # Replace instead of rolling
         # self.assertDictEqual({'inout': [[[0.0], [0.0], [-15.0], [-13.0], [0.0]]]}, test.internals['inout_0_0']['state'])
         # self.assertDictEqual({'inout': [[[0.0], [-15.0], [-13.0], [-30.0], [0.0]]]}, test.internals['inout_0_1']['state'])
@@ -695,9 +706,9 @@ class ModelyTrainingTest(unittest.TestCase):
         self.assertListEqual([[[0.0]]], test.internals['inout_1_0']['XY']['target'])
         self.assertListEqual([[[1.0]]], test.internals['inout_1_1']['XY']['target'])
         self.assertListEqual([[[0.0]]], test.internals['inout_1_2']['XY']['target'])
-        self.assertAlmostEqual({'inout': [[[0.0], [0.0], [0.0], [W[0][0]*4.0+W[1][0]*2.0+b[0]], [W[0][0]*6.0+W[1][0]*5.0+b[0]]]]}, test.internals['inout_1_0']['state'])
-        self.assertAlmostEqual({'inout': [[[0.0], [0.0], [W[0][0]*4.0+W[1][0]*2.0+b[0]], [W[0][0]*6.0+W[1][0]*5.0+b[0]], [W[0][0]*4.0+W[1][0]*5.0+b[0]]]]}, test.internals['inout_1_1']['state'])
-        self.assertAlmostEqual({'inout': [[[0.0], [W[0][0]*4.0+W[1][0]*2.0+b[0]], [W[0][0]*6.0+W[1][0]*5.0+b[0]], [W[0][0]*4.0+W[1][0]*5.0+b[0]],  [W[0][0]*0.0+W[1][0]*0.0+b[0]]]]}, test.internals['inout_1_2']['state'])
+        self.assertAlmostEqual({'inout': [[[0.0], [0.0], [W[0][0]*4.0+W[1][0]*2.0+b[0]], [W[0][0]*6.0+W[1][0]*5.0+b[0]], [np.inf]]]}, test.internals['inout_1_0']['state'])
+        self.assertAlmostEqual({'inout': [[[0.0], [W[0][0]*4.0+W[1][0]*2.0+b[0]], [W[0][0]*6.0+W[1][0]*5.0+b[0]], [W[0][0]*4.0+W[1][0]*5.0+b[0]], [np.inf]]]}, test.internals['inout_1_1']['state'])
+        self.assertAlmostEqual({'inout': [[[W[0][0]*4.0+W[1][0]*2.0+b[0]], [W[0][0]*6.0+W[1][0]*5.0+b[0]], [W[0][0]*4.0+W[1][0]*5.0+b[0]],  [W[0][0]*0.0+W[1][0]*0.0+b[0]], [np.inf]]]}, test.internals['inout_1_2']['state'])
         # Replace instead of rolling
         # self.assertAlmostEqual({'inout': [[[0.0], [0.0], [W[0][0][0] * 4.0 + W[0][1][0] * 2.0 + b[0][0]],
         #                                    [W[0][0][0] * 6.0 + W[0][1][0] * 5.0 + b[0][0]], [0.0]]]},
@@ -728,25 +739,25 @@ class ModelyTrainingTest(unittest.TestCase):
         test.trainModel(train_dataset='dataset3', optimizer='SGD', lr=0.01, shuffle_data=False, num_of_epochs=1,
                         train_batch_size=1,
                         prediction_samples=2)
-        self.assertDictEqual({'inout': [[[8.0], [7.0], [6.0], [-15.0], [-13.0]]]}, test.internals['inout_0_0']['state'])
-        self.assertDictEqual({'inout': [[[7.0], [6.0], [-15.0], [-13.0], [-30.0]]]}, test.internals['inout_0_1']['state'])
-        self.assertDictEqual({'inout': [[[6.0], [-15.0], [-13.0], [-30.0], [-28.0]]]}, test.internals['inout_0_2']['state'])
+        self.assertDictEqual({'inout': [[[8.0], [7.0], [-15.0], [-13.0], [np.inf]]]}, test.internals['inout_0_0']['state'])
+        self.assertDictEqual({'inout': [[[7.0], [-15.0], [-13.0], [-30.0], [np.inf]]]}, test.internals['inout_0_1']['state'])
+        self.assertDictEqual({'inout': [[[-15.0], [-13.0], [-30.0], [-28.0], [np.inf]]]}, test.internals['inout_0_2']['state'])
         # Replace insead of rolling
         # self.assertDictEqual({'inout': [[[8.0], [7.0], [-15.0], [-13.0], [9.0]]]}, test.internals['inout_0_0']['state'])
         # self.assertDictEqual({'inout': [[[7.0], [-15.0], [-13.0], [-30.0], [8.0]]]}, test.internals['inout_0_1']['state'])
         # self.assertDictEqual({'inout': [[[-15.0], [-13.0], [-30.0], [-28.0], [7.0]]]}, test.internals['inout_0_2']['state'])
         W = test.internals['inout_1_0']['param']['W']
         b = test.internals['inout_1_0']['param']['b']
-        self.assertAlmostEqual({'inout': [[[7.0], [6.0], [5.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
-                                           [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]]]]},
+        self.assertAlmostEqual({'inout': [[[7.0], [6.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
+                                           [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]], [np.inf]]]},
                                test.internals['inout_1_0']['state'])
-        self.assertAlmostEqual({'inout': [[[6.0], [5.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
+        self.assertAlmostEqual({'inout': [[[6.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
                                            [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
-                                           [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]]]]},
+                                           [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]], [np.inf]]]},
                                test.internals['inout_1_1']['state'])
         self.assertAlmostEqual({'inout': [
-            [[5.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]], [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
-             [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]], [W[0][0] * 0.0 + W[1][0] * 0.0 + b[0]]]]},
+            [[W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]], [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
+             [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]], [W[0][0] * 0.0 + W[1][0] * 0.0 + b[0]], [np.inf]]]},
                                test.internals['inout_1_2']['state'])
         # replace insead of rolling
         # self.assertAlmostEqual({'inout': [[[7.0], [6.0], [W[0][0][0] * 4.0 + W[0][1][0] * 2.0 + b[0][0]],
@@ -781,8 +792,6 @@ class ModelyTrainingTest(unittest.TestCase):
         test = Modely(visualizer=None, seed=42, log_internal=True)
         test.addModel('model', [output1, output2, output3, output4])
         test.addMinimize('error2', target.last(), output2)
-        #test.addMinimize('error3', target.last(), output3)
-        #test.addMinimize('error4', target.last(), output4)
         test.neuralizeModel()
 
         # Dataset with only one sample
@@ -793,9 +802,6 @@ class ModelyTrainingTest(unittest.TestCase):
                                'out4': [-96.0, -194.0, -179.0, -125.0]
                           }, test(dataset, connect={'inout':'out1'}))
         test.loadData(name='dataset', source=dataset)
-        # TODO add and error
-        # dataset = {'in1': [[0,1],[2,3],[7,4],[1,3],[4,2]], 'target': [3,4,5,1]}
-        # test.loadData(name='dataset2', source=dataset)
 
         self.assertListEqual([[-1], [-5]], test.parameters['W'])
         self.assertListEqual([1], test.parameters['b'])
@@ -946,16 +952,27 @@ class ModelyTrainingTest(unittest.TestCase):
         self.assertListEqual([[[0.0]]],test.internals['inout_1_0']['XY']['target'])
         self.assertListEqual([[[1.0]]],test.internals['inout_1_1']['XY']['target'])
         self.assertListEqual([[[0.0]]],test.internals['inout_1_2']['XY']['target'])
-        self.assertAlmostEqual({'inout': [[[0.0], [0.0], [0.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
-                                         [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]]]]},
-                             test.internals['inout_1_0']['state'])
+        # self.assertAlmostEqual({'inout': [[[0.0], [0.0], [0.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
+        #                                  [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]]]]},
+        #                      test.internals['inout_1_0']['state'])
+        # self.assertAlmostEqual({'inout': [[[0.0], [0.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
+        #                                  [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
+        #                                  [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]]]]},
+        #                      test.internals['inout_1_1']['state'])
+        # self.assertAlmostEqual({'inout': [
+        #     [[0.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]], [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
+        #      [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]], [W[0][0] * 0.0 + W[1][0] * 0.0 + b[0]]]]},
+        #                      test.internals['inout_1_2']['state'])
         self.assertAlmostEqual({'inout': [[[0.0], [0.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
+                                         [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]], [float('inf')]]]},
+                             test.internals['inout_1_0']['state'])
+        self.assertAlmostEqual({'inout': [[[0.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
                                          [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
-                                         [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]]]]},
+                                         [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]], [float('inf')]]]},
                              test.internals['inout_1_1']['state'])
         self.assertAlmostEqual({'inout': [
-            [[0.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]], [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
-             [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]], [W[0][0] * 0.0 + W[1][0] * 0.0 + b[0]]]]},
+            [[W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]], [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
+             [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]], [W[0][0] * 0.0 + W[1][0] * 0.0 + b[0]], [float('inf')]]]},
                              test.internals['inout_1_2']['state'])
         with self.assertRaises(KeyError):
             test.internals['inout_2_0']
@@ -976,38 +993,41 @@ class ModelyTrainingTest(unittest.TestCase):
         test.trainModel(train_dataset='dataset3', optimizer='SGD', lr=0.01, shuffle_data=False, num_of_epochs=1,
                         train_batch_size=1,
                         prediction_samples=2, connect={'inout':'out1'})
-        self.assertDictEqual({'inout': [[[8.0], [7.0], [6.0], [-15.0], [-13.0]]]}, test.internals['inout_0_0']['state'])
-        self.assertDictEqual({'inout': [[[7.0], [6.0],  [-15.0], [-13.0], [-30.0]]]}, test.internals['inout_0_1']['state'])
-        self.assertDictEqual({'inout': [[[6.0], [-15.0], [-13.0], [-30.0], [-28.0]]]}, test.internals['inout_0_2']['state'])
+        # self.assertDictEqual({'inout': [[[8.0], [7.0], [6.0], [-15.0], [-13.0]]]}, test.internals['inout_0_0']['state'])
+        # self.assertDictEqual({'inout': [[[7.0], [6.0],  [-15.0], [-13.0], [-30.0]]]}, test.internals['inout_0_1']['state'])
+        # self.assertDictEqual({'inout': [[[6.0], [-15.0], [-13.0], [-30.0], [-28.0]]]}, test.internals['inout_0_2']['state'])
+        self.assertDictEqual({'inout': [[[8.0], [7.0], [-15.0], [-13.0], [float('inf')]]]}, test.internals['inout_0_0']['state'])
+        self.assertDictEqual({'inout': [[[7.0], [-15.0], [-13.0], [-30.0], [float('inf')]]]}, test.internals['inout_0_1']['state'])
+        self.assertDictEqual({'inout': [[[-15.0], [-13.0], [-30.0], [-28.0], [float('inf')]]]}, test.internals['inout_0_2']['state'])
         # Replace instead of rolling
         # self.assertDictEqual({'inout': [[[8.0], [7.0], [-15.0], [-13.0], [9.0]]]}, test.internals['inout_0_0']['connect'])
         # self.assertDictEqual({'inout': [[[7.0], [-15.0], [-13.0], [-30.0], [8.0]]]}, test.internals['inout_0_1']['connect'])
         # self.assertDictEqual({'inout': [[[-15.0], [-13.0], [-30.0], [-28.0], [7.0]]]}, test.internals['inout_0_2']['connect'])
         W = test.internals['inout_1_0']['param']['W']
         b = test.internals['inout_1_0']['param']['b']
-        self.assertAlmostEqual({'inout': [[[7.0], [6.0], [5.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
-                                           [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]]]]},
-                               test.internals['inout_1_0']['state'])
-        self.assertAlmostEqual({'inout': [[[6.0], [5.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
-                                           [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
-                                           [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]]]]},
-                               test.internals['inout_1_1']['state'])
-        self.assertAlmostEqual({'inout':
-            [[[5.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]], [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
-             [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]], [W[0][0] * 0.0 + W[1][0] * 0.0 + b[0]]]]},
-                               test.internals['inout_1_2']['state'])
+        # self.assertAlmostEqual({'inout': [[[7.0], [6.0], [5.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
+        #                                    [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]]]]},
+        #                        test.internals['inout_1_0']['state'])
+        # self.assertAlmostEqual({'inout': [[[6.0], [5.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
+        #                                    [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
+        #                                    [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]]]]},
+        #                        test.internals['inout_1_1']['state'])
+        # self.assertAlmostEqual({'inout':
+        #     [[[5.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]], [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
+        #      [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]], [W[0][0] * 0.0 + W[1][0] * 0.0 + b[0]]]]},
+        #                        test.internals['inout_1_2']['state'])
         # Replace insead of rolling
-        # self.assertAlmostEqual({'inout': [[[7.0], [6.0], [W[0][0][0] * 4.0 + W[0][1][0] * 2.0 + b[0][0]],
-        #                                    [W[0][0][0] * 6.0 + W[0][1][0] * 5.0 + b[0][0]], [8.0]]]},
-        #                        test.internals['inout_1_0']['connect'])
-        # self.assertAlmostEqual({'inout': [[[6.0], [W[0][0][0] * 4.0 + W[0][1][0] * 2.0 + b[0][0]],
-        #                                    [W[0][0][0] * 6.0 + W[0][1][0] * 5.0 + b[0][0]],
-        #                                    [W[0][0][0] * 4.0 + W[0][1][0] * 5.0 + b[0][0]], [7.0]]]},
-        #                        test.internals['inout_1_1']['connect'])
-        # self.assertAlmostEqual({'inout': [
-        #     [[W[0][0][0] * 4.0 + W[0][1][0] * 2.0 + b[0][0]], [W[0][0][0] * 6.0 + W[0][1][0] * 5.0 + b[0][0]],
-        #      [W[0][0][0] * 4.0 + W[0][1][0] * 5.0 + b[0][0]], [W[0][0][0] * 0.0 + W[0][1][0] * 0.0 + b[0][0]], [6.0]]]},
-        #                        test.internals['inout_1_2']['connect'])
+        self.assertAlmostEqual({'inout': [[[7.0], [6.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
+                                           [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]], [float('inf')]]]},
+                               test.internals['inout_1_0']['state'])
+        self.assertAlmostEqual({'inout': [[[6.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
+                                           [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
+                                           [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]], [float('inf')]]]},
+                               test.internals['inout_1_1']['state'])
+        self.assertAlmostEqual({'inout': [
+            [[W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]], [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
+             [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]], [W[0][0] * 0.0 + W[1][0] * 0.0 + b[0]], [float('inf')]]]},
+                               test.internals['inout_1_2']['state'])
 
     def test_training_values_fir_and_liner_closed_loop(self):
         NeuObj.clearNames()
@@ -1592,7 +1612,7 @@ class ModelyTrainingTest(unittest.TestCase):
         p=Parameter('fir',sw=1,values=[[-0.5]])
 
         fun = Sin(x_last) + Fir(W=p)(x_last) + Cos(y_last)
-        out_der = Derivate(fun, x_last) + Derivate(fun, y_last)
+        out_der = Differentiate(fun, x_last) + Differentiate(fun, y_last)
         out_der.closedLoop(x)
         out = Output('out', out_der)
 
@@ -1628,7 +1648,7 @@ class ModelyTrainingTest(unittest.TestCase):
         y_last = y.last()
         p1 = Parameter('p1', sw=1, values=[[0]])
         fun = Sin(x_last) + Fir(W=p1)(x_last) + Cos(y_last)
-        out_der = Derivate(fun, x_last) + Derivate(fun, y_last)
+        out_der = Differentiate(fun, x_last) + Differentiate(fun, y_last)
 
         x2 = Input('x2')
         y2 = Input('y2')
@@ -1636,7 +1656,7 @@ class ModelyTrainingTest(unittest.TestCase):
         y2_last = y2.last()
         p2 = Parameter('p2', sw=1, values=[[0]])
         fun2 = Sin(x2_last) + Fir(W=p2)(x2_last) + Cos(y2_last)
-        out_der2 = Derivate(fun2, x2_last) + Derivate(fun2, y2_last)
+        out_der2 = Differentiate(fun2, x2_last) + Differentiate(fun2, y2_last)
         out_der.connect(x2)
 
         out1 = Output('out1', out_der)
@@ -1672,6 +1692,60 @@ class ModelyTrainingTest(unittest.TestCase):
 
         result = m({'x': x.tolist(), 'y': y.tolist()}, connect={'y2':'out1'}, num_of_samples=10, prediction_samples=10)
         self.assertAlmostEqual([a.tolist() for a in target[0:10]],result['out2'])
+
+    def test_training_values_fir_connect_linear_more_window_2(self):
+        NeuObj.clearNames()
+        input1 = Input('in1')
+        W = Parameter('W', sw=4, values=[[1], [1], [1], [1]])
+        b = Parameter('b', values=0)
+        lin_out = Fir(W=W, b=b)(input1.sw(4))
+
+        inout = Input('inout')
+
+        lin_out.connect(inout)
+
+        W1 = Parameter('W1', sw=4, values=[[1], [1], [1], [1]])
+        b1 = Parameter('b1', values=0)
+        fir_out = Fir(W=W1, b=b1)(inout.sw(4))
+        output = Output('out', inout.sw(4))
+        output1 = Output('out1', lin_out)
+        output2 = Output('out2', fir_out)
+
+        target = Input('target')
+
+        test = Modely(visualizer=None, seed=42, log_internal=True)
+        test.addModel('model', [output, output1, output2])
+        test.addMinimize('error2', target.last(), output2)
+        test.neuralizeModel()
+
+        # Dataset with only one sample
+        dataset = {'in1': [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0], 
+                   'inout':[10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0], 
+                   'target': [10.0, 22.0, 34.0, 46.0, 58.0, 70.0, 82.0, 94.0, 106.0]}
+        test.loadData(name='dataset', source=dataset)
+
+
+        # Use a small batch but with a prediction sample of 3 = to 4 samples
+        self.assertListEqual([[1.0], [1.0], [1.0], [1.0]], test.parameters['W'])
+        self.assertListEqual([[1.0], [1.0], [1.0], [1.0]], test.parameters['W1'])
+        self.assertListEqual([0.0], test.parameters['b'])
+        self.assertListEqual([0.0], test.parameters['b1'])
+        inference = test(inputs=dataset, prediction_samples=3)
+        self.assertDictEqual({'out': [[10.0, 20.0, 30.0, 12.0], [20.0, 30.0, 12.0, 20.0], [30.0, 12.0, 20.0, 28.0], [12.0, 20.0, 28.0, 36.0], [50.0, 60.0, 70.0, 44.0], [60.0, 70.0, 44.0, 52.0]], 
+                              'out1': [12.0, 20.0, 28.0, 36.0, 44.0, 52.0], 
+                              'out2': [72.0, 82.0, 90.0, 96.0, 224.0, 226.0]}, 
+                              inference)
+        test.trainModel(train_dataset='dataset', optimizer='SGD', lr=0.0001, train_batch_size=1, num_of_epochs=1, shuffle_data=False, prediction_samples=3)
+        for i, (k,v) in enumerate(test.internals.items()):
+            if i > 3:
+                break
+            self.assertEqual(v['out']['out'][0][-1][0], v['out']['out1'][0][0][0])
+            self.assertEqual(sum([x[0] for x in v['out']['out'][0]]), v['out']['out2'][0][0][0])
+        self.assertDictEqual({'inout': [[[20.0], [30.0], [12.0], [float('inf')]]]}, test.internals['inout_0_0']['state'])
+        self.assertDictEqual({'inout': [[[30.0], [12.0], [20.0], [float('inf')]]]}, test.internals['inout_0_1']['state'])
+        self.assertDictEqual({'inout': [[[12.0], [20.0], [28.0], [float('inf')]]]}, test.internals['inout_0_2']['state'])
+        self.assertDictEqual({'inout': [[[20.0], [28.0], [36.0], [float('inf')]]]}, test.internals['inout_0_3']['state'])
+
 
     # def test_state_initialization(self):
     #     NeuObj.clearNames()

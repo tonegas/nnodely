@@ -9,14 +9,13 @@ from itertools import product
 from nnodely.support.utils import TORCH_DTYPE
 from nnodely.support import initializer
 
-
-
 @torch.fx.wrap
-def connect(data_in, rel):
-    virtual = torch.roll(data_in, shifts=-1, dims=1)
+def update_state(data_in, rel):
+    #virtual = torch.roll(data_in, shifts=-1, dims=1)
     max_dim = min(rel.size(1), data_in.size(1))
-    virtual[:, -max_dim:, :] = rel[:, -max_dim:, :]
-    return virtual
+    data_out = data_in.clone()
+    data_out[:, -max_dim:, :] = rel[:, -max_dim:, :]
+    return data_out
 
 class Model(nn.Module):
     def __init__(self, model_def):
@@ -184,7 +183,7 @@ class Model(nn.Module):
                     ## Check if the relation is inside the connect
                     for connect_input, connect_rel in self.connect_update.items():
                         if relation == connect_rel:
-                            result_dict[connect_input] = connect(kwargs[connect_input], result_dict[relation])
+                            result_dict[connect_input] = update_state(kwargs[connect_input], result_dict[relation])
                             available_keys.add(connect_input)
 
         ## Return a dictionary with all the connected inputs

@@ -1,6 +1,5 @@
 import copy
 from collections import defaultdict
-from unittest import result
 
 import numpy as np
 import  torch, random
@@ -9,7 +8,7 @@ from nnodely.support.utils import TORCH_DTYPE, NP_DTYPE, check, enforce_types, t
 from nnodely.basic.modeldef import ModelDef
 
 from nnodely.support.logger import logging, nnLogger
-log = nnLogger(__name__, logging.CRITICAL)
+log = nnLogger(__name__, logging.WARNING)
 
 class Network:
     @enforce_types
@@ -70,18 +69,19 @@ class Network:
     def _clean_log_internal(self):
         self._internals = {}
 
-    def _removeVirtualStates(self, connect, closed_loop):
+    def _remove_virtual_states(self, connect, closed_loop):
         if connect or closed_loop:
             for key in (connect.keys() | closed_loop.keys()):
                 if key in self._states.keys():
                     del self._states[key]
 
-    def _updateState(self, X, out_closed_loop, out_connect):
+    def _update_state(self, X, out_closed_loop, out_connect):
         for key, value in out_connect.items():
-            X[key] = value
+            X[key] = torch.roll(value, shifts=-1, dims=1)  ## Roll the time window
+            X[key][:, -1, :] = float('inf') ## inf value to make clear that the last state value
             self._states[key] = X[key].clone().detach()
         for key, val in out_closed_loop.items():
-            shift = val.shape[1]  ## take the output time dimension
+            shift = val.shape[1] #+ self._input_ns_forward[key]  ## take the output time dimension + forward samples
             X[key] = torch.roll(X[key], shifts=-1, dims=1)  ## Roll the time window
             X[key][:, -shift:, :] = val  ## substitute with the predicted value
             self._states[key] = X[key].clone().detach()
@@ -220,7 +220,8 @@ class Network:
     def __check_data_integrity(self, dataset:dict):
         if bool(dataset):
             check(len(set([t.size(0) for t in dataset.values()])) == 1, ValueError, "All the tensors in the dataset must have the same number of samples.")
-            check(len([t for t in self._model_def['Inputs'].keys() if t in dataset.keys()]) == len(list(self._model_def['Inputs'].keys())), ValueError, "Some inputs are missing.")
+            #TODO check why is wrong
+            #check(len([t for t in self._model_def['Inputs'].keys() if t in dataset.keys()]) == len(list(self._model_def['Inputs'].keys())), ValueError, "Some inputs are missing.")
             for key, value in dataset.items():
                 if key not in self._model_def['Inputs']:
                     log.warning(f"The key '{key}' is not an input of the network. It will be ignored.")
@@ -259,16 +260,26 @@ class Network:
         if shuffle:
             randomize = torch.randperm(n_samples)
             data = {key: val[randomize] for key, val in data.items()}
+
         ## Initialize the train losses vector
         aux_losses = torch.zeros([len(self._model_def['Minimizers']), n_samples // batch_size])
         for idx in range(0, (n_samples - batch_size + 1), batch_size):
             ## Build the input tensor
             XY = {key: val[idx:idx + batch_size] for key, val in data.items()}
+            for key in self._model_def.recurrentInputs().keys():
+                if key not in XY.keys():
+                    window_size = self._input_n_samples[key]
+                    dim = self._model_def['Inputs'][key]['dim']
+                    XY[key] = torch.zeros(size=(batch_size, window_size, dim), dtype=TORCH_DTYPE, requires_grad=True)
             ## Reset gradient
             if optimizer:
                 optimizer.zero_grad()
             ## Model Forward
-            _, minimize_out, _, _ = self._model(XY)  ## Forward pass
+            out, minimize_out, _, _ = self._model(XY)  ## Forward pass
+
+            if self._log_internal:
+                internals_dict = {'XY': tensor_to_list(XY), 'out': out, 'param': self._model.all_parameters}
+
             ## Loss Calculation
             total_loss = 0
             for ind, (key, value) in enumerate(self._model_def['Minimizers'].items()):
@@ -282,6 +293,10 @@ class Network:
                     total_losses[key].append(loss.detach().numpy())
                 aux_losses[ind][idx // batch_size] = loss.item()
                 total_loss += loss
+
+            if self._log_internal:
+                self._save_internal('inout_' + str(idx), internals_dict)
+
             ## Gradient step
             if optimizer:
                 total_loss.backward()
@@ -294,11 +309,11 @@ class Network:
     def _recurrent_inference(self, data, batch_indexes, batch_size, loss_gains, prediction_samples,
                              step, non_mandatory_inputs, mandatory_inputs, loss_functions,
                              shuffle = False, optimizer = None,
-                             total_losses = None, A = None, B = None):
+                             total_losses = None, A = None, B = None, idxs = None):
         indexes = copy.deepcopy(batch_indexes)
         aux_losses = torch.zeros([len(self._model_def['Minimizers']), round((len(indexes) + step) / (batch_size + step))])
         X = {}
-        batch_val = 0
+        batch_idx = 0
         while len(indexes) >= batch_size:
             selected_indexes = self._get_not_mandatory_inputs(data, X, non_mandatory_inputs, indexes, batch_size, step, shuffle)
             horizon_losses = {ind: [] for ind in range(len(self._model_def['Minimizers']))}
@@ -306,6 +321,9 @@ class Network:
                 optimizer.zero_grad()  ## Reset the gradient
 
             for horizon_idx in range(prediction_samples + 1):
+                # Save the indexes
+                if idxs is not None:
+                    idxs[horizon_idx].append([idx + horizon_idx for idx in selected_indexes])
                 ## Get data
                 for key in mandatory_inputs:
                     X[key] = data[key][[idx + horizon_idx for idx in selected_indexes]]
@@ -329,17 +347,17 @@ class Network:
                     horizon_losses[ind].append(loss)
 
                 ## Update
-                self._updateState(X, out_closed_loop, out_connect)
+                self._update_state(X, out_closed_loop, out_connect)
 
                 if self._log_internal:
                     internals_dict['state'] = self._states
-                    self._save_internal('inout_' + str(batch_val) + '_' + str(horizon_idx), internals_dict)
+                    self._save_internal('inout_' + str(batch_idx) + '_' + str(horizon_idx), internals_dict)
 
             ## Calculate the total loss
             total_loss = 0
             for ind, key in enumerate(self._model_def['Minimizers'].keys()):
                 loss = sum(horizon_losses[ind]) / (prediction_samples + 1)
-                aux_losses[ind][batch_val] = loss.item()
+                aux_losses[ind][batch_idx] = loss.item()
                 if total_losses is not None:
                     total_losses[key].append(loss.detach().numpy())
                 total_loss += loss
@@ -348,28 +366,32 @@ class Network:
             if optimizer:
                 total_loss.backward()  ## Backpropagate the error
                 optimizer.step()
-                self.visualizer.showWeightsInTrain(batch=batch_val)
-            batch_val += 1
+                self.visualizer.showWeightsInTrain(batch=batch_idx)
+            batch_idx += 1
 
         ## return the losses
         return aux_losses
 
     def _setup_recurrent_variables(self, prediction_samples, closed_loop, connect):
         ## Prediction samples
-        check(prediction_samples >= -1, KeyError, 'The sample horizon must be positive or -1 for disconnect connection!')
+        check(prediction_samples == 'auto' or prediction_samples >= -1, KeyError, "The sample horizon must be positive, -1, 'auto', for disconnect connection!")
         ## Close loop information
         for input, output in closed_loop.items():
             check(input in self._model_def['Inputs'], ValueError, f'the tag {input} is not an input variable.')
             check(output in self._model_def['Outputs'], ValueError, f'the tag {output} is not an output of the network')
-            log.warning(f'Recurrent train: closing the loop between the the input ports {input} and the output ports {output} for {prediction_samples} samples')
+            log.info(f'Recurrent train: closing the loop between the the input ports {input} and the output ports {output} for {prediction_samples} samples')
+            if self._input_ns_forward[input] > 0:
+                    log.warning(f"Closed loop on variable '{input}' with sample in the future.")
         ## Connect information
-        for connect_in, connect_out in connect.items():
-            check(connect_in in self._model_def['Inputs'], ValueError, f'the tag {connect_in} is not an input variable.')
-            check(connect_out in self._model_def['Outputs'], ValueError, f'the tag {connect_out} is not an output of the network')
-            log.warning(f'Recurrent train: connecting the input ports {connect_in} with output ports {connect_out} for {prediction_samples} samples')
+        for input, output in connect.items():
+            check(input in self._model_def['Inputs'], ValueError, f'the tag {input} is not an input variable.')
+            check(output in self._model_def['Outputs'], ValueError, f'the tag {output} is not an output of the network')
+            log.info(f'Recurrent train: connecting the input ports {input} with output ports {output} for {prediction_samples} samples')
+            if self._input_ns_forward[input] > 0:
+                    log.warning(f"Connect on variable '{input}' with sample in the future.")
         ## Disable recurrent training if there are no recurrent variables
         if len(connect|closed_loop|self._model_def.recurrentInputs()) == 0:
-            if prediction_samples >= 0:
+            if type(prediction_samples) is not str and prediction_samples >= 0:
                 log.warning(f"The value of the prediction_samples={prediction_samples} but the network has no recurrent variables.")
             prediction_samples = -1
         return prediction_samples

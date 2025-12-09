@@ -3,9 +3,10 @@ import copy
 import numpy as np
 
 from nnodely.support.utils import check, check_and_get_list
-from nnodely.support.jsonutils import merge, subjson_from_model,subjson_from_relation, check_model, get_models_json
+from nnodely.support.jsonutils import merge, subjson_from_model, subjson_from_minimize, check_model, get_models_json
 from nnodely.basic.relation import MAIN_JSON, Stream, check_names
 from nnodely.layers.output import Output
+from nnodely.layers.input import Input
 
 from nnodely.support.logger import logging, nnLogger
 log = nnLogger(__name__, logging.INFO)
@@ -36,17 +37,11 @@ class ModelDef:
         self.__json[key] = value
 
     def __rebuild_json(self, models_names, minimizers):
-        new_json = subjson_from_model(self.__json, list(models_names))
-
-        if 'Minimizers' in self.__json:
-            rel_A = [self.__json['Minimizers'][key]['A'] for key in minimizers]
-            rel_B = [self.__json['Minimizers'][key]['B'] for key in minimizers]
-            relations_name = set(rel_A) | set(rel_B)
-            if len(relations_name) != 0:
-                minimizers_json = subjson_from_relation(self.__json, list(relations_name))
-                new_json = merge(new_json, minimizers_json)
-
-        return copy.deepcopy(new_json)
+        models_json = subjson_from_model(self.__json, list(models_names))
+        if 'Minimizers' in self.__json and len(minimizers) > 0:
+            minimizers_json = subjson_from_minimize(self.__json, list(minimizers))
+            models_json = merge(models_json, minimizers_json)
+        return copy.deepcopy(models_json)
 
     def recurrentInputs(self):
         return {key:value for key, value in self.__json['Inputs'].items() if ('closedLoop' in value.keys() or 'connect' in value.keys())}
@@ -66,24 +61,30 @@ class ModelDef:
     def isDefined(self):
         return self.__json is not None
 
-    def addConnect(self, stream_name:str, input_name:str, local:bool = False):
-        input_name = check_and_get_list(input_name, set(self.__json['Inputs'].keys()),
-                                       lambda name: f"The name {name} is not part of the available inputs")[0]
-        stream_name = check_and_get_list(stream_name, set(self.__json['Relations'].keys()),
-                                        lambda name: f"The name {name} is not part of the available relations")[0]
-        self.__json['Inputs'][input_name]['connect'] = stream_name
-        self.__json['Inputs'][input_name]['local'] = int(local)
+    def addConnection(self, stream_out:str|Output|Stream, input_in:str|Input, type:str, local:bool = False):
+        outputs = self.__json['Outputs']
 
-    def addClosedLoop(self, stream_name:str, input_name:str, local:bool = False):
+        if isinstance(stream_out, (Output, Stream)):
+            stream_name = outputs[stream_out.name] if stream_out.name in outputs.keys() else stream_out.name
+        else:
+            output_name = check_and_get_list(stream_out, set(outputs.keys()),
+                                             lambda name: f"The name {name} is not part of the available Outputs")[0]
+            stream_name = outputs[output_name]
+
+        if isinstance(input_in, Input):
+            input_name = input_in.name
+        else:
+            input_name = input_in #TODO Add tests
+
         input_name = check_and_get_list(input_name, set(self.__json['Inputs'].keys()),
-                                       lambda name: f"The name {name} is not part of the available inputs")[0]
+                                       lambda name: f"The name {name} is not part of the available Inputs")[0]
         stream_name = check_and_get_list(stream_name, set(self.__json['Relations'].keys()),
-                                        lambda name: f"The name {name} is not part of the available relations")[0]
-        self.__json['Inputs'][input_name]['closedLoop'] = stream_name
+                                        lambda name: f"The name {name} is not part of the available Relations")[0]
+        self.__json['Inputs'][input_name][type] = stream_name
         self.__json['Inputs'][input_name]['local'] = int(local)
 
     def removeConnection(self, name_list:str|list[str]):
-        name_list = check_and_get_list(name_list, set(self.__json['Inputs'].keys()), lambda name: f"The name {name} is not part of the available inputs")
+        name_list = check_and_get_list(name_list, set(self.__json['Inputs'].keys()), lambda name: f"The name {name} is not part of the available Inputs")
         for input_in in name_list:
             if 'closedLoop' in self.__json['Inputs'][input_in].keys():
                 del self.__json['Inputs'][input_in]['closedLoop']
@@ -124,17 +125,25 @@ class ModelDef:
         self.__json = self.__rebuild_json(models_names, minimizers)
 
     def addMinimize(self, name, streamA, streamB, loss_function='mse'):
-        check(isinstance(streamA, (Output, Stream)), TypeError, 'streamA must be an instance of Output or Stream')
-        check(isinstance(streamB, (Output, Stream)), TypeError, 'streamA must be an instance of Output or Stream')
-        # check(streamA.dim == streamB.dim, ValueError, f'Dimension of streamA={streamA.dim} and streamB={streamB.dim} are not equal.')
         if 'Minimizers' not in self.__json:
             self.__json['Minimizers'] = {}
-
         check_names(name, set(self.__json['Minimizers'].keys()), 'Minimizers')
-        streams = merge(streamA.json, streamB.json)
-        streamA_name = streamA.json['Outputs'][streamA.name] if isinstance(streamA, Output) else streamA.name
-        streamB_name = streamB.json['Outputs'][streamB.name] if isinstance(streamB, Output) else streamB.name
-        self.__json = merge(self.__json, streams)
+
+        if isinstance(streamA, str):
+            streamA_name = streamA
+        else:
+            check(isinstance(streamA, (Output, Stream)), TypeError, 'streamA must be an instance of Output or Stream')
+            streamA_name = streamA.json['Outputs'][streamA.name] if isinstance(streamA, Output) else streamA.name
+            self.__json = merge(self.__json, streamA.json)
+
+        if isinstance(streamB, str):
+            streamB_name = streamB
+        else:
+            check(isinstance(streamB, (Output, Stream)), TypeError, 'streamA must be an instance of Output or Stream')
+            streamB_name = streamB.json['Outputs'][streamB.name] if isinstance(streamB, Output) else streamB.name
+            self.__json = merge(self.__json, streamB.json)
+        #check(streamA.dim == streamB.dim, ValueError, f'Dimension of streamA={streamA.dim} and streamB={streamB.dim} are not equal.')
+
         self.__json['Minimizers'][name] = {}
         self.__json['Minimizers'][name]['A'] = streamA_name
         self.__json['Minimizers'][name]['B'] = streamB_name
@@ -158,6 +167,8 @@ class ModelDef:
                 self.__sample_time = 1
 
         self.__json['Info'] = {"SampleTime": self.__sample_time}
+        if 'SampleTime' in self.__json['Constants']:
+            self.__json['Constants']['SampleTime'] = {'dim': 1, 'values': self.__sample_time}
 
         check(self.__json['Inputs'] != {}, RuntimeError, "No model is defined!")
         json_inputs = self.__json['Inputs']

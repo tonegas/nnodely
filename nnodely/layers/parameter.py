@@ -215,7 +215,7 @@ class Parameter(NeuObj, Relation):
                 code = textwrap.dedent(inspect.getsource(init)).replace('\"', '\'')
                 self.json['Parameters'][self.name]['init_fun'] = { 'code' : code, 'name' : init.__name__}
             elif type(init) is str:
-                self.json['Parameters'][self.name]['init_fun'] = { 'name' : init}
+                self.json['Parameters'][self.name]['init_fun'] = { 'name' : init }
             if init_params is not None:
                 self.json['Parameters'][self.name]['init_fun']['params'] = init_params
     

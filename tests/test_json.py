@@ -715,3 +715,27 @@ class ModelyJsonTest(unittest.TestCase):
         nn.removeModel('model_B')
         model_A_json_2 = nn.json
         self.assertEqual(model_A_json_1, model_A_json_2)
+
+    def test_add_remove_minimize(self):
+        clearNames()
+        input1 = Input('in1').last()
+        input2 = Input('in2').last()
+        input3 = Input('in3').last()
+        output1 = Output('out1', input1)
+        output2 = Output('out2', input1)
+        output3 = Output('out3', input1)
+
+        test = Modely(visualizer=None, seed=42)
+        test.addModel('model', [output1, output2, output3])
+        test.addMinimize('error1', input1, output1)
+        test_json_1 = test.json
+        test.addMinimize('error2', input2, output2)
+        test_json_2 = test.json
+        test.addMinimize('error3', input3, output3)
+        test_json_3 = test.json
+        test.removeMinimize('error3')
+        self.assertEqual(test_json_2, test.json)
+        test.addMinimize('error3', input3, output3)
+        self.assertEqual(test_json_3, test.json)
+        test.removeMinimize(['error3','error2'])
+        self.assertEqual(test_json_1, test.json)

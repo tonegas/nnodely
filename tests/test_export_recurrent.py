@@ -948,7 +948,7 @@ class ModelyExportTest(unittest.TestCase):
         m.resetStates()
         self.assertEqual(results_target, m(init_states_diff))
 
-        ## Test loading of all models
+        # Test loading of all models
         m.saveTorchModel()
         l = Modely(workspace=result_path, visualizer=None)
         l.addModel('model1', [modelA, modelB])
@@ -984,7 +984,7 @@ class ModelyExportTest(unittest.TestCase):
 
         results_target_m1 = {'Aout': [1.5, 4.5], 'Bout': [-20.0, 20.0]}
 
-        ## Test loading of Model1
+        # Test loading of Model1
         m.saveTorchModel(models='model1')
         l = Modely(workspace=result_path, visualizer=None)
         l.addModel('model1', [modelA, modelB])
@@ -1028,3 +1028,35 @@ class ModelyExportTest(unittest.TestCase):
 
         if os.path.exists(m.getWorkspace()):
             shutil.rmtree(m.getWorkspace())
+
+    def test_export_report_recurrent(self):
+        NeuObj.clearNames()
+        result_path = 'results'
+        test = Modely(visualizer=None, seed=42, workspace=result_path)
+        x = Input('x')
+        y = Input('y')
+        z = Input('z')
+        target = Input('target')
+        a = Parameter('a', dimensions=1, sw=1, values=[[1]])
+        b = Parameter('b', dimensions=1, sw=1, values=[[1]])
+        c = Parameter('c', dimensions=1, sw=1, values=[[1]])
+        fir_x = Fir(W=a)(x.last())
+        fir_y = Fir(W=b)(y.last())
+        fir_z = Fir(W=c)(z.last())
+        data_x, data_y, data_z = np.random.rand(20), np.random.rand(20), np.random.rand(20)
+        dataset = {'x': data_x, 'y': data_y, 'z': data_z, 'target': 3 * data_x + 3 * data_y + 3 * data_z}
+        fir_x.connect(y)
+        sum_rel = fir_x + fir_y + fir_z
+        sum_rel.closedLoop(z)
+        out = Output('out', sum_rel)
+        test.addModel('model', out)
+        test.addMinimize('error', target.last(), out)
+        test.neuralizeModel(0.5)
+        test.loadData(name='test_dataset', source=dataset)
+        ## Train
+        test.trainAndAnalyze(optimizer='SGD', training_params={'num_of_epochs': 2, 'lr': 0.0001, 'train_batch_size': 1},
+                        splits=[100, 0, 0], prediction_samples=10) # Train the traced model
+        test.exportReport()
+
+        if os.path.exists(test.getWorkspace()):
+            shutil.rmtree(test.getWorkspace())

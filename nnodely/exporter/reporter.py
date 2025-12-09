@@ -38,8 +38,11 @@ class Reporter:
                     for ind, name_data in enumerate(self.modely.prediction.keys()):
                         fig = plt.figure(figsize=(10, 5))
                         ax = fig.add_subplot(111)
+                        idxs = None
+                        if 'idxs' in self.modely.prediction[name_data]:
+                            idxs = self.modely.prediction[name_data]['idxs']
                         plots.plot_results(ax, name_data, key, self.modely.prediction[name_data][key]['A'],
-                                       self.modely.prediction[name_data][key]['B'], self.modely._model_def['Info']["SampleTime"])
+                                       self.modely.prediction[name_data][key]['B'], idxs, self.modely._model_def['Info']["SampleTime"])
                         # Add a text box with correlation coefficient
                         results = io.BytesIO()
                         plt.savefig(results, format='png')

@@ -426,6 +426,7 @@ class ModelyPredictTest(unittest.TestCase):
         results = test({'in1': [1,2]})
         self.assertEqual((1,2), np.array(results['out']).shape)
         self.TestAlmostEqual(results['out'], [[0.7576315999031067, 1.5152631998062134]])
+        test({'in1': [[1, 2]]}, num_of_samples=5, sampled=True)
         results = test({'in1': [[1,2]]}, sampled=True)
         self.assertEqual((1,2), np.array(results['out']).shape)
         self.TestAlmostEqual(results['out'], [[0.7576315999031067, 1.5152631998062134]])
@@ -1764,7 +1765,7 @@ class ModelyPredictTest(unittest.TestCase):
 
         in1_s = Output('in1_s', input.s(1))
         in1_s2 = Output('in1_s2', input.s(2))
-        in1_s2_2 = Output('in1_s2_2', Derivate(input.s(1)))
+        in1_s2_2 = Output('in1_s2_2', Differentiate(input.s(1)))
         in1_s2_3 = Output('in1_s2_3', input.s(1).s(1))
         in1_s_2 = Output('in1_s_2', input.s(2).s(-1))
 
@@ -1776,11 +1777,11 @@ class ModelyPredictTest(unittest.TestCase):
 
         in1_1 = Output('in1_1', Integrate(input.s(1)))
         in1_2 = Output('in1_2', Integrate(Integrate(input.s(2))))
-        in1_3 = Output('in1_3', Integrate(Integrate(Derivate(input.s(1)))))
+        in1_3 = Output('in1_3', Integrate(Integrate(Differentiate(input.s(1)))))
 
-        in1_1_2 = Output('in1_1_2', Derivate(input.s(-1)))
-        in1_2_2 = Output('in1_2_2', Derivate(Derivate(input.s(-2))))
-        in1_3_2 = Output('in1_3_2', Derivate(Derivate(Integrate(input.s(-1)))))
+        in1_1_2 = Output('in1_1_2', Differentiate(input.s(-1)))
+        in1_2_2 = Output('in1_2_2', Differentiate(Differentiate(input.s(-2))))
+        in1_3_2 = Output('in1_3_2', Differentiate(Differentiate(Integrate(input.s(-1)))))
 
         test = Modely(visualizer=None)
         test.addModel('out_A', [in1_s, in1_s2, in1_s2_2, in1_s2_3, in1_s_2, in1_sm, in1_sm2, in1_sm2_2, in1_sm2_3, in1_sm_2, in1_1, in1_2, in1_3, in1_1_2, in1_2_2, in1_3_2])
@@ -1845,7 +1846,7 @@ class ModelyPredictTest(unittest.TestCase):
 
         in1_s = Output('in1_s', input.s(1,method='trapezoidal'))
         in1_s2 = Output('in1_s2', input.s(2,method='trapezoidal'))
-        in1_s2_2 = Output('in1_s2_2', Derivate(input.s(1,method='trapezoidal'),method='trapezoidal'))
+        in1_s2_2 = Output('in1_s2_2', Differentiate(input.s(1,method='trapezoidal'),method='trapezoidal'))
         in1_s2_3 = Output('in1_s2_3', input.s(1,method='trapezoidal').s(1,method='trapezoidal'))
         in1_s_2 = Output('in1_s_2', input.s(2,method='trapezoidal').s(-1,method='trapezoidal'))
 
@@ -1857,11 +1858,11 @@ class ModelyPredictTest(unittest.TestCase):
 
         in1_1 = Output('in1_1', Integrate(input.s(1,method='trapezoidal'),method='trapezoidal'))
         in1_2 = Output('in1_2', Integrate(Integrate(input.s(2,method='trapezoidal'),method='trapezoidal'),method='trapezoidal'))
-        in1_3 = Output('in1_3', Integrate(Integrate(Derivate(input.s(1,method='trapezoidal'),method='trapezoidal'),method='trapezoidal'),method='trapezoidal'))
+        in1_3 = Output('in1_3', Integrate(Integrate(Differentiate(input.s(1,method='trapezoidal'),method='trapezoidal'),method='trapezoidal'),method='trapezoidal'))
 
-        in1_1_2 = Output('in1_1_2', Derivate(input.s(-1,method='trapezoidal'),method='trapezoidal'))
-        in1_2_2 = Output('in1_2_2', Derivate(Derivate(input.s(-2,method='trapezoidal'),method='trapezoidal'),method='trapezoidal'))
-        in1_3_2 = Output('in1_3_2', Derivate(Derivate(Integrate(input.s(-1,method='trapezoidal'),method='trapezoidal'),method='trapezoidal'),method='trapezoidal'))
+        in1_1_2 = Output('in1_1_2', Differentiate(input.s(-1,method='trapezoidal'),method='trapezoidal'))
+        in1_2_2 = Output('in1_2_2', Differentiate(Differentiate(input.s(-2,method='trapezoidal'),method='trapezoidal'),method='trapezoidal'))
+        in1_3_2 = Output('in1_3_2', Differentiate(Differentiate(Integrate(input.s(-1,method='trapezoidal'),method='trapezoidal'),method='trapezoidal'),method='trapezoidal'))
 
         test = Modely(visualizer=None)
         test.addModel('out_A', [in1_s, in1_s2, in1_s2_2, in1_s2_3, in1_s_2, in1_sm, in1_sm2, in1_sm2_2, in1_sm2_3, in1_sm_2, in1_1, in1_2, in1_3, in1_1_2, in1_2_2, in1_3_2])
@@ -1920,7 +1921,7 @@ class ModelyPredictTest(unittest.TestCase):
 
         fun = ParamFun(parametric_fun,['a','b','c','d'])(x_last)
         approx_y = Output('out', fun)
-        approx_dy_dx = Output('d_out', Derivate(fun, x_last))
+        approx_dy_dx = Output('d_out', Differentiate(fun, x_last))
 
         test = Modely(visualizer=None, seed=12)
 

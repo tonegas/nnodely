@@ -7,7 +7,10 @@ from collections.abc import Sequence, Callable
 
 from nnodely.basic.relation import check_names
 from nnodely.operators.network import Network
-from nnodely.support.utils import check, log, enforce_types, NP_DTYPE
+from nnodely.support.utils import check, enforce_types
+
+from nnodely.support.logger import logging, nnLogger
+log = nnLogger(__name__, logging.WARNING)
 
 class Loader(Network):
     @enforce_types
@@ -183,18 +186,26 @@ class Loader(Network):
         idx = 0
         for item in format:
             if isinstance(item, tuple):
+                n_cols = None
                 for key in item:
-                    if key not in model_inputs.keys():
-                        idx += 1
-                        break
-                    n_cols = model_inputs[key]['dim']
-                    format_idx[key] = (idx, idx + n_cols)
-                idx += n_cols
+                    if key in model_inputs.keys():
+                        if n_cols is None or n_cols == model_inputs[key]['dim']:
+                            n_cols = model_inputs[key]['dim']
+                        else:
+                            raise ValueError(f'The variables {item} have different dimensionality.')
+                        check(key not in format_idx, ValueError, f"The format '{format}' in not correct some variables appears more than once.")
+                        format_idx[key] = (idx, idx + n_cols)
+                if n_cols is not None:
+                    idx += n_cols
+                else:
+                    idx += 1
             else:
                 if item not in model_inputs.keys():
                     idx += 1
                     continue
                 n_cols = model_inputs[item]['dim']
+                check(item not in format_idx, ValueError,
+                      f"The format '{format}' in not correct some variables appears more than once.")
                 format_idx[item] = (idx, idx + n_cols)
                 idx += n_cols
         return format_idx
@@ -224,6 +235,7 @@ class Loader(Network):
             num_of_samples[key] = data[key].shape[0]
         return num_of_samples
 
+    @enforce_types
     def loadData(self, name:str,
                  source: str | dict | pd.DataFrame, *,
                  format: list | None = None,
@@ -289,11 +301,12 @@ class Loader(Network):
         json_inputs = self._model_def['Inputs']
         ## Initialize the dictionary containing the data
         check_names(name, self._data.keys(), f"Dataset")
-        self._data[name] = {}
 
         if type(source) is str:  ## we have a directory path containing the files
             ## collect column indexes
             format_idx = self.__get_format_idxs(format)
+            ## add the dataset
+            self._data[name] = {}
             ## Initialize each input key
             for key in format_idx.keys():
                 self._data[name][key] = []
@@ -308,6 +321,8 @@ class Loader(Network):
                 try:
                     ## read the csv
                     df = pd.read_csv(os.path.join(source, file), skiprows=skiplines, delimiter=delimiter, header=header)
+                    if not all(df.iloc[0].apply(lambda x: isinstance(x, (int, float)))):
+                        log.warning(f"The file {file} does not contain a numerical column.")
                     ## Resampling if the time column is provided (must be a Datetime object)
                     if resampling:
                         self.resamplingData(df)
@@ -323,6 +338,8 @@ class Loader(Network):
                     data = df.iloc[:, idxs[0]:idxs[1]].to_numpy()
                     self._data[name][key] += [data[i - back:i + forw] for i in range(self._max_samples_backward, len(df) - self._max_samples_forward + 1)]
         else:  ## we have a crafted dataset
+            ## add the dataset
+            self._data[name] = {}
             self._file_count = 1
             if isinstance(source, dict):
                 # Merge a list of inputs into a single dictionary

@@ -13,7 +13,8 @@ from nnodely.basic.relation import Stream
 from nnodely.layers.output import Output
 
 from nnodely.support.logger import logging, nnLogger
-log = nnLogger(__name__, logging.CRITICAL)
+log = nnLogger(__name__, logging.INFO)
+
 
 class Trainer(Network):
     def __init__(self):
@@ -30,7 +31,7 @@ class Trainer(Network):
         self.__optimizer = None
 
     @enforce_types
-    def addMinimize(self, name:str, streamA:Stream|Output, streamB:Stream|Output, loss_function:str='mse') -> None:
+    def addMinimize(self, name:str, streamA:str|Stream|Output, streamB:str|Stream|Output, loss_function:str='mse') -> None:
         """
         Adds a minimize loss function to the model.
 
@@ -52,6 +53,7 @@ class Trainer(Network):
         """
         self._model_def.addMinimize(name, streamA, streamB, loss_function)
         self.visualizer.showaddMinimize(name)
+        self._neuralized = False
 
     @enforce_types
     def removeMinimize(self, name_list:list|str) -> None:
@@ -69,6 +71,7 @@ class Trainer(Network):
             >>> model.removeMinimize(['minimize_op1', 'minimize_op2'])
         """
         self._model_def.removeMinimize(name_list)
+        self._neuralized = False
 
     def __preliminary_checks(self, **kwargs):
         check(self._data_loaded, RuntimeError, 'There is no data loaded! The Training will stop.')
@@ -79,7 +82,7 @@ class Trainer(Network):
         for model in kwargs['models']:
             check(model in kwargs['all_models'], ValueError, f'The model {model} is not in the model definition')
 
-    def fill_parameters(func):
+    def __fill_parameters(func):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
             sig = inspect.signature(func)
@@ -155,7 +158,7 @@ class Trainer(Network):
         for name, values in self._model_def['Minimizers'].items():
             self.__loss_functions[name] = CustomLoss(values['loss'])
 
-    def get_training_info(self):
+    def getTrainingInfo(self):
         """
         Returns a dictionary with the training parameters and information.
         Parameters
@@ -214,7 +217,7 @@ class Trainer(Network):
         check(set(keys).issubset(set(train_data.keys())), KeyError, f"Not all the mandatory keys {keys} are present in the training dataset {set(train_data.keys())}.")
 
     @enforce_types
-    @fill_parameters
+    @__fill_parameters
     def trainModel(self, *,
                    name: str | None = None,
                    models: str | list | None = None,
@@ -253,6 +256,7 @@ class Trainer(Network):
             The name of datasets to use for validation.
         dataset : str or None, optional
             The name of the datasets to use for training, validation and test.
+            If dataset is None and train_dataset is None, the model will use all the datasets loaded inside nnodely.
         splits : list or None, optional
             A list of 3 elements specifying the percentage of splits for training, validation, and testing. The three elements must sum up to 100! default is [100, 0, 0]
             The parameter splits is only used when 'dataset' is not None.
@@ -472,16 +476,16 @@ class Trainer(Network):
                 for ind, key in enumerate(self._model_def['Minimizers'].keys()):
                     val_losses[key].append(torch.mean(losses[ind]).tolist())
 
+            if callable(select_model):
+                if select_model(train_losses, val_losses, select_model_params):
+                    best_model_epoch = epoch
+                    selected_model_def.updateParameters(self._model)
+
             ## Early-stopping
             if callable(early_stopping):
                 if early_stopping(train_losses, val_losses, early_stopping_params):
                     log.info(f'Stopping the training at epoch {epoch} due to early stopping.')
                     break
-
-            if callable(select_model):
-                if select_model(train_losses, val_losses, select_model_params):
-                    best_model_epoch = epoch
-                    selected_model_def.updateParameters(self._model)
 
             ## Visualize the training...
             self.visualizer.showTraining(epoch, train_losses, val_losses)
@@ -499,16 +503,21 @@ class Trainer(Network):
 
         ## Select the model
         if callable(select_model):
+            if not val_losses:
+                # The model selected is updated for the last time by the final batch;
+                # so the minimum loss (selected model) is referred to the model before the last update.
+                # If the batch is small compared to the dataset dimension the differences in the model are small.
+                log.warning('If not validation set is provided the selected model can differ from the optimal.')
             log.info(f'Selected the model at the epoch {best_model_epoch + 1}.')
             self._model = Model(selected_model_def)
         else:
             log.info('The selected model is the LAST model of the training.')
 
         ## Remove virtual states
-        self._removeVirtualStates(connect, closed_loop)
+        self._remove_virtual_states(connect, closed_loop)
 
         ## Get trained model from torch and set the model_def
         self._model_def.updateParameters(self._model)
-        return self.get_training_info()
+
 #from 685
 #from 840
