@@ -186,6 +186,10 @@ class ModelyTestVisualizer(unittest.TestCase):
         m.showFunctions(list(example.json['Functions'].keys()), xlim=[[-5, 5], [-1, 1]])
         m.closeFunctions()
 
+    @unittest.skipIf(
+        sys.platform.startswith("win"),
+        reason="MPLNotebookVisualizer ask for backend GUI not available in Windows CI"
+    )
     def test_export_mplnotebookvisualizer(self):
         m = MPLNotebookVisualizer(5, test=True)
         test = Modely(visualizer=m, seed=42)
