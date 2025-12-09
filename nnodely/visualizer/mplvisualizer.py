@@ -122,9 +122,10 @@ class MPLVisualizer(TextVisualizer):
                     "sample_time": self.modely._model_def['Info']["SampleTime"]}
             try:
                 # Send data to the visualizer process
-                self.__process_results[name_data][key].stdin.write(f"{json.dumps(data)}\n")
-                self.__process_results[name_data][key].stdin.flush()
-                self.__process_results[name_data][key].stdin.close()
+                if self.__process_training[key].poll() is None:
+                    self.__process_results[name_data][key].stdin.write(f"{json.dumps(data)}\n")
+                    self.__process_results[name_data][key].stdin.flush()
+                    self.__process_results[name_data][key].stdin.close()
             except BrokenPipeError:
                 self.closeResult(self, name_data)
                 log.warning(f"The visualizer {name_data} process has been closed.")
