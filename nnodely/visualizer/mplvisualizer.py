@@ -78,7 +78,7 @@ class MPLVisualizer(TextVisualizer):
                     # Send data to the visualizer process
                     self.__process_training[key].stdin.write(f"{json.dumps(data)}\n")
                     self.__process_training[key].stdin.flush()
-                except BrokenPipeError and AttributeError:
+                except BrokenPipeError or AttributeError:
                     self.closeTraining()
                     log.warning("The visualizer process has been closed.")
 
@@ -125,7 +125,7 @@ class MPLVisualizer(TextVisualizer):
                 self.__process_results[name_data][key].stdin.write(f"{json.dumps(data)}\n")
                 self.__process_results[name_data][key].stdin.flush()
                 self.__process_results[name_data][key].stdin.close()
-            except BrokenPipeError and AttributeError:
+            except BrokenPipeError or AttributeError:
                 self.closeResult(self, name_data)
                 log.warning(f"The visualizer {name_data} process has been closed.")
 
@@ -178,7 +178,7 @@ class MPLVisualizer(TextVisualizer):
                     self.__process_function[key].stdin.write(f"{json.dumps(data)}\n")
                     self.__process_function[key].stdin.flush()
                     self.__process_function[key].stdin.close()
-                except BrokenPipeError and AttributeError:
+                except BrokenPipeError or AttributeError:
                     self.closeFunctions()
                     log.warning(f"The visualizer {functions} process has been closed.")
 
