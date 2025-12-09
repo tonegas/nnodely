@@ -69,6 +69,17 @@ class ModelyTrainingTest(unittest.TestCase):
                        prediction_samples=2, step=0, shuffle_data=True)
         # ( number_samples - window_size - prediction_samples )// (batch_size + step=0) * (predictoin_samples+1)
         self.assertEqual((20-1-2)//2*3, len(test.internals.keys()))
+        with self.assertRaises(ValueError):
+            test.trainModel(dataset='dataset', splits=[40,30,30], optimizer='SGD', lr=0.01, num_of_epochs=1, train_batch_size=2,
+                            prediction_samples=50, step=0, shuffle_data=True)
+        with self.assertRaises(ValueError):
+            test.trainModel(dataset='dataset', splits=[40,10,40], optimizer='SGD', lr=0.01, num_of_epochs=1, train_batch_size=2,
+                            prediction_samples=50, step=0, shuffle_data=True)
+
+        from nnodely.support.earlystopping import early_stop_patience, select_best_model
+        test.trainModel(train_dataset='dataset', optimizer='SGD', lr=0.01, num_of_epochs=15,
+                        train_batch_size=2,  early_stopping=early_stop_patience, early_stopping_params={'patience':2}, select_model=select_best_model,
+                        prediction_samples=2, step=0, shuffle_data=True)
 
     def test_train_multifiles(self):
         NeuObj.clearNames()
