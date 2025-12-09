@@ -84,7 +84,8 @@ class MPLVisualizer(TextVisualizer):
 
         if epoch+1 == num_of_epochs:
             for key in self.modely._model_def['Minimizers'].keys():
-                self.__process_training[key].stdin.close()
+                if self.__process_training[key] is not None:
+                    self.__process_training[key].stdin.close()
 
     def showResult(self, name_data):
         super().showResult(name_data)
