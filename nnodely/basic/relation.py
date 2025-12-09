@@ -351,58 +351,6 @@ class AutoToStream():
             return instance(args[0])
         instance = super().__new__(cls)
         return instance
-
-class Relation(ModelGraph):
-    def __init__(self, name, **attrs):
-        self.counter += 1
-        check(name not in self.tags, NameError, f"The name '{name}' is already been used.")
-        self.tags.append(name)
-        self.set_node(name, self.__class__.__name__, **attrs)
-        self.set_edge(name, self.__class__.__name__, **attrs)
-
-    def __add__(self, obj):
-        from nnodely.layers.arithmetic import Add
-        return Add(self, obj)
-
-    def __radd__(self, obj):
-        from nnodely.layers.arithmetic import Add
-        return Add(obj, self)
-
-    def __sub__(self, obj):
-        from nnodely.layers.arithmetic import Sub
-        return Sub(self, obj)
-
-    def __rsub__(self, obj):
-        from nnodely.layers.arithmetic import Sub
-        return Sub(obj, self)
-
-    def __truediv__(self, obj):
-        from nnodely.layers.arithmetic import Div
-        return Div(self, obj)
-
-    def __rtruediv__(self, obj):
-        from nnodely.layers.arithmetic import Div
-        return Div(obj, self)
-
-    def __mul__(self, obj):
-        from nnodely.layers.arithmetic import Mul
-        return Mul(self, obj)
-
-    def __rmul__(self, obj):
-        from nnodely.layers.arithmetic import Mul
-        return Mul(obj, self)
-
-    def __pow__(self, obj):
-        from nnodely.layers.arithmetic import Pow
-        return Pow(self, obj)
-
-    def __rpow__(self, obj):
-        from nnodely.layers.arithmetic import Pow
-        return Pow(obj, self)
-
-    def __neg__(self):
-        from nnodely.layers.arithmetic import Neg
-        return Neg(self)
     
 class Stream(ModelGraph):
     """
@@ -410,9 +358,6 @@ class Stream(ModelGraph):
     A Stream is automatically create when you operate over a Input, Parameter, or Constant object.
     """
     def __init__(self, name, **attrs):
-        self.counter += 1
-        check(name not in self.tags, NameError, f"The name '{name}' is already been used.")
-        self.tags.append(name)
         self.set_node(name, self.__class__.__name__, **attrs)
 
     @enforce_types
@@ -607,3 +552,53 @@ class Stream(ModelGraph):
         self.json['Inputs'][obj.name]['closedLoop'] = self.name
         self.json['Inputs'][obj.name]['local'] = 1
         return self
+    
+## Relation must have a name , a type, and attributes
+class Relation(Stream):
+    def __init__(self, name, **attrs):
+        super().__init__(name, **attrs)
+        self.set_edge(self.__class__.__name__, name, **attrs)
+
+    def __add__(self, obj):
+        from nnodely.layers.arithmetic import Add
+        return Add(self, obj)
+
+    def __radd__(self, obj):
+        from nnodely.layers.arithmetic import Add
+        return Add(obj, self)
+
+    def __sub__(self, obj):
+        from nnodely.layers.arithmetic import Sub
+        return Sub(self, obj)
+
+    def __rsub__(self, obj):
+        from nnodely.layers.arithmetic import Sub
+        return Sub(obj, self)
+
+    def __truediv__(self, obj):
+        from nnodely.layers.arithmetic import Div
+        return Div(self, obj)
+
+    def __rtruediv__(self, obj):
+        from nnodely.layers.arithmetic import Div
+        return Div(obj, self)
+
+    def __mul__(self, obj):
+        from nnodely.layers.arithmetic import Mul
+        return Mul(self, obj)
+
+    def __rmul__(self, obj):
+        from nnodely.layers.arithmetic import Mul
+        return Mul(obj, self)
+
+    def __pow__(self, obj):
+        from nnodely.layers.arithmetic import Pow
+        return Pow(self, obj)
+
+    def __rpow__(self, obj):
+        from nnodely.layers.arithmetic import Pow
+        return Pow(obj, self)
+
+    def __neg__(self):
+        from nnodely.layers.arithmetic import Neg
+        return Neg(self)

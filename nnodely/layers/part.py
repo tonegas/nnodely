@@ -547,7 +547,7 @@ setattr(Model, timeconcatenate_relation_name, createTimeConcatenate)
 
 timepart_relation_name = 'TimePart'
 
-class TimePart(Stream, Relation):
+class TimePart(Relation):
     """
     Represents a part of a stream in the neural network model along the time dimension (second dimension).
 
@@ -595,18 +595,15 @@ class TimePart(Stream, Relation):
         check(type(obj) is Stream, TypeError, f"The type of {obj} is {type(obj)} and is not supported for TimePart operation.")
         check('tw' in obj.attrs, KeyError, 'Input must have a time window')
         check(i < j, ValueError, 'the start index i must be smaller than the end index j')
-        tw = self.mg.get_node_attr(obj.name, 'tw')
+        tw = self.get_node_attr(obj.name, 'tw')
         backward_idx = tw[0]
         forward_idx = tw[1]
         check(i >= backward_idx and i < forward_idx, ValueError, 'i must be in the time window of the input')
         check(j > backward_idx and j <= forward_idx, ValueError, 'j must be in the time window of the input')
-        self.attrs = {'dim': obj.attrs['dim'], 'tw': j - i}
+        if offset is not None:
+            check(i <= offset < j, IndexError,"The offset must be inside the time window")
+        self.attrs = {'dim': obj.attrs['dim'], 'tw': j - i, 'offset': offset}
         super().__init__(timepart_relation_name, self.attrs)
-        #rel = [timepart_relation_name,[obj.name],[i,j]]
-        # if offset is not None:
-        #     check(i <= offset < j, IndexError,"The offset must be inside the time window")
-        #     rel.append(offset)
-        # self.json['Relations'][self.name] = rel
 
 class TimePart_Layer(nn.Module):
     #: :noindex:

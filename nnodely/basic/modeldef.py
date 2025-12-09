@@ -241,11 +241,26 @@ class ModelGraph:
         self.tags = []
         self.counter = 0
 
-    def set_node(self, node_name, type, **attrs):
-        self.model_graph.add_node(node_name, type=type, **attrs)
+    def set_node(self, name, type, **attrs):
+        while name in self.tags:
+            self.counter += 1
+            name = f"{name}_{self.counter}"
+        self.tags.append(name)
+        self.model_graph.add_node(name, type=type, **attrs)
 
     def set_edge(self, from_node, to_node, **attrs):
+        if self.get_node(from_node) is None:
+            raise NameError(f"The node '{from_node}' is not defined.")
+        if self.get_node(to_node) is None:
+            raise NameError(f"The node '{to_node}' is not defined.")
+
         self.model_graph.add_edge(from_node, to_node, **attrs)
+
+    def get_node(self, name):
+        return self.model_graph.nodes.get(name, None)
+
+    def get_edge(self, from_node, to_node):
+        return self.model_graph.edges.get((from_node, to_node), None)
 
     def set_node_attr(self, node_name, **attrs):
         for k, v in attrs.items():
