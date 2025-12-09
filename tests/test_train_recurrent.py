@@ -656,10 +656,10 @@ class ModelyTrainingTest(unittest.TestCase):
                                   'out2': [[[(4*-1+5*-5+1.0)*4.0+(0*-1+0*-5+1.0)*5.0]]],
                                   'out3': [[[(-15)*1.0+(4*-1+2*-5+1.0)*2.0+(6*-1+5*-5+1.0)*3.0+(4*-1+5*-5+1.0)*4.0+(0*-1+0*-5+1.0)*5.0]]],
                                   'out4': [[[(4*-1+5*-5+1.0)*4.0+(0*-1+0*-5+1.0)*5.0]]]}, test.internals['inout_0_3']['out'])
-        self.assertDictEqual({'inout': [[[0.0],[0.0], [0.0], [-15.0], [-13.0]]]}, test.internals['inout_0_0']['state'])
-        self.assertDictEqual({'inout': [[[0.0],[0.0], [-15.0], [-13.0], [-30.0]]]}, test.internals['inout_0_1']['state'])
-        self.assertDictEqual({'inout': [[[0.0], [-15.0], [-13.0], [-30.0], [-28.0]]]}, test.internals['inout_0_2']['state'])
-        self.assertDictEqual({'inout': [[[-15.0], [-13.0], [-30.0], [-28.0], [1.0]]]}, test.internals['inout_0_3']['state'])
+        self.assertDictEqual({'inout': [[[0.0],[0.0], [-15.0], [-13.0], [np.inf]]]}, test.internals['inout_0_0']['state'])
+        self.assertDictEqual({'inout': [[[0.0], [-15.0], [-13.0], [-30.0], [np.inf]]]}, test.internals['inout_0_1']['state'])
+        self.assertDictEqual({'inout': [[[-15.0], [-13.0], [-30.0], [-28.0], [np.inf]]]}, test.internals['inout_0_2']['state'])
+        self.assertDictEqual({'inout': [[[-13.0], [-30.0], [-28.0], [1.0], [np.inf]]]}, test.internals['inout_0_3']['state'])
         # Replace instead of roll
         # self.assertDictEqual({'inout': [[[0.0], [0.0], [-15.0], [-13.0], [0.0]]]}, test.internals['inout_0_0']['state'])
         # self.assertDictEqual({'inout': [[[0.0], [-15.0], [-13.0], [-30.0], [0.0]]]}, test.internals['inout_0_1']['state'])
@@ -691,9 +691,9 @@ class ModelyTrainingTest(unittest.TestCase):
                                    'out2': [[[(6*-1+5*-5+1.0)*4.0+(4*-1+5*-5+1.0)*5.0]]],
                                    'out3': [[[(-15)*2.0+(4*-1+2*-5+1.0)*3.0+(6*-1+5*-5+1.0)*4.0+(4*-1+5*-5+1.0)*5.0]]],
                                    'out4': [[[(6*-1+5*-5+1.0)*4.0+(4*-1+5*-5+1.0)*5.0]]]}, test.internals['inout_0_2']['out'])
-        self.assertDictEqual({'inout': [[[0.0], [0.0], [0.0], [-15.0], [-13.0]]]}, test.internals['inout_0_0']['state'])
-        self.assertDictEqual({'inout': [[[0.0], [0.0], [-15.0], [-13.0], [-30.0]]]}, test.internals['inout_0_1']['state'])
-        self.assertDictEqual({'inout': [[[0.0], [-15.0], [-13.0], [-30.0], [-28.0]]]}, test.internals['inout_0_2']['state'])
+        self.assertDictEqual({'inout': [[[0.0], [0.0], [-15.0], [-13.0], [np.inf]]]}, test.internals['inout_0_0']['state'])
+        self.assertDictEqual({'inout': [[[0.0], [-15.0], [-13.0], [-30.0], [np.inf]]]}, test.internals['inout_0_1']['state'])
+        self.assertDictEqual({'inout': [[[-15.0], [-13.0], [-30.0], [-28.0], [np.inf]]]}, test.internals['inout_0_2']['state'])
         # Replace instead of rolling
         # self.assertDictEqual({'inout': [[[0.0], [0.0], [-15.0], [-13.0], [0.0]]]}, test.internals['inout_0_0']['state'])
         # self.assertDictEqual({'inout': [[[0.0], [-15.0], [-13.0], [-30.0], [0.0]]]}, test.internals['inout_0_1']['state'])
@@ -706,9 +706,9 @@ class ModelyTrainingTest(unittest.TestCase):
         self.assertListEqual([[[0.0]]], test.internals['inout_1_0']['XY']['target'])
         self.assertListEqual([[[1.0]]], test.internals['inout_1_1']['XY']['target'])
         self.assertListEqual([[[0.0]]], test.internals['inout_1_2']['XY']['target'])
-        self.assertAlmostEqual({'inout': [[[0.0], [0.0], [0.0], [W[0][0]*4.0+W[1][0]*2.0+b[0]], [W[0][0]*6.0+W[1][0]*5.0+b[0]]]]}, test.internals['inout_1_0']['state'])
-        self.assertAlmostEqual({'inout': [[[0.0], [0.0], [W[0][0]*4.0+W[1][0]*2.0+b[0]], [W[0][0]*6.0+W[1][0]*5.0+b[0]], [W[0][0]*4.0+W[1][0]*5.0+b[0]]]]}, test.internals['inout_1_1']['state'])
-        self.assertAlmostEqual({'inout': [[[0.0], [W[0][0]*4.0+W[1][0]*2.0+b[0]], [W[0][0]*6.0+W[1][0]*5.0+b[0]], [W[0][0]*4.0+W[1][0]*5.0+b[0]],  [W[0][0]*0.0+W[1][0]*0.0+b[0]]]]}, test.internals['inout_1_2']['state'])
+        self.assertAlmostEqual({'inout': [[[0.0], [0.0], [W[0][0]*4.0+W[1][0]*2.0+b[0]], [W[0][0]*6.0+W[1][0]*5.0+b[0]], [np.inf]]]}, test.internals['inout_1_0']['state'])
+        self.assertAlmostEqual({'inout': [[[0.0], [W[0][0]*4.0+W[1][0]*2.0+b[0]], [W[0][0]*6.0+W[1][0]*5.0+b[0]], [W[0][0]*4.0+W[1][0]*5.0+b[0]], [np.inf]]]}, test.internals['inout_1_1']['state'])
+        self.assertAlmostEqual({'inout': [[[W[0][0]*4.0+W[1][0]*2.0+b[0]], [W[0][0]*6.0+W[1][0]*5.0+b[0]], [W[0][0]*4.0+W[1][0]*5.0+b[0]],  [W[0][0]*0.0+W[1][0]*0.0+b[0]], [np.inf]]]}, test.internals['inout_1_2']['state'])
         # Replace instead of rolling
         # self.assertAlmostEqual({'inout': [[[0.0], [0.0], [W[0][0][0] * 4.0 + W[0][1][0] * 2.0 + b[0][0]],
         #                                    [W[0][0][0] * 6.0 + W[0][1][0] * 5.0 + b[0][0]], [0.0]]]},
@@ -739,25 +739,25 @@ class ModelyTrainingTest(unittest.TestCase):
         test.trainModel(train_dataset='dataset3', optimizer='SGD', lr=0.01, shuffle_data=False, num_of_epochs=1,
                         train_batch_size=1,
                         prediction_samples=2)
-        self.assertDictEqual({'inout': [[[8.0], [7.0], [6.0], [-15.0], [-13.0]]]}, test.internals['inout_0_0']['state'])
-        self.assertDictEqual({'inout': [[[7.0], [6.0], [-15.0], [-13.0], [-30.0]]]}, test.internals['inout_0_1']['state'])
-        self.assertDictEqual({'inout': [[[6.0], [-15.0], [-13.0], [-30.0], [-28.0]]]}, test.internals['inout_0_2']['state'])
+        self.assertDictEqual({'inout': [[[8.0], [7.0], [-15.0], [-13.0], [np.inf]]]}, test.internals['inout_0_0']['state'])
+        self.assertDictEqual({'inout': [[[7.0], [-15.0], [-13.0], [-30.0], [np.inf]]]}, test.internals['inout_0_1']['state'])
+        self.assertDictEqual({'inout': [[[-15.0], [-13.0], [-30.0], [-28.0], [np.inf]]]}, test.internals['inout_0_2']['state'])
         # Replace insead of rolling
         # self.assertDictEqual({'inout': [[[8.0], [7.0], [-15.0], [-13.0], [9.0]]]}, test.internals['inout_0_0']['state'])
         # self.assertDictEqual({'inout': [[[7.0], [-15.0], [-13.0], [-30.0], [8.0]]]}, test.internals['inout_0_1']['state'])
         # self.assertDictEqual({'inout': [[[-15.0], [-13.0], [-30.0], [-28.0], [7.0]]]}, test.internals['inout_0_2']['state'])
         W = test.internals['inout_1_0']['param']['W']
         b = test.internals['inout_1_0']['param']['b']
-        self.assertAlmostEqual({'inout': [[[7.0], [6.0], [5.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
-                                           [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]]]]},
+        self.assertAlmostEqual({'inout': [[[7.0], [6.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
+                                           [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]], [np.inf]]]},
                                test.internals['inout_1_0']['state'])
-        self.assertAlmostEqual({'inout': [[[6.0], [5.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
+        self.assertAlmostEqual({'inout': [[[6.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]],
                                            [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
-                                           [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]]]]},
+                                           [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]], [np.inf]]]},
                                test.internals['inout_1_1']['state'])
         self.assertAlmostEqual({'inout': [
-            [[5.0], [W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]], [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
-             [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]], [W[0][0] * 0.0 + W[1][0] * 0.0 + b[0]]]]},
+            [[W[0][0] * 4.0 + W[1][0] * 2.0 + b[0]], [W[0][0] * 6.0 + W[1][0] * 5.0 + b[0]],
+             [W[0][0] * 4.0 + W[1][0] * 5.0 + b[0]], [W[0][0] * 0.0 + W[1][0] * 0.0 + b[0]], [np.inf]]]},
                                test.internals['inout_1_2']['state'])
         # replace insead of rolling
         # self.assertAlmostEqual({'inout': [[[7.0], [6.0], [W[0][0][0] * 4.0 + W[0][1][0] * 2.0 + b[0][0]],
@@ -1693,7 +1693,7 @@ class ModelyTrainingTest(unittest.TestCase):
         result = m({'x': x.tolist(), 'y': y.tolist()}, connect={'y2':'out1'}, num_of_samples=10, prediction_samples=10)
         self.assertAlmostEqual([a.tolist() for a in target[0:10]],result['out2'])
 
-    def test_training_values_fir_connect_linear_more_window(self):
+    def test_training_values_fir_connect_linear_more_window_2(self):
         NeuObj.clearNames()
         input1 = Input('in1')
         W = Parameter('W', sw=4, values=[[1], [1], [1], [1]])
