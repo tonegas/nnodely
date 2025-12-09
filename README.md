@@ -92,7 +92,6 @@ Download the source code and install the dependencies using the following comman
 To contribute to the nnodely framework, you can:
 - Open a pull request, if you have a new feature or bug fix.
 - Open an issue, if you have a question or suggestion.
-- Contact us via email at [gastone.rosatipapini@unitn.it](mailto:gastone.rosatipapini@unitn.it) or [mattia.piccinini@tum.de](mailto:mattia.piccinini@tum.de) to directly **collaborate** with us **on your project**!
 
 We are very happy to collaborate with you!
  
@@ -144,7 +143,7 @@ where $x[1]$ is the next position of the mass, $F[0]$ is the last sample of the 
 
 For the input variable `x`, we are using a time window $T_w = 1$ second, which means that we are using the last $N_x$ samples of the variable `x` to estimate the next position of the mass. The value of $N_x$ is equal to $T_w/T_s$, where $T_s$ is the sampling time used to sample the input variable `x`.
 
-In a particular case, our MS-NN formulation becomes equivalent to the discrete-time response of the mass-spring-damper system. This happens when we choose the following values: $N_x = 3$, $h_x$ equal to the characteristic polynomial of the system, and $h_f = T_s^2/m$, where $T_s$ is the sampling time and $m$ is the mass of the system. 
+In a particular case, our MS-NN formulation becomes equivalent to the discrete-time response (discretize with Forward-Euler) of the mass-spring-damper system. This happens when we choose the following values: $N_x = 3$, $h_x$ equal to the characteristic polynomial of the system, and $h_f = T_s^2/m$, where $T_s$ is the sampling time and $m$ is the mass of the system. 
 
 However, our formulation is more general and can take better adapt to model mismatches and noise levels in the measured variables. This improved learning potential can be achieved by using a larger number of samples $N_x$ in the time window of the input variable `x`. 
 
