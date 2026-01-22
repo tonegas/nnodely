@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from nnodely import Parameter, Constant
-from nnodely.basic.relation import Stream, ToStream, toStream
+from nnodely.basic.relation import Stream, Relation
 from nnodely.basic.model import Model
 from nnodely.support.utils import check, enforce_types
 
@@ -13,7 +13,7 @@ sigmoid_relation_name = 'Sigmoid'
 identity_relation_name = 'Identity'
 softmax_relation_name = 'Softmax'
 
-class Relu(Stream, ToStream):
+class Relu(Relation):
     """
         Implement the Rectified-Linear Unit (ReLU) relation function.
 
@@ -29,13 +29,12 @@ class Relu(Stream, ToStream):
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
-        obj = toStream(obj)
         check(type(obj) is Stream, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Relu operation.")
         super().__init__(relu_relation_name + str(Stream.count),obj.json,obj.dim)
         self.json['Relations'][self.name] = [relu_relation_name,[obj.name]]
 
-class ELU(Stream, ToStream):
+class ELU(Relation):
     """
         Implement the Exponential-Linear Unit (ELU) relation function.
 
@@ -51,13 +50,12 @@ class ELU(Stream, ToStream):
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
-        obj = toStream(obj)
         check(type(obj) is Stream,TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Tanh operation.")
         super().__init__(elu_relation_name + str(Stream.count),obj.json,obj.dim)
         self.json['Relations'][self.name] = [elu_relation_name,[obj.name]]
 
-class Identity(Stream, ToStream):
+class Identity(Relation):
     """
     Implement the Identity relation function that simply returns the input vector x.
 
@@ -73,14 +71,13 @@ class Identity(Stream, ToStream):
     """
     @enforce_types
     def __init__(self, obj: Stream|Parameter|Constant|float|int) -> Stream:
-        obj = toStream(obj)
         check(type(obj) is Stream, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Identity operation.")
         super().__init__(identity_relation_name + str(Stream.count), obj.json, obj.dim)
         self.json['Relations'][self.name] = [identity_relation_name, [obj.name]]
 
 
-class Softmax(Stream, ToStream):
+class Softmax(Relation):
     """
     Implement the Softmax relation function.
 
@@ -96,13 +93,12 @@ class Softmax(Stream, ToStream):
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
-        obj = toStream(obj)
         check(type(obj) is Stream, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Softmax operation.")
         super().__init__(softmax_relation_name + str(Stream.count), obj.json, obj.dim)
         self.json['Relations'][self.name] = [softmax_relation_name, [obj.name]]
 
-class Sigmoid(Stream, ToStream):
+class Sigmoid(Relation):
     r"""
     Implement the Sigmoid relation function.
     The Sigmoid function is defined as:
@@ -122,7 +118,6 @@ class Sigmoid(Stream, ToStream):
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
-        obj = toStream(obj)
         check(type(obj) is Stream, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for {sigmoid_relation_name} operation.")
         super().__init__(sigmoid_relation_name + str(Stream.count), obj.json, obj.dim)

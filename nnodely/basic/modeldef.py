@@ -1,258 +1,45 @@
-import copy
-
-import numpy as np
-
 import networkx as nx
-
-from nnodely.support.utils import check, check_and_get_list
-from nnodely.support.jsonutils import merge, subjson_from_model, subjson_from_minimize, check_model, get_models_json
-from nnodely.basic.relation import MAIN_JSON, Stream, check_names
-from nnodely.layers.output import Output
-from nnodely.layers.input import Input
+import json
+import os
+import re
+from pathlib import Path
+from typing import Any, Dict, Hashable, Optional, Set
 
 from nnodely.support.logger import logging, nnLogger
 log = nnLogger(__name__, logging.INFO)
 
-
-class ModelDef:
-    def __init__(self, model_def = MAIN_JSON):
-        # Models definition
-        self.__json_base = copy.deepcopy(model_def)
-
-        # Initialize the model definition
-        self.__json = copy.deepcopy(self.__json_base)
-        if "SampleTime" in self.__json['Info']:
-            self.__sample_time = self.__json['Info']["SampleTime"]
-        else:
-            self.__sample_time = None
-
-    def __contains__(self, key):
-        return key in self.__json
-
-    def __getitem__(self, key):
-        if key in self.__json:
-            return self.__json[key]
-        else:
-            return None
-
-    def __setitem__(self, key, value):
-        self.__json[key] = value
-
-    def __rebuild_json(self, models_names, minimizers):
-        models_json = subjson_from_model(self.__json, list(models_names))
-        if 'Minimizers' in self.__json and len(minimizers) > 0:
-            minimizers_json = subjson_from_minimize(self.__json, list(minimizers))
-            models_json = merge(models_json, minimizers_json)
-        return copy.deepcopy(models_json)
-
-    def recurrentInputs(self):
-        return {key:value for key, value in self.__json['Inputs'].items() if ('closedLoop' in value.keys() or 'connect' in value.keys())}
-
-    def getJson(self, models:list|str|None = None) -> dict:
-        if models is None:
-            return copy.deepcopy(self.__json)
-        else:
-            json = subjson_from_model(self.__json, models)
-            check_model(json)
-            return copy.deepcopy(json)
-
-    def getSampleTime(self):
-        check(self.__sample_time is not None, AttributeError, "Sample time is not defined the model is not neuralized!")
-        return self.__sample_time
-
-    def isDefined(self):
-        return self.__json is not None
-
-    def addConnection(self, stream_out:str|Output|Stream, input_in:str|Input, type:str, local:bool = False):
-        outputs = self.__json['Outputs']
-
-        if isinstance(stream_out, (Output, Stream)):
-            stream_name = outputs[stream_out.name] if stream_out.name in outputs.keys() else stream_out.name
-        else:
-            output_name = check_and_get_list(stream_out, set(outputs.keys()),
-                                             lambda name: f"The name {name} is not part of the available Outputs")[0]
-            stream_name = outputs[output_name]
-
-        if isinstance(input_in, Input):
-            input_name = input_in.name
-        else:
-            input_name = input_in #TODO Add tests
-
-        input_name = check_and_get_list(input_name, set(self.__json['Inputs'].keys()),
-                                       lambda name: f"The name {name} is not part of the available Inputs")[0]
-        stream_name = check_and_get_list(stream_name, set(self.__json['Relations'].keys()),
-                                        lambda name: f"The name {name} is not part of the available Relations")[0]
-        self.__json['Inputs'][input_name][type] = stream_name
-        self.__json['Inputs'][input_name]['local'] = int(local)
-
-    def removeConnection(self, name_list:str|list[str]):
-        name_list = check_and_get_list(name_list, set(self.__json['Inputs'].keys()), lambda name: f"The name {name} is not part of the available Inputs")
-        for input_in in name_list:
-            if 'closedLoop' in self.__json['Inputs'][input_in].keys():
-                del self.__json['Inputs'][input_in]['closedLoop']
-                del self.__json['Inputs'][input_in]['local']
-            elif 'connect' in self.__json['Inputs'][input_in].keys():
-                del self.__json['Inputs'][input_in]['connect']
-                del self.__json['Inputs'][input_in]['local']
-            else:
-                raise ValueError(f"The input '{input_in}' has no connection or closed loop defined")
-
-    def addModel(self, name:str, stream_list):
-        if isinstance(stream_list, Output):
-            stream_list = [stream_list]
-
-        json = MAIN_JSON
-        for stream in stream_list:
-            json = merge(json, stream.json)
-        check_model(json)
-
-        if 'Models' not in self.__json:
-            self.__json = merge(self.__json, json)
-            self.__json['Models'] = name
-        else:
-            models_names = set((self.__json['Models'],)) if type(self.__json['Models']) is str else set(self.__json['Models'].keys())
-            check_names(name, models_names, 'Models')
-            if type(self.__json['Models']) is str:
-                self.__json['Models'] = {self.__json['Models']: get_models_json(self.__json)}
-            self.__json = merge(self.__json, json)
-            self.__json['Models'][name] = get_models_json(json)
-
-    def removeModel(self, name_list):
-        if 'Models' not in self.__json:
-            raise ValueError("No Models are defined")
-        models_names = {self.__json['Models']} if type(self.__json['Models']) is str else set(self.__json['Models'].keys())
-        name_list = check_and_get_list(name_list, models_names, lambda name: f"The name {name} is not part of the available models")
-        models_names -= set(name_list)
-        minimizers = set(self.__json['Minimizers'].keys()) if 'Minimizers' in self.__json else None
-        self.__json = self.__rebuild_json(models_names, minimizers)
-
-    def addMinimize(self, name, streamA, streamB, loss_function='mse'):
-        if 'Minimizers' not in self.__json:
-            self.__json['Minimizers'] = {}
-        check_names(name, set(self.__json['Minimizers'].keys()), 'Minimizers')
-
-        if isinstance(streamA, str):
-            streamA_name = streamA
-        else:
-            check(isinstance(streamA, (Output, Stream)), TypeError, 'streamA must be an instance of Output or Stream')
-            streamA_name = streamA.json['Outputs'][streamA.name] if isinstance(streamA, Output) else streamA.name
-            self.__json = merge(self.__json, streamA.json)
-
-        if isinstance(streamB, str):
-            streamB_name = streamB
-        else:
-            check(isinstance(streamB, (Output, Stream)), TypeError, 'streamA must be an instance of Output or Stream')
-            streamB_name = streamB.json['Outputs'][streamB.name] if isinstance(streamB, Output) else streamB.name
-            self.__json = merge(self.__json, streamB.json)
-        #check(streamA.dim == streamB.dim, ValueError, f'Dimension of streamA={streamA.dim} and streamB={streamB.dim} are not equal.')
-
-        self.__json['Minimizers'][name] = {}
-        self.__json['Minimizers'][name]['A'] = streamA_name
-        self.__json['Minimizers'][name]['B'] = streamB_name
-        self.__json['Minimizers'][name]['loss'] = loss_function
-
-    def removeMinimize(self, name_list):
-        if 'Minimizers' not in self.__json:
-            raise ValueError("No Minimizers are defined")
-        name_list = check_and_get_list(name_list, self.__json['Minimizers'].keys(), lambda name: f"The name {name} is not part of the available minimizers")
-        models_names = {self.__json['Models']} if type(self.__json['Models']) is str else set(self.__json['Models'].keys())
-        remaining_minimizers = set(self.__json['Minimizers'].keys()) - set(name_list) if 'Minimizers' in self.__json else None
-        self.__json = self.__rebuild_json(models_names, remaining_minimizers)
-
-    def setBuildWindow(self, sample_time = None):
-        check(self.__json is not None, RuntimeError, "No model is defined!")
-        if sample_time is not None:
-            check(sample_time > 0, RuntimeError, 'Sample time must be strictly positive!')
-            self.__sample_time = sample_time
-        else:
-            if self.__sample_time is None:
-                self.__sample_time = 1
-
-        self.__json['Info'] = {"SampleTime": self.__sample_time}
-        if 'SampleTime' in self.__json['Constants']:
-            self.__json['Constants']['SampleTime'] = {'dim': 1, 'values': self.__sample_time}
-
-        check(self.__json['Inputs'] != {}, RuntimeError, "No model is defined!")
-        json_inputs = self.__json['Inputs']
-
-        input_ns_backward, input_ns_forward = {}, {}
-        for key, value in json_inputs.items():
-            if 'sw' not in value and 'tw' not in value:
-                assert False, f"Input '{key}' has no time window or sample window"
-            if 'sw' not in value and self.__sample_time is not None:
-                ## check if value['tw'] is a multiple of sample_time
-                absolute_tw = abs(value['tw'][0]) + abs(value['tw'][1])
-                check(round(absolute_tw % self.__sample_time) == 0, ValueError,
-                      f"Time window of input '{key}' is not a multiple of sample time. This network cannot be neuralized")
-                input_ns_backward[key] = round(-value['tw'][0] / self.__sample_time)
-                input_ns_forward[key] = round(value['tw'][1] / self.__sample_time)
-            elif self.__sample_time is not None:
-                if 'tw' in value:
-                    input_ns_backward[key] = max(round(-value['tw'][0] / self.__sample_time), -value['sw'][0])
-                    input_ns_forward[key] = max(round(value['tw'][1] / self.__sample_time), value['sw'][1])
-                else:
-                    input_ns_backward[key] = -value['sw'][0]
-                    input_ns_forward[key] =  value['sw'][1]
-            else:
-                check(value['tw'] == [0,0], RuntimeError, f"Sample time is not defined for input '{key}'")
-                input_ns_backward[key] = -value['sw'][0]
-                input_ns_forward[key] = value['sw'][1]
-            value['ns'] = [input_ns_backward[key], input_ns_forward[key]]
-            value['ntot'] = sum(value['ns'])
-
-        self.__json['Info']['ns'] = [max(input_ns_backward.values()), max(input_ns_forward.values())]
-        self.__json['Info']['ntot'] = sum(self.__json['Info']['ns'])
-        if self.__json['Info']['ns'][0] < 0:
-            log.warning(
-                f"The input is only in the far past the max_samples_backward is: {self.__json['Info']['ns'][0]}")
-        if self.__json['Info']['ns'][1] < 0:
-            log.warning(
-                f"The input is only in the far future the max_sample_forward is: {self.__json['Info']['ns'][1]}")
-
-        for k, v in (self.__json['Parameters'] | self.__json['Constants']).items():
-            if 'values' in v:
-                window = 'tw' if 'tw' in v.keys() else ('sw' if 'sw' in v.keys() else None)
-                if window == 'tw':
-                    check(np.array(v['values']).shape[0] == v['tw'] / self.__sample_time, ValueError,
-                      f"{k} has a different number of values for this sample time.")
-                if v['values'] == "SampleTime":
-                    v['values'] = self.__sample_time
-
-    def updateParameters(self, model = None, *, clear_model = False):
-        if clear_model:
-            for key in self.__json['Parameters'].keys():
-                if 'init_values' in self.__json['Parameters'][key]:
-                    self.__json['Parameters'][key]['values'] = self.__json['Parameters'][key]['init_values']
-                elif 'values' in self.__json['Parameters'][key]:
-                    del self.__json['Parameters'][key]['values']
-        elif model is not None:
-            for key in self.__json['Parameters'].keys():
-                if key in model.all_parameters:
-                    self.__json['Parameters'][key]['values'] = model.all_parameters[key].tolist()
-
-'''
-Base class to define the model definition graph and the json
-Provide json parsing and building utilities
-from graph to json and viceversa
-'''
 class ModelGraph:
-    def __init__(self,):
+    def __init__(self, name: str = "main"):
         self.model_graph = nx.DiGraph()
+        self.name = name
         self.tags = []
         self.counter = 0
+    
+    def _clear(self, tags:str|list|None = None):
+        if tags is None:
+            self.model_graph.clear()
+            self.tags = []
+            self.counter = 0
+        else:
+            tags = [tags] if isinstance(tags, str) else tags
+            for tag in tags:
+                self.removeNode(tag)
 
-    def set_node(self, name, type, **attrs):
+    def set_node(self, name, **attrs):
         while name in self.tags:
             self.counter += 1
             name = f"{name}_{self.counter}"
         self.tags.append(name)
-        self.model_graph.add_node(name, type=type, **attrs)
+        self.model_graph.add_node(name, **attrs)
+        return name
 
     def set_edge(self, from_node, to_node, **attrs):
         if self.get_node(from_node) is None:
-            raise NameError(f"The node '{from_node}' is not defined.")
+            return 
+            #raise NameError(f"The node '{from_node}' is not defined.")
         if self.get_node(to_node) is None:
-            raise NameError(f"The node '{to_node}' is not defined.")
+            return
+            #raise NameError(f"The node '{to_node}' is not defined.")
 
         self.model_graph.add_edge(from_node, to_node, **attrs)
 
@@ -276,9 +63,106 @@ class ModelGraph:
     def get_edge_attr(self, from_node, to_node, attr_name):
         return self.model_graph.edges[from_node, to_node].get(attr_name, None)
     
-    def plot_graph(self):
+    def removeEdge(self, from_node, to_node):
+        """
+        Remove the edge (from_node -> to_node) from the graph.
+        Raises NameError if either node or the edge does not exist.
+        """
+        if self.get_node(from_node) is None:
+            print(f"The node '{from_node}' is not defined.")
+            return
+        if self.get_node(to_node) is None:
+            print(f"The node '{to_node}' is not defined.")
+            return
+        if self.get_edge(from_node, to_node) is None:
+            print(f"The edge '{from_node}->{to_node}' is not defined.")
+            return
+        self.model_graph.remove_edge(from_node, to_node)
+
+    def removeNode(self, name):
+        """
+        Remove a node and all its incident edges from the graph.
+        Calls removeEdge for each incident edge and removes the node tag.
+        Raises NameError if the node does not exist.
+        """
+        if self.get_node(name) is None:
+            print(f"The node '{name}' is not defined.")
+            return
+
+        # Collect incident edges first (copy lists because we'll modify the graph)
+        incident_in = list(self.model_graph.in_edges(name))
+        incident_out = list(self.model_graph.out_edges(name))
+
+        # Remove incident edges using removeEdge (keeps consistent checks/behavior)
+        for a, b in incident_in + incident_out:
+            self.removeEdge(a, b)
+
+        # Finally remove the node itself and its tag entry
+        self.model_graph.remove_node(name)
+        if name in self.tags:
+            self.tags.remove(name)
+    
+    def subgraph(self, node_name) -> nx.DiGraph:
+        """
+        Return a DiGraph containing only the nodes that can reach `node_name`
+        (i.e. all predecessors/ancestors) plus `node_name` itself.
+
+        Raises NameError if `node_name` is not present in the graph.
+        """
+        if self.get_node(node_name) is None:
+            raise NameError(f"The node '{node_name}' is not defined.")
+
+        # networkx.ancestors returns all nodes that have a path to node_name
+        ancestors = nx.ancestors(self.model_graph, node_name)
+
+        # include target node itself
+        nodes = set(ancestors) | {node_name}
+
+        # return a copy of the induced subgraph as a DiGraph
+        return self.model_graph.subgraph(nodes).copy()
+    
+    def plot_graph(self, left_to_right: bool = False, prog: str = 'dot'):
         import matplotlib.pyplot as plt
-        pos = nx.spring_layout(self.model_graph)
+        # Determine node positions. Prefer Graphviz (dot) for a left-to-right layout
+        pos = None
+        if left_to_right:
+            try:
+                from networkx.drawing.nx_agraph import graphviz_layout
+                pos = graphviz_layout(self.model_graph, prog=prog, args='-Grankdir=LR')
+            except Exception:
+                try:
+                    from networkx.drawing.nx_pydot import graphviz_layout as pydot_graphviz_layout
+                    pos = pydot_graphviz_layout(self.model_graph, prog=prog, args='-Grankdir=LR')
+                except Exception:
+                    pos = None
+
+        if pos is None:
+            # fallback: use a simple layered layout based on distance from input nodes
+            try:
+                inputs = [n for n, a in self.model_graph.nodes(data=True) if a.get('type') == 'Input']
+                if not inputs:
+                    raise ValueError
+                # compute min distance from any input for each node
+                layer = {n: float('inf') for n in self.model_graph.nodes()}
+                for src in inputs:
+                    lengths = nx.single_source_shortest_path_length(self.model_graph, src)
+                    for n, d in lengths.items():
+                        if d < layer.get(n, float('inf')):
+                            layer[n] = d
+                # assign positions: x = layer, y spaced by index within layer
+                layers = {}
+                for n, d in layer.items():
+                    layers.setdefault(d, []).append(n)
+                pos = {}
+                max_nodes_in_layer = max(len(v) for v in layers.values()) if layers else 1
+                for x, (d, nodes) in enumerate(sorted(layers.items())):
+                    for i, n in enumerate(sorted(nodes)):
+                        # center vertically
+                        y = (i - (len(nodes) - 1) / 2.0) / max_nodes_in_layer
+                        pos[n] = (x, -y)
+            except Exception:
+                pos = nx.spring_layout(self.model_graph)
+                
         node_colors = []
         for n, attrs in self.model_graph.nodes(data=True):
             ntype = attrs.get("type")
@@ -295,86 +179,403 @@ class ModelGraph:
             else:
                 node_colors.append('lightgrey')
 
-        nx.draw(self.model_graph, pos, with_labels=True, node_color=node_colors, arrows=True)
+        # Build labels that include node name and its attributes
+        labels = {}
+        for n, attrs in self.model_graph.nodes(data=True):
+            # attr_lines = []
+            # for k, v in attrs.items():
+            #     attr_lines.append(f"{k}: {v}")
+            labels[n] = n + "\n" #+ "\n".join(attr_lines) if attr_lines else n
+
+        # Draw graph using the composed labels
+        nx.draw(self.model_graph, pos, labels=labels, node_color=node_colors, arrows=True)
+        plt.tight_layout()
         plt.show()
 
     def to_graph(model_json):
-        """
-        Convert the nnodely JSON dictionary into a directed NetworkX graph.
-        """
-        G = nx.DiGraph()
-
-        # ---- Add Inputs ----
-        for name, attrs in model_json.get("Inputs", {}).items():
-            G.add_node(name, type="Input", **attrs)
-
-        # ---- Add Constants ----
-        for name, attrs in model_json.get("Constants", {}).items():
-            G.add_node(name, type="Constant", **attrs)
-
-        # ---- Add Parameters ----
-        for name, attrs in model_json.get("Parameters", {}).items():
-            G.add_node(name, type="Parameter", **attrs)
-
-        # ---- Add Functions ----
-        for name, attrs in model_json.get("Functions", {}).items():
-            G.add_node(name, type="Function", **attrs)
-
-        # ---- Add Relations (Blocks) ----
-        relations = model_json.get("Relations", {})
-
-        for node_name, rel in relations.items():
-            block_type = rel[0]
-            inputs = rel[1]
-
-            # attach entire relation info for later serialization
-            G.add_node(node_name, type=block_type, relation=rel)
-
-            # add edges from inputs to node
-            for inp in inputs:
-                if isinstance(inp, str):  # simple case (string reference)
-                    G.add_edge(inp, node_name)
-
-        # ---- Add Output mapping ----
-        for out_name, src in model_json.get("Outputs", {}).items():
-            G.add_node(out_name, type="Output")
-            G.add_edge(src, out_name)
-
-        return G
+        from graphutils import to_graph
+        return to_graph(model_json)
 
     def to_json(G):
+        from graphutils import to_json
+        return to_json(G)
+
+    
+_CURRENT_MODEL_GRAPH = None
+
+def set_current_model_graph(mg : ModelGraph) -> None: 
+    """Register the active ModelGraph instance used by Input/Stream helpers."""
+    global _CURRENT_MODEL_GRAPH
+    _CURRENT_MODEL_GRAPH = mg
+
+def get_current_model_graph() -> ModelGraph | None:
+    """Return the currently registered ModelGraph or None."""
+    return _CURRENT_MODEL_GRAPH
+    
+class ModelManager:
+    def __init__(self,):
+        self.models = {'main': ModelGraph(name='main')}
+        self.names = ['main']
+        set_current_model_graph(self.models['main'])
+
+    def add_model(self, name:str, model:ModelGraph) -> None:
+        while name in self.names:
+            self.counter += 1
+            name = f"{name}_{self.counter}"
+        self.names.append(name)
+        self.models[name] = model
+
+    def flatten(self, start='main') -> ModelGraph:
+        # from nnodely.basic.modeldef_merge_helper import merge_models_from_manager
+        # return merge_models_from_manager(self, start=start)
+    
+        if start not in self.models:
+            raise KeyError(f"model '{start}' not found in models")
+
+        #merged = nx.DiGraph()
+        merged = ModelGraph()
+        visited = set()
+
+        def entry_nodes(mg: ModelGraph, prefix: str):
+            return [prefix + n for n, d in mg.model_graph.nodes(data=True)
+                    if mg.model_graph.in_degree(n) == 0 or d.get('type') == 'Input']
+
+        def exit_nodes(mg: ModelGraph, prefix: str):
+            return [prefix + n for n, d in mg.model_graph.nodes(data=True)
+                    if mg.model_graph.out_degree(n) == 0 or d.get('type') == 'Output']
+
+        def _add_graph(mg: ModelGraph, prefix: str = ''):
+            if id(mg) in visited:
+                return
+            visited.add(id(mg))
+
+            G = mg.model_graph
+
+            # add nodes (recurse into containers)
+            for n, attrs in G.nodes(data=True):
+                if 'graph' in attrs and isinstance(attrs['graph'], ModelGraph):
+                    child_mg = attrs['graph']
+                    child_prefix = prefix + n + '_'
+                    _add_graph(child_mg, child_prefix)
+                else:
+                    merged.set_node(prefix + n, **attrs)
+
+            # add edges, rewiring container endpoints
+            for u, v, ed in G.edges(data=True):
+                u_attrs = G.nodes[u]
+                v_attrs = G.nodes[v]
+                u_is_container = 'graph' in u_attrs and isinstance(u_attrs['graph'], ModelGraph)
+                v_is_container = 'graph' in v_attrs and isinstance(v_attrs['graph'], ModelGraph)
+
+                if not u_is_container and not v_is_container:
+                    merged.set_edge(prefix + u, prefix + v, **ed)
+                else:
+                    sources = [prefix + u] if not u_is_container else exit_nodes(u_attrs['graph'], prefix + u + '_')
+                    targets = [prefix + v] if not v_is_container else entry_nodes(v_attrs['graph'], prefix + v + '_')
+                    for s in sources:
+                        for t in targets:
+                            merged.set_edge(s, t, **ed)
+
+        _add_graph(self.models[start], prefix='')
+        return merged
+
+    def export_html(self,
+        model: str,
+        out_dir: str | os.PathLike,
+        filename: str = "index.html",
+        *,
+        nested_attr: str = "graph",
+        open_subgraph_in_new_tab: bool = False,
+        physics: bool = True,
+    ) -> str:
         """
-        Serialize a NetworkX nnodely graph back into the original JSON structure.
+        Export a NetworkX graph to interactive HTML (vis-network) with recursive subgraph pages.
+        Adds a "Back" button on subgraph pages to return to the parent page.
+
+        Returns the root HTML file path as a string.
         """
-        out = {
-            "Inputs": {},
-            "Constants": {},
-            "Parameters": {},
-            "Functions": {},
-            "Relations": {},
-            "Outputs": {}
-        }
+        out_path = Path(out_dir)
+        out_path.mkdir(parents=True, exist_ok=True)
 
-        # Categorize nodes by type
-        for n, attrs in G.nodes(data=True):
-            ntype = attrs.get("type")
+        visited: Set[int] = set()
 
-            if ntype == "Input":
-                out["Inputs"][n] = {k: v for k, v in attrs.items() if k != "type"}
-            elif ntype == "Constant":
-                out["Constants"][n] = {k: v for k, v in attrs.items() if k != "type"}
-            elif ntype == "Parameter":
-                out["Parameters"][n] = {k: v for k, v in attrs.items() if k != "type"}
-            elif ntype == "Function":
-                out["Functions"][n] = {k: v for k, v in attrs.items() if k != "type"}
-            elif ntype == "Output":
-                # Output always has exactly 1 input
-                src = next(G.predecessors(n))
-                out["Outputs"][n] = src
-            else:
-                # Relations (Add, Fir, TimePart, etc.)
-                rel = attrs.get("relation")
-                if rel:
-                    out["Relations"][n] = rel
+        def _slug(s: str) -> str:
+            s = s.strip().lower()
+            s = re.sub(r"[^a-z0-9._-]+", "-", s)
+            s = re.sub(r"-{2,}", "-", s).strip("-")
+            return s or "graph"
 
-        return out
+
+        def _node_color(attrs: Dict[str, Any], attr_name: str) -> str:
+            t = attrs.get("type", None)
+            if t == "Input":
+                return "#2ecc71"  # green
+            if t == "Output":
+                return "#e74c3c"  # red
+            if attrs.get(attr_name) is not None:
+                return "#3498db"  # blue
+            return "#95a5a6"      # gray
+
+        def _export_one(graph: nx.Graph, html_name: str, page_title: str, parent_rel: Optional[str] = None,) -> str:
+            gid = id(graph)
+            file_path = out_path / html_name
+
+            # If already exported, still ensure we wrote the file (maybe first time parent differs),
+            # but generally avoid infinite recursion.
+            if gid in visited and file_path.exists():
+                return str(file_path)
+            visited.add(gid)
+
+            # Create stable per-page IDs
+            id_map: Dict[Hashable, str] = {}
+            used_ids: Set[str] = set()
+            for n in graph.nodes():
+                sid = str(n)
+                if sid in used_ids:
+                    k = 1
+                    base = sid
+                    while f"{base}#{k}" in used_ids:
+                        k += 1
+                    sid = f"{base}#{k}"
+                used_ids.add(sid)
+                id_map[n] = sid
+
+            # Export subgraphs first
+            url_map: Dict[str, str] = {}
+            for n, attrs in graph.nodes(data=True):
+                payload = attrs.get(nested_attr, None)
+                if payload is None:
+                    continue
+                subG = payload.model_graph
+
+                sub_name = f"{_slug(page_title)}_{_slug(str(n))}.html"
+                sub_title = f"{page_title} :: {n}"
+                parent_for_child = os.path.relpath(file_path, start=out_path)
+                sub_path = _export_one(
+                    subG,
+                    sub_name,
+                    sub_title,
+                    parent_rel=parent_for_child,
+                )
+                url_map[id_map[n]] = os.path.relpath(sub_path, start=out_path)
+
+            # Nodes for vis-network
+            nodes = []
+            for n, attrs in graph.nodes(data=True):
+                sid = id_map[n]
+                attrs_dict = dict(attrs)
+                try:
+                    tooltip = json.dumps(attrs_dict, ensure_ascii=False, default=str, indent=2)
+                except Exception:
+                    tooltip = str(attrs_dict)
+
+                node_rec = {
+                    "id": sid,
+                    "label": str(n),
+                    "title": f"{tooltip}",
+                    "shape": "dot",
+                    "size": 14,
+                    "color": {
+                        "background": _node_color(attrs_dict, nested_attr),
+                        "border": "#2c3e50",
+                        "highlight": {"background": "#f1c40f", "border": "#2c3e50"},
+                    },
+                    "font": {"color": "#111111"},
+                }
+                if sid in url_map:
+                    node_rec["shape"] = "diamond"
+                    node_rec["size"] = 16
+                    node_rec["url"] = url_map[sid]
+                nodes.append(node_rec)
+
+            # Edges
+            edges = []
+            for u, v, eattrs in graph.edges(data=True):
+                rec = {
+                    "from": id_map[u],
+                    "to": id_map[v],
+                    "title": f"{json.dumps(dict(eattrs), ensure_ascii=False, default=str, indent=2)}",
+                }
+                rec["arrows"] = "to"
+                edges.append(rec)
+
+            # Back button (only when parent exists)
+            back_html = ""
+            if parent_rel is not None:
+                back_html = f"""
+                <button id="backBtn" class="btn" title="Go back to parent graph">← Back</button>
+                <a class="crumb" href="{parent_rel}">Parent</a>
+                """
+            html = f"""<!doctype html>
+                <html>
+                <head>
+                <meta charset="utf-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <title>{page_title}</title>
+                <style>
+                    body {{
+                    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+                    margin: 0;
+                    padding: 0;
+                    background: #ffffff;
+                    color: #111;
+                    }}
+                    header {{
+                    padding: 12px 16px;
+                    border-bottom: 1px solid #eee;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    flex-wrap: wrap;
+                    }}
+                    header h1 {{
+                    font-size: 16px;
+                    margin: 0;
+                    font-weight: 600;
+                    }}
+                    .legend {{
+                    margin-left: auto;
+                    display: flex;
+                    gap: 10px;
+                    align-items: center;
+                    font-size: 12px;
+                    color: #444;
+                    flex-wrap: wrap;
+                    }}
+                    .swatch {{
+                    width: 10px; height: 10px; border-radius: 3px; display: inline-block; border: 1px solid #2c3e50;
+                    margin-right: 6px;
+                    }}
+                    #network {{
+                    width: 100%;
+                    height: 92vh;
+                    }}
+                    .hint {{
+                    padding: 8px 16px;
+                    font-size: 12px;
+                    color: #555;
+                    border-top: 1px solid #eee;
+                    display: flex;
+                    gap: 12px;
+                    align-items: center;
+                    flex-wrap: wrap;
+                    }}
+                    .btn {{
+                    border: 1px solid #ddd;
+                    background: #fafafa;
+                    padding: 6px 10px;
+                    border-radius: 10px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    }}
+                    .btn:hover {{
+                    background: #f2f2f2;
+                    }}
+                    .crumb {{
+                    font-size: 12px;
+                    color: #444;
+                    text-decoration: none;
+                    border-bottom: 1px dashed #bbb;
+                    }}
+                    .crumb:hover {{
+                    color: #111;
+                    border-bottom-color: #111;
+                    }}
+                </style>
+
+                <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+                </head>
+                <body>
+                <header>
+                    {back_html}
+                    <h1>{page_title}</h1>
+                    <div class="legend">
+                    <span><span class="swatch" style="background:#2ecc71"></span>Input</span>
+                    <span><span class="swatch" style="background:#e74c3c"></span>Output</span>
+                    <span><span class="swatch" style="background:#3498db"></span>Sub-Model</span>
+                    <span><span class="swatch" style="background:#95a5a6"></span>Relation</span>
+                    </div>
+                </header>
+
+                <div id="network"></div>
+
+                <div class="hint">
+                    <span>Hover nodes/edges for attributes.</span>
+                    <span>Click blue/diamond nodes to open subgraphs.</span>
+                    {"<span>Use ← Back to return to the parent graph.</span>" if parent_rel is not None else ""}
+                </div>
+
+                <script>
+                    const nodes = new vis.DataSet({json.dumps(nodes, ensure_ascii=False)});
+                    const edges = new vis.DataSet({json.dumps(edges, ensure_ascii=False)});
+
+                    const container = document.getElementById('network');
+                    const data = {{ nodes, edges }};
+
+                    const options = {{
+                    autoResize: true,
+                    interaction: {{
+                        hover: true,
+                        tooltipDelay: 80,
+                        multiselect: true,
+                        navigationButtons: true,
+                        keyboard: true
+                    }},
+                    physics: {str(physics).lower()},
+                    layout: {{
+                        improvedLayout: true
+                    }},
+                    nodes: {{
+                        borderWidth: 1,
+                        shadow: true
+                    }},
+                    edges: {{
+                        smooth: true,
+                        shadow: false
+                    }}
+                    }};
+
+                    const network = new vis.Network(container, data, options);
+
+                    network.on("click", function(params) {{
+                    if (!params.nodes || params.nodes.length === 0) return;
+                    const nodeId = params.nodes[0];
+                    const n = nodes.get(nodeId);
+                    if (n && n.url) {{
+                        const target = {('"_" + "blank"' if open_subgraph_in_new_tab else '"_self"')};
+                        if (target === "_blank") {{
+                        window.open(n.url, "_blank");
+                        }} else {{
+                        window.location.href = n.url;
+                        }}
+                    }}
+                    }});
+
+                    // Back button support
+                    const backBtn = document.getElementById("backBtn");
+                    if (backBtn) {{
+                    backBtn.addEventListener("click", () => {{
+                        // Prefer browser history if it actually goes somewhere,
+                        // but always provide a safe fallback to the parent page.
+                        const parentUrl = {json.dumps(parent_rel)};
+                        if (window.history.length > 1) {{
+                        window.history.back();
+                        // fallback if history back doesn't move (rare):
+                        setTimeout(() => {{
+                            // If still on same page URL after a moment, go to parentUrl.
+                            // (Simple heuristic: just navigate anyway if needed.)
+                        }}, 150);
+                        }} else {{
+                        window.location.href = parentUrl;
+                        }}
+                    }});
+                    }}
+                </script>
+                </body>
+                </html>
+                """
+            file_path.write_text(html, encoding="utf-8")
+            return str(file_path)
+
+        root_path = _export_one(self.models[model].model_graph, filename, model, parent_rel=None)
+        return root_path

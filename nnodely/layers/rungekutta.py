@@ -4,11 +4,8 @@ import torch
 from nnodely.layers.parametricfunction import ParamFun
 from nnodely.layers.parameter import SampleTime
 
-from nnodely.basic.relation import Stream, NeuObj, ToStream
+from nnodely.basic.relation import Stream, Relation
 from nnodely.support.utils import enforce_types, check
-from nnodely.support.jsonutils import merge, subjson_from_relation
-from nnodely.basic.model import Model
-import textwrap, inspect
 from collections.abc import Callable
 
 fe_relation_name = 'ForwardEuler'
@@ -38,26 +35,26 @@ rk4_relation_name = 'RK4'
 #         stream_json = merge(self.json, obj.json)
 #         stream_json['Relations'][stream_name] = [fe_relation_name, [obj.name], self.name]
 #         return Stream(stream_name, stream_json, {'dim': obj.dim['dim'], window: obj.dim[window]})
-class ForwardEuler(NeuObj):
+class ForwardEuler(Relation):
     """
     This operation perform Forward Euler Integration on a Stream
     """
     @enforce_types
     def __init__(self, f:Callable|ParamFun) -> Stream:
-        super().__init__('F' + fe_relation_name + str(NeuObj.count))
+        super().__init__('F' + fe_relation_name)
         self.f = f if isinstance(f, ParamFun) else ParamFun(f)
         self.dt = SampleTime()
     @enforce_types
     def __call__(self, obj:Stream) -> Stream:
         return obj + self.dt * self.f(obj)
 
-class RK2(NeuObj):
+class RK2(Relation):
     """
     This operation perform RK2 Integration on a Stream
     """
     @enforce_types
     def __init__(self, f:Callable|ParamFun) -> Stream:
-        super().__init__(rk2_relation_name + str(NeuObj.count))
+        super().__init__(rk2_relation_name)
         self.f = f if isinstance(f, ParamFun) else ParamFun(f)
         #self.fe = ForwardEuler(self.f)
         self.dt = SampleTime()
@@ -68,13 +65,13 @@ class RK2(NeuObj):
         f2 = self.f(obj + (self.dt/2) * f1)
         return obj + self.dt * f2
 
-class RK4(NeuObj):
+class RK4(Relation):
     """
     This operation perform RK4 Integration on a Stream
     """
     @enforce_types
     def __init__(self, f:Callable|ParamFun) -> Stream:
-        super().__init__(rk4_relation_name + str(NeuObj.count))
+        super().__init__(rk4_relation_name)
         self.f = f if isinstance(f, ParamFun) else ParamFun(f)
         self.dt = SampleTime()
 

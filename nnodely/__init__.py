@@ -2,7 +2,7 @@ import sys
 import logging
 
 # Network input, outputs and parameters
-from nnodely.layers.input import Input, Connect, ClosedLoop
+from nnodely.layers.input import Input
 from nnodely.layers.parameter import Parameter, Constant, SampleTime
 from nnodely.layers.output import Output
 
@@ -14,7 +14,7 @@ from nnodely.layers.arithmetic import Add, Sum, Sub, Mul, Div, Pow, Neg, Sign
 from nnodely.layers.trigonometric import Sin, Cos, Tan, Cosh, Tanh, Sech
 from nnodely.layers.parametricfunction import ParamFun
 from nnodely.layers.fuzzify import Fuzzify
-from nnodely.layers.part import Part, Select, Concatenate, SamplePart, SampleSelect, TimePart, TimeConcatenate
+#from nnodely.layers.part import Part, Select, Concatenate, SamplePart, SampleSelect, TimePart, TimeConcatenate
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.equationlearner import EquationLearner
 from nnodely.layers.timeoperation import Integrate, Derivate
@@ -22,7 +22,7 @@ from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.rungekutta import ForwardEuler, RK2, RK4
 
 # Main nnodely classes
-from nnodely.nnodely import nnodely, Modely, clearNames
+from nnodely.nnodely import nnodely, Modely
 from nnodely.visualizer import TextVisualizer, MPLVisualizer, MPLNotebookVisualizer
 from nnodely.exporter import StandardExporter
 

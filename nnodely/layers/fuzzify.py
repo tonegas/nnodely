@@ -5,14 +5,14 @@ import torch.nn as nn
 
 from collections.abc import Callable
 
-from nnodely.basic.relation import NeuObj, Stream
+from nnodely.basic.relation import Relation, Stream
 from nnodely.basic.model import Model
 from nnodely.support.utils import check, enforce_types
 from nnodely.support.jsonutils import merge
 
 fuzzify_relation_name = 'Fuzzify'
 
-class Fuzzify(NeuObj):
+class Fuzzify(Relation):
     """
     Represents a Fuzzify relation in the neural network model.
 
@@ -72,7 +72,7 @@ class Fuzzify(NeuObj):
                  functions: str | list | Callable = 'Triangular'):
 
         self.relation_name = fuzzify_relation_name
-        super().__init__('F' + fuzzify_relation_name + str(NeuObj.count))
+        super().__init__('F' + fuzzify_relation_name)
         self.json['Functions'][self.name] = {}
         if output_dimension is not None:
             check(range is not None, ValueError, 'if "output_dimension" is not None, "range" must be not setted')

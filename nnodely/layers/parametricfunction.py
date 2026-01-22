@@ -6,7 +6,7 @@ import numpy as np
 from typing import Union
 from collections.abc import Callable
 
-from nnodely.basic.relation import NeuObj, Stream, toStream
+from nnodely.basic.relation import Stream, Relation
 from nnodely.basic.model import Model
 from nnodely.layers.parameter import Parameter, Constant
 from nnodely.support.utils import check, enforce_types
@@ -18,7 +18,7 @@ log = nnLogger(__name__, logging.WARNING)
 
 paramfun_relation_name = 'ParamFun'
 
-class ParamFun(NeuObj):
+class ParamFun(Relation):
     """
     Represents a parametric function in the neural network model.
 
@@ -83,7 +83,7 @@ class ParamFun(NeuObj):
         self.map_over_batch = map_over_batch
 
         self.output_dimension = {}
-        super().__init__('F'+paramfun_relation_name + str(NeuObj.count))
+        super().__init__('F'+paramfun_relation_name)
         code = textwrap.dedent(inspect.getsource(param_fun)).replace('\"', '\'')
         self.json['Functions'][self.name] = {
             'code' : code,
@@ -131,7 +131,6 @@ class ParamFun(NeuObj):
                 obj_type = Constant
             else:
                 obj_type = type(o)
-            o = toStream(o)
             check(type(o) is Stream, TypeError,
                   f"The type of {o} is {type(o)} and is not supported for ParamFun operation.")
             input_types.append(obj_type)
@@ -172,7 +171,6 @@ class ParamFun(NeuObj):
         stream_json = copy.deepcopy(self.json_stream[n_call_input])
         input_names = []
         for ind, o in enumerate(obj):
-            o = toStream(o)
             check(type(o) is Stream, TypeError,
                   f"The type of {o} is {type(o)} and is not supported for ParamFun operation.")
             stream_json = merge(stream_json, o.json)

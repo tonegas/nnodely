@@ -2,13 +2,13 @@ import inspect
 
 from collections.abc import Callable
 
-from nnodely.basic.relation import NeuObj, Stream
+from nnodely.basic.relation import Stream, Relation
 from nnodely.layers.part import Select
 from nnodely.support.utils import check, enforce_types
 
 localmodel_relation_name = 'LocalModel'
 
-class LocalModel(NeuObj):
+class LocalModel(Relation):
     """
     Represents a Local Model relation in the neural network model.
 
@@ -68,12 +68,11 @@ class LocalModel(NeuObj):
     @enforce_types
     def __init__(self, input_function:Callable|None = None,
                  output_function:Callable|None = None, *,
-                 pass_indexes:bool = False):
+                 pass_indexes:bool = False,
+                 name :str = None):
 
-        self.relation_name = localmodel_relation_name
+        self.name = name if name is not None else localmodel_relation_name
         self.pass_indexes = pass_indexes
-        super().__init__(localmodel_relation_name + str(NeuObj.count))
-        self.json['Functions'][self.name] = {}
         if input_function is not None:
             check(callable(input_function), TypeError, 'The input_function must be callable')
         self.input_function = input_function
@@ -82,15 +81,16 @@ class LocalModel(NeuObj):
         self.output_function = output_function
 
     @enforce_types
-    def __call__(self, inputs:Stream|tuple, activations:Stream|tuple= None):
+    def __call__(self, inputs:Stream|list, activations:Stream|list):
         out_sum = []
-        if type(activations) is not tuple:
-            activations = (activations,)
+        activations, inputs = list(activations), list(inputs)
+        super().__build__(self.name, from_node=inputs+activations)
         self.___activations_matrix(activations,inputs,out_sum)
 
         out = out_sum[0]
         for ind in range(1,len(out_sum)):
             out = out + out_sum[ind]
+        super().__init__(self.name, edges=inputs+activations, **self.attrs)
         return out
 
     # Definisci una funzione ricorsiva per annidare i cicli for

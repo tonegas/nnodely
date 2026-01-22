@@ -1,6 +1,6 @@
 import inspect
 
-from nnodely.basic.relation import NeuObj, Stream
+from nnodely.basic.relation import Stream, Relation
 from nnodely.support.utils import check, enforce_types
 
 from nnodely.layers.linear import Linear
@@ -15,7 +15,7 @@ equationlearner_relation_name = 'EquationLearner'
 Available_functions = [Sin, Cos, Tan, Cosh, Tanh, Sech, Add, Mul, Sub, Neg, Pow, Sum, Concatenate, Relu, ELU, Identity, Sigmoid]
 Initialized_functions = [ParamFun, Fuzzify]
 
-class EquationLearner(NeuObj):
+class EquationLearner(Relation):
     """
     Represents a nnodely implementation of the Task-Parametrized Equation Learner block.
 
@@ -88,7 +88,7 @@ class EquationLearner(NeuObj):
 
         # input parameters
         self.functions = functions
-        super().__init__(equationlearner_relation_name + str(NeuObj.count))
+        super().__init__(equationlearner_relation_name)
 
         self.func_parameters = {}
         for func_idx, func in enumerate(self.functions):
@@ -127,3 +127,25 @@ class EquationLearner(NeuObj):
         if self.linear_out:
             out = self.linear_out(out)
         return out
+    
+    def get_equation(self):
+        """
+        Returns a string representation of the equation learned by the EquationLearner.
+
+        Returns
+        -------
+        str
+            A string representing the learned equation.
+        """
+        equation = "f(x) = "
+        idx = 0
+        for func_idx, func in enumerate(self.functions):
+            func_name = func.__class__.__name__ if type(func) in Initialized_functions else func.__name__
+            args = []
+            for arg_idx in range(self.func_parameters[func_idx]):
+                args.append(f"x{idx + arg_idx}")
+            idx += self.func_parameters[func_idx]
+            equation += f"{func_name}(" + ", ".join(args) + ") + "
+        equation = equation.rstrip(" + ")
+        return equation
+

@@ -1,13 +1,12 @@
-from pprint import pformat
-
-from nnodely.basic.relation import Stream, NeuObj
+import copy
+from nnodely.basic.relation import Stream, Relation
 from nnodely.support.utils import enforce_types
 from nnodely.support.jsonutils import stream_to_str
 
 from nnodely.support.logger import logging, nnLogger
 log = nnLogger(__name__, logging.INFO)
 
-class Output(NeuObj):
+class Output(Relation):
     """
     Represents an output in the neural network model. This relation is what the network will give as output during inference.
 
@@ -39,11 +38,7 @@ class Output(NeuObj):
         relation : Stream
             The relation to be used for the output.
         """
-        super().__init__(name, relation.json, relation.dim)
-        log.debug(f"Output {name}")
-        self.json['Outputs'][name] = {}
-        self.json['Outputs'][name] = relation.name
-        log.debug("\n"+pformat(self.json))
+        super().__init__(name_node=name, edges=relation.name, source=relation.name)
 
     def __str__(self):
         return stream_to_str(self, 'Output')

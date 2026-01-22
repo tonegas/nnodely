@@ -5,7 +5,6 @@ from nnodely.visualizer.textvisualizer import TextVisualizer
 from nnodely.layers.fuzzify import return_fuzzify
 from nnodely.layers.parametricfunction import return_standard_inputs, return_function
 from nnodely.support.utils import check
-from nnodely.basic.modeldef import ModelDef
 
 from nnodely.support.logger import logging, nnLogger
 log = nnLogger(__name__, logging.INFO)
@@ -149,23 +148,23 @@ class MPLVisualizer(TextVisualizer):
                                                                   stdin=subprocess.PIPE,
                                                                   text=True)
                 elif 'code':
-                    model_def = ModelDef(self.modely._model_def)
-                    model_def.updateParameters(self.modely._model)
-                    function_inputs = return_standard_inputs(value, model_def, xlim, num_points)
-                    function_output, function_input_list = return_function(value, function_inputs)
+                    # model_def = ModelDef(self.modely._model_def)
+                    # model_def.updateParameters(self.modely._model)
+                    # function_inputs = return_standard_inputs(value, model_def, xlim, num_points)
+                    # function_output, function_input_list = return_function(value, function_inputs)
 
-                    data = {"name": key}
-                    if value['n_input'] == 2:
-                        data['x0'] = function_inputs[0].reshape(num_points, num_points).tolist()
-                        data['x1'] = function_inputs[1].reshape(num_points, num_points).tolist()
-                        data['output'] = function_output.reshape(num_points, num_points).tolist()
-                    else:
-                        data['x0'] = function_inputs[0].reshape(num_points).tolist()
-                        data['output'] = function_output.reshape(num_points).tolist()
-                    data['params'] = []
-                    for i, key in enumerate(value['params_and_consts']):
-                        data['params'] += [function_inputs[i+value['n_input']].tolist()]
-                    data['input_names'] = function_input_list
+                    # data = {"name": key}
+                    # if value['n_input'] == 2:
+                    #     data['x0'] = function_inputs[0].reshape(num_points, num_points).tolist()
+                    #     data['x1'] = function_inputs[1].reshape(num_points, num_points).tolist()
+                    #     data['output'] = function_output.reshape(num_points, num_points).tolist()
+                    # else:
+                    #     data['x0'] = function_inputs[0].reshape(num_points).tolist()
+                    #     data['output'] = function_output.reshape(num_points).tolist()
+                    # data['params'] = []
+                    # for i, key in enumerate(value['params_and_consts']):
+                    #     data['params'] += [function_inputs[i+value['n_input']].tolist()]
+                    # data['input_names'] = function_input_list
 
                     # Start the data visualizer process
                     self.__process_function[key] = subprocess.Popen(['python', self.__function_visualizer_script],

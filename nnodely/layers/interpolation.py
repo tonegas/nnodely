@@ -2,13 +2,13 @@ import torch
 
 import torch.nn as nn
 
-from nnodely.basic.relation import NeuObj, Stream
+from nnodely.basic.relation import Relation, Stream
 from nnodely.basic.model import Model
 from nnodely.support.utils import check, enforce_types
 from nnodely.support.jsonutils import merge
 
 interpolation_relation_name = 'Interpolation'
-class Interpolation(NeuObj):
+class Interpolation(Relation):
     """
     Represents an Interpolation relation in the neural network model.
     This class performs linear interpolation of an input tensor `x` given two vectors of points.
@@ -51,7 +51,7 @@ class Interpolation(NeuObj):
 
         self.available_modes = ['linear', 'polynomial']
 
-        super().__init__('P' + interpolation_relation_name + str(NeuObj.count))
+        super().__init__('P' + interpolation_relation_name)
         check(len(x_points) == len(y_points), ValueError, 'The x_points and y_points must have the same length.')
         check(mode in self.available_modes, ValueError, f'The mode must be one of {self.available_modes}.')
         check(len(torch.tensor(x_points).shape) == 1, ValueError, 'The x_points must be a 1D tensor.')

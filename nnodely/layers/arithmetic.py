@@ -1,7 +1,9 @@
+import copy
+
 import torch.nn as nn
 import torch
 
-from nnodely.basic.relation import ToStream, Stream, toStream
+from nnodely.basic.relation import Stream, Relation
 from nnodely.basic.model import Model
 from nnodely.support.utils import check, enforce_types
 from nnodely.layers.parameter import Parameter, Constant
@@ -22,7 +24,7 @@ sign_relation_name = 'Sign'
 # Merge operator
 sum_relation_name = 'Sum'
 
-class Add(Stream, ToStream):
+class Add(Relation):
     """
         Implement the addition function between two tensors. 
         (it is also possible to use the classical math operator '+')
@@ -42,13 +44,19 @@ class Add(Stream, ToStream):
             >>> add = relation1 + relation2
     """
     @enforce_types
-    def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float) -> Stream:
-        obj1, obj2, dim = binary_cheks(self, obj1, obj2, 'addition operators (+)')
-        super().__init__(add_relation_name + str(Stream.count),merge(obj1.json,obj2.json),dim)
-        self.json['Relations'][self.name] = [add_relation_name,[obj1.name,obj2.name]]
+    def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float, name : str|None = None) -> Stream:
+        # check('tw' in obj1.attrs or 'sw' in obj1.attrs, KeyError, 'First input must have a time window or sample window')
+        # check('tw' in obj2.attrs or 'sw' in obj2.attrs, KeyError, 'Second input must have a time window or sample window')
+        # tw1 = abs(obj1.attrs['tw'][1] - obj1.attrs['tw'][0]) if 'tw' in obj1.attrs else abs(obj1.attrs['sw'][1] - obj1.attrs['sw'][0])
+        # tw2 = abs(obj2.attrs['tw'][1] - obj2.attrs['tw'][0]) if 'tw' in obj2.attrs else abs(obj2.attrs['sw'][1] - obj2.attrs['sw'][0])
+        # check(tw1 == tw2, ValueError, 'Both inputs must have the same time window size')
+
+        name = add_relation_name if name is None else name
+        attrs = copy.deepcopy(obj1.attrs)
+        super().__init__(name, [obj1.name, obj2.name], **attrs)
 
 ## TODO: check the scalar dimension, helpful for the offset
-class Sub(Stream, ToStream):
+class Sub(Relation):
     """
         Implement the subtraction function between two tensors. 
         (it is also possible to use the classical math operator '-')
@@ -64,12 +72,17 @@ class Sub(Stream, ToStream):
             >>> sub = relation1 - relation2
     """
     @enforce_types
-    def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float) -> Stream:
-        obj1, obj2, dim = binary_cheks(self, obj1, obj2, 'subtraction operators (-)')
-        super().__init__(sub_relation_name + str(Stream.count),merge(obj1.json,obj2.json),dim)
-        self.json['Relations'][self.name] = [sub_relation_name,[obj1.name,obj2.name]]
+    def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float, name : str|None = None) -> Stream:
+        # check('tw' in obj1.attrs or 'sw' in obj1.attrs, KeyError, 'First input must have a time window or sample window')
+        # check('tw' in obj2.attrs or 'sw' in obj2.attrs, KeyError, 'Second input must have a time window or sample window')
+        # tw1 = abs(obj1.attrs['tw'][1] - obj1.attrs['tw'][0]) if 'tw' in obj1.attrs else abs(obj1.attrs['sw'][1] - obj1.attrs['sw'][0])
+        # tw2 = abs(obj2.attrs['tw'][1] - obj2.attrs['tw'][0]) if 'tw' in obj2.attrs else abs(obj2.attrs['sw'][1] - obj2.attrs['sw'][0])
+        # check(tw1 == tw2, ValueError, 'Both inputs must have the same time window size')
+        name = sub_relation_name if name is None else name
+        attrs = copy.deepcopy(obj1.attrs)
+        super().__init__(name, [obj1.name, obj2.name], **attrs)
 
-class Mul(Stream, ToStream):
+class Mul(Relation):
     """
         Implement the multiplication function between two tensors. 
         (it is also possible to use the classical math operator '*')
@@ -85,12 +98,12 @@ class Mul(Stream, ToStream):
             >>> mul = relation1 * relation2
     """
     @enforce_types
-    def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float) -> Stream:
-        obj1, obj2, dim = binary_cheks(self, obj1, obj2, 'multiplication operators (*)')
-        super().__init__(mul_relation_name + str(Stream.count),merge(obj1.json,obj2.json),dim)
-        self.json['Relations'][self.name] = [mul_relation_name,[obj1.name,obj2.name]]
+    def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float, name : str|None = None) -> Stream:
+        name = mul_relation_name if name is None else name
+        attrs = copy.deepcopy(obj1.attrs)
+        super().__init__(name, [obj1.name, obj2.name], **attrs)
 
-class Div(Stream, ToStream):
+class Div(Relation):
     """
         Implement the division function between two tensors. 
         (it is also possible to use the classical math operator '/')
@@ -106,12 +119,12 @@ class Div(Stream, ToStream):
             >>> div = relation1 / relation2
     """
     @enforce_types
-    def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float) -> Stream:
-        obj1, obj2, dim = binary_cheks(self, obj1, obj2, 'division operators (/) ')
-        super().__init__(div_relation_name + str(Stream.count),merge(obj1.json,obj2.json),dim)
-        self.json['Relations'][self.name] = [div_relation_name,[obj1.name,obj2.name]]
+    def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float, name : str|None = None) -> Stream:
+        name = div_relation_name if name is None else name
+        attrs = copy.deepcopy(obj1.attrs)
+        super().__init__(name, [obj1.name, obj2.name], **attrs)
 
-class Pow(Stream, ToStream):
+class Pow(Relation):
     """
         Implement the power function given an input and an exponent. 
         (it is also possible to use the classical math operator '**')
@@ -131,12 +144,12 @@ class Pow(Stream, ToStream):
             >>> pow = relation1 ** relation2
     """
     @enforce_types
-    def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float) -> Stream:
-        obj1, obj2, dim = binary_cheks(self, obj1, obj2, 'pow operators (**)')
-        super().__init__(pow_relation_name + str(Stream.count),merge(obj1.json,obj2.json),dim)
-        self.json['Relations'][self.name] = [pow_relation_name,[obj1.name,obj2.name]]
+    def __init__(self, obj:Stream|Parameter|Constant|int|float, exp:Stream|Parameter|Constant|int|float, name : str|None = None) -> Stream:
+        name = pow_relation_name if name is None else name
+        attrs = copy.deepcopy(obj.attrs)
+        super().__init__(name, obj.name, **attrs)
 
-class Neg(Stream, ToStream):
+class Neg(Relation):
     """
         Implement the negate function given an input. 
 
@@ -148,13 +161,12 @@ class Neg(Stream, ToStream):
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant) -> Stream:
-        obj = toStream(obj)
         check(type(obj) is Stream, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for neg operation.")
         super().__init__(neg_relation_name+str(Stream.count), obj.json, obj.dim)
         self.json['Relations'][self.name] = [neg_relation_name,[obj.name]]
 
-class Sign(Stream, ToStream):
+class Sign(Relation):
     """
         Implement the sign function given an input. 
 
@@ -166,16 +178,14 @@ class Sign(Stream, ToStream):
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant) -> Stream:
-        obj = toStream(obj)
         check(type(obj) is Stream, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for sign operation.")
         super().__init__(sign_relation_name+str(Stream.count), obj.json, obj.dim)
         self.json['Relations'][self.name] = [sign_relation_name,[obj.name]]
 
-class Sum(Stream, ToStream):
+class Sum(Relation):
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant) -> Stream:
-        obj = toStream(obj)
         check(type(obj) is Stream, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for sum operation.")
         obj.dim['dim'] = 1

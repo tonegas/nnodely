@@ -5,7 +5,7 @@ import torch
 
 from collections.abc import Callable
 
-from nnodely.basic.relation import NeuObj, Stream, AutoToStream
+from nnodely.basic.relation import Stream, Relation
 from nnodely.basic.model import Model
 from nnodely.layers.parameter import Parameter
 from nnodely.support.utils import check, enforce_types
@@ -16,7 +16,7 @@ log = nnLogger(__name__, logging.WARNING)
 
 linear_relation_name = 'Linear'
 
-class Linear(NeuObj, AutoToStream):
+class Linear(Relation):
     """
     Represents a Linear relation in the neural network model.
 
@@ -99,65 +99,37 @@ class Linear(NeuObj, AutoToStream):
                  b_init_params:dict|None = None,
                  W:Parameter|str|None = None,
                  b:bool|str|Parameter|None = None,
-                 dropout:int|float = 0):
+                 dropout:int|float = 0,
+                 name: str | None = None):
 
-        self.W = W
-        self.b = b
-        self.bname = None
-        self.Wname = None
-        self.dropout = dropout
+        name = name if name is not None else linear_relation_name
+        attrs = {'W': None, 'b': None, 'dropout': dropout}
 
-        super().__init__('P' + linear_relation_name + str(NeuObj.count))
-
-        if type(self.W) is Parameter:
-            check('tw' not in self.W.dim.keys() and 'sw' not in self.W.dim.keys(), TypeError, f'The "W" must no have time dimension but was {W.dim}.')
-            check(len(self.W.dim['dim']) == 2, ValueError,'The "W" dimensions must be a list of 2.')
-            self.output_dimension = self.W.dim['dim'][1]
+        if type(W) is Parameter:
+            self.output_dimension = W.attrs['dim']
             if output_dimension is not None:
-                check(self.W.dim['dim'][1] == output_dimension, ValueError, 'output_dimension must be equal to the second dim of "W".')
-            self.Wname = self.W.name
-            W_json = W.json
+                check(self.output_dimension == output_dimension, ValueError, 'the output dimension must be equal to the dimension of "W".')
+            self.W = W
         else:
-            self.output_dimension = 1 if output_dimension is None else output_dimension
-            self.Wname = W if type(W) is str else self.name + 'W'
-            W_json = Parameter(name=self.Wname, dimensions=self.output_dimension, init=W_init, init_params=W_init_params).json
-        self.json = merge(self.json,W_json)
+            self.output_dimension= 1 if output_dimension is None else output_dimension
+            Wname = W if type(W) is str else name + 'W'
+            self.W = Parameter(name=Wname, dimensions=self.output_dimension, init=W_init, init_params=W_init_params)
+        attrs['W'] = self.W.name
 
-        if self.b is not None and self.b is not False:
-            if type(self.b) is Parameter:
-                check('tw' not in self.b.dim and 'sw' not in self.b.dim, TypeError, f'The "bias" must no have a time dimensions but got {self.b.dim}.')
-                check(type(self.b.dim['dim']) is int, TypeError, 'The "b" dimensions must be an integer.')
-                check(self.b.dim['dim'] == self.output_dimension, ValueError,'output_dimension must be equal to the dim of the "b".')
-                self.bname = self.b.name
-                b_json = self.b.json
+        if b is not None and b is not False:
+            if type(b) is Parameter:
+                check(b.attrs['dim'] == self.output_dimension, ValueError,'output_dimension must be equal to the dim of the "b".')
+                self.b = b
             else:
-                self.bname = b if type(self.b) is str else self.name + 'b'
-                b_json = Parameter(name=self.bname, dimensions=self.output_dimension, init=b_init, init_params=b_init_params).json
-            self.json = merge(self.json,b_json)
+                bname = b if type(b) is str else name + 'b'
+                self.b = Parameter(name=bname, dimensions=self.output_dimension, init=b_init, init_params=b_init_params)
+            attrs['b'] = self.b.name
 
-        self.json_stream = {}
+        super().__init__(name, [attrs['W'], attrs['b']], **attrs)
 
     @enforce_types
-    def __call__(self, obj:Stream) -> Stream:
-        stream_name = linear_relation_name + str(Stream.count)
-        check(type(obj) is Stream, TypeError,f"The type of {obj} is {type(obj)} and is not supported for Linear operation.")
-        window = 'tw' if 'tw' in obj.dim else ('sw' if 'sw' in obj.dim else None)
-
-        json_stream_name = obj.dim['dim']
-        if obj.dim['dim'] not in self.json_stream:
-            if len(self.json_stream) > 0:
-                log.warning(f"The Linear {self.name} was called with inputs with different dimensions. If both Linear enter in the model an error will be raised.")
-            self.json_stream[json_stream_name] = copy.deepcopy(self.json)
-
-            self.json_stream[json_stream_name]['Parameters'][self.Wname]['dim'] = [obj.dim['dim'],self.output_dimension,]
-
-        if type(self.W) is Parameter:
-            check(self.json['Parameters'][self.Wname]['dim'][0] == obj.dim['dim'], ValueError,
-                  'the input dimension must be equal to the first dim of the parameter')
-
-        stream_json = merge(self.json_stream[json_stream_name],obj.json)
-        stream_json['Relations'][stream_name] = [linear_relation_name, [obj.name], self.Wname, self.bname, self.dropout]
-        return Stream(stream_name, stream_json,{'dim': self.output_dimension, window:obj.dim[window]})
+    def __call__(self, obj:Stream):
+        super().__call__(edges=obj.name)
 
 
 class Linear_Layer(nn.Module):
@@ -178,7 +150,7 @@ class Linear_Layer(nn.Module):
             y = self.dropout(y)
         return y
 
-def createLinear(self, *inputs):
+def createLinear(*inputs):
     return Linear_Layer(weights=inputs[0], bias=inputs[1], dropout=inputs[2])
 
 setattr(Model, linear_relation_name, createLinear)

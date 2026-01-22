@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch
 
-from nnodely.basic.relation import Stream, NeuObj, ToStream
+from nnodely.basic.relation import Stream, Relation
 from nnodely.support.utils import enforce_types, check
 from nnodely.support.jsonutils import merge, subjson_from_relation
 from nnodely.basic.model import Model
@@ -16,7 +16,7 @@ SOLVERS = {
 int_relation_name = 'Integrate'
 der_relation_name = 'Derivate'
 
-class Integrate(Stream, ToStream):
+class Integrate(Relation):
     """
     This operation Integrate a Stream
 
@@ -28,15 +28,15 @@ class Integrate(Stream, ToStream):
     def __init__(self, output:Stream, *,
                  int_name:str|None = None, der_name:str|None = None, method:str = 'euler') -> Stream:
         if int_name is None:
-            int_name = output.name + "_int" + str(NeuObj.count)
+            int_name = output.name + "_int"
         if der_name is None:
-            der_name = output.name + "_der" + str(NeuObj.count)
+            der_name = output.name + "_der"
         check(method in SOLVERS, ValueError, f"The method '{method}' is not supported yet")
         solver = SOLVERS[method](int_name,der_name)
         output_int = solver.integrate(output)
         super().__init__(output_int.name, output_int.json, output_int.dim)
 
-class Derivate(Stream, ToStream):
+class Derivate(Relation):
     """
     This operation Derivate a Stream with respect to time or another Stream
 
@@ -49,9 +49,9 @@ class Derivate(Stream, ToStream):
                  int_name:str|None = None, der_name:str|None = None, method:str = 'euler') -> Stream:
         if input is None:
             if int_name is None:
-                int_name = output.name + "_int" + str(NeuObj.count)
+                int_name = output.name + "_int"
             if der_name is None:
-                der_name = output.name + "_der" + str(NeuObj.count)
+                der_name = output.name + "_der"
             check(method in SOLVERS, ValueError, f"The method '{method}' is not supported yet")
             solver = SOLVERS[method](int_name,der_name)
             output_der = solver.derivate(output)

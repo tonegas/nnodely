@@ -1,19 +1,20 @@
 import torch
 import torch.nn as nn
 
-from nnodely.basic.relation import ToStream, Stream, toStream
+from nnodely.basic.relation import Stream, Relation
 from nnodely.basic.model import Model
 from nnodely.support.utils import check, enforce_types
 from nnodely.layers.parameter import Parameter, Constant
 
 sin_relation_name = 'Sin'
+sin2_relation_name = 'Sin2'
 cos_relation_name = 'Cos'
 tan_relation_name = 'Tan'
 tanh_relation_name = 'Tanh'
 cosh_relation_name = 'Cosh'
 sech_relation_name = 'Sech'
 
-class Sin(Stream, ToStream):
+class Sin(Relation):
     """
     Implement the sine function given an input relation.
 
@@ -28,14 +29,35 @@ class Sin(Stream, ToStream):
         >>> sin = Sin(relation)
     """
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant|int|float) -> Stream:
-        obj = toStream(obj)
-        check(type(obj) is Stream, TypeError,
-              f"The type of {obj} is {type(obj)} and is not supported for Sin operation.")
-        super().__init__(sin_relation_name + str(Stream.count),obj.json,obj.dim)
-        self.json['Relations'][self.name] = [sin_relation_name, [obj.name]]
+    def __init__(self, obj:Stream, name:str|None = None) -> Stream:
+        name = sin_relation_name if name is None else name
+        self.attrs = {'dim': obj.attrs.get('dim', None), 'sw': obj.attrs.get('sw', None), 'tw': obj.attrs.get('tw', None)}
+        super().__init__(name,obj.name,**self.attrs)
 
-class Cos(Stream, ToStream):
+class Sin2(Relation):
+    """
+    Implement the sine function given an input relation.
+
+    See also:
+        Official PyTorch Sin documentation: 
+        `torch.sin <https://pytorch.org/docs/stable/generated/torch.sin.html>`_
+
+    :param obj: the input relation stream
+    :type obj: Stream
+
+    Example:
+        >>> sin = Sin(relation)
+    """
+    @enforce_types
+    def __init__(self, obj:Stream, name:str|None = None) -> Stream:
+        from nnodely.layers.arithmetic import Pow
+        name = sin2_relation_name if name is None else name
+        super().__build__(name, obj.name)
+        self.attrs = {'dim': obj.attrs.get('dim', None), 'sw': obj.attrs.get('sw', None), 'tw': obj.attrs.get('tw', None)}
+        Pow(Sin(obj),2)
+        super().__init__(name,obj.name,**self.attrs)
+
+class Cos(Relation):
     """
     Implement the cosine function given an input relation.
 
@@ -51,13 +73,12 @@ class Cos(Stream, ToStream):
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant|int|float) -> Stream:
-        obj = toStream(obj)
         check(type(obj) is Stream, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Cos operation.")
         super().__init__(cos_relation_name + str(Stream.count),obj.json,obj.dim)
         self.json['Relations'][self.name] = [cos_relation_name, [obj.name]]
 
-class Tan(Stream, ToStream):
+class Tan(Relation):
     """
     Implement the tangent function given an input relation.
 
@@ -73,13 +94,12 @@ class Tan(Stream, ToStream):
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant|int|float) -> Stream:
-        obj = toStream(obj)
         check(type(obj) is Stream, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Tan operation.")
         super().__init__(tan_relation_name + str(Stream.count),obj.json,obj.dim)
         self.json['Relations'][self.name] = [tan_relation_name, [obj.name]]
 
-class Cosh(Stream, ToStream):
+class Cosh(Relation):
     """
     Returns a new tensor with the hyperbolic cosine of the elements of input.
 
@@ -94,13 +114,12 @@ class Cosh(Stream, ToStream):
         >>> cosh = Cosh(relation)
     """
     def __init__(self, obj:Stream) -> Stream:
-        obj = toStream(obj)
         check(type(obj) is Stream, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Cosh operation.")
         super().__init__(cosh_relation_name + str(Stream.count),obj.json,obj.dim)
         self.json['Relations'][self.name] = [cosh_relation_name, [obj.name]]
 
-class Sech(Stream, ToStream):
+class Sech(Relation):
     """
     Returns a new tensor with the hyperbolic secant of the elements of input.
 
@@ -111,13 +130,12 @@ class Sech(Stream, ToStream):
         >>> sech = Sech(relation)
     """
     def __init__(self, obj:Stream) -> Stream:
-        obj = toStream(obj)
         check(type(obj) is Stream, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Sech operation.")
         super().__init__(sech_relation_name + str(Stream.count),obj.json,obj.dim)
         self.json['Relations'][self.name] = [sech_relation_name, [obj.name]]
 
-class Tanh(Stream, ToStream):
+class Tanh(Relation):
     """
         Implement the Hyperbolic Tangent (Tanh) relation function.
 
@@ -133,7 +151,6 @@ class Tanh(Stream, ToStream):
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
-        obj = toStream(obj)
         check(type(obj) is Stream,TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Tanh operation.")
         super().__init__(tanh_relation_name + str(Stream.count),obj.json,obj.dim)
