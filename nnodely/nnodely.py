@@ -322,7 +322,7 @@ def get_manager() -> ModelManager | None:
 
 class Modely():
     @enforce_types
-    def __init__(self, *,
+    def __init__(self, name: str = "main", *,
                  #visualizer:str|EmptyVisualizer|None = 'Standard',
                  #exporter:str|EmptyExporter|None = 'Standard',
                  seed:int|None = None,
@@ -335,7 +335,7 @@ class Modely():
             self.resetSeed(seed)
 
         ## Prepare the model definition
-        self.mm = ModelManager()
+        self.mm = ModelManager(name=name)
         set_manager(self.mm)
         #_set_current_modely(self.graph)
 

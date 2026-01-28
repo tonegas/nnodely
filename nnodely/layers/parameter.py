@@ -74,10 +74,11 @@ class Constant(Stream):
                  sw:int|None = None):
 
         attrs = {}
-        values = np.array(values, dtype=NP_DTYPE).tolist()
+        values = np.array(values, dtype=NP_DTYPE)
         attrs['values'] = values
 
         shape = values.shape
+        values = values.tolist()
         if tw is not None:
             check(len(shape) >= 2, ValueError, "The dimension must be at least 2 if tw is set.")
             check(sw is None, ValueError, "If tw is set sw must be None")
@@ -167,8 +168,9 @@ class Parameter(Stream):
             elif sw is not None:
                 attrs['sw'] = sw
         else:
-            values = np.array(values, dtype=NP_DTYPE).tolist()
+            values = np.array(values, dtype=NP_DTYPE)
             shape = values.shape
+            values = values.tolist()
             attrs['values'] = values
             if tw is not None:
                 check(len(shape) >= 2, ValueError, "The dimension must be at least 2.")
@@ -210,8 +212,9 @@ class SampleTime():
     -------
         >>> dt = SampleTime()
     """
-    name = 'SampleTime'
-    g = Constant(name, values=0)
+    def __init__(self):
+        return Constant('SampleTime', values=0)
+        
     # def __new__(cls):
     #     SampleTime.g.dim = {'dim': 1}
     #     SampleTime.g.json['Constants'][SampleTime.name] = copy.deepcopy(SampleTime.g.dim)

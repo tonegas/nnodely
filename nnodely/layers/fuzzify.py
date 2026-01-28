@@ -66,25 +66,17 @@ class Fuzzify(Relation):
         >>> out = Output('out', fuz(x.last()))
     """
     @enforce_types
-    def __init__(self, output_dimension: int | None = None,
-                 range: list | None = None, *,
-                 centers: list | None = None,
-                 functions: str | list | Callable = 'Triangular'):
+    def __init__(self, 
+                #  output_dimension: int | None = None,
+                #  range: list | None = None, *,
+                 centers: list,
+                 functions: str | list | Callable = 'Triangular',
+                 name: str | None = None) -> Stream:
 
-        self.relation_name = fuzzify_relation_name
-        super().__init__('F' + fuzzify_relation_name)
+        self.name = name if name is not None else fuzzify_relation_name
         self.json['Functions'][self.name] = {}
-        if output_dimension is not None:
-            check(range is not None, ValueError, 'if "output_dimension" is not None, "range" must be not setted')
-            check(centers is None, ValueError,
-                  'if "output_dimension" and "range" are not None, then "centers" must be None')
-            self.output_dimension = {'dim': output_dimension}
-            interval = ((range[1] - range[0]) / (output_dimension - 1))
-            self.json['Functions'][self.name]['centers'] = np.arange(range[0], range[1] + interval, interval).tolist()
-        else:
-            check(centers is not None, ValueError, 'if "output_dimension" is None and "centers" must be setted')
-            self.output_dimension = {'dim': len(centers)}
-            self.json['Functions'][self.name]['centers'] = np.array(centers).tolist()
+        self.output_dimension = {'dim': len(centers)}
+        self.json['Functions'][self.name]['centers'] = np.array(centers).tolist()
         self.json['Functions'][self.name]['dim_out'] = copy.deepcopy(self.output_dimension)
 
         if type(functions) is str:

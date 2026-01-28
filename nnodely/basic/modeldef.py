@@ -213,10 +213,10 @@ def get_current_model_graph() -> ModelGraph | None:
     return _CURRENT_MODEL_GRAPH
     
 class ModelManager:
-    def __init__(self,):
-        self.models = {'main': ModelGraph(name='main')}
-        self.names = ['main']
-        set_current_model_graph(self.models['main'])
+    def __init__(self, name: str):
+        self.models = {name: ModelGraph(name=name)}
+        self.names = [name]
+        set_current_model_graph(self.models[name])
 
     def add_model(self, name:str, model:ModelGraph) -> None:
         while name in self.names:
@@ -225,7 +225,7 @@ class ModelManager:
         self.names.append(name)
         self.models[name] = model
 
-    def flatten(self, start='main') -> ModelGraph:
+    def flatten(self, start: str) -> ModelGraph:
         # from nnodely.basic.modeldef_merge_helper import merge_models_from_manager
         # return merge_models_from_manager(self, start=start)
     
@@ -284,7 +284,6 @@ class ModelManager:
         out_dir: str | os.PathLike,
         filename: str = "index.html",
         *,
-        nested_attr: str = "graph",
         open_subgraph_in_new_tab: bool = False,
         physics: bool = True,
     ) -> str:
@@ -343,7 +342,7 @@ class ModelManager:
             # Export subgraphs first
             url_map: Dict[str, str] = {}
             for n, attrs in graph.nodes(data=True):
-                payload = attrs.get(nested_attr, None)
+                payload = attrs.get("graph", None)
                 if payload is None:
                     continue
                 subG = payload.model_graph
@@ -376,7 +375,7 @@ class ModelManager:
                     "shape": "dot",
                     "size": 14,
                     "color": {
-                        "background": _node_color(attrs_dict, nested_attr),
+                        "background": _node_color(attrs_dict, "graph"),
                         "border": "#2c3e50",
                         "highlight": {"background": "#f1c40f", "border": "#2c3e50"},
                     },
@@ -530,8 +529,8 @@ class ModelManager:
                         shadow: true
                     }},
                     edges: {{
-                        smooth: true,
-                        shadow: false
+                        smooth: {str(physics).lower()},
+                        shadow: {str(physics).lower()}
                     }}
                     }};
 
