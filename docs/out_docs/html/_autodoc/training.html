@@ -1,0 +1,555 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Training &mdash;  1.5.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=73275c37"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="Model structured NN building blocks" href="modules_and_layers.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            
+              <img src="../_static/logo.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="modely.html">Modely</a></li>
+<li class="toctree-l1"><a class="reference internal" href="msnn_ins_out_param.html">Model structured NN Inputs Outputs and Parameters</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modules_and_layers.html">Model structured NN building blocks</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Training</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.basic.optimizer">optimizer module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.basic.optimizer.SGD"><code class="docutils literal notranslate"><span class="pre">SGD</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.SGD.name"><code class="docutils literal notranslate"><span class="pre">SGD.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.SGD.lr"><code class="docutils literal notranslate"><span class="pre">SGD.lr</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.SGD.momentum"><code class="docutils literal notranslate"><span class="pre">SGD.momentum</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.SGD.dampening"><code class="docutils literal notranslate"><span class="pre">SGD.dampening</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.SGD.weight_decay"><code class="docutils literal notranslate"><span class="pre">SGD.weight_decay</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.SGD.nesterov"><code class="docutils literal notranslate"><span class="pre">SGD.nesterov</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.SGD.add_defaults"><code class="docutils literal notranslate"><span class="pre">SGD.add_defaults()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.SGD.set_defaults"><code class="docutils literal notranslate"><span class="pre">SGD.set_defaults()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.SGD.set_params"><code class="docutils literal notranslate"><span class="pre">SGD.set_params()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.SGD.set_params_to_train"><code class="docutils literal notranslate"><span class="pre">SGD.set_params_to_train()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.SGD.unfold"><code class="docutils literal notranslate"><span class="pre">SGD.unfold()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.basic.optimizer.Adam"><code class="docutils literal notranslate"><span class="pre">Adam</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.Adam.name"><code class="docutils literal notranslate"><span class="pre">Adam.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.Adam.lr"><code class="docutils literal notranslate"><span class="pre">Adam.lr</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.Adam.betas"><code class="docutils literal notranslate"><span class="pre">Adam.betas</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.Adam.eps"><code class="docutils literal notranslate"><span class="pre">Adam.eps</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.Adam.weight_decay"><code class="docutils literal notranslate"><span class="pre">Adam.weight_decay</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.Adam.amsgrad"><code class="docutils literal notranslate"><span class="pre">Adam.amsgrad</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.Adam.add_defaults"><code class="docutils literal notranslate"><span class="pre">Adam.add_defaults()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.Adam.set_defaults"><code class="docutils literal notranslate"><span class="pre">Adam.set_defaults()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.Adam.set_params"><code class="docutils literal notranslate"><span class="pre">Adam.set_params()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.Adam.set_params_to_train"><code class="docutils literal notranslate"><span class="pre">Adam.set_params_to_train()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.optimizer.Adam.unfold"><code class="docutils literal notranslate"><span class="pre">Adam.unfold()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.support.earlystopping">earlystopping module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.support.earlystopping.early_stop_patience"><code class="docutils literal notranslate"><span class="pre">early_stop_patience()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.support.earlystopping.select_best_model"><code class="docutils literal notranslate"><span class="pre">select_best_model()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.support.earlystopping.mean_stopping"><code class="docutils literal notranslate"><span class="pre">mean_stopping()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.support.earlystopping.standard_early_stopping"><code class="docutils literal notranslate"><span class="pre">standard_early_stopping()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html"></a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Training</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/_autodoc/training.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="training">
+<span id="nnodely-training"></span><h1>Training<a class="headerlink" href="#training" title="Link to this heading"></a></h1>
+<section id="module-nnodely.basic.optimizer">
+<span id="optimizer-module"></span><h2>optimizer module<a class="headerlink" href="#module-nnodely.basic.optimizer" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.SGD">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.basic.optimizer.</span></span><span class="sig-name descname"><span class="pre">SGD</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">optimizer_defaults</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">optimizer_params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">[]</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/basic/optimizer.html#SGD"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.basic.optimizer.SGD" title="Link to this definition"></a></dt>
+<dd><p>Stochastic Gradient Descent (SGD) optimizer.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Official PyTorch SGD documentation:
+<a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.optim.SGD.html">torch.optim.SGD</a></p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>name</strong> (<em>str</em>) – The name of the optimizer.</p></li>
+<li><p><strong>optimizer_defaults</strong> (<em>dict</em>) – A dictionary of default optimizer settings.</p></li>
+<li><p><strong>optimizer_params</strong> (<em>list</em>) – A list of parameter groups for the optimizer.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.SGD.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#nnodely.basic.optimizer.SGD.name" title="Link to this definition"></a></dt>
+<dd><p>The name of the optimizer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.SGD.lr">
+<span class="sig-name descname"><span class="pre">lr</span></span><a class="headerlink" href="#nnodely.basic.optimizer.SGD.lr" title="Link to this definition"></a></dt>
+<dd><p>Learning rate. Default is 0.01.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float, optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.SGD.momentum">
+<span class="sig-name descname"><span class="pre">momentum</span></span><a class="headerlink" href="#nnodely.basic.optimizer.SGD.momentum" title="Link to this definition"></a></dt>
+<dd><p>Momentum factor. Default is 0.0.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float, optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.SGD.dampening">
+<span class="sig-name descname"><span class="pre">dampening</span></span><a class="headerlink" href="#nnodely.basic.optimizer.SGD.dampening" title="Link to this definition"></a></dt>
+<dd><p>Dampening for momentum. Default is 0.0.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float, optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.SGD.weight_decay">
+<span class="sig-name descname"><span class="pre">weight_decay</span></span><a class="headerlink" href="#nnodely.basic.optimizer.SGD.weight_decay" title="Link to this definition"></a></dt>
+<dd><p>Weight decay (L2 penalty). Default is 0.0.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float, optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.SGD.nesterov">
+<span class="sig-name descname"><span class="pre">nesterov</span></span><a class="headerlink" href="#nnodely.basic.optimizer.SGD.nesterov" title="Link to this definition"></a></dt>
+<dd><p>Enables Nesterov momentum. Default is False.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool, optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.SGD.add_defaults">
+<span class="sig-name descname"><span class="pre">add_defaults</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">option_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">overwrite</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#nnodely.basic.optimizer.SGD.add_defaults" title="Link to this definition"></a></dt>
+<dd><p>Adds default settings to the optimizer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>option_name</strong> (<em>str</em>) – The name of the option to add.</p></li>
+<li><p><strong>params</strong> (<em>any</em>) – The parameters for the option.</p></li>
+<li><p><strong>overwrite</strong> (<em>bool</em><em>, </em><em>optional</em>) – Whether to overwrite existing settings. Default is True.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.SGD.set_defaults">
+<span class="sig-name descname"><span class="pre">set_defaults</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">optimizer_defaults</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#nnodely.basic.optimizer.SGD.set_defaults" title="Link to this definition"></a></dt>
+<dd><p>Sets the default optimizer settings.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>optimizer_defaults</strong> (<em>dict</em>) – A dictionary of default optimizer settings.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.SGD.set_params">
+<span class="sig-name descname"><span class="pre">set_params</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">optimizer_params</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#nnodely.basic.optimizer.SGD.set_params" title="Link to this definition"></a></dt>
+<dd><p>Sets the parameter groups for the optimizer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>optimizer_params</strong> (<em>list</em>) – A list of parameter groups for the optimizer.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.SGD.set_params_to_train">
+<span class="sig-name descname"><span class="pre">set_params_to_train</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">all_params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params_to_train</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#nnodely.basic.optimizer.SGD.set_params_to_train" title="Link to this definition"></a></dt>
+<dd><p>Sets the parameters to be trained by the optimizer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>all_params</strong> (<em>dict</em>) – A dictionary of all parameters in the model.</p></li>
+<li><p><strong>params_to_train</strong> (<em>list</em>) – A list of parameters to be trained.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.SGD.unfold">
+<span class="sig-name descname"><span class="pre">unfold</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#nnodely.basic.optimizer.SGD.unfold" title="Link to this definition"></a></dt>
+<dd><p>Unfolds the parameter groups into a flat list.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>params</strong> (<em>list</em>) – A list of parameter groups.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A flat list of parameter groups.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>KeyError</strong> – If the params argument is not a list.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.Adam">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.basic.optimizer.</span></span><span class="sig-name descname"><span class="pre">Adam</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">optimizer_defaults</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">optimizer_params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">[]</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/basic/optimizer.html#Adam"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.basic.optimizer.Adam" title="Link to this definition"></a></dt>
+<dd><p>Stochastic Gradient Descent (SGD) optimizer.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Official PyTorch Adam documentation:
+<a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.optim.SGD.html">torch.optim.Adam</a></p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>name</strong> (<em>str</em>) – The name of the optimizer.</p></li>
+<li><p><strong>optimizer_defaults</strong> (<em>dict</em>) – A dictionary of default optimizer settings.</p></li>
+<li><p><strong>optimizer_params</strong> (<em>list</em>) – A list of parameter groups for the optimizer.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.Adam.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#nnodely.basic.optimizer.Adam.name" title="Link to this definition"></a></dt>
+<dd><p>The name of the optimizer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.Adam.lr">
+<span class="sig-name descname"><span class="pre">lr</span></span><a class="headerlink" href="#nnodely.basic.optimizer.Adam.lr" title="Link to this definition"></a></dt>
+<dd><p>Learning rate. Default is 0.001.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float, optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.Adam.betas">
+<span class="sig-name descname"><span class="pre">betas</span></span><a class="headerlink" href="#nnodely.basic.optimizer.Adam.betas" title="Link to this definition"></a></dt>
+<dd><p>Coefficients used for computing running averages of gradient and its square. Default is (0.9, 0.999).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>tuple of (float, float), optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.Adam.eps">
+<span class="sig-name descname"><span class="pre">eps</span></span><a class="headerlink" href="#nnodely.basic.optimizer.Adam.eps" title="Link to this definition"></a></dt>
+<dd><p>Term added to the denominator to improve numerical stability. Default is 1e-8.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float, optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.Adam.weight_decay">
+<span class="sig-name descname"><span class="pre">weight_decay</span></span><a class="headerlink" href="#nnodely.basic.optimizer.Adam.weight_decay" title="Link to this definition"></a></dt>
+<dd><p>Weight decay (L2 penalty). Default is 0.0.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float, optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.Adam.amsgrad">
+<span class="sig-name descname"><span class="pre">amsgrad</span></span><a class="headerlink" href="#nnodely.basic.optimizer.Adam.amsgrad" title="Link to this definition"></a></dt>
+<dd><p>Whether to use the AMSGrad variant of this algorithm. Default is False.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool, optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.Adam.add_defaults">
+<span class="sig-name descname"><span class="pre">add_defaults</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">option_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">overwrite</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#nnodely.basic.optimizer.Adam.add_defaults" title="Link to this definition"></a></dt>
+<dd><p>Adds default settings to the optimizer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>option_name</strong> (<em>str</em>) – The name of the option to add.</p></li>
+<li><p><strong>params</strong> (<em>any</em>) – The parameters for the option.</p></li>
+<li><p><strong>overwrite</strong> (<em>bool</em><em>, </em><em>optional</em>) – Whether to overwrite existing settings. Default is True.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.Adam.set_defaults">
+<span class="sig-name descname"><span class="pre">set_defaults</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">optimizer_defaults</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#nnodely.basic.optimizer.Adam.set_defaults" title="Link to this definition"></a></dt>
+<dd><p>Sets the default optimizer settings.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>optimizer_defaults</strong> (<em>dict</em>) – A dictionary of default optimizer settings.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.Adam.set_params">
+<span class="sig-name descname"><span class="pre">set_params</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">optimizer_params</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#nnodely.basic.optimizer.Adam.set_params" title="Link to this definition"></a></dt>
+<dd><p>Sets the parameter groups for the optimizer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>optimizer_params</strong> (<em>list</em>) – A list of parameter groups for the optimizer.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.Adam.set_params_to_train">
+<span class="sig-name descname"><span class="pre">set_params_to_train</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">all_params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params_to_train</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#nnodely.basic.optimizer.Adam.set_params_to_train" title="Link to this definition"></a></dt>
+<dd><p>Sets the parameters to be trained by the optimizer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>all_params</strong> (<em>dict</em>) – A dictionary of all parameters in the model.</p></li>
+<li><p><strong>params_to_train</strong> (<em>list</em>) – A list of parameters to be trained.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.optimizer.Adam.unfold">
+<span class="sig-name descname"><span class="pre">unfold</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#nnodely.basic.optimizer.Adam.unfold" title="Link to this definition"></a></dt>
+<dd><p>Unfolds the parameter groups into a flat list.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>params</strong> (<em>list</em>) – A list of parameter groups.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A flat list of parameter groups.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>KeyError</strong> – If the params argument is not a list.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-nnodely.support.earlystopping">
+<span id="earlystopping-module"></span><h2>earlystopping module<a class="headerlink" href="#module-nnodely.support.earlystopping" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="nnodely.support.earlystopping.early_stop_patience">
+<span class="sig-prename descclassname"><span class="pre">nnodely.support.earlystopping.</span></span><span class="sig-name descname"><span class="pre">early_stop_patience</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">train_losses</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">val_losses</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/support/earlystopping.html#early_stop_patience"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.support.earlystopping.early_stop_patience" title="Link to this definition"></a></dt>
+<dd><p>Determines whether to stop training early based on validation loss and patience.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>train_losses</strong> (<em>dict</em>) – A dictionary where keys are epoch numbers and values are lists of training loss values.</p></li>
+<li><p><strong>val_losses</strong> (<em>dict</em>) – A dictionary where keys are epoch numbers and values are lists of validation loss values.</p></li>
+<li><p><strong>params</strong> (<em>dict</em>) – A dictionary of parameters. Should contain ‘patience’ which is the number of epochs to wait for improvement.
+Optionally, it can contain ‘error’ which specifies the type of loss to be used.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if training should be stopped early, False otherwise.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="nnodely.support.earlystopping.select_best_model">
+<span class="sig-prename descclassname"><span class="pre">nnodely.support.earlystopping.</span></span><span class="sig-name descname"><span class="pre">select_best_model</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">train_losses</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">val_losses</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/support/earlystopping.html#select_best_model"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.support.earlystopping.select_best_model" title="Link to this definition"></a></dt>
+<dd><p>Selects the best model based on the validation or training losses.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>train_losses</strong> (<em>dict</em>) – A dictionary where keys are epoch numbers and values are lists of training loss values.</p></li>
+<li><p><strong>val_losses</strong> (<em>dict</em>) – A dictionary where keys are epoch numbers and values are lists of validation loss values.</p></li>
+<li><p><strong>params</strong> (<em>dict</em>) – A dictionary of parameters.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if the current model is the best model, False otherwise.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="nnodely.support.earlystopping.mean_stopping">
+<span class="sig-prename descclassname"><span class="pre">nnodely.support.earlystopping.</span></span><span class="sig-name descname"><span class="pre">mean_stopping</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">train_losses</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">val_losses</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/support/earlystopping.html#mean_stopping"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.support.earlystopping.mean_stopping" title="Link to this definition"></a></dt>
+<dd><p>Determines whether to stop training early based on the mean difference between training and validation losses.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>train_losses</strong> (<em>dict</em>) – A dictionary where keys are epoch numbers and values are lists of training loss values.</p></li>
+<li><p><strong>val_losses</strong> (<em>dict</em>) – A dictionary where keys are epoch numbers and values are lists of validation loss values.</p></li>
+<li><p><strong>params</strong> (<em>dict</em>) – A dictionary of parameters. Should contain ‘tol’ which is the tolerance value for early stopping.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if training should be stopped early, False otherwise.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="nnodely.support.earlystopping.standard_early_stopping">
+<span class="sig-prename descclassname"><span class="pre">nnodely.support.earlystopping.</span></span><span class="sig-name descname"><span class="pre">standard_early_stopping</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">train_losses</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">val_losses</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/support/earlystopping.html#standard_early_stopping"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.support.earlystopping.standard_early_stopping" title="Link to this definition"></a></dt>
+<dd><p>Determines whether to stop training early based on training and validation losses.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>train_losses</strong> (<em>dict</em>) – A dictionary where keys are epoch numbers and values are lists of training loss values.</p></li>
+<li><p><strong>val_losses</strong> (<em>dict</em>) – A dictionary where keys are epoch numbers and values are lists of validation loss values.</p></li>
+<li><p><strong>params</strong> (<em>dict</em>) – A dictionary of parameters. Should contain ‘tol’ which is the tolerance value for early stopping.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if training should be stopped early, False otherwise.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="modules_and_layers.html" class="btn btn-neutral float-left" title="Model structured NN building blocks" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright .</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

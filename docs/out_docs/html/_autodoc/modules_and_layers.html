@@ -1,0 +1,1734 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Model structured NN building blocks &mdash;  1.5.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=73275c37"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+      <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Training" href="training.html" />
+    <link rel="prev" title="Model structured NN Inputs Outputs and Parameters" href="msnn_ins_out_param.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            
+              <img src="../_static/logo.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="modely.html">Modely</a></li>
+<li class="toctree-l1"><a class="reference internal" href="msnn_ins_out_param.html">Model structured NN Inputs Outputs and Parameters</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Model structured NN building blocks</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.layers.activation">Activation module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.activation.Relu"><code class="docutils literal notranslate"><span class="pre">Relu</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.activation.ELU"><code class="docutils literal notranslate"><span class="pre">ELU</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.activation.Sigmoid"><code class="docutils literal notranslate"><span class="pre">Sigmoid</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.activation.Softmax"><code class="docutils literal notranslate"><span class="pre">Softmax</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.activation.Identity"><code class="docutils literal notranslate"><span class="pre">Identity</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.layers.arithmetic">Arithmetic module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.arithmetic.Add"><code class="docutils literal notranslate"><span class="pre">Add</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.arithmetic.Sub"><code class="docutils literal notranslate"><span class="pre">Sub</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.arithmetic.Mul"><code class="docutils literal notranslate"><span class="pre">Mul</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.arithmetic.Div"><code class="docutils literal notranslate"><span class="pre">Div</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.arithmetic.Pow"><code class="docutils literal notranslate"><span class="pre">Pow</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.arithmetic.Neg"><code class="docutils literal notranslate"><span class="pre">Neg</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.layers.fir">Fir module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.fir.Fir"><code class="docutils literal notranslate"><span class="pre">Fir</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.fir.Fir.relation_name"><code class="docutils literal notranslate"><span class="pre">Fir.relation_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.fir.Fir.W_init"><code class="docutils literal notranslate"><span class="pre">Fir.W_init</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.fir.Fir.W_init_params"><code class="docutils literal notranslate"><span class="pre">Fir.W_init_params</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.fir.Fir.W"><code class="docutils literal notranslate"><span class="pre">Fir.W</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.fir.Fir.b_init"><code class="docutils literal notranslate"><span class="pre">Fir.b_init</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.fir.Fir.b_init_params"><code class="docutils literal notranslate"><span class="pre">Fir.b_init_params</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.fir.Fir.b"><code class="docutils literal notranslate"><span class="pre">Fir.b</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.fir.Fir.pname"><code class="docutils literal notranslate"><span class="pre">Fir.pname</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.fir.Fir.bname"><code class="docutils literal notranslate"><span class="pre">Fir.bname</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.fir.Fir.dropout"><code class="docutils literal notranslate"><span class="pre">Fir.dropout</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.fir.Fir.output_dimension"><code class="docutils literal notranslate"><span class="pre">Fir.output_dimension</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.layers.fuzzify">Fuzzify module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.fuzzify.Fuzzify"><code class="docutils literal notranslate"><span class="pre">Fuzzify</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.fuzzify.Fuzzify.relation_name"><code class="docutils literal notranslate"><span class="pre">Fuzzify.relation_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.fuzzify.Fuzzify.output_dimension"><code class="docutils literal notranslate"><span class="pre">Fuzzify.output_dimension</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.fuzzify.Fuzzify.json"><code class="docutils literal notranslate"><span class="pre">Fuzzify.json</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.layers.equationlearner">Equation Learner module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.equationlearner.EquationLearner"><code class="docutils literal notranslate"><span class="pre">EquationLearner</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.equationlearner.EquationLearner.relation_name"><code class="docutils literal notranslate"><span class="pre">EquationLearner.relation_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.equationlearner.EquationLearner.linear_in"><code class="docutils literal notranslate"><span class="pre">EquationLearner.linear_in</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.equationlearner.EquationLearner.linear_out"><code class="docutils literal notranslate"><span class="pre">EquationLearner.linear_out</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.equationlearner.EquationLearner.functions"><code class="docutils literal notranslate"><span class="pre">EquationLearner.functions</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.equationlearner.EquationLearner.func_parameters"><code class="docutils literal notranslate"><span class="pre">EquationLearner.func_parameters</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.equationlearner.EquationLearner.n_activations"><code class="docutils literal notranslate"><span class="pre">EquationLearner.n_activations</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.layers.linear">Linear module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.linear.Linear"><code class="docutils literal notranslate"><span class="pre">Linear</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.linear.Linear.relation_name"><code class="docutils literal notranslate"><span class="pre">Linear.relation_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.linear.Linear.W_init"><code class="docutils literal notranslate"><span class="pre">Linear.W_init</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.linear.Linear.W_init_params"><code class="docutils literal notranslate"><span class="pre">Linear.W_init_params</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.linear.Linear.b_init"><code class="docutils literal notranslate"><span class="pre">Linear.b_init</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.linear.Linear.b_init_params"><code class="docutils literal notranslate"><span class="pre">Linear.b_init_params</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.linear.Linear.W"><code class="docutils literal notranslate"><span class="pre">Linear.W</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.linear.Linear.b"><code class="docutils literal notranslate"><span class="pre">Linear.b</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.linear.Linear.Wname"><code class="docutils literal notranslate"><span class="pre">Linear.Wname</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.linear.Linear.bname"><code class="docutils literal notranslate"><span class="pre">Linear.bname</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.linear.Linear.dropout"><code class="docutils literal notranslate"><span class="pre">Linear.dropout</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.linear.Linear.output_dimension"><code class="docutils literal notranslate"><span class="pre">Linear.output_dimension</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.layers.localmodel">Localmodel module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.localmodel.LocalModel"><code class="docutils literal notranslate"><span class="pre">LocalModel</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.localmodel.LocalModel.relation_name"><code class="docutils literal notranslate"><span class="pre">LocalModel.relation_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.localmodel.LocalModel.pass_indexes"><code class="docutils literal notranslate"><span class="pre">LocalModel.pass_indexes</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.localmodel.LocalModel.input_function"><code class="docutils literal notranslate"><span class="pre">LocalModel.input_function</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.localmodel.LocalModel.output_function"><code class="docutils literal notranslate"><span class="pre">LocalModel.output_function</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.layers.part">Part module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.part.Part"><code class="docutils literal notranslate"><span class="pre">Part</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.part.Part.name"><code class="docutils literal notranslate"><span class="pre">Part.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.part.Part.dim"><code class="docutils literal notranslate"><span class="pre">Part.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.part.Part.json"><code class="docutils literal notranslate"><span class="pre">Part.json</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.part.Select"><code class="docutils literal notranslate"><span class="pre">Select</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.part.Select.name"><code class="docutils literal notranslate"><span class="pre">Select.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.part.Select.dim"><code class="docutils literal notranslate"><span class="pre">Select.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.part.Select.json"><code class="docutils literal notranslate"><span class="pre">Select.json</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.part.SamplePart"><code class="docutils literal notranslate"><span class="pre">SamplePart</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.part.SamplePart.name"><code class="docutils literal notranslate"><span class="pre">SamplePart.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.part.SamplePart.dim"><code class="docutils literal notranslate"><span class="pre">SamplePart.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.part.SamplePart.json"><code class="docutils literal notranslate"><span class="pre">SamplePart.json</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.part.SampleSelect"><code class="docutils literal notranslate"><span class="pre">SampleSelect</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.part.SampleSelect.name"><code class="docutils literal notranslate"><span class="pre">SampleSelect.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.part.SampleSelect.dim"><code class="docutils literal notranslate"><span class="pre">SampleSelect.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.part.SampleSelect.json"><code class="docutils literal notranslate"><span class="pre">SampleSelect.json</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.part.TimePart"><code class="docutils literal notranslate"><span class="pre">TimePart</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.part.TimePart.name"><code class="docutils literal notranslate"><span class="pre">TimePart.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.part.TimePart.dim"><code class="docutils literal notranslate"><span class="pre">TimePart.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.part.TimePart.json"><code class="docutils literal notranslate"><span class="pre">TimePart.json</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.layers.trigonometric">Trigonometric module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.trigonometric.Sin"><code class="docutils literal notranslate"><span class="pre">Sin</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.trigonometric.Cos"><code class="docutils literal notranslate"><span class="pre">Cos</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.trigonometric.Tan"><code class="docutils literal notranslate"><span class="pre">Tan</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.trigonometric.Tanh"><code class="docutils literal notranslate"><span class="pre">Tanh</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.trigonometric.Cosh"><code class="docutils literal notranslate"><span class="pre">Cosh</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.trigonometric.Sech"><code class="docutils literal notranslate"><span class="pre">Sech</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.layers.parametricfunction">Parametric Function module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.parametricfunction.ParamFun"><code class="docutils literal notranslate"><span class="pre">ParamFun</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parametricfunction.ParamFun.relation_name"><code class="docutils literal notranslate"><span class="pre">ParamFun.relation_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parametricfunction.ParamFun.param_fun"><code class="docutils literal notranslate"><span class="pre">ParamFun.param_fun</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parametricfunction.ParamFun.constants"><code class="docutils literal notranslate"><span class="pre">ParamFun.constants</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parametricfunction.ParamFun.parameters_dimensions"><code class="docutils literal notranslate"><span class="pre">ParamFun.parameters_dimensions</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parametricfunction.ParamFun.parameters"><code class="docutils literal notranslate"><span class="pre">ParamFun.parameters</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parametricfunction.ParamFun.map_over_batch"><code class="docutils literal notranslate"><span class="pre">ParamFun.map_over_batch</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parametricfunction.ParamFun.output_dimension"><code class="docutils literal notranslate"><span class="pre">ParamFun.output_dimension</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parametricfunction.ParamFun.json"><code class="docutils literal notranslate"><span class="pre">ParamFun.json</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="training.html">Training</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html"></a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Model structured NN building blocks</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/_autodoc/modules_and_layers.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="model-structured-nn-building-blocks">
+<span id="nnodely-modules-layers"></span><h1>Model structured NN building blocks<a class="headerlink" href="#model-structured-nn-building-blocks" title="Link to this heading"></a></h1>
+<section id="module-nnodely.layers.activation">
+<span id="activation-module"></span><h2>Activation module<a class="headerlink" href="#module-nnodely.layers.activation" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.activation.Relu">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.activation.</span></span><span class="sig-name descname"><span class="pre">Relu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/activation.html#Relu"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.activation.Relu" title="Link to this definition"></a></dt>
+<dd><p>Implement the Rectified-Linear Unit (ReLU) relation function.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Official PyTorch ReLU documentation:
+<a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.nn.ReLU.html">torch.nn.ReLU</a></p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – The relation stream.</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Relu</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.activation.ELU">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.activation.</span></span><span class="sig-name descname"><span class="pre">ELU</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/activation.html#ELU"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.activation.ELU" title="Link to this definition"></a></dt>
+<dd><p>Implement the Exponential-Linear Unit (ELU) relation function.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Official PyTorch ReLU documentation:
+<a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.nn.ELU.html">torch.nn.ELU</a></p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – The relation stream.</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">ELU</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.activation.Sigmoid">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.activation.</span></span><span class="sig-name descname"><span class="pre">Sigmoid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/activation.html#Sigmoid"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.activation.Sigmoid" title="Link to this definition"></a></dt>
+<dd><p>Implement the Sigmoid relation function.
+The Sigmoid function is defined as:</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Official PyTorch Softmax documentation:
+<a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.nn.Sigmoid.html#torch.nn.Sigmoid">Sigmoid function</a></p>
+</div>
+<div class="math notranslate nohighlight">
+\[\sigma(x) = \frac{1}{1 + e^{-x}}\]</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – The relation stream.</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Sigmoid</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.activation.Softmax">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.activation.</span></span><span class="sig-name descname"><span class="pre">Softmax</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/activation.html#Softmax"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.activation.Softmax" title="Link to this definition"></a></dt>
+<dd><p>Implement the Softmax relation function.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Official PyTorch Softmax documentation:
+<a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.nn.Softmax.html">torch.nn.Softmax</a></p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – The relation stream.</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Softmax</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.activation.Identity">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.activation.</span></span><span class="sig-name descname"><span class="pre">Identity</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/activation.html#Identity"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.activation.Identity" title="Link to this definition"></a></dt>
+<dd><p>Implement the Identity relation function that simply returns the input vector x.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Official PyTorch Identity documentation:
+<a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.nn.Identity.html">torch.nn.Identity</a></p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – The relation stream.</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Identity</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</section>
+<section id="module-nnodely.layers.arithmetic">
+<span id="arithmetic-module"></span><h2>Arithmetic module<a class="headerlink" href="#module-nnodely.layers.arithmetic" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.arithmetic.Add">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.arithmetic.</span></span><span class="sig-name descname"><span class="pre">Add</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/arithmetic.html#Add"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.arithmetic.Add" title="Link to this definition"></a></dt>
+<dd><p>Implement the addition function between two tensors.
+(it is also possible to use the classical math operator ‘+’)</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Official PyTorch Add documentation:
+<a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.add.html">torch.add</a></p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input1</strong> – the first element of the addition</p></li>
+<li><p><strong>input2</strong> – the second element of the addition</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">add</span> <span class="o">=</span> <span class="n">Add</span><span class="p">(</span><span class="n">relation1</span><span class="p">,</span> <span class="n">relation2</span><span class="p">)</span>
+<span class="go">or</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">add</span> <span class="o">=</span> <span class="n">relation1</span> <span class="o">+</span> <span class="n">relation2</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.arithmetic.Sub">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.arithmetic.</span></span><span class="sig-name descname"><span class="pre">Sub</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/arithmetic.html#Sub"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.arithmetic.Sub" title="Link to this definition"></a></dt>
+<dd><p>Implement the subtraction function between two tensors.
+(it is also possible to use the classical math operator ‘-‘)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input1</strong> – the first element of the subtraction</p></li>
+<li><p><strong>input2</strong> – the second element of the subtraction</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">sub</span> <span class="o">=</span> <span class="n">Sub</span><span class="p">(</span><span class="n">relation1</span><span class="p">,</span> <span class="n">relation2</span><span class="p">)</span>
+<span class="go">or</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">sub</span> <span class="o">=</span> <span class="n">relation1</span> <span class="o">-</span> <span class="n">relation2</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.arithmetic.Mul">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.arithmetic.</span></span><span class="sig-name descname"><span class="pre">Mul</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/arithmetic.html#Mul"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.arithmetic.Mul" title="Link to this definition"></a></dt>
+<dd><p>Implement the multiplication function between two tensors.
+(it is also possible to use the classical math operator ‘*’)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input1</strong> – the first element of the multiplication</p></li>
+<li><p><strong>input2</strong> – the second element of the multiplication</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">mul</span> <span class="o">=</span> <span class="n">Mul</span><span class="p">(</span><span class="n">relation1</span><span class="p">,</span> <span class="n">relation2</span><span class="p">)</span>
+<span class="go">or</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">mul</span> <span class="o">=</span> <span class="n">relation1</span> <span class="o">*</span> <span class="n">relation2</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.arithmetic.Div">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.arithmetic.</span></span><span class="sig-name descname"><span class="pre">Div</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/arithmetic.html#Div"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.arithmetic.Div" title="Link to this definition"></a></dt>
+<dd><p>Implement the division function between two tensors.
+(it is also possible to use the classical math operator ‘/’)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input1</strong> – the numerator of the division</p></li>
+<li><p><strong>input2</strong> – the denominator of the division</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">div</span> <span class="o">=</span> <span class="n">Div</span><span class="p">(</span><span class="n">relation1</span><span class="p">,</span> <span class="n">relation2</span><span class="p">)</span>
+<span class="go">or</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">div</span> <span class="o">=</span> <span class="n">relation1</span> <span class="o">/</span> <span class="n">relation2</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.arithmetic.Pow">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.arithmetic.</span></span><span class="sig-name descname"><span class="pre">Pow</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/arithmetic.html#Pow"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.arithmetic.Pow" title="Link to this definition"></a></dt>
+<dd><p>Implement the power function given an input and an exponent.
+(it is also possible to use the classical math operator ‘**’)</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Official PyTorch pow documentation:
+<a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.pow.html">torch.pow</a></p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – the base of the power function</p></li>
+<li><p><strong>exp</strong> – the exponent of the power function</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nb">pow</span> <span class="o">=</span> <span class="n">Pow</span><span class="p">(</span><span class="n">relation</span><span class="p">,</span> <span class="n">exp</span><span class="p">)</span>
+<span class="go">or</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">pow</span> <span class="o">=</span> <span class="n">relation1</span> <span class="o">**</span> <span class="n">relation2</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.arithmetic.Neg">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.arithmetic.</span></span><span class="sig-name descname"><span class="pre">Neg</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/arithmetic.html#Neg"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.arithmetic.Neg" title="Link to this definition"></a></dt>
+<dd><p>Implement the negate function given an input.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>input</strong> – the input to negate</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Neg</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</section>
+<section id="module-nnodely.layers.fir">
+<span id="fir-module"></span><h2>Fir module<a class="headerlink" href="#module-nnodely.layers.fir" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.fir.Fir">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.fir.</span></span><span class="sig-name descname"><span class="pre">Fir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/fir.html#Fir"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.fir.Fir" title="Link to this definition"></a></dt>
+<dd><p>Represents a Finite Impulse Response (FIR) relation in the neural network model.</p>
+<p class="rubric">Notes</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The FIR relation works along the time dimension (second dimension) of the input tensor.
+You can find some initialization functions inside the initializer module.</p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>output_dimension</strong> (<em>int</em><em>, </em><em>optional</em>) – The output dimension of the FIR relation.</p></li>
+<li><p><strong>W_init</strong> (<em>Callable</em><em>, </em><em>optional</em>) – A callable for initializing the parameters.</p></li>
+<li><p><strong>W_init_params</strong> (<em>dict</em><em>, </em><em>optional</em>) – A dictionary of parameters for the parameter initializer.</p></li>
+<li><p><strong>b_init</strong> (<em>Callable</em><em>, </em><em>optional</em>) – A callable for initializing the bias.</p></li>
+<li><p><strong>b_init_params</strong> (<em>dict</em><em>, </em><em>optional</em>) – A dictionary of parameters for the bias initializer.</p></li>
+<li><p><strong>W</strong> (<a class="reference internal" href="nnodely.html#nnodely.layers.parameter.Parameter" title="nnodely.layers.parameter.Parameter"><em>Parameter</em></a><em> or </em><em>str</em><em>, </em><em>optional</em>) – The parameter object or tag. The parameter can be defined using the relative class ‘Parameter’.
+If not given a new parameter will be auto-generated.</p></li>
+<li><p><strong>b</strong> (<em>bool</em><em>, </em><em>str</em><em>, or </em><a class="reference internal" href="nnodely.html#nnodely.layers.parameter.Parameter" title="nnodely.layers.parameter.Parameter"><em>Parameter</em></a><em>, </em><em>optional</em>) – The bias parameter object, tag, or a boolean indicating whether to use bias.
+If set to ‘True’ a new parameter will be auto-generated.</p></li>
+<li><p><strong>dropout</strong> (<em>int</em><em> or </em><em>float</em><em>, </em><em>optional</em>) – The dropout rate. Default is 0.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.fir.Fir.relation_name">
+<span class="sig-name descname"><span class="pre">relation_name</span></span><a class="headerlink" href="#nnodely.layers.fir.Fir.relation_name" title="Link to this definition"></a></dt>
+<dd><p>The name of the relation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.fir.Fir.W_init">
+<span class="sig-name descname"><span class="pre">W_init</span></span><a class="headerlink" href="#nnodely.layers.fir.Fir.W_init" title="Link to this definition"></a></dt>
+<dd><p>The parameter initializer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.fir.Fir.W_init_params">
+<span class="sig-name descname"><span class="pre">W_init_params</span></span><a class="headerlink" href="#nnodely.layers.fir.Fir.W_init_params" title="Link to this definition"></a></dt>
+<dd><p>The parameters for the parameter initializer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.fir.Fir.W">
+<span class="sig-name descname"><span class="pre">W</span></span><a class="headerlink" href="#nnodely.layers.fir.Fir.W" title="Link to this definition"></a></dt>
+<dd><p>The parameter object or name.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.layers.parameter.Parameter" title="nnodely.layers.parameter.Parameter">Parameter</a> or str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.fir.Fir.b_init">
+<span class="sig-name descname"><span class="pre">b_init</span></span><a class="headerlink" href="#nnodely.layers.fir.Fir.b_init" title="Link to this definition"></a></dt>
+<dd><p>The bias initializer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.fir.Fir.b_init_params">
+<span class="sig-name descname"><span class="pre">b_init_params</span></span><a class="headerlink" href="#nnodely.layers.fir.Fir.b_init_params" title="Link to this definition"></a></dt>
+<dd><p>The parameters for the bias initializer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.fir.Fir.b">
+<span class="sig-name descname"><span class="pre">b</span></span><a class="headerlink" href="#nnodely.layers.fir.Fir.b" title="Link to this definition"></a></dt>
+<dd><p>The bias object, name, or a boolean indicating whether to use bias.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool, str, or <a class="reference internal" href="nnodely.html#nnodely.layers.parameter.Parameter" title="nnodely.layers.parameter.Parameter">Parameter</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.fir.Fir.pname">
+<span class="sig-name descname"><span class="pre">pname</span></span><a class="headerlink" href="#nnodely.layers.fir.Fir.pname" title="Link to this definition"></a></dt>
+<dd><p>The name of the parameter.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.fir.Fir.bname">
+<span class="sig-name descname"><span class="pre">bname</span></span><a class="headerlink" href="#nnodely.layers.fir.Fir.bname" title="Link to this definition"></a></dt>
+<dd><p>The name of the bias.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.fir.Fir.dropout">
+<span class="sig-name descname"><span class="pre">dropout</span></span><a class="headerlink" href="#nnodely.layers.fir.Fir.dropout" title="Link to this definition"></a></dt>
+<dd><p>The dropout rate.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>int or float</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.fir.Fir.output_dimension">
+<span class="sig-name descname"><span class="pre">output_dimension</span></span><a class="headerlink" href="#nnodely.layers.fir.Fir.output_dimension" title="Link to this definition"></a></dt>
+<dd><p>The output dimension of the FIR relation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>int</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Examples</p>
+<a class="reference external image-reference" href="https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/fir.ipynb"><img alt="Open in Colab" src="https://colab.research.google.com/assets/colab-badge.svg" />
+</a>
+<dl>
+<dt>Example - basic usage:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nb">input</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;in&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">relation</span> <span class="o">=</span> <span class="n">Fir</span><span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">tw</span><span class="p">(</span><span class="mf">0.05</span><span class="p">))</span>
+</pre></div>
+</div>
+</dd>
+<dt>Example - passing a parameter:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nb">input</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;in&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">par</span> <span class="o">=</span> <span class="n">Parameter</span><span class="p">(</span><span class="s1">&#39;par&#39;</span><span class="p">,</span> <span class="n">dimensions</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">sw</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">init</span><span class="o">=</span><span class="n">init_constant</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">relation</span> <span class="o">=</span> <span class="n">Fir</span><span class="p">(</span><span class="n">W</span><span class="o">=</span><span class="n">par</span><span class="p">)(</span><span class="nb">input</span><span class="o">.</span><span class="n">sw</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
+</pre></div>
+</div>
+</dd>
+<dt>Example - parameters initialization:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;x&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">F</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;F&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">fir_x</span> <span class="o">=</span> <span class="n">Fir</span><span class="p">(</span><span class="n">W_init</span><span class="o">=</span><span class="n">init_negexp</span><span class="p">)(</span><span class="n">x</span><span class="o">.</span><span class="n">tw</span><span class="p">(</span><span class="mf">0.2</span><span class="p">))</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">fir_F</span> <span class="o">=</span> <span class="n">Fir</span><span class="p">(</span><span class="n">W_init</span><span class="o">=</span><span class="n">init_constant</span><span class="p">,</span> <span class="n">W_init_params</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;value&#39;</span><span class="p">:</span><span class="mi">1</span><span class="p">})(</span><span class="n">F</span><span class="o">.</span><span class="n">last</span><span class="p">())</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-nnodely.layers.fuzzify">
+<span id="fuzzify-module"></span><h2>Fuzzify module<a class="headerlink" href="#module-nnodely.layers.fuzzify" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.fuzzify.Fuzzify">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.fuzzify.</span></span><span class="sig-name descname"><span class="pre">Fuzzify</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_dimension</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">range</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">centers</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">functions</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Callable</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'Triangular'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/fuzzify.html#Fuzzify"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.fuzzify.Fuzzify" title="Link to this definition"></a></dt>
+<dd><p>Represents a Fuzzify relation in the neural network model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>output_dimension</strong> (<em>int</em><em>, </em><em>optional</em>) – The output dimension of the Fuzzify relation. If provided, <cite>range</cite> must also be provided and <cite>centers</cite> must be None.</p></li>
+<li><p><strong>range</strong> (<em>list</em><em>, </em><em>optional</em>) – A list containing the start and end values for the range. Required if <cite>output_dimension</cite> is provided.</p></li>
+<li><p><strong>centers</strong> (<em>list</em><em>, </em><em>optional</em>) – A list of center values for the fuzzy functions. Required if <cite>output_dimension</cite> is None.
+The <cite>output_dimension</cite> will be inferred from the number of centers provided.</p></li>
+<li><p><strong>functions</strong> (<em>str</em><em>, </em><em>list</em><em>, or </em><em>Callable</em><em>, </em><em>optional</em>) – The fuzzy functions to use. Can be a string specifying a predefined function type, a custom function, or a list of callable functions. Default is ‘Triangular’.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The predefined function types are ‘Triangular’ and ‘Rectangular’.
+It is also possible to pass a list of custom functions. In this case, each center will be associated with the respective function in the list.</p>
+</div>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.fuzzify.Fuzzify.relation_name">
+<span class="sig-name descname"><span class="pre">relation_name</span></span><a class="headerlink" href="#nnodely.layers.fuzzify.Fuzzify.relation_name" title="Link to this definition"></a></dt>
+<dd><p>The name of the relation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.fuzzify.Fuzzify.output_dimension">
+<span class="sig-name descname"><span class="pre">output_dimension</span></span><a class="headerlink" href="#nnodely.layers.fuzzify.Fuzzify.output_dimension" title="Link to this definition"></a></dt>
+<dd><p>The output dimension of the Fuzzify relation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.fuzzify.Fuzzify.json">
+<span class="sig-name descname"><span class="pre">json</span></span><a class="headerlink" href="#nnodely.layers.fuzzify.Fuzzify.json" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the configuration of the Fuzzify relation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Examples</p>
+<a class="reference external image-reference" href="https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/fuzzify.ipynb"><img alt="Open in Colab" src="https://colab.research.google.com/assets/colab-badge.svg" />
+</a>
+<dl>
+<dt>Example - basic usage:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;x&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">fuz</span> <span class="o">=</span> <span class="n">Fuzzify</span><span class="p">(</span><span class="n">output_dimension</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="nb">range</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="mi">5</span><span class="p">])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">out</span> <span class="o">=</span> <span class="n">Output</span><span class="p">(</span><span class="s1">&#39;out&#39;</span><span class="p">,</span> <span class="n">fuz</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">last</span><span class="p">()))</span>
+</pre></div>
+</div>
+</dd>
+<dt>Example - passing the centers:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">fuz</span> <span class="o">=</span> <span class="n">Fuzzify</span><span class="p">(</span><span class="n">centers</span><span class="o">=</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mi">3</span><span class="p">,</span><span class="mi">5</span><span class="p">],</span> <span class="n">functions</span><span class="o">=</span><span class="s1">&#39;Rectangular&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">out</span> <span class="o">=</span> <span class="n">Output</span><span class="p">(</span><span class="s1">&#39;out&#39;</span><span class="p">,</span> <span class="n">fuz</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">last</span><span class="p">()))</span>
+</pre></div>
+</div>
+</dd>
+<dt>Example - using a custom function:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">def</span><span class="w"> </span><span class="nf">fun</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">tanh</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">fuz</span> <span class="o">=</span> <span class="n">Fuzzify</span><span class="p">(</span><span class="n">output_dimension</span><span class="o">=</span><span class="mi">11</span><span class="p">,</span> <span class="nb">range</span><span class="o">=</span><span class="p">[</span><span class="o">-</span><span class="mi">5</span><span class="p">,</span><span class="mi">5</span><span class="p">],</span> <span class="n">functions</span><span class="o">=</span><span class="n">fun</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">out</span> <span class="o">=</span> <span class="n">Output</span><span class="p">(</span><span class="s1">&#39;out&#39;</span><span class="p">,</span> <span class="n">fuz</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">last</span><span class="p">()))</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-nnodely.layers.equationlearner">
+<span id="equation-learner-module"></span><h2>Equation Learner module<a class="headerlink" href="#module-nnodely.layers.equationlearner" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.equationlearner.EquationLearner">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.equationlearner.</span></span><span class="sig-name descname"><span class="pre">EquationLearner</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">functions</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">linear_in</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="nnodely.html#nnodely.layers.linear.Linear" title="nnodely.layers.linear.Linear"><span class="pre">Linear</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">linear_out</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="nnodely.html#nnodely.layers.linear.Linear" title="nnodely.layers.linear.Linear"><span class="pre">Linear</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/equationlearner.html#EquationLearner"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.equationlearner.EquationLearner" title="Link to this definition"></a></dt>
+<dd><p>Represents a nnodely implementation of the Task-Parametrized Equation Learner block.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Task-Parametrized Equation Learner official paper:
+<a class="reference external" href="https://www.sciencedirect.com/science/article/pii/S0921889022001981">Equation Learner</a></p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>functions</strong> (<em>list</em>) – A list of callable functions to be used as activation functions.</p></li>
+<li><p><strong>linear_in</strong> (<a class="reference internal" href="nnodely.html#nnodely.layers.linear.Linear" title="nnodely.layers.linear.Linear"><em>Linear</em></a><em>, </em><em>optional</em>) – A Linear layer to process the input before applying the activation functions. If not provided a random initialized linear layer will be used instead.</p></li>
+<li><p><strong>linear_out</strong> (<a class="reference internal" href="nnodely.html#nnodely.layers.linear.Linear" title="nnodely.layers.linear.Linear"><em>Linear</em></a><em>, </em><em>optional</em>) – A Linear layer to process the output after applying the activation functions. Can be omitted.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.equationlearner.EquationLearner.relation_name">
+<span class="sig-name descname"><span class="pre">relation_name</span></span><a class="headerlink" href="#nnodely.layers.equationlearner.EquationLearner.relation_name" title="Link to this definition"></a></dt>
+<dd><p>The name of the relation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.equationlearner.EquationLearner.linear_in">
+<span class="sig-name descname"><span class="pre">linear_in</span></span><a class="headerlink" href="#nnodely.layers.equationlearner.EquationLearner.linear_in" title="Link to this definition"></a></dt>
+<dd><p>The Linear layer to process the input.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.layers.linear.Linear" title="nnodely.layers.linear.Linear">Linear</a> or None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.equationlearner.EquationLearner.linear_out">
+<span class="sig-name descname"><span class="pre">linear_out</span></span><a class="headerlink" href="#nnodely.layers.equationlearner.EquationLearner.linear_out" title="Link to this definition"></a></dt>
+<dd><p>The Linear layer to process the output.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.layers.linear.Linear" title="nnodely.layers.linear.Linear">Linear</a> or None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.equationlearner.EquationLearner.functions">
+<span class="sig-name descname"><span class="pre">functions</span></span><a class="headerlink" href="#nnodely.layers.equationlearner.EquationLearner.functions" title="Link to this definition"></a></dt>
+<dd><p>The list of activation functions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.equationlearner.EquationLearner.func_parameters">
+<span class="sig-name descname"><span class="pre">func_parameters</span></span><a class="headerlink" href="#nnodely.layers.equationlearner.EquationLearner.func_parameters" title="Link to this definition"></a></dt>
+<dd><p>A dictionary mapping function indices to the number of parameters they require.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.equationlearner.EquationLearner.n_activations">
+<span class="sig-name descname"><span class="pre">n_activations</span></span><a class="headerlink" href="#nnodely.layers.equationlearner.EquationLearner.n_activations" title="Link to this definition"></a></dt>
+<dd><p>The total number of activation functions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>int</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Examples</p>
+<a class="reference external image-reference" href="https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/equation_learner.ipynb"><img alt="Open in Colab" src="https://colab.research.google.com/assets/colab-badge.svg" />
+</a>
+<dl>
+<dt>Example - basic usage:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;x&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">equation_learner</span> <span class="o">=</span> <span class="n">EquationLearner</span><span class="p">(</span><span class="n">functions</span><span class="o">=</span><span class="p">[</span><span class="n">Tan</span><span class="p">,</span> <span class="n">Sin</span><span class="p">,</span> <span class="n">Cos</span><span class="p">])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">out</span> <span class="o">=</span> <span class="n">Output</span><span class="p">(</span><span class="s1">&#39;out&#39;</span><span class="p">,</span><span class="n">equation_learner</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">last</span><span class="p">()))</span>
+</pre></div>
+</div>
+</dd>
+<dt>Example - passing a linear layer:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;x&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">linear_layer</span> <span class="o">=</span> <span class="n">Linear</span><span class="p">(</span><span class="n">output_dimension</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">W_init</span><span class="o">=</span><span class="n">init_constant</span><span class="p">,</span> <span class="n">W_init_params</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;value&#39;</span><span class="p">:</span><span class="mi">0</span><span class="p">})</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">equation_learner</span> <span class="o">=</span> <span class="n">EquationLearner</span><span class="p">(</span><span class="n">functions</span><span class="o">=</span><span class="p">[</span><span class="n">Tan</span><span class="p">,</span> <span class="n">Sin</span><span class="p">,</span> <span class="n">Cos</span><span class="p">],</span> <span class="n">linear_in</span><span class="o">=</span><span class="n">linear_layer</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">out</span> <span class="o">=</span> <span class="n">Output</span><span class="p">(</span><span class="s1">&#39;out&#39;</span><span class="p">,</span><span class="n">equation_learner</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">last</span><span class="p">()))</span>
+</pre></div>
+</div>
+</dd>
+<dt>Example - passing a custom parametric function and multiple inputs:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;x&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">F</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;F&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">def</span><span class="w"> </span><span class="nf">myFun</span><span class="p">(</span><span class="n">K1</span><span class="p">,</span><span class="n">p1</span><span class="p">):</span>
+<span class="go">        return K1*p1</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">K</span> <span class="o">=</span> <span class="n">Parameter</span><span class="p">(</span><span class="s1">&#39;k&#39;</span><span class="p">,</span> <span class="n">dimensions</span> <span class="o">=</span>  <span class="mi">1</span><span class="p">,</span> <span class="n">sw</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span><span class="n">values</span><span class="o">=</span><span class="p">[[</span><span class="mf">2.0</span><span class="p">]])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">parfun</span> <span class="o">=</span> <span class="n">ParamFun</span><span class="p">(</span><span class="n">myFun</span><span class="p">,</span> <span class="n">parameters</span> <span class="o">=</span> <span class="p">[</span><span class="n">K</span><span class="p">]</span> <span class="p">)</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">equation_learner</span> <span class="o">=</span> <span class="n">EquationLearner</span><span class="p">([</span><span class="n">parfun</span><span class="p">])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">out</span> <span class="o">=</span> <span class="n">Output</span><span class="p">(</span><span class="s1">&#39;out&#39;</span><span class="p">,</span><span class="n">equation_learner</span><span class="p">((</span><span class="n">x</span><span class="o">.</span><span class="n">last</span><span class="p">(),</span><span class="n">F</span><span class="o">.</span><span class="n">last</span><span class="p">())))</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-nnodely.layers.linear">
+<span id="linear-module"></span><h2>Linear module<a class="headerlink" href="#module-nnodely.layers.linear" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.linear.Linear">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.linear.</span></span><span class="sig-name descname"><span class="pre">Linear</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/linear.html#Linear"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.linear.Linear" title="Link to this definition"></a></dt>
+<dd><p>Represents a Linear relation in the neural network model.</p>
+<p class="rubric">Notes</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The Linear relation works along the input dimension (third dimension) of the input tensor.
+You can find some initialization functions inside the initializer module.</p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>output_dimension</strong> (<em>int</em><em>, </em><em>optional</em>) – The output dimension of the Linear relation.</p></li>
+<li><p><strong>W_init</strong> (<em>Callable</em><em>, </em><em>optional</em>) – A callable for initializing the weights.</p></li>
+<li><p><strong>W_init_params</strong> (<em>dict</em><em>, </em><em>optional</em>) – A dictionary of parameters for the weight initializer.</p></li>
+<li><p><strong>b_init</strong> (<em>Callable</em><em>, </em><em>optional</em>) – A callable for initializing the bias.</p></li>
+<li><p><strong>b_init_params</strong> (<em>dict</em><em>, </em><em>optional</em>) – A dictionary of parameters for the bias initializer.</p></li>
+<li><p><strong>W</strong> (<a class="reference internal" href="nnodely.html#nnodely.layers.parameter.Parameter" title="nnodely.layers.parameter.Parameter"><em>Parameter</em></a><em> or </em><em>str</em><em>, </em><em>optional</em>) – The weight parameter object or name. If not given a new parameter will be auto-generated.</p></li>
+<li><p><strong>b</strong> (<em>bool</em><em>, </em><em>str</em><em>, or </em><a class="reference internal" href="nnodely.html#nnodely.layers.parameter.Parameter" title="nnodely.layers.parameter.Parameter"><em>Parameter</em></a><em>, </em><em>optional</em>) – The bias parameter object, name, or a boolean indicating whether to use bias. If set to ‘True’ a new parameter will be auto-generated.</p></li>
+<li><p><strong>dropout</strong> (<em>int</em><em> or </em><em>float</em><em>, </em><em>optional</em>) – The dropout rate. Default is 0.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.linear.Linear.relation_name">
+<span class="sig-name descname"><span class="pre">relation_name</span></span><a class="headerlink" href="#nnodely.layers.linear.Linear.relation_name" title="Link to this definition"></a></dt>
+<dd><p>The name of the relation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.linear.Linear.W_init">
+<span class="sig-name descname"><span class="pre">W_init</span></span><a class="headerlink" href="#nnodely.layers.linear.Linear.W_init" title="Link to this definition"></a></dt>
+<dd><p>The weight initializer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.linear.Linear.W_init_params">
+<span class="sig-name descname"><span class="pre">W_init_params</span></span><a class="headerlink" href="#nnodely.layers.linear.Linear.W_init_params" title="Link to this definition"></a></dt>
+<dd><p>The parameters for the weight initializer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.linear.Linear.b_init">
+<span class="sig-name descname"><span class="pre">b_init</span></span><a class="headerlink" href="#nnodely.layers.linear.Linear.b_init" title="Link to this definition"></a></dt>
+<dd><p>The bias initializer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.linear.Linear.b_init_params">
+<span class="sig-name descname"><span class="pre">b_init_params</span></span><a class="headerlink" href="#nnodely.layers.linear.Linear.b_init_params" title="Link to this definition"></a></dt>
+<dd><p>The parameters for the bias initializer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.linear.Linear.W">
+<span class="sig-name descname"><span class="pre">W</span></span><a class="headerlink" href="#nnodely.layers.linear.Linear.W" title="Link to this definition"></a></dt>
+<dd><p>The weight parameter object or name.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.layers.parameter.Parameter" title="nnodely.layers.parameter.Parameter">Parameter</a> or str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.linear.Linear.b">
+<span class="sig-name descname"><span class="pre">b</span></span><a class="headerlink" href="#nnodely.layers.linear.Linear.b" title="Link to this definition"></a></dt>
+<dd><p>The bias parameter object, name, or a boolean indicating whether to use bias.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool, str, or <a class="reference internal" href="nnodely.html#nnodely.layers.parameter.Parameter" title="nnodely.layers.parameter.Parameter">Parameter</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.linear.Linear.Wname">
+<span class="sig-name descname"><span class="pre">Wname</span></span><a class="headerlink" href="#nnodely.layers.linear.Linear.Wname" title="Link to this definition"></a></dt>
+<dd><p>The name of the weight parameter.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.linear.Linear.bname">
+<span class="sig-name descname"><span class="pre">bname</span></span><a class="headerlink" href="#nnodely.layers.linear.Linear.bname" title="Link to this definition"></a></dt>
+<dd><p>The name of the bias parameter.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.linear.Linear.dropout">
+<span class="sig-name descname"><span class="pre">dropout</span></span><a class="headerlink" href="#nnodely.layers.linear.Linear.dropout" title="Link to this definition"></a></dt>
+<dd><p>The dropout rate.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>int or float</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.linear.Linear.output_dimension">
+<span class="sig-name descname"><span class="pre">output_dimension</span></span><a class="headerlink" href="#nnodely.layers.linear.Linear.output_dimension" title="Link to this definition"></a></dt>
+<dd><p>The output dimension of the Linear relation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>int</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Examples</p>
+<a class="reference external image-reference" href="https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/linear.ipynb"><img alt="Open in Colab" src="https://colab.research.google.com/assets/colab-badge.svg" />
+</a>
+<dl>
+<dt>Example - basic usage:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nb">input</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;in&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">tw</span><span class="p">(</span><span class="mf">0.05</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">relation</span> <span class="o">=</span> <span class="n">Linear</span><span class="p">(</span><span class="nb">input</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd>
+<dt>Example - passing a weight and bias parameter:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nb">input</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;in&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">last</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">weight</span> <span class="o">=</span> <span class="n">Parameter</span><span class="p">(</span><span class="s1">&#39;W&#39;</span><span class="p">,</span> <span class="n">values</span><span class="o">=</span><span class="p">[[[</span><span class="mi">1</span><span class="p">]]])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">bias</span> <span class="o">=</span> <span class="n">Parameter</span><span class="p">(</span><span class="s1">&#39;b&#39;</span><span class="p">,</span> <span class="n">values</span><span class="o">=</span><span class="p">[[</span><span class="mi">1</span><span class="p">]])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">relation</span> <span class="o">=</span> <span class="n">Linear</span><span class="p">(</span><span class="n">W</span><span class="o">=</span><span class="n">weight</span><span class="p">,</span> <span class="n">b</span><span class="o">=</span><span class="n">bias</span><span class="p">)(</span><span class="nb">input</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd>
+<dt>Example - parameters initialization:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nb">input</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;in&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">last</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">relation</span> <span class="o">=</span> <span class="n">Linear</span><span class="p">(</span><span class="n">b</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">W_init</span><span class="o">=</span><span class="n">init_negexp</span><span class="p">,</span> <span class="n">b_init</span><span class="o">=</span><span class="n">init_constant</span><span class="p">,</span> <span class="n">b_init_params</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;value&#39;</span><span class="p">:</span><span class="mi">1</span><span class="p">})(</span><span class="nb">input</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-nnodely.layers.localmodel">
+<span id="localmodel-module"></span><h2>Localmodel module<a class="headerlink" href="#module-nnodely.layers.localmodel" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.localmodel.LocalModel">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.localmodel.</span></span><span class="sig-name descname"><span class="pre">LocalModel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input_function</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Callable</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_function</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Callable</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">pass_indexes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/localmodel.html#LocalModel"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.localmodel.LocalModel" title="Link to this definition"></a></dt>
+<dd><p>Represents a Local Model relation in the neural network model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input_function</strong> (<em>Callable</em><em>, </em><em>optional</em>) – A callable function to process the inputs.</p></li>
+<li><p><strong>output_function</strong> (<em>Callable</em><em>, </em><em>optional</em>) – A callable function to process the outputs.</p></li>
+<li><p><strong>pass_indexes</strong> (<em>bool</em><em>, </em><em>optional</em>) – A boolean indicating whether to pass indexes to the functions. Default is False.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.localmodel.LocalModel.relation_name">
+<span class="sig-name descname"><span class="pre">relation_name</span></span><a class="headerlink" href="#nnodely.layers.localmodel.LocalModel.relation_name" title="Link to this definition"></a></dt>
+<dd><p>The name of the relation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.localmodel.LocalModel.pass_indexes">
+<span class="sig-name descname"><span class="pre">pass_indexes</span></span><a class="headerlink" href="#nnodely.layers.localmodel.LocalModel.pass_indexes" title="Link to this definition"></a></dt>
+<dd><p>A boolean indicating whether to pass indexes to the functions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.localmodel.LocalModel.input_function">
+<span class="sig-name descname"><span class="pre">input_function</span></span><a class="headerlink" href="#nnodely.layers.localmodel.LocalModel.input_function" title="Link to this definition"></a></dt>
+<dd><p>The function to process the inputs.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.localmodel.LocalModel.output_function">
+<span class="sig-name descname"><span class="pre">output_function</span></span><a class="headerlink" href="#nnodely.layers.localmodel.LocalModel.output_function" title="Link to this definition"></a></dt>
+<dd><p>The function to process the outputs.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Examples</p>
+<a class="reference external image-reference" href="https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/localmodel.ipynb"><img alt="Open in Colab" src="https://colab.research.google.com/assets/colab-badge.svg" />
+</a>
+<dl>
+<dt>Example - basic usage:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;x&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">activation</span> <span class="o">=</span> <span class="n">Fuzzify</span><span class="p">(</span><span class="mi">2</span><span class="p">,[</span><span class="mi">0</span><span class="p">,</span><span class="mi">1</span><span class="p">],</span><span class="n">functions</span><span class="o">=</span><span class="s1">&#39;Triangular&#39;</span><span class="p">)(</span><span class="n">x</span><span class="o">.</span><span class="n">last</span><span class="p">())</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">loc</span> <span class="o">=</span> <span class="n">LocalModel</span><span class="p">(</span><span class="n">input_function</span><span class="o">=</span><span class="n">Fir</span><span class="p">())</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">out</span> <span class="o">=</span> <span class="n">Output</span><span class="p">(</span><span class="s1">&#39;out&#39;</span><span class="p">,</span> <span class="n">loc</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">tw</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span> <span class="n">activation</span><span class="p">))</span>
+</pre></div>
+</div>
+</dd>
+<dt>Example - passing a custom function:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">def</span><span class="w"> </span><span class="nf">myFun</span><span class="p">(</span><span class="n">in1</span><span class="p">,</span><span class="n">p1</span><span class="p">,</span><span class="n">p2</span><span class="p">):</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="k">return</span> <span class="n">p1</span><span class="o">*</span><span class="n">in1</span><span class="o">+</span><span class="n">p2</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;x&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">activation</span> <span class="o">=</span> <span class="n">Fuzzify</span><span class="p">(</span><span class="mi">2</span><span class="p">,[</span><span class="mi">0</span><span class="p">,</span><span class="mi">1</span><span class="p">],</span><span class="n">functions</span><span class="o">=</span><span class="s1">&#39;Triangular&#39;</span><span class="p">)(</span><span class="n">x</span><span class="o">.</span><span class="n">last</span><span class="p">())</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">loc</span> <span class="o">=</span> <span class="n">LocalModel</span><span class="p">(</span><span class="n">input_function</span> <span class="o">=</span> <span class="k">lambda</span><span class="p">:</span><span class="n">ParamFun</span><span class="p">(</span><span class="n">myFun</span><span class="p">),</span> <span class="n">output_function</span> <span class="o">=</span> <span class="k">lambda</span><span class="p">:</span><span class="n">Fir</span><span class="p">)(</span><span class="n">x</span><span class="o">.</span><span class="n">last</span><span class="p">(),</span> <span class="n">activation</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">out</span> <span class="o">=</span> <span class="n">Output</span><span class="p">(</span><span class="s1">&#39;out&#39;</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd>
+<dt>Example - custom function with multiple activations:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;x&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">F</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;F&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">activationA</span> <span class="o">=</span> <span class="n">Fuzzify</span><span class="p">(</span><span class="mi">2</span><span class="p">,[</span><span class="mi">0</span><span class="p">,</span><span class="mi">1</span><span class="p">],</span><span class="n">functions</span><span class="o">=</span><span class="s1">&#39;Triangular&#39;</span><span class="p">)(</span><span class="n">x</span><span class="o">.</span><span class="n">tw</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">activationB</span> <span class="o">=</span> <span class="n">Fuzzify</span><span class="p">(</span><span class="mi">2</span><span class="p">,[</span><span class="mi">0</span><span class="p">,</span><span class="mi">1</span><span class="p">],</span><span class="n">functions</span><span class="o">=</span><span class="s1">&#39;Triangular&#39;</span><span class="p">)(</span><span class="n">F</span><span class="o">.</span><span class="n">tw</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">def</span><span class="w"> </span><span class="nf">myFun</span><span class="p">(</span><span class="n">in1</span><span class="p">,</span><span class="n">p1</span><span class="p">,</span><span class="n">p2</span><span class="p">):</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="k">return</span> <span class="n">p1</span><span class="o">*</span><span class="n">in1</span><span class="o">+</span><span class="n">p2</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">loc</span> <span class="o">=</span> <span class="n">LocalModel</span><span class="p">(</span><span class="n">input_function</span> <span class="o">=</span> <span class="k">lambda</span><span class="p">:</span><span class="n">ParamFun</span><span class="p">(</span><span class="n">myFun</span><span class="p">),</span> <span class="n">output_function</span> <span class="o">=</span> <span class="n">Fir</span><span class="p">(</span><span class="mi">3</span><span class="p">))(</span><span class="n">x</span><span class="o">.</span><span class="n">tw</span><span class="p">(</span><span class="mi">1</span><span class="p">),(</span><span class="n">activationA</span><span class="p">,</span><span class="n">activationB</span><span class="p">))</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">out</span> <span class="o">=</span> <span class="n">Output</span><span class="p">(</span><span class="s1">&#39;out&#39;</span><span class="p">,</span> <span class="n">loc</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-nnodely.layers.part">
+<span id="part-module"></span><h2>Part module<a class="headerlink" href="#module-nnodely.layers.part" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.part.Part">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.part.</span></span><span class="sig-name descname"><span class="pre">Part</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/part.html#Part"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.part.Part" title="Link to this definition"></a></dt>
+<dd><p>Represents a selection of a sub-part from a relation in the neural network model.</p>
+<p class="rubric">Notes</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The Part relation works along the object dimension (third dimension) of the input.</p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – The stream object to create a part from.</p></li>
+<li><p><strong>i</strong> (<em>int</em>) – The starting index of the part.</p></li>
+<li><p><strong>j</strong> (<em>int</em>) – The ending index of the part.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.part.Part.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#nnodely.layers.part.Part.name" title="Link to this definition"></a></dt>
+<dd><p>The name of the part.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.part.Part.dim">
+<span class="sig-name descname"><span class="pre">dim</span></span><a class="headerlink" href="#nnodely.layers.part.Part.dim" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the dimensions of the part.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.part.Part.json">
+<span class="sig-name descname"><span class="pre">json</span></span><a class="headerlink" href="#nnodely.layers.part.Part.json" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the configuration of the part.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Examples</p>
+<a class="reference external image-reference" href="https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb"><img alt="Open in Colab" src="https://colab.research.google.com/assets/colab-badge.svg" />
+</a>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;x&#39;</span><span class="p">,</span> <span class="n">dimensions</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span><span class="o">.</span><span class="n">last</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">relation</span> <span class="o">=</span> <span class="n">Part</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>IndexError</strong> – If the indices i and j are out of range.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.part.Select">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.part.</span></span><span class="sig-name descname"><span class="pre">Select</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/part.html#Select"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.part.Select" title="Link to this definition"></a></dt>
+<dd><p>Represents a selection of a single element from a relation in the neural network model.</p>
+<p class="rubric">Notes</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The Select relation works along the object dimension (third dimension) of the input.</p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – The stream object to select an element from.</p></li>
+<li><p><strong>i</strong> (<em>int</em>) – The index of the element to select.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.part.Select.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#nnodely.layers.part.Select.name" title="Link to this definition"></a></dt>
+<dd><p>The name of the selection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.part.Select.dim">
+<span class="sig-name descname"><span class="pre">dim</span></span><a class="headerlink" href="#nnodely.layers.part.Select.dim" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the dimensions of the selection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.part.Select.json">
+<span class="sig-name descname"><span class="pre">json</span></span><a class="headerlink" href="#nnodely.layers.part.Select.json" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the configuration of the selection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Examples</p>
+<a class="reference external image-reference" href="https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb"><img alt="Open in Colab" src="https://colab.research.google.com/assets/colab-badge.svg" />
+</a>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;x&#39;</span><span class="p">,</span> <span class="n">dimensions</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span><span class="o">.</span><span class="n">last</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">relation</span> <span class="o">=</span> <span class="n">Select</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>IndexError</strong> – If the index i is out of range.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.part.SamplePart">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.part.</span></span><span class="sig-name descname"><span class="pre">SamplePart</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/part.html#SamplePart"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.part.SamplePart" title="Link to this definition"></a></dt>
+<dd><p>Represents a selection of a sub-part from a relation in the neural network model.</p>
+<p class="rubric">Notes</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The SamplePart relation works along the time dimension (second dimension) of the input.</p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – The stream object to create a part from.</p></li>
+<li><p><strong>i</strong> (<em>int</em>) – The starting index of the part.</p></li>
+<li><p><strong>j</strong> (<em>int</em>) – The ending index of the part.</p></li>
+<li><p><strong>offset</strong> (<em>int</em><em>, </em><em>optional</em>) – The offset for the part. Default is None.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.part.SamplePart.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#nnodely.layers.part.SamplePart.name" title="Link to this definition"></a></dt>
+<dd><p>The name of the part.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.part.SamplePart.dim">
+<span class="sig-name descname"><span class="pre">dim</span></span><a class="headerlink" href="#nnodely.layers.part.SamplePart.dim" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the dimensions of the part.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.part.SamplePart.json">
+<span class="sig-name descname"><span class="pre">json</span></span><a class="headerlink" href="#nnodely.layers.part.SamplePart.json" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the configuration of the part.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Examples</p>
+<a class="reference external image-reference" href="https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb"><img alt="Open in Colab" src="https://colab.research.google.com/assets/colab-badge.svg" />
+</a>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;x&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">sw</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">relation</span> <span class="o">=</span> <span class="n">SamplePart</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>KeyError</strong> – If the input does not have a sample window.</p></li>
+<li><p><strong>ValueError</strong> – If the indices i and j are out of range or if i is not smaller than j.</p></li>
+<li><p><strong>IndexError</strong> – If the offset is not within the sample window.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.part.SampleSelect">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.part.</span></span><span class="sig-name descname"><span class="pre">SampleSelect</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/part.html#SampleSelect"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.part.SampleSelect" title="Link to this definition"></a></dt>
+<dd><p>Represents a selection of a single element from a relation in the neural network model.</p>
+<p class="rubric">Notes</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The SampleSelect relation works along the time dimension (second dimension) of the input.</p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – The stream object to select an element from.</p></li>
+<li><p><strong>i</strong> (<em>int</em>) – The index of the element to select.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.part.SampleSelect.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#nnodely.layers.part.SampleSelect.name" title="Link to this definition"></a></dt>
+<dd><p>The name of the selection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.part.SampleSelect.dim">
+<span class="sig-name descname"><span class="pre">dim</span></span><a class="headerlink" href="#nnodely.layers.part.SampleSelect.dim" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the dimensions of the selection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.part.SampleSelect.json">
+<span class="sig-name descname"><span class="pre">json</span></span><a class="headerlink" href="#nnodely.layers.part.SampleSelect.json" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the configuration of the selection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Examples</p>
+<a class="reference external image-reference" href="https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb"><img alt="Open in Colab" src="https://colab.research.google.com/assets/colab-badge.svg" />
+</a>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;x&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">sw</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">relation</span> <span class="o">=</span> <span class="n">SampleSelect</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>IndexError</strong> – If the index i is out of range.</p></li>
+<li><p><strong>KeyError</strong> – If the input does not have a sample window.</p></li>
+<li><p><strong>IndexError</strong> – If the offset is not within the sample window.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.part.TimePart">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.part.</span></span><span class="sig-name descname"><span class="pre">TimePart</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/part.html#TimePart"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.part.TimePart" title="Link to this definition"></a></dt>
+<dd><p>Represents a part of a stream in the neural network model along the time dimension (second dimension).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – The stream object to create a part from.</p></li>
+<li><p><strong>i</strong> (<em>int</em><em> or </em><em>float</em>) – The starting index of the part.</p></li>
+<li><p><strong>j</strong> (<em>int</em><em> or </em><em>float</em>) – The ending index of the part.</p></li>
+<li><p><strong>offset</strong> (<em>int</em><em> or </em><em>float</em><em>, </em><em>optional</em>) – The offset for the part. Default is None.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.part.TimePart.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#nnodely.layers.part.TimePart.name" title="Link to this definition"></a></dt>
+<dd><p>The name of the part.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.part.TimePart.dim">
+<span class="sig-name descname"><span class="pre">dim</span></span><a class="headerlink" href="#nnodely.layers.part.TimePart.dim" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the dimensions of the part.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.part.TimePart.json">
+<span class="sig-name descname"><span class="pre">json</span></span><a class="headerlink" href="#nnodely.layers.part.TimePart.json" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the configuration of the part.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Examples</p>
+<a class="reference external image-reference" href="https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb"><img alt="Open in Colab" src="https://colab.research.google.com/assets/colab-badge.svg" />
+</a>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;x&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">sw</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">time_part</span> <span class="o">=</span> <span class="n">TimePart</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">j</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>KeyError</strong> – If the input does not have a time window.</p></li>
+<li><p><strong>ValueError</strong> – If the indices i and j are out of range or if i is not smaller than j.</p></li>
+<li><p><strong>IndexError</strong> – If the offset is not within the time window.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-nnodely.layers.trigonometric">
+<span id="trigonometric-module"></span><h2>Trigonometric module<a class="headerlink" href="#module-nnodely.layers.trigonometric" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.trigonometric.Sin">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.trigonometric.</span></span><span class="sig-name descname"><span class="pre">Sin</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/trigonometric.html#Sin"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.trigonometric.Sin" title="Link to this definition"></a></dt>
+<dd><p>Implement the sine function given an input relation.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Official PyTorch Sin documentation:
+<a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.sin.html">torch.sin</a></p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – the input relation stream</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">sin</span> <span class="o">=</span> <span class="n">Sin</span><span class="p">(</span><span class="n">relation</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.trigonometric.Cos">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.trigonometric.</span></span><span class="sig-name descname"><span class="pre">Cos</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/trigonometric.html#Cos"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.trigonometric.Cos" title="Link to this definition"></a></dt>
+<dd><p>Implement the cosine function given an input relation.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Official PyTorch Cos documentation:
+<a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.cos.html">torch.cos</a></p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – the input relation stream</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">cos</span> <span class="o">=</span> <span class="n">Cos</span><span class="p">(</span><span class="n">relation</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.trigonometric.Tan">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.trigonometric.</span></span><span class="sig-name descname"><span class="pre">Tan</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/trigonometric.html#Tan"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.trigonometric.Tan" title="Link to this definition"></a></dt>
+<dd><p>Implement the tangent function given an input relation.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Official PyTorch Tan documentation:
+<a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.tan.html">torch.tan</a></p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – the input relation stream</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">tan</span> <span class="o">=</span> <span class="n">Tan</span><span class="p">(</span><span class="n">relation</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.trigonometric.Tanh">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.trigonometric.</span></span><span class="sig-name descname"><span class="pre">Tanh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/trigonometric.html#Tanh"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.trigonometric.Tanh" title="Link to this definition"></a></dt>
+<dd><p>Implement the Hyperbolic Tangent (Tanh) relation function.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Official PyTorch tanh documentation:
+<a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.nn.Tanh.html">torch.nn.Tanh</a></p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – The relation stream.</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Tanh</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.trigonometric.Cosh">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.trigonometric.</span></span><span class="sig-name descname"><span class="pre">Cosh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/trigonometric.html#Cosh"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.trigonometric.Cosh" title="Link to this definition"></a></dt>
+<dd><p>Returns a new tensor with the hyperbolic cosine of the elements of input.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>Official PyTorch Cosh documentation:
+<a class="reference external" href="https://pytorch.org/docs/stable/generated/torch.cosh.html">torch.cosh</a></p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – the input relation stream</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">cosh</span> <span class="o">=</span> <span class="n">Cosh</span><span class="p">(</span><span class="n">relation</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.trigonometric.Sech">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.trigonometric.</span></span><span class="sig-name descname"><span class="pre">Sech</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/trigonometric.html#Sech"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.trigonometric.Sech" title="Link to this definition"></a></dt>
+<dd><p>Returns a new tensor with the hyperbolic secant of the elements of input.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – the input relation stream</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">sech</span> <span class="o">=</span> <span class="n">Sech</span><span class="p">(</span><span class="n">relation</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</section>
+<section id="module-nnodely.layers.parametricfunction">
+<span id="parametric-function-module"></span><h2>Parametric Function module<a class="headerlink" href="#module-nnodely.layers.parametricfunction" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.parametricfunction.ParamFun">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.parametricfunction.</span></span><span class="sig-name descname"><span class="pre">ParamFun</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">param_fun</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Callable</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parameters_and_constants</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">dict</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">map_over_batch</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/parametricfunction.html#ParamFun"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.parametricfunction.ParamFun" title="Link to this definition"></a></dt>
+<dd><p>Represents a parametric function in the neural network model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>param_fun</strong> (<em>Callable</em>) – The parametric function to be used.</p></li>
+<li><p><strong>constants</strong> (<em>list</em><em> or </em><em>dict</em><em> or </em><em>None</em><em>, </em><em>optional</em>) – A list or dictionary of constants to be used in the function. Default is None.</p></li>
+<li><p><strong>parameters_dimensions</strong> (<em>list</em><em> or </em><em>dict</em><em> or </em><em>None</em><em>, </em><em>optional</em>) – A list or dictionary specifying the dimensions of the parameters. Default is None.</p></li>
+<li><p><strong>parameters</strong> (<em>list</em><em> or </em><em>dict</em><em> or </em><em>None</em><em>, </em><em>optional</em>) – A list or dictionary of parameters to be used in the function. Default is None.</p></li>
+<li><p><strong>map_over_batch</strong> (<em>bool</em><em>, </em><em>optional</em>) – A boolean indicating whether to map the function over the batch dimension. Default is False.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parametricfunction.ParamFun.relation_name">
+<span class="sig-name descname"><span class="pre">relation_name</span></span><a class="headerlink" href="#nnodely.layers.parametricfunction.ParamFun.relation_name" title="Link to this definition"></a></dt>
+<dd><p>The name of the relation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parametricfunction.ParamFun.param_fun">
+<span class="sig-name descname"><span class="pre">param_fun</span></span><a class="headerlink" href="#nnodely.layers.parametricfunction.ParamFun.param_fun" title="Link to this definition"></a></dt>
+<dd><p>The parametric function to be used.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parametricfunction.ParamFun.constants">
+<span class="sig-name descname"><span class="pre">constants</span></span><a class="headerlink" href="#nnodely.layers.parametricfunction.ParamFun.constants" title="Link to this definition"></a></dt>
+<dd><p>A list or dictionary of constants to be used in the function.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list or dict or None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parametricfunction.ParamFun.parameters_dimensions">
+<span class="sig-name descname"><span class="pre">parameters_dimensions</span></span><a class="headerlink" href="#nnodely.layers.parametricfunction.ParamFun.parameters_dimensions" title="Link to this definition"></a></dt>
+<dd><p>A list or dictionary specifying the dimensions of the parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list or dict or None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parametricfunction.ParamFun.parameters">
+<span class="sig-name descname"><span class="pre">parameters</span></span><a class="headerlink" href="#nnodely.layers.parametricfunction.ParamFun.parameters" title="Link to this definition"></a></dt>
+<dd><p>A list or dictionary of parameters to be used in the function.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list or dict or None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parametricfunction.ParamFun.map_over_batch">
+<span class="sig-name descname"><span class="pre">map_over_batch</span></span><a class="headerlink" href="#nnodely.layers.parametricfunction.ParamFun.map_over_batch" title="Link to this definition"></a></dt>
+<dd><p>A boolean indicating whether to map the function over the batch dimension.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parametricfunction.ParamFun.output_dimension">
+<span class="sig-name descname"><span class="pre">output_dimension</span></span><a class="headerlink" href="#nnodely.layers.parametricfunction.ParamFun.output_dimension" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the output dimensions of the function.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parametricfunction.ParamFun.json">
+<span class="sig-name descname"><span class="pre">json</span></span><a class="headerlink" href="#nnodely.layers.parametricfunction.ParamFun.json" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the configuration of the function.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Examples</p>
+<a class="reference external image-reference" href="https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/parametric_functions.ipynb"><img alt="Open in Colab" src="https://colab.research.google.com/assets/colab-badge.svg" />
+</a>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">input1</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;input1&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">input2</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;input2&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">def</span><span class="w"> </span><span class="nf">my_function</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">param1</span><span class="p">,</span> <span class="n">const1</span><span class="p">):</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="k">return</span> <span class="n">param1</span> <span class="o">*</span> <span class="n">x</span> <span class="o">+</span> <span class="n">const1</span> <span class="o">*</span> <span class="n">y</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">param_fun</span> <span class="o">=</span> <span class="n">ParamFun</span><span class="p">(</span><span class="n">my_function</span><span class="p">,</span> <span class="n">constants</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;const1&#39;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">},</span> <span class="n">parameters_dimensions</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;param1&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">})</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">result</span> <span class="o">=</span> <span class="n">param_fun</span><span class="p">(</span><span class="n">input1</span><span class="p">,</span> <span class="n">input2</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="msnn_ins_out_param.html" class="btn btn-neutral float-left" title="Model structured NN Inputs Outputs and Parameters" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="training.html" class="btn btn-neutral float-right" title="Training" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright .</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

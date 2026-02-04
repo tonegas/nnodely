@@ -13,6 +13,15 @@ def read_version():
                 return line.split(delim)[1]
     raise RuntimeError("Unable to find version string.")
 
+def skip_nnodely(app, what, name, obj, skip, options):
+    # Skip the alias nnodely
+    if name == "nnodely":
+        return True  # esclude questo membro dalla documentazione
+    return skip
+
+def setup(app):
+    app.connect("autodoc-skip-member", skip_nnodely)
+
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
@@ -42,6 +51,14 @@ exclude_patterns = []
 # -- Options for HTML output -------------------------------------------------
 
 html_theme = "sphinx_rtd_theme"
+
+html_theme_options = {
+    "collapse_navigation": False,
+    "navigation_depth": 4,
+    "titles_only": False,
+}
+
+
 html_static_path = ['_static']
 html_logo = '_static/logo.png'
 

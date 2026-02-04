@@ -1,0 +1,456 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>nnodely.layers.input &mdash;  1.5.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=73275c37"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            
+              <img src="../../../_static/logo.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/nnodely.html">Modely</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/nnodely.html#model-structured-nn-inputs-outputs-and-parameters">Model structured NN Inputs Outputs and Parameters</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/nnodely.html#model-structured-nn-building-blocks">Model structured NN building blocks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/nnodely.html#training">Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/nnodely.html#additional-information">Additional information</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html"></a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">nnodely.layers.input</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for nnodely.layers.input</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.basic.relation</span><span class="w"> </span><span class="kn">import</span> <span class="n">NeuObj</span><span class="p">,</span> <span class="n">Stream</span><span class="p">,</span> <span class="n">ToStream</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.support.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">check</span><span class="p">,</span> <span class="n">enforce_types</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.support.jsonutils</span><span class="w"> </span><span class="kn">import</span> <span class="n">merge</span><span class="p">,</span> <span class="n">stream_to_str</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.layers.part</span><span class="w"> </span><span class="kn">import</span> <span class="n">SamplePart</span><span class="p">,</span> <span class="n">TimePart</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.layers.timeoperation</span><span class="w"> </span><span class="kn">import</span> <span class="n">Derivate</span><span class="p">,</span> <span class="n">Integrate</span>
+
+<div class="viewcode-block" id="Input">
+<a class="viewcode-back" href="../../../_autodoc/nnodely.html#nnodely.layers.input.Input">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Input</span><span class="p">(</span><span class="n">NeuObj</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Represents an Input in the neural network model.</span>
+
+<span class="sd">    .. image:: https://colab.research.google.com/assets/colab-badge.svg</span>
+<span class="sd">        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/states.ipynb</span>
+<span class="sd">        :alt: Open in Colab</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    json_name : str</span>
+<span class="sd">        The name of the JSON field to store the Input configuration.</span>
+<span class="sd">    name : str</span>
+<span class="sd">        The name of the Input.</span>
+<span class="sd">    dimensions : int, optional</span>
+<span class="sd">        The number of dimensions for the input. Default is 1.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    json_name : str</span>
+<span class="sd">        The name of the JSON field to store the input configuration.</span>
+<span class="sd">    name : str</span>
+<span class="sd">        The name of the Input.</span>
+<span class="sd">    dim : dict</span>
+<span class="sd">        A dictionary containing the dimensions of the Input.</span>
+<span class="sd">    json : dict</span>
+<span class="sd">        A dictionary containing the configuration of the Input.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span><span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">dimensions</span><span class="p">:</span><span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the Input object.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        json_name : str</span>
+<span class="sd">            The name of the JSON field to store the Input configuration.</span>
+<span class="sd">        name : str</span>
+<span class="sd">            The name of the Input.</span>
+<span class="sd">        dimensions : int, optional</span>
+<span class="sd">            The number of dimensions for the Input. Default is 1.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">NeuObj</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">dimensions</span><span class="p">)</span> <span class="o">==</span> <span class="nb">int</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span><span class="s2">&quot;The dimensions must be a integer&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;dim&#39;</span><span class="p">:</span> <span class="n">dimensions</span> <span class="p">}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;dim&#39;</span><span class="p">:</span> <span class="n">dimensions</span><span class="p">}</span>
+
+<div class="viewcode-block" id="Input.tw">
+<a class="viewcode-back" href="../../../_autodoc/nnodely.html#nnodely.layers.input.Input.tw">[docs]</a>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">tw</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tw</span><span class="p">:</span><span class="nb">int</span><span class="o">|</span><span class="nb">float</span><span class="o">|</span><span class="nb">list</span><span class="p">,</span> <span class="n">offset</span><span class="p">:</span><span class="nb">int</span><span class="o">|</span><span class="nb">float</span><span class="o">|</span><span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Stream</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Selects a time window for the Input.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        tw : list or float</span>
+<span class="sd">            The time window. If a list, it should contain the start and end values. If a float, it represents the time window size.</span>
+<span class="sd">        offset : float, optional</span>
+<span class="sd">            The offset for the time window. Default is None.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        Stream</span>
+<span class="sd">            A Stream representing the TimePart object with the selected time window.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If the time window is not positive.</span>
+<span class="sd">        IndexError</span>
+<span class="sd">            If the offset is not within the time window.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">dim</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+        <span class="n">json</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">tw</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">list</span><span class="p">:</span>
+            <span class="n">check</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">tw</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span> <span class="s2">&quot;The time window must be a list of two elements.&quot;</span><span class="p">)</span>
+            <span class="n">check</span><span class="p">(</span><span class="n">tw</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">tw</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s2">&quot;The dimension of the sample window must be positive&quot;</span><span class="p">)</span>
+            <span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;tw&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tw</span>
+            <span class="n">tw</span> <span class="o">=</span> <span class="n">tw</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">tw</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;tw&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="o">-</span><span class="n">tw</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">tw</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s2">&quot;The time window must be positive&quot;</span><span class="p">)</span>
+        <span class="n">dim</span><span class="p">[</span><span class="s1">&#39;tw&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tw</span>
+        <span class="k">if</span> <span class="n">offset</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">check</span><span class="p">(</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;tw&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">offset</span> <span class="o">&lt;</span> <span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;tw&#39;</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span>
+                  <span class="ne">IndexError</span><span class="p">,</span>
+                  <span class="s2">&quot;The offset must be inside the time window&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">TimePart</span><span class="p">(</span><span class="n">Stream</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">json</span><span class="p">,</span> <span class="n">dim</span><span class="p">),</span> <span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;tw&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;tw&#39;</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span> <span class="n">offset</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="Input.sw">
+<a class="viewcode-back" href="../../../_autodoc/nnodely.html#nnodely.layers.input.Input.sw">[docs]</a>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">sw</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sw</span><span class="p">:</span><span class="nb">int</span><span class="o">|</span><span class="nb">list</span><span class="p">,</span> <span class="n">offset</span><span class="p">:</span><span class="nb">int</span><span class="o">|</span><span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Stream</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Selects a sample window for the Input.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        sw : list, int</span>
+<span class="sd">            The sample window. If a list, it should contain the start and end indices. If an int, it represents the number of steps in the past.</span>
+<span class="sd">        offset : int, optional</span>
+<span class="sd">            The offset for the sample window. Default is None.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        Stream</span>
+<span class="sd">            A Stream representing the SamplePart object with the selected samples.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        TypeError</span>
+<span class="sd">            If the sample window is not an integer or a list of integers.</span>
+
+<span class="sd">        Examples</span>
+<span class="sd">        --------</span>
+<span class="sd">        Select a sample window considering a signal T = [-3,-2,-1,0,1,2] where the time vector 0 represent the last passed instant. If sw is an integer #1 represent the number of step in the past</span>
+<span class="sd">            &gt;&gt;&gt; T.s(2) #= [-1, 0] represents two sample step in the past</span>
+
+<span class="sd">        If sw is a list [#1,#2] the numbers represent the sample indexes in the vector with the second element excluded</span>
+<span class="sd">            &gt;&gt;&gt; T.s([-2,0])  #= [-1, 0] represents two time step in the past zero in the future</span>
+<span class="sd">            &gt;&gt;&gt; T.s([0,1])   #= [1]     the first time in the future</span>
+<span class="sd">            &gt;&gt;&gt; T.s([-4,-2]) #= [-3,-2]</span>
+
+<span class="sd">        The total number of samples can be computed #2-#1. The offset represent the index of the vector that need to be used to offset the window</span>
+<span class="sd">            &gt;&gt;&gt; T.s(2,offset=-2)       #= [0, 1]      the value of the window is [-1,0]</span>
+<span class="sd">            &gt;&gt;&gt; T.s([-2,2],offset=-1)  #= [-1,0,1,2]  the value of the window is [-1,0,1,2]</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">dim</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+        <span class="n">json</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">sw</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">list</span><span class="p">:</span>
+            <span class="n">check</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">sw</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span> <span class="s2">&quot;The sample window must be a list of two elements.&quot;</span><span class="p">)</span>
+            <span class="n">check</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">sw</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">==</span> <span class="nb">int</span> <span class="ow">and</span> <span class="nb">type</span><span class="p">(</span><span class="n">sw</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="o">==</span> <span class="nb">int</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span> <span class="s2">&quot;The sample window must be integer&quot;</span><span class="p">)</span>
+            <span class="n">check</span><span class="p">(</span><span class="n">sw</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">sw</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s2">&quot;The dimension of the sample window must be positive&quot;</span><span class="p">)</span>
+            <span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;sw&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sw</span>
+            <span class="n">sw</span> <span class="o">=</span> <span class="n">sw</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">sw</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">check</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">sw</span><span class="p">)</span> <span class="o">==</span> <span class="nb">int</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span> <span class="s2">&quot;The sample window must be integer&quot;</span><span class="p">)</span>
+            <span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;sw&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="o">-</span><span class="n">sw</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">sw</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s2">&quot;The sample window must be positive&quot;</span><span class="p">)</span>
+        <span class="n">dim</span><span class="p">[</span><span class="s1">&#39;sw&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sw</span>
+        <span class="k">if</span> <span class="n">offset</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">check</span><span class="p">(</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;sw&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">offset</span> <span class="o">&lt;</span> <span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;sw&#39;</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span>
+                  <span class="ne">IndexError</span><span class="p">,</span>
+                  <span class="s2">&quot;The offset must be inside the sample window&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">SamplePart</span><span class="p">(</span><span class="n">Stream</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">json</span><span class="p">,</span> <span class="n">dim</span><span class="p">),</span> <span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;sw&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;sw&#39;</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span> <span class="n">offset</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Input.z">
+<a class="viewcode-back" href="../../../_autodoc/nnodely.html#nnodely.layers.input.Input.z">[docs]</a>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">z</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">delay</span><span class="p">:</span><span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Stream</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Considering the Zeta transform notation. The function is used to selects a unitary delay from the Input.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        delay : int</span>
+<span class="sd">            The delay value.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        Stream</span>
+<span class="sd">            A Stream representing the SamplePart object with the selected delay.</span>
+
+<span class="sd">        Examples</span>
+<span class="sd">        --------</span>
+<span class="sd">        Select the unitary delay considering a signal T = [-3,-2,-1,0,1,2], where the time vector 0 represent the last passed instant</span>
+<span class="sd">            T.z(-1) = 1</span>
+<span class="sd">            T.z(0)  = 0 # the last passed instant</span>
+<span class="sd">            T.z(2)  = -2</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">dim</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+        <span class="n">json</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">)</span>
+        <span class="n">sw</span> <span class="o">=</span> <span class="p">[(</span><span class="o">-</span><span class="n">delay</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="p">(</span><span class="o">-</span><span class="n">delay</span><span class="p">)]</span>
+        <span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;sw&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sw</span>
+        <span class="n">dim</span><span class="p">[</span><span class="s1">&#39;sw&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sw</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">sw</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">SamplePart</span><span class="p">(</span><span class="n">Stream</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">json</span><span class="p">,</span> <span class="n">dim</span><span class="p">),</span> <span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;sw&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;sw&#39;</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span> <span class="kc">None</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Input.last">
+<a class="viewcode-back" href="../../../_autodoc/nnodely.html#nnodely.layers.input.Input.last">[docs]</a>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">last</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Stream</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Selects the last passed instant for the input.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        Stream</span>
+<span class="sd">            A Stream representing the SamplePart object with the last passed instant.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">z</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Input.next">
+<a class="viewcode-back" href="../../../_autodoc/nnodely.html#nnodely.layers.input.Input.next">[docs]</a>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">next</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Stream</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Selects the next instant for the input.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        Stream</span>
+<span class="sd">            A Stream representing the SamplePart object with the next instant.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">z</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Input.s">
+<a class="viewcode-back" href="../../../_autodoc/nnodely.html#nnodely.layers.input.Input.s">[docs]</a>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">s</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">order</span><span class="p">:</span><span class="nb">int</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">der_name</span><span class="p">:</span><span class="nb">str</span><span class="o">|</span><span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">int_name</span><span class="p">:</span><span class="nb">str</span><span class="o">|</span><span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span><span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;euler&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Stream</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Considering the Laplace transform notation. The function is used to operate an integral or derivate operation on the input.</span>
+<span class="sd">        The order of the integral or the derivative operation is indicated by the order parameter.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        order : int</span>
+<span class="sd">            Order of the Laplace transform</span>
+<span class="sd">        method : str, optional</span>
+<span class="sd">            Integration or derivation method</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        Stream</span>
+<span class="sd">            A Stream of the signal represents the integral or derivation operation.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">order</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s2">&quot;The order must be a positive or negative integer not a zero&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">order</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">o</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">last</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">order</span><span class="p">):</span>
+                <span class="n">o</span> <span class="o">=</span> <span class="n">Derivate</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="n">der_name</span> <span class="o">=</span> <span class="n">der_name</span><span class="p">,</span> <span class="n">int_name</span> <span class="o">=</span> <span class="n">int_name</span><span class="p">,</span> <span class="n">method</span> <span class="o">=</span> <span class="n">method</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">order</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">o</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">last</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="o">-</span><span class="n">order</span><span class="p">):</span>
+                <span class="n">o</span> <span class="o">=</span> <span class="n">Integrate</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="n">der_name</span> <span class="o">=</span> <span class="n">der_name</span><span class="p">,</span> <span class="n">int_name</span> <span class="o">=</span> <span class="n">int_name</span><span class="p">,</span> <span class="n">method</span> <span class="o">=</span> <span class="n">method</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">o</span></div>
+
+
+<div class="viewcode-block" id="Input.connect">
+<a class="viewcode-back" href="../../../_autodoc/nnodely.html#nnodely.layers.input.Input.connect">[docs]</a>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">:</span><span class="n">Stream</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;Input&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Update and return the current Input with a given Stream object.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        obj : Stream</span>
+<span class="sd">            The Stream object for update the Input.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        Input</span>
+<span class="sd">            A Input with the connection to the obj Stream</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        TypeError</span>
+<span class="sd">            If the provided object is not of type Input.</span>
+<span class="sd">        KeyError</span>
+<span class="sd">            If the Input variable is already connected.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">check</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Stream</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span>
+              <span class="sa">f</span><span class="s2">&quot;The </span><span class="si">{</span><span class="n">obj</span><span class="si">}</span><span class="s2"> must be a Stream and not a </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span> <span class="o">=</span> <span class="n">merge</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">json</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="s1">&#39;closedLoop&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="ow">or</span> <span class="s1">&#39;connect&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">],</span> <span class="ne">KeyError</span><span class="p">,</span>
+              <span class="sa">f</span><span class="s2">&quot;The Input variable </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> is already connected.&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;connect&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span><span class="o">.</span><span class="n">name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;local&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">return</span> <span class="bp">self</span></div>
+
+
+<div class="viewcode-block" id="Input.closedLoop">
+<a class="viewcode-back" href="../../../_autodoc/nnodely.html#nnodely.layers.input.Input.closedLoop">[docs]</a>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">closedLoop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">:</span><span class="n">Stream</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;Input&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Update and return the current Input in a closed loop with a given Stream object.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        obj : Stream</span>
+<span class="sd">            The Stream object for update the Input.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        Input</span>
+<span class="sd">            A Input with the connection to the obj Stream</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        TypeError</span>
+<span class="sd">            If the provided object is not of type Input.</span>
+<span class="sd">        KeyError</span>
+<span class="sd">            If the Input variable is already connected.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.layers.input</span><span class="w"> </span><span class="kn">import</span> <span class="n">Input</span>
+        <span class="n">check</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Stream</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span>
+              <span class="sa">f</span><span class="s2">&quot;The </span><span class="si">{</span><span class="n">obj</span><span class="si">}</span><span class="s2"> must be a Stream and not a </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span> <span class="o">=</span> <span class="n">merge</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">json</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="s1">&#39;closedLoop&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="ow">or</span> <span class="s1">&#39;connect&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">],</span>
+              <span class="ne">KeyError</span><span class="p">,</span>
+              <span class="sa">f</span><span class="s2">&quot;The Input variable </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> is already connected.&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;closedLoop&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;local&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">return</span> <span class="bp">self</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">stream_to_str</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s1">&#39;Input&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="fm">__str__</span><span class="p">()</span></div>
+
+
+<span class="c1"># connect operation</span>
+<span class="n">connect_name</span> <span class="o">=</span> <span class="s1">&#39;connect&#39;</span>
+<span class="n">closedloop_name</span> <span class="o">=</span> <span class="s1">&#39;closedLoop&#39;</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Connect</span><span class="p">(</span><span class="n">Stream</span><span class="p">,</span> <span class="n">ToStream</span><span class="p">):</span>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj1</span><span class="p">:</span><span class="n">Stream</span><span class="p">,</span> <span class="n">obj2</span><span class="p">:</span><span class="n">Input</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">local</span><span class="p">:</span><span class="nb">bool</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Stream</span><span class="p">:</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">obj1</span><span class="o">.</span><span class="n">name</span><span class="p">,</span><span class="n">merge</span><span class="p">(</span><span class="n">obj1</span><span class="o">.</span><span class="n">json</span><span class="p">,</span> <span class="n">obj2</span><span class="o">.</span><span class="n">json</span><span class="p">),</span><span class="n">obj1</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">closedloop_name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="n">obj2</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="ow">or</span> <span class="n">connect_name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="n">obj2</span><span class="o">.</span><span class="n">name</span><span class="p">],</span>
+              <span class="ne">KeyError</span><span class="p">,</span><span class="sa">f</span><span class="s2">&quot;The input variable </span><span class="si">{</span><span class="n">obj2</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> is already connected.&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="n">obj2</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="n">connect_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj1</span><span class="o">.</span><span class="n">name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="n">obj2</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;local&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">local</span><span class="p">)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ClosedLoop</span><span class="p">(</span><span class="n">Stream</span><span class="p">,</span> <span class="n">ToStream</span><span class="p">):</span>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj1</span><span class="p">:</span><span class="n">Stream</span><span class="p">,</span> <span class="n">obj2</span><span class="p">:</span><span class="n">Input</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">local</span><span class="p">:</span><span class="nb">bool</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Stream</span><span class="p">:</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">obj1</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">merge</span><span class="p">(</span><span class="n">obj1</span><span class="o">.</span><span class="n">json</span><span class="p">,</span> <span class="n">obj2</span><span class="o">.</span><span class="n">json</span><span class="p">),</span> <span class="n">obj1</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">closedloop_name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="n">obj2</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="ow">or</span> <span class="n">connect_name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="n">obj2</span><span class="o">.</span><span class="n">name</span><span class="p">],</span>
+              <span class="ne">KeyError</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;The input variable </span><span class="si">{</span><span class="n">obj2</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> is already connected.&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="n">obj2</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="n">closedloop_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj1</span><span class="o">.</span><span class="n">name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="n">obj2</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;local&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">local</span><span class="p">)</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright .</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

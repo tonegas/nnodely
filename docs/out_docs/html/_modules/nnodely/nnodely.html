@@ -1,0 +1,408 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>nnodely.nnodely &mdash;  1.5.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=73275c37"></script>
+      <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            
+              <img src="../../_static/logo.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../_autodoc/nnodely.html">Modely</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../_autodoc/nnodely.html#model-structured-nn-inputs-outputs-and-parameters">Model structured NN Inputs Outputs and Parameters</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../_autodoc/nnodely.html#model-structured-nn-building-blocks">Model structured NN building blocks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../_autodoc/nnodely.html#training">Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../_autodoc/nnodely.html#additional-information">Additional information</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html"></a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">nnodely.nnodely</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for nnodely.nnodely</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Extern packages</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">random</span><span class="o">,</span><span class="w"> </span><span class="nn">torch</span><span class="o">,</span><span class="w"> </span><span class="nn">copy</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="c1"># Main operators</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.operators.composer</span><span class="w"> </span><span class="kn">import</span> <span class="n">Composer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.operators.trainer</span><span class="w"> </span><span class="kn">import</span> <span class="n">Trainer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.operators.loader</span><span class="w"> </span><span class="kn">import</span> <span class="n">Loader</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.operators.validator</span><span class="w"> </span><span class="kn">import</span> <span class="n">Validator</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.operators.exporter</span><span class="w"> </span><span class="kn">import</span> <span class="n">Exporter</span>
+
+<span class="c1"># nnodely packages</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.visualizer</span><span class="w"> </span><span class="kn">import</span> <span class="n">EmptyVisualizer</span><span class="p">,</span> <span class="n">TextVisualizer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.exporter</span><span class="w"> </span><span class="kn">import</span> <span class="n">EmptyExporter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.basic.relation</span><span class="w"> </span><span class="kn">import</span> <span class="n">NeuObj</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.support.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">ReadOnlyDict</span><span class="p">,</span> <span class="n">ParamDict</span><span class="p">,</span> <span class="n">enforce_types</span><span class="p">,</span> <span class="n">check</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.support.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">logging</span><span class="p">,</span> <span class="n">nnLogger</span>
+<span class="n">log</span> <span class="o">=</span> <span class="n">nnLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">,</span> <span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="clearNames">
+<a class="viewcode-back" href="../../_autodoc/nnodely.html#nnodely.nnodely.clearNames">[docs]</a>
+<span class="nd">@enforce_types</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">clearNames</span><span class="p">(</span><span class="n">names</span><span class="p">:</span><span class="nb">str</span><span class="o">|</span><span class="nb">list</span><span class="o">|</span><span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+    <span class="n">NeuObj</span><span class="o">.</span><span class="n">clearNames</span><span class="p">(</span><span class="n">names</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Modely">
+<a class="viewcode-back" href="../../_autodoc/nnodely.html#nnodely.nnodely.Modely">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Modely</span><span class="p">(</span><span class="n">Composer</span><span class="p">,</span> <span class="n">Trainer</span><span class="p">,</span> <span class="n">Loader</span><span class="p">,</span> <span class="n">Validator</span><span class="p">,</span> <span class="n">Exporter</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Create the main object, the nnodely object, that will be used to create the network, train and export it.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    visualizer : str, Visualizer, optional</span>
+<span class="sd">        The visualizer to be used. Default is the &#39;Standard&#39; visualizer.</span>
+<span class="sd">    exporter : str, Exporter, optional</span>
+<span class="sd">        The exporter to be used. Default is the &#39;Standard&#39; exporter.</span>
+<span class="sd">    seed : int, optional</span>
+<span class="sd">        Set the seed for all the random modules inside the nnodely framework. Default is None.</span>
+<span class="sd">    workspace : str</span>
+<span class="sd">        The path of the workspace where all the exported files will be saved.</span>
+<span class="sd">    log_internal : bool</span>
+<span class="sd">        Whether or not save the logs. Default is False.</span>
+<span class="sd">    save_history : bool</span>
+<span class="sd">        Whether or not save the history. Default is False.</span>
+
+<span class="sd">    Example</span>
+<span class="sd">    -------</span>
+<span class="sd">        &gt;&gt;&gt; model = Modely()</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span>
+                 <span class="n">visualizer</span><span class="p">:</span><span class="nb">str</span><span class="o">|</span><span class="n">EmptyVisualizer</span><span class="o">|</span><span class="kc">None</span> <span class="o">=</span> <span class="s1">&#39;Standard&#39;</span><span class="p">,</span>
+                 <span class="n">exporter</span><span class="p">:</span><span class="nb">str</span><span class="o">|</span><span class="n">EmptyExporter</span><span class="o">|</span><span class="kc">None</span> <span class="o">=</span> <span class="s1">&#39;Standard&#39;</span><span class="p">,</span>
+                 <span class="n">seed</span><span class="p">:</span><span class="nb">int</span><span class="o">|</span><span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+                 <span class="n">workspace</span><span class="p">:</span><span class="nb">str</span><span class="o">|</span><span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+                 <span class="n">log_internal</span><span class="p">:</span><span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+                 <span class="n">save_history</span><span class="p">:</span><span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">):</span>
+
+        <span class="c1">## Set the random seed for reproducibility</span>
+        <span class="k">if</span> <span class="n">seed</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">resetSeed</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
+
+        <span class="c1"># Visualizer</span>
+        <span class="k">if</span> <span class="n">visualizer</span> <span class="o">==</span> <span class="s1">&#39;Standard&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">visualizer</span> <span class="o">=</span> <span class="n">TextVisualizer</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">visualizer</span> <span class="o">!=</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">visualizer</span> <span class="o">=</span> <span class="n">visualizer</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">visualizer</span> <span class="o">=</span> <span class="n">EmptyVisualizer</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">visualizer</span><span class="o">.</span><span class="n">setModely</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+        <span class="n">Composer</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="n">Loader</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="n">Trainer</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="n">Validator</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="n">Exporter</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exporter</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">save_history</span><span class="o">=</span><span class="n">save_history</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_set_log_internal</span><span class="p">(</span><span class="n">log_internal</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_clean_log_internal</span><span class="p">()</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">internals</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ReadOnlyDict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_internals</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">neuralized</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_neuralized</span>
+
+    <span class="nd">@neuralized</span><span class="o">.</span><span class="n">setter</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">neuralized</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">AttributeError</span><span class="p">(</span><span class="s2">&quot;Cannot modify read-only property &#39;neuralized&#39; use neuralizeModel() instead.&quot;</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">traced</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_traced</span>
+
+    <span class="nd">@traced</span><span class="o">.</span><span class="n">setter</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">traced</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">AttributeError</span><span class="p">(</span><span class="s2">&quot;Cannot modify read-only property &#39;traced&#39;.&quot;</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_neuralized</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">ParamDict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_model_def</span><span class="p">[</span><span class="s1">&#39;Parameters&#39;</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="o">.</span><span class="n">all_parameters</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">ParamDict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_model_def</span><span class="p">[</span><span class="s1">&#39;Parameters&#39;</span><span class="p">])</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constants</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ReadOnlyDict</span><span class="p">({</span><span class="n">key</span><span class="p">:</span><span class="n">value</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span><span class="n">value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="o">.</span><span class="n">all_constants</span><span class="p">})</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">states</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span><span class="n">value</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span><span class="n">value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_states</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">json</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_model_def</span><span class="o">.</span><span class="n">_ModelDef__json</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Modely.resetSeed">
+<a class="viewcode-back" href="../../_autodoc/nnodely.html#nnodely.nnodely.Modely.resetSeed">[docs]</a>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">resetSeed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">seed</span><span class="p">:</span><span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Resets the random seed for reproducibility.</span>
+
+<span class="sd">        This method sets the seed for various random number generators used in the project to ensure reproducibility of results.</span>
+
+<span class="sd">        :param seed: The seed value to be used for the random number generators.</span>
+<span class="sd">        :type seed: int</span>
+
+<span class="sd">        Example:</span>
+<span class="sd">            &gt;&gt;&gt; model = nnodely()</span>
+<span class="sd">            &gt;&gt;&gt; model.resetSeed(42)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>  <span class="c1">## set the pytorch seed</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">manual_seed_all</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
+        <span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>  <span class="c1">## set the random module seed</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>  <span class="c1">## set the numpy seed</span></div>
+
+
+<div class="viewcode-block" id="Modely.trainAndAnalyze">
+<a class="viewcode-back" href="../../_autodoc/nnodely.html#nnodely.nnodely.Modely.trainAndAnalyze">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">trainAndAnalyze</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">test_dataset</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">list</span> <span class="o">|</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">test_batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Trains the model using the provided datasets and parameters. After training, it analyzes the results on the training, validation, and test datasets.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        test_dataset : str or None, optional</span>
+<span class="sd">            The name of the datasets used for test. Default is None.</span>
+<span class="sd">        test_batch_size : int, optional</span>
+<span class="sd">            The batch size for testing. Default is 1.</span>
+<span class="sd">        models : list or None, optional</span>
+<span class="sd">            A list of models to train. Default is None.</span>
+<span class="sd">        train_dataset : str or None, optional</span>
+<span class="sd">            The name of datasets to use for training. Default is None.</span>
+<span class="sd">        validation_dataset : str or None, optional</span>
+<span class="sd">            The name of datasets to use for validation. Default is None.</span>
+<span class="sd">        dataset : str or None, optional</span>
+<span class="sd">            The name of the datasets to use for training, validation and test.</span>
+<span class="sd">        splits : list or None, optional</span>
+<span class="sd">            A list of 3 elements specifying the percentage of splits for training, validation, and testing. The three elements must sum up to 100!</span>
+<span class="sd">            The parameter splits is only used when dataset is not None</span>
+<span class="sd">        closed_loop : dict or None, optional</span>
+<span class="sd">            A dictionary specifying closed loop connections. The keys are input names and the values are output names. Default is None.</span>
+<span class="sd">        connect : dict or None, optional</span>
+<span class="sd">            A dictionary specifying connections. The keys are input names and the values are output names. Default is None.</span>
+<span class="sd">        step : int or None, optional</span>
+<span class="sd">            The step size for training. A big value will result in less data used for each epochs and a faster train. Default is None.</span>
+<span class="sd">        prediction_samples : int or None, optional</span>
+<span class="sd">            The size of the prediction horizon. Number of samples at each recurrent window Default is None.</span>
+<span class="sd">        shuffle_data : bool or None, optional</span>
+<span class="sd">            Whether to shuffle the data during training. Default is None.</span>
+<span class="sd">        early_stopping : Callable or None, optional</span>
+<span class="sd">            A callable for early stopping. Default is None.</span>
+<span class="sd">        early_stopping_params : dict or None, optional</span>
+<span class="sd">            A dictionary of parameters for early stopping. Default is None.</span>
+<span class="sd">        select_model : Callable or None, optional</span>
+<span class="sd">            A callable for selecting the best model. Default is None.</span>
+<span class="sd">        select_model_params : dict or None, optional</span>
+<span class="sd">            A dictionary of parameters for selecting the best model. Default is None.</span>
+<span class="sd">        minimize_gain : dict or None, optional</span>
+<span class="sd">            A dictionary specifying the gain for each minimization loss function. Default is None.</span>
+<span class="sd">        num_of_epochs : int or None, optional</span>
+<span class="sd">            The number of epochs to train the model. Default is None.</span>
+<span class="sd">        train_batch_size : int or None, optional</span>
+<span class="sd">            The batch size for training. Default is None.</span>
+<span class="sd">        val_batch_size : int or None, optional</span>
+<span class="sd">            The batch size for validation. Default is None.</span>
+<span class="sd">        optimizer : Optimizer or None, optional</span>
+<span class="sd">            The optimizer to use for training. Default is None.</span>
+<span class="sd">        lr : float or None, optional</span>
+<span class="sd">            The learning rate. Default is None.</span>
+<span class="sd">        lr_param : dict or None, optional</span>
+<span class="sd">            A dictionary of learning rate parameters. Default is None.</span>
+<span class="sd">        optimizer_params : list or dict or None, optional</span>
+<span class="sd">            A dictionary of optimizer parameters. Default is None.</span>
+<span class="sd">        optimizer_defaults : dict or None, optional</span>
+<span class="sd">            A dictionary of default optimizer settings. Default is None.</span>
+<span class="sd">        training_params : dict or None, optional</span>
+<span class="sd">            A dictionary of training parameters. Default is None.</span>
+<span class="sd">        add_optimizer_params : list or None, optional</span>
+<span class="sd">            Additional optimizer parameters. Default is None.</span>
+<span class="sd">        add_optimizer_defaults : dict or None, optional</span>
+<span class="sd">            Additional default optimizer settings. Default is None.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        RuntimeError</span>
+<span class="sd">            If no data is loaded or if there are no modules with learnable parameters.</span>
+<span class="sd">        KeyError</span>
+<span class="sd">            If the sample horizon is not positive.</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If an input or output variable is not in the model definition.</span>
+
+<span class="sd">        Examples</span>
+<span class="sd">        --------</span>
+<span class="sd">        .. image:: https://colab.research.google.com/assets/colab-badge.svg</span>
+<span class="sd">            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/training.ipynb</span>
+<span class="sd">            :alt: Open in Colab</span>
+
+<span class="sd">        Example - basic feed-forward training:</span>
+<span class="sd">            &gt;&gt;&gt; x = Input(&#39;x&#39;)</span>
+<span class="sd">            &gt;&gt;&gt; F = Input(&#39;F&#39;)</span>
+
+<span class="sd">            &gt;&gt;&gt; xk1 = Output(&#39;x[k+1]&#39;, Fir()(x.tw(0.2))+Fir()(F.last()))</span>
+
+<span class="sd">            &gt;&gt;&gt; mass_spring_damper = Modely(seed=0)</span>
+<span class="sd">            &gt;&gt;&gt; mass_spring_damper.addModel(&#39;xk1&#39;,xk1)</span>
+<span class="sd">            &gt;&gt;&gt; mass_spring_damper.neuralizeModel(sample_time = 0.05)</span>
+
+<span class="sd">            &gt;&gt;&gt; data_struct = [&#39;time&#39;,&#39;x&#39;,&#39;dx&#39;,&#39;F&#39;]</span>
+<span class="sd">            &gt;&gt;&gt; data_folder = os.path.join(os.path.dirname(os.path.realpath(__file__)),&#39;dataset&#39;,&#39;data&#39;)</span>
+<span class="sd">            &gt;&gt;&gt; mass_spring_damper.loadData(name=&#39;mass_spring_dataset&#39;, source=data_folder, format=data_struct, delimiter=&#39;;&#39;)</span>
+
+<span class="sd">            &gt;&gt;&gt; params = {&#39;num_of_epochs&#39;: 100,&#39;train_batch_size&#39;: 128,&#39;lr&#39;:0.001}</span>
+<span class="sd">            &gt;&gt;&gt; mass_spring_damper.trainModel(splits=[70,20,10], training_params = params)</span>
+
+<span class="sd">        Example - recurrent training:</span>
+<span class="sd">            &gt;&gt;&gt; x = Input(&#39;x&#39;)</span>
+<span class="sd">            &gt;&gt;&gt; F = Input(&#39;F&#39;)</span>
+
+<span class="sd">            &gt;&gt;&gt; xk1 = Output(&#39;x[k+1]&#39;, Fir()(x.tw(0.2))+Fir()(F.last()))</span>
+
+<span class="sd">            &gt;&gt;&gt; mass_spring_damper = Modely(seed=0)</span>
+<span class="sd">            &gt;&gt;&gt; mass_spring_damper.addModel(&#39;xk1&#39;,xk1)</span>
+<span class="sd">            &gt;&gt;&gt; mass_spring_damper.addClosedLoop(xk1, x)</span>
+<span class="sd">            &gt;&gt;&gt; mass_spring_damper.neuralizeModel(sample_time = 0.05)</span>
+
+<span class="sd">            &gt;&gt;&gt; data_struct = [&#39;time&#39;,&#39;x&#39;,&#39;dx&#39;,&#39;F&#39;]</span>
+<span class="sd">            &gt;&gt;&gt; data_folder = os.path.join(os.path.dirname(os.path.realpath(__file__)),&#39;dataset&#39;,&#39;data&#39;)</span>
+<span class="sd">            &gt;&gt;&gt; mass_spring_damper.loadData(name=&#39;mass_spring_dataset&#39;, source=data_folder, format=data_struct, delimiter=&#39;;&#39;)</span>
+
+<span class="sd">            &gt;&gt;&gt; params = {&#39;num_of_epochs&#39;: 100,&#39;train_batch_size&#39;: 128,&#39;lr&#39;:0.001}</span>
+<span class="sd">            &gt;&gt;&gt; mass_spring_damper.trainModel(splits=[70,20,10], prediction_samples=10, training_params = params)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1">## Train the model</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">trainModel</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">running_parameters</span>
+
+        <span class="n">minimize_gain</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;minimize_gain&#39;</span><span class="p">]</span>
+        <span class="n">closed_loop</span><span class="p">,</span> <span class="n">connect</span><span class="p">,</span> <span class="n">prediction_samples</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;closed_loop&#39;</span><span class="p">],</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;connect&#39;</span><span class="p">],</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;prediction_samples&#39;</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;train_dataset&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">check</span><span class="p">(</span><span class="n">test_dataset</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s1">&#39;If train_dataset is None, test_dataset must also be None.&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">params</span><span class="p">[</span><span class="s1">&#39;test_tag&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_tag</span><span class="p">(</span><span class="n">test_dataset</span><span class="p">)</span>
+            <span class="n">params</span><span class="p">[</span><span class="s1">&#39;XY_test&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_data</span><span class="p">(</span><span class="n">test_dataset</span><span class="p">)</span>
+            <span class="n">params</span><span class="p">[</span><span class="s1">&#39;n_samples_test&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;XY_test&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">()))</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="k">if</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;XY_test&#39;</span><span class="p">]</span> <span class="k">else</span> <span class="mi">0</span>
+            <span class="n">params</span><span class="p">[</span><span class="s1">&#39;test_indexes&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_batch_indexes</span><span class="p">(</span><span class="n">test_dataset</span><span class="p">,</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;n_samples_test&#39;</span><span class="p">],</span> <span class="n">prediction_samples</span><span class="p">)</span>
+
+        <span class="c1">## Training set Results</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">resultAnalysis</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;XY_train&#39;</span><span class="p">],</span> <span class="n">name</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;train_tag&#39;</span><span class="p">],</span> <span class="n">minimize_gain</span> <span class="o">=</span> <span class="n">minimize_gain</span><span class="p">,</span>
+                            <span class="n">closed_loop</span> <span class="o">=</span> <span class="n">closed_loop</span><span class="p">,</span> <span class="n">connect</span> <span class="o">=</span> <span class="n">connect</span><span class="p">,</span> <span class="n">prediction_samples</span> <span class="o">=</span> <span class="n">prediction_samples</span><span class="p">,</span> <span class="n">step</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;train_step&#39;</span><span class="p">],</span> <span class="n">batch_size</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;train_batch_size&#39;</span><span class="p">])</span>
+        
+        <span class="c1">## Validation set Results</span>
+        <span class="k">if</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;n_samples_val&#39;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">resultAnalysis</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;XY_val&#39;</span><span class="p">],</span> <span class="n">name</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;val_tag&#39;</span><span class="p">],</span> <span class="n">minimize_gain</span> <span class="o">=</span> <span class="n">minimize_gain</span><span class="p">,</span>
+                            <span class="n">closed_loop</span> <span class="o">=</span> <span class="n">closed_loop</span><span class="p">,</span> <span class="n">connect</span> <span class="o">=</span> <span class="n">connect</span><span class="p">,</span> <span class="n">prediction_samples</span> <span class="o">=</span> <span class="n">prediction_samples</span><span class="p">,</span> <span class="n">step</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;val_step&#39;</span><span class="p">],</span> <span class="n">batch_size</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;val_batch_size&#39;</span><span class="p">])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Validation dataset is empty. Skipping validation results analysis.&quot;</span><span class="p">)</span>
+
+        <span class="c1">## Test set Results</span>
+        <span class="k">if</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;n_samples_test&#39;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">params</span><span class="p">[</span><span class="s1">&#39;test_batch_size&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_clip_batch_size</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;test_indexes&#39;</span><span class="p">]),</span> <span class="n">test_batch_size</span><span class="p">)</span>
+            <span class="n">params</span><span class="p">[</span><span class="s1">&#39;test_step&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_clip_step</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;step&#39;</span><span class="p">],</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;test_indexes&#39;</span><span class="p">],</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;test_batch_size&#39;</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">resultAnalysis</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;XY_test&#39;</span><span class="p">],</span> <span class="n">name</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;test_tag&#39;</span><span class="p">],</span> <span class="n">minimize_gain</span> <span class="o">=</span> <span class="n">minimize_gain</span><span class="p">,</span>
+                            <span class="n">closed_loop</span> <span class="o">=</span> <span class="n">closed_loop</span><span class="p">,</span> <span class="n">connect</span> <span class="o">=</span> <span class="n">connect</span><span class="p">,</span> <span class="n">prediction_samples</span> <span class="o">=</span> <span class="n">prediction_samples</span><span class="p">,</span> <span class="n">step</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;test_step&#39;</span><span class="p">],</span> <span class="n">batch_size</span> <span class="o">=</span> <span class="n">test_batch_size</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Test dataset is empty. Skipping test results analysis.&quot;</span><span class="p">)</span>
+
+        <span class="c1">## Show the results</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">visualizer</span><span class="o">.</span><span class="n">showResults</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_training_info</span><span class="p">()</span></div>
+</div>
+
+
+<span class="n">nnodely</span> <span class="o">=</span> <span class="n">Modely</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright .</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

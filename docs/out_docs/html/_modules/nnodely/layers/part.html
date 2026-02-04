@@ -1,0 +1,665 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>nnodely.layers.part &mdash;  1.5.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=73275c37"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            
+              <img src="../../../_static/logo.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/nnodely.html">Modely</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/nnodely.html#model-structured-nn-inputs-outputs-and-parameters">Model structured NN Inputs Outputs and Parameters</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/nnodely.html#model-structured-nn-building-blocks">Model structured NN building blocks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/nnodely.html#training">Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/nnodely.html#additional-information">Additional information</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html"></a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">nnodely.layers.part</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for nnodely.layers.part</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.basic.relation</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToStream</span><span class="p">,</span> <span class="n">Stream</span><span class="p">,</span> <span class="n">toStream</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.basic.model</span><span class="w"> </span><span class="kn">import</span> <span class="n">Model</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.support.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">check</span><span class="p">,</span> <span class="n">enforce_types</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.support.jsonutils</span><span class="w"> </span><span class="kn">import</span> <span class="n">merge</span>
+
+<span class="n">part_relation_name</span> <span class="o">=</span> <span class="s1">&#39;Part&#39;</span>
+<span class="n">select_relation_name</span> <span class="o">=</span> <span class="s1">&#39;Select&#39;</span>
+<span class="n">concatenate_relation_name</span> <span class="o">=</span> <span class="s1">&#39;Concatenate&#39;</span>
+
+<span class="n">timepart_relation_name</span> <span class="o">=</span> <span class="s1">&#39;TimePart&#39;</span>
+<span class="n">timeselect_relation_name</span> <span class="o">=</span> <span class="s1">&#39;TimeSelect&#39;</span>
+<span class="n">timeconcatenate_relation_name</span> <span class="o">=</span> <span class="s1">&#39;TimeConcatenate&#39;</span>
+
+<span class="n">samplepart_relation_name</span> <span class="o">=</span> <span class="s1">&#39;SamplePart&#39;</span>
+<span class="n">sampleselect_relation_name</span> <span class="o">=</span> <span class="s1">&#39;SampleSelect&#39;</span>
+
+
+
+<div class="viewcode-block" id="Part">
+<a class="viewcode-back" href="../../../_autodoc/nnodely.html#nnodely.layers.part.Part">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Part</span><span class="p">(</span><span class="n">Stream</span><span class="p">,</span> <span class="n">ToStream</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Represents a selection of a sub-part from a relation in the neural network model.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    .. note::</span>
+<span class="sd">        The Part relation works along the object dimension (third dimension) of the input.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    obj : Stream</span>
+<span class="sd">        The stream object to create a part from.</span>
+<span class="sd">    i : int</span>
+<span class="sd">        The starting index of the part.</span>
+<span class="sd">    j : int</span>
+<span class="sd">        The ending index of the part.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    name : str</span>
+<span class="sd">        The name of the part.</span>
+<span class="sd">    dim : dict</span>
+<span class="sd">        A dictionary containing the dimensions of the part.</span>
+<span class="sd">    json : dict</span>
+<span class="sd">        A dictionary containing the configuration of the part.</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    .. image:: https://colab.research.google.com/assets/colab-badge.svg</span>
+<span class="sd">        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb</span>
+<span class="sd">        :alt: Open in Colab</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; x = Input(&#39;x&#39;, dimensions=3).last()</span>
+<span class="sd">        &gt;&gt;&gt; relation = Part(x, 0, 1)</span>
+
+<span class="sd">    Raises</span>
+<span class="sd">    ------</span>
+<span class="sd">    IndexError</span>
+<span class="sd">        If the indices i and j are out of range.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">:</span><span class="n">Stream</span><span class="p">,</span> <span class="n">i</span><span class="p">:</span><span class="nb">int</span><span class="p">,</span> <span class="n">j</span><span class="p">:</span><span class="nb">int</span><span class="p">):</span>
+        <span class="c1"># check(type(obj) is Stream, TypeError,</span>
+        <span class="c1">#       f&quot;The type of {obj} is {type(obj)} and is not supported for Part operation.&quot;)</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">i</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">j</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">]</span> <span class="ow">and</span> <span class="n">j</span> <span class="o">&lt;=</span> <span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">],</span>
+              <span class="ne">IndexError</span><span class="p">,</span>
+              <span class="sa">f</span><span class="s2">&quot;i=</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2"> or j=</span><span class="si">{</span><span class="n">j</span><span class="si">}</span><span class="s2"> are not in the range [0,</span><span class="si">{</span><span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">]&quot;</span><span class="p">)</span>
+        <span class="n">dim</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+        <span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">j</span> <span class="o">-</span> <span class="n">i</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">part_relation_name</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">Stream</span><span class="o">.</span><span class="n">count</span><span class="p">),</span><span class="n">obj</span><span class="o">.</span><span class="n">json</span><span class="p">,</span><span class="n">dim</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Relations&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">part_relation_name</span><span class="p">,[</span><span class="n">obj</span><span class="o">.</span><span class="n">name</span><span class="p">],</span><span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">],[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]]</span></div>
+
+
+<div class="viewcode-block" id="Select">
+<a class="viewcode-back" href="../../../_autodoc/nnodely.html#nnodely.layers.part.Select">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Select</span><span class="p">(</span><span class="n">Stream</span><span class="p">,</span> <span class="n">ToStream</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Represents a selection of a single element from a relation in the neural network model.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    .. note::</span>
+<span class="sd">        The Select relation works along the object dimension (third dimension) of the input.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    obj : Stream</span>
+<span class="sd">        The stream object to select an element from.</span>
+<span class="sd">    i : int</span>
+<span class="sd">        The index of the element to select.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    name : str</span>
+<span class="sd">        The name of the selection.</span>
+<span class="sd">    dim : dict</span>
+<span class="sd">        A dictionary containing the dimensions of the selection.</span>
+<span class="sd">    json : dict</span>
+<span class="sd">        A dictionary containing the configuration of the selection.</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    .. image:: https://colab.research.google.com/assets/colab-badge.svg</span>
+<span class="sd">        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb</span>
+<span class="sd">        :alt: Open in Colab</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; x = Input(&#39;x&#39;, dimensions=3).last()</span>
+<span class="sd">        &gt;&gt;&gt; relation = Select(x, 1)</span>
+
+<span class="sd">    Raises</span>
+<span class="sd">    ------</span>
+<span class="sd">    IndexError</span>
+<span class="sd">        If the index i is out of range.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">:</span><span class="n">Stream</span><span class="p">,</span> <span class="n">i</span><span class="p">:</span><span class="nb">int</span><span class="p">):</span>
+        <span class="c1"># check(type(obj) is Stream, TypeError,</span>
+        <span class="c1">#       f&quot;The type of {obj} is {type(obj)} and is not supported for Select operation.&quot;)</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">i</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">],</span>
+              <span class="ne">IndexError</span><span class="p">,</span>
+              <span class="sa">f</span><span class="s2">&quot;i=</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2"> are not in the range [0,</span><span class="si">{</span><span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">]&quot;</span><span class="p">)</span>
+        <span class="n">dim</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+        <span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">select_relation_name</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">Stream</span><span class="o">.</span><span class="n">count</span><span class="p">),</span><span class="n">obj</span><span class="o">.</span><span class="n">json</span><span class="p">,</span><span class="n">dim</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Relations&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">select_relation_name</span><span class="p">,[</span><span class="n">obj</span><span class="o">.</span><span class="n">name</span><span class="p">],</span><span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">],</span><span class="n">i</span><span class="p">]</span></div>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Concatenate</span><span class="p">(</span><span class="n">Stream</span><span class="p">,</span> <span class="n">ToStream</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Implement the concatenate function between two tensors.</span>
+
+<span class="sd">        See also:</span>
+<span class="sd">            Official PyTorch Cat documentation:</span>
+<span class="sd">            `torch.cat &lt;https://pytorch.org/docs/main/generated/torch.cat.html&gt;`_</span>
+
+<span class="sd">        :param input1: the first relation to concatenate</span>
+<span class="sd">        :type obj: Tensor</span>
+<span class="sd">        :param input2: the second relation to concatenate</span>
+<span class="sd">        :type obj: Tensor</span>
+
+<span class="sd">        Examples</span>
+<span class="sd">        --------</span>
+<span class="sd">        .. image:: https://colab.research.google.com/assets/colab-badge.svg</span>
+<span class="sd">            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb</span>
+<span class="sd">            :alt: Open in Colab</span>
+
+<span class="sd">        Example:</span>
+<span class="sd">            &gt;&gt;&gt; cat = Concatenate(relation1, relation2)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj1</span><span class="p">:</span><span class="n">Stream</span><span class="p">,</span> <span class="n">obj2</span><span class="p">:</span><span class="n">Stream</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Stream</span><span class="p">:</span>
+        <span class="n">obj1</span><span class="p">,</span><span class="n">obj2</span> <span class="o">=</span> <span class="n">toStream</span><span class="p">(</span><span class="n">obj1</span><span class="p">),</span><span class="n">toStream</span><span class="p">(</span><span class="n">obj2</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">obj1</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Stream</span><span class="p">,</span><span class="ne">TypeError</span><span class="p">,</span>
+              <span class="sa">f</span><span class="s2">&quot;The type of </span><span class="si">{</span><span class="n">obj1</span><span class="si">}</span><span class="s2"> is </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">obj1</span><span class="p">)</span><span class="si">}</span><span class="s2"> and is not supported for the Concatenate operation.&quot;</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">obj2</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Stream</span><span class="p">,</span><span class="ne">TypeError</span><span class="p">,</span>
+              <span class="sa">f</span><span class="s2">&quot;The type of </span><span class="si">{</span><span class="n">obj2</span><span class="si">}</span><span class="s2"> is </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">obj2</span><span class="p">)</span><span class="si">}</span><span class="s2"> and is not supported for the Concatenate operation.&quot;</span><span class="p">)</span>
+        <span class="c1">#check(obj1.dim == obj2.dim or obj1.dim == {&#39;dim&#39;:1} or obj2.dim == {&#39;dim&#39;:1}, ValueError,</span>
+        <span class="c1">#      f&quot;For addition operators (+) the dimension of {obj1.name} = {obj1.dim} must be the same of {obj2.name} = {obj2.dim}.&quot;)</span>
+        <span class="n">dim</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">obj1</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+        <span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj1</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">]</span><span class="o">+</span><span class="n">obj2</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="s1">&#39;tw&#39;</span> <span class="ow">in</span> <span class="n">obj1</span><span class="o">.</span><span class="n">dim</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span> <span class="ow">and</span> <span class="s1">&#39;tw&#39;</span> <span class="ow">in</span> <span class="n">obj2</span><span class="o">.</span><span class="n">dim</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">check</span><span class="p">(</span><span class="n">obj1</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;tw&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">obj2</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;tw&#39;</span><span class="p">],</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s1">&#39;The time window of the two inputs must be the same&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="s1">&#39;sw&#39;</span> <span class="ow">in</span> <span class="n">obj1</span><span class="o">.</span><span class="n">dim</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span> <span class="ow">and</span> <span class="s1">&#39;sw&#39;</span> <span class="ow">in</span> <span class="n">obj2</span><span class="o">.</span><span class="n">dim</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">check</span><span class="p">(</span><span class="n">obj1</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;sw&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">obj2</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;sw&#39;</span><span class="p">],</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s1">&#39;The sample window of the two inputs must be the same&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span><span class="p">(</span><span class="ne">ValueError</span><span class="p">(</span><span class="s1">&#39;The two inputs have different time or sample dimensions&#39;</span><span class="p">))</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">concatenate_relation_name</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">Stream</span><span class="o">.</span><span class="n">count</span><span class="p">),</span><span class="n">merge</span><span class="p">(</span><span class="n">obj1</span><span class="o">.</span><span class="n">json</span><span class="p">,</span><span class="n">obj2</span><span class="o">.</span><span class="n">json</span><span class="p">),</span><span class="n">dim</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Relations&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">concatenate_relation_name</span><span class="p">,[</span><span class="n">obj1</span><span class="o">.</span><span class="n">name</span><span class="p">,</span><span class="n">obj2</span><span class="o">.</span><span class="n">name</span><span class="p">]]</span>
+
+<div class="viewcode-block" id="SamplePart">
+<a class="viewcode-back" href="../../../_autodoc/nnodely.html#nnodely.layers.part.SamplePart">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">SamplePart</span><span class="p">(</span><span class="n">Stream</span><span class="p">,</span> <span class="n">ToStream</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Represents a selection of a sub-part from a relation in the neural network model.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    .. note::</span>
+<span class="sd">        The SamplePart relation works along the time dimension (second dimension) of the input.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    obj : Stream</span>
+<span class="sd">        The stream object to create a part from.</span>
+<span class="sd">    i : int</span>
+<span class="sd">        The starting index of the part.</span>
+<span class="sd">    j : int</span>
+<span class="sd">        The ending index of the part.</span>
+<span class="sd">    offset : int, optional</span>
+<span class="sd">        The offset for the part. Default is None.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    name : str</span>
+<span class="sd">        The name of the part.</span>
+<span class="sd">    dim : dict</span>
+<span class="sd">        A dictionary containing the dimensions of the part.</span>
+<span class="sd">    json : dict</span>
+<span class="sd">        A dictionary containing the configuration of the part.</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    .. image:: https://colab.research.google.com/assets/colab-badge.svg</span>
+<span class="sd">        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb</span>
+<span class="sd">        :alt: Open in Colab</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; x = Input(&#39;x&#39;).sw(3)</span>
+<span class="sd">        &gt;&gt;&gt; relation = SamplePart(x, 0, 1)</span>
+
+<span class="sd">    Raises</span>
+<span class="sd">    ------</span>
+<span class="sd">    KeyError</span>
+<span class="sd">        If the input does not have a sample window.</span>
+<span class="sd">    ValueError</span>
+<span class="sd">        If the indices i and j are out of range or if i is not smaller than j.</span>
+<span class="sd">    IndexError</span>
+<span class="sd">        If the offset is not within the sample window.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">:</span><span class="n">Stream</span><span class="p">,</span> <span class="n">i</span><span class="p">:</span><span class="nb">int</span><span class="p">,</span> <span class="n">j</span><span class="p">:</span><span class="nb">int</span><span class="p">,</span> <span class="n">offset</span><span class="p">:</span><span class="nb">int</span><span class="o">|</span><span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+        <span class="c1"># check(type(obj) is Stream, TypeError,</span>
+        <span class="c1">#       f&quot;The type of {obj} is {type(obj)} and is not supported for SamplePart operation.&quot;)</span>
+        <span class="n">check</span><span class="p">(</span><span class="s1">&#39;sw&#39;</span> <span class="ow">in</span> <span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">,</span> <span class="s1">&#39;Input must have a sample window&#39;</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">i</span> <span class="o">&lt;</span> <span class="n">j</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s1">&#39;i must be smaller than j&#39;</span><span class="p">)</span>
+        <span class="n">all_inputs</span> <span class="o">=</span> <span class="n">obj</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">obj</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">all_inputs</span><span class="p">:</span>
+            <span class="n">backward_idx</span> <span class="o">=</span> <span class="n">all_inputs</span><span class="p">[</span><span class="n">obj</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;sw&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">forward_idx</span> <span class="o">=</span> <span class="n">all_inputs</span><span class="p">[</span><span class="n">obj</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;sw&#39;</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">backward_idx</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">forward_idx</span> <span class="o">=</span> <span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;sw&#39;</span><span class="p">]</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">i</span> <span class="o">&gt;=</span> <span class="n">backward_idx</span> <span class="ow">and</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">forward_idx</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s1">&#39;i must be in the sample window of the input&#39;</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">j</span> <span class="o">&gt;</span> <span class="n">backward_idx</span> <span class="ow">and</span> <span class="n">j</span> <span class="o">&lt;=</span> <span class="n">forward_idx</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s1">&#39;j must be in the sample window of the input&#39;</span><span class="p">)</span>
+        <span class="n">dim</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+        <span class="n">dim</span><span class="p">[</span><span class="s1">&#39;sw&#39;</span><span class="p">]</span>  <span class="o">=</span> <span class="n">j</span> <span class="o">-</span> <span class="n">i</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">samplepart_relation_name</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">Stream</span><span class="o">.</span><span class="n">count</span><span class="p">),</span><span class="n">obj</span><span class="o">.</span><span class="n">json</span><span class="p">,</span><span class="n">dim</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">obj</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">all_inputs</span><span class="p">:</span>
+            <span class="n">rel</span> <span class="o">=</span> <span class="p">[</span><span class="n">samplepart_relation_name</span><span class="p">,[</span><span class="n">obj</span><span class="o">.</span><span class="n">name</span><span class="p">],</span><span class="o">-</span><span class="mi">1</span><span class="p">,[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">rel</span> <span class="o">=</span> <span class="p">[</span><span class="n">samplepart_relation_name</span><span class="p">,[</span><span class="n">obj</span><span class="o">.</span><span class="n">name</span><span class="p">],</span><span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;sw&#39;</span><span class="p">],[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]]</span>
+        <span class="c1">#rel = [samplepart_relation_name,[obj.name],[i,j]]</span>
+        <span class="k">if</span> <span class="n">offset</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">check</span><span class="p">(</span><span class="n">i</span> <span class="o">&lt;=</span> <span class="n">offset</span> <span class="o">&lt;</span> <span class="n">j</span><span class="p">,</span> <span class="ne">IndexError</span><span class="p">,</span><span class="s2">&quot;The offset must be inside the sample window&quot;</span><span class="p">)</span>
+            <span class="n">rel</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">offset</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Relations&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">rel</span></div>
+
+
+<div class="viewcode-block" id="SampleSelect">
+<a class="viewcode-back" href="../../../_autodoc/nnodely.html#nnodely.layers.part.SampleSelect">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">SampleSelect</span><span class="p">(</span><span class="n">Stream</span><span class="p">,</span> <span class="n">ToStream</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Represents a selection of a single element from a relation in the neural network model.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    .. note::</span>
+<span class="sd">        The SampleSelect relation works along the time dimension (second dimension) of the input.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    obj : Stream</span>
+<span class="sd">        The stream object to select an element from.</span>
+<span class="sd">    i : int</span>
+<span class="sd">        The index of the element to select.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    name : str</span>
+<span class="sd">        The name of the selection.</span>
+<span class="sd">    dim : dict</span>
+<span class="sd">        A dictionary containing the dimensions of the selection.</span>
+<span class="sd">    json : dict</span>
+<span class="sd">        A dictionary containing the configuration of the selection.</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    .. image:: https://colab.research.google.com/assets/colab-badge.svg</span>
+<span class="sd">        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb</span>
+<span class="sd">        :alt: Open in Colab</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; x = Input(&#39;x&#39;).sw(3)</span>
+<span class="sd">        &gt;&gt;&gt; relation = SampleSelect(x, 1)</span>
+
+<span class="sd">    Raises</span>
+<span class="sd">    ------</span>
+<span class="sd">    IndexError</span>
+<span class="sd">        If the index i is out of range.</span>
+<span class="sd">    KeyError</span>
+<span class="sd">        If the input does not have a sample window.</span>
+<span class="sd">    IndexError</span>
+<span class="sd">        If the offset is not within the sample window.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">:</span><span class="n">Stream</span><span class="p">,</span> <span class="n">i</span><span class="p">:</span><span class="nb">int</span><span class="p">):</span>
+        <span class="c1"># check(type(obj) is Stream, TypeError,</span>
+        <span class="c1">#       f&quot;The type of {obj} is {type(obj)} and is not supported for SampleSelect operation.&quot;)</span>
+        <span class="n">check</span><span class="p">(</span><span class="s1">&#39;sw&#39;</span> <span class="ow">in</span> <span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">,</span> <span class="s1">&#39;Input must have a sample window&#39;</span><span class="p">)</span>
+        <span class="n">backward_idx</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">forward_idx</span> <span class="o">=</span> <span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;sw&#39;</span><span class="p">]</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">i</span> <span class="o">&gt;=</span> <span class="n">backward_idx</span> <span class="ow">and</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">forward_idx</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s1">&#39;i must be in the sample window of the input&#39;</span><span class="p">)</span>
+        <span class="n">dim</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+        <span class="n">dim</span><span class="p">[</span><span class="s1">&#39;sw&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">sampleselect_relation_name</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">Stream</span><span class="o">.</span><span class="n">count</span><span class="p">),</span><span class="n">obj</span><span class="o">.</span><span class="n">json</span><span class="p">,</span><span class="n">dim</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Relations&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">sampleselect_relation_name</span><span class="p">,[</span><span class="n">obj</span><span class="o">.</span><span class="n">name</span><span class="p">],</span><span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;sw&#39;</span><span class="p">],</span><span class="n">i</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="TimePart">
+<a class="viewcode-back" href="../../../_autodoc/nnodely.html#nnodely.layers.part.TimePart">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">TimePart</span><span class="p">(</span><span class="n">Stream</span><span class="p">,</span> <span class="n">ToStream</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Represents a part of a stream in the neural network model along the time dimension (second dimension).</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    obj : Stream</span>
+<span class="sd">        The stream object to create a part from.</span>
+<span class="sd">    i : int or float</span>
+<span class="sd">        The starting index of the part.</span>
+<span class="sd">    j : int or float</span>
+<span class="sd">        The ending index of the part.</span>
+<span class="sd">    offset : int or float, optional</span>
+<span class="sd">        The offset for the part. Default is None.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    name : str</span>
+<span class="sd">        The name of the part.</span>
+<span class="sd">    dim : dict</span>
+<span class="sd">        A dictionary containing the dimensions of the part.</span>
+<span class="sd">    json : dict</span>
+<span class="sd">        A dictionary containing the configuration of the part.</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    .. image:: https://colab.research.google.com/assets/colab-badge.svg</span>
+<span class="sd">        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb</span>
+<span class="sd">        :alt: Open in Colab</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; x = Input(&#39;x&#39;).sw(10)</span>
+<span class="sd">        &gt;&gt;&gt; time_part = TimePart(x, i=0, j=5)</span>
+
+<span class="sd">    Raises</span>
+<span class="sd">    ------</span>
+<span class="sd">    KeyError</span>
+<span class="sd">        If the input does not have a time window.</span>
+<span class="sd">    ValueError</span>
+<span class="sd">        If the indices i and j are out of range or if i is not smaller than j.</span>
+<span class="sd">    IndexError</span>
+<span class="sd">        If the offset is not within the time window.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">:</span><span class="n">Stream</span><span class="p">,</span> <span class="n">i</span><span class="p">:</span><span class="nb">int</span><span class="o">|</span><span class="nb">float</span><span class="p">,</span> <span class="n">j</span><span class="p">:</span><span class="nb">int</span><span class="o">|</span><span class="nb">float</span><span class="p">,</span> <span class="n">offset</span><span class="p">:</span><span class="nb">int</span><span class="o">|</span><span class="nb">float</span><span class="o">|</span><span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+        <span class="n">check</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Stream</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span>
+              <span class="sa">f</span><span class="s2">&quot;The type of </span><span class="si">{</span><span class="n">obj</span><span class="si">}</span><span class="s2"> is </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span><span class="si">}</span><span class="s2"> and is not supported for TimePart operation.&quot;</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="s1">&#39;tw&#39;</span> <span class="ow">in</span> <span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">,</span> <span class="s1">&#39;Input must have a time window&#39;</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">i</span> <span class="o">&lt;</span> <span class="n">j</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s1">&#39;i must be smaller than j&#39;</span><span class="p">)</span>
+        <span class="n">all_inputs</span> <span class="o">=</span> <span class="n">obj</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">obj</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">all_inputs</span><span class="p">:</span>
+            <span class="n">backward_idx</span> <span class="o">=</span> <span class="n">all_inputs</span><span class="p">[</span><span class="n">obj</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;tw&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">forward_idx</span> <span class="o">=</span> <span class="n">all_inputs</span><span class="p">[</span><span class="n">obj</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;tw&#39;</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">backward_idx</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">forward_idx</span> <span class="o">=</span> <span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;tw&#39;</span><span class="p">]</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">i</span> <span class="o">&gt;=</span> <span class="n">backward_idx</span> <span class="ow">and</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">forward_idx</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s1">&#39;i must be in the time window of the input&#39;</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">j</span> <span class="o">&gt;</span> <span class="n">backward_idx</span> <span class="ow">and</span> <span class="n">j</span> <span class="o">&lt;=</span> <span class="n">forward_idx</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s1">&#39;j must be in the time window of the input&#39;</span><span class="p">)</span>
+        <span class="n">dim</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+        <span class="n">dim</span><span class="p">[</span><span class="s1">&#39;tw&#39;</span><span class="p">]</span>  <span class="o">=</span> <span class="n">j</span> <span class="o">-</span> <span class="n">i</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">timepart_relation_name</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">Stream</span><span class="o">.</span><span class="n">count</span><span class="p">),</span><span class="n">obj</span><span class="o">.</span><span class="n">json</span><span class="p">,</span><span class="n">dim</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">obj</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">all_inputs</span><span class="p">:</span>
+            <span class="n">rel</span> <span class="o">=</span> <span class="p">[</span><span class="n">timepart_relation_name</span><span class="p">,[</span><span class="n">obj</span><span class="o">.</span><span class="n">name</span><span class="p">],</span><span class="o">-</span><span class="mi">1</span><span class="p">,[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">rel</span> <span class="o">=</span> <span class="p">[</span><span class="n">timepart_relation_name</span><span class="p">,[</span><span class="n">obj</span><span class="o">.</span><span class="n">name</span><span class="p">],</span><span class="n">obj</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;tw&#39;</span><span class="p">],[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]]</span>
+        <span class="c1">#rel = [timepart_relation_name,[obj.name],[i,j]]</span>
+        <span class="k">if</span> <span class="n">offset</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">check</span><span class="p">(</span><span class="n">i</span> <span class="o">&lt;=</span> <span class="n">offset</span> <span class="o">&lt;</span> <span class="n">j</span><span class="p">,</span> <span class="ne">IndexError</span><span class="p">,</span><span class="s2">&quot;The offset must be inside the time window&quot;</span><span class="p">)</span>
+            <span class="n">rel</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">offset</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Relations&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">rel</span></div>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">TimeConcatenate</span><span class="p">(</span><span class="n">Stream</span><span class="p">,</span> <span class="n">ToStream</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Implement the concatenate function between two tensors along the time dimension (second dimension). </span>
+
+<span class="sd">        See also:</span>
+<span class="sd">            Official PyTorch Cat documentation: </span>
+<span class="sd">            `torch.cat &lt;https://pytorch.org/docs/main/generated/torch.cat.html&gt;`_</span>
+
+<span class="sd">        :param input1: the first relation to concatenate</span>
+<span class="sd">        :type obj: Tensor</span>
+<span class="sd">        :param input2: the second relation to concatenate</span>
+<span class="sd">        :type obj: Tensor</span>
+
+<span class="sd">        Examples</span>
+<span class="sd">        --------</span>
+<span class="sd">        .. image:: https://colab.research.google.com/assets/colab-badge.svg</span>
+<span class="sd">            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb</span>
+<span class="sd">            :alt: Open in Colab</span>
+
+<span class="sd">        Example:</span>
+<span class="sd">            &gt;&gt;&gt; cat = TimeConcatenate(relation1, relation2)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj1</span><span class="p">:</span><span class="n">Stream</span><span class="p">,</span> <span class="n">obj2</span><span class="p">:</span><span class="n">Stream</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Stream</span><span class="p">:</span>
+        <span class="n">obj1</span><span class="p">,</span><span class="n">obj2</span> <span class="o">=</span> <span class="n">toStream</span><span class="p">(</span><span class="n">obj1</span><span class="p">),</span><span class="n">toStream</span><span class="p">(</span><span class="n">obj2</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">obj1</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Stream</span><span class="p">,</span><span class="ne">TypeError</span><span class="p">,</span>
+              <span class="sa">f</span><span class="s2">&quot;The type of </span><span class="si">{</span><span class="n">obj1</span><span class="si">}</span><span class="s2"> is </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">obj1</span><span class="p">)</span><span class="si">}</span><span class="s2"> and is not supported for the Concatenate operation.&quot;</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">obj2</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Stream</span><span class="p">,</span><span class="ne">TypeError</span><span class="p">,</span>
+              <span class="sa">f</span><span class="s2">&quot;The type of </span><span class="si">{</span><span class="n">obj2</span><span class="si">}</span><span class="s2"> is </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">obj2</span><span class="p">)</span><span class="si">}</span><span class="s2"> and is not supported for the Concatenate operation.&quot;</span><span class="p">)</span>
+        
+        <span class="c1">#check(&#39;tw&#39; in obj1.dim, KeyError, &#39;Input1 must have a time window&#39;)</span>
+        <span class="c1">#check(&#39;tw&#39; in obj2.dim, KeyError, &#39;Input2 must have a time window&#39;)</span>
+        <span class="n">dim</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">obj1</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s1">&#39;tw&#39;</span> <span class="ow">in</span> <span class="n">obj1</span><span class="o">.</span><span class="n">dim</span> <span class="ow">and</span> <span class="s1">&#39;tw&#39;</span> <span class="ow">in</span> <span class="n">obj2</span><span class="o">.</span><span class="n">dim</span><span class="p">:</span>
+            <span class="n">dim</span><span class="p">[</span><span class="s1">&#39;tw&#39;</span><span class="p">]</span>  <span class="o">=</span> <span class="n">obj1</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;tw&#39;</span><span class="p">]</span> <span class="o">+</span> <span class="n">obj2</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;tw&#39;</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="s1">&#39;sw&#39;</span> <span class="ow">in</span> <span class="n">obj1</span><span class="o">.</span><span class="n">dim</span> <span class="ow">and</span> <span class="s1">&#39;sw&#39;</span> <span class="ow">in</span> <span class="n">obj2</span><span class="o">.</span><span class="n">dim</span><span class="p">:</span>
+            <span class="n">dim</span><span class="p">[</span><span class="s1">&#39;sw&#39;</span><span class="p">]</span>  <span class="o">=</span> <span class="n">obj1</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;sw&#39;</span><span class="p">]</span> <span class="o">+</span> <span class="n">obj2</span><span class="o">.</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;sw&#39;</span><span class="p">]</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">timeconcatenate_relation_name</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">Stream</span><span class="o">.</span><span class="n">count</span><span class="p">),</span><span class="n">merge</span><span class="p">(</span><span class="n">obj1</span><span class="o">.</span><span class="n">json</span><span class="p">,</span><span class="n">obj2</span><span class="o">.</span><span class="n">json</span><span class="p">),</span><span class="n">dim</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Relations&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">timeconcatenate_relation_name</span><span class="p">,[</span><span class="n">obj1</span><span class="o">.</span><span class="n">name</span><span class="p">,</span><span class="n">obj2</span><span class="o">.</span><span class="n">name</span><span class="p">]]</span>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Part_Layer</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="c1">#: :noindex:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span><span class="nb">int</span><span class="p">,</span> <span class="n">i</span><span class="p">:</span><span class="nb">int</span><span class="p">,</span> <span class="n">j</span><span class="p">:</span><span class="nb">int</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">Part_Layer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">i</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">j</span> <span class="o">=</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span>
+
+        <span class="c1"># Create a binary mask matrix for the desired slice</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">j</span> <span class="o">-</span> <span class="n">i</span><span class="p">,</span> <span class="n">dim</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">j</span> <span class="o">-</span> <span class="n">i</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">W</span><span class="p">[</span><span class="n">idx</span><span class="p">,</span> <span class="n">i</span> <span class="o">+</span> <span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="c1">## assert x.ndim &gt;= 3, &#39;The Part Relation Works only for 3D inputs&#39;</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s1">&#39;bij,kj-&gt;bik&#39;</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">W</span><span class="p">)</span>
+
+<span class="c1">## Select elements on the third dimension in the range [i,j]</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">createPart</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">inputs</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">Part_Layer</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">i</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">j</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">])</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Select_Layer</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="c1">#: :noindex:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">idx</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">Select_Layer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">dim</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="c1">## assert x.ndim &gt;= 3, &#39;The Part Relation Works only for 3D inputs&#39;</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s1">&#39;ijk,k-&gt;ij&#39;</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">W</span><span class="p">)</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+
+<span class="c1">## Select an element i on the third dimension</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">createSelect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">inputs</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">Select_Layer</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">idx</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">SamplePart_Layer</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="c1">#: :noindex:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">part</span><span class="p">,</span> <span class="n">offset</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">SamplePart_Layer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="n">back</span><span class="p">,</span> <span class="n">forw</span> <span class="o">=</span> <span class="n">part</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">part</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">offset</span> <span class="o">=</span> <span class="n">offset</span>
+
+        <span class="c1"># Create the selection matrix W</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">forw</span> <span class="o">-</span> <span class="n">back</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">forw</span> <span class="o">-</span> <span class="n">back</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">W</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">back</span> <span class="o">+</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">offset</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="n">x</span><span class="p">[:,</span> <span class="bp">self</span><span class="o">.</span><span class="n">offset</span><span class="p">]</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s1">&#39;bij,ki-&gt;bkj&#39;</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">W</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Concatenate_Layer</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="c1">#: :noindex:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">Concatenate_Layer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">inputs</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">cat</span><span class="p">((</span><span class="n">inputs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">inputs</span><span class="p">[</span><span class="mi">1</span><span class="p">]),</span> <span class="n">dim</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">createConcatenate</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="o">*</span><span class="n">inputs</span><span class="p">):</span>
+    <span class="c1">#: :noindex:</span>
+    <span class="k">return</span> <span class="n">Concatenate_Layer</span><span class="p">()</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">createSamplePart</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">inputs</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">inputs</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span>  <span class="c1">## offset</span>
+        <span class="k">return</span> <span class="n">SamplePart_Layer</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">part</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">offset</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">SamplePart_Layer</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">part</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">offset</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">SampleSelect_Layer</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="c1">#: :noindex:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">idx</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">SampleSelect_Layer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">dim</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s1">&#39;ijk,j-&gt;ik&#39;</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">W</span><span class="p">)</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">createSampleSelect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">inputs</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">SampleSelect_Layer</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">idx</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">TimePart_Layer</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="c1">#: :noindex:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">part</span><span class="p">,</span> <span class="n">offset</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">TimePart_Layer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="n">back</span><span class="p">,</span> <span class="n">forw</span> <span class="o">=</span> <span class="n">part</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">part</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">offset</span> <span class="o">=</span> <span class="n">offset</span>
+
+        <span class="c1"># Create the selection matrix W</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">forw</span> <span class="o">-</span> <span class="n">back</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">dim</span><span class="p">)))</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">forw</span> <span class="o">-</span> <span class="n">back</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">W</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">back</span> <span class="o">+</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">offset</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="n">x</span><span class="p">[:,</span> <span class="bp">self</span><span class="o">.</span><span class="n">offset</span><span class="p">]</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s1">&#39;bij,ki-&gt;bkj&#39;</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">W</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">createTimePart</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">inputs</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">inputs</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span> <span class="c1">## offset</span>
+        <span class="k">return</span> <span class="n">TimePart_Layer</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">part</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">offset</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">TimePart_Layer</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">part</span><span class="o">=</span><span class="n">inputs</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">offset</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">TimeConcatenate_Layer</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="c1">#: :noindex:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">TimeConcatenate_Layer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">inputs</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">cat</span><span class="p">((</span><span class="n">inputs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">inputs</span><span class="p">[</span><span class="mi">1</span><span class="p">]),</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">createTimeConcatenate</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="o">*</span><span class="n">inputs</span><span class="p">):</span>
+    <span class="c1">#: :noindex:</span>
+    <span class="k">return</span> <span class="n">TimeConcatenate_Layer</span><span class="p">()</span>
+
+<span class="nb">setattr</span><span class="p">(</span><span class="n">Model</span><span class="p">,</span> <span class="n">part_relation_name</span><span class="p">,</span> <span class="n">createPart</span><span class="p">)</span>
+<span class="nb">setattr</span><span class="p">(</span><span class="n">Model</span><span class="p">,</span> <span class="n">select_relation_name</span><span class="p">,</span> <span class="n">createSelect</span><span class="p">)</span>
+<span class="nb">setattr</span><span class="p">(</span><span class="n">Model</span><span class="p">,</span> <span class="n">concatenate_relation_name</span><span class="p">,</span> <span class="n">createConcatenate</span><span class="p">)</span>
+
+<span class="nb">setattr</span><span class="p">(</span><span class="n">Model</span><span class="p">,</span> <span class="n">samplepart_relation_name</span><span class="p">,</span> <span class="n">createSamplePart</span><span class="p">)</span>
+<span class="nb">setattr</span><span class="p">(</span><span class="n">Model</span><span class="p">,</span> <span class="n">sampleselect_relation_name</span><span class="p">,</span> <span class="n">createSampleSelect</span><span class="p">)</span>
+
+<span class="nb">setattr</span><span class="p">(</span><span class="n">Model</span><span class="p">,</span> <span class="n">timepart_relation_name</span><span class="p">,</span> <span class="n">createTimePart</span><span class="p">)</span>
+<span class="nb">setattr</span><span class="p">(</span><span class="n">Model</span><span class="p">,</span> <span class="n">timeconcatenate_relation_name</span><span class="p">,</span> <span class="n">createTimeConcatenate</span><span class="p">)</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright .</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

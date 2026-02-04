@@ -1,0 +1,971 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Model structured NN Inputs Outputs and Parameters &mdash;  1.5.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=73275c37"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Model structured NN building blocks" href="modules_and_layers.html" />
+    <link rel="prev" title="Modely" href="modely.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            
+              <img src="../_static/logo.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="modely.html">Modely</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Model structured NN Inputs Outputs and Parameters</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.layers.input">Input module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.input.Input"><code class="docutils literal notranslate"><span class="pre">Input</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.input.Input.json_name"><code class="docutils literal notranslate"><span class="pre">Input.json_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.input.Input.name"><code class="docutils literal notranslate"><span class="pre">Input.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.input.Input.dim"><code class="docutils literal notranslate"><span class="pre">Input.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.input.Input.json"><code class="docutils literal notranslate"><span class="pre">Input.json</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.input.Input.clearNames"><code class="docutils literal notranslate"><span class="pre">Input.clearNames()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.input.Input.closedLoop"><code class="docutils literal notranslate"><span class="pre">Input.closedLoop()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.input.Input.connect"><code class="docutils literal notranslate"><span class="pre">Input.connect()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.input.Input.last"><code class="docutils literal notranslate"><span class="pre">Input.last()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.input.Input.names"><code class="docutils literal notranslate"><span class="pre">Input.names</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.input.Input.next"><code class="docutils literal notranslate"><span class="pre">Input.next()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.input.Input.s"><code class="docutils literal notranslate"><span class="pre">Input.s()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.input.Input.sw"><code class="docutils literal notranslate"><span class="pre">Input.sw()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.input.Input.tw"><code class="docutils literal notranslate"><span class="pre">Input.tw()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.input.Input.z"><code class="docutils literal notranslate"><span class="pre">Input.z()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.layers.output">Output module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.output.Output"><code class="docutils literal notranslate"><span class="pre">Output</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.output.Output.name"><code class="docutils literal notranslate"><span class="pre">Output.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.output.Output.json"><code class="docutils literal notranslate"><span class="pre">Output.json</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.output.Output.dim"><code class="docutils literal notranslate"><span class="pre">Output.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.output.Output.clearNames"><code class="docutils literal notranslate"><span class="pre">Output.clearNames()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.output.Output.names"><code class="docutils literal notranslate"><span class="pre">Output.names</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.layers.parameter">Parameter module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.parameter.Constant"><code class="docutils literal notranslate"><span class="pre">Constant</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parameter.Constant.name"><code class="docutils literal notranslate"><span class="pre">Constant.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parameter.Constant.dim"><code class="docutils literal notranslate"><span class="pre">Constant.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parameter.Constant.json"><code class="docutils literal notranslate"><span class="pre">Constant.json</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.parameter.SampleTime"><code class="docutils literal notranslate"><span class="pre">SampleTime</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parameter.SampleTime.name"><code class="docutils literal notranslate"><span class="pre">SampleTime.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parameter.SampleTime.dim"><code class="docutils literal notranslate"><span class="pre">SampleTime.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parameter.SampleTime.json"><code class="docutils literal notranslate"><span class="pre">SampleTime.json</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.layers.parameter.Parameter"><code class="docutils literal notranslate"><span class="pre">Parameter</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parameter.Parameter.name"><code class="docutils literal notranslate"><span class="pre">Parameter.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parameter.Parameter.dim"><code class="docutils literal notranslate"><span class="pre">Parameter.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.layers.parameter.Parameter.json"><code class="docutils literal notranslate"><span class="pre">Parameter.json</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#initializer-module">Initializer module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.support.initializer.init_constant"><code class="docutils literal notranslate"><span class="pre">init_constant()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.support.initializer.init_negexp"><code class="docutils literal notranslate"><span class="pre">init_negexp()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.support.initializer.init_exp"><code class="docutils literal notranslate"><span class="pre">init_exp()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.support.initializer.init_lin"><code class="docutils literal notranslate"><span class="pre">init_lin()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-nnodely.basic.relation">Relation module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#nnodely.basic.relation.Stream"><code class="docutils literal notranslate"><span class="pre">Stream</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.relation.Stream.closedLoop"><code class="docutils literal notranslate"><span class="pre">Stream.closedLoop()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.relation.Stream.connect"><code class="docutils literal notranslate"><span class="pre">Stream.connect()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.relation.Stream.delay"><code class="docutils literal notranslate"><span class="pre">Stream.delay()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.relation.Stream.s"><code class="docutils literal notranslate"><span class="pre">Stream.s()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.relation.Stream.sw"><code class="docutils literal notranslate"><span class="pre">Stream.sw()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.relation.Stream.tw"><code class="docutils literal notranslate"><span class="pre">Stream.tw()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#nnodely.basic.relation.Stream.z"><code class="docutils literal notranslate"><span class="pre">Stream.z()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="modules_and_layers.html">Model structured NN building blocks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="training.html">Training</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html"></a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Model structured NN Inputs Outputs and Parameters</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/_autodoc/msnn_ins_out_param.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="model-structured-nn-inputs-outputs-and-parameters">
+<span id="nnodely-msnn-ins-out-param"></span><h1>Model structured NN Inputs Outputs and Parameters<a class="headerlink" href="#model-structured-nn-inputs-outputs-and-parameters" title="Link to this heading"></a></h1>
+<section id="module-nnodely.layers.input">
+<span id="input-module"></span><h2>Input module<a class="headerlink" href="#module-nnodely.layers.input" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.input.Input">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.input.</span></span><span class="sig-name descname"><span class="pre">Input</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">dimensions</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/input.html#Input"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.input.Input" title="Link to this definition"></a></dt>
+<dd><p>Represents an Input in the neural network model.</p>
+<a class="reference external image-reference" href="https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/states.ipynb"><img alt="Open in Colab" src="https://colab.research.google.com/assets/colab-badge.svg" />
+</a>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>json_name</strong> (<em>str</em>) – The name of the JSON field to store the Input configuration.</p></li>
+<li><p><strong>name</strong> (<em>str</em>) – The name of the Input.</p></li>
+<li><p><strong>dimensions</strong> (<em>int</em><em>, </em><em>optional</em>) – The number of dimensions for the input. Default is 1.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.input.Input.json_name">
+<span class="sig-name descname"><span class="pre">json_name</span></span><a class="headerlink" href="#nnodely.layers.input.Input.json_name" title="Link to this definition"></a></dt>
+<dd><p>The name of the JSON field to store the input configuration.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.input.Input.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#nnodely.layers.input.Input.name" title="Link to this definition"></a></dt>
+<dd><p>The name of the Input.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.input.Input.dim">
+<span class="sig-name descname"><span class="pre">dim</span></span><a class="headerlink" href="#nnodely.layers.input.Input.dim" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the dimensions of the Input.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.input.Input.json">
+<span class="sig-name descname"><span class="pre">json</span></span><a class="headerlink" href="#nnodely.layers.input.Input.json" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the configuration of the Input.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.layers.input.Input.clearNames">
+<span class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">clearNames</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#nnodely.layers.input.Input.clearNames" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.layers.input.Input.closedLoop">
+<span class="sig-name descname"><span class="pre">closedLoop</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">obj</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="nnodely.html#nnodely.layers.input.Input" title="nnodely.layers.input.Input"><span class="pre">Input</span></a></span></span><a class="reference internal" href="../_modules/nnodely/layers/input.html#Input.closedLoop"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.input.Input.closedLoop" title="Link to this definition"></a></dt>
+<dd><p>Update and return the current Input in a closed loop with a given Stream object.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – The Stream object for update the Input.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A Input with the connection to the obj Stream</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.layers.input.Input" title="nnodely.layers.input.Input">Input</a></p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>TypeError</strong> – If the provided object is not of type Input.</p></li>
+<li><p><strong>KeyError</strong> – If the Input variable is already connected.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.layers.input.Input.connect">
+<span class="sig-name descname"><span class="pre">connect</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">obj</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="nnodely.html#nnodely.layers.input.Input" title="nnodely.layers.input.Input"><span class="pre">Input</span></a></span></span><a class="reference internal" href="../_modules/nnodely/layers/input.html#Input.connect"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.input.Input.connect" title="Link to this definition"></a></dt>
+<dd><p>Update and return the current Input with a given Stream object.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – The Stream object for update the Input.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A Input with the connection to the obj Stream</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.layers.input.Input" title="nnodely.layers.input.Input">Input</a></p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>TypeError</strong> – If the provided object is not of type Input.</p></li>
+<li><p><strong>KeyError</strong> – If the Input variable is already connected.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.layers.input.Input.last">
+<span class="sig-name descname"><span class="pre">last</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></span><a class="reference internal" href="../_modules/nnodely/layers/input.html#Input.last"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.input.Input.last" title="Link to this definition"></a></dt>
+<dd><p>Selects the last passed instant for the input.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A Stream representing the SamplePart object with the last passed instant.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream">Stream</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.input.Input.names">
+<span class="sig-name descname"><span class="pre">names</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">['SampleTime']</span></span><a class="headerlink" href="#nnodely.layers.input.Input.names" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.layers.input.Input.next">
+<span class="sig-name descname"><span class="pre">next</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></span><a class="reference internal" href="../_modules/nnodely/layers/input.html#Input.next"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.input.Input.next" title="Link to this definition"></a></dt>
+<dd><p>Selects the next instant for the input.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A Stream representing the SamplePart object with the next instant.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream">Stream</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.layers.input.Input.s">
+<span class="sig-name descname"><span class="pre">s</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">order</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">der_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">int_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'euler'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></span><a class="reference internal" href="../_modules/nnodely/layers/input.html#Input.s"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.input.Input.s" title="Link to this definition"></a></dt>
+<dd><p>Considering the Laplace transform notation. The function is used to operate an integral or derivate operation on the input.
+The order of the integral or the derivative operation is indicated by the order parameter.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>order</strong> (<em>int</em>) – Order of the Laplace transform</p></li>
+<li><p><strong>method</strong> (<em>str</em><em>, </em><em>optional</em>) – Integration or derivation method</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A Stream of the signal represents the integral or derivation operation.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream">Stream</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.layers.input.Input.sw">
+<span class="sig-name descname"><span class="pre">sw</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sw</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">offset</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></span><a class="reference internal" href="../_modules/nnodely/layers/input.html#Input.sw"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.input.Input.sw" title="Link to this definition"></a></dt>
+<dd><p>Selects a sample window for the Input.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>sw</strong> (<em>list</em><em>, </em><em>int</em>) – The sample window. If a list, it should contain the start and end indices. If an int, it represents the number of steps in the past.</p></li>
+<li><p><strong>offset</strong> (<em>int</em><em>, </em><em>optional</em>) – The offset for the sample window. Default is None.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A Stream representing the SamplePart object with the selected samples.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream">Stream</a></p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>TypeError</strong> – If the sample window is not an integer or a list of integers.</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<dl>
+<dt>Select a sample window considering a signal T = [-3,-2,-1,0,1,2] where the time vector 0 represent the last passed instant. If sw is an integer #1 represent the number of step in the past</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">T</span><span class="o">.</span><span class="n">s</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span> <span class="c1">#= [-1, 0] represents two sample step in the past</span>
+</pre></div>
+</div>
+</dd>
+<dt>If sw is a list [#1,#2] the numbers represent the sample indexes in the vector with the second element excluded</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">T</span><span class="o">.</span><span class="n">s</span><span class="p">([</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span><span class="mi">0</span><span class="p">])</span>  <span class="c1">#= [-1, 0] represents two time step in the past zero in the future</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">T</span><span class="o">.</span><span class="n">s</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span><span class="mi">1</span><span class="p">])</span>   <span class="c1">#= [1]     the first time in the future</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">T</span><span class="o">.</span><span class="n">s</span><span class="p">([</span><span class="o">-</span><span class="mi">4</span><span class="p">,</span><span class="o">-</span><span class="mi">2</span><span class="p">])</span> <span class="c1">#= [-3,-2]</span>
+</pre></div>
+</div>
+</dd>
+<dt>The total number of samples can be computed #2-#1. The offset represent the index of the vector that need to be used to offset the window</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">T</span><span class="o">.</span><span class="n">s</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span><span class="n">offset</span><span class="o">=-</span><span class="mi">2</span><span class="p">)</span>       <span class="c1">#= [0, 1]      the value of the window is [-1,0]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">T</span><span class="o">.</span><span class="n">s</span><span class="p">([</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span><span class="mi">2</span><span class="p">],</span><span class="n">offset</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>  <span class="c1">#= [-1,0,1,2]  the value of the window is [-1,0,1,2]</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.layers.input.Input.tw">
+<span class="sig-name descname"><span class="pre">tw</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tw</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">offset</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></span><a class="reference internal" href="../_modules/nnodely/layers/input.html#Input.tw"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.input.Input.tw" title="Link to this definition"></a></dt>
+<dd><p>Selects a time window for the Input.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>tw</strong> (<em>list</em><em> or </em><em>float</em>) – The time window. If a list, it should contain the start and end values. If a float, it represents the time window size.</p></li>
+<li><p><strong>offset</strong> (<em>float</em><em>, </em><em>optional</em>) – The offset for the time window. Default is None.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A Stream representing the TimePart object with the selected time window.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream">Stream</a></p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>ValueError</strong> – If the time window is not positive.</p></li>
+<li><p><strong>IndexError</strong> – If the offset is not within the time window.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.layers.input.Input.z">
+<span class="sig-name descname"><span class="pre">z</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">delay</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></span><a class="reference internal" href="../_modules/nnodely/layers/input.html#Input.z"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.input.Input.z" title="Link to this definition"></a></dt>
+<dd><p>Considering the Zeta transform notation. The function is used to selects a unitary delay from the Input.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>delay</strong> (<em>int</em>) – The delay value.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A Stream representing the SamplePart object with the selected delay.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream">Stream</a></p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<dl class="simple">
+<dt>Select the unitary delay considering a signal T = [-3,-2,-1,0,1,2], where the time vector 0 represent the last passed instant</dt><dd><p>T.z(-1) = 1
+T.z(0)  = 0 # the last passed instant
+T.z(2)  = -2</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-nnodely.layers.output">
+<span id="output-module"></span><h2>Output module<a class="headerlink" href="#module-nnodely.layers.output" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.output.Output">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.output.</span></span><span class="sig-name descname"><span class="pre">Output</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">relation</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/output.html#Output"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.output.Output" title="Link to this definition"></a></dt>
+<dd><p>Represents an output in the neural network model. This relation is what the network will give as output during inference.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>name</strong> (<em>str</em>) – The name of the output.</p></li>
+<li><p><strong>relation</strong> (<a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><em>Stream</em></a>) – The relation to be used for the output.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.output.Output.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#nnodely.layers.output.Output.name" title="Link to this definition"></a></dt>
+<dd><p>The name of the output.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.output.Output.json">
+<span class="sig-name descname"><span class="pre">json</span></span><a class="headerlink" href="#nnodely.layers.output.Output.json" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the configuration of the output.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.output.Output.dim">
+<span class="sig-name descname"><span class="pre">dim</span></span><a class="headerlink" href="#nnodely.layers.output.Output.dim" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the dimensions of the output.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.layers.output.Output.clearNames">
+<span class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">clearNames</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#nnodely.layers.output.Output.clearNames" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.output.Output.names">
+<span class="sig-name descname"><span class="pre">names</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">['SampleTime']</span></span><a class="headerlink" href="#nnodely.layers.output.Output.names" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-nnodely.layers.parameter">
+<span id="parameter-module"></span><h2>Parameter module<a class="headerlink" href="#module-nnodely.layers.parameter" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.parameter.Constant">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.parameter.</span></span><span class="sig-name descname"><span class="pre">Constant</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">tw</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sw</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/parameter.html#Constant"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.parameter.Constant" title="Link to this definition"></a></dt>
+<dd><p>Represents a constant value in the neural network model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>name</strong> (<em>str</em>) – The name of the constant.</p></li>
+<li><p><strong>values</strong> (<em>list</em><em>, </em><em>float</em><em>, </em><em>int</em><em>, or </em><em>np.ndarray</em>) – The values of the constant.</p></li>
+<li><p><strong>tw</strong> (<em>float</em><em> or </em><em>int</em><em>, </em><em>optional</em>) – The time window for the constant. Default is None.</p></li>
+<li><p><strong>sw</strong> (<em>int</em><em>, </em><em>optional</em>) – The sample window for the constant. Default is None.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parameter.Constant.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#nnodely.layers.parameter.Constant.name" title="Link to this definition"></a></dt>
+<dd><p>The name of the constant.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parameter.Constant.dim">
+<span class="sig-name descname"><span class="pre">dim</span></span><a class="headerlink" href="#nnodely.layers.parameter.Constant.dim" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the dimensions of the constant.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parameter.Constant.json">
+<span class="sig-name descname"><span class="pre">json</span></span><a class="headerlink" href="#nnodely.layers.parameter.Constant.json" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the configuration of the constant.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Examples</p>
+<a class="reference external image-reference" href="https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/parameter.ipynb"><img alt="Open in Colab" src="https://colab.research.google.com/assets/colab-badge.svg" />
+</a>
+<p>Example - passing a custom scalar value -&gt; g.dim = {‘dim’: 1}:</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">g</span> <span class="o">=</span> <span class="n">Constant</span><span class="p">(</span><span class="s1">&#39;gravity&#39;</span><span class="p">,</span><span class="n">values</span><span class="o">=</span><span class="mf">9.81</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Example - passing a custom vector value -&gt; n.dim = {‘dim’: 4}:</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">n</span> <span class="o">=</span> <span class="n">Constant</span><span class="p">(</span><span class="s1">&#39;numbers&#39;</span><span class="p">,</span> <span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">,</span><span class="mi">4</span><span class="p">])</span>
+</pre></div>
+</div>
+<p>Example - passing a custom vector value with single sample window -&gt; n.dim = {‘dim’: 4, ‘sw’: 1}:</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">n</span> <span class="o">=</span> <span class="n">Constant</span><span class="p">(</span><span class="s1">&#39;numbers&#39;</span><span class="p">,</span> <span class="n">values</span><span class="o">=</span><span class="p">[[</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">,</span><span class="mi">4</span><span class="p">]])</span>
+</pre></div>
+</div>
+<p>Example - passing a custom vector value with double sample window -&gt; n.dim = {‘dim’: 4, ‘sw’: 2}:</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">n</span> <span class="o">=</span> <span class="n">Constant</span><span class="p">(</span><span class="s1">&#39;numbers&#39;</span><span class="p">,</span> <span class="n">values</span><span class="o">=</span><span class="p">[[</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">,</span><span class="mi">4</span><span class="p">],[</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">]])</span>
+</pre></div>
+</div>
+<p>Example - passing a custom vector value with double sample window -&gt; n.dim = {‘dim’: 4, ‘sw’: 2}.
+If the value of the sw is differnt from the dimension of shape[0] an error will be raised.</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">n</span> <span class="o">=</span> <span class="n">Constant</span><span class="p">(</span><span class="s1">&#39;numbers&#39;</span><span class="p">,</span> <span class="n">sw</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span> <span class="n">values</span><span class="o">=</span><span class="p">[[</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">,</span><span class="mi">4</span><span class="p">],[</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">]])</span>
+</pre></div>
+</div>
+<p>Example - passing a custom vector value with time window -&gt; n.dim = {‘dim’: 4, ‘tw’: 4}.
+In this case the samplingtime must be 0.5 otherwise an error will be raised. If the Constant have a time dimension,
+the input must have a len(shape) == 2.</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">n</span> <span class="o">=</span> <span class="n">Constant</span><span class="p">(</span><span class="s1">&#39;numbers&#39;</span><span class="p">,</span> <span class="n">tw</span> <span class="o">=</span> <span class="mi">4</span><span class="p">,</span> <span class="n">values</span><span class="o">=</span><span class="p">[[</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">,</span><span class="mi">4</span><span class="p">],[</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">]])</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.parameter.SampleTime">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.parameter.</span></span><span class="sig-name descname"><span class="pre">SampleTime</span></span><a class="reference internal" href="../_modules/nnodely/layers/parameter.html#SampleTime"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.parameter.SampleTime" title="Link to this definition"></a></dt>
+<dd><p>Represents a constant value that is equal to the sample time.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parameter.SampleTime.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#nnodely.layers.parameter.SampleTime.name" title="Link to this definition"></a></dt>
+<dd><p>The name of the constant.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parameter.SampleTime.dim">
+<span class="sig-name descname"><span class="pre">dim</span></span><a class="headerlink" href="#nnodely.layers.parameter.SampleTime.dim" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the dimensions of the constant.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parameter.SampleTime.json">
+<span class="sig-name descname"><span class="pre">json</span></span><a class="headerlink" href="#nnodely.layers.parameter.SampleTime.json" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the configuration of the constant.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">dt</span> <span class="o">=</span> <span class="n">SampleTime</span><span class="p">()</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.layers.parameter.Parameter">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.layers.parameter.</span></span><span class="sig-name descname"><span class="pre">Parameter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dimensions</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">tuple</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">tw</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sw</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">ndarray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">init</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Callable</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">init_params</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/layers/parameter.html#Parameter"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.layers.parameter.Parameter" title="Link to this definition"></a></dt>
+<dd><p>Represents a trainable parameter in the neural network model.</p>
+<p class="rubric">Notes</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>You can find some initialization functions for the ‘init’ and ‘init_params’ parameters inside the initializer module.</p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>name</strong> (<em>str</em>) – The name of the parameter.</p></li>
+<li><p><strong>dimensions</strong> (<em>int</em><em>, </em><em>list</em><em>, </em><em>tuple</em><em>, or </em><em>None</em><em>, </em><em>optional</em>) – The dimensions of the parameter. Default is None.</p></li>
+<li><p><strong>tw</strong> (<em>float</em><em> or </em><em>int</em><em>, </em><em>optional</em>) – The time window for the parameter. Default is None.</p></li>
+<li><p><strong>sw</strong> (<em>int</em><em>, </em><em>optional</em>) – The sample window for the parameter. Default is None.</p></li>
+<li><p><strong>values</strong> (<em>list</em><em>, </em><em>float</em><em>, </em><em>int</em><em>, </em><em>np.ndarray</em><em>, or </em><em>None</em><em>, </em><em>optional</em>) – The values by which initialize the parameter. Default is None.</p></li>
+<li><p><strong>init</strong> (<em>Callable</em><em>, </em><em>optional</em>) – A callable for initializing the parameter values. Default is None.</p></li>
+<li><p><strong>init_params</strong> (<em>dict</em><em>, </em><em>optional</em>) – A dictionary of parameters for the initializer. Default is None.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parameter.Parameter.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#nnodely.layers.parameter.Parameter.name" title="Link to this definition"></a></dt>
+<dd><p>The name of the parameter.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parameter.Parameter.dim">
+<span class="sig-name descname"><span class="pre">dim</span></span><a class="headerlink" href="#nnodely.layers.parameter.Parameter.dim" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the dimensions of the parameter.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="nnodely.layers.parameter.Parameter.json">
+<span class="sig-name descname"><span class="pre">json</span></span><a class="headerlink" href="#nnodely.layers.parameter.Parameter.json" title="Link to this definition"></a></dt>
+<dd><p>A dictionary containing the configuration of the parameter.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Examples</p>
+<a class="reference external image-reference" href="https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/parameter.ipynb"><img alt="Open in Colab" src="https://colab.research.google.com/assets/colab-badge.svg" />
+</a>
+<dl>
+<dt>Example - basic usage:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">k</span> <span class="o">=</span> <span class="n">Parameter</span><span class="p">(</span><span class="s1">&#39;k&#39;</span><span class="p">,</span> <span class="n">dimensions</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">tw</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd>
+<dt>Example - initialize a parameter with values:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;x&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">gravity</span> <span class="o">=</span> <span class="n">Parameter</span><span class="p">(</span><span class="s1">&#39;g&#39;</span><span class="p">,</span> <span class="n">dimensions</span><span class="o">=</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="mi">1</span><span class="p">),</span><span class="n">values</span><span class="o">=</span><span class="p">[[[</span><span class="mi">1</span><span class="p">],[</span><span class="mi">2</span><span class="p">],[</span><span class="mi">3</span><span class="p">],[</span><span class="mi">4</span><span class="p">]]])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">out</span> <span class="o">=</span> <span class="n">Output</span><span class="p">(</span><span class="s1">&#39;out&#39;</span><span class="p">,</span> <span class="n">Linear</span><span class="p">(</span><span class="n">W</span><span class="o">=</span><span class="n">gravity</span><span class="p">)(</span><span class="n">x</span><span class="o">.</span><span class="n">sw</span><span class="p">(</span><span class="mi">3</span><span class="p">)))</span>
+</pre></div>
+</div>
+</dd>
+<dt>Example - initialize a parameter with a function:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">x</span> <span class="o">=</span> <span class="n">Input</span><span class="p">(</span><span class="s1">&#39;x&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">last</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">p</span> <span class="o">=</span> <span class="n">Parameter</span><span class="p">(</span><span class="s1">&#39;param&#39;</span><span class="p">,</span> <span class="n">dimensions</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">sw</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">init</span><span class="o">=</span><span class="n">init_constant</span><span class="p">,</span> <span class="n">init_params</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;value&#39;</span><span class="p">:</span><span class="mi">1</span><span class="p">})</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">relation</span> <span class="o">=</span> <span class="n">Fir</span><span class="p">(</span><span class="n">parameter</span><span class="o">=</span><span class="n">param</span><span class="p">)(</span><span class="n">x</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+</dd></dl>
+
+<section id="initializer-module">
+<h3>Initializer module<a class="headerlink" href="#initializer-module" title="Link to this heading"></a></h3>
+<blockquote>
+<div><dl class="py function" id="module-nnodely.support.initializer">
+<dt class="sig sig-object py" id="nnodely.support.initializer.init_constant">
+<span class="sig-prename descclassname"><span class="pre">nnodely.support.initializer.</span></span><span class="sig-name descname"><span class="pre">init_constant</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">indexes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dict_param</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{'value':</span> <span class="pre">1}</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/support/initializer.html#init_constant"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.support.initializer.init_constant" title="Link to this definition"></a></dt>
+<dd><p>Initializes parameters to a constant value.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>dict_param</strong> (<em>dict</em><em>, </em><em>optional</em>) – <dl class="simple">
+<dt>Dictionary containing the initialization parameters. Default is {‘value’: 1}.</dt><dd><dl class="simple">
+<dt>value<span class="classifier">int or float</span></dt><dd><p>The constant value to initialize the parameters with.</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="nnodely.support.initializer.init_negexp">
+<span class="sig-prename descclassname"><span class="pre">nnodely.support.initializer.</span></span><span class="sig-name descname"><span class="pre">init_negexp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">indexes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dict_param</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{'first_value':</span> <span class="pre">1,</span> <span class="pre">'lambda':</span> <span class="pre">3,</span> <span class="pre">'size_index':</span> <span class="pre">0}</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/support/initializer.html#init_negexp"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.support.initializer.init_negexp" title="Link to this definition"></a></dt>
+<dd><p>Initializes parameters using a negative decay exponential function.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>indexes</strong> (<em>list</em>) – List of indexes for the parameters.</p></li>
+<li><p><strong>params_size</strong> (<em>list</em>) – List of sizes for each dimension of the parameters.</p></li>
+<li><p><strong>dict_param</strong> (<em>dict</em><em>, </em><em>optional</em>) – <dl class="simple">
+<dt>Dictionary containing the initialization parameters. Default is {‘size_index’: 0, ‘first_value’: 1, ‘lambda’: 3}.</dt><dd><dl class="simple">
+<dt>size_index<span class="classifier">int</span></dt><dd><p>The index of the dimension to apply the exponential function.</p>
+</dd>
+<dt>first_value<span class="classifier">int or float</span></dt><dd><p>The value at the start of the range.</p>
+</dd>
+<dt>lambda<span class="classifier">int or float</span></dt><dd><p>The decay rate parameter of the exponential function.</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="nnodely.support.initializer.init_exp">
+<span class="sig-prename descclassname"><span class="pre">nnodely.support.initializer.</span></span><span class="sig-name descname"><span class="pre">init_exp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">indexes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dict_param</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{'lambda':</span> <span class="pre">3,</span> <span class="pre">'max_value':</span> <span class="pre">1,</span> <span class="pre">'monotonicity':</span> <span class="pre">'decreasing',</span> <span class="pre">'size_index':</span> <span class="pre">0}</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/support/initializer.html#init_exp"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.support.initializer.init_exp" title="Link to this definition"></a></dt>
+<dd><p>Initializes parameters using an increasing or decreasing exponential function.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>indexes</strong> (<em>list</em>) – List of indexes for the parameters.</p></li>
+<li><p><strong>params_size</strong> (<em>list</em>) – List of sizes for each dimension of the parameters.</p></li>
+<li><p><strong>dict_param</strong> (<em>dict</em><em>, </em><em>optional</em>) – <dl class="simple">
+<dt>Dictionary containing the initialization parameters. Default is {‘size_index’: 0, ‘max_value’: 1, ‘lambda’: 3, ‘monotonicity’: ‘decreasing’}.</dt><dd><dl class="simple">
+<dt>size_index<span class="classifier">int</span></dt><dd><p>The index of the dimension to apply the exponential function.</p>
+</dd>
+<dt>max_value<span class="classifier">int or float</span></dt><dd><p>The maximum value of the exponential function.</p>
+</dd>
+<dt>lambda<span class="classifier">int or float</span></dt><dd><p>The rate parameter of the exponential function.</p>
+</dd>
+<dt>monotonicity<span class="classifier">str</span></dt><dd><p>The monotonicity of the exponential function. Can be ‘increasing’ or ‘decreasing’.</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>ValueError</strong> – If the monotonicity is not ‘increasing’ or ‘decreasing’.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="nnodely.support.initializer.init_lin">
+<span class="sig-prename descclassname"><span class="pre">nnodely.support.initializer.</span></span><span class="sig-name descname"><span class="pre">init_lin</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">indexes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dict_param</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{'first_value':</span> <span class="pre">1,</span> <span class="pre">'last_value':</span> <span class="pre">0,</span> <span class="pre">'size_index':</span> <span class="pre">0}</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/support/initializer.html#init_lin"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.support.initializer.init_lin" title="Link to this definition"></a></dt>
+<dd><p>Initializes parameters using a linear function.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>indexes</strong> (<em>list</em>) – List of indexes for the parameters.</p></li>
+<li><p><strong>params_size</strong> (<em>list</em>) – List of sizes for each dimension of the parameters.</p></li>
+<li><p><strong>dict_param</strong> (<em>dict</em><em>, </em><em>optional</em>) – <dl class="simple">
+<dt>Dictionary containing the initialization parameters. Default is {‘size_index’: 0, ‘first_value’: 1, ‘last_value’: 0}.</dt><dd><dl class="simple">
+<dt>size_index<span class="classifier">int</span></dt><dd><p>The index of the dimension to apply the linear function.</p>
+</dd>
+<dt>first_value<span class="classifier">int or float</span></dt><dd><p>The value at the start of the range.</p>
+</dd>
+<dt>last_value<span class="classifier">int or float</span></dt><dd><p>The value at the end of the range.</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</div></blockquote>
+</section>
+</section>
+<section id="module-nnodely.basic.relation">
+<span id="relation-module"></span><h2>Relation module<a class="headerlink" href="#module-nnodely.basic.relation" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="nnodely.basic.relation.Stream">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">nnodely.basic.relation.</span></span><span class="sig-name descname"><span class="pre">Stream</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">json</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">count</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/nnodely/basic/relation.html#Stream"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.basic.relation.Stream" title="Link to this definition"></a></dt>
+<dd><p>Represents a stream of data inside the neural network. A Stream is automatically create when you operate over a Input, Parameter, or Constant object.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.relation.Stream.closedLoop">
+<span class="sig-name descname"><span class="pre">closedLoop</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">obj</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></span><a class="reference internal" href="../_modules/nnodely/basic/relation.html#Stream.closedLoop"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.basic.relation.Stream.closedLoop" title="Link to this definition"></a></dt>
+<dd><p>Update the Stream adding a closed loop connection with a given input object.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.layers.input.Input" title="nnodely.layers.input.Input"><em>Input</em></a>) – The Input object to create a closed loop with.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A Stream of the signal that updates the Inputs with the connection.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream">Stream</a></p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>TypeError</strong> – If the provided object is not of type Input.</p></li>
+<li><p><strong>KeyError</strong> – If the input variable is already connected.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.relation.Stream.connect">
+<span class="sig-name descname"><span class="pre">connect</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">obj</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></span><a class="reference internal" href="../_modules/nnodely/basic/relation.html#Stream.connect"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.basic.relation.Stream.connect" title="Link to this definition"></a></dt>
+<dd><p>Update the Stream adding a connects with a given input object.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>obj</strong> (<a class="reference internal" href="nnodely.html#nnodely.layers.input.Input" title="nnodely.layers.input.Input"><em>Input</em></a>) – The Input object to connect to.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A Stream of the signal that updates the Inputs with the connection.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream">Stream</a></p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>TypeError</strong> – If the provided object is not of type Input.</p></li>
+<li><p><strong>KeyError</strong> – If the input variable is already connected.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.relation.Stream.delay">
+<span class="sig-name descname"><span class="pre">delay</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">delay</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">float</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></span><a class="reference internal" href="../_modules/nnodely/basic/relation.html#Stream.delay"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.basic.relation.Stream.delay" title="Link to this definition"></a></dt>
+<dd><p>The function is used to delay a Stream.
+The value of the delay can be only positive.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>delay</strong> (<em>int</em><em>, </em><em>float</em>) – The delay value.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A Stream representing the delayed Stream</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream">Stream</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.relation.Stream.s">
+<span class="sig-name descname"><span class="pre">s</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">order</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">int_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">der_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'euler'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></span><a class="reference internal" href="../_modules/nnodely/basic/relation.html#Stream.s"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.basic.relation.Stream.s" title="Link to this definition"></a></dt>
+<dd><p>Considering the Laplace transform notation. The function is used to operate an integral or derivate operation on a Stream.
+The order of the integral or the derivative operation is indicated by the order parameter.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>order</strong> (<em>int</em>) – Order of the Laplace transform</p></li>
+<li><p><strong>method</strong> (<em>str</em><em>, </em><em>optional</em>) – Integration or derivation method</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A Stream of the signal represents the integral or derivation operation.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream">Stream</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.relation.Stream.sw">
+<span class="sig-name descname"><span class="pre">sw</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sw</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">offset</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></span><a class="reference internal" href="../_modules/nnodely/basic/relation.html#Stream.sw"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.basic.relation.Stream.sw" title="Link to this definition"></a></dt>
+<dd><p>Selects a sample window on Stream. It is possible to create a smaller or bigger window on the stream.
+The Sample Window must be in the past not in the future.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>sw</strong> (<em>int</em><em>, </em><em>list</em>) – The sample window represents the number of steps in the past. If a list, it should contain the start and end indices, both indexes must be in the past.</p></li>
+<li><p><strong>offset</strong> (<em>int</em><em>, </em><em>optional</em>) – The offset for the sample window. Default is None.</p></li>
+<li><p><strong>name</strong> (<em>str</em><em>, </em><em>None</em>) – The name of the internal variable</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A Stream representing the SamplePart object with the selected samples.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream">Stream</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.relation.Stream.tw">
+<span class="sig-name descname"><span class="pre">tw</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tw</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">offset</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></span><a class="reference internal" href="../_modules/nnodely/basic/relation.html#Stream.tw"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.basic.relation.Stream.tw" title="Link to this definition"></a></dt>
+<dd><p>Selects a time window on Stream. It is possible to create a smaller or bigger time window on the stream.
+The Time Window must be in the past not in the future.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>tw</strong> (<em>float</em><em>, </em><em>int</em><em>, </em><em>list</em>) – The time window represents the time in the past. If a list, it should contain the start and end times, both indexes must be in the past.</p></li>
+<li><p><strong>offset</strong> (<em>float</em><em>, </em><em>int</em><em>, </em><em>optional</em>) – The offset for the sample window. Default is None.</p></li>
+<li><p><strong>name</strong> (<em>str</em><em>, </em><em>None</em>) – The name of the internal variable</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A Stream representing the TimePart object with the selected time window.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream">Stream</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="nnodely.basic.relation.Stream.z">
+<span class="sig-name descname"><span class="pre">z</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">delay</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">float</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream"><span class="pre">Stream</span></a></span></span><a class="reference internal" href="../_modules/nnodely/basic/relation.html#Stream.z"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nnodely.basic.relation.Stream.z" title="Link to this definition"></a></dt>
+<dd><p>Considering the Zeta transform notation. The function is used to delay a Stream.
+The value of the delay can be only positive.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>delay</strong> (<em>int</em>) – The delay value.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A Stream representing the delayed Stream</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="nnodely.html#nnodely.basic.relation.Stream" title="nnodely.basic.relation.Stream">Stream</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="modely.html" class="btn btn-neutral float-left" title="Modely" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="modules_and_layers.html" class="btn btn-neutral float-right" title="Model structured NN building blocks" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright .</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

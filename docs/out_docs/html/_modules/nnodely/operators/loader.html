@@ -1,0 +1,757 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>nnodely.operators.loader &mdash;  1.5.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=73275c37"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            
+              <img src="../../../_static/logo.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/modely/index.html">Modely</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/modely/index.html#nnodely.nnodely.Modely"><code class="docutils literal notranslate"><span class="pre">Modely</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/modely/index.html#nnodely.nnodely.Modely.constants"><code class="docutils literal notranslate"><span class="pre">Modely.constants</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/modely/index.html#nnodely.nnodely.Modely.internals"><code class="docutils literal notranslate"><span class="pre">Modely.internals</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/modely/index.html#nnodely.nnodely.Modely.json"><code class="docutils literal notranslate"><span class="pre">Modely.json</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/modely/index.html#nnodely.nnodely.Modely.neuralized"><code class="docutils literal notranslate"><span class="pre">Modely.neuralized</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/modely/index.html#nnodely.nnodely.Modely.parameters"><code class="docutils literal notranslate"><span class="pre">Modely.parameters</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/modely/index.html#nnodely.nnodely.Modely.resetSeed"><code class="docutils literal notranslate"><span class="pre">Modely.resetSeed()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/modely/index.html#nnodely.nnodely.Modely.states"><code class="docutils literal notranslate"><span class="pre">Modely.states</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/modely/index.html#nnodely.nnodely.Modely.traced"><code class="docutils literal notranslate"><span class="pre">Modely.traced</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/modely/index.html#nnodely.nnodely.Modely.trainAndAnalyze"><code class="docutils literal notranslate"><span class="pre">Modely.trainAndAnalyze()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/modely/index.html#nnodely.nnodely.clearNames"><code class="docutils literal notranslate"><span class="pre">clearNames()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/index.html">Model structured NN Inputs Outputs and Parameters</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html">Input module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html#nnodely.layers.input.Input"><code class="docutils literal notranslate"><span class="pre">Input</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html#nnodely.layers.input.Input.json_name"><code class="docutils literal notranslate"><span class="pre">Input.json_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html#nnodely.layers.input.Input.name"><code class="docutils literal notranslate"><span class="pre">Input.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html#nnodely.layers.input.Input.dim"><code class="docutils literal notranslate"><span class="pre">Input.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html#nnodely.layers.input.Input.json"><code class="docutils literal notranslate"><span class="pre">Input.json</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html#nnodely.layers.input.Input.clearNames"><code class="docutils literal notranslate"><span class="pre">Input.clearNames()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html#nnodely.layers.input.Input.closedLoop"><code class="docutils literal notranslate"><span class="pre">Input.closedLoop()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html#nnodely.layers.input.Input.connect"><code class="docutils literal notranslate"><span class="pre">Input.connect()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html#nnodely.layers.input.Input.last"><code class="docutils literal notranslate"><span class="pre">Input.last()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html#nnodely.layers.input.Input.names"><code class="docutils literal notranslate"><span class="pre">Input.names</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html#nnodely.layers.input.Input.next"><code class="docutils literal notranslate"><span class="pre">Input.next()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html#nnodely.layers.input.Input.s"><code class="docutils literal notranslate"><span class="pre">Input.s()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html#nnodely.layers.input.Input.sw"><code class="docutils literal notranslate"><span class="pre">Input.sw()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html#nnodely.layers.input.Input.tw"><code class="docutils literal notranslate"><span class="pre">Input.tw()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/input_module.html#nnodely.layers.input.Input.z"><code class="docutils literal notranslate"><span class="pre">Input.z()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/output_module.html">Output module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/output_module.html#nnodely.layers.output.Output"><code class="docutils literal notranslate"><span class="pre">Output</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/output_module.html#nnodely.layers.output.Output.name"><code class="docutils literal notranslate"><span class="pre">Output.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/output_module.html#nnodely.layers.output.Output.json"><code class="docutils literal notranslate"><span class="pre">Output.json</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/output_module.html#nnodely.layers.output.Output.dim"><code class="docutils literal notranslate"><span class="pre">Output.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/output_module.html#nnodely.layers.output.Output.clearNames"><code class="docutils literal notranslate"><span class="pre">Output.clearNames()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/output_module.html#nnodely.layers.output.Output.names"><code class="docutils literal notranslate"><span class="pre">Output.names</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/parameter_module.html">Parameter module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/parameter_module.html#nnodely.layers.parameter.Constant"><code class="docutils literal notranslate"><span class="pre">Constant</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/parameter_module.html#nnodely.layers.parameter.Constant.name"><code class="docutils literal notranslate"><span class="pre">Constant.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/parameter_module.html#nnodely.layers.parameter.Constant.dim"><code class="docutils literal notranslate"><span class="pre">Constant.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/parameter_module.html#nnodely.layers.parameter.Constant.json"><code class="docutils literal notranslate"><span class="pre">Constant.json</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/parameter_module.html#nnodely.layers.parameter.SampleTime"><code class="docutils literal notranslate"><span class="pre">SampleTime</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/parameter_module.html#nnodely.layers.parameter.SampleTime.name"><code class="docutils literal notranslate"><span class="pre">SampleTime.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/parameter_module.html#nnodely.layers.parameter.SampleTime.dim"><code class="docutils literal notranslate"><span class="pre">SampleTime.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/parameter_module.html#nnodely.layers.parameter.SampleTime.json"><code class="docutils literal notranslate"><span class="pre">SampleTime.json</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/parameter_module.html#nnodely.layers.parameter.Parameter"><code class="docutils literal notranslate"><span class="pre">Parameter</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/parameter_module.html#nnodely.layers.parameter.Parameter.name"><code class="docutils literal notranslate"><span class="pre">Parameter.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/parameter_module.html#nnodely.layers.parameter.Parameter.dim"><code class="docutils literal notranslate"><span class="pre">Parameter.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/parameter_module.html#nnodely.layers.parameter.Parameter.json"><code class="docutils literal notranslate"><span class="pre">Parameter.json</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/initializer_module.html">Initializer module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/initializer_module.html#nnodely.support.initializer.init_constant"><code class="docutils literal notranslate"><span class="pre">init_constant()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/initializer_module.html#nnodely.support.initializer.init_negexp"><code class="docutils literal notranslate"><span class="pre">init_negexp()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/initializer_module.html#nnodely.support.initializer.init_exp"><code class="docutils literal notranslate"><span class="pre">init_exp()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/initializer_module.html#nnodely.support.initializer.init_lin"><code class="docutils literal notranslate"><span class="pre">init_lin()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/relation_module.html">Relation module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/relation_module.html#nnodely.basic.relation.Stream"><code class="docutils literal notranslate"><span class="pre">Stream</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/relation_module.html#nnodely.basic.relation.Stream.closedLoop"><code class="docutils literal notranslate"><span class="pre">Stream.closedLoop()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/relation_module.html#nnodely.basic.relation.Stream.connect"><code class="docutils literal notranslate"><span class="pre">Stream.connect()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/relation_module.html#nnodely.basic.relation.Stream.delay"><code class="docutils literal notranslate"><span class="pre">Stream.delay()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/relation_module.html#nnodely.basic.relation.Stream.s"><code class="docutils literal notranslate"><span class="pre">Stream.s()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/relation_module.html#nnodely.basic.relation.Stream.sw"><code class="docutils literal notranslate"><span class="pre">Stream.sw()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/relation_module.html#nnodely.basic.relation.Stream.tw"><code class="docutils literal notranslate"><span class="pre">Stream.tw()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/msnn_ins_out_param/relation_module.html#nnodely.basic.relation.Stream.z"><code class="docutils literal notranslate"><span class="pre">Stream.z()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/layers/index.html">Model structured NN building blocks</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/layers/activation_module.html">Activation module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/activation_module.html#nnodely.layers.activation.Relu"><code class="docutils literal notranslate"><span class="pre">Relu</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/activation_module.html#nnodely.layers.activation.ELU"><code class="docutils literal notranslate"><span class="pre">ELU</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/activation_module.html#nnodely.layers.activation.Sigmoid"><code class="docutils literal notranslate"><span class="pre">Sigmoid</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/activation_module.html#nnodely.layers.activation.Softmax"><code class="docutils literal notranslate"><span class="pre">Softmax</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/activation_module.html#nnodely.layers.activation.Identity"><code class="docutils literal notranslate"><span class="pre">Identity</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/layers/arithmetic_module.html">Arithmetic module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/arithmetic_module.html#nnodely.layers.arithmetic.Add"><code class="docutils literal notranslate"><span class="pre">Add</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/arithmetic_module.html#nnodely.layers.arithmetic.Sub"><code class="docutils literal notranslate"><span class="pre">Sub</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/arithmetic_module.html#nnodely.layers.arithmetic.Mul"><code class="docutils literal notranslate"><span class="pre">Mul</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/arithmetic_module.html#nnodely.layers.arithmetic.Div"><code class="docutils literal notranslate"><span class="pre">Div</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/arithmetic_module.html#nnodely.layers.arithmetic.Pow"><code class="docutils literal notranslate"><span class="pre">Pow</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/arithmetic_module.html#nnodely.layers.arithmetic.Neg"><code class="docutils literal notranslate"><span class="pre">Neg</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/layers/fir_module.html">FIR module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/fir_module.html#nnodely.layers.fir.Fir"><code class="docutils literal notranslate"><span class="pre">Fir</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/fir_module.html#nnodely.layers.fir.Fir.relation_name"><code class="docutils literal notranslate"><span class="pre">Fir.relation_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/fir_module.html#nnodely.layers.fir.Fir.W_init"><code class="docutils literal notranslate"><span class="pre">Fir.W_init</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/fir_module.html#nnodely.layers.fir.Fir.W_init_params"><code class="docutils literal notranslate"><span class="pre">Fir.W_init_params</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/fir_module.html#nnodely.layers.fir.Fir.W"><code class="docutils literal notranslate"><span class="pre">Fir.W</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/fir_module.html#nnodely.layers.fir.Fir.b_init"><code class="docutils literal notranslate"><span class="pre">Fir.b_init</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/fir_module.html#nnodely.layers.fir.Fir.b_init_params"><code class="docutils literal notranslate"><span class="pre">Fir.b_init_params</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/fir_module.html#nnodely.layers.fir.Fir.b"><code class="docutils literal notranslate"><span class="pre">Fir.b</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/fir_module.html#nnodely.layers.fir.Fir.pname"><code class="docutils literal notranslate"><span class="pre">Fir.pname</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/fir_module.html#nnodely.layers.fir.Fir.bname"><code class="docutils literal notranslate"><span class="pre">Fir.bname</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/fir_module.html#nnodely.layers.fir.Fir.dropout"><code class="docutils literal notranslate"><span class="pre">Fir.dropout</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/fir_module.html#nnodely.layers.fir.Fir.output_dimension"><code class="docutils literal notranslate"><span class="pre">Fir.output_dimension</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/layers/fuzzify_module.html">Fuzzify module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/fuzzify_module.html#nnodely.layers.fuzzify.Fuzzify"><code class="docutils literal notranslate"><span class="pre">Fuzzify</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/fuzzify_module.html#nnodely.layers.fuzzify.Fuzzify.relation_name"><code class="docutils literal notranslate"><span class="pre">Fuzzify.relation_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/fuzzify_module.html#nnodely.layers.fuzzify.Fuzzify.output_dimension"><code class="docutils literal notranslate"><span class="pre">Fuzzify.output_dimension</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/fuzzify_module.html#nnodely.layers.fuzzify.Fuzzify.json"><code class="docutils literal notranslate"><span class="pre">Fuzzify.json</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/layers/equationlearner_module.html">EquationLearner module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/equationlearner_module.html#nnodely.layers.equationlearner.EquationLearner"><code class="docutils literal notranslate"><span class="pre">EquationLearner</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/equationlearner_module.html#nnodely.layers.equationlearner.EquationLearner.relation_name"><code class="docutils literal notranslate"><span class="pre">EquationLearner.relation_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/equationlearner_module.html#nnodely.layers.equationlearner.EquationLearner.linear_in"><code class="docutils literal notranslate"><span class="pre">EquationLearner.linear_in</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/equationlearner_module.html#nnodely.layers.equationlearner.EquationLearner.linear_out"><code class="docutils literal notranslate"><span class="pre">EquationLearner.linear_out</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/equationlearner_module.html#nnodely.layers.equationlearner.EquationLearner.functions"><code class="docutils literal notranslate"><span class="pre">EquationLearner.functions</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/equationlearner_module.html#nnodely.layers.equationlearner.EquationLearner.func_parameters"><code class="docutils literal notranslate"><span class="pre">EquationLearner.func_parameters</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/equationlearner_module.html#nnodely.layers.equationlearner.EquationLearner.n_activations"><code class="docutils literal notranslate"><span class="pre">EquationLearner.n_activations</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/layers/linear_module.html">Linear module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/linear_module.html#nnodely.layers.linear.Linear"><code class="docutils literal notranslate"><span class="pre">Linear</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/linear_module.html#nnodely.layers.linear.Linear.relation_name"><code class="docutils literal notranslate"><span class="pre">Linear.relation_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/linear_module.html#nnodely.layers.linear.Linear.W_init"><code class="docutils literal notranslate"><span class="pre">Linear.W_init</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/linear_module.html#nnodely.layers.linear.Linear.W_init_params"><code class="docutils literal notranslate"><span class="pre">Linear.W_init_params</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/linear_module.html#nnodely.layers.linear.Linear.b_init"><code class="docutils literal notranslate"><span class="pre">Linear.b_init</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/linear_module.html#nnodely.layers.linear.Linear.b_init_params"><code class="docutils literal notranslate"><span class="pre">Linear.b_init_params</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/linear_module.html#nnodely.layers.linear.Linear.W"><code class="docutils literal notranslate"><span class="pre">Linear.W</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/linear_module.html#nnodely.layers.linear.Linear.b"><code class="docutils literal notranslate"><span class="pre">Linear.b</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/linear_module.html#nnodely.layers.linear.Linear.Wname"><code class="docutils literal notranslate"><span class="pre">Linear.Wname</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/linear_module.html#nnodely.layers.linear.Linear.bname"><code class="docutils literal notranslate"><span class="pre">Linear.bname</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/linear_module.html#nnodely.layers.linear.Linear.dropout"><code class="docutils literal notranslate"><span class="pre">Linear.dropout</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/linear_module.html#nnodely.layers.linear.Linear.output_dimension"><code class="docutils literal notranslate"><span class="pre">Linear.output_dimension</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/layers/localmodel_module.html">Localmodel module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/localmodel_module.html#nnodely.layers.localmodel.LocalModel"><code class="docutils literal notranslate"><span class="pre">LocalModel</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/localmodel_module.html#nnodely.layers.localmodel.LocalModel.relation_name"><code class="docutils literal notranslate"><span class="pre">LocalModel.relation_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/localmodel_module.html#nnodely.layers.localmodel.LocalModel.pass_indexes"><code class="docutils literal notranslate"><span class="pre">LocalModel.pass_indexes</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/localmodel_module.html#nnodely.layers.localmodel.LocalModel.input_function"><code class="docutils literal notranslate"><span class="pre">LocalModel.input_function</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/localmodel_module.html#nnodely.layers.localmodel.LocalModel.output_function"><code class="docutils literal notranslate"><span class="pre">LocalModel.output_function</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/layers/part_module.html">Part module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.Part"><code class="docutils literal notranslate"><span class="pre">Part</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.Part.name"><code class="docutils literal notranslate"><span class="pre">Part.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.Part.dim"><code class="docutils literal notranslate"><span class="pre">Part.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.Part.json"><code class="docutils literal notranslate"><span class="pre">Part.json</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.Select"><code class="docutils literal notranslate"><span class="pre">Select</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.Select.name"><code class="docutils literal notranslate"><span class="pre">Select.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.Select.dim"><code class="docutils literal notranslate"><span class="pre">Select.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.Select.json"><code class="docutils literal notranslate"><span class="pre">Select.json</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.SamplePart"><code class="docutils literal notranslate"><span class="pre">SamplePart</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.SamplePart.name"><code class="docutils literal notranslate"><span class="pre">SamplePart.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.SamplePart.dim"><code class="docutils literal notranslate"><span class="pre">SamplePart.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.SamplePart.json"><code class="docutils literal notranslate"><span class="pre">SamplePart.json</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.SampleSelect"><code class="docutils literal notranslate"><span class="pre">SampleSelect</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.SampleSelect.name"><code class="docutils literal notranslate"><span class="pre">SampleSelect.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.SampleSelect.dim"><code class="docutils literal notranslate"><span class="pre">SampleSelect.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.SampleSelect.json"><code class="docutils literal notranslate"><span class="pre">SampleSelect.json</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.TimePart"><code class="docutils literal notranslate"><span class="pre">TimePart</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.TimePart.name"><code class="docutils literal notranslate"><span class="pre">TimePart.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.TimePart.dim"><code class="docutils literal notranslate"><span class="pre">TimePart.dim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/part_module.html#nnodely.layers.part.TimePart.json"><code class="docutils literal notranslate"><span class="pre">TimePart.json</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/layers/trigonometric_module.html">Trigonometric module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/trigonometric_module.html#nnodely.layers.trigonometric.Sin"><code class="docutils literal notranslate"><span class="pre">Sin</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/trigonometric_module.html#nnodely.layers.trigonometric.Cos"><code class="docutils literal notranslate"><span class="pre">Cos</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/trigonometric_module.html#nnodely.layers.trigonometric.Tan"><code class="docutils literal notranslate"><span class="pre">Tan</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/trigonometric_module.html#nnodely.layers.trigonometric.Tanh"><code class="docutils literal notranslate"><span class="pre">Tanh</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/trigonometric_module.html#nnodely.layers.trigonometric.Cosh"><code class="docutils literal notranslate"><span class="pre">Cosh</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/trigonometric_module.html#nnodely.layers.trigonometric.Sech"><code class="docutils literal notranslate"><span class="pre">Sech</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/layers/parametricfunction_module.html">Parametric Function module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/layers/parametricfunction_module.html#nnodely.layers.parametricfunction.ParamFun"><code class="docutils literal notranslate"><span class="pre">ParamFun</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/parametricfunction_module.html#nnodely.layers.parametricfunction.ParamFun.relation_name"><code class="docutils literal notranslate"><span class="pre">ParamFun.relation_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/parametricfunction_module.html#nnodely.layers.parametricfunction.ParamFun.param_fun"><code class="docutils literal notranslate"><span class="pre">ParamFun.param_fun</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/parametricfunction_module.html#nnodely.layers.parametricfunction.ParamFun.constants"><code class="docutils literal notranslate"><span class="pre">ParamFun.constants</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/parametricfunction_module.html#nnodely.layers.parametricfunction.ParamFun.parameters_dimensions"><code class="docutils literal notranslate"><span class="pre">ParamFun.parameters_dimensions</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/parametricfunction_module.html#nnodely.layers.parametricfunction.ParamFun.parameters"><code class="docutils literal notranslate"><span class="pre">ParamFun.parameters</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/parametricfunction_module.html#nnodely.layers.parametricfunction.ParamFun.map_over_batch"><code class="docutils literal notranslate"><span class="pre">ParamFun.map_over_batch</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/parametricfunction_module.html#nnodely.layers.parametricfunction.ParamFun.output_dimension"><code class="docutils literal notranslate"><span class="pre">ParamFun.output_dimension</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/layers/parametricfunction_module.html#nnodely.layers.parametricfunction.ParamFun.json"><code class="docutils literal notranslate"><span class="pre">ParamFun.json</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/training/index.html">Training</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html">Optimizer module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.SGD"><code class="docutils literal notranslate"><span class="pre">SGD</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.SGD.name"><code class="docutils literal notranslate"><span class="pre">SGD.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.SGD.lr"><code class="docutils literal notranslate"><span class="pre">SGD.lr</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.SGD.momentum"><code class="docutils literal notranslate"><span class="pre">SGD.momentum</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.SGD.dampening"><code class="docutils literal notranslate"><span class="pre">SGD.dampening</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.SGD.weight_decay"><code class="docutils literal notranslate"><span class="pre">SGD.weight_decay</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.SGD.nesterov"><code class="docutils literal notranslate"><span class="pre">SGD.nesterov</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.SGD.add_defaults"><code class="docutils literal notranslate"><span class="pre">SGD.add_defaults()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.SGD.set_defaults"><code class="docutils literal notranslate"><span class="pre">SGD.set_defaults()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.SGD.set_params"><code class="docutils literal notranslate"><span class="pre">SGD.set_params()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.SGD.set_params_to_train"><code class="docutils literal notranslate"><span class="pre">SGD.set_params_to_train()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.SGD.unfold"><code class="docutils literal notranslate"><span class="pre">SGD.unfold()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.Adam"><code class="docutils literal notranslate"><span class="pre">Adam</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.Adam.name"><code class="docutils literal notranslate"><span class="pre">Adam.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.Adam.lr"><code class="docutils literal notranslate"><span class="pre">Adam.lr</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.Adam.betas"><code class="docutils literal notranslate"><span class="pre">Adam.betas</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.Adam.eps"><code class="docutils literal notranslate"><span class="pre">Adam.eps</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.Adam.weight_decay"><code class="docutils literal notranslate"><span class="pre">Adam.weight_decay</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.Adam.amsgrad"><code class="docutils literal notranslate"><span class="pre">Adam.amsgrad</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.Adam.add_defaults"><code class="docutils literal notranslate"><span class="pre">Adam.add_defaults()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.Adam.set_defaults"><code class="docutils literal notranslate"><span class="pre">Adam.set_defaults()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.Adam.set_params"><code class="docutils literal notranslate"><span class="pre">Adam.set_params()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.Adam.set_params_to_train"><code class="docutils literal notranslate"><span class="pre">Adam.set_params_to_train()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/optimizer_module.html#nnodely.basic.optimizer.Adam.unfold"><code class="docutils literal notranslate"><span class="pre">Adam.unfold()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/training/earlystopping_module.html">Early Stopping module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/training/earlystopping_module.html#nnodely.support.earlystopping.early_stop_patience"><code class="docutils literal notranslate"><span class="pre">early_stop_patience()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/training/earlystopping_module.html#nnodely.support.earlystopping.select_best_model"><code class="docutils literal notranslate"><span class="pre">select_best_model()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/training/earlystopping_module.html#nnodely.support.earlystopping.mean_stopping"><code class="docutils literal notranslate"><span class="pre">mean_stopping()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/training/earlystopping_module.html#nnodely.support.earlystopping.standard_early_stopping"><code class="docutils literal notranslate"><span class="pre">standard_early_stopping()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../_autodoc/training/loader_module.html">Data Loader module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../_autodoc/training/loader_module.html#nnodely.operators.loader.Loader"><code class="docutils literal notranslate"><span class="pre">Loader</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/loader_module.html#nnodely.operators.loader.Loader.filterData"><code class="docutils literal notranslate"><span class="pre">Loader.filterData()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/loader_module.html#nnodely.operators.loader.Loader.getSamples"><code class="docutils literal notranslate"><span class="pre">Loader.getSamples()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/loader_module.html#nnodely.operators.loader.Loader.loadData"><code class="docutils literal notranslate"><span class="pre">Loader.loadData()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../_autodoc/training/loader_module.html#nnodely.operators.loader.Loader.resamplingData"><code class="docutils literal notranslate"><span class="pre">Loader.resamplingData()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html"></a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">nnodely.operators.loader</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for nnodely.operators.loader</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span><span class="o">,</span><span class="w"> </span><span class="nn">random</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas.api.types</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ptypes</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sequence</span><span class="p">,</span> <span class="n">Callable</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.basic.relation</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_names</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.operators.network</span><span class="w"> </span><span class="kn">import</span> <span class="n">Network</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.support.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">check</span><span class="p">,</span> <span class="n">log</span><span class="p">,</span> <span class="n">enforce_types</span><span class="p">,</span> <span class="n">NP_DTYPE</span>
+
+<div class="viewcode-block" id="Loader">
+<a class="viewcode-back" href="../../../_autodoc/training/loader_module.html#nnodely.operators.loader.Loader">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Loader</span><span class="p">(</span><span class="n">Network</span><span class="p">):</span>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">check</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">Loader</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span> <span class="s2">&quot;Loader class cannot be instantiated directly&quot;</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+
+        <span class="c1"># Dataaset Parameters</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__n_datasets</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__datasets_loaded</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+
+<div class="viewcode-block" id="Loader.getSamples">
+<a class="viewcode-back" href="../../../_autodoc/training/loader_module.html#nnodely.operators.loader.Loader.getSamples">[docs]</a>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">getSamples</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dataset</span><span class="p">:</span><span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">index</span><span class="p">:</span><span class="nb">int</span><span class="o">|</span><span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">window</span><span class="p">:</span><span class="nb">int</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Retrieves a window of samples from a given dataset.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        dataset : str</span>
+<span class="sd">            The name of the dataset to retrieve samples from.</span>
+<span class="sd">        index : int, optional</span>
+<span class="sd">            The starting index of the samples. If None, a random index is chosen. Default is None.</span>
+<span class="sd">        window : int, optional</span>
+<span class="sd">            The number of consecutive samples to retrieve. Default is 1.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        dict</span>
+<span class="sd">            A dictionary containing the retrieved samples. The keys are input names, and the values are lists of samples.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If the dataset is not loaded.</span>
+
+<span class="sd">        Examples</span>
+<span class="sd">        --------</span>
+<span class="sd">        .. image:: https://colab.research.google.com/assets/colab-badge.svg</span>
+<span class="sd">            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb</span>
+<span class="sd">            :alt: Open in Colab</span>
+
+<span class="sd">        Example usage:</span>
+<span class="sd">            &gt;&gt;&gt; model = Modely()</span>
+<span class="sd">            &gt;&gt;&gt; model.loadData(&#39;dataset_name&#39;)</span>
+<span class="sd">            &gt;&gt;&gt; samples = model.getSamples(&#39;dataset_name&#39;, index=10, window=5)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">index</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">index</span> <span class="o">=</span> <span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_num_of_samples</span><span class="p">[</span><span class="n">dataset</span><span class="p">]</span> <span class="o">-</span> <span class="n">window</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_data_loaded</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s1">&#39;The Dataset must first be loaded using &lt;loadData&gt; function!&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_data_loaded</span><span class="p">:</span>
+            <span class="n">result_dict</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model_def</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">result_dict</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">window</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">key</span> <span class="p">,</span><span class="n">samples</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">dataset</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                    <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model_def</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                        <span class="n">result_dict</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">samples</span><span class="p">[</span><span class="n">index</span><span class="o">+</span><span class="n">idx</span><span class="p">])</span>
+            <span class="k">return</span> <span class="n">result_dict</span></div>
+
+
+<div class="viewcode-block" id="Loader.filterData">
+<a class="viewcode-back" href="../../../_autodoc/training/loader_module.html#nnodely.operators.loader.Loader.filterData">[docs]</a>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">filterData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filter_function</span><span class="p">:</span><span class="n">Callable</span><span class="p">,</span> <span class="n">dataset_name</span><span class="p">:</span><span class="nb">str</span><span class="o">|</span><span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Filters the data in the dataset using the provided filter function.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        filter_function : Callable</span>
+<span class="sd">            A function that takes a sample as input and returns True if the sample should be kept, and False if it should be removed.</span>
+<span class="sd">        dataset_name : str or None, optional</span>
+<span class="sd">            The name of the dataset to filter. If None, all datasets are filtered. Default is None.</span>
+
+<span class="sd">        Examples</span>
+<span class="sd">        --------</span>
+<span class="sd">        .. image:: https://colab.research.google.com/assets/colab-badge.svg</span>
+<span class="sd">            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb</span>
+<span class="sd">            :alt: Open in Colab</span>
+
+<span class="sd">        Example usage:</span>
+<span class="sd">            &gt;&gt;&gt; model = Modely()</span>
+<span class="sd">            &gt;&gt;&gt; model.loadData(&#39;dataset_name&#39;, &#39;path/to/data&#39;)</span>
+<span class="sd">            &gt;&gt;&gt; def filter_fn(sample):</span>
+<span class="sd">            &gt;&gt;&gt;     return sample[&#39;input1&#39;] &gt; 0</span>
+<span class="sd">            &gt;&gt;&gt; model.filterData(filter_fn, &#39;dataset_name&#39;)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">idx_to_remove</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="n">dataset_name</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">dataset</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+                <span class="n">n_samples</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">dataset</span><span class="p">[</span><span class="nb">list</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">keys</span><span class="p">())[</span><span class="mi">0</span><span class="p">]])</span>
+
+                <span class="n">data_for_filter</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_samples</span><span class="p">):</span>
+                    <span class="n">new_sample</span> <span class="o">=</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">val</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">dataset</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+                    <span class="n">data_for_filter</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">new_sample</span><span class="p">)</span>
+
+                <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">sample</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">data_for_filter</span><span class="p">):</span>
+                    <span class="k">if</span> <span class="ow">not</span> <span class="n">filter_function</span><span class="p">(</span><span class="n">sample</span><span class="p">):</span>
+                        <span class="n">idx_to_remove</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+
+                <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">key</span><span class="p">],</span> <span class="n">idx_to_remove</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_num_of_samples</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">visualizer</span><span class="o">.</span><span class="n">showDataset</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">name</span><span class="p">)</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">dataset</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">dataset_name</span><span class="p">]</span>
+            <span class="n">n_samples</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">dataset</span><span class="p">[</span><span class="nb">list</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">keys</span><span class="p">())[</span><span class="mi">0</span><span class="p">]])</span>
+
+            <span class="n">data_for_filter</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_samples</span><span class="p">):</span>
+                <span class="n">new_sample</span> <span class="o">=</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">val</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">dataset</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+                <span class="n">data_for_filter</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">new_sample</span><span class="p">)</span>
+
+            <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">sample</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">data_for_filter</span><span class="p">):</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">filter_function</span><span class="p">(</span><span class="n">sample</span><span class="p">):</span>
+                    <span class="n">idx_to_remove</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+
+            <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">dataset_name</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">dataset_name</span><span class="p">][</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">dataset_name</span><span class="p">][</span><span class="n">key</span><span class="p">],</span> <span class="n">idx_to_remove</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_num_of_samples</span><span class="p">[</span><span class="n">dataset_name</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">dataset_name</span><span class="p">][</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">visualizer</span><span class="o">.</span><span class="n">showDataset</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">dataset_name</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Loader.resamplingData">
+<a class="viewcode-back" href="../../../_autodoc/training/loader_module.html#nnodely.operators.loader.Loader.resamplingData">[docs]</a>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">resamplingData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">df</span><span class="p">:</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">scale</span><span class="p">:</span><span class="nb">float</span> <span class="o">=</span> <span class="mf">1e9</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Resamples the DataFrame to a specified sample time.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        df : pd.DataFrame</span>
+<span class="sd">            The DataFrame to resample.</span>
+<span class="sd">        scale : float, optional</span>
+<span class="sd">            The scale factor to convert the sample time to nanoseconds. Default is 1e9</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        pd.DataFrame</span>
+<span class="sd">            The resampled DataFrame.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        TypeError</span>
+<span class="sd">            If the DataFrame does not contain a time column or if the time column is not in datetime format.</span>
+
+<span class="sd">        Examples</span>
+<span class="sd">        --------</span>
+<span class="sd">        .. image:: https://colab.research.google.com/assets/colab-badge.svg</span>
+<span class="sd">            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb</span>
+<span class="sd">            :alt: Open in Colab</span>
+
+<span class="sd">        Example usage:</span>
+<span class="sd">            &gt;&gt;&gt; model = Modely()</span>
+<span class="sd">            &gt;&gt;&gt; df = pd.DataFrame({&#39;time&#39;: np.array(range(60), dtype=np.float32),&#39;x&#39;: np.array(10*[10] + 20*[20] + 30*[30], dtype=np.float32)})</span>
+<span class="sd">            &gt;&gt;&gt; resampled_df = model.resamplingData(df, scale=1e9)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">sample_time_ns</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_model_def</span><span class="o">.</span><span class="n">getSampleTime</span><span class="p">()</span> <span class="o">*</span> <span class="n">scale</span><span class="p">)</span>
+        <span class="n">method</span> <span class="o">=</span> <span class="s1">&#39;linear&#39;</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">df</span><span class="o">.</span><span class="n">index</span><span class="p">)</span> <span class="ow">is</span> <span class="n">pd</span><span class="o">.</span><span class="n">DatetimeIndex</span><span class="p">:</span>
+            <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">resample</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">sample_time_ns</span><span class="si">}</span><span class="s2">ns&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">interpolate</span><span class="p">(</span><span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="s1">&#39;time&#39;</span> <span class="ow">in</span> <span class="n">df</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">ptypes</span><span class="o">.</span><span class="n">is_datetime64_any_dtype</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s1">&#39;time&#39;</span><span class="p">]):</span>
+                <span class="n">df</span><span class="p">[</span><span class="s1">&#39;time&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">to_datetime</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s1">&#39;time&#39;</span><span class="p">],</span> <span class="n">unit</span><span class="o">=</span><span class="s1">&#39;s&#39;</span><span class="p">)</span>
+            <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s1">&#39;time&#39;</span><span class="p">,</span> <span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">resample</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">sample_time_ns</span><span class="si">}</span><span class="s2">ns&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">interpolate</span><span class="p">(</span><span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">&quot;No time column found in the DataFrame. Please provide a time column for resampling.&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">df</span></div>
+
+    
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__get_format_idxs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">format</span><span class="p">:</span> <span class="nb">list</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+        <span class="n">model_inputs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model_def</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">]</span>
+        <span class="n">format_idx</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">idx</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">format</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">item</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">model_inputs</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                        <span class="n">idx</span> <span class="o">+=</span> <span class="mi">1</span>
+                        <span class="k">break</span>
+                    <span class="n">n_cols</span> <span class="o">=</span> <span class="n">model_inputs</span><span class="p">[</span><span class="n">key</span><span class="p">][</span><span class="s1">&#39;dim&#39;</span><span class="p">]</span>
+                    <span class="n">format_idx</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">idx</span> <span class="o">+</span> <span class="n">n_cols</span><span class="p">)</span>
+                <span class="n">idx</span> <span class="o">+=</span> <span class="n">n_cols</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">item</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">model_inputs</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                    <span class="n">idx</span> <span class="o">+=</span> <span class="mi">1</span>
+                    <span class="k">continue</span>
+                <span class="n">n_cols</span> <span class="o">=</span> <span class="n">model_inputs</span><span class="p">[</span><span class="n">item</span><span class="p">][</span><span class="s1">&#39;dim&#39;</span><span class="p">]</span>
+                <span class="n">format_idx</span><span class="p">[</span><span class="n">item</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">idx</span> <span class="o">+</span> <span class="n">n_cols</span><span class="p">)</span>
+                <span class="n">idx</span> <span class="o">+=</span> <span class="n">n_cols</span>
+        <span class="k">return</span> <span class="n">format_idx</span>
+    
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__get_files</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">folder</span><span class="p">:</span><span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">files</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">walk</span><span class="p">(</span><span class="n">folder</span><span class="p">))</span>
+            <span class="n">files</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">StopIteration</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">check</span><span class="p">(</span><span class="kc">False</span><span class="p">,</span> <span class="ne">StopIteration</span><span class="p">,</span> <span class="sa">f</span><span class="s1">&#39;ERROR: The path &quot;</span><span class="si">{</span><span class="n">folder</span><span class="si">}</span><span class="s1">&quot; does not exist!&#39;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">[]</span>
+        <span class="k">return</span> <span class="n">files</span>
+    
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__stack_arrays</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">:</span>
+        <span class="c1">## Convert lists to numpy arrays</span>
+        <span class="n">num_of_samples</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+            <span class="n">data</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">key</span><span class="p">])</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model_def</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">][</span><span class="n">key</span><span class="p">][</span><span class="s1">&#39;dim&#39;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">data</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">data</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>  <span class="c1">## Add the sample dimension</span>
+                <span class="n">data</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">expand_dims</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">key</span><span class="p">],</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">data</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">ndim</span> <span class="o">&gt;</span> <span class="mi">3</span><span class="p">:</span>
+                <span class="n">data</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">key</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">num_of_samples</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">num_of_samples</span>
+
+<div class="viewcode-block" id="Loader.loadData">
+<a class="viewcode-back" href="../../../_autodoc/training/loader_module.html#nnodely.operators.loader.Loader.loadData">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">loadData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span><span class="nb">str</span><span class="p">,</span>
+                 <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">dict</span> <span class="o">|</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span>
+                 <span class="nb">format</span><span class="p">:</span> <span class="nb">list</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+                 <span class="n">skiplines</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+                 <span class="n">delimiter</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;,&#39;</span><span class="p">,</span>
+                 <span class="n">header</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Sequence</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+                 <span class="n">resampling</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+                 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Loads data into the model. The data can be loaded from a directory path containing the csv files or from a crafted dataset.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        name : str</span>
+<span class="sd">            The name of the dataset.</span>
+<span class="sd">        source : str or list or pd.DataFrame</span>
+<span class="sd">            The source of the data. Can be a directory path containing the csv files or a custom dataset provided as a dictionary or a pandas DataFrame.</span>
+<span class="sd">        format : list or None, optional</span>
+<span class="sd">            The format of the data. When loading multiple csv files the format parameter will define how to read each column of the file. Default is None.</span>
+<span class="sd">        skiplines : int, optional</span>
+<span class="sd">            The number of lines to skip at the beginning of the file. Default is 0.</span>
+<span class="sd">        delimiter : str, optional</span>
+<span class="sd">            The delimiter used in the data files. Default is &#39;,&#39;.</span>
+<span class="sd">        header : list or None, optional</span>
+<span class="sd">            The header of the data files. Default is None.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If the network is not neuralized.</span>
+<span class="sd">            If the delimiter is not valid.</span>
+
+<span class="sd">        Examples</span>
+<span class="sd">        --------</span>
+<span class="sd">        .. image:: https://colab.research.google.com/assets/colab-badge.svg</span>
+<span class="sd">            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb</span>
+<span class="sd">            :alt: Open in Colab</span>
+
+<span class="sd">        Example - load data from files:</span>
+<span class="sd">            &gt;&gt;&gt; x = Input(&#39;x&#39;)</span>
+<span class="sd">            &gt;&gt;&gt; y = Input(&#39;y&#39;)</span>
+<span class="sd">            &gt;&gt;&gt; out = Output(&#39;out&#39;,Fir(x.tw(0.05)))</span>
+<span class="sd">            &gt;&gt;&gt; test = Modely(visualizer=None)</span>
+<span class="sd">            &gt;&gt;&gt; test.addModel(&#39;example_model&#39;, out)</span>
+<span class="sd">            &gt;&gt;&gt; test.neuralizeModel(0.01)</span>
+<span class="sd">            &gt;&gt;&gt; data_struct = [&#39;x&#39;, &#39;&#39;, &#39;y&#39;]</span>
+<span class="sd">            &gt;&gt;&gt; test.loadData(name=&#39;example_dataset&#39;, source=&#39;path/to/data&#39;, format=data_struct)</span>
+
+<span class="sd">        Example - load data from a crafted dataset:</span>
+<span class="sd">            &gt;&gt;&gt; x = Input(&#39;x&#39;)</span>
+<span class="sd">            &gt;&gt;&gt; y = Input(&#39;y&#39;)</span>
+<span class="sd">            &gt;&gt;&gt; out = Output(&#39;out&#39;,Fir(x.tw(0.05)))</span>
+<span class="sd">            &gt;&gt;&gt; test = Modely(visualizer=None)</span>
+<span class="sd">            &gt;&gt;&gt; test.addModel(&#39;example_model&#39;, out)</span>
+<span class="sd">            &gt;&gt;&gt; test.neuralizeModel(0.01)</span>
+<span class="sd">            &gt;&gt;&gt; data_x = np.array(range(10))</span>
+<span class="sd">            &gt;&gt;&gt; dataset = {&#39;x&#39;: data_x, &#39;y&#39;: (2*data_x)}</span>
+<span class="sd">            &gt;&gt;&gt; test.loadData(name=&#39;example_dataset&#39;,source=dataset)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">check</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">neuralized</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s2">&quot;The network is not neuralized.&quot;</span><span class="p">)</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">delimiter</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;</span><span class="se">\t</span><span class="s1">&#39;</span><span class="p">,</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">,</span> <span class="s1">&#39;;&#39;</span><span class="p">,</span> <span class="s1">&#39;,&#39;</span><span class="p">,</span> <span class="s1">&#39; &#39;</span><span class="p">],</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s1">&#39;delimiter not valid!&#39;</span><span class="p">)</span>
+
+        <span class="n">json_inputs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model_def</span><span class="p">[</span><span class="s1">&#39;Inputs&#39;</span><span class="p">]</span>
+        <span class="c1">## Initialize the dictionary containing the data</span>
+        <span class="n">check_names</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="o">.</span><span class="n">keys</span><span class="p">(),</span> <span class="sa">f</span><span class="s2">&quot;Dataset&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">source</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">str</span><span class="p">:</span>  <span class="c1">## we have a directory path containing the files</span>
+            <span class="c1">## collect column indexes</span>
+            <span class="n">format_idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__get_format_idxs</span><span class="p">(</span><span class="nb">format</span><span class="p">)</span>
+            <span class="c1">## Initialize each input key</span>
+            <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">format_idx</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="c1">## obtain the file names</span>
+            <span class="n">files</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__get_files</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_file_count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">files</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_file_count</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>  <span class="c1">## Multifile</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_multifile</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+            <span class="c1">## Cycle through all the files</span>
+            <span class="k">for</span> <span class="n">file</span> <span class="ow">in</span> <span class="n">files</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="c1">## read the csv</span>
+                    <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">file</span><span class="p">),</span> <span class="n">skiprows</span><span class="o">=</span><span class="n">skiplines</span><span class="p">,</span> <span class="n">delimiter</span><span class="o">=</span><span class="n">delimiter</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">)</span>
+                    <span class="c1">## Resampling if the time column is provided (must be a Datetime object)</span>
+                    <span class="k">if</span> <span class="n">resampling</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">resamplingData</span><span class="p">(</span><span class="n">df</span><span class="p">)</span>
+                <span class="k">except</span><span class="p">:</span>
+                    <span class="n">log</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Cannot read file </span><span class="si">{</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">source</span><span class="p">,</span><span class="w"> </span><span class="n">file</span><span class="p">)</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+                    <span class="k">continue</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_file_count</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_multifile</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">_multifile</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">)</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_max_n_samples</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_multifile</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">else</span> <span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">)</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_max_n_samples</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="c1">## Cycle through all the windows</span>
+                <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">idxs</span> <span class="ow">in</span> <span class="n">format_idx</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                    <span class="n">back</span><span class="p">,</span> <span class="n">forw</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_input_ns_backward</span><span class="p">[</span><span class="n">key</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">_input_ns_forward</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+                    <span class="c1">## Save as numpy array the data</span>
+                    <span class="n">data</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">iloc</span><span class="p">[:,</span> <span class="n">idxs</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span><span class="n">idxs</span><span class="p">[</span><span class="mi">1</span><span class="p">]]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">key</span><span class="p">]</span> <span class="o">+=</span> <span class="p">[</span><span class="n">data</span><span class="p">[</span><span class="n">i</span> <span class="o">-</span> <span class="n">back</span><span class="p">:</span><span class="n">i</span> <span class="o">+</span> <span class="n">forw</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_max_samples_backward</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">)</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_max_samples_forward</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)]</span>
+        <span class="k">else</span><span class="p">:</span>  <span class="c1">## we have a crafted dataset</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_file_count</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                <span class="c1"># Merge a list of inputs into a single dictionary</span>
+                <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">json_inputs</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                    <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">source</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                        <span class="k">continue</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1">## Initialize the dataset</span>
+                    <span class="n">back</span><span class="p">,</span> <span class="n">forw</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_input_ns_backward</span><span class="p">[</span><span class="n">key</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">_input_ns_forward</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+                    <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">source</span><span class="p">[</span><span class="n">key</span><span class="p">])</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_max_n_samples</span> <span class="o">+</span> <span class="mi">1</span><span class="p">):</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">source</span><span class="p">[</span><span class="n">key</span><span class="p">][</span><span class="n">idx</span> <span class="o">+</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_max_samples_backward</span> <span class="o">-</span> <span class="n">back</span><span class="p">):</span><span class="n">idx</span> <span class="o">+</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_max_samples_backward</span> <span class="o">+</span> <span class="n">forw</span><span class="p">)])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">resampling</span><span class="p">:</span>
+                    <span class="n">source</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">resamplingData</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">json_inputs</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                    <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">source</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+                        <span class="k">continue</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1">## Initialize the dataset</span>
+                    <span class="n">back</span><span class="p">,</span> <span class="n">forw</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_input_ns_backward</span><span class="p">[</span><span class="n">key</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">_input_ns_forward</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+                    <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">source</span><span class="p">)</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_max_n_samples</span> <span class="o">+</span> <span class="mi">1</span><span class="p">):</span>
+                        <span class="n">window</span> <span class="o">=</span> <span class="n">source</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">idx</span> <span class="o">+</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_max_samples_backward</span> <span class="o">-</span> <span class="n">back</span><span class="p">):</span><span class="n">idx</span> <span class="o">+</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_max_samples_backward</span> <span class="o">+</span> <span class="n">forw</span><span class="p">)]</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">window</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">())</span>
+
+        <span class="c1">## Convert lists to numpy arrays</span>
+        <span class="n">num_of_samples</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__stack_arrays</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="p">[</span><span class="n">name</span><span class="p">])</span>
+        <span class="c1"># Check dim of the samples</span>
+        <span class="n">check</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">num_of_samples</span><span class="o">.</span><span class="n">values</span><span class="p">()))</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;The number of the sample of the dataset </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> are not the same for all input in the dataset: </span><span class="si">{</span><span class="n">num_of_samples</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_num_of_samples</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">num_of_samples</span><span class="p">[</span><span class="nb">list</span><span class="p">(</span><span class="n">num_of_samples</span><span class="o">.</span><span class="n">keys</span><span class="p">())[</span><span class="mi">0</span><span class="p">]]</span>
+        <span class="c1">## Set the Loaded flag to True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_data_loaded</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="c1">## Update the number of datasets loaded</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__n_datasets</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_data</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__datasets_loaded</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="c1">## Show the dataset</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">visualizer</span><span class="o">.</span><span class="n">showDataset</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">name</span><span class="p">)</span></div>
+</div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright .</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,11 @@
+Output module
+================
+
+.. automodule:: nnodely.layers.output
+    :no-undoc-members:
+    :no-inherited-members:
+
+    .. autoclass:: nnodely.layers.output.Output
+        :undoc-members:
+        :inherited-members:
+        :exclude-members: count, resetCount, closedLoop, connect, tw, sw, z

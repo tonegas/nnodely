@@ -1,0 +1,489 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>nnodely.layers.parametricfunction &mdash;  1.5.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=73275c37"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            
+              <img src="../../../_static/logo.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/nnodely.html">Modely</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/nnodely.html#model-structured-nn-inputs-outputs-and-parameters">Model structured NN Inputs Outputs and Parameters</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/nnodely.html#model-structured-nn-building-blocks">Model structured NN building blocks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/nnodely.html#training">Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../_autodoc/nnodely.html#additional-information">Additional information</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html"></a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">nnodely.layers.parametricfunction</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for nnodely.layers.parametricfunction</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">inspect</span><span class="o">,</span><span class="w"> </span><span class="nn">copy</span><span class="o">,</span><span class="w"> </span><span class="nn">textwrap</span><span class="o">,</span><span class="w"> </span><span class="nn">torch</span><span class="o">,</span><span class="w"> </span><span class="nn">math</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Union</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.basic.relation</span><span class="w"> </span><span class="kn">import</span> <span class="n">NeuObj</span><span class="p">,</span> <span class="n">Stream</span><span class="p">,</span> <span class="n">toStream</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.basic.model</span><span class="w"> </span><span class="kn">import</span> <span class="n">Model</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.layers.parameter</span><span class="w"> </span><span class="kn">import</span> <span class="n">Parameter</span><span class="p">,</span> <span class="n">Constant</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.support.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">check</span><span class="p">,</span> <span class="n">enforce_types</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.support.jsonutils</span><span class="w"> </span><span class="kn">import</span> <span class="n">merge</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">nnodely.support.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">logging</span><span class="p">,</span> <span class="n">nnLogger</span>
+<span class="n">log</span> <span class="o">=</span> <span class="n">nnLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">,</span> <span class="n">logging</span><span class="o">.</span><span class="n">WARNING</span><span class="p">)</span>
+
+
+<span class="n">paramfun_relation_name</span> <span class="o">=</span> <span class="s1">&#39;ParamFun&#39;</span>
+
+<div class="viewcode-block" id="ParamFun">
+<a class="viewcode-back" href="../../../_autodoc/nnodely.html#nnodely.layers.parametricfunction.ParamFun">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ParamFun</span><span class="p">(</span><span class="n">NeuObj</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Represents a parametric function in the neural network model.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    param_fun : Callable</span>
+<span class="sd">        The parametric function to be used.</span>
+<span class="sd">    constants : list or dict or None, optional</span>
+<span class="sd">        A list or dictionary of constants to be used in the function. Default is None.</span>
+<span class="sd">    parameters_dimensions : list or dict or None, optional</span>
+<span class="sd">        A list or dictionary specifying the dimensions of the parameters. Default is None.</span>
+<span class="sd">    parameters : list or dict or None, optional</span>
+<span class="sd">        A list or dictionary of parameters to be used in the function. Default is None.</span>
+<span class="sd">    map_over_batch : bool, optional</span>
+<span class="sd">        A boolean indicating whether to map the function over the batch dimension. Default is False.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    relation_name : str</span>
+<span class="sd">        The name of the relation.</span>
+<span class="sd">    param_fun : Callable</span>
+<span class="sd">        The parametric function to be used.</span>
+<span class="sd">    constants : list or dict or None</span>
+<span class="sd">        A list or dictionary of constants to be used in the function.</span>
+<span class="sd">    parameters_dimensions : list or dict or None</span>
+<span class="sd">        A list or dictionary specifying the dimensions of the parameters.</span>
+<span class="sd">    parameters : list or dict or None</span>
+<span class="sd">        A list or dictionary of parameters to be used in the function.</span>
+<span class="sd">    map_over_batch : bool</span>
+<span class="sd">        A boolean indicating whether to map the function over the batch dimension.</span>
+<span class="sd">    output_dimension : dict</span>
+<span class="sd">        A dictionary containing the output dimensions of the function.</span>
+<span class="sd">    json : dict</span>
+<span class="sd">        A dictionary containing the configuration of the function.</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    .. image:: https://colab.research.google.com/assets/colab-badge.svg</span>
+<span class="sd">        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/parametric_functions.ipynb</span>
+<span class="sd">        :alt: Open in Colab</span>
+
+<span class="sd">    Example: </span>
+<span class="sd">        &gt;&gt;&gt; input1 = Input(&#39;input1&#39;)</span>
+<span class="sd">        &gt;&gt;&gt; input2 = Input(&#39;input2&#39;)</span>
+
+<span class="sd">        &gt;&gt;&gt; def my_function(x, y, param1, const1):</span>
+<span class="sd">        &gt;&gt;&gt;     return param1 * x + const1 * y</span>
+
+<span class="sd">        &gt;&gt;&gt; param_fun = ParamFun(my_function, constants={&#39;const1&#39;: 1.0}, parameters_dimensions={&#39;param1&#39;: 1})</span>
+<span class="sd">        &gt;&gt;&gt; result = param_fun(input1, input2)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">param_fun</span><span class="p">:</span><span class="n">Callable</span><span class="p">,</span>
+                 <span class="n">parameters_and_constants</span><span class="p">:</span><span class="nb">list</span><span class="o">|</span><span class="nb">dict</span><span class="o">|</span><span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span>
+                 <span class="n">map_over_batch</span><span class="p">:</span><span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Stream</span><span class="p">:</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">relation_name</span> <span class="o">=</span> <span class="n">paramfun_relation_name</span>
+
+        <span class="c1"># input parameters</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">param_fun</span> <span class="o">=</span> <span class="n">param_fun</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parameters_and_constants</span> <span class="o">=</span> <span class="n">parameters_and_constants</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">map_over_batch</span> <span class="o">=</span> <span class="n">map_over_batch</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_dimension</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="s1">&#39;F&#39;</span><span class="o">+</span><span class="n">paramfun_relation_name</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">NeuObj</span><span class="o">.</span><span class="n">count</span><span class="p">))</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="n">textwrap</span><span class="o">.</span><span class="n">dedent</span><span class="p">(</span><span class="n">inspect</span><span class="o">.</span><span class="n">getsource</span><span class="p">(</span><span class="n">param_fun</span><span class="p">))</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\&quot;</span><span class="s1">&#39;</span><span class="p">,</span> <span class="s1">&#39;</span><span class="se">\&#39;</span><span class="s1">&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;code&#39;</span> <span class="p">:</span> <span class="n">code</span><span class="p">,</span>
+            <span class="s1">&#39;name&#39;</span> <span class="p">:</span> <span class="n">param_fun</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;params_and_consts&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="n">funinfo</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">getfullargspec</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">param_fun</span><span class="p">)</span>
+
+        <span class="c1"># Create the parameters and constants from list</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">parameters_and_constants</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">list</span><span class="p">:</span>
+            <span class="n">n_pc</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">parameters_and_constants</span><span class="p">)</span>
+            <span class="n">n_input</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">funinfo</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">pc</span><span class="p">,</span> <span class="n">pc_name</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">parameters_and_constants</span><span class="p">,</span><span class="n">funinfo</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="n">n_input</span><span class="o">-</span><span class="n">n_pc</span><span class="p">:]):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">__create_parameter</span><span class="p">(</span><span class="n">pc</span><span class="p">,</span> <span class="n">pc_name</span><span class="p">)</span>
+
+        <span class="c1"># Create the parameters and constants from list</span>
+        <span class="n">first</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">parameters_and_constants</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">dict</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">key</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">funinfo</span><span class="o">.</span><span class="n">args</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters_and_constants</span><span class="p">:</span>
+                    <span class="n">first</span> <span class="o">=</span> <span class="kc">True</span>
+                    <span class="n">pc</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters_and_constants</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">__create_parameter</span><span class="p">(</span><span class="n">pc</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+                <span class="k">elif</span> <span class="n">first</span> <span class="o">==</span> <span class="kc">True</span><span class="p">:</span>
+                    <span class="n">p</span> <span class="o">=</span> <span class="n">Parameter</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">+</span> <span class="n">key</span><span class="p">,</span> <span class="n">dimensions</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;params_and_consts&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">json</span> <span class="o">=</span> <span class="n">merge</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">json</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">json_stream</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="nd">@enforce_types</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">obj</span><span class="p">:</span><span class="n">Union</span><span class="p">[</span><span class="n">Stream</span><span class="o">|</span><span class="n">Parameter</span><span class="o">|</span><span class="n">Constant</span><span class="o">|</span><span class="nb">float</span><span class="o">|</span><span class="nb">int</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Stream</span><span class="p">:</span>
+        <span class="n">stream_name</span> <span class="o">=</span> <span class="n">paramfun_relation_name</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">Stream</span><span class="o">.</span><span class="n">count</span><span class="p">)</span>
+
+        <span class="n">funinfo</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">getfullargspec</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">param_fun</span><span class="p">)</span>
+        <span class="n">n_function_input</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">funinfo</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+        <span class="n">n_call_input</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+        <span class="n">n_parameters</span> <span class="o">=</span> <span class="n">n_function_input</span> <span class="o">-</span> <span class="n">n_call_input</span>
+
+        <span class="n">input_dimensions</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">input_types</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">ind</span><span class="p">,</span> <span class="n">o</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">o</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+                <span class="n">obj_type</span> <span class="o">=</span> <span class="n">Constant</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">obj_type</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="n">o</span><span class="p">)</span>
+            <span class="n">o</span> <span class="o">=</span> <span class="n">toStream</span><span class="p">(</span><span class="n">o</span><span class="p">)</span>
+            <span class="n">check</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">o</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Stream</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span>
+                  <span class="sa">f</span><span class="s2">&quot;The type of </span><span class="si">{</span><span class="n">o</span><span class="si">}</span><span class="s2"> is </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">o</span><span class="p">)</span><span class="si">}</span><span class="s2"> and is not supported for ParamFun operation.&quot;</span><span class="p">)</span>
+            <span class="n">input_types</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">obj_type</span><span class="p">)</span>
+            <span class="n">input_dimensions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">o</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">n_call_input</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">json_stream</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json_stream</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">log</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;The function </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> was called with a different number of inputs. If both functions enter in the model an error will be raised.&quot;</span><span class="p">)</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">json_stream</span><span class="p">[</span><span class="n">n_call_input</span><span class="p">]</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">json_stream</span><span class="p">[</span><span class="n">n_call_input</span><span class="p">][</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;n_input&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">n_call_input</span>
+
+            <span class="c1"># Create the missing parameters</span>
+            <span class="n">n_created_parameters</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json_stream</span><span class="p">[</span><span class="n">n_call_input</span><span class="p">][</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;params_and_consts&#39;</span><span class="p">])</span>
+            <span class="n">n_missing_parameters</span> <span class="o">=</span> <span class="n">n_parameters</span> <span class="o">-</span> <span class="n">n_created_parameters</span>
+            <span class="n">check</span><span class="p">(</span><span class="n">n_missing_parameters</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;The function is called with too many parameter and inputs.&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__create_missing_parameters</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json_stream</span><span class="p">[</span><span class="n">n_call_input</span><span class="p">],</span> <span class="n">n_call_input</span><span class="p">,</span> <span class="n">n_missing_parameters</span><span class="p">)</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">json_stream</span><span class="p">[</span><span class="n">n_call_input</span><span class="p">][</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;in_dim&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">input_dimensions</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">json_stream</span><span class="p">[</span><span class="n">n_call_input</span><span class="p">][</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;map_over_dim&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__infer_map_over_batch</span><span class="p">(</span><span class="n">input_types</span><span class="p">,</span> <span class="n">n_parameters</span><span class="p">)</span>
+            <span class="n">output_dimension</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__infer_output_dimensions</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json_stream</span><span class="p">[</span><span class="n">n_call_input</span><span class="p">],</span> <span class="n">input_types</span><span class="p">,</span> <span class="n">input_dimensions</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">map_over_batch</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__infer_map_over_batch</span><span class="p">(</span><span class="n">input_types</span><span class="p">,</span> <span class="n">n_parameters</span><span class="p">)</span>
+            <span class="n">check</span><span class="p">(</span><span class="n">map_over_batch</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">json_stream</span><span class="p">[</span><span class="n">n_call_input</span><span class="p">][</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;map_over_dim&#39;</span><span class="p">],</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;The function </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> was called with different type of input using map_over_batch=True.&quot;</span><span class="p">)</span>
+            <span class="n">output_dimension</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__infer_output_dimensions</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json_stream</span><span class="p">[</span><span class="n">n_call_input</span><span class="p">],</span> <span class="n">input_types</span><span class="p">,</span> <span class="n">input_dimensions</span><span class="p">)</span>
+
+            <span class="c1"># Save the all the input dimension used for call the parametric function</span>
+            <span class="n">in_dim</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">json_stream</span><span class="p">[</span><span class="n">n_call_input</span><span class="p">][</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;in_dim&#39;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">in_dim</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="ow">is</span> <span class="nb">dict</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">in_dim</span> <span class="o">!=</span> <span class="n">input_dimensions</span><span class="p">:</span>
+                    <span class="n">in_dim</span> <span class="o">=</span> <span class="p">[</span><span class="n">in_dim</span><span class="p">,</span> <span class="n">input_dimensions</span><span class="p">]</span>
+                    <span class="n">log</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;The function </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> was called with inputs with different dimensions.&quot;</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">input_dimensions</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">in_dim</span><span class="p">:</span>
+                <span class="n">in_dim</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">input_dimensions</span><span class="p">)</span>
+                <span class="n">log</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;The function </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> was called with inputs with different dimensions.&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">json_stream</span><span class="p">[</span><span class="n">n_call_input</span><span class="p">][</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;in_dim&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">in_dim</span>
+
+        <span class="n">stream_json</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json_stream</span><span class="p">[</span><span class="n">n_call_input</span><span class="p">])</span>
+        <span class="n">input_names</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">ind</span><span class="p">,</span> <span class="n">o</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+            <span class="n">o</span> <span class="o">=</span> <span class="n">toStream</span><span class="p">(</span><span class="n">o</span><span class="p">)</span>
+            <span class="n">check</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">o</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Stream</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">,</span>
+                  <span class="sa">f</span><span class="s2">&quot;The type of </span><span class="si">{</span><span class="n">o</span><span class="si">}</span><span class="s2"> is </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">o</span><span class="p">)</span><span class="si">}</span><span class="s2"> and is not supported for ParamFun operation.&quot;</span><span class="p">)</span>
+            <span class="n">stream_json</span> <span class="o">=</span> <span class="n">merge</span><span class="p">(</span><span class="n">stream_json</span><span class="p">,</span> <span class="n">o</span><span class="o">.</span><span class="n">json</span><span class="p">)</span>
+            <span class="n">input_names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">o</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+
+        <span class="n">stream_json</span><span class="p">[</span><span class="s1">&#39;Relations&#39;</span><span class="p">][</span><span class="n">stream_name</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">paramfun_relation_name</span><span class="p">,</span> <span class="n">input_names</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">Stream</span><span class="p">(</span><span class="n">stream_name</span><span class="p">,</span> <span class="n">stream_json</span><span class="p">,</span> <span class="n">output_dimension</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__create_parameter</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pc</span><span class="p">,</span> <span class="n">pc_name</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">pc</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Parameter</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;params_and_consts&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pc</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">json</span> <span class="o">=</span> <span class="n">merge</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">,</span> <span class="n">pc</span><span class="o">.</span><span class="n">json</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">type</span><span class="p">(</span><span class="n">pc</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">str</span><span class="p">:</span>
+            <span class="c1"># TODO to remove! there is no reason to give a name to the parameter. The name of the parameter is the name of the function parameter</span>
+            <span class="n">p</span> <span class="o">=</span> <span class="n">Parameter</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">pc</span><span class="p">,</span> <span class="n">dimensions</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;params_and_consts&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">json</span> <span class="o">=</span> <span class="n">merge</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">json</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">type</span><span class="p">(</span><span class="n">pc</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">tuple</span><span class="p">:</span>
+            <span class="n">p</span> <span class="o">=</span> <span class="n">Parameter</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">+</span> <span class="n">pc_name</span><span class="p">,</span> <span class="n">dimensions</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">pc</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;params_and_consts&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">json</span> <span class="o">=</span> <span class="n">merge</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">json</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">type</span><span class="p">(</span><span class="n">pc</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Constant</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;params_and_consts&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pc</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">json</span> <span class="o">=</span> <span class="n">merge</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">,</span> <span class="n">pc</span><span class="o">.</span><span class="n">json</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">type</span><span class="p">(</span><span class="n">pc</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">float</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="n">c</span> <span class="o">=</span> <span class="n">Constant</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">+</span> <span class="n">pc_name</span><span class="p">,</span> <span class="n">values</span><span class="o">=</span><span class="n">pc</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;params_and_consts&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">json</span> <span class="o">=</span> <span class="n">merge</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">json</span><span class="p">,</span> <span class="n">c</span><span class="o">.</span><span class="n">json</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">check</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">pc</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="n">Parameter</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">,</span> <span class="n">Constant</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">list</span><span class="p">),</span> <span class="ne">TypeError</span><span class="p">,</span>
+                  <span class="sa">f</span><span class="s1">&#39;The element inside the </span><span class="se">\&quot;</span><span class="s1">parameters_and_constants</span><span class="se">\&quot;</span><span class="s1"> list or dict must be a Parameter, str, tuple to build a Parameter or Constant, int, float or list to build a Constant but was </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">pc</span><span class="p">)</span><span class="si">}</span><span class="s1">.&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__infer_map_over_batch</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_types</span><span class="p">,</span> <span class="n">n_constants_and_params</span><span class="p">):</span>
+        <span class="n">input_map_dim</span> <span class="o">=</span> <span class="p">()</span>
+
+        <span class="k">for</span> <span class="n">elem</span> <span class="ow">in</span> <span class="n">input_types</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">elem</span> <span class="ow">in</span> <span class="p">(</span><span class="n">Parameter</span><span class="p">,</span> <span class="n">Constant</span><span class="p">):</span>
+                <span class="n">input_map_dim</span> <span class="o">+=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">input_map_dim</span> <span class="o">+=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,)</span>
+
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_constants_and_params</span><span class="p">):</span>
+            <span class="n">input_map_dim</span> <span class="o">+=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">map_over_batch</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="n">input_map_dim</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__create_missing_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stream_json</span><span class="p">,</span> <span class="n">n_call_input</span><span class="p">,</span> <span class="n">n_missing_parameters</span><span class="p">):</span>
+        <span class="n">funinfo</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">getfullargspec</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">param_fun</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_missing_parameters</span><span class="p">):</span>
+            <span class="n">p_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">+</span> <span class="n">funinfo</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="n">n_call_input</span><span class="o">+</span><span class="n">i</span><span class="p">]</span>
+            <span class="n">stream_json</span><span class="p">[</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;params_and_consts&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">p_name</span><span class="p">)</span>
+            <span class="n">stream_json</span><span class="p">[</span><span class="s1">&#39;Parameters&#39;</span><span class="p">][</span><span class="n">p_name</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;dim&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__infer_output_dimensions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stream_json</span><span class="p">,</span> <span class="n">input_types</span><span class="p">,</span> <span class="n">input_dimensions</span><span class="p">):</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+        <span class="n">batch_dim</span> <span class="o">=</span> <span class="mi">5</span>
+
+        <span class="n">all_inputs_dim</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">input_dimensions</span><span class="p">)</span>
+        <span class="n">all_inputs_type</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">input_types</span><span class="p">)</span>
+        <span class="n">params_and_consts</span> <span class="o">=</span> <span class="n">stream_json</span><span class="p">[</span><span class="s1">&#39;Constants&#39;</span><span class="p">]</span> <span class="o">|</span> <span class="n">stream_json</span><span class="p">[</span><span class="s1">&#39;Parameters&#39;</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">stream_json</span><span class="p">[</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;params_and_consts&#39;</span><span class="p">]:</span>
+            <span class="n">all_inputs_dim</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">params_and_consts</span><span class="p">[</span><span class="n">name</span><span class="p">])</span>
+            <span class="n">all_inputs_type</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Constant</span><span class="p">)</span>
+
+        <span class="n">n_samples_sec</span> <span class="o">=</span> <span class="mf">0.1</span>
+        <span class="n">is_int</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">while</span> <span class="n">is_int</span> <span class="o">==</span> <span class="kc">False</span><span class="p">:</span>
+            <span class="n">n_samples_sec</span> <span class="o">*=</span> <span class="mi">10</span>
+            <span class="n">vect_input_time</span> <span class="o">=</span> <span class="p">[</span><span class="n">math</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">d</span><span class="p">[</span><span class="s1">&#39;tw&#39;</span><span class="p">]</span><span class="o">*</span><span class="n">n_samples_sec</span><span class="p">,</span><span class="nb">round</span><span class="p">(</span><span class="n">d</span><span class="p">[</span><span class="s1">&#39;tw&#39;</span><span class="p">]</span><span class="o">*</span><span class="n">n_samples_sec</span><span class="p">))</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">all_inputs_dim</span> <span class="k">if</span> <span class="s1">&#39;tw&#39;</span> <span class="ow">in</span> <span class="n">d</span><span class="p">]</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">vect_input_time</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">is_int</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">is_int</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">vect_input_time</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">vect_input_time</span><span class="p">)</span>
+
+        <span class="c1"># Build input with right dimensions</span>
+        <span class="n">inputs</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">inputs_win_type</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">inputs_win</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">dim</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">all_inputs_type</span><span class="p">,</span><span class="n">all_inputs_dim</span><span class="p">):</span>
+            <span class="n">window</span> <span class="o">=</span> <span class="s1">&#39;tw&#39;</span> <span class="k">if</span> <span class="s1">&#39;tw&#39;</span> <span class="ow">in</span> <span class="n">dim</span> <span class="k">else</span> <span class="p">(</span><span class="s1">&#39;sw&#39;</span> <span class="k">if</span> <span class="s1">&#39;sw&#39;</span> <span class="ow">in</span> <span class="n">dim</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">window</span> <span class="o">==</span> <span class="s1">&#39;tw&#39;</span><span class="p">:</span>
+                <span class="n">dim_win</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">dim</span><span class="p">[</span><span class="n">window</span><span class="p">]</span> <span class="o">*</span> <span class="n">n_samples_sec</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">window</span> <span class="o">==</span> <span class="s1">&#39;sw&#39;</span><span class="p">:</span>
+                <span class="n">dim_win</span> <span class="o">=</span> <span class="n">dim</span><span class="p">[</span><span class="n">window</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">dim_win</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">t</span> <span class="ow">in</span> <span class="p">(</span><span class="n">Parameter</span><span class="p">,</span> <span class="n">Constant</span><span class="p">)</span> <span class="k">else</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="n">t</span> <span class="ow">in</span> <span class="p">(</span><span class="n">Parameter</span><span class="p">,</span> <span class="n">Constant</span><span class="p">):</span>
+                <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">])</span> <span class="ow">is</span> <span class="nb">list</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">dim_win</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                        <span class="n">inputs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">dim_win</span><span class="p">,)</span> <span class="o">+</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">])))</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">inputs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">])))</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">dim_win</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                        <span class="n">inputs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">dim_win</span><span class="p">,</span> <span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">])))</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">inputs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">],)))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">inputs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">batch_dim</span><span class="p">,</span> <span class="n">dim_win</span><span class="p">,</span> <span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">])))</span>
+
+            <span class="n">inputs_win_type</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">window</span><span class="p">)</span>
+            <span class="n">inputs_win</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">dim_win</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">map_over_batch</span><span class="p">:</span>
+            <span class="n">function_to_call</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">func</span><span class="o">.</span><span class="n">vmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">param_fun</span><span class="p">,</span><span class="n">in_dims</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">stream_json</span><span class="p">[</span><span class="s1">&#39;Functions&#39;</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">][</span><span class="s1">&#39;map_over_dim&#39;</span><span class="p">]))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">function_to_call</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">param_fun</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">function_to_call</span><span class="p">(</span><span class="o">*</span><span class="n">inputs</span><span class="p">)</span>
+        <span class="n">out_shape</span> <span class="o">=</span> <span class="n">out</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">out_shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">batch_dim</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s2">&quot;The batch output dimension it is not correct.&quot;</span><span class="p">)</span>
+        <span class="n">out_dim</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">out_shape</span><span class="p">[</span><span class="mi">2</span><span class="p">:])</span>
+        <span class="n">check</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">out_dim</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s2">&quot;The output dimension of the function is bigger than a vector.&quot;</span><span class="p">)</span>
+        <span class="n">out_win_type</span> <span class="o">=</span> <span class="s1">&#39;sw&#39;</span>
+        <span class="n">out_win</span> <span class="o">=</span> <span class="n">out_shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">win</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">inputs_win</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">out_shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">win</span> <span class="ow">and</span> <span class="n">all_inputs_type</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="n">Parameter</span><span class="p">,</span> <span class="n">Constant</span><span class="p">):</span>
+                <span class="n">out_win_type</span> <span class="o">=</span> <span class="n">inputs_win_type</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+                <span class="n">out_win</span> <span class="o">=</span> <span class="n">all_inputs_dim</span><span class="p">[</span><span class="n">idx</span><span class="p">][</span><span class="n">out_win_type</span><span class="p">]</span>
+
+        <span class="k">return</span> <span class="p">{</span> <span class="s1">&#39;dim&#39;</span><span class="p">:</span> <span class="n">out_dim</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">out_win_type</span> <span class="p">:</span> <span class="n">out_win</span> <span class="p">}</span></div>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">return_standard_inputs</span><span class="p">(</span><span class="n">json</span><span class="p">,</span> <span class="n">model_def</span><span class="p">,</span> <span class="n">xlim</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">num_points</span> <span class="o">=</span> <span class="mi">1000</span><span class="p">):</span>
+    <span class="n">check</span><span class="p">(</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;n_input&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">or</span> <span class="n">json</span><span class="p">[</span><span class="s1">&#39;n_input&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s2">&quot;The function must have only one or two inputs.&quot;</span><span class="p">)</span>
+    <span class="n">fun_inputs</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;n_input&#39;</span><span class="p">]):</span>
+        <span class="n">dim</span> <span class="o">=</span> <span class="n">json</span><span class="p">[</span><span class="s1">&#39;in_dim&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">check</span><span class="p">(</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s2">&quot;The input dimension must be 1.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s1">&#39;tw&#39;</span> <span class="ow">in</span> <span class="n">dim</span><span class="p">:</span>
+            <span class="n">check</span><span class="p">(</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;tw&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">model_def</span><span class="p">[</span><span class="s1">&#39;Info&#39;</span><span class="p">][</span><span class="s1">&#39;SampleTime&#39;</span><span class="p">],</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;The input window must be 1 but was </span><span class="si">{</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;tw&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="s1">&#39;sw&#39;</span> <span class="ow">in</span> <span class="n">dim</span><span class="p">:</span>
+            <span class="n">check</span><span class="p">(</span><span class="n">dim</span><span class="p">[</span><span class="s1">&#39;sw&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s2">&quot;The input window must be 1.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">xlim</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">json</span><span class="p">[</span><span class="s1">&#39;n_input&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="n">check</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">xlim</span><span class="p">)</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="p">(</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;n_input&#39;</span><span class="p">],</span> <span class="mi">2</span><span class="p">),</span> <span class="ne">ValueError</span><span class="p">,</span>
+                      <span class="s2">&quot;The xlim must have the same shape as the number of inputs.&quot;</span><span class="p">)</span>
+                <span class="n">x_value</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">xlim</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">xlim</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span> <span class="n">num</span><span class="o">=</span><span class="n">num_points</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">check</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">xlim</span><span class="p">)</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="p">(</span><span class="mi">2</span><span class="p">,),</span> <span class="ne">ValueError</span><span class="p">,</span>
+                      <span class="s2">&quot;The xlim must have the same shape as the number of inputs.&quot;</span><span class="p">)</span>
+                <span class="n">x_value</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">xlim</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">xlim</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">num</span><span class="o">=</span><span class="n">num_points</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">x_value</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">num</span><span class="o">=</span><span class="n">num_points</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">x0_value</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">x_value</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">x1_value</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">x_value</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">json</span><span class="p">[</span><span class="s1">&#39;n_input&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="n">x0_value</span><span class="p">,</span> <span class="n">x1_value</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">meshgrid</span><span class="p">(</span><span class="n">x0_value</span><span class="p">,</span><span class="n">x1_value</span><span class="p">,</span><span class="n">indexing</span><span class="o">=</span><span class="s2">&quot;xy&quot;</span><span class="p">)</span>
+        <span class="n">x0_value</span> <span class="o">=</span> <span class="n">x0_value</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">x1_value</span> <span class="o">=</span> <span class="n">x1_value</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">fun_inputs</span> <span class="o">+=</span> <span class="p">(</span><span class="n">x0_value</span><span class="p">,</span><span class="n">x1_value</span><span class="p">,)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">x0_value</span> <span class="o">=</span> <span class="n">x0_value</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">fun_inputs</span> <span class="o">+=</span> <span class="p">(</span><span class="n">x0_value</span><span class="p">,)</span>
+
+    <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">json</span><span class="p">[</span><span class="s1">&#39;params_and_consts&#39;</span><span class="p">]:</span>
+        <span class="n">val</span> <span class="o">=</span> <span class="n">model_def</span><span class="p">[</span><span class="s1">&#39;Parameters&#39;</span><span class="p">][</span><span class="n">key</span><span class="p">]</span> <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">model_def</span><span class="p">[</span><span class="s1">&#39;Parameters&#39;</span><span class="p">]</span> <span class="k">else</span> <span class="n">model_def</span><span class="p">[</span><span class="s1">&#39;Constants&#39;</span><span class="p">][</span><span class="n">key</span><span class="p">]</span>
+        <span class="n">fun_inputs</span> <span class="o">+=</span> <span class="nb">tuple</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">val</span><span class="p">[</span><span class="s1">&#39;values&#39;</span><span class="p">]))])</span> <span class="c1"># The vector is transform in a tuple</span>
+
+    <span class="k">return</span> <span class="n">fun_inputs</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">return_function</span><span class="p">(</span><span class="n">json</span><span class="p">,</span> <span class="n">fun_inputs</span><span class="p">):</span>
+    <span class="n">exec</span><span class="p">(</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;code&#39;</span><span class="p">],</span> <span class="nb">globals</span><span class="p">())</span>
+    <span class="n">function_to_call</span> <span class="o">=</span> <span class="nb">globals</span><span class="p">()[</span><span class="n">json</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]]</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">function_to_call</span><span class="p">(</span><span class="o">*</span><span class="n">fun_inputs</span><span class="p">)</span>
+    <span class="n">check</span><span class="p">(</span><span class="n">output</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s2">&quot;The output dimension must be 1.&quot;</span><span class="p">)</span>
+    <span class="n">check</span><span class="p">(</span><span class="n">output</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">,</span> <span class="s2">&quot;The output window must be 1.&quot;</span><span class="p">)</span>
+    <span class="n">funinfo</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">getfullargspec</span><span class="p">(</span><span class="n">function_to_call</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">output</span><span class="p">,</span> <span class="n">funinfo</span><span class="o">.</span><span class="n">args</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Parametric_Layer</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">params_and_consts</span><span class="p">,</span> <span class="n">map_over_batch</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">func</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">params_and_consts</span> <span class="o">=</span> <span class="n">params_and_consts</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">map_over_batch</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">list</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">map_over_batch</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">input_map_dim</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">map_over_batch</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">map_over_batch</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="c1">## Add the function to the globals</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">code</span> <span class="o">=</span> <span class="s1">&#39;import torch</span><span class="se">\n</span><span class="s1">@torch.fx.wrap</span><span class="se">\n</span><span class="s1">&#39;</span> <span class="o">+</span> <span class="n">func</span><span class="p">[</span><span class="s1">&#39;code&#39;</span><span class="p">]</span>
+            <span class="n">exec</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="nb">globals</span><span class="p">())</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;An error occurred: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">inputs</span><span class="p">):</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">inputs</span><span class="p">)</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">params_and_consts</span>
+        <span class="c1"># Retrieve the function object from the globals dictionary</span>
+        <span class="n">function_to_call</span> <span class="o">=</span> <span class="nb">globals</span><span class="p">()[</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+        <span class="c1"># Call the function using the retrieved function object</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">map_over_batch</span><span class="p">:</span>
+            <span class="n">function_to_call</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">func</span><span class="o">.</span><span class="n">vmap</span><span class="p">(</span><span class="n">function_to_call</span><span class="p">,</span><span class="n">in_dims</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">input_map_dim</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">function_to_call</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">createParamFun</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">func_params</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">Parametric_Layer</span><span class="p">(</span><span class="n">func</span><span class="o">=</span><span class="n">func_params</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">params_and_consts</span><span class="o">=</span><span class="n">func_params</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">map_over_batch</span><span class="o">=</span><span class="n">func_params</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+
+<span class="nb">setattr</span><span class="p">(</span><span class="n">Model</span><span class="p">,</span> <span class="n">paramfun_relation_name</span><span class="p">,</span> <span class="n">createParamFun</span><span class="p">)</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright .</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
