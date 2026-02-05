@@ -5,6 +5,12 @@
 
 Welcome to nnodely's documentation!
 ====================================
+
+.. image:: https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/logo_white_info.png
+     :target: https://github.com/tonegas/nnodely
+     :alt: Open 
+
+
 nnodely is a framework designed to facilitate the creation and deployment of **Model-Structured Neural Networks** (**MSNNs**). MS-NNs combine the learning capabilities of neural networks with structural priors grounded in physics, control and estimation theory, enabling: 
 
 - **Data Efficiency**: By embedding structural priors, MS-NNs can learn effectively from limited data, reducing the need for extensive datasets.
