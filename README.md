@@ -18,6 +18,40 @@ MS-NNs combine the learning capabilities of neural networks with structural **pr
 - **Generalization** to unseen scenarios
 - **Real-time** deployment in real-world applications
 
+<h2>Table of Contents</h2>
+<ol>
+  <li>
+    <a href="#whyuse">Why use nnodely?</a>
+  </li>
+  <li>
+    <a href="#installation">Installation</a>
+  </li>
+  <li>
+    <a href="#gettingstarted">Getting Started</a>
+  </li>
+  <li>
+    <a href="#basicexample">Basic Example</a>
+  </li>
+    <ul>
+      <li><a href="#structuredneuralmodel">Build the neural model</a></li>
+      <li><a href="#neuralizemodel">Neuralize the neural model</a></li>
+      <li><a href="#loaddataset">Load the dataset</a></li>
+      <li><a href="#trainmodel">Train the neural model</a></li>
+      <li><a href="#testmodel">Test the neural model</a></li>
+    </ul>
+  <li>
+    <a href="#fonlderstructure">Structure of the Folders</a>
+    <ul>
+      <li><a href="#nnodelyfolder">nnodely folder</a></li>
+      <li><a href="#testsfolder">tests folder</a></li>
+      <li><a href="#examplesfolder">examples folder</a></li>
+    </ul>
+  </li>
+  <li><a href="#license">License</a></li>
+  <li><a href="#references">References</a></li>
+</ol>
+
+<a name="whyuse"></a>
 ## Why use nnodely?
 
 The framework's goal is to allow **fast prototyping** of MS-NNs for modeling, control and estimation of physical systems, by embedding prior domain knowledge into the neural networks' architecture.
@@ -40,54 +74,37 @@ nnodely guides users through **six** structured **phases** to define, train, and
 5. **Neural Model Validation**: Assess the performance and reliability of the trained model.
 6. **Model Export**: Deploy MS-NNs using standard formats. nnodely supports export to native PyTorch (nnodely-independent) and ONNX for broader compatibility.
 
-<!-- TABLE OF CONTENTS -->
-<details>
-  <summary>Table of Contents</summary>
-  <ol>
-    <li>
-      <a href="#settingstarted">Getting Started</a>
-    </li>
-    <li>
-      <a href="#basicfunctionalities">Basic Example</a>
-      <ul>
-        <li><a href="#structuredneuralmodel">Build the neural model</a></li>
-        <li><a href="#neuralizemodel">Neuralize the neural model</a></li>
-        <li><a href="#loaddataset">Load the dataset</a></li>
-        <li><a href="#trainmodel">Train the neural model</a></li>
-        <li><a href="#testmodel">Test the neural model</a></li>
-      </ul>
-    </li>
-    <li>
-      <a href="#fonlderstructure">Structure of the Folders</a>
-      <ul>
-        <li><a href="#nnodelyfolder">nnodely folder</a></li>
-        <li><a href="#testsfolder">tests folder</a></li>
-        <li><a href="#examplesfolder">examples folder</a></li>
-      </ul>
-    </li>
-    <li><a href="#license">License</a></li>
-    <li><a href="#references">References</a></li>
-  </ol>
-</details>
 
 <!-- GETTING STARTED -->
-<a name="settingstarted"></a>
-## Getting Started
+<a name="installation"></a>
+## Installation
 You can install the nnodely framework from PyPI via:
+  
   ```sh
   pip install nnodely
   ```
+Or you can build it from source by cloning first the repository and installing the requirements along with the nnodely library
 
-### Applications and use cases
+  ```sh
+  git clone https://github.com/tonegas/nnodely.git
+  cd nnodely
+  pip install -r requirements.txt
+  pip install .
+  ```
+
+<a name="gettingstarted"></a>
+## Getting Started
 
 Some examples of application of nnodely in different fields are collected in the following open-source repository: [nnodely-applications](https://github.com/tonegas/nnodely-applications)
 
-### How to contribute
 Download the source code and install the dependencies using the following commands:
   ```sh
-  git clone git@github.com:tonegas/nnodely.git
+  git clone https://github.com/tonegas/nnodely.git
+  cd nnodely
   pip install -r requirements.txt
   ```
+
+### How to contribute
 
 To contribute to the nnodely framework, you can:
 - Open a pull request, if you have a new feature or bug fix.
@@ -97,8 +114,8 @@ We are very happy to collaborate with you!
  
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-<a name="basicfunctionalities"></a>
-## Basic Example
+<a name="basicexample"></a>
+## Basic example
 
 This example shows how to use nnodely to create a model-structured neural network (MS-NN) for a simple **mass-spring-damper mechanical system**.
 
@@ -124,16 +141,16 @@ F = Input('F')
 x_z_est = Output('x_z_est', Fir(x.tw(1)) + Fir(F.last()))
 ```
 
-Input variables can be created using the `Input` function.
+Input variables can be created using the `Input` class.
 In our system, we have two inputs: the position of the mass, `x`, and the external force exerted on the mass, `F`.
-The `Output` function is used to define a model's output.
-The `Output` function has two inputs: the first is the name (string) of the output, and the second is the structure of the estimator.
+The `Output` class is used to define a model's output.
+The `Output` class has two arguments: the first is the name (string) of the output, and the second is the structure of the estimator.
 
-Let's explain some of the functions used:
-1. The `tw(...)` function is used to extract a time window from a signal. 
-In particular, we extract a time window $T_w$ of 1 second.
-2. The `last()` function that is used to get the last force sample applied to the mass, i.e., the force at the current time step.
-3. The `Fir(...)` function to build an FIR (finite impulse response) filter with one learnable parameters on our input variable.
+Let's explain some of the methods used:
+1. The `tw(...)` method is used to extract a time window from a signal. 
+In particular here we extract a time window $T_w$ of 1 second.
+2. The `last()` method that is used to get the last force sample applied to the mass, i.e., the force at the current time step.
+3. The `Fir(...)` method to build an FIR (finite impulse response) filter with one learnable parameters on our input variable.
 
 Hence, we are creating an estimator for the variable `x` at the next time step (i.e., the future position of the mass), by building an observer with the following mathematical structure:
 ```math
@@ -152,7 +169,7 @@ However, our formulation is more general and can take better adapt to model mism
 Let's now try to train our MS-NN observer using the data we have.
 We perform:
 ```python
-mass_spring_damper = Modely()
+mass_spring_damper = nnodely()
 mass_spring_damper.addModel('x_z_est', x_z_est)
 mass_spring_damper.addMinimize('next-pos', x.z(-1), x_z_est, 'mse')
 mass_spring_damper.neuralizeModel(0.2)
@@ -178,7 +195,7 @@ Finally, the function `neuralizeModel` is used to create a discrete-time MS-NN m
 <a name="loaddataset"></a>
 ### Load the dataset
 
-The training dataset is then loaded. nnodely has access to all the files that are in a source folder.
+For loading a dataset, nnodely requires mainly 2 informations: the structure of the data and the folder in which the data is stored.
 
 ```python
 data_struct = ['time','x','dx','F']
@@ -186,9 +203,16 @@ data_folder = './tutorials/datasets/mass-spring-damper/data/'
 mass_spring_damper.loadData(name='mass_spring_dataset', source=data_folder, format=data_struct, delimiter=';')
 ```
 
+The list `data_struct` illustrates how the data is structured. This will bind the first column with the `time`, sencond with the Input `x`, third with the time derivative of the position `dx` and the last one with the Input `F`.
+
+The string `data_folder` contains the folder in which the dataset is stored.
+
+The `loadData()` method is used for loading the data and formatting it to be compatible with the time windows requested by the model.
+
 <a name="trainmodel"></a>
 ### Train the neural network
-Using the loaded dataset, we now train the neural model.
+
+Now that the dataset is loaded the model is ready to be trained. In order to do this the method `trainModel()` is called.
 
 ```python
 mass_spring_damper.trainModel()
