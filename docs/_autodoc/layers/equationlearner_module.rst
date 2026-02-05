@@ -1,5 +1,5 @@
 EquationLearner module
-=================
+==================================
 
 .. automodule:: nnodely.layers.equationlearner
     :undoc-members:

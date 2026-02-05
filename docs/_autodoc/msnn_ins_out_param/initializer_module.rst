@@ -1,5 +1,5 @@
 Initializer module
-================
+================================
 
 .. automodule:: nnodely.support.initializer
     :undoc-members:

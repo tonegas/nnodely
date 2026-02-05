@@ -1,5 +1,5 @@
 Parametric Function module
-=================
+==================================
 
 .. automodule:: nnodely.layers.parametricfunction
     :undoc-members:

@@ -1,5 +1,5 @@
 Trigonometric module
-=================
+==================================
 
 .. automodule:: nnodely.layers.trigonometric
     :undoc-members:
