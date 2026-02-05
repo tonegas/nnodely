@@ -94,6 +94,8 @@ def enforce_types(func):
             sig.pop('cls')
 
         for arg_name, arg in all_args.items():
+            if arg_name in ('self', 'cls'):
+                continue
             if (arg_name in hints.keys() or arg_name in sig.keys()) and not isinstance(arg,sig[arg_name].annotation):
                 class_name = func.__qualname__.split('.')[0]
                 if isinstance(sig[arg_name].annotation, types.UnionType):
