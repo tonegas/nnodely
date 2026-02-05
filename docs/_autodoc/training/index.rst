@@ -4,7 +4,7 @@ Training
 ================
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
 
    optimizer_module
    earlystopping_module
