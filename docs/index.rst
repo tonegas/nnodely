@@ -45,10 +45,12 @@ Table of Contents
 .. toctree::
    :maxdepth: 2
 
-   _autodoc/modely/index
-   _autodoc/msnn_ins_out_param/index
-   _autodoc/layers/index
+   _autodoc/model_definition/index
+   _autodoc/dataset_creation/index
+   _autodoc/model_composition/index
    _autodoc/training/index
+   _autodoc/validation/index
+   _autodoc/export/index
 
 Indices and tables
 ==================

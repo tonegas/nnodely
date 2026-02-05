@@ -5,4 +5,4 @@ Modely
    :members:
    :undoc-members:
    :show-inheritance:
-   :exclude-members: nnodely, resultAnalysis, getWorkspace
+   :exclude-members: nnodely, resultAnalysis, getWorkspace, clearNames

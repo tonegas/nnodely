@@ -5,7 +5,7 @@ Training module
     :undoc-members:
     :no-inherited-members:
 
-    .. autoclass:: nnodely.operators.trainer.Trainer
-        :members:
-        :undoc-members:
-        :show-inheritance:
+.. autofunction:: nnodely.operators.trainer.Trainer.addMinimize
+.. autofunction:: nnodely.operators.trainer.Trainer.removeMinimize
+.. autofunction:: nnodely.operators.trainer.Trainer.getTrainingInfo
+.. autofunction:: nnodely.operators.trainer.Trainer.trainModel
