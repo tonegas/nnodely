@@ -1,6 +1,6 @@
 import inspect
 
-from nnodely.basic.relation import Stream, Relation
+from nnodely.basic.relation import Relation
 from nnodely.support.utils import check, enforce_types
 
 from nnodely.layers.linear import Linear
@@ -81,7 +81,7 @@ class EquationLearner(Relation):
         >>> out = Output('out',equation_learner((x.last(),F.last())))
     """
     @enforce_types
-    def __init__(self, functions:list, *, linear_in:Linear|None = None, linear_out:Linear|None = None) -> Stream:
+    def __init__(self, functions:list, *, linear_in:Linear|None = None, linear_out:Linear|None = None) -> Relation:
         self.relation_name = equationlearner_relation_name
         self.linear_in = linear_in
         self.linear_out = linear_out

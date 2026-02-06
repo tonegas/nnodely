@@ -3,10 +3,9 @@ import copy
 import torch.nn as nn
 import torch
 
-from nnodely.basic.relation import Stream, Relation
+from nnodely.basic.relation import Relation
 from nnodely.basic.model import Model
 from nnodely.support.utils import check, enforce_types
-from nnodely.layers.parameter import Parameter, Constant
 from nnodely.support.jsonutils import merge, binary_cheks
 
 
@@ -44,7 +43,7 @@ class Add(Relation):
             >>> add = relation1 + relation2
     """
     @enforce_types
-    def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float, name : str|None = None) -> Stream:
+    def __init__(self, obj1:Relation|int|float, obj2:Relation|int|float, name : str|None = None) -> Relation:
         # check('tw' in obj1.attrs or 'sw' in obj1.attrs, KeyError, 'First input must have a time window or sample window')
         # check('tw' in obj2.attrs or 'sw' in obj2.attrs, KeyError, 'Second input must have a time window or sample window')
         # tw1 = abs(obj1.attrs['tw'][1] - obj1.attrs['tw'][0]) if 'tw' in obj1.attrs else abs(obj1.attrs['sw'][1] - obj1.attrs['sw'][0])
@@ -52,7 +51,7 @@ class Add(Relation):
         # check(tw1 == tw2, ValueError, 'Both inputs must have the same time window size')
 
         name = add_relation_name if name is None else name
-        attrs = copy.deepcopy(obj1.attrs)
+        attrs = {'dim': obj1.attrs['dim']}
         super().__init__(name, [obj1.name, obj2.name], **attrs)
 
 ## TODO: check the scalar dimension, helpful for the offset
@@ -72,14 +71,14 @@ class Sub(Relation):
             >>> sub = relation1 - relation2
     """
     @enforce_types
-    def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float, name : str|None = None) -> Stream:
+    def __init__(self, obj1:Relation|int|float, obj2:Relation|int|float, name : str|None = None) -> Relation:
         # check('tw' in obj1.attrs or 'sw' in obj1.attrs, KeyError, 'First input must have a time window or sample window')
         # check('tw' in obj2.attrs or 'sw' in obj2.attrs, KeyError, 'Second input must have a time window or sample window')
         # tw1 = abs(obj1.attrs['tw'][1] - obj1.attrs['tw'][0]) if 'tw' in obj1.attrs else abs(obj1.attrs['sw'][1] - obj1.attrs['sw'][0])
         # tw2 = abs(obj2.attrs['tw'][1] - obj2.attrs['tw'][0]) if 'tw' in obj2.attrs else abs(obj2.attrs['sw'][1] - obj2.attrs['sw'][0])
         # check(tw1 == tw2, ValueError, 'Both inputs must have the same time window size')
         name = sub_relation_name if name is None else name
-        attrs = copy.deepcopy(obj1.attrs)
+        attrs = {'dim': obj1.attrs['dim']}
         super().__init__(name, [obj1.name, obj2.name], **attrs)
 
 class Mul(Relation):
@@ -98,9 +97,9 @@ class Mul(Relation):
             >>> mul = relation1 * relation2
     """
     @enforce_types
-    def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float, name : str|None = None) -> Stream:
+    def __init__(self, obj1:Relation|int|float, obj2:Relation|int|float, name : str|None = None) -> Relation:
         name = mul_relation_name if name is None else name
-        attrs = copy.deepcopy(obj1.attrs)
+        attrs = {'dim': obj1.attrs['dim']}
         super().__init__(name, [obj1.name, obj2.name], **attrs)
 
 class Div(Relation):
@@ -119,9 +118,9 @@ class Div(Relation):
             >>> div = relation1 / relation2
     """
     @enforce_types
-    def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float, name : str|None = None) -> Stream:
+    def __init__(self, obj1:Relation|int|float, obj2:Relation|int|float, name : str|None = None) -> Relation:
         name = div_relation_name if name is None else name
-        attrs = copy.deepcopy(obj1.attrs)
+        attrs = {'dim': obj1.attrs['dim']}
         super().__init__(name, [obj1.name, obj2.name], **attrs)
 
 class Pow(Relation):
@@ -144,9 +143,9 @@ class Pow(Relation):
             >>> pow = relation1 ** relation2
     """
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant|int|float, exp:Stream|Parameter|Constant|int|float, name : str|None = None) -> Stream:
+    def __init__(self, obj:Relation|int|float, exp:Relation|int|float, name : str|None = None) -> Relation:
         name = pow_relation_name if name is None else name
-        attrs = copy.deepcopy(obj.attrs)
+        attrs = {'dim': obj.attrs['dim']}
         super().__init__(name, obj.name, **attrs)
 
 class Neg(Relation):
@@ -160,11 +159,10 @@ class Neg(Relation):
             >>> x = Neg(x)
     """
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant) -> Stream:
-        check(type(obj) is Stream, TypeError,
-              f"The type of {obj} is {type(obj)} and is not supported for neg operation.")
-        super().__init__(neg_relation_name+str(Stream.count), obj.json, obj.dim)
-        self.json['Relations'][self.name] = [neg_relation_name,[obj.name]]
+    def __init__(self, obj:Relation|int|float, name : str|None = None) -> Relation:
+        name = neg_relation_name if name is None else name
+        attrs = {'dim': obj.attrs['dim']}
+        super().__init__(name, obj.name, **attrs)
 
 class Sign(Relation):
     """
@@ -177,20 +175,17 @@ class Sign(Relation):
             >>> x = Sign(x)
     """
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant) -> Stream:
-        check(type(obj) is Stream, TypeError,
-              f"The type of {obj} is {type(obj)} and is not supported for sign operation.")
-        super().__init__(sign_relation_name+str(Stream.count), obj.json, obj.dim)
-        self.json['Relations'][self.name] = [sign_relation_name,[obj.name]]
+    def __init__(self, obj:Relation|int|float, name : str|None = None) -> Relation:
+        name = sign_relation_name if name is None else name
+        attrs = {'dim': obj.attrs['dim']}
+        super().__init__(name, obj.name, **attrs)
 
 class Sum(Relation):
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant) -> Stream:
-        check(type(obj) is Stream, TypeError,
-              f"The type of {obj} is {type(obj)} and is not supported for sum operation.")
-        obj.dim['dim'] = 1
-        super().__init__(sum_relation_name + str(Stream.count),obj.json,obj.dim)
-        self.json['Relations'][self.name] = [sum_relation_name,[obj.name]]
+    def __init__(self, obj:Relation|int|float, name : str|None = None) -> Relation:
+        name = sum_relation_name if name is None else name
+        attrs = {'dim': 1}
+        super().__init__(name, obj.name, **attrs)
 
 class Add_Layer(nn.Module):
     #: :noindex:

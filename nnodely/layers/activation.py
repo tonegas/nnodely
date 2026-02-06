@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from nnodely import Parameter, Constant
-from nnodely.basic.relation import Stream, Relation
+from nnodely.basic.relation import Relation
 from nnodely.basic.model import Model
 from nnodely.support.utils import check, enforce_types
 
@@ -28,10 +28,10 @@ class Relu(Relation):
             >>> x = Relu(x)
     """
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
-        check(type(obj) is Stream, TypeError,
+    def __init__(self, obj:Relation|float|int) -> Relation:
+        check(type(obj) is Relation, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Relu operation.")
-        super().__init__(relu_relation_name + str(Stream.count),obj.json,obj.dim)
+        super().__init__(relu_relation_name + str(Relation.count),obj.json,obj.dim)
         self.json['Relations'][self.name] = [relu_relation_name,[obj.name]]
 
 class ELU(Relation):
@@ -49,10 +49,10 @@ class ELU(Relation):
             >>> x = ELU(x)
     """
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
-        check(type(obj) is Stream,TypeError,
+    def __init__(self, obj:Relation|float|int) -> Relation:
+        check(type(obj) is Relation,TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Tanh operation.")
-        super().__init__(elu_relation_name + str(Stream.count),obj.json,obj.dim)
+        super().__init__(elu_relation_name + str(Relation.count),obj.json,obj.dim)
         self.json['Relations'][self.name] = [elu_relation_name,[obj.name]]
 
 class Identity(Relation):
@@ -70,10 +70,10 @@ class Identity(Relation):
         >>> x = Identity(x)
     """
     @enforce_types
-    def __init__(self, obj: Stream|Parameter|Constant|float|int) -> Stream:
-        check(type(obj) is Stream, TypeError,
+    def __init__(self, obj: Relation|float|int) -> Relation:
+        check(type(obj) is Relation, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Identity operation.")
-        super().__init__(identity_relation_name + str(Stream.count), obj.json, obj.dim)
+        super().__init__(identity_relation_name, obj.json, obj.dim)
         self.json['Relations'][self.name] = [identity_relation_name, [obj.name]]
 
 
@@ -92,10 +92,10 @@ class Softmax(Relation):
         >>> x = Softmax(x)
     """
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
-        check(type(obj) is Stream, TypeError,
+    def __init__(self, obj:Relation|float|int) -> Relation:
+        check(type(obj) is Relation, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Softmax operation.")
-        super().__init__(softmax_relation_name + str(Stream.count), obj.json, obj.dim)
+        super().__init__(softmax_relation_name + str(Relation.count), obj.json, obj.dim)
         self.json['Relations'][self.name] = [softmax_relation_name, [obj.name]]
 
 class Sigmoid(Relation):
@@ -117,10 +117,10 @@ class Sigmoid(Relation):
         >>> x = Sigmoid(x)
     """
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
-        check(type(obj) is Stream, TypeError,
+    def __init__(self, obj:Relation|float|int) -> Relation:
+        check(type(obj) is Relation, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for {sigmoid_relation_name} operation.")
-        super().__init__(sigmoid_relation_name + str(Stream.count), obj.json, obj.dim)
+        super().__init__(sigmoid_relation_name + str(Relation.count), obj.json, obj.dim)
         self.json['Relations'][self.name] = [sigmoid_relation_name, [obj.name]]
 
 class Relu_Layer(nn.Module):

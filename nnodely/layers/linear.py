@@ -1,15 +1,12 @@
-import copy
-
 import torch.nn as nn
 import torch
 
 from collections.abc import Callable
 
-from nnodely.basic.relation import Stream, Relation
+from nnodely.basic.relation import Relation
 from nnodely.basic.model import Model
 from nnodely.layers.parameter import Parameter
 from nnodely.support.utils import check, enforce_types
-from nnodely.support.jsonutils import merge
 
 from nnodely.support.logger import logging, nnLogger
 log = nnLogger(__name__, logging.WARNING)
@@ -128,7 +125,7 @@ class Linear(Relation):
         super().__init__(name, [attrs['W'], attrs['b']], **attrs)
 
     @enforce_types
-    def __call__(self, obj:Stream):
+    def __call__(self, obj:Relation):
         super().__call__(edges=obj.name)
 
 

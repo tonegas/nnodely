@@ -6,7 +6,7 @@ import numpy as np
 from typing import Union
 from collections.abc import Callable
 
-from nnodely.basic.relation import Stream, Relation
+from nnodely.basic.relation import Relation
 from nnodely.basic.model import Model
 from nnodely.layers.parameter import Parameter, Constant
 from nnodely.support.utils import check, enforce_types
@@ -17,6 +17,75 @@ log = nnLogger(__name__, logging.WARNING)
 
 
 paramfun_relation_name = 'ParamFun'
+function_relation_name = 'Function'
+
+class Function(Relation):
+    """
+    Represents a generic function in the neural network model. Can also be a parametric function.
+
+    Parameters
+    ----------
+    param_fun : Callable
+        The parametric function to be used.
+    constants : list or dict or None, optional
+        A list or dictionary of constants to be used in the function. Default is None.
+    parameters_dimensions : list or dict or None, optional
+        A list or dictionary specifying the dimensions of the parameters. Default is None.
+    parameters : list or dict or None, optional
+        A list or dictionary of parameters to be used in the function. Default is None.
+    map_over_batch : bool, optional
+        A boolean indicating whether to map the function over the batch dimension. Default is False.
+
+    Attributes
+    ----------
+    relation_name : str
+        The name of the relation.
+    param_fun : Callable
+        The parametric function to be used.
+    constants : list or dict or None
+        A list or dictionary of constants to be used in the function.
+    parameters_dimensions : list or dict or None
+        A list or dictionary specifying the dimensions of the parameters.
+    parameters : list or dict or None
+        A list or dictionary of parameters to be used in the function.
+    map_over_batch : bool
+        A boolean indicating whether to map the function over the batch dimension.
+    output_dimension : dict
+        A dictionary containing the output dimensions of the function.
+    json : dict
+        A dictionary containing the configuration of the function.
+
+    Examples
+    --------
+    .. image:: https://colab.research.google.com/assets/colab-badge.svg
+        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/parametric_functions.ipynb
+        :alt: Open in Colab
+
+    Example: 
+        >>> input1 = Input('input1')
+        >>> input2 = Input('input2')
+
+        >>> def my_function(x, y, param1, const1):
+        >>>     return param1 * x + const1 * y
+
+        >>> param_fun = ParamFun(my_function, constants={'const1': 1.0}, parameters_dimensions={'param1': 1})
+        >>> result = param_fun(input1, input2)
+    """
+    @enforce_types
+    def __init__(self, param_fun:Callable, name : str | None = None) -> Relation:
+        name = name if name is not None else param_fun.__name__
+
+        code = textwrap.dedent(inspect.getsource(param_fun)).replace('\"', '\'')
+        funinfo = inspect.getfullargspec(param_fun)
+        n_input = len(funinfo.args)
+        attrs = {'func': param_fun, 'code': code, 'n_input': n_input}
+        super().__init__(name=name, **attrs)
+
+    def __call__(self, *obj:Relation) -> Relation:
+        super().__call__(edges=[o.name for o in obj])
+        return self
+
+
 
 class ParamFun(Relation):
     """
@@ -73,7 +142,7 @@ class ParamFun(Relation):
     @enforce_types
     def __init__(self, param_fun:Callable,
                  parameters_and_constants:list|dict|None = None, *,
-                 map_over_batch:bool = False) -> Stream:
+                 map_over_batch:bool = False) -> Relation:
 
         self.relation_name = paramfun_relation_name
 
@@ -116,8 +185,8 @@ class ParamFun(Relation):
         self.json_stream = {}
 
     @enforce_types
-    def __call__(self, *obj:Union[Stream|Parameter|Constant|float|int]) -> Stream:
-        stream_name = paramfun_relation_name + str(Stream.count)
+    def __call__(self, *obj:Union[Relation|float|int]) -> Relation:
+        stream_name = paramfun_relation_name
 
         funinfo = inspect.getfullargspec(self.param_fun)
         n_function_input = len(funinfo.args)
@@ -131,7 +200,7 @@ class ParamFun(Relation):
                 obj_type = Constant
             else:
                 obj_type = type(o)
-            check(type(o) is Stream, TypeError,
+            check(type(o) is Relation, TypeError,
                   f"The type of {o} is {type(o)} and is not supported for ParamFun operation.")
             input_types.append(obj_type)
             input_dimensions.append(o.dim)
@@ -171,13 +240,13 @@ class ParamFun(Relation):
         stream_json = copy.deepcopy(self.json_stream[n_call_input])
         input_names = []
         for ind, o in enumerate(obj):
-            check(type(o) is Stream, TypeError,
+            check(type(o) is Relation, TypeError,
                   f"The type of {o} is {type(o)} and is not supported for ParamFun operation.")
             stream_json = merge(stream_json, o.json)
             input_names.append(o.name)
 
         stream_json['Relations'][stream_name] = [paramfun_relation_name, input_names, self.name]
-        return Stream(stream_name, stream_json, output_dimension)
+        return Relation(stream_name, stream_json, output_dimension)
 
     def __create_parameter(self, pc, pc_name):
         if type(pc) is Parameter:

@@ -1,10 +1,10 @@
-import copy, torch
+import torch
 
 import torch.nn as nn
 
 from collections.abc import Callable
 
-from nnodely.basic.relation import Stream, Relation
+from nnodely.basic.relation import Relation
 from nnodely.basic.model import Model
 from nnodely.layers.parameter import Parameter
 from nnodely.support.utils import check, enforce_types, TORCH_DTYPE
@@ -108,28 +108,29 @@ class Fir(Relation):
         attrs = {'W': None, 'b': None, 'dropout': dropout}
 
         if type(W) is Parameter:
-            self.output_dimension = W.attrs['dim'] if output_dimension is None else output_dimension
-            check(W.attrs['dim'] == self.output_dimension ,ValueError, 'the output dimension must be equal to the dimension of "W".')
+            output_dimension = W.attrs['dim'] if output_dimension is None else output_dimension
             self.W = W
         else:  ## Create a new default parameter
-            self.output_dimension = 1 if output_dimension is None else output_dimension
-            Wname = W if type(W) is str else self.name + 'W'
-            self.W = Parameter(name=Wname, dimensions=self.output_dimension, init=W_init, init_params=W_init_params)
+            output_dimension = 1 if output_dimension is None else output_dimension
+            Wname = W if type(W) is str else name + '_W'
+            self.W = Parameter(name=Wname, dimensions=output_dimension, init=W_init, init_params=W_init_params)
         attrs['W'] = self.W.name
 
         if b is not None and b is not False:
             if type(b) is Parameter:
-                check(b.attrs['dim'] == self.output_dimension, ValueError, 'the output dimension must be equal to the dimension of the "bias".')
+                check(b.attrs['dim'] == output_dimension, ValueError, 'the output dimension must be equal to the dimension of the "bias".')
                 self.b = b
             else:
-                bname = b if type(b) is str else self.name + 'b'
-                self.b = Parameter(name=bname, dimensions=self.output_dimension, init=b_init, init_params=b_init_params)
+                bname = b if type(b) is str else name + 'b'
+                self.b = Parameter(name=bname, dimensions=output_dimension, init=b_init, init_params=b_init_params)
             attrs['b'] = self.b.name
+        attrs['dim'] = output_dimension
         super().__init__(name, [attrs['W'], attrs['b']], **attrs)
 
     @enforce_types
-    def __call__(self, obj:Stream) -> Stream:
+    def __call__(self, obj:Relation) -> Relation:
         super().__call__(edges=obj.name)
+        return self
 
 
 class Fir_Layer(nn.Module):

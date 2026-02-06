@@ -1,9 +1,9 @@
-from nnodely.basic.relation import Stream
+from nnodely.basic.relation import Relation
 from nnodely.support.utils import check, enforce_types
 from nnodely.support.jsonutils import stream_to_str
 from nnodely.layers.part import TimePart, SamplePart
 
-class Input(Stream):
+class Input(Relation):
     def __init__(self, name:str, *, dimensions:int = 1):
         check(type(dimensions) == int, TypeError,"The dimensions must be a integer")
         attrs = {'dim': dimensions}
@@ -120,7 +120,7 @@ class Input(Stream):
     #     return SamplePart(Stream(self.name, json, dim), json['Inputs'][self.name]['sw'][0], json['Inputs'][self.name]['sw'][1], None)
 
     @enforce_types
-    def last(self) -> Stream:
+    def last(self) -> Relation:
         """
         Selects the last passed instant for the input.
 
@@ -133,7 +133,7 @@ class Input(Stream):
         return SamplePart(self, self.attrs['sw'][0], self.attrs['sw'][1], name="SamplePart_"+self.name)
 
     @enforce_types
-    def next(self) -> Stream:
+    def next(self) -> Relation:
         """
         Selects the next instant for the input.
 

@@ -20,6 +20,7 @@ from nnodely.layers.equationlearner import EquationLearner
 from nnodely.layers.timeoperation import Integrate, Derivate
 from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.rungekutta import ForwardEuler, RK2, RK4
+from nnodely.layers.minimize import Minimize
 
 # Main nnodely classes
 from nnodely.nnodely import nnodely, Modely
@@ -68,6 +69,7 @@ __all__ = [
     'Integrate',  'Derivate',
     'Interpolation',
     'ForwardEuler', 'RK2', 'RK4',
+    'Minimize',
     'TextVisualizer', 'MPLVisualizer', 'MPLNotebookVisualizer',
     'StandardExporter',
     'SGD', 'Adam', 'Optimizer',

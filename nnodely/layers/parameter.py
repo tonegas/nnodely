@@ -1,16 +1,15 @@
-import copy, inspect, textwrap
 import numpy as np
 
 from collections.abc import Callable
 
-from nnodely.basic.relation import Relation, Stream
+from nnodely.basic.relation import Relation
 from nnodely.support.utils import check, enforce_types, NP_DTYPE
 
 
 def is_numpy_float(var):
     return isinstance(var, (np.float16, np.float32, np.float64))
 
-class Constant(Stream):
+class Constant(Relation):
     """
     Represents a constant value in the neural network model.
 
@@ -94,7 +93,7 @@ class Constant(Stream):
         attrs['dim'] = dimensions
         super().__init__(name, **attrs)
 
-class Parameter(Stream):
+class Parameter(Relation):
     """
     Represents a trainable parameter in the neural network model.
 
@@ -185,15 +184,6 @@ class Parameter(Stream):
                 dimensions = 1 if len(shape[0:]) == 0 else shape[0] if len(shape[0:]) == 1 else list(shape[0:])
             attrs['dim'] = dimensions
         super().__init__(name, **attrs)
-        # if init is not None:
-        #     check('values' not in self.json['Parameters'][self.name], ValueError, f"The parameter {self.name} is already initialized.")
-        #     if inspect.isfunction(init):
-        #         code = textwrap.dedent(inspect.getsource(init)).replace('\"', '\'')
-        #         self.json['Parameters'][self.name]['init_fun'] = { 'code' : code, 'name' : init.__name__}
-        #     elif type(init) is str:
-        #         self.json['Parameters'][self.name]['init_fun'] = { 'name' : init }
-        #     if init_params is not None:
-        #         self.json['Parameters'][self.name]['init_fun']['params'] = init_params
     
 class SampleTime():
     """

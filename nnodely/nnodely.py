@@ -8,7 +8,8 @@ import numpy as np
 # from nnodely.operators.loader import Loader
 # from nnodely.operators.validator import Validator
 # from nnodely.operators.exporter import Exporter
-from nnodely.basic.modeldef import ModelGraph, ModelManager
+from nnodely.basic.modeldef import ModelManager
+#from nnodely.basic.relation import Relation
 
 # nnodely packages
 # from nnodely.visualizer import EmptyVisualizer, TextVisualizer
@@ -361,6 +362,13 @@ class Modely():
         torch.cuda.manual_seed_all(seed)
         random.seed(seed)  ## set the random module seed
         np.random.seed(seed)  ## set the numpy seed
+    
+    def addMinimize(self, name: str, input, target, loss: str = 'mse'):
+        from nnodely.layers.minimize import Minimize
+        Minimize(input=input, target=target, loss=loss, name=name)
+
+    def Neuralize(sample_time:float = 1.0):
+        pass
 
     
 nnodely = Modely

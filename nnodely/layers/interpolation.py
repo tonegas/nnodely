@@ -2,7 +2,7 @@ import torch
 
 import torch.nn as nn
 
-from nnodely.basic.relation import Relation, Stream
+from nnodely.basic.relation import Relation
 from nnodely.basic.model import Model
 from nnodely.support.utils import check, enforce_types
 from nnodely.support.jsonutils import merge
@@ -58,13 +58,13 @@ class Interpolation(Relation):
         check(len(torch.tensor(y_points).shape) == 1, ValueError, 'The y_points must be a 1D tensor.')
 
     @enforce_types
-    def __call__(self, obj:Stream) -> Stream:
-        stream_name = interpolation_relation_name + str(Stream.count)
-        check(type(obj) is Stream, TypeError, f"The type of {obj} is {type(obj)} and is not supported for Interpolation operation.")
+    def __call__(self, obj:Relation) -> Relation:
+        Relation_name = interpolation_relation_name + str(Relation.count)
+        check(type(obj) is Relation, TypeError, f"The type of {obj} is {type(obj)} and is not supported for Interpolation operation.")
 
-        stream_json = merge(self.json,obj.json)
-        stream_json['Relations'][stream_name] = [interpolation_relation_name, [obj.name], self.x_points, self.y_points, self.mode]
-        return Stream(stream_name, stream_json, obj.dim)
+        Relation_json = merge(self.json,obj.json)
+        Relation_json['Relations'][Relation_name] = [interpolation_relation_name, [obj.name], self.x_points, self.y_points, self.mode]
+        return Relation(Relation_name, Relation_json, obj.dim)
 
 
 class Interpolation_Layer(nn.Module):

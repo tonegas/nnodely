@@ -1,5 +1,5 @@
 import copy
-from nnodely.basic.relation import Stream, Relation
+from nnodely.basic.relation import Relation
 from nnodely.support.utils import enforce_types
 from nnodely.support.jsonutils import stream_to_str
 
@@ -14,7 +14,7 @@ class Output(Relation):
     ----------
     name : str
         The name of the output.
-    relation : Stream
+    relation : Relation
         The relation to be used for the output.
 
     Attributes
@@ -27,7 +27,7 @@ class Output(Relation):
         A dictionary containing the dimensions of the output.
     """
     @enforce_types
-    def __init__(self, name:str, relation:Stream):
+    def __init__(self, name:str, relation:Relation):
         """
         Initializes the Output object.
 
@@ -35,10 +35,10 @@ class Output(Relation):
         ----------
         name : str
             The name of the output.
-        relation : Stream
+        relation : Relation
             The relation to be used for the output.
         """
-        super().__init__(name_node=name, edges=relation.name, source=relation.name)
+        super().__init__(name=name, edges=relation.name, source=relation.name)
 
     def __str__(self):
         return stream_to_str(self, 'Output')

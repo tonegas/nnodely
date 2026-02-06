@@ -1,14 +1,13 @@
-import inspect, copy, textwrap, torch
+import torch
 
 import numpy as np
 import torch.nn as nn
 
 from collections.abc import Callable
 
-from nnodely.basic.relation import Relation, Stream
+from nnodely.basic.relation import Relation
 from nnodely.basic.model import Model
 from nnodely.support.utils import check, enforce_types
-from nnodely.support.jsonutils import merge
 
 fuzzify_relation_name = 'Fuzzify'
 
@@ -71,40 +70,23 @@ class Fuzzify(Relation):
                 #  range: list | None = None, *,
                  centers: list,
                  functions: str | list | Callable = 'Triangular',
-                 name: str | None = None) -> Stream:
+                 name: str | None = None) -> Relation:
 
-        self.name = name if name is not None else fuzzify_relation_name
-        self.json['Functions'][self.name] = {}
-        self.output_dimension = {'dim': len(centers)}
-        self.json['Functions'][self.name]['centers'] = np.array(centers).tolist()
-        self.json['Functions'][self.name]['dim_out'] = copy.deepcopy(self.output_dimension)
-
-        if type(functions) is str:
-            self.json['Functions'][self.name]['functions'] = functions
-            self.json['Functions'][self.name]['names'] = functions
-        elif type(functions) is list:
-            self.json['Functions'][self.name]['functions'] = []
-            self.json['Functions'][self.name]['names'] = []
-            for func in functions:
-                code = textwrap.dedent(inspect.getsource(func)).replace('\"', '\'')
-                self.json['Functions'][self.name]['functions'].append(code)
-                self.json['Functions'][self.name]['names'].append(func.__name__)
-        else:
-            code = textwrap.dedent(inspect.getsource(functions)).replace('\"', '\'')
-            self.json['Functions'][self.name]['functions'] = code
-            self.json['Functions'][self.name]['names'] = functions.__name__
+        name = name if name is not None else fuzzify_relation_name
+        attrs = {'centers': np.array(centers).tolist()}
+        functions = functions if isinstance(functions, list) else [functions]
+        f_names = []
+        for func in functions:
+            f_names.append(func.__name__ if callable(func) else func)
+        attrs['functions'] = f_names
+        super().__init__(name=name, **attrs)
+        
 
     @enforce_types
-    def __call__(self, obj: Stream) -> Stream:
-        stream_name = fuzzify_relation_name + str(Stream.count)
-        check(type(obj) is Stream, TypeError,
-              f"The type of {obj} is {type(obj)} and is not supported for Fuzzify operation.")
-        check('dim' in obj.dim and obj.dim['dim'] == 1, ValueError, 'Input dimension must be scalar')
-        output_dimension = copy.deepcopy(obj.dim)
-        output_dimension.update(self.output_dimension)
-        stream_json = merge(self.json, obj.json)
-        stream_json['Relations'][stream_name] = [fuzzify_relation_name, [obj.name], self.name]
-        return Stream(stream_name, stream_json, output_dimension)
+    def __call__(self, obj: Relation) -> Relation:
+        check('dim' in obj.attrs and obj.attrs['dim'] == 1, ValueError, 'Input dimension must be scalar')
+        super().__call__(edges=obj.name)
+        return self
 
 def return_fuzzify(json, xlim=None, num_points=1000):
     if xlim is not None:

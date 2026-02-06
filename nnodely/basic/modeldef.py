@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Hashable, Optional, Set
 
+from nnodely.basic.graphutils import plot_graphviz_structure
+
 from nnodely.support.logger import logging, nnLogger
 log = nnLogger(__name__, logging.INFO)
 
@@ -40,7 +42,6 @@ class ModelGraph:
         if self.get_node(to_node) is None:
             return
             #raise NameError(f"The node '{to_node}' is not defined.")
-
         self.model_graph.add_edge(from_node, to_node, **attrs)
 
     def get_node(self, name):
@@ -64,10 +65,6 @@ class ModelGraph:
         return self.model_graph.edges[from_node, to_node].get(attr_name, None)
     
     def removeEdge(self, from_node, to_node):
-        """
-        Remove the edge (from_node -> to_node) from the graph.
-        Raises NameError if either node or the edge does not exist.
-        """
         if self.get_node(from_node) is None:
             print(f"The node '{from_node}' is not defined.")
             return
@@ -80,48 +77,31 @@ class ModelGraph:
         self.model_graph.remove_edge(from_node, to_node)
 
     def removeNode(self, name):
-        """
-        Remove a node and all its incident edges from the graph.
-        Calls removeEdge for each incident edge and removes the node tag.
-        Raises NameError if the node does not exist.
-        """
         if self.get_node(name) is None:
             print(f"The node '{name}' is not defined.")
             return
-
         # Collect incident edges first (copy lists because we'll modify the graph)
         incident_in = list(self.model_graph.in_edges(name))
         incident_out = list(self.model_graph.out_edges(name))
-
         # Remove incident edges using removeEdge (keeps consistent checks/behavior)
         for a, b in incident_in + incident_out:
             self.removeEdge(a, b)
-
         # Finally remove the node itself and its tag entry
         self.model_graph.remove_node(name)
         if name in self.tags:
             self.tags.remove(name)
     
     def subgraph(self, node_name) -> nx.DiGraph:
-        """
-        Return a DiGraph containing only the nodes that can reach `node_name`
-        (i.e. all predecessors/ancestors) plus `node_name` itself.
-
-        Raises NameError if `node_name` is not present in the graph.
-        """
         if self.get_node(node_name) is None:
             raise NameError(f"The node '{node_name}' is not defined.")
-
         # networkx.ancestors returns all nodes that have a path to node_name
         ancestors = nx.ancestors(self.model_graph, node_name)
-
         # include target node itself
         nodes = set(ancestors) | {node_name}
-
         # return a copy of the induced subgraph as a DiGraph
         return self.model_graph.subgraph(nodes).copy()
     
-    def plot_graph(self, left_to_right: bool = False, prog: str = 'dot'):
+    def plot_graph(self, filename:str, view: bool = False, left_to_right: bool = False, prog: str = 'dot'):
         import matplotlib.pyplot as plt
         # Determine node positions. Prefer Graphviz (dot) for a left-to-right layout
         pos = None
@@ -167,18 +147,19 @@ class ModelGraph:
         for n, attrs in self.model_graph.nodes(data=True):
             ntype = attrs.get("type")
             if ntype == "Input":
-                node_colors.append('lightblue')
-            elif ntype == "Constant":
                 node_colors.append('lightgreen')
+            elif ntype == "Constant":
+                node_colors.append('lightblue')
             elif ntype == "Parameter":
                 node_colors.append('orange')
             elif ntype == "Function":
                 node_colors.append('yellow')
             elif ntype == "Output":
-                node_colors.append('pink')
+                node_colors.append('red')
+            elif ntype == "Minimize":
+                node_colors.append('purple')
             else:
                 node_colors.append('lightgrey')
-
         # Build labels that include node name and its attributes
         labels = {}
         for n, attrs in self.model_graph.nodes(data=True):
@@ -189,8 +170,11 @@ class ModelGraph:
 
         # Draw graph using the composed labels
         nx.draw(self.model_graph, pos, labels=labels, node_color=node_colors, arrows=True)
-        plt.tight_layout()
-        plt.show()
+        plt.title(f"Neural Network Diagram", fontsize=12, fontweight='bold')
+        ## Save the figure
+        plt.savefig(filename, format="png", bbox_inches='tight')
+        if view:
+            plt.show()
 
     def to_graph(model_json):
         from graphutils import to_graph
@@ -201,22 +185,31 @@ class ModelGraph:
         return to_json(G)
 
     
-_CURRENT_MODEL_GRAPH = None
+# _CURRENT_MODEL_GRAPH = None
 
-def set_current_model_graph(mg : ModelGraph) -> None: 
-    """Register the active ModelGraph instance used by Input/Stream helpers."""
-    global _CURRENT_MODEL_GRAPH
-    _CURRENT_MODEL_GRAPH = mg
+# def set_current_model_graph(mg : ModelGraph) -> None: 
+#     """Register the active ModelGraph instance used by Input/Relation helpers."""
+#     global _CURRENT_MODEL_GRAPH
+#     _CURRENT_MODEL_GRAPH = mg
 
-def get_current_model_graph() -> ModelGraph | None:
-    """Return the currently registered ModelGraph or None."""
-    return _CURRENT_MODEL_GRAPH
+# def get_current_model_graph() -> ModelGraph | None:
+#     """Return the currently registered ModelGraph or None."""
+#     return _CURRENT_MODEL_GRAPH
     
 class ModelManager:
     def __init__(self, name: str):
         self.models = {name: ModelGraph(name=name)}
         self.names = [name]
-        set_current_model_graph(self.models[name])
+        self.current = name
+        #set_current_model_graph(self.models[name])
+
+    def set_current_model(self, name:str) -> None:
+        if name not in self.models:
+            raise KeyError(f"model '{name}' not found in models")
+        self.current = name
+
+    def get_current_model(self) -> ModelGraph:
+        return self.models[self.current]
 
     def add_model(self, name:str, model:ModelGraph) -> None:
         while name in self.names:
@@ -224,13 +217,15 @@ class ModelManager:
             name = f"{name}_{self.counter}"
         self.names.append(name)
         self.models[name] = model
+        return name
 
-    def flatten(self, start: str) -> ModelGraph:
+    def flatten(self, start: str|None = None) -> ModelGraph:
         # from nnodely.basic.modeldef_merge_helper import merge_models_from_manager
         # return merge_models_from_manager(self, start=start)
     
-        if start not in self.models:
-            raise KeyError(f"model '{start}' not found in models")
+        if start == None or start not in self.models:
+            log.warning(f"Model '{start}' not found in manager. Using current model '{self.current}' instead.")
+            start = self.current
 
         #merged = nx.DiGraph()
         merged = ModelGraph()
@@ -282,7 +277,6 @@ class ModelManager:
     def export_html(self,
         model: str,
         out_dir: str | os.PathLike,
-        filename: str = "index.html",
         *,
         open_subgraph_in_new_tab: bool = False,
         physics: bool = True,
@@ -313,6 +307,14 @@ class ModelManager:
                 return "#e74c3c"  # red
             if attrs.get(attr_name) is not None:
                 return "#3498db"  # blue
+            if t == 'Parameter':
+                return "#f1c40f"  # yellow
+            if t == 'Constant':
+                return "#000000"  # black
+            if t == 'Function':
+                return "#9b59b6"  # purple
+            if t == 'Minimize':
+                return "#e67e22"  # carrot
             return "#95a5a6"      # gray
 
         def _export_one(graph: nx.Graph, html_name: str, page_title: str, parent_rel: Optional[str] = None,) -> str:
@@ -395,7 +397,24 @@ class ModelManager:
                     "to": id_map[v],
                     "title": f"{json.dumps(dict(eattrs), ensure_ascii=False, default=str, indent=2)}",
                 }
+                # default arrow
                 rec["arrows"] = "to"
+
+                # style by edge 'type' attribute
+                etype = eattrs.get("type") if isinstance(eattrs, dict) else None
+                if etype == 'connect':
+                    # dashed blue line with label 'connect'
+                    rec["dashes"] = True
+                    rec["color"] = {"color": "#3498db"}
+                    rec["label"] = "connect"
+                    rec["font"] = {"color": "#111111", "align": "middle"}
+                elif etype == 'loop':
+                    # dashed red line with label 'loop'
+                    rec["dashes"] = True
+                    rec["color"] = {"color": "#e74c3c"}
+                    rec["label"] = "loop"
+                    rec["font"] = {"color": "#111111", "align": "middle"}
+
                 edges.append(rec)
 
             # Back button (only when parent exists)
@@ -493,6 +512,10 @@ class ModelManager:
                     <span><span class="swatch" style="background:#e74c3c"></span>Output</span>
                     <span><span class="swatch" style="background:#3498db"></span>Sub-Model</span>
                     <span><span class="swatch" style="background:#95a5a6"></span>Relation</span>
+                    <span><span class="swatch" style="background:#f1c40f"></span>Parameter</span>
+                    <span><span class="swatch" style="background:#000000"></span>Constant</span>
+                    <span><span class="swatch" style="background:#9b59b6"></span>Function</span>
+                    <span><span class="swatch" style="background:#e67e22"></span>Minimize</span>
                     </div>
                 </header>
 
@@ -576,5 +599,26 @@ class ModelManager:
             file_path.write_text(html, encoding="utf-8")
             return str(file_path)
 
-        root_path = _export_one(self.models[model].model_graph, filename, model, parent_rel=None)
+        root_path = _export_one(self.models[model].model_graph, model+'.html', model, parent_rel=None)
         return root_path
+    
+    def plot_structure(self, model:str, filename='nnodely_graph', library='matplotlib', flatten=False, view=False):
+        if library not in ['matplotlib', 'graphviz']:
+            raise ValueError("Invalid library specified. Use 'matplotlib' or 'graphviz'.")
+        if model not in self.models:
+            raise KeyError(f"model '{model}' not found in models")
+        if library == 'matplotlib':
+            graph = self.flatten(start=model) if flatten else self.models[model]
+            graph.plot_graph(filename=filename, view=view, left_to_right=True)
+        elif library == 'graphviz':
+            graph = self.flatten(start=model).model_graph if flatten else self.models[model].model_graph
+            plot_graphviz_structure(graph, filename, view=view)
+
+# layout: {{
+#     hierarchical: {{
+#         enabled: true,
+#         direction: 'LR',
+#         sortMethod: 'directed',
+#         levelSeparation: 150,
+#         nodeSpacing: 120
+#     }}

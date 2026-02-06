@@ -1,10 +1,9 @@
 import torch
 import torch.nn as nn
 
-from nnodely.basic.relation import Stream, Relation
+from nnodely.basic.relation import Relation
 from nnodely.basic.model import Model
 from nnodely.support.utils import check, enforce_types
-from nnodely.layers.parameter import Parameter, Constant
 
 sin_relation_name = 'Sin'
 sin2_relation_name = 'Sin2'
@@ -29,7 +28,7 @@ class Sin(Relation):
         >>> sin = Sin(relation)
     """
     @enforce_types
-    def __init__(self, obj:Stream, name:str|None = None) -> Stream:
+    def __init__(self, obj:Relation, name:str|None = None) -> Relation:
         name = sin_relation_name if name is None else name
         self.attrs = {'dim': obj.attrs.get('dim', None), 'sw': obj.attrs.get('sw', None), 'tw': obj.attrs.get('tw', None)}
         super().__init__(name,obj.name,**self.attrs)
@@ -49,7 +48,7 @@ class Sin2(Relation):
         >>> sin = Sin(relation)
     """
     @enforce_types
-    def __init__(self, obj:Stream, name:str|None = None) -> Stream:
+    def __init__(self, obj:Relation, name:str|None = None) -> Relation:
         from nnodely.layers.arithmetic import Pow
         name = sin2_relation_name if name is None else name
         super().__build__(name, obj.name)
@@ -72,10 +71,10 @@ class Cos(Relation):
         >>> cos = Cos(relation)
     """
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant|int|float) -> Stream:
-        check(type(obj) is Stream, TypeError,
+    def __init__(self, obj:Relation|int|float) -> Relation:
+        check(type(obj) is Relation, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Cos operation.")
-        super().__init__(cos_relation_name + str(Stream.count),obj.json,obj.dim)
+        super().__init__(cos_relation_name + str(Relation.count),obj.json,obj.dim)
         self.json['Relations'][self.name] = [cos_relation_name, [obj.name]]
 
 class Tan(Relation):
@@ -93,10 +92,10 @@ class Tan(Relation):
         >>> tan = Tan(relation)
     """
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant|int|float) -> Stream:
-        check(type(obj) is Stream, TypeError,
+    def __init__(self, obj:Relation|int|float) -> Relation:
+        check(type(obj) is Relation, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Tan operation.")
-        super().__init__(tan_relation_name + str(Stream.count),obj.json,obj.dim)
+        super().__init__(tan_relation_name + str(Relation.count),obj.json,obj.dim)
         self.json['Relations'][self.name] = [tan_relation_name, [obj.name]]
 
 class Cosh(Relation):
@@ -113,10 +112,10 @@ class Cosh(Relation):
     Example:
         >>> cosh = Cosh(relation)
     """
-    def __init__(self, obj:Stream) -> Stream:
-        check(type(obj) is Stream, TypeError,
+    def __init__(self, obj:Relation) -> Relation:
+        check(type(obj) is Relation, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Cosh operation.")
-        super().__init__(cosh_relation_name + str(Stream.count),obj.json,obj.dim)
+        super().__init__(cosh_relation_name + str(Relation.count),obj.json,obj.dim)
         self.json['Relations'][self.name] = [cosh_relation_name, [obj.name]]
 
 class Sech(Relation):
@@ -124,15 +123,15 @@ class Sech(Relation):
     Returns a new tensor with the hyperbolic secant of the elements of input.
 
     :param obj: the input relation stream
-    :type obj: Stream
+    :type obj: Relation
 
     Example:
         >>> sech = Sech(relation)
     """
-    def __init__(self, obj:Stream) -> Stream:
-        check(type(obj) is Stream, TypeError,
+    def __init__(self, obj:Relation) -> Relation:
+        check(type(obj) is Relation, TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Sech operation.")
-        super().__init__(sech_relation_name + str(Stream.count),obj.json,obj.dim)
+        super().__init__(sech_relation_name + str(Relation.count),obj.json,obj.dim)
         self.json['Relations'][self.name] = [sech_relation_name, [obj.name]]
 
 class Tanh(Relation):
@@ -150,10 +149,10 @@ class Tanh(Relation):
             >>> x = Tanh(x)
     """
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
-        check(type(obj) is Stream,TypeError,
+    def __init__(self, obj:Relation|int|float) -> Relation:
+        check(type(obj) is Relation,TypeError,
               f"The type of {obj} is {type(obj)} and is not supported for Tanh operation.")
-        super().__init__(tanh_relation_name + str(Stream.count),obj.json,obj.dim)
+        super().__init__(tanh_relation_name + str(Relation.count),obj.json,obj.dim)
         self.json['Relations'][self.name] = [tanh_relation_name,[obj.name]]
 
 class Sin_Layer(nn.Module):

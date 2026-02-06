@@ -4,7 +4,7 @@ import torch
 from nnodely.layers.parametricfunction import ParamFun
 from nnodely.layers.parameter import SampleTime
 
-from nnodely.basic.relation import Stream, Relation
+from nnodely.basic.relation import Relation
 from nnodely.support.utils import enforce_types, check
 from collections.abc import Callable
 
@@ -40,12 +40,12 @@ class ForwardEuler(Relation):
     This operation perform Forward Euler Integration on a Stream
     """
     @enforce_types
-    def __init__(self, f:Callable|ParamFun) -> Stream:
+    def __init__(self, f:Callable|ParamFun) -> Relation:
         super().__init__('F' + fe_relation_name)
         self.f = f if isinstance(f, ParamFun) else ParamFun(f)
         self.dt = SampleTime()
     @enforce_types
-    def __call__(self, obj:Stream) -> Stream:
+    def __call__(self, obj:Relation) -> Relation:
         return obj + self.dt * self.f(obj)
 
 class RK2(Relation):
@@ -53,14 +53,14 @@ class RK2(Relation):
     This operation perform RK2 Integration on a Stream
     """
     @enforce_types
-    def __init__(self, f:Callable|ParamFun) -> Stream:
+    def __init__(self, f:Callable|ParamFun) -> Relation:
         super().__init__(rk2_relation_name)
         self.f = f if isinstance(f, ParamFun) else ParamFun(f)
         #self.fe = ForwardEuler(self.f)
         self.dt = SampleTime()
 
     @enforce_types
-    def __call__(self, obj:Stream) -> Stream:
+    def __call__(self, obj:Relation) -> Relation:
         f1 = self.f(obj)
         f2 = self.f(obj + (self.dt/2) * f1)
         return obj + self.dt * f2
@@ -70,13 +70,13 @@ class RK4(Relation):
     This operation perform RK4 Integration on a Stream
     """
     @enforce_types
-    def __init__(self, f:Callable|ParamFun) -> Stream:
+    def __init__(self, f:Callable|ParamFun) -> Relation:
         super().__init__(rk4_relation_name)
         self.f = f if isinstance(f, ParamFun) else ParamFun(f)
         self.dt = SampleTime()
 
     @enforce_types
-    def __call__(self, obj:Stream, t:Stream|None = None) -> Stream:
+    def __call__(self, obj:Relation, t:Relation|None = None) -> Relation:
         if t: ## Partial differential equation
             f1 = self.f(obj, t)
             f2 = self.f(obj + (self.dt/2) * f1, t + (self.dt/2))

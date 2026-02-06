@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch
 
-from nnodely.basic.relation import Stream, Relation
+from nnodely.basic.relation import Relation
 from nnodely.support.utils import enforce_types, check
 from nnodely.support.jsonutils import merge, subjson_from_relation
 from nnodely.basic.model import Model
@@ -25,8 +25,8 @@ class Integrate(Relation):
     method : is the integration method
     """
     @enforce_types
-    def __init__(self, output:Stream, *,
-                 int_name:str|None = None, der_name:str|None = None, method:str = 'euler') -> Stream:
+    def __init__(self, output:Relation, *,
+                 int_name:str|None = None, der_name:str|None = None, method:str = 'euler') -> Relation:
         if int_name is None:
             int_name = output.name + "_int"
         if der_name is None:
@@ -45,8 +45,8 @@ class Derivate(Relation):
     method : is the derivative method
     """
     @enforce_types
-    def __init__(self, output:Stream, input:Stream = None, *,
-                 int_name:str|None = None, der_name:str|None = None, method:str = 'euler') -> Stream:
+    def __init__(self, output:Relation, input:Relation = None, *,
+                 int_name:str|None = None, der_name:str|None = None, method:str = 'euler') -> Relation:
         if input is None:
             if int_name is None:
                 int_name = output.name + "_int"
@@ -57,7 +57,7 @@ class Derivate(Relation):
             output_der = solver.derivate(output)
             super().__init__(output_der.name, output_der.json, output_der.dim)
         else:
-            super().__init__(der_relation_name + str(Stream.count), merge(output.json,input.json), input.dim)
+            super().__init__(der_relation_name, merge(output.json,input.json), input.dim)
             self.json['Relations'][self.name] = [der_relation_name, [output.name, input.name]]
             subjson = subjson_from_relation(self.json, input.name)
             grad_inputs = subjson['Inputs'].keys()

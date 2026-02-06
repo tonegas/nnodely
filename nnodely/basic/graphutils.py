@@ -41,7 +41,6 @@ def to_graph(model_json : dict) -> nx.DiGraph:
     for out_name, src in model_json.get("Outputs", {}).items():
         G.add_node(out_name, type="Output")
         G.add_edge(src, out_name)
-
     return G
 
 def to_json(G : nx.DiGraph) -> dict:
@@ -78,5 +77,47 @@ def to_json(G : nx.DiGraph) -> dict:
             rel = attrs.get("relation")
             if rel:
                 out["Relations"][n] = rel
-
     return out
+
+def plot_graphviz_structure(graph:nx.DiGraph, filename='nnodely_graph', view=True): # pragma: no cover
+    import shutil
+    from graphviz import view
+    from graphviz import Digraph
+
+    # Check if Graphviz is installed
+    if shutil.which('dot') is None:
+        print(
+            "Graphviz does not appear to be installed on your system. "
+            "Please install it from https://graphviz.org/download/"
+        )
+        return
+    
+    dot = Digraph(comment='Structured Neural Network')
+
+    # Set graph attributes for top-down layout and style
+    dot.attr(rankdir='LR', size='21')
+    dot.attr('node', shape='box', style='filled', color='lightgray', fontname='Helvetica')
+    color_map = {
+        'Input': 'lightgreen',
+        'Output': 'red',
+        'Parameter': 'orange',
+        'Function': 'blue',
+        'Constant': 'lightgray',
+        'Minimize': 'purple',
+        'Relation': 'lightblue'
+    }
+    ## Add nodes
+    for n, attr in graph.nodes(data=True):
+        shape_map = 'ellipse' if attr.get('type') in ['Function', 'Parameter', 'Minimize', 'Input', 'Output'] else 'box'
+        dot.node(n, label=f"{n}\nType: {attr.get('type')}", fillcolor=color_map.get(attr.get('type'), 'lightgray'), shape=shape_map)
+    ## Add edges
+    for u, v, attr in graph.edges(data=True):
+        if attr.get('type', None) == 'connect':
+            dot.edge(u, v, label='connect', color='blue', fontcolor='black')
+        elif attr.get('type', None) == 'loop':
+            dot.edge(u, v, label='loop', color='red', fontcolor='black')
+        else:
+            dot.edge(u, v, color='black')
+
+    # Render the graph
+    dot.render(filename=filename, view=view, format='svg')  # opens in default viewer and saves as SVG

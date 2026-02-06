@@ -1,20 +1,17 @@
 import torch.nn as nn
 import torch
 
-from nnodely.basic.relation import Stream, Relation
+from nnodely.basic.relation import Relation
 from nnodely.basic.model import Model
 from nnodely.support.utils import check, enforce_types
 
 part_relation_name = 'Part'
-select_relation_name = 'Select'
 concatenate_relation_name = 'Concatenate'
 
 timeselect_relation_name = 'TimeSelect'
 timeconcatenate_relation_name = 'TimeConcatenate'
 
 sampleselect_relation_name = 'SampleSelect'
-
-
 
 class Part(Relation):
     """
@@ -27,8 +24,8 @@ class Part(Relation):
 
     Parameters
     ----------
-    obj : Stream
-        The stream object to create a part from.
+    obj : Relation
+        The Relation object to create a part from.
     i : int
         The starting index of the part.
     j : int
@@ -59,8 +56,8 @@ class Part(Relation):
         If the indices i and j are out of range.
     """
     @enforce_types
-    def __init__(self, obj:Stream, i:int, j:int):
-        # check(type(obj) is Stream, TypeError,
+    def __init__(self, obj:Relation, i:int, j:int):
+        # check(type(obj) is Relation, TypeError,
         #       f"The type of {obj} is {type(obj)} and is not supported for Part operation.")
         check(i >= 0 and j > 0 and i < obj.dim['dim'] and j <= obj.dim['dim'],
               IndexError,
@@ -68,55 +65,6 @@ class Part(Relation):
         super().__init__(part_relation_name,obj.json)
         self.json['Relations'][self.name] = [part_relation_name,[obj.name],obj.dim['dim'],[i,j]]
 
-class Select(Relation):
-    """
-    Represents a selection of a single element from a relation in the neural network model.
-
-    Notes
-    -----
-    .. note::
-        The Select relation works along the object dimension (third dimension) of the input.
-
-    Parameters
-    ----------
-    obj : Stream
-        The stream object to select an element from.
-    i : int
-        The index of the element to select.
-
-    Attributes
-    ----------
-    name : str
-        The name of the selection.
-    dim : dict
-        A dictionary containing the dimensions of the selection.
-    json : dict
-        A dictionary containing the configuration of the selection.
-
-    Examples
-    --------
-    .. image:: https://colab.research.google.com/assets/colab-badge.svg
-        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb
-        :alt: Open in Colab
-
-    Example:
-        >>> x = Input('x', dimensions=3).last()
-        >>> relation = Select(x, 1)
-
-    Raises
-    ------
-    IndexError
-        If the index i is out of range.
-    """
-    @enforce_types
-    def __init__(self, obj:Stream, i:int):
-        # check(type(obj) is Stream, TypeError,
-        #       f"The type of {obj} is {type(obj)} and is not supported for Select operation.")
-        check(i >= 0 and i < obj.dim['dim'],
-              IndexError,
-              f"i={i} are not in the range [0,{obj.dim['dim']}]")
-        super().__init__(select_relation_name,obj.json)
-        self.json['Relations'][self.name] = [select_relation_name,[obj.name],obj.dim['dim'],i]
 
 class Concatenate(Relation):
     """
@@ -141,10 +89,10 @@ class Concatenate(Relation):
             >>> cat = Concatenate(relation1, relation2)
     """
     @enforce_types
-    def __init__(self, obj1:Stream, obj2:Stream) -> Stream:
-        check(type(obj1) is Stream,TypeError,
+    def __init__(self, obj1:Relation, obj2:Relation) -> Relation:
+        check(type(obj1) is Relation,TypeError,
               f"The type of {obj1} is {type(obj1)} and is not supported for the Concatenate operation.")
-        check(type(obj2) is Stream,TypeError,
+        check(type(obj2) is Relation,TypeError,
               f"The type of {obj2} is {type(obj2)} and is not supported for the Concatenate operation.")
         #check(obj1.dim == obj2.dim or obj1.dim == {'dim':1} or obj2.dim == {'dim':1}, ValueError,
         #      f"For addition operators (+) the dimension of {obj1.name} = {obj1.dim} must be the same of {obj2.name} = {obj2.dim}.")
@@ -169,8 +117,8 @@ class SampleSelect(Relation):
 
     Parameters
     ----------
-    obj : Stream
-        The stream object to select an element from.
+    obj : Relation
+        The Relation object to select an element from.
     i : int
         The index of the element to select.
 
@@ -203,8 +151,8 @@ class SampleSelect(Relation):
         If the offset is not within the sample window.
     """
     @enforce_types
-    def __init__(self, obj:Stream, i:int):
-        # check(type(obj) is Stream, TypeError,
+    def __init__(self, obj:Relation, i:int):
+        # check(type(obj) is Relation, TypeError,
         #       f"The type of {obj} is {type(obj)} and is not supported for SampleSelect operation.")
         check('sw' in obj.dim, KeyError, 'Input must have a sample window')
         backward_idx = 0
@@ -236,10 +184,10 @@ class TimeConcatenate(Relation):
             >>> cat = TimeConcatenate(relation1, relation2)
     """
     @enforce_types
-    def __init__(self, obj1:Stream, obj2:Stream) -> Stream:
-        check(type(obj1) is Stream,TypeError,
+    def __init__(self, obj1:Relation, obj2:Relation) -> Relation:
+        check(type(obj1) is Relation,TypeError,
               f"The type of {obj1} is {type(obj1)} and is not supported for the Concatenate operation.")
-        check(type(obj2) is Stream,TypeError,
+        check(type(obj2) is Relation,TypeError,
               f"The type of {obj2} is {type(obj2)} and is not supported for the Concatenate operation.")
         
         #check('tw' in obj1.dim, KeyError, 'Input1 must have a time window')
@@ -267,21 +215,6 @@ class Part_Layer(nn.Module):
 ## Select elements on the third dimension in the range [i,j]
 def createPart(self, *inputs):
     return Part_Layer(dim=inputs[0], i=inputs[1][0], j=inputs[1][1])
-
-class Select_Layer(nn.Module):
-    #: :noindex:
-    def __init__(self, dim, idx):
-        super(Select_Layer, self).__init__()
-        self.W = torch.zeros(dim)
-        self.W[idx] = 1
-
-    def forward(self, x):
-        ## assert x.ndim >= 3, 'The Part Relation Works only for 3D inputs'
-        return torch.einsum('ijk,k->ij', x, self.W).unsqueeze(2)
-
-## Select an element i on the third dimension
-def createSelect(self, *inputs):
-    return Select_Layer(dim=inputs[0], idx=inputs[1])
 
 class Concatenate_Layer(nn.Module):
     #: :noindex:
@@ -321,7 +254,6 @@ def createTimeConcatenate(name, *inputs):
     return TimeConcatenate_Layer()
 
 setattr(Model, part_relation_name, createPart)
-setattr(Model, select_relation_name, createSelect)
 setattr(Model, concatenate_relation_name, createConcatenate)
 
 setattr(Model, sampleselect_relation_name, createSampleSelect)
@@ -329,15 +261,16 @@ setattr(Model, timeconcatenate_relation_name, createTimeConcatenate)
 
 timepart_relation_name = 'TimePart'
 samplepart_relation_name = 'SamplePart'
+select_relation_name = 'Select'
 
 class TimePart(Relation):
     """
-    Represents a part of a stream in the neural network model along the time dimension (second dimension).
+    Represents a part of a Relation in the neural network model along the time dimension (second dimension).
 
     Parameters
     ----------
-    obj : Stream
-        The stream object to create a part from.
+    obj : Relation
+        The Relation object to create a part from.
     i : int or float
         The starting index of the part.
     j : int or float
@@ -373,7 +306,7 @@ class TimePart(Relation):
     IndexError
         If the offset is not within the time window.
     """
-    def __init__(self, obj, i:int|float, j:int|float, name:str =  None, offset:int|float|None = None):
+    def __init__(self, obj:Relation, i:int|float, j:int|float, name:str =  None, offset:int|float|None = None):
         check('tw' in obj.attrs, KeyError, 'Input must have a time window')
         check(i < j, ValueError, 'the start index i must be smaller than the end index j')
         tw = obj.attrs['tw']
@@ -423,8 +356,8 @@ class SamplePart(Relation):
 
     Parameters
     ----------
-    obj : Stream
-        The stream object to create a part from.
+    obj : Relation
+        The Relation object to create a part from.
     i : int
         The starting index of the part.
     j : int
@@ -461,7 +394,7 @@ class SamplePart(Relation):
         If the offset is not within the sample window.
     """
     @enforce_types
-    def __init__(self, obj:Stream, i:int, j:int, name:str =  None, offset:int|float|None = None):
+    def __init__(self, obj:Relation, i:int, j:int, name:str =  None, offset:int|float|None = None):
         check('sw' in obj.attrs, KeyError, 'Input must have a sample window')
         check(i < j, ValueError, 'the start index i must be smaller than the end index j')
         sw = obj.attrs['sw']
@@ -498,6 +431,69 @@ def createSamplePart(self, *inputs):
         return SamplePart_Layer(dim=inputs[0], part=inputs[1], offset=inputs[2])
     else:
         return SamplePart_Layer(dim=inputs[0], part=inputs[1], offset=None)
+    
+
+class Select(Relation):
+    """
+    Represents a selection of a single element from a relation in the neural network model.
+
+    Notes
+    -----
+    .. note::
+        The Select relation works along the object dimension (third dimension) of the input.
+
+    Parameters
+    ----------
+    obj : Relation
+        The Relation object to select an element from.
+    i : int
+        The index of the element to select.
+
+    Attributes
+    ----------
+    name : str
+        The name of the selection.
+    dim : dict
+        A dictionary containing the dimensions of the selection.
+    json : dict
+        A dictionary containing the configuration of the selection.
+
+    Examples
+    --------
+    .. image:: https://colab.research.google.com/assets/colab-badge.svg
+        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb
+        :alt: Open in Colab
+
+    Example:
+        >>> x = Input('x', dimensions=3).last()
+        >>> relation = Select(x, 1)
+
+    Raises
+    ------
+    IndexError
+        If the index i is out of range.
+    """
+    @enforce_types
+    def __init__(self, obj:Relation, i:int, name:str|None =  None):
+        name = name if name is not None else select_relation_name
+        attrs = {'dim': 1}
+        super().__init__(name, obj.name, **attrs)
+
+class Select_Layer(nn.Module):
+    #: :noindex:
+    def __init__(self, dim, idx):
+        super(Select_Layer, self).__init__()
+        self.W = torch.zeros(dim)
+        self.W[idx] = 1
+
+    def forward(self, x):
+        ## assert x.ndim >= 3, 'The Part Relation Works only for 3D inputs'
+        return torch.einsum('ijk,k->ij', x, self.W).unsqueeze(2)
+
+## Select an element i on the third dimension
+def createSelect(self, *inputs):
+    return Select_Layer(dim=inputs[0], idx=inputs[1])
 
 setattr(Model, timepart_relation_name, createTimePart)
 setattr(Model, samplepart_relation_name, createSamplePart)
+setattr(Model, select_relation_name, createSelect)
