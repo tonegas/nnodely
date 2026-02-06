@@ -1,7 +1,7 @@
 .. _relation_module:
 
-Relation module
-================
+Stream-level composition
+================================
 
 .. automodule:: nnodely.basic.relation
     :undoc-members:

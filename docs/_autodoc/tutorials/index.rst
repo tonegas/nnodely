@@ -9,8 +9,7 @@ This section contains practical examples demonstrating the main features of
 All examples are provided without large datasets. Please refer to the repository
 for the complete data files.
 
-Available Examples
-------------------------------------
+.. rubric:: Available Examples
 
 .. toctree::
    :maxdepth: 2

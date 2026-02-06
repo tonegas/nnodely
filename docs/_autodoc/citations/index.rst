@@ -7,8 +7,7 @@ machine learning.
 
 The following publications provide important theoretical and applied foundations.
 
-References
-----------
+.. rubric:: References
 
 [1] Mauro Da Lio, Daniele Bortoluzzi, Gastone Pietro Rosati Papini (2019).  
     *Modelling longitudinal vehicle dynamics with neural networks*.  

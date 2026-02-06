@@ -1,4 +1,6 @@
-Compose module
+.. _model-level_composition:
+
+Model-level composition
 ========================
 
 .. automodule:: nnodely.operators.composer
