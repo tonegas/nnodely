@@ -24,6 +24,7 @@ In this documentation you will find a comprehensive guide for getting started wi
 
 Overview
 -----------------------
+
 .. This needs to be revised in order to explain at high level the phases of the workflow.
 .. - :ref:`Modely <nnodely-modely>`: Main entry point of nnodely. It manages the composition of the MS-NNs, the connection between structural blocks and the training of the networks.
 .. - :ref:`Model structured NN Inputs Outputs and Parameters <nnodely-msnn_ins_out_param>`: Description of the Input, Output and Parameter modules that can be used to build MS-NNs.
