@@ -55,6 +55,9 @@ Table of Contents
    _autodoc/validation/index
    _autodoc/export/index
    _autodoc/tutorials/index
+   _autodoc/citations/index
+   _autodoc/q_and_a/index
+   _autodoc/glossary/index
 
 Indices and tables
 ==================
