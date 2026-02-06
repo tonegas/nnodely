@@ -1,3 +1,5 @@
+.. _initializer_module:
+
 Initializer module
 ================================
 

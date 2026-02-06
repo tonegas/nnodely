@@ -1,3 +1,5 @@
+.. _output_module:
+
 Output module
 ================
 

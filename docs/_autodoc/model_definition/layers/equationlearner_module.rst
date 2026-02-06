@@ -1,3 +1,5 @@
+.. _equationlearner_module:
+
 EquationLearner module
 ==================================
 

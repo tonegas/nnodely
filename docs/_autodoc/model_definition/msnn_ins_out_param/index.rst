@@ -10,6 +10,5 @@ In nnodely, a neural model is built from a few clear, modular components: Inputs
 
    input_module
    parameter_module
-   relation_module
    initializer_module
    output_module

@@ -1,3 +1,5 @@
+.. _arithmetic_module:
+
 Arithmetic module
 =================
 

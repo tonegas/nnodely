@@ -1,3 +1,5 @@
+.. _activation_module:
+
 Activation module
 =================
 

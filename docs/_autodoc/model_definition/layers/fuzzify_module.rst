@@ -1,3 +1,5 @@
+.. _fuzzify_module:
+
 Fuzzify module
 =================
 .. automodule:: nnodely.layers.fuzzify

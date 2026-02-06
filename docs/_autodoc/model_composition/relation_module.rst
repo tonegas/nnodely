@@ -1,3 +1,5 @@
+.. _relation_module:
+
 Relation module
 ================
 
