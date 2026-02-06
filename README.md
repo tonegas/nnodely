@@ -40,12 +40,7 @@ MS-NNs combine the learning capabilities of neural networks with structural **pr
       <li><a href="#testmodel">Test the neural model</a></li>
     </ul>
   <li>
-    <a href="#fonlderstructure">Structure of the Folders</a>
-    <ul>
-      <li><a href="#nnodelyfolder">nnodely folder</a></li>
-      <li><a href="#testsfolder">tests folder</a></li>
-      <li><a href="#examplesfolder">examples folder</a></li>
-    </ul>
+    <a href="#fonlderstructure">Structure of the Repository</a>
   </li>
   <li><a href="#license">License</a></li>
   <li><a href="#references">References</a></li>
@@ -95,14 +90,9 @@ Or you can build it from source by cloning first the repository and installing t
 <a name="gettingstarted"></a>
 ## Getting Started
 
-Some examples of application of nnodely in different fields are collected in the following open-source repository: [nnodely-applications](https://github.com/tonegas/nnodely-applications)
+Some **examples of application** of nnodely in different fields are collected in the following open-source repository: [nnodely-applications](https://github.com/tonegas/nnodely-applications)
 
-Download the source code and install the dependencies using the following commands:
-  ```sh
-  git clone https://github.com/tonegas/nnodely.git
-  cd nnodely
-  pip install -r requirements.txt
-  ```
+The complete **documentation** of the code can be found [here](https://nnodely.readthedocs.io/en/latest/).
 
 ### How to contribute
 
@@ -259,7 +249,25 @@ print(results)
 <a name="fonlderstructure"></a>
 ## Structure of the Repository
 
+```bash
+nnodely/
+├── docs/               
+├── examples/
+├── mplplots/            
+├── nnodely/
+│   ├── basic/           # main classes for lowlevel functionalities
+│   ├── exporter/        # utilities for exporting models to other formalisms
+│   ├── layers/          # all the layers supported
+│   ├── operators/       # mathematical operations
+│   ├── support/         # support functions
+│   └── visualizer/      # classes for visualization purposes
+└── tests/               # unit test folder
+```
+
+<details>
+<summary>More info about repository structure</summary>
 <a name="nnodelyfolder"></a>
+
 ### nnodely Folder
 This folder contains all the nnodely library files with relative references.
 
@@ -319,6 +327,7 @@ The files in the examples folder are a collection of the functionality of the li
 Each file presents a specific functionality of the framework.
 This folder is useful to understand the flexibility and capability of the framework.
 
+</details>
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 <a name="license"></a>
