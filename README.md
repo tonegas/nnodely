@@ -21,8 +21,12 @@ MS-NNs combine the learning capabilities of neural networks with structural **pr
 <h2>Table of Contents</h2>
 <ol>
   <li><a href="#whyuse">Why use nnodely?</a></li>
-  <li><a href="#installation">Installation</a></li>
   <li><a href="#gettingstarted">Getting Started</a></li>
+  <ul>
+      <li><a href="#installation">Installation</a></li>
+      <li><a href="#contribute">How to contribute</a></li>
+      <li><a href="#examples">Examples </a></li>
+  </ul>
   <li><a href="#basicexample">Basic Example</a></li>
   <ul>
       <li><a href="#structuredneuralmodel">Build the neural model</a></li>
@@ -39,30 +43,148 @@ MS-NNs combine the learning capabilities of neural networks with structural **pr
 <a name="whyuse"></a>
 ## Why use nnodely?
 
-The framework's goal is to enable **fast prototyping** of MS-NNs for modeling, control, and estimation of physical systems by embedding prior domain knowledge into the neural network architecture.
+### 1. The Challenge
 
-#### Core Objectives
+Designing neural models for physical systems is fundamentally different from designing models for images or text.
 
-- **Model**, **control**, or **estimate** physical systems with unknown internal dynamics or parameters.  
-- **Accelerate** the development of MS-NNs, which are often difficult to implement in general-purpose deep learning frameworks.  
-- Support researchers, engineers, and domain experts in integrating data-driven models into their workflows — without discarding established knowledge.  
-- Serve as a repository of **reusable components** and best practices for MS-NN design across diverse applications.  
+In engineering applications, models must often:
 
-#### Workflow Overview
+- Respect known physical laws or constraints
+- Operate in real-time
+- Be interpretable
+- Integrate within feedback control loops
+- Generalize outside the training distribution
+- Work with limited datasets
 
-nnodely guides users through **six structured phases** to define, train, and deploy MS-NNs effectively:
+Standard deep learning frameworks are powerful, but they are not designed to:
+- Naturally express time-structured operators
+- Encode signal-processing concepts
+- Embed control architectures
+- Separate known and unknown dynamics
 
-1. **Neural Model Definition**: Build the MS-NN architecture using intuitive and modular design functions.  
-2. **Dataset Creation**: Simplify loading and preprocessing of training, validation, and test data.  
-3. **Neural Model Composition**: Assemble complex models by combining multiple neural components (e.g., models, controllers, estimators) in a unified training framework.  
-4. **Neural Model Training**: Train the MS-NN parameters using user-defined loss functions.  
-5. **Neural Model Validation**: Assess the performance and reliability of the trained model.  
-6. **Model Export**: Deploy MS-NNs using standard formats. nnodely supports export to native PyTorch (nnodely-independent) and ONNX for broader compatibility.  
+As a result, implementing Model-Structured Neural Networks (MS-NNs) from scratch can become complex, error-prone, and inefficient.
+
+---
+
+### 2. The nnodely Methodology
+
+nnodely is built around a simple but powerful idea:
+
+> Instead of learning everything, learn only what is unknown — inside a structured model.
+
+The framework enables users to:
+
+- Define **Inputs**, **Outputs**, and **Parameters**
+- Compose models using signal operators (FIR, time windows, local models, parametric functions)
+- Explicitly manipulate time (delays, shifts, derivatives)
+- Embed classical system-theoretic structures into neural architectures
+- Train only the necessary degrees of freedom
+
+The resulting models are:
+
+- Structurally constrained
+- Physically meaningful
+- Data-efficient
+- Compatible with control and estimation pipelines
+
+This approach aligns with methodologies such as:
+- Structured system identification
+- Physics-informed learning
+- Local model networks
+- Hybrid modeling (gray-box modeling)
+
+---
+
+### 3. Core Capabilities
+
+nnodely supports:
+
+#### ✔ Structured Modeling
+Design neural models using:
+- FIR filters
+- Linear operators
+- Local models
+- Parametric functions
+- Equation learners
+- Time-domain operations
+
+#### ✔ Modeling, Control, and Estimation
+MS-NNs can be used to:
+- Identify unknown dynamics
+- Design adaptive controllers
+- Implement observers and estimators
+- Embed learned components into closed-loop systems
+
+#### ✔ Explicit Time-Domain Formulation
+Unlike many generic frameworks, nnodely treats time as a first-class concept:
+- Time windows
+- Delays
+- Forward shifts (Z-domain interpretation)
+- Derivatives (enabling PINN-style formulations)
+
+#### ✔ Compositional Architecture
+Multiple neural components (models, controllers, estimators) can be combined into a unified architecture and trained jointly.
+
+#### ✔ Deployment-Ready
+Trained MS-NNs can be exported:
+- As standalone PyTorch models
+- In ONNX format for real-time or embedded deployment
+
+---
+
+### 4. Structured Workflow
+
+nnodely guides users through a clear development pipeline:
+<p align="center">
+<img src="https://raw.githubusercontent.com/tonegas/nnodely/readme/imgs/phases.png" alt="phases" width="30%" >
+</p>
+
+1. **Neural Model Definition**  
+   Define structured components using modular operators.
+
+2. **Dataset Integration**  
+   Bind signals to structured inputs with minimal preprocessing overhead.
+
+3. **Training & Optimization**  
+   Train only the unknown parameters with user-defined losses.
+
+4. **Validation & Analysis**  
+   Evaluate model performance and reliability.
+
+5. **Export & Deployment**  
+   Convert the MS-NN into production-ready formats.
+
+6. **Model Composition**  
+   Combine multiple structured elements into a complete architecture.
+
+---
+
+### 5. Who is it for?
+
+nnodely is particularly suited for:
+
+- Control engineers
+- System identification researchers
+- Robotics developers
+- Energy systems engineers
+- Automotive and aerospace applications
+- Researchers working on physics-informed or hybrid neural models
+
+If your problem involves **structured dynamics**, **time-series modeling**, or **feedback systems**, nnodely provides abstractions that standard deep learning libraries do not.
+
+---
+
+In short:
+
+nnodely is not a replacement for deep learning frameworks —  
+it is a **structured modeling layer on top of them**, purpose-built for physical systems.
 
 
+<a name="gettingstarted"></a>
+## Getting Started
 
 <a name="installation"></a>
-## Installation
+### Installation
 
 You can install nnodely from PyPI via:
 
@@ -79,15 +201,7 @@ pip install -r requirements.txt
 pip install .
 ```
 
-
-
-<a name="gettingstarted"></a>
-## Getting Started
-
-Some **examples of applications** of nnodely in different fields are collected in the following open-source repository:   [nnodely-applications](https://github.com/tonegas/nnodely-applications)
-
-The complete documentation is available [here](https://nnodely.readthedocs.io/en/latest/).
-
+<a name="contribute"></a>
 ### How to Contribute
 
 To contribute to the nnodely framework, you can:
@@ -96,6 +210,14 @@ To contribute to the nnodely framework, you can:
 - Open an issue if you have a question or suggestion.  
 
 We welcome contributions and collaborations.
+
+<a name="examples"></a>
+### Examples
+
+Some **examples of applications** of nnodely in different fields are collected in the following open-source repository:   [nnodely-applications](https://github.com/tonegas/nnodely-applications)
+
+The complete documentation is available [here](https://nnodely.readthedocs.io/en/latest/).
+
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
