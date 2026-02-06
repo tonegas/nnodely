@@ -1,3 +1,5 @@
+.. _linear_module:
+
 Linear module
 =================
 

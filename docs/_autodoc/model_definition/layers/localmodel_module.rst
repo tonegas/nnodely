@@ -1,3 +1,5 @@
+.. _localmodel_module:
+
 Localmodel module
 =================
 

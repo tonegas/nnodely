@@ -52,6 +52,7 @@ Table of Contents
    _autodoc/training/index
    _autodoc/validation/index
    _autodoc/export/index
+   _autodoc/tutorials/index
 
 Indices and tables
 ==================

@@ -1,3 +1,5 @@
+.. _fir_module:
+
 FIR module
 =================
 .. automodule:: nnodely.layers.fir

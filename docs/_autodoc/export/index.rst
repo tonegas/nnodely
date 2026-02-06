@@ -2,7 +2,8 @@
 
 Inference and Model Export
 ===========================
-Trained models in **nnodely** can be used for inference and exported for integration into external workflows.
+Trained models in **nnodely** can be used for inference and exported for integration into external
+workflows. See the :doc:`Exporter module <exporter_module>` for the available export and inference APIs.
 
 Inference can be performed in two main modes:
 
@@ -30,6 +31,10 @@ human-readable form, facilitating:
 - Model inspection
 - Long-term storage
 
+Use :func:`saveModel() <nnodely.operators.exporter.Exporter.saveModel>` and
+:func:`loadModel() <nnodely.operators.exporter.Exporter.loadModel>` to save and load the JSON
+model definitions.
+
 PyTorch Export
 ~~~~~~~~~~~~~~
 Models can be translated into optimized **PyTorch** classes using symbolic tracing. This process generates efficient, system-specific implementations that are suitable for:
@@ -38,10 +43,20 @@ Models can be translated into optimized **PyTorch** classes using symbolic traci
 - Integration into deep learning pipelines
 - High-performance inference
 
+Relevant API: :func:`saveTorchModel() <nnodely.operators.exporter.Exporter.saveTorchModel>`,
+:func:`loadTorchModel() <nnodely.operators.exporter.Exporter.loadTorchModel>`,
+:func:`exportPythonModel() <nnodely.operators.exporter.Exporter.exportPythonModel>`, and
+:func:`importPythonModel() <nnodely.operators.exporter.Exporter.importPythonModel>`.
+
 ONNX Export
 ~~~~~~~~~~~
 Export to the **ONNX** format is also supported, enabling deployment across
-heterogeneous hardware platforms and inference engines. This option is particularly useful for production environments and embedded systems.
+heterogeneous hardware platforms and inference engines. This option is particularly
+useful for production environments and embedded systems.
+
+Use :func:`exportONNX() <nnodely.operators.exporter.Exporter.exportONNX>` to produce an ONNX file
+and :func:`onnxInference() <nnodely.operators.exporter.Exporter.onnxInference>` to run inference
+with a previously exported ONNX model.
 
 Modular Export Support
 ----------------------
@@ -54,6 +69,11 @@ By supporting multiple inference modes and export formats, **nnodely** decouples
 model definition from any single execution backend. This design supports both
 research workflows and real-world deployment, ensuring that models can be easily
 integrated into diverse application environments.
+
+Additional tools
+----------------
+Training and validation reports (PDF) can be generated from results using
+:func:`exportReport() <nnodely.operators.exporter.Exporter.exportReport>`.
 
 .. toctree::
    :maxdepth: 2

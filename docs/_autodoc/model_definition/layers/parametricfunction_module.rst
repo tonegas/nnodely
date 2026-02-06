@@ -1,3 +1,5 @@
+.. _parametricfunction_module:
+
 Parametric Function module
 ==================================
 

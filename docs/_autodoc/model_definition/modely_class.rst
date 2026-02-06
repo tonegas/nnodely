@@ -1,7 +1,7 @@
-Modely
+Modely Class
 ============
 
-..  automodule:: nnodely.nnodely
+..  autoclass:: nnodely.nnodely.Modely
    :members:
    :undoc-members:
    :show-inheritance:

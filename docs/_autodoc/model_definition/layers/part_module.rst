@@ -1,3 +1,5 @@
+.. _part_module:
+
 Part module
 =================
 

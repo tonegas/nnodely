@@ -39,6 +39,7 @@ extensions = [
     'sphinx.ext.viewcode',
     'sphinx.ext.mathjax',
     'myst_parser',
+    'nbsphinx',
 ]
 
 templates_path = []

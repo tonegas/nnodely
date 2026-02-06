@@ -1,3 +1,5 @@
+.. _parameter_module:
+
 Parameter module
 ================
 

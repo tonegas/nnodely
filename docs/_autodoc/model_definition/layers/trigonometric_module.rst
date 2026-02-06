@@ -1,3 +1,5 @@
+.. _trigonometric_module:
+
 Trigonometric module
 ==================================
 
