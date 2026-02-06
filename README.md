@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Coverage Status](https://coveralls.io/repos/github/tonegas/nnodely/badge.svg?branch=main)](https://coveralls.io/github/tonegas/nnodely?branch=main)
-[![Coverage Status](https://readthedocs.org/projects/nnodely/badge/?version=latest&style=default)](https://nnodely.readthedocs.io/en/latest/)
+[![Documentation](https://readthedocs.org/projects/nnodely/badge/?version=latest&style=default)](https://nnodely.readthedocs.io/en/latest/)
 
 <a name="readme-top"></a>
 # nnodely – Model-Structured Neural Networks
@@ -24,6 +24,7 @@ MS-NNs combine the learning capabilities of neural networks with structural **pr
   <li><a href="#gettingstarted">Getting Started</a></li>
   <ul>
       <li><a href="#installation">Installation</a></li>
+      <li><a href="#hellow">Hello, World!</a></li>
       <li><a href="#contribute">How to contribute</a></li>
       <li><a href="#examples">Examples </a></li>
   </ul>
@@ -200,6 +201,20 @@ cd nnodely
 pip install -r requirements.txt
 pip install .
 ```
+<a name="hellow"></a>
+### Hello, World!
+To check if `nnodely` is installed correctly try running the following script
+
+```python
+from nnodely import *
+
+x = Input('x')
+x_out = Output('x_out', Fir(x.last()))
+model = nnodely()
+model.addModel('x_out', x_out)
+print("nnodely installed correctly!")
+```
+
 
 <a name="contribute"></a>
 ### How to Contribute
@@ -216,7 +231,7 @@ We welcome contributions and collaborations.
 
 Some **examples of applications** of nnodely in different fields are collected in the following open-source repository:   [nnodely-applications](https://github.com/tonegas/nnodely-applications)
 
-The complete documentation is available [here](https://nnodely.readthedocs.io/en/latest/).
+The complete **documentation** is available [here](https://nnodely.readthedocs.io/en/latest/).
 
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
