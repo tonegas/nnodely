@@ -14,6 +14,22 @@ Getting Started
      </a>
    </p>
 
+Installation guide
+------------------
+To install *nnodely*, the user can install via:
+
+.. code-block:: bash
+
+   pip install nnodely
+
+Alternatively, the user can clone the repository and install from source:
+
+.. code-block:: bash
+
+   git clone https://github.com/tonegas/nnodely.git
+   cd nnodely
+   pip install -r requirements.txt
+   pip install .
 
 
 
