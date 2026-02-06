@@ -22,8 +22,9 @@ The main objective of the nnodely framework is to allow fast prototyping of MS-N
 
 In this documentation you will find a comprehensive guide for getting started with nnodely, illustrating the main blocks that constitute the framework.
 
-Documentation Overview
+Overview
 -----------------------
+.. This needs to be revised in order to explain at high level the phases of the workflow.
 
 - :ref:`Modely <nnodely-modely>`: Main entry point of nnodely. It manages the composition of the MS-NNs, the connection between structural blocks and the training of the networks.
 
