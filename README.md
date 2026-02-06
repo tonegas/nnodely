@@ -136,7 +136,7 @@ Trained MS-NNs can be exported:
 
 nnodely guides users through a clear development pipeline:
 <p align="center">
-<img src="https://raw.githubusercontent.com/tonegas/nnodely/readme/imgs/phases.png" alt="phases" width="30%" >
+<img src="https://raw.githubusercontent.com/tonegas/nnodely/readme/imgs/phases.png" alt="phases" width="50%" >
 </p>
 
 1. **Neural Model Definition**  
