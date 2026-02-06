@@ -25,20 +25,20 @@ In this documentation you will find a comprehensive guide for getting started wi
 Overview
 -----------------------
 .. This needs to be revised in order to explain at high level the phases of the workflow.
-
-- :ref:`Modely <nnodely-modely>`: Main entry point of nnodely. It manages the composition of the MS-NNs, the connection between structural blocks and the training of the networks.
-
-- :ref:`Model structured NN Inputs Outputs and Parameters <nnodely-msnn_ins_out_param>`: Description of the Input, Output and Parameter modules that can be used to build MS-NNs.
-
-- :ref:`Model structured NN building blocks <nnodely-modules-layers>`: Overview of the different structural layers available in nnodely to build MS-NNs.
-
-- :ref:`Training <nnodely-training>`: Explanation of the training procedures implemented in nnodely to train MS-NNs.
+.. - :ref:`Modely <nnodely-modely>`: Main entry point of nnodely. It manages the composition of the MS-NNs, the connection between structural blocks and the training of the networks.
+.. - :ref:`Model structured NN Inputs Outputs and Parameters <nnodely-msnn_ins_out_param>`: Description of the Input, Output and Parameter modules that can be used to build MS-NNs.
+.. - :ref:`Model structured NN building blocks <nnodely-modules-layers>`: Overview of the different structural layers available in nnodely to build MS-NNs.
+.. - :ref:`Training <nnodely-training>`: Explanation of the training procedures implemented in nnodely to train MS-NNs.
 
 
 
 .. image:: https://raw.githubusercontent.com/tonegas/nnodely/docs/update/imgs/framework_p.png
    :width: 60%
    :alt: Framework
+
+   
+Overview of the *nnodely* development pipeline. It spans model design (:ref:`PH1 <nnodely-modely>`), dataset construction aligned with the network architecture (:ref:`PH2 <nnodely-dataset-creation>`), training (:ref:`PH3 <nnodely-training>`), domain-specific validation (:ref:`PH4 <nnodely-validation>`), model export (:ref:`PH5 <nnodely-export>`), and composition of complex models (:ref:`PH6 <nnodely-model-composition>`). Ellipses indicate the pipeline phases, while rectangles denote the artifacts produced at each phase.
+
 
 
 Table of Contents
@@ -93,7 +93,7 @@ The kinematic model is given by:
    y_out = Output('y_out', (l1 * Sin(theta1.last())) +
           (l2 * Sin(theta1.last() + theta2.last())))
 
-   # Neuralize the model
+   # Model composition 
    model = Modely(seed=0)
    model.addModel('x_out', x_out)
    model.addModel('y_out', y_out)
@@ -101,13 +101,13 @@ The kinematic model is given by:
    model.addMinimize('y-error', y_tip.last(), y_out, 'mse') # Objectives
    model.neuralizeModel(sample_time=0.02) 
 
-   # Data loading (CSV in current folder)
+   # Data loading 
    data_struct = ['step', 'T1','T2','theta1', 'theta2', 'x_tip', 'y_tip',
                   'thetadot1', 'thetadot2', 'thetaddot1', 'thetaddot2']
 
    data_folder = os.path.join(os.getcwd(), 'dataset', 'data')
 
-   # Load the CSV file
+   # dataset creation
    model.loadData(name='reacher_data', source=data_folder,
                format=data_struct, delimiter=';')
 
