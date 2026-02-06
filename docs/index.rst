@@ -22,6 +22,36 @@ The main objective of the nnodely framework is to allow fast prototyping of MS-N
 
 In this documentation you will find a comprehensive guide for getting started with nnodely, illustrating the main blocks that constitute the framework.
 
+
+.. raw:: html
+
+   <p>
+     <a href="https://github.com/tonegas/nnodely"
+        style="display:inline-block; font-weight:900; font-size:1.4em;
+               padding:0.7em 1.1em; border-radius:12px;
+               border:2px solid #333; text-decoration:none;">
+       For the README click here
+     </a>
+   </p>
+
+
+
+
+
+.. raw:: html
+
+   <p>
+     <a href="https://github.com/tonegas/nnodely-applications"
+        style="display:inline-block; font-weight:800; font-size:1.15em;
+               padding:0.55em 0.9em; border-radius:10px;
+               border:1px solid #333; text-decoration:none;">
+       For the nnodely applications click here
+     </a>
+   </p>
+
+
+
+
 Overview
 -----------------------
 

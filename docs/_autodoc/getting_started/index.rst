@@ -3,6 +3,20 @@
 Getting Started
 ================
 
+.. raw:: html
+
+   <p>
+     <a href="https://github.com/tonegas/nnodely"
+        style="display:inline-block; font-weight:800; font-size:1.15em;
+               padding:0.55em 0.9em; border-radius:10px;
+               border:1px solid #333; text-decoration:none;">
+       First start with the README click here
+     </a>
+   </p>
+
+
+
+
 Reacher example
 ---------------
 
@@ -14,9 +28,16 @@ Here is simple two-joint planar manipulator. The inputs are the joint angles :ma
 The link lengths :math:`l_1` and :math:`l_2` are unknown and are estimated from data using *nnodely* as learnable parameters.
 The kinematic model is given by:
 
+
 .. math::   
-   x_{\text{out}} = l_1 \cos(\theta_1) + l_2 \cos(\theta_1 + \theta_2), \quad  
-   y_{\text{out}} = l_1 \sin(\theta_1) + l_2 \sin(\theta_1 + \theta_2).
+   x = l_1 \cos(\theta_1) + l_2 \cos(\theta_1 + \theta_2), \quad  
+   y = l_1 \sin(\theta_1) + l_2 \sin(\theta_1 + \theta_2).
+
+**Inputs from dataset & Parameters**
+
+Input variables are created using the :class:`Input` class. The :class:`Output` class defines the model output and takes two arguments: 
+the name of the output and its structure.
+
 
 .. code-block:: python
 
@@ -34,6 +55,13 @@ The kinematic model is given by:
    y_out = Output('y_out', (l1 * Sin(theta1.last())) +
           (l2 * Sin(theta1.last() + theta2.last())))
 
+**Model composition**
+
+:class:`addModel` adds the defined output to the model, :class:`addMinimize` defines the loss function, 
+and :class:`neuralizeModel` builds the discrete-time MS-NN.
+
+.. code-block:: python
+
    # Model composition 
    model = Modely(seed=0)
    model.addModel('x_out', x_out)
@@ -42,15 +70,23 @@ The kinematic model is given by:
    model.addMinimize('y-error', y_tip.last(), y_out, 'mse') # Objectives
    model.neuralizeModel(sample_time=0.02) 
 
-   # Data loading 
+**Data loading**
+
+Nnodely requires two pieces of information: the data structure and the dataset location.
+
+.. code-block:: python
+
    data_struct = ['step', 'T1','T2','theta1', 'theta2', 'x_tip', 'y_tip',
-                  'thetadot1', 'thetadot2', 'thetaddot1', 'thetaddot2']
-
+                  'thetadot1', 'thetadot2', 'thetaddot1', 'thetaddot2'] # dataset creation
+   
    data_folder = os.path.join(os.getcwd(), 'dataset', 'data')
-
-   # dataset creation
+   
    model.loadData(name='reacher_data', source=data_folder,
-               format=data_struct, delimiter=';')
+               format=data_struct, delimiter=';')  # Data loading 
+
+**Training**
+
+.. code-block:: python
 
    # Training
    train_params = {'num_of_epochs': 200, 'train_batch_size': 128, 'lr': 0.01}
