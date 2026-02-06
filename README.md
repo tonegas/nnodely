@@ -28,7 +28,7 @@ MS-NNs combine the learning capabilities of neural networks with structural **pr
       <li><a href="#contribute">How to contribute</a></li>
       <li><a href="#examples">Examples </a></li>
   </ul>
-  <li><a href="#basicexample">Basic Example</a></li>
+  <li><a href="#basicexample">First Estimator</a></li>
   <ul>
       <li><a href="#structuredneuralmodel">Build the neural model</a></li>
       <li><a href="#neuralizemodel">Neuralize the neural model</a></li>
@@ -239,7 +239,7 @@ The complete **documentation** is available [here](https://nnodely.readthedocs.i
 
 
 <a name="basicexample"></a>
-## Basic Example
+## First Estimator
 
 This example shows how to use nnodely to create a Model-Structured Neural Network (MS-NN) for a simple **mass-spring-damper mechanical system**.
 
