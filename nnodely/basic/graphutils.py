@@ -1,4 +1,8 @@
+import json
+import os
+
 import networkx as nx
+from networkx.readwrite import node_link_data
 
 def to_graph(model_json : dict) -> nx.DiGraph:
     """
@@ -121,3 +125,52 @@ def plot_graphviz_structure(graph:nx.DiGraph, filename='nnodely_graph', view=Tru
 
     # Render the graph
     dot.render(filename=filename, view=view, format='svg')  # opens in default viewer and saves as SVG
+
+
+def save_graph(G:nx.DiGraph, out_dir="graph_export"):
+    os.makedirs(out_dir, exist_ok=True)
+    # where we'll write function files and large blobs
+    functions_dir = os.path.join(out_dir, "functions")
+    os.makedirs(functions_dir, exist_ok=True)
+
+    G_copy = nx.Graph().graph.update(G.graph)  # copy graph-level metadata
+
+    for n, attrs in G.nodes(data=True):
+        attrs_copy = {}
+        for k, v in attrs.items():
+            # callable -> replace with "module:funcname" if possible
+            if callable(v):
+                # try to get module + name
+                mod = getattr(v, "__module__", None)
+                name = getattr(v, "__name__", None)
+                if mod and name:
+                    attrs_copy[k] = {"__type__": "callable_ref", "ref": f"{mod}:{name}"}
+                else:
+                    # fallback: store as string
+                    attrs_copy[k] = {"__type__": "callable_ref", "ref": str(v)}
+            # if it's a large code string, move it to file
+            elif k == "code" and isinstance(v, str) and len(v) > 200:
+                filename = f"{n}__{k}.py"
+                path = os.path.join(functions_dir, filename)
+                with open(path, "w") as fh:
+                    fh.write(v)
+                attrs_copy[k] = {"__type__": "code_file", "path": f"functions/{filename}"}
+            # fallback: try JSON-serializable (primitives, lists, dicts)
+            else:
+                try:
+                    json.dumps(v)
+                    attrs_copy[k] = v
+                except (TypeError, ValueError):
+                    # last resort: convert to str
+                    attrs_copy[k] = {"__type__": "repr", "value": str(v)}
+
+        G_copy.add_node(n, **attrs_copy)
+
+    for u, v, edata in G.edges(data=True):
+        # similar sanitization for edge attributes if needed
+        G_copy.add_edge(u, v, **edata)
+
+    # dump node-link JSON
+    data = node_link_data(G_copy)
+    with open(os.path.join(out_dir, "graph.json"), "w") as fh:
+        json.dump(data, fh, indent=2)

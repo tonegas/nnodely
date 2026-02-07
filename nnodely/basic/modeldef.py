@@ -9,6 +9,23 @@ from nnodely.basic.graphutils import plot_graphviz_structure
 
 from nnodely.support.logger import logging, nnLogger
 log = nnLogger(__name__, logging.INFO)
+from functools import wraps
+
+
+def check_neuralized(func):
+    """Decorator for ModelGraph methods that modify the graph.
+
+    After the wrapped method runs successfully, sets ``self.neuralized`` to False.
+    """
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        result = func(self, *args, **kwargs)
+        try:
+            self.neuralized = False
+        except Exception:
+            pass
+        return result
+    return wrapper
 
 class ModelGraph:
     def __init__(self, name: str = "main"):
@@ -16,7 +33,9 @@ class ModelGraph:
         self.name = name
         self.tags = []
         self.counter = 0
+        self.neuralized = False
     
+    @check_neuralized
     def _clear(self, tags:str|list|None = None):
         if tags is None:
             self.model_graph.clear()
@@ -27,6 +46,7 @@ class ModelGraph:
             for tag in tags:
                 self.removeNode(tag)
 
+    @check_neuralized
     def set_node(self, name, **attrs):
         while name in self.tags:
             self.counter += 1
@@ -35,6 +55,7 @@ class ModelGraph:
         self.model_graph.add_node(name, **attrs)
         return name
 
+    @check_neuralized
     def set_edge(self, from_node, to_node, **attrs):
         if self.get_node(from_node) is None:
             return 
@@ -50,10 +71,12 @@ class ModelGraph:
     def get_edge(self, from_node, to_node):
         return self.model_graph.edges.get((from_node, to_node), None)
 
+    @check_neuralized
     def set_node_attr(self, node_name, **attrs):
         for k, v in attrs.items():
             self.model_graph.nodes[node_name][k] = v
     
+    @check_neuralized
     def set_edge_attr(self, from_node, to_node, **attrs):
         for k, v in attrs.items():
             self.model_graph.edges[from_node, to_node][k] = v
@@ -64,6 +87,7 @@ class ModelGraph:
     def get_edge_attr(self, from_node, to_node, attr_name):
         return self.model_graph.edges[from_node, to_node].get(attr_name, None)
     
+    @check_neuralized
     def removeEdge(self, from_node, to_node):
         if self.get_node(from_node) is None:
             print(f"The node '{from_node}' is not defined.")
@@ -76,6 +100,10 @@ class ModelGraph:
             return
         self.model_graph.remove_edge(from_node, to_node)
 
+    def is_neuralized(self):
+        return self.neuralized
+
+    @check_neuralized
     def removeNode(self, name):
         if self.get_node(name) is None:
             print(f"The node '{name}' is not defined.")

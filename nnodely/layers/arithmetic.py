@@ -51,8 +51,7 @@ class Add(Relation):
         # check(tw1 == tw2, ValueError, 'Both inputs must have the same time window size')
 
         name = add_relation_name if name is None else name
-        attrs = {'dim': obj1.attrs['dim']}
-        super().__init__(name, [obj1.name, obj2.name], **attrs)
+        super().__init__(name, [obj1.name, obj2.name])
 
 ## TODO: check the scalar dimension, helpful for the offset
 class Sub(Relation):

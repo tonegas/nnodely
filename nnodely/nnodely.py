@@ -338,7 +338,6 @@ class Modely():
         ## Prepare the model definition
         self.mm = ModelManager(name=name)
         set_manager(self.mm)
-        #_set_current_modely(self.graph)
 
     @enforce_types
     def clearTags(self, model= None, tags:str|list|None = None):
@@ -368,6 +367,11 @@ class Modely():
         Minimize(input=input, target=target, loss=loss, name=name)
 
     def Neuralize(sample_time:float = 1.0):
+        ## Compile the network adding missing informations and checking for errors
+
+        ## Build the pytorch neural network module
+
+        ## Serialize functions and parameters into the graph for later export
         pass
 
     
