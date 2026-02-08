@@ -96,71 +96,7 @@ This approach aligns with methodologies such as:
 
 ---
 
-### 3. Core Capabilities
-
-nnodely supports:
-
-#### ✔ Structured Modeling
-Design neural models using:
-- FIR filters
-- Linear operators
-- Local models
-- Parametric functions
-- Equation learners
-- Time-domain operations
-
-#### ✔ Modeling, Control, and Estimation
-MS-NNs can be used to:
-- Identify unknown dynamics
-- Design adaptive controllers
-- Implement observers and estimators
-- Embed learned components into closed-loop systems
-
-#### ✔ Explicit Time-Domain Formulation
-Unlike many generic frameworks, nnodely treats time as a first-class concept:
-- Time windows
-- Delays
-- Forward shifts (Z-domain interpretation)
-- Derivatives (enabling PINN-style formulations)
-
-#### ✔ Compositional Architecture
-Multiple neural components (models, controllers, estimators) can be combined into a unified architecture and trained jointly.
-
-#### ✔ Deployment-Ready
-Trained MS-NNs can be exported:
-- As standalone PyTorch models
-- In ONNX format for real-time or embedded deployment
-
----
-
-### 4. Structured Workflow
-
-nnodely guides users through a clear development pipeline:
-<p align="center">
-<img src="https://raw.githubusercontent.com/tonegas/nnodely/readme/imgs/phases.png" alt="phases" width="50%" >
-</p>
-
-1. **Neural Model Definition**  
-   Define structured components using modular operators.
-
-2. **Dataset Integration**  
-   Bind signals to structured inputs with minimal preprocessing overhead.
-
-3. **Training & Optimization**  
-   Train only the unknown parameters with user-defined losses.
-
-4. **Validation & Analysis**  
-   Evaluate model performance and reliability.
-
-5. **Export & Deployment**  
-   Convert the MS-NN into production-ready formats.
-
-6. **Model Composition**  
-   Combine multiple structured elements into a complete architecture.
-
----
-
-### 5. Who is it for?
+### 3. Who is it for?
 
 nnodely is particularly suited for:
 
@@ -261,9 +197,9 @@ Suppose we want to **estimate the future position** of the mass given the curren
 The estimator is defined as:
 
 ```python
-x = Input('x')
-F = Input('F')
-x_z_est = Output('x_z_est', Fir(x.tw(1)) + Fir(F.last()))
+x = Input('x')                                              # define input x
+F = Input('F')                                              # define input F
+x_z_est = Output('x_z_est', Fir(x.tw(1)) + Fir(F.last()))   # define the output that is compose by the two Fir
 ```
 
 Input variables are created using the `Input` class.  
@@ -305,9 +241,9 @@ More generally, the formulation can better adapt to model mismatches and noise b
 
 ```python
 mass_spring_damper = nnodely()
-mass_spring_damper.addModel('x_z_est', x_z_est)
-mass_spring_damper.addMinimize('next-pos', x.z(-1), x_z_est, 'mse')
-mass_spring_damper.neuralizeModel(0.2)
+mass_spring_damper.addModel('x_z_est', x_z_est)       
+mass_spring_damper.addMinimize('next-pos', x.z(-1), x_z_est, 'mse')  # error on estimation
+mass_spring_damper.neuralizeModel(0.2)                               # 0.2 is the sample time
 ```
 
 - `addModel` adds the defined output to the model.
