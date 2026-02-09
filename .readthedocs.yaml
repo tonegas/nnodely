@@ -10,11 +10,12 @@ build:
       - |
         mkdir -p docs/_autodoc/tutorials
         if [ ! -L docs/_autodoc/tutorials/examples ]; then
-          ln -s ../../../nnodely/examples docs/_autodoc/tutorials/examples
-          echo "Symlink created: docs/_autodoc/tutorials/examples -> ../../../nnodely/examples"
+          ln -s ../../nnodely/examples docs/_autodoc/tutorials/examples
+          echo "Symlink created: docs/_autodoc/tutorials/examples -> ../../nnodely/examples"
         else
           echo "Symlink already exists"
         fi
+
 
 
 sphinx:
