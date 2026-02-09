@@ -4,10 +4,19 @@ build:
   os: ubuntu-22.04
   tools:
     python: "3.12"
-#  jobs:
-#    pre_build:
-#      # - sphinx-apidoc -o docs/_autodoc nnodely mplplots
-#      - sphinx-apidoc -o docs/_autodoc nnodely
+  jobs:
+    pre_build:
+      # Genera la documentazione API (se vuoi)
+      - sphinx-apidoc -o docs/_autodoc nnodely
+      # Crea il symlink per gli esempi se non esiste
+      - |
+        if [ ! -L docs/_autodoc/tutorials/examples ]; then
+          mkdir -p docs/_autodoc/tutorials
+          ln -s ../../nnodely/examples docs/_autodoc/tutorials/examples
+          echo "Symlink created: docs/_autodoc/tutorials/examples -> ../../nnodely/examples"
+        else
+          echo "Symlink already exists"
+        fi
 
 sphinx:
   configuration: docs/conf.py
@@ -22,5 +31,3 @@ python:
     - method: pip
       path: .
     - requirements: docs/requirements.txt
-
-
