@@ -113,6 +113,10 @@ Nnodely requires two pieces of information: the data structure and the dataset l
 
    model.neuralizeModel()
 
+
+Additional examples
+------------------
+
 For additional examples, please refer to the two links below.
 
 
@@ -136,7 +140,7 @@ For additional examples, please refer to the two links below.
         style="display:inline-block; font-weight:800; font-size:1.15em;
                padding:0.55em 0.9em; border-radius:10px;
                border:2px solid #5d8007; text-decoration:none;">
-       for tutorials click here
+       for the Tutorials click here
      </a>
    </p>
 
