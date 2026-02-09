@@ -40,7 +40,7 @@ Reacher example
    :width: 40%
    :alt: Reacher
 
-Here is simple two-joint planar manipulator. The inputs are the joint angles :math:`\theta_1` and :math:`\theta_2`, while the outputs are the end-effector coordinates :math:`(x_{\text{out}}, y_{\text{out}})`.
+Here is simple two-joint planar manipulator. The inputs are the joint angles :math:`\theta_1` and :math:`\theta_2`, while the outputs are the end-effector coordinates :math:`(x, y)`.
 The link lengths :math:`l_1` and :math:`l_2` are unknown and are estimated from data using *nnodely* as learnable parameters.
 The kinematic model is given by:
 
@@ -51,7 +51,7 @@ The kinematic model is given by:
 
 **Inputs from dataset & Parameters**
 
-Input variables are created using the :class:`Input` class. The :class:`Output` class defines the model output and takes two arguments: 
+Input variables are created using the :class:`Input` class. The parameters are given within the :class:`Parameter`. The :class:`Output` class defines the model output and takes two arguments: 
 the name of the output and its structure.
 
 
