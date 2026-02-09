@@ -54,7 +54,7 @@ The kinematic model is given by:
 
 **Inputs from dataset & Parameters**
 
-Input variables are created using the :class:`Input` class. The parameters are given within the :class:`Parameter`. The :class:`Output` class defines the model output and takes two arguments: 
+Input variables are created using the :class:`Input` class. The learnable parameters are given within the :class:`Parameter`. The :class:`Output` class defines the model output and takes two arguments: 
 the name of the output and its structure.
 
 
