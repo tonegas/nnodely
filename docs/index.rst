@@ -11,7 +11,13 @@ Welcome to nnodely's documentation!
      :alt: Open 
 
 
-nnodely is a framework designed to facilitate the creation and deployment of **Model-Structured Neural Networks** (**MSNNs**). MS-NNs combine the learning capabilities of neural networks with structural priors grounded in physics, control and estimation theory, enabling: 
+nnodely is a framework designed to facilitate the creation and deployment of **Model-Structured Neural Networks** (**MSNNs**). 
+Modeling, control, and estimation of physical systems impose constraints that differ fundamentally from typical 
+deep-learning tasks (e.g., images or text). In engineering applications, models often need to respect 
+known physical laws or constraints, operate in real time, remain interpretable, and generalize reliably 
+even when only limited experimental data are available. MS-NNs combine the learning capabilities of neural 
+networks with structural priors grounded in physics, control and estimation theory, enabling: 
+
 
 - **Data Efficiency**: By embedding structural priors, MS-NNs can learn effectively from limited data, reducing the need for extensive datasets.
 - **Generalization**: The incorporation of domain knowledge allows MS-NNs to generalize better to unseen scenarios.
@@ -48,6 +54,11 @@ In this documentation you will find a comprehensive guide for getting started wi
        For the nnodely applications click here
      </a>
    </p>
+
+
+
+nnodely is not intended to replace general-purpose deep learning frameworks, 
+but to provide a structured modeling layer on top of them, purpose-built for physical systems.
 
 
 
