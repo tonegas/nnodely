@@ -9,8 +9,8 @@ Getting Started
      <a href="https://github.com/tonegas/nnodely"
         style="display:inline-block; font-weight:800; font-size:1.15em;
                padding:0.55em 0.9em; border-radius:10px;
-               border:1px solid #333; text-decoration:none;">
-       First start with the README click here
+               border:2px solid #2306fc; text-decoration:none;">
+       First start with the README. click here!
      </a>
    </p>
 
@@ -35,6 +35,9 @@ Alternatively, the user can clone the repository and install from source:
 
 Reacher example
 ---------------
+
+Before reading this example, start with the basic example in the README (linked above).
+
 
 .. image:: https://raw.githubusercontent.com/tonegas/nnodely/docs/update/imgs/Reacher2j.png
    :width: 40%
