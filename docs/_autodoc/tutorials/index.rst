@@ -13,6 +13,7 @@ for the complete data files.
 
 .. toctree::
    :maxdepth: 2
+   :glob:
 
    examples/dataset.ipynb
    examples/training.ipynb
