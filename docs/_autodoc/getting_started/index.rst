@@ -112,3 +112,31 @@ Nnodely requires two pieces of information: the data structure and the dataset l
    model.trainModel(splits=[70, 20, 10], training_params=train_params)
 
    model.neuralizeModel()
+
+For additional examples, please refer to the two links below.
+
+
+.. raw:: html
+
+   <p>
+     <a href="https://github.com/tonegas/nnodely-applications"
+        style="display:inline-block; font-weight:800; font-size:1.15em;
+               padding:0.55em 0.9em; border-radius:10px;
+               border:2px solid #0b93e1; text-decoration:none;">
+       for nnodely applications click here
+     </a>
+   </p>
+
+
+
+.. raw:: html
+
+   <p>
+     <a href="../tutorials/index.html"
+        style="display:inline-block; font-weight:800; font-size:1.15em;
+               padding:0.55em 0.9em; border-radius:10px;
+               border:2px solid #5d8007; text-decoration:none;">
+       for tutorials click here
+     </a>
+   </p>
+

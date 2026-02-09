@@ -35,7 +35,7 @@ In this documentation you will find a comprehensive guide for getting started wi
      <a href="https://github.com/tonegas/nnodely"
         style="display:inline-block; font-weight:900; font-size:1.4em;
                padding:0.55em 0.9em; border-radius:12px;
-               border:2px solid #fb0594; text-decoration:none;">
+               border:2px solid #5d8007; text-decoration:none;">
        For the README click here
      </a>
    </p>
@@ -50,7 +50,7 @@ In this documentation you will find a comprehensive guide for getting started wi
      <a href="https://github.com/tonegas/nnodely-applications"
         style="display:inline-block; font-weight:800; font-size:1.15em;
                padding:0.55em 0.9em; border-radius:10px;
-               border:2px solid #0909f8; text-decoration:none;">
+               border:2px solid #0b93e1; text-decoration:none;">
        For the nnodely applications click here
      </a>
    </p>
