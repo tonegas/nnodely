@@ -131,7 +131,7 @@ class Composer(Network):
 
         Parameters
         ----------
-        input_in : Input or name of the input of inputs
+        input_in : Input or ``name`` of the input of inputs
             The Input to disconnect.
 
         Examples
