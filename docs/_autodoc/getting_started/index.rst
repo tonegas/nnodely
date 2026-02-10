@@ -10,7 +10,7 @@ Getting Started
         style="display:inline-block; font-weight:800; font-size:1.15em;
                padding:0.55em 0.9em; border-radius:10px;
                border:2px solid #2306fc; text-decoration:none;">
-       First start with the README. click here!
+       Start with the README first — click here.
      </a>
    </p>
 
@@ -127,7 +127,7 @@ For additional examples, please refer to the two links below.
         style="display:inline-block; font-weight:800; font-size:1.15em;
                padding:0.55em 0.9em; border-radius:10px;
                border:2px solid #0b93e1; text-decoration:none;">
-       for nnodely applications click here
+       Click to read the nnodely applications
      </a>
    </p>
 
@@ -140,7 +140,7 @@ For additional examples, please refer to the two links below.
         style="display:inline-block; font-weight:800; font-size:1.15em;
                padding:0.55em 0.9em; border-radius:10px;
                border:2px solid #5d8007; text-decoration:none;">
-       for the Tutorials click here
+       Click to view the README
      </a>
    </p>
 
