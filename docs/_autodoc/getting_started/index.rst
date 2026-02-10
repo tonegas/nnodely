@@ -127,7 +127,7 @@ For additional examples, please refer to the two links below.
         style="display:inline-block; font-weight:800; font-size:1.15em;
                padding:0.55em 0.9em; border-radius:10px;
                border:2px solid #0b93e1; text-decoration:none;">
-       Click to read the nnodely applications
+       Click to read the nnodely Applications
      </a>
    </p>
 
@@ -140,7 +140,7 @@ For additional examples, please refer to the two links below.
         style="display:inline-block; font-weight:800; font-size:1.15em;
                padding:0.55em 0.9em; border-radius:10px;
                border:2px solid #5d8007; text-decoration:none;">
-       Click to view the README
+       Click to view the Tutorials
      </a>
    </p>
 
