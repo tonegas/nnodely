@@ -25,7 +25,8 @@ class Relu(Stream, ToStream):
         :type obj: Stream 
 
         Example:
-            >>> x = Relu(x)
+        --------
+        .. include:: /examples_basics/layer_module_ex/activation_module_ex/relu.rst
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
@@ -47,7 +48,8 @@ class ELU(Stream, ToStream):
         :type obj: Stream 
 
         Example:
-            >>> x = ELU(x)
+        ---------
+        .. include:: /examples_basics/layer_module_ex/activation_module_ex/elu.rst
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
@@ -69,7 +71,8 @@ class Identity(Stream, ToStream):
     :type obj: Stream 
 
     Example:
-        >>> x = Identity(x)
+    ---------
+    .. include:: /examples_basics/layer_module_ex/activation_module_ex/identity.rst
     """
     @enforce_types
     def __init__(self, obj: Stream|Parameter|Constant|float|int) -> Stream:
@@ -92,7 +95,8 @@ class Softmax(Stream, ToStream):
     :type obj: Stream
 
     Example:
-        >>> x = Softmax(x)
+    ---------
+    .. include:: /examples_basics/layer_module_ex/activation_module_ex/softmax.rst
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
@@ -118,7 +122,8 @@ class Sigmoid(Stream, ToStream):
     :type obj: Stream
 
     Example:
-        >>> x = Sigmoid(x)
+    ---------
+    .. include:: /examples_basics/layer_module_ex/activation_module_ex/sigmoid.rst
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
