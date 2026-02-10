@@ -299,7 +299,7 @@ class Network:
 
             ## Gradient step
             if optimizer:
-                total_loss.backward()
+                total_loss.backward()  ## Backpropagate the error
                 optimizer.step()
                 self.visualizer.showWeightsInTrain(batch=idx // batch_size)
 
