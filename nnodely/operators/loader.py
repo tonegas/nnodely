@@ -52,10 +52,7 @@ class Loader(Network):
             :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb
             :alt: Open in Colab
 
-        Example usage:
-            >>> model = Modely()
-            >>> model.loadData('dataset_name')
-            >>> samples = model.getSamples('dataset_name', index=10, window=5)
+        .. include:: /examples_basics/data_loader_module_ex/getSamples.rst
         """
         if index is None:
             index = random.randint(0, self._num_of_samples[dataset] - window)
@@ -88,12 +85,7 @@ class Loader(Network):
             :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb
             :alt: Open in Colab
 
-        Example usage:
-            >>> model = Modely()
-            >>> model.loadData('dataset_name', 'path/to/data')
-            >>> def filter_fn(sample):
-            >>>     return sample['input1'] > 0
-            >>> model.filterData(filter_fn, 'dataset_name')
+        .. include:: /examples_basics/data_loader_module_ex/filterData.rst
         """
         idx_to_remove = []
         if dataset_name is None:
@@ -161,10 +153,7 @@ class Loader(Network):
             :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb
             :alt: Open in Colab
 
-        Example usage:
-            >>> model = Modely()
-            >>> df = pd.DataFrame({'time': np.array(range(60), dtype=np.float32),'x': np.array(10*[10] + 20*[20] + 30*[30], dtype=np.float32)})
-            >>> resampled_df = model.resamplingData(df, scale=1e9)
+        .. include:: /examples_basics/data_loader_module_ex/resamplingData.rst
         """
         sample_time_ns = int(self._model_def.getSampleTime() * scale)
         method = 'linear'
@@ -273,27 +262,8 @@ class Loader(Network):
         .. image:: https://colab.research.google.com/assets/colab-badge.svg
             :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb
             :alt: Open in Colab
-
-        Example - load data from files:
-            >>> x = Input('x')
-            >>> y = Input('y')
-            >>> out = Output('out',Fir(x.tw(0.05)))
-            >>> test = Modely(visualizer=None)
-            >>> test.addModel('example_model', out)
-            >>> test.neuralizeModel(0.01)
-            >>> data_struct = ['x', '', 'y']
-            >>> test.loadData(name='example_dataset', source='path/to/data', format=data_struct)
-
-        Example - load data from a crafted dataset:
-            >>> x = Input('x')
-            >>> y = Input('y')
-            >>> out = Output('out',Fir(x.tw(0.05)))
-            >>> test = Modely(visualizer=None)
-            >>> test.addModel('example_model', out)
-            >>> test.neuralizeModel(0.01)
-            >>> data_x = np.array(range(10))
-            >>> dataset = {'x': data_x, 'y': (2*data_x)}
-            >>> test.loadData(name='example_dataset',source=dataset)
+            
+        .. include:: /examples_basics/data_loader_module_ex/loadData.rst
         """
         check(self.neuralized, ValueError, "The network is not neuralized.")
         check(delimiter in ['\t', '\n', ';', ',', ' '], ValueError, 'delimiter not valid!')

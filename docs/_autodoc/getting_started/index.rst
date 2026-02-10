@@ -115,7 +115,7 @@ Nnodely requires two pieces of information: the data structure and the dataset l
 
 
 Additional examples
-------------------
+--------------------
 
 For additional examples, please refer to the two links below.
 

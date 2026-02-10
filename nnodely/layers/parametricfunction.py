@@ -59,16 +59,8 @@ class ParamFun(NeuObj):
     .. image:: https://colab.research.google.com/assets/colab-badge.svg
         :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/parametric_functions.ipynb
         :alt: Open in Colab
-
-    Example: 
-        >>> input1 = Input('input1')
-        >>> input2 = Input('input2')
-
-        >>> def my_function(x, y, param1, const1):
-        >>>     return param1 * x + const1 * y
-
-        >>> param_fun = ParamFun(my_function, constants={'const1': 1.0}, parameters_dimensions={'param1': 1})
-        >>> result = param_fun(input1, input2)
+        
+    .. include:: /examples_basics/layer_module_ex/paramfun.rst
     """
     @enforce_types
     def __init__(self, param_fun:Callable,
