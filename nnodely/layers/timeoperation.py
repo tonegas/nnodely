@@ -71,7 +71,7 @@ class Differentiate_Layer(nn.Module):
         super(Differentiate_Layer, self).__init__()
 
     def forward(self, *inputs):
-        return torch.autograd.grad(inputs[0], inputs[1], grad_outputs=torch.ones_like(inputs[0]), create_graph=True, allow_unused=False)[0]
+        return torch.autograd.grad(inputs[0], inputs[1], grad_outputs=torch.ones_like(inputs[0]), create_graph=True, retain_graph=True, allow_unused=False)[0]
 
 def createAdd(name, *inputs):
     #: :noindex:
