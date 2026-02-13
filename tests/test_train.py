@@ -313,3 +313,32 @@ class ModelyTrainingTest(unittest.TestCase):
         self.assertAlmostEqual(test.parameters['b'][0], data_b, places=4)
         self.assertAlmostEqual(test.parameters['c'][0], data_c, places=4)
         #The value data_d is not match because the derivative does not depend on it
+        
+    def test_step(self):
+        NeuObj.clearNames()
+        x = Input('x')
+        relation = Fir()(x.tw(0.05))
+        relation.closedLoop(x)
+        output = Output('out', relation)
+
+        test = Modely(visualizer=None, log_internal=True)
+        test.addModel('model', output)
+        test.addMinimize('error', output, x.next())
+        test.neuralizeModel(0.01)
+
+        train_data_x = np.array(10*[10] + 20*[20] + 30*[30], dtype=np.float32)
+        train_dataset = {'x': train_data_x, 'time': np.array(range(60), dtype=np.float32)}
+        test.loadData(name='dataset', source=train_dataset, )
+        self.assertListEqual(list(test._data['dataset']['x'].shape), [55, 6, 1]) ## 60 observations, time window of 6 so in total 54+1 samples
+        test.trainModel(step=10, train_batch_size=10, train_dataset='dataset', num_of_epochs=1, shuffle_data=False, prediction_samples=9)
+        self.assertEqual(len(test.internals.keys()), 20) ## chosed 10 sample at index = [0, 21] and for each sample the horizon is 10 so in total 4*10=40
+        test.trainModel(step=10, train_batch_size=10, train_dataset='dataset', num_of_epochs=1, shuffle_data=True, prediction_samples=9)
+        self.assertEqual(len(test.internals.keys()), 20) ## shuffle data does not change the number of samples
+        test.trainModel(step=0, train_batch_size=10, train_dataset='dataset', num_of_epochs=1, shuffle_data=False, prediction_samples=9)
+        self.assertEqual(len(test.internals.keys()), 40) ## chosed 10 sample at index = [0, 11, 22, 33] and for each sample the horizon is 10 so in total 4*10=40
+        test.trainModel(step=1000, train_batch_size=10, train_dataset='dataset', num_of_epochs=1, shuffle_data=False, prediction_samples=9)
+        self.assertEqual(len(test.internals.keys()), 10) ## clip step to max value = 36 so just 1 sample * 10 prediction samples
+        test.trainModel(step=10, train_batch_size=1, train_dataset='dataset', num_of_epochs=1, shuffle_data=False, prediction_samples=9)
+        self.assertEqual(len(test.internals.keys()), 50) ## chosed sample = [0, 11, 22, 33, 44] and for each sample the horizon is 10 so in total 5*10=50
+        test.trainModel(step=0, train_batch_size=1, train_dataset='dataset', num_of_epochs=1, shuffle_data=False, prediction_samples=9)
+        self.assertEqual(len(test.internals.keys()), 460) ## 46 sample * 10 horizon 
