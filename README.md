@@ -36,7 +36,7 @@ The **official documentation** is available at the following [link](https://nnod
   </ul>
   <li><a href="#fonlderstructure">Structure of the Repository</a></li>
   <li><a href="#license">License</a></li>
-  <li><a href="#references">References</a></li>
+  <li><a href="#cite-us">Cite Us</a></li>
 </ol>
 
 
@@ -182,8 +182,14 @@ This project is released under the license [License: MIT](https://opensource.org
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-<a name="references"></a>
-## References
+<a name="cite-us"></a>
+## Cite Us
+
+> TODO: Possiamo aggiungere DOI di repo con zenodo e mettere la citazione di quello [guida](https://docs.github.com/en/repositories/archiving-a-github-repository/referencing-and-citing-content)
+
+<details>
+<summary>Featured works</summary>
+
 <a id="1">[1]</a> 
 Mauro Da Lio, Daniele Bortoluzzi, Gastone Pietro Rosati Papini. (2019). 
 Modelling longitudinal vehicle dynamics with neural networks. 
@@ -234,6 +240,7 @@ IEEE Open Journal of Intelligent Transportation Systems. https://doi.org/10.1109
 Mauro Da Lio, Mattia Piccinini, Francesco Biral. (2023).
 Robust and Sample-Efficient Estimation of Vehicle Lateral Velocity Using Neural Networks With Explainable Structure Informed by Kinematic Principles.
 IEEE Transactions on Intelligent Transportation Systems. https://doi.org/10.1109/TITS.2023.3303776
+</details>
 
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
