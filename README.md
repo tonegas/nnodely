@@ -41,7 +41,6 @@ it is a **structured modeling layer on top of them**, purpose-built for physical
       <li><a href="#installation">Installation</a></li>
       <li><a href="#hellow">Hello, World!</a></li>
       <li><a href="#contribute">How to contribute</a></li>
-      <li><a href="#examples">Examples </a></li>
   </ul>
   <li><a href="#fonlderstructure">Structure of the Repository</a></li>
   <li><a href="#license">License</a></li>
@@ -103,11 +102,6 @@ To contribute to the nnodely framework, you can:
 - Open an issue if you have a question or suggestion.  
 
 We welcome contributions and collaborations.
-
-<a name="examples"></a>
-### Examples
-
-Some **examples of applications** of nnodely in different fields are collected in the following open-source repository:   [nnodely-applications](https://github.com/tonegas/nnodely-applications)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
