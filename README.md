@@ -69,15 +69,21 @@ To check if `nnodely` is installed correctly try running the following script
 ```python
 from nnodely import *
 import pandas as pd
-x = Input('x')
-x_out = Output('x_out', Fir(x.last()))
+
+x = Input("x")
+x_out = Output("x_out", Fir(x.last()))
 model = nnodely()
-model.addModel('x_out', x_out)
-model.addMinimize('x_error', x.z(-1), x_out, loss_function='mse')
+model.addModel("x_out", x_out)
+model.addMinimize("x_error", x.z(-1), x_out, loss_function="mse")
 model.neuralizeModel(0.2)
-data_struct = ['time', 'x']
-model.loadData('pos', pd.DataFrame({'time': [0, 0.2, 0.4, 0.6, 0.8], 'x': [1, 2, 3, 4, 5]}), format=data_struct)
+data_struct = ["time", "x"]
+model.loadData(
+    "pos",
+    pd.DataFrame({"time": [0, 0.2, 0.4, 0.6, 0.8], "x": [1, 2, 3, 4, 5]}),
+    format=data_struct,
+)
 model.trainModel()
+
 ```
 
 
