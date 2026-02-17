@@ -23,10 +23,10 @@ In short:
 
 nnodely is not a replacement for deep learning frameworks —  
 it is a **structured modeling layer on top of them**, purpose-built for physical systems.
-
+<br><br>
 <p align="center">
-  📖 <a href="https://nnodely.readthedocs.io/en/stable/">Documentation</a> •
-  🚀 <a href="https://github.com/tonegas/nnodely-applications">Applications & Examples</a>
+  📖 <a href="https://nnodely.readthedocs.io/en/stable/"><b>Documentation</b></a> •
+  🚀 <a href="https://github.com/tonegas/nnodely-applications"><b>Applications & Examples</b></a>
 </p>
 
 <!-- > [!NOTE]
