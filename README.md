@@ -5,9 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Coverage Status](https://coveralls.io/repos/github/tonegas/nnodely/badge.svg?branch=main)](https://coveralls.io/github/tonegas/nnodely?branch=main)
 [![Documentation](https://readthedocs.org/projects/nnodely/badge/?version=docs-update&style=default)](https://nnodely.readthedocs.io/en/docs-update/)
-
+-----
 <a name="readme-top"></a>
-# nnodely – Model-Structured Neural Networks
 
 > [!NOTE]
 > **Full documentation** of the code is available at the following [link](https://nnodely.readthedocs.io/en/docs-update/)
@@ -97,11 +96,10 @@ Some **examples of applications** of nnodely in different fields are collected i
 ## Structure of the Repository
 
 ```bash
-nnodely/
-├── docs/
-├── examples/
-├── mplplots/
-├── nnodely/
+nnodely/              # root directory
+├── docs/             # documentation
+├── mplplots/         # utilities for MatPlotLib
+├── nnodely/          # source code
 │   ├── basic/        # core low-level classes
 │   ├── exporter/     # model export utilities
 │   ├── layers/       # supported layers
@@ -174,22 +172,7 @@ The files in the examples folder are a collection of the functionality of the li
 Each file presents a specific functionality of the framework.
 This folder is useful to understand the flexibility and capability of the framework.
 
-</details>
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<a name="license"></a>
-## License
-This project is released under the license [License: MIT](https://opensource.org/licenses/MIT).
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<a name="cite-us"></a>
-## Cite Us
-
-> TODO: Possiamo aggiungere DOI di repo con zenodo e mettere la citazione di quello [guida](https://docs.github.com/en/repositories/archiving-a-github-repository/referencing-and-citing-content)
-
-<details>
-<summary>Featured works</summary>
+### References
 
 <a id="1">[1]</a> 
 Mauro Da Lio, Daniele Bortoluzzi, Gastone Pietro Rosati Papini. (2019). 
@@ -241,7 +224,19 @@ IEEE Open Journal of Intelligent Transportation Systems. https://doi.org/10.1109
 Mauro Da Lio, Mattia Piccinini, Francesco Biral. (2023).
 Robust and Sample-Efficient Estimation of Vehicle Lateral Velocity Using Neural Networks With Explainable Structure Informed by Kinematic Principles.
 IEEE Transactions on Intelligent Transportation Systems. https://doi.org/10.1109/TITS.2023.3303776
-</details>
 
+</details>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+<a name="license"></a>
+## License
+This project is released under the license [License: MIT](https://opensource.org/licenses/MIT).
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+<a name="cite-us"></a>
+## Cite Us
+
+> TODO: Possiamo aggiungere DOI di repo con zenodo e mettere la citazione di quello [guida](https://docs.github.com/en/repositories/archiving-a-github-repository/referencing-and-citing-content)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
