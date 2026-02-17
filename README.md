@@ -1,12 +1,11 @@
+<a name="readme-top"></a>
 <p align="center">
 <img src="https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/logo_white_info.png" alt="logo" >
 </p>
-
+-----
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Coverage Status](https://coveralls.io/repos/github/tonegas/nnodely/badge.svg?branch=main)](https://coveralls.io/github/tonegas/nnodely?branch=main)
 [![Documentation](https://readthedocs.org/projects/nnodely/badge/?version=docs-update&style=default)](https://nnodely.readthedocs.io/en/docs-update/)
------
-<a name="readme-top"></a>
 
 > [!NOTE]
 > **Full documentation** of the code is available at the following [link](https://nnodely.readthedocs.io/en/docs-update/)
