@@ -9,8 +9,9 @@
 <a name="readme-top"></a>
 # nnodely – Model-Structured Neural Networks
 
-> [!NOTE]
-> **Full documentation** of the code is available at the following [link](https://nnodely.readthedocs.io/en/docs-update/)
+:::note
+**Full documentation** of the code is available at the following [link](https://nnodely.readthedocs.io/en/docs-update/)
+:::
 
 Modeling, control, and estimation of physical systems are central to many engineering disciplines. While data-driven methods like neural networks offer powerful tools, they often struggle to **incorporate prior domain knowledge**, limiting their interpretability, generalizability, and safety.
 
