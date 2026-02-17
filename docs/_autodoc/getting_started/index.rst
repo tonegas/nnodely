@@ -150,7 +150,10 @@ velocity, and applied force, then improves the prediction by training in a recur
    </p>
 
 
-For additional examples, please refer to the two links below.
+nnodely Applications
+--------------------
+
+For additional examples, please refer to the nnodely Applications at the link below.
 
 
 .. raw:: html
@@ -165,6 +168,12 @@ For additional examples, please refer to the two links below.
    </p>
 
 
+
+
+Tutorials
+--------------------
+
+For additional examples in the tutorial section, please refer to the link below.
 
 .. raw:: html
 
