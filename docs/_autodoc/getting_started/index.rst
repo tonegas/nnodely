@@ -114,8 +114,33 @@ Nnodely requires two pieces of information: the data structure and the dataset l
    model.neuralizeModel()
 
 
+
 Additional examples
 --------------------
+
+.. raw:: html
+
+   <p>
+     <a href="https://github.com/tonegas/nnodely-applications/blob/main/pendulum/pendulum.py"
+        style="display:inline-block; font-weight:700; font-size:1em;
+               padding:0.25em 0.5em; border-radius:6px;
+               border:1px solid #f9fafa; text-decoration:none;">
+       Click: Pendulum example
+     </a>
+   </p>
+
+
+.. raw:: html
+
+   <p>
+     <a href="https://github.com/tonegas/nnodely-applications/blob/main/mass_spring_damper/mass_spring_damper.py"
+        style="display:inline-block; font-weight:700; font-size:1em;
+               padding:0.25em 0.5em; border-radius:6px;
+               border:1px solid #fafbfc; text-decoration:none;">
+       Click: mass-spring-damper example
+     </a>
+   </p>
+
 
 For additional examples, please refer to the two links below.
 
