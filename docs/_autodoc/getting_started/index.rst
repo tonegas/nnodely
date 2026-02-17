@@ -118,6 +118,8 @@ Nnodely requires two pieces of information: the data structure and the dataset l
 Additional examples
 --------------------
 
+In this example, it trains a model of the pendulum`s motion using time-series data to predict the next angular 
+speed from the current angle and applied torque, then exports the trained model so it can be reused elsewhere.
 
 
 .. raw:: html
@@ -130,6 +132,10 @@ Additional examples
        Click: Pendulum example
      </a>
    </p>
+
+
+In this example, it trains a model of a mass–spring–damper system using time-series data to predict the next position from the current position,
+velocity, and applied force, then improves the prediction by training in a recurrent RNN closed loop.
 
 
 .. raw:: html
