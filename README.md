@@ -7,7 +7,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Coverage Status](https://coveralls.io/repos/github/tonegas/nnodely/badge.svg?branch=main)](https://coveralls.io/github/tonegas/nnodely?branch=main)
-[![Documentation](https://readthedocs.org/projects/nnodely/badge/?version=docs-update&style=default)](https://nnodely.readthedocs.io/en/docs-update/)
+[![Documentation](https://readthedocs.org/projects/nnodely/badge/?version=stable&style=default)](https://nnodely.readthedocs.io/en/stable/)
 
 
 Modeling, control, and estimation of physical systems are central to many engineering disciplines. While data-driven methods like neural networks offer powerful tools, they often struggle to **incorporate prior domain knowledge**, limiting their interpretability, generalizability, and safety.
@@ -25,7 +25,7 @@ nnodely is not a replacement for deep learning frameworks —
 it is a **structured modeling layer on top of them**, purpose-built for physical systems.
 
 <p align="center">
-  📖 <a href="https://nnodely.readthedocs.io/">Documentation</a> •
+  📖 <a href="https://nnodely.readthedocs.io/en/stable/">Documentation</a> •
   🚀 <a href="https://github.com/tonegas/nnodely-applications">Applications & Examples</a>
 </p>
 
