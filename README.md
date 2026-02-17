@@ -73,11 +73,11 @@ pip install .
 To check if `nnodely` is installed correctly try running the following script
 
 ```python
-from nnodely import *
+from nnodely import Input, Output, Fir, nnodely
 import pandas as pd
 
 x = Input("x")
-x_out = Output("x_out", Fir(x.last()))
+x_out = Output("x_out", Fir(x.tw(0.4)))
 model = nnodely()
 model.addModel("x_out", x_out)
 model.addMinimize("x_error", x.z(-1), x_out, loss_function="mse")
@@ -89,7 +89,6 @@ model.loadData(
     format=data_struct,
 )
 model.trainModel()
-
 ```
 
 
