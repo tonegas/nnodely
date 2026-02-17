@@ -9,6 +9,7 @@
 [![Coverage Status](https://coveralls.io/repos/github/tonegas/nnodely/badge.svg?branch=main)](https://coveralls.io/github/tonegas/nnodely?branch=main)
 [![Documentation](https://readthedocs.org/projects/nnodely/badge/?version=docs-update&style=default)](https://nnodely.readthedocs.io/en/docs-update/)
 
+
 Modeling, control, and estimation of physical systems are central to many engineering disciplines. While data-driven methods like neural networks offer powerful tools, they often struggle to **incorporate prior domain knowledge**, limiting their interpretability, generalizability, and safety.
 
 To bridge this gap, we present ***nnodely*** (where "nn" can be read as "m," forming *Modely*) — a framework that facilitates the creation and deployment of **Model-Structured Neural Networks** (**MS-NNs**).  
@@ -23,9 +24,15 @@ In short:
 nnodely is not a replacement for deep learning frameworks —  
 it is a **structured modeling layer on top of them**, purpose-built for physical systems.
 
-> [!NOTE]
+<p align="center">
+  📖 <a href="https://nnodely.readthedocs.io/">Documentation</a> •
+  🚀 <a href="https://github.com/tonegas/nnodely-applications">Applications & Examples</a>
+</p>
+
+<!-- > [!NOTE]
 > **Full documentation** of the code is available at the following [link](https://nnodely.readthedocs.io/en/docs-update/)
-> Some **examples of applications** of nnodely in different fields are collected in the following open-source repository:   [nnodely-applications](https://github.com/tonegas/nnodely-applications)
+
+> Some **examples of applications** of nnodely in different fields are collected in the following open-source repository:   [nnodely-applications](https://github.com/tonegas/nnodely-applications) -->
 
 <h2>Table of Contents</h2>
 <ol>
