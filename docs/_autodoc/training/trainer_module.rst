@@ -9,3 +9,5 @@ Training module
 .. autofunction:: nnodely.operators.trainer.Trainer.removeMinimize
 .. autofunction:: nnodely.operators.trainer.Trainer.getTrainingInfo
 .. autofunction:: nnodely.operators.trainer.Trainer.trainModel
+
+For more example please refer to the :doc:`training tutorial <../tutorials/examples/training>`

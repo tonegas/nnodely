@@ -10,3 +10,5 @@ Localmodel module
     .. autoclass:: nnodely.layers.localmodel.LocalModel
         :undoc-members:
         :no-inherited-members:
+
+For more examples of how to use the local model module, please refer to the :doc:`LocalModel tutorial <../../tutorials/examples/localmodel>`.

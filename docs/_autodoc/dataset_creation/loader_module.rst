@@ -9,4 +9,6 @@ Data Loader module
 .. autofunction:: nnodely.operators.loader.Loader.filterData
 .. autofunction:: nnodely.operators.loader.Loader.resamplingData
 .. autofunction:: nnodely.operators.loader.Loader.loadData
-  
+
+For more examples of how to use the data loader, please refer to the
+:doc:`relative tutorial <../tutorials/examples/dataset>`.

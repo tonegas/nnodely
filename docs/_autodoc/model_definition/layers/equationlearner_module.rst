@@ -10,3 +10,5 @@ EquationLearner module
     .. autoclass:: nnodely.layers.equationlearner.EquationLearner
         :undoc-members:
         :no-inherited-members:
+
+For more examples of how to use the equation learner module, please refer to the :doc:`EquationLearner tutorial <../../tutorials/examples/equation_learner>`.
