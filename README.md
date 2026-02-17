@@ -9,9 +9,6 @@
 [![Coverage Status](https://coveralls.io/repos/github/tonegas/nnodely/badge.svg?branch=main)](https://coveralls.io/github/tonegas/nnodely?branch=main)
 [![Documentation](https://readthedocs.org/projects/nnodely/badge/?version=docs-update&style=default)](https://nnodely.readthedocs.io/en/docs-update/)
 
-> [!NOTE]
-> **Full documentation** of the code is available at the following [link](https://nnodely.readthedocs.io/en/docs-update/)
-
 Modeling, control, and estimation of physical systems are central to many engineering disciplines. While data-driven methods like neural networks offer powerful tools, they often struggle to **incorporate prior domain knowledge**, limiting their interpretability, generalizability, and safety.
 
 To bridge this gap, we present ***nnodely*** (where "nn" can be read as "m," forming *Modely*) — a framework that facilitates the creation and deployment of **Model-Structured Neural Networks** (**MS-NNs**).  
@@ -25,6 +22,10 @@ In short:
 
 nnodely is not a replacement for deep learning frameworks —  
 it is a **structured modeling layer on top of them**, purpose-built for physical systems.
+
+> [!NOTE]
+> **Full documentation** of the code is available at the following [link](https://nnodely.readthedocs.io/en/docs-update/)
+> Some **examples of applications** of nnodely in different fields are collected in the following open-source repository:   [nnodely-applications](https://github.com/tonegas/nnodely-applications)
 
 <h2>Table of Contents</h2>
 <ol>
@@ -67,12 +68,16 @@ To check if `nnodely` is installed correctly try running the following script
 
 ```python
 from nnodely import *
-
+import pandas as pd
 x = Input('x')
 x_out = Output('x_out', Fir(x.last()))
 model = nnodely()
 model.addModel('x_out', x_out)
-print("nnodely installed correctly!")
+model.addMinimize('x_error', x.z(-1), x_out, loss_function='mse')
+model.neuralizeModel(0.2)
+data_struct = ['time', 'x']
+model.loadData('pos', pd.DataFrame({'time': [0, 0.2, 0.4, 0.6, 0.8], 'x': [1, 2, 3, 4, 5]}), format=data_struct)
+model.trainModel()
 ```
 
 
