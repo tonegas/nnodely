@@ -50,13 +50,8 @@ class Part(Stream, ToStream):
 
     Examples
     --------
-    .. image:: https://colab.research.google.com/assets/colab-badge.svg
-        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb
-        :alt: Open in Colab
-
-    Example:
-        >>> x = Input('x', dimensions=3).last()
-        >>> relation = Part(x, 0, 1)
+        
+    .. include:: /examples_basics/layer_module_ex/part_module/part.rst
 
     Raises
     ------
@@ -102,14 +97,9 @@ class Select(Stream, ToStream):
 
     Examples
     --------
-    .. image:: https://colab.research.google.com/assets/colab-badge.svg
-        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb
-        :alt: Open in Colab
-
-    Example:
-        >>> x = Input('x', dimensions=3).last()
-        >>> relation = Select(x, 1)
-
+        
+    .. include:: /examples_basics/layer_module_ex/part_module/select.rst
+    
     Raises
     ------
     IndexError
@@ -200,13 +190,8 @@ class SamplePart(Stream, ToStream):
 
     Examples
     --------
-    .. image:: https://colab.research.google.com/assets/colab-badge.svg
-        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb
-        :alt: Open in Colab
-
-    Example:
-        >>> x = Input('x').sw(3)
-        >>> relation = SamplePart(x, 0, 1)
+    
+    .. include:: /examples_basics/layer_module_ex/part_module/sample_part.rst
 
     Raises
     ------
@@ -273,14 +258,9 @@ class SampleSelect(Stream, ToStream):
 
     Examples
     --------
-    .. image:: https://colab.research.google.com/assets/colab-badge.svg
-        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb
-        :alt: Open in Colab
-
-    Example:
-        >>> x = Input('x').sw(3)
-        >>> relation = SampleSelect(x, 1)
-
+        
+    .. include:: /examples_basics/layer_module_ex/part_module/sample_select.rst
+    
     Raises
     ------
     IndexError
@@ -329,13 +309,8 @@ class TimePart(Stream, ToStream):
 
     Examples
     --------
-    .. image:: https://colab.research.google.com/assets/colab-badge.svg
-        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/partitioning.ipynb
-        :alt: Open in Colab
-
-    Example:
-        >>> x = Input('x').sw(10)
-        >>> time_part = TimePart(x, i=0, j=5)
+        
+    .. include:: /examples_basics/layer_module_ex/part_module/time_part.rst
 
     Raises
     ------

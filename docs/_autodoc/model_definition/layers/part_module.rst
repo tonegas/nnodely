@@ -26,3 +26,5 @@ Part module
     .. autoclass:: nnodely.layers.part.TimePart
         :undoc-members:
         :no-inherited-members:
+
+For more examples and tutorials, see :doc:`Partitioning tutorial <../../tutorials/examples/partitioning>`.
