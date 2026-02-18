@@ -71,24 +71,23 @@ pip install .
 <a name="hellow"></a>
 ### Hello, World!
 To check if `nnodely` is installed correctly try running the following script
+In the example, the neural network is trained to mimic the Fibonacci series.
 
 ```python
-from nnodely import Input, Output, Fir, nnodely
-import pandas as pd
+from nnodely import Input, Output, nnodely, Parameter
 
 x = Input("x")
-x_out = Output("x_out", Fir(x.tw(0.4)))
+l = x.last()
+o = (Parameter('A')*l.sw([-2,-1])+Parameter('B')*l).closedLoop(x)
+f = Output("fib",o)
 model = nnodely()
-model.addModel("x_out", x_out)
-model.addMinimize("x_error", x.z(-1), x_out, loss_function="mse")
-model.neuralizeModel(0.2)
-data_struct = ["time", "x"]
-model.loadData(
-    "pos",
-    pd.DataFrame({"time": [0, 0.2, 0.4, 0.6, 0.8], "x": [1, 2, 3, 4, 5]}),
-    format=data_struct,
-)
-model.trainModel()
+model.addModel("fibonacci",f)
+model.addMinimize("target", l.sw([-2,-1])+l, f)
+model.neuralizeModel(1)
+model.loadData("data",{ "x" : list(range(100)) } )
+model.trainModel(prediction_samples = 2, lr = 0.5, num_of_epochs = 500)
+model.exportPythonModel(models = "fibonacci")
+print(model({ "x" : [1] },prediction_samples = 20,num_of_samples = 20))
 ```
 
 
