@@ -184,8 +184,8 @@ def export_python_model(model_def, model, model_path):
             file.write(list_inputs)
             file.write("        self.states = dict()\n")
             file.write("\n")
-            file.write("    def forward(self, kwargs):\n")
-            file.write("        n_samples = min([kwargs[key].size(0) for key in self.inputs])\n")
+            file.write("    def forward(self, kwargs, n_samples = None):\n")
+            file.write("        n_samples = n_samples if n_samples else min([kwargs[key].size(0) for key in self.inputs])\n")
             for key in recurrent_inputs.keys():
                 file.write(f"        self.states['{key}'] = kwargs['{key}']\n")
             result_str = ""
