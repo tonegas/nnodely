@@ -89,7 +89,7 @@ model.exportPythonModel(models = "Fibonacci")
 print(model({ "x" : [1] },prediction_samples = 20,num_of_samples = 20))
 ```
 In the example, the neural network is trained to mimic the Fibonacci series.
-Finally a native pytorch network is exported in a file.
+Finally, a native pytorch network is exported in a file.
 
 <a name="contribute"></a>
 ### How to Contribute
