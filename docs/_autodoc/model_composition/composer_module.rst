@@ -13,3 +13,5 @@ Model-level composition
 .. autofunction:: nnodely.operators.composer.Composer.addClosedLoop
 .. autofunction:: nnodely.operators.composer.Composer.removeConnection
 .. autofunction:: nnodely.operators.composer.Composer.neuralizeModel
+
+For further examples please refer to the :doc:`relative tutorial <../tutorials/examples/states>`.

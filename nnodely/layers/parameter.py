@@ -36,9 +36,6 @@ class Constant(NeuObj, Relation):
 
     Examples
     --------
-    .. image:: https://colab.research.google.com/assets/colab-badge.svg
-        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/parameter.ipynb
-        :alt: Open in Colab
 
     .. include:: /examples_basics/parameter_module_ex/constant.rst
     """
@@ -113,9 +110,6 @@ class Parameter(NeuObj, Relation):
 
     Examples
     --------
-    .. image:: https://colab.research.google.com/assets/colab-badge.svg
-        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/parameter.ipynb
-        :alt: Open in Colab
 
     .. include:: /examples_basics/parameter_module_ex/parameter.rst
     """

@@ -48,9 +48,6 @@ class Loader(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb
-            :alt: Open in Colab
 
         .. include:: /examples_basics/data_loader_module_ex/getSamples.rst
         """
@@ -81,9 +78,6 @@ class Loader(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb
-            :alt: Open in Colab
 
         .. include:: /examples_basics/data_loader_module_ex/filterData.rst
         """
@@ -149,9 +143,6 @@ class Loader(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb
-            :alt: Open in Colab
 
         .. include:: /examples_basics/data_loader_module_ex/resamplingData.rst
         """
@@ -259,9 +250,6 @@ class Loader(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb
-            :alt: Open in Colab
             
         .. include:: /examples_basics/data_loader_module_ex/loadData.rst
         """

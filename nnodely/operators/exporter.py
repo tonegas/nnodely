@@ -46,9 +46,6 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
         .. include:: /examples_basics/export_module_ex/saveTorchModel.rst
         """
@@ -86,9 +83,6 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
         .. include:: /examples_basics/export_module_ex/loadTorchModel.rst
         """
@@ -116,9 +110,6 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
         .. include:: /examples_basics/export_module_ex/saveModel.rst
         """
@@ -154,9 +145,6 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
         .. include:: /examples_basics/export_module_ex/loadModel.rst
         """
@@ -203,9 +191,6 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
         .. include:: /examples_basics/export_module_ex/exportPythonModel.rst
         """
@@ -248,9 +233,6 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
         .. include:: /examples_basics/export_module_ex/importPythonModel.rst
         """
@@ -292,9 +274,6 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
         .. include:: /examples_basics/export_module_ex/exportONNX.rst
         """
@@ -349,9 +328,6 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
             
         .. include:: /examples_basics/export_module_ex/onnxInference.rst
         """
@@ -371,9 +347,6 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
         .. include:: /examples_basics/export_module_ex/exportReport.rst
         """

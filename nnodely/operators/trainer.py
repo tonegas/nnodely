@@ -303,9 +303,6 @@ class Trainer(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/training.ipynb
-            :alt: Open in Colab
 
         .. include:: /examples_basics/trainer_module_ex/trainModel.rst
         """
