@@ -70,8 +70,7 @@ pip install .
 ```
 <a name="hellow"></a>
 ### Hello, World!
-To check if `nnodely` is installed correctly try running the following script
-In the example, the neural network is trained to mimic the Fibonacci series.
+To check if `nnodely` is installed correctly try running the following script.
 
 ```python
 from nnodely import Input, Output, nnodely, Parameter
@@ -81,15 +80,16 @@ l = x.last()
 o = (Parameter('A')*l.sw([-2,-1])+Parameter('B')*l).closedLoop(x)
 f = Output("fib",o)
 model = nnodely()
-model.addModel("fibonacci",f)
+model.addModel("Fibonacci",f)
 model.addMinimize("target", l.sw([-2,-1])+l, f)
 model.neuralizeModel(1)
 model.loadData("data",{ "x" : list(range(100)) } )
 model.trainModel(prediction_samples = 2, lr = 0.5, num_of_epochs = 500)
-model.exportPythonModel(models = "fibonacci")
+model.exportPythonModel(models = "Fibonacci")
 print(model({ "x" : [1] },prediction_samples = 20,num_of_samples = 20))
 ```
-
+In the example, the neural network is trained to mimic the Fibonacci series.
+Finally a native pytorch network is exported in a file.
 
 <a name="contribute"></a>
 ### How to Contribute
