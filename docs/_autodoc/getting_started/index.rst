@@ -58,6 +58,23 @@ The kinematic model is given by:
    x = l_1 \cos(\theta_1) + l_2 \cos(\theta_1 + \theta_2), \quad  
    y = l_1 \sin(\theta_1) + l_2 \sin(\theta_1 + \theta_2).
 
+
+
+**Local Module Path Configuration and Package Import**
+
+
+First, we ensure Python can locate modules in the current working directory, 
+enabling the import of nnodely components for use in the script.
+
+.. code-block:: python
+
+  import sys
+  import os
+  sys.path.append(os.getcwd())
+  from nnodely import *
+
+
+
 **Inputs from dataset & Parameters**
 
 
@@ -103,7 +120,7 @@ difference we want to minimize. The fourth input is the loss function to be used
 
 **Data loading**
 
-Nnodely requires two pieces of information: the data structure and the dataset location.
+*nnodely* requires two pieces of information: the data structure and the dataset location.
 
 .. code-block:: python
 
@@ -137,7 +154,6 @@ train-validation-test split.
 
 
 
-
 Basic example
 ---------------
 
@@ -154,7 +170,7 @@ The system to be modeled is defined by the following equation:
 
 Suppose we want to estimate the value of the future position of the mass, given the initial position and the external force.
 The MS-NN model is defined by a list of inputs and outputs, and by a list of relationships that link the inputs to the outputs.
-In nnodely, we can build an estimator in this form:
+In *nnodely*, we can build an estimator in this form:
 
 .. code-block:: python
 
@@ -178,11 +194,21 @@ by building an observer with the following mathematical structure:
 
  x[1] = \sum_{k=0}^{N_x-1} x[-k]\cdot h_x[(N_x-1)-k] + F[0]\cdot h_F
 
-where :math:`x[1]` is the next position of the mass, :math:`F[0]` is the last sample of the force, :math:`N_x` is the number of samples in the time
-window of the input variable x, :math:`h_x` is the vector of learnable parameters of the FIR filter on x, and :math:`h_f` is the single learnable parameter of the FIR filter on F.
-For the input variable x, we are using a time window :math:`T_w = 1` second, which means that we are using the last :math:`N_x` samples of the variable x to estimate the next position of the mass. The value of :math:`N_x` is equal to :math:`T_w/T_s`, where :math:`T_s` is the sampling time used to sample the input variable x.
-In a particular case, our MS-NN formulation becomes equivalent to the discrete-time response (discretized with Forward-Euler) of the mass–spring–damper system. This happens when we choose the following values: :math:`N_x = 3`, :math:`h_x` equal to the characteristic polynomial of the system, and :math:`h_f = T_s^2/m`, where :math:`T_s` is the sampling time and :math:`m` is the mass of the system.
-However, our formulation is more general and can better adapt to model mismatches and noise levels in the measured variables. This improved learning potential can be achieved by using a larger number of samples :math:`N_x` in the time window of the input variable x.
+where :math:`x[1]` is the next position of the mass, :math:`F[0]` is the last sample of the 
+force, :math:`N_x` is the number of samples in the time window of the input variable x, :math:`h_x` is 
+the vector of learnable parameters of the FIR filter on x, and :math:`h_f` is the single learnable 
+parameter of the FIR filter on F. For the input variable x, we are using a time 
+window :math:`T_w = 1` second, which means that we are using the last :math:`N_x` samples of the 
+variable x to estimate the next position of the mass. The value of :math:`N_x` is equal 
+to :math:`T_w/T_s`, where :math:`T_s` is the sampling time used to sample the input variable x.
+In a particular case, our MS-NN formulation becomes equivalent to the discrete-time 
+response (discretized with Forward-Euler) of the mass-spring-damper system. 
+This happens when we choose the following values: :math:`N_x = 3`, :math:`h_x` equal to the 
+characteristic polynomial of the system, and :math:`h_f = T_s^2/m`, where :math:`T_s` is the sampling 
+time and :math:`m` is the mass of the system.
+However, our formulation is more general and can better adapt to model mismatches and noise levels 
+in the measured variables. This improved learning potential can be achieved by using a larger number 
+of samples :math:`N_x` in the time window of the input variable x.
 Let us now train our MS-NN observer using the available data. We perform:
 
 .. code-block:: python
@@ -197,8 +223,13 @@ To train our model, we use the function :class:`addMinimize` to add a loss funct
 The first input is the name of the error ('next-pos' in this case).
 The second and third inputs are the variables whose difference we want to minimize.
 The fourth input is the loss function to be used, in this case the mean square error ('mse').
-In the function addMinimize, we apply the z(-1) method to the variable x to get the next position of the mass, i.e., the value of x at the next time step. The z(-1) function follows the Z-transform notation and is equivalent to a next() operator. The function z(...) can be used on an Input variable to obtain a time-shifted value.
-Hence, our training objective is to minimize the mean square error between x_z, which represents the next position of the mass, and x_z_est, which represents the output of our estimator:
+In the function addMinimize, we apply the :class:`z(-1)` method to the variable :math:`x` to get
+the next position of the mass, i.e., the value of x at the next time step. The :class:`z(-1)` function
+follows the Z-transform notation and is equivalent to a :class:`next()` operator. The 
+function :class:`z(...)` can be used on an Input variable to obtain a time-shifted value.
+Hence, our training objective is to minimize the mean square error between :math:`x_z`, which 
+represents the next position of the mass, and `x_z_est`, which represents 
+the output of our estimator:
 
 .. math::
 
@@ -209,7 +240,7 @@ where n represents the number of samples in the dataset.
 Finally, the function :class:`neuralizeModel` is used to create a discrete-time MS-NN model. 
 The input parameter of this function is the sampling time :math:`T_s`, chosen based on 
 the available data. In this example, :math:`T_s = 0.2` seconds. The training dataset is then 
-loaded. nnodely has access to all the files located in a source folder.
+loaded. *nnodely* has access to all the files located in a source folder.
 
 .. code-block:: python
 
@@ -309,7 +340,7 @@ velocity, and applied force, then improves the prediction by training in a recur
 nnodely Applications
 --------------------
 
-For additional examples, please refer to the nnodely Applications at the link below.
+For additional examples, please refer to the *nnodely* Applications at the link below.
 
 
 .. raw:: html

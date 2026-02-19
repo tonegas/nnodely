@@ -11,7 +11,7 @@ Welcome to nnodely's documentation!
      :alt: Open 
 
 
-nnodely is a framework designed to facilitate the creation and deployment of **Model-Structured Neural Networks** (**MSNNs**). 
+*nnodely* is a framework designed to facilitate the creation and deployment of **Model-Structured Neural Networks** (**MSNNs**). 
 Modeling, control, and estimation of physical systems impose constraints that differ fundamentally from typical 
 deep-learning tasks (e.g., images or text). In engineering applications, models often need to respect 
 known physical laws or constraints, operate in real time, remain interpretable, and generalize reliably 
@@ -24,9 +24,9 @@ networks with structural priors grounded in physics, control and estimation theo
 - **Interpretability**: The structured nature of MS-NNs enhances interpretability, allowing practitioners to understand and trust the model's predictions.
 - **Real-time**: MS-NNs can be designed for real-time applications, making them suitable for control and estimation tasks in dynamic environments.
 
-The main objective of the nnodely framework is to allow fast prototyping of MS-NNs for modeling, estimation and control of physical systems by embedding structural priors knowledge into the networks' architecture.
+The main objective of the *nnodely* framework is to allow fast prototyping of MS-NNs for modeling, estimation and control of physical systems by embedding structural priors knowledge into the networks' architecture.
 
-In this documentation you will find a comprehensive guide for getting started with nnodely, illustrating the main blocks that constitute the framework.
+In this documentation you will find a comprehensive guide for getting started with *nnodely*, illustrating the main blocks that constitute the framework.
 
 
 .. raw:: html
@@ -57,7 +57,7 @@ In this documentation you will find a comprehensive guide for getting started wi
 
 
 
-nnodely is not intended to replace general-purpose deep learning frameworks, 
+*nnodely* is not intended to replace general-purpose deep learning frameworks, 
 but to provide a structured modeling layer on top of them, purpose-built for physical systems.
 
 
