@@ -168,15 +168,34 @@ The system to be modeled is defined by the following equation:
 
  M \ddot x = - k x - c \dot x + F
 
+
+**Build the neural model**
+
+
+
+..  .. raw:: html
+
+..     <details>
+     <summary><strong>Show Python snippet</strong></summary>
+     <div style="margin-top: 0.6em;">
+
+      Suppose we want to estimate the blablablabla
+
+  .. raw:: html
+
+..     </div>
+     </details>
+
 Suppose we want to estimate the value of the future position of the mass, given the initial position and the external force.
 The MS-NN model is defined by a list of inputs and outputs, and by a list of relationships that link the inputs to the outputs.
 In *nnodely*, we can build an estimator in this form:
 
+
 .. code-block:: python
 
- x = Input('x')
- F = Input('F')
- x_z_est = Output('x_z_est', Fir(x.tw(1)) + Fir(F.last()))
+  x = Input('x')
+  F = Input('F')
+  x_z_est = Output('x_z_est', Fir(x.tw(1)) + Fir(F.last()))
 
 Input variables can be created using the Input function.
 In our system, we have two inputs: the position of the mass, x, and the external force exerted on the mass, F.
@@ -359,6 +378,8 @@ For additional examples, please refer to the *nnodely* Applications at the link 
 
 Tutorials
 --------------------
+
+
 
 For additional examples in the tutorial section, please refer to the link below.
 
