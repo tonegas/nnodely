@@ -74,12 +74,17 @@ Overview
 
 
 
+
+
+.. sidebar:: Overview
+   
+  Overview of the *nnodely* development pipeline. It spans model design (:ref:`PH1 <nnodely-modely>`), dataset construction aligned with the network architecture (:ref:`PH2 <nnodely-dataset-creation>`), training (:ref:`PH3 <nnodely-training>`), domain-specific validation (:ref:`PH4 <nnodely-validation>`), model export (:ref:`PH5 <nnodely-export>`), and composition of complex models (:ref:`PH6 <nnodely-model-composition>`). Ellipses indicate the pipeline phases, while rectangles denote the artifacts produced at each phase.
+
+
 .. image:: https://raw.githubusercontent.com/tonegas/nnodely/docs/update/imgs/framework_p.png
-   :width: 60%
+   :width: 50%
    :alt: Framework
 
-   
-Overview of the *nnodely* development pipeline. It spans model design (:ref:`PH1 <nnodely-modely>`), dataset construction aligned with the network architecture (:ref:`PH2 <nnodely-dataset-creation>`), training (:ref:`PH3 <nnodely-training>`), domain-specific validation (:ref:`PH4 <nnodely-validation>`), model export (:ref:`PH5 <nnodely-export>`), and composition of complex models (:ref:`PH6 <nnodely-model-composition>`). Ellipses indicate the pipeline phases, while rectangles denote the artifacts produced at each phase.
 
 
 

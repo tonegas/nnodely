@@ -49,8 +49,12 @@ Before reading this example, start with the basic example in the README (linked 
    :width: 40%
    :alt: Reacher
 
-Here is simple two-joint planar manipulator. The inputs are the joint angles :math:`\theta_1` and :math:`\theta_2`, while the outputs are the end-effector coordinates :math:`(x, y)`.
-The link lengths :math:`l_1` and :math:`l_2` are unknown and are estimated from data using *nnodely* as learnable parameters.
+.. sidebar:: Reacher details
+
+ Here is simple two-joint planar manipulator. The inputs are the joint angles :math:`\theta_1` and :math:`\theta_2`, while the outputs are the end-effector coordinates :math:`(x, y)`.
+ The link lengths :math:`l_1` and :math:`l_2` are unknown and are estimated from data using *nnodely* as learnable parameters.
+ 
+
 The kinematic model is given by:
 
 
@@ -78,8 +82,10 @@ enabling the import of nnodely components for use in the script.
 **Inputs from dataset & Parameters**
 
 
-Input variables are created using the :class:`Input` class. The learnable parameters are given within the :class:`Parameter`. The :class:`Output` class defines the model output and takes two arguments: 
-the name of the output and its structure.
+
+  
+ Input variables are created using the :class:`Input` class. The learnable parameters are given within the :class:`Parameter`. The :class:`Output` class defines the model output and takes two arguments: 
+ the name of the output and its structure.
 
 
 .. code-block:: python
@@ -161,12 +167,13 @@ Basic example
    :width: 40%
    :alt: massspringdamper
 
+.. sidebar:: Basic example details
 
-The system to be modeled is defined by the following equation:
+ The system to be modeled is defined by the following equation:
+ 
+ .. math::
 
-.. math::
-
- M \ddot x = - k x - c \dot x + F
+   M \ddot x = - k x - c \dot x + F
 
 
 **Build the neural model**
