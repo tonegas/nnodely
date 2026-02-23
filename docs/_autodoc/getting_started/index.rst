@@ -107,10 +107,8 @@ enabling the import of nnodely components for use in the script.
 **Model composition**
 
 :class:`addModel` adds the defined output to the model. 
-
 :class:`addMinimize` defines the loss function. This function uses the following inputs: The first input is the name of the error (`x-error` and `y-error` in this case). The second and third inputs are the variables whose 
 difference we want to minimize. The fourth input is the loss function to be used, in this case the mean square error (`mse`). 
-
 :class:`neuralizeModel` builds the discrete-time MS-NN where its input parameter is the sampling time.
 
 
