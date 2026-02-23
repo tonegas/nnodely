@@ -9,7 +9,7 @@ Getting Started
      <a href="https://github.com/tonegas/nnodely"
         style="display:inline-block; font-weight:800; font-size:1.15em;
                padding:0.55em 0.9em; border-radius:10px;
-               border:2px solid #2306fc; text-decoration:none;">
+               border:2px solid #3981BC; text-decoration:none;">
        Start with the README first — click here.
      </a>
    </p>
@@ -160,14 +160,14 @@ train-validation-test split.
 
 
 
-Basic example
+Mass-spring-damper example
 ---------------
 
 .. image:: https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/massspringdamper.png
    :width: 40%
    :alt: massspringdamper
 
-.. sidebar:: Basic example details
+.. sidebar:: Mass-spring-damper example details
 
  The system to be modeled is defined by the following equation:
  
@@ -363,7 +363,7 @@ velocity, and applied force, then improves the prediction by training in a recur
 
 --------------------------------------------------------
 
-nnodely Applications
+Applications
 --------------------
 
 For additional examples, please refer to the *nnodely* Applications at the link below.
@@ -375,13 +375,17 @@ For additional examples, please refer to the *nnodely* Applications at the link 
      <a href="https://github.com/tonegas/nnodely-applications"
         style="display:inline-block; font-weight:800; font-size:1.15em;
                padding:0.55em 0.9em; border-radius:10px;
-               border:2px solid #0b93e1; text-decoration:none;">
+               border:2px solid #3981BC; text-decoration:none;">
        Click to read the nnodely Applications
      </a>
    </p>
 
 
 --------------------------------------------------------
+
+
+
+
 
 Tutorials
 --------------------
@@ -396,7 +400,7 @@ For additional examples in the tutorial section, please refer to the link below.
      <a href="../tutorials/index.html"
         style="display:inline-block; font-weight:800; font-size:1.15em;
                padding:0.55em 0.9em; border-radius:10px;
-               border:2px solid #5d8007; text-decoration:none;">
+               border:2px solid #3981BC; text-decoration:none;">
        Click to view the Tutorials
      </a>
    </p>

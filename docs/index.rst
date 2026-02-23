@@ -29,18 +29,29 @@ The main objective of the *nnodely* framework is to allow fast prototyping of MS
 In this documentation you will find a comprehensive guide for getting started with *nnodely*, illustrating the main blocks that constitute the framework.
 
 
+
 .. raw:: html
 
    <p>
      <a href="https://github.com/tonegas/nnodely"
         style="display:inline-block; font-weight:900; font-size:1.4em;
-               padding:0.55em 0.9em; border-radius:12px;
-               border:2px solid #5d8007; text-decoration:none;">
+               padding:0.5em 0.9em; border-radius:10px;
+               border:2px solid #3981BC; text-decoration:none;">
        Go to README
      </a>
    </p>
 
 
+.. raw:: html
+
+   <p>
+     <a href="../getting_started/index.rst"
+        style="display:inline-block; font-weight:900; font-size:1.4em;
+               padding:0.5em 0.9em; border-radius:10px;
+               border:2px solid #3981BC; text-decoration:none;">
+       Getting Started
+     </a>
+   </p>
 
 
 
@@ -49,8 +60,8 @@ In this documentation you will find a comprehensive guide for getting started wi
    <p>
      <a href="https://github.com/tonegas/nnodely-applications"
         style="display:inline-block; font-weight:800; font-size:1.15em;
-               padding:0.55em 0.9em; border-radius:10px;
-               border:2px solid #0b93e1; text-decoration:none;">
+               padding:0.5em 0.9em; border-radius:10px;
+               border:2px solid #3981BC; text-decoration:none;">
        Go to nnodely applications
      </a>
    </p>
@@ -71,7 +82,6 @@ Overview
 .. - :ref:`Model structured NN Inputs Outputs and Parameters <nnodely-msnn_ins_out_param>`: Description of the Input, Output and Parameter modules that can be used to build MS-NNs.
 .. - :ref:`Model structured NN building blocks <nnodely-modules-layers>`: Overview of the different structural layers available in nnodely to build MS-NNs.
 .. - :ref:`Training <nnodely-training>`: Explanation of the training procedures implemented in nnodely to train MS-NNs.
-
 
 
 
