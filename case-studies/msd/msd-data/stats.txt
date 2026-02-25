@@ -1,0 +1,1 @@
+{"model_attributes":["linear"],"num_simulations":100,"elapsed_time":5.742344375,"total_samples":200100,"params":{"time":20,"sampling_time":0.001,"data_sampling_time":0.01,"m":1,"k":3,"c":0.175,"a1":3,"a2":2,"d":0.5,"s":1,"x0":[0,1],"v0":[0,0.5],"force":[-3,3]}}
