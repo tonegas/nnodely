@@ -45,7 +45,7 @@ In this documentation you will find a comprehensive guide for getting started wi
 .. raw:: html
 
    <p>
-     <a href="../getting_started/index.rst"
+     <a href="_autodoc/getting_started"
         style="display:inline-block; font-weight:900; font-size:1.4em;
                padding:0.5em 0.9em; border-radius:10px;
                border:2px solid #3981BC; text-decoration:none;">
