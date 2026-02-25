@@ -32,47 +32,26 @@ In this documentation you will find a comprehensive guide for getting started wi
 
 .. raw:: html
 
-   <p>
+   <p style="display:flex; gap:12px; flex-wrap:nowrap; align-items:center;" >
      <a href="https://github.com/tonegas/nnodely"
         style="display:inline-block; font-weight:900; font-size:1.4em;
                padding:0.5em 0.9em; border-radius:10px;
                border:2px solid #3981BC; text-decoration:none;">
-       Go to README
+       Repository
      </a>
-   </p>
-
-
-.. raw:: html
-
-   <p>
-     <a href="../getting_started/index.rst"
+     <a href="./_autodoc/getting_started/index.html"
         style="display:inline-block; font-weight:900; font-size:1.4em;
                padding:0.5em 0.9em; border-radius:10px;
                border:2px solid #3981BC; text-decoration:none;">
        Getting Started
      </a>
-   </p>
-
-
-
-.. raw:: html
-
-   <p>
      <a href="https://github.com/tonegas/nnodely-applications"
-        style="display:inline-block; font-weight:800; font-size:1.15em;
+        style="display:inline-block; font-weight:800; font-size:1.4em;
                padding:0.5em 0.9em; border-radius:10px;
                border:2px solid #3981BC; text-decoration:none;">
-       Go to nnodely applications
+       Applications
      </a>
    </p>
-
-
-
-*nnodely* is not intended to replace general-purpose deep learning frameworks, 
-but to provide a structured modeling layer on top of them, purpose-built for physical systems.
-
-
-
 
 Overview
 -----------------------
