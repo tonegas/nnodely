@@ -3,12 +3,12 @@
 <img src="https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/logo_white_info.png" alt="logo" >
 </p>
 
-----------
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Coverage Status](https://coveralls.io/repos/github/tonegas/nnodely/badge.svg?branch=main)](https://coveralls.io/github/tonegas/nnodely?branch=main)
 [![Documentation](https://readthedocs.org/projects/nnodely/badge/?version=stable&style=default)](https://nnodely.readthedocs.io/en/stable/)
+[![PyPI](https://img.shields.io/pypi/v/nnodely?color=blue&label=PyPI%20Package)](https://pypi.org/project/nnodely/)
 
+# Neural Network Framekwork for Modelling, Control, and Estimation of Physical Systems
 
 Modeling, control, and estimation of physical systems are central to many engineering disciplines. While data-driven methods like neural networks offer powerful tools, they often struggle to **incorporate prior domain knowledge**, limiting their interpretability, generalizability, and safety.
 
@@ -21,12 +21,13 @@ MS-NNs combine the learning capabilities of neural networks with structural **pr
 
 In short:
 
-nnodely is not a replacement for deep learning frameworks —  
-it is a **structured modeling layer on top of them**, purpose-built for physical systems.
-<br><br>
+nnodely is not a replacement for a general purpose deep learning frameworks — it is a **structured layer on top of them**, purpose-built for physical systems.
+
+<br>
 <p align="center">
   📖 <a href="https://nnodely.readthedocs.io/en/stable/"><b>Documentation</b></a> •
-  🚀 <a href="https://github.com/tonegas/nnodely-applications"><b>Applications & Examples</b></a>
+  🔬 <a href="https://github.com/tonegas/nnodely/case-studies"><b>Case Studies</b></a> •
+  🚀 <a href="https://github.com/tonegas/nnodely-applications"><b>Other Applications</b></a>
 </p>
 
 <!-- > [!NOTE]
@@ -39,10 +40,10 @@ it is a **structured modeling layer on top of them**, purpose-built for physical
   <li><a href="#gettingstarted">Getting Started</a></li>
   <ul>
       <li><a href="#installation">Installation</a></li>
-      <li><a href="#hellow">Hello, World!</a></li>
-      <li><a href="#contribute">How to contribute</a></li>
+      <li><a href="#helloworld">Hello, World!</a></li>
   </ul>
-  <li><a href="#fonlderstructure">Structure of the Repository</a></li>
+  <li><a href="#folderstructure">Structure of the Repository</a></li>
+  <li><a href="#contribute">How to contribute</a></li>
   <li><a href="#license">License</a></li>
   <li><a href="#cite-us">Cite Us</a></li>
 </ol>
@@ -68,7 +69,7 @@ cd nnodely
 pip install -r requirements.txt
 pip install .
 ```
-<a name="hellow"></a>
+<a name="helloworld"></a>
 ### Hello, World!
 To check if `nnodely` is installed correctly try running the following script.
 
@@ -91,25 +92,11 @@ print(model({ "x" : [1] },prediction_samples = 20,num_of_samples = 20))
 In the example, the neural network is trained to mimic the Fibonacci series.
 Finally, a native pytorch network is exported in a file.
 
-<a name="contribute"></a>
-### How to Contribute
-
-To contribute to the nnodely framework, you can:
-
-- Open a pull request if you have a new feature or bug fix.  
-- Open an issue if you have a question or suggestion.  
-
-We welcome contributions and collaborations.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<a name="fonlderstructure"></a>
+<a name="folderstructure"></a>
 ## Structure of the Repository
 
 ```bash
 nnodely/              # root directory
-├── docs/             # documentation
-├── mplplots/         # utilities for MatPlotLib
 ├── nnodely/          # source code
 │   ├── basic/        # core low-level classes
 │   ├── exporter/     # model export utilities
@@ -117,8 +104,13 @@ nnodely/              # root directory
 │   ├── operators/    # core operators
 │   ├── support/      # utility functions
 │   └── visualizer/   # visualization tools
-└── tests/            # unit tests
+├── case-studies/     # main case studies
+├── docs/             # documentation
+├── tests/            # unit and integration tests
+├── imgs/             # images used in the documentation
+└── mplplots/         # utilities for MatPlotLib
 ```
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 <details>
 <summary>More info about repository structure</summary>
@@ -127,15 +119,15 @@ nnodely/              # root directory
 ### nnodely Folder
 This folder contains all the nnodely library files with relative references.
 
-The `nnodely` main class defined in __nnodely.py__, it contains all the main properties of the nnodely object and it derives from five main operators:
+The `nnodely` main class defined in __nnodely.py__, it contains all the main properties of the nnodely object and it derives from five main operators, cointained in the folder `operators/`:
 1. __composer.py__ contains all the functions to build the networks: `addModel`, `neuralizeModel`, `addConnection`, `addClosedLoop` etc..
 2. __loader.py__ contains the function for managing the dataset, the main function is `dataLoad`.
 3. __trainer.py__ contains the function for training the network as the `trainModel`.
 4. __exporter.py__ contains all the function for import and export: `saveModel`, `loadModel`, `exportONNX` etc..
-5. __validator.py__ contains all the function for validate the model and the `resultsAnalysis`.
-All the operators derive from `Network`defined in __network.py__, that contains the shared support functions for all the operators.
+5. __validator.py__ contains all the function for validate the model and the `resultsAnalysis`. 
+6. All the operators derive from `Network` defined in __network.py__, that contains the shared support functions for all the operators.
 
-The folder basic contains the main classes for the low level functionalities: 
+The folder `basic/` contains the main classes for the low level functionalities: 
 1. __model.py__ containts the pytorch template model for the structured network.
 2. __modeldef.py__ containts the operation for work with the json model definition.
 3. __loss.py__ contains the loss functions.
@@ -143,12 +135,12 @@ The folder basic contains the main classes for the low level functionalities:
 6. __relation.py__ contains all the main classes from which all the layers are derived.
 
 The other folders are:
-1. exporter that contains the classes for the export functions.
-2. support for the support functions.
-3. visualizer that contains all the classes related to the visualization.
-4. And finally the layers folder.
+1. `exporter/` that contains the classes for the export functions.
+2. `support/` for the support functions.
+3. `visualizer/` that contains all the classes related to the visualization.
+4. And finally the `layers/` folder.
 
-The layers folder contains all the layers that can be used in the MSNN.
+The `layers/` folder contains all the layers that can be used in the MSNN.
 In particular, the model structured NN is defined by `Inputs`, `Outputs` and `Parameters`:
 1. __input.py__ contains the Input class used for create an input for the network.
 2. __output.py__ contains the Output class used for create an output for the network.
@@ -173,17 +165,49 @@ This operation is presented in [[1]](#1).
 5. __equationlearner.py__ contains the logic for the equation learner. The equation learner is used for learn a relation input outpur following a list of activation functions. The first implementation is presented in [[6]](#6).
 6. __timeoperation.py__ contains the time operation functions. The time operation are used for extract a time window from a signal. The derivative operation can be used to implement Physics-informed neural network [[7]](#7) Sobolev learning [[8]](#8).
 
+<a name="casestudiesfolder"></a>
+### Case Studies Folder
+In the case studies folder you can find the main case studies cited in the paper.
+Each case study is a jupyter notebook that explains the main functionalities of the library.
+
+<a name="docsfolder"></a>
+### Docs Folder
+This folder contains all files used to automatically generate the documentation.
+
 <a name="testsfolder"></a>
 ### Tests Folder
 This folder contains the unit tests of the library. Each file tests a specific functionality.
 
-<a name="examplesfolder"></a>
-### Examples Folder
-The files in the examples folder are a collection of the functionality of the library.
-Each file presents a specific functionality of the framework.
-This folder is useful to understand the flexibility and capability of the framework.
+<a name="mplfolder"></a>
+### Matplotlib Folder
+This folder contains the utilities for Matplotlib.
 
-### References
+<a name="imgfolder"></a>
+### Images Folder
+This folder contains the images used in the documentation.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+</details>
+
+<a name="contribute"></a>
+## How to Contribute
+
+To contribute to the nnodely framework, you can:
+
+- Open a pull request if you have a new feature or bug fix.  
+- Open an issue if you have a question or suggestion.  
+
+We welcome contributions and collaborations.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+<a name="license"></a>
+## License
+This project is released under the license [License: MIT](https://opensource.org/licenses/MIT).
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+## References
 
 <a id="1">[1]</a> 
 Mauro Da Lio, Daniele Bortoluzzi, Gastone Pietro Rosati Papini. (2019). 
@@ -236,18 +260,10 @@ Mauro Da Lio, Mattia Piccinini, Francesco Biral. (2023).
 Robust and Sample-Efficient Estimation of Vehicle Lateral Velocity Using Neural Networks With Explainable Structure Informed by Kinematic Principles.
 IEEE Transactions on Intelligent Transportation Systems. https://doi.org/10.1109/TITS.2023.3303776
 
-</details>
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<a name="license"></a>
-## License
-This project is released under the license [License: MIT](https://opensource.org/licenses/MIT).
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
+<!--
 <a name="cite-us"></a>
 ## Cite Us
 
 > TODO: Possiamo aggiungere DOI di repo con zenodo e mettere la citazione di quello [guida](https://docs.github.com/en/repositories/archiving-a-github-repository/referencing-and-citing-content)
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+-->
