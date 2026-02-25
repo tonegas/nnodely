@@ -26,7 +26,7 @@ nnodely is not a replacement for a general purpose deep learning frameworks — 
 <br>
 <p align="center">
   📖 <a href="https://nnodely.readthedocs.io/en/stable/"><b>Documentation</b></a> •
-  🔬 <a href="https://github.com/tonegas/nnodely/case-studies"><b>Case Studies</b></a> •
+  🔬 <a href="./case-studies/"><b>Case Studies</b></a> •
   🚀 <a href="https://github.com/tonegas/nnodely-applications"><b>Other Applications</b></a>
 </p>
 
