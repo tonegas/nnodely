@@ -34,7 +34,7 @@ In this documentation you will find a comprehensive guide for getting started wi
 
    <p>
      <a href="https://github.com/tonegas/nnodely"
-        style="display:inline-block; font-weight:900; font-size:1.4em;
+        style="display:inline-block; font-weight:800; font-size:1.25em;
                padding:0.5em 0.9em; border-radius:10px;
                border:2px solid #3981BC; text-decoration:none;">
        Go to README
@@ -46,7 +46,7 @@ In this documentation you will find a comprehensive guide for getting started wi
 
    <p>
      <a href="_autodoc/getting_started"
-        style="display:inline-block; font-weight:900; font-size:1.4em;
+        style="display:inline-block; font-weight:800; font-size:1.25em;
                padding:0.5em 0.9em; border-radius:10px;
                border:2px solid #3981BC; text-decoration:none;">
        Getting Started
