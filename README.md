@@ -45,7 +45,7 @@ nnodely is not a replacement for a general purpose deep learning frameworks — 
   <li><a href="#folderstructure">Structure of the Repository</a></li>
   <li><a href="#contribute">How to contribute</a></li>
   <li><a href="#license">License</a></li>
-  <li><a href="#cite-us">Cite Us</a></li>
+  <li><a href="#references">References</a></li>
 </ol>
 
 
@@ -207,6 +207,7 @@ This project is released under the license [License: MIT](https://opensource.org
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
+<a name="references"></a>
 ## References
 
 <a id="1">[1]</a> 
