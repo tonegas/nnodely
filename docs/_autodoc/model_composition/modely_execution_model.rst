@@ -9,16 +9,22 @@ In this case, connections and closed loops between signals and models can be spe
 
 This approach is useful when:
 
-- The same base models are reused in different configurations
+- The same base models are reused in different configurations;
 
-- Feedback and interconnections must change across experiments
+- Feedback and interconnections must change across experiments;
 
-- Rapid prototyping and testing of architectures is required
+- Rapid prototyping and testing of architectures is required.
+
+This dynamic composition can be performed by calling one of the following methods of the Modely class, with appropriate arguments for composition:
+
+- :meth:`~nnodely.nnodely.Modely.train`;
+- :meth:`~nnodely.nnodely.Modely.trainAndAnalyze`;
+- :meth:`~nnodely.nnodely.Modely.inference`.
 
 .. code-block:: python
 
     msd.trainAndAnalyze(models='PID', closed_loop={'x':'x_n', 'x_m':'x_n'}, connect={'F':'F_PID'}, ...)
     
 
-.. automethod:: nnodely.nnodely.Modely.trainAndAnalyze
-   :no-index:
+.. .. automethod:: nnodely.nnodely.Modely.trainAndAnalyze
+..    :no-index:
