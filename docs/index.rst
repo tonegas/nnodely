@@ -89,6 +89,7 @@ Table of Contents
    _autodoc/model_composition/index
    _autodoc/training/index
    _autodoc/validation/index
+   _autodoc/inference/index
    _autodoc/export/index
    _autodoc/tutorials/index
 

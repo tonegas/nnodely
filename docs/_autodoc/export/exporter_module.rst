@@ -15,4 +15,4 @@ Export module
 .. autofunction:: nnodely.operators.exporter.Exporter.onnxInference
 .. autofunction:: nnodely.operators.exporter.Exporter.exportReport
 
-For more examples of how to use the export module, please refer to the :doc:`inference tutorial <../tutorials/examples/inference>` and :doc:`export tutorial <../tutorials/examples/export>`.
+For more examples of how to use the export module, please refer to the  :doc:`export tutorial <../tutorials/examples/export>`.

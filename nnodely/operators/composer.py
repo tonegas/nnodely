@@ -219,17 +219,8 @@ class Composer(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/inference.ipynb
-            :alt: Open in Colab
-
-        Example usage:
-            >>> model = Modely()
-            >>> x = Input('x')
-            >>> out = Output('out', Fir(x.last()))
-            >>> model.addModel('example_model', [out])
-            >>> model.neuralizeModel()
-            >>> predictions = model(inputs={'x': [1, 2, 3]})
+        
+        .. include:: /examples_basics/inference_module_ex/inference.rst
         """
 
         ## Copy dict for avoid python bug

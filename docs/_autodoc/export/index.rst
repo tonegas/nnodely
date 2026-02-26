@@ -1,6 +1,6 @@
 .. _nnodely-export:
 
-Inference and Model Export
+Model Export
 ===========================
 Trained models in **nnodely** can be used for inference and exported for integration into external
 workflows. See the :doc:`Exporter module <exporter_module>` for the available export and inference APIs.
