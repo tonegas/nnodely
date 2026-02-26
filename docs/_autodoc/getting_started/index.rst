@@ -269,6 +269,17 @@ train-validation-test split.
    train_params = {'num_of_epochs': 200, 'train_batch_size': 128, 'lr': 0.01}
    model.trainModel(splits=[70, 20, 10], training_params=train_params)
 
+.. raw:: html
+
+   <p>
+     <a href="https://github.com/tonegas/nnodely-applications/blob/main/reacher/basic/B_ReacherStatic.py"
+        style="display:inline-block; font-weight:800; font-size:1.15em;
+               padding:0.55em 0.9em; border-radius:10px;
+               border:2px solid #3981BC; text-decoration:none;">
+       Code
+     </a>
+   </p>
+   
 --------------------------------------------------------
 
 Applications

@@ -19,6 +19,7 @@ This dynamic composition can be performed by calling one of the following method
 
 - :meth:`~nnodely.operators.trainer.Trainer.trainModel`;
 - :meth:`~nnodely.nnodely.Modely.trainAndAnalyze`;
+- :meth:`~nnodely.operators.validator.Validator.analyzeModel`;
 - :meth:`~nnodely.operators.composer.Composer.__call__`.
 
 .. code-block:: python
