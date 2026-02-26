@@ -13,7 +13,6 @@ In addition to these core components, **nnodely** provides a library of reusable
 .. toctree::
    :maxdepth: 1
    
-   modely_class
    msnn_ins_out_param/input_module
    msnn_ins_out_param/parameter_module
    msnn_ins_out_param/initializer_module

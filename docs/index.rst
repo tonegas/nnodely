@@ -83,6 +83,7 @@ Table of Contents
    :maxdepth: 2
 
    _autodoc/getting_started/index
+   _autodoc/modely_class
    _autodoc/model_definition/index
    _autodoc/dataset_creation/index
    _autodoc/model_composition/index
@@ -90,9 +91,6 @@ Table of Contents
    _autodoc/validation/index
    _autodoc/export/index
    _autodoc/tutorials/index
-   .. _autodoc/citations/index
-   .. _autodoc/q_and_a/index
-   .. _autodoc/glossary/index
 
 Indices and tables
 ==================
