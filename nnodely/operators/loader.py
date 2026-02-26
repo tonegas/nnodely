@@ -147,13 +147,34 @@ class Loader(Network):
         .. include:: /examples_basics/data_loader_module_ex/resamplingData.rst
         """
         sample_time_ns = int(self._model_def.getSampleTime() * scale)
+        if sample_time_ns <= 0:
+            raise ValueError(f"Invalid resampling step: {sample_time_ns}ns")
         method = 'linear'
-        if type(df.index) is pd.DatetimeIndex:
+        if isinstance(df.index, pd.DatetimeIndex):
+            # FORZA risoluzione ns (evita unit='s' interno)
+            if df.index.dtype != "datetime64[ns]":
+                df = df.copy()
+                df.index = df.index.astype("datetime64[ns]")
             df = df.resample(f"{sample_time_ns}ns").interpolate(method=method)
-        elif 'time' in df.columns:
-            if not ptypes.is_datetime64_any_dtype(df['time']):
-                df['time'] = pd.to_datetime(df['time'], unit='s')
-            df = df.set_index('time', drop=True)
+
+        elif "time" in df.columns:
+            df = df.copy()
+
+            # Converte/normalizza SEMPRE a datetime64[ns]
+            if not ptypes.is_datetime64_any_dtype(df["time"]):
+                df["time"] = pd.to_datetime(df["time"], unit="s", origin="unix")
+            else:
+                df["time"] = pd.to_datetime(df["time"])  # normalize types (tz/objects)
+
+            if df["time"].dtype != "datetime64[ns]":
+                df["time"] = df["time"].astype("datetime64[ns]")
+
+            df = df.set_index("time", drop=True)
+
+            # Doppia sicurezza: anche l'index
+            if df.index.dtype != "datetime64[ns]":
+                df.index = df.index.astype("datetime64[ns]")
+
             df = df.resample(f"{sample_time_ns}ns").interpolate(method=method)
         else:
             raise TypeError("No time column found in the DataFrame. Please provide a time column for resampling.")
