@@ -40,11 +40,11 @@ msd.loadData(name = 'simulations',
              format = data_struct, delimiter = ';')
 
 # Neural network train
-param_model = {'num_of_epochs' : 80,
+default_par = {'num_of_epochs' : 80,
           'train_batch_size' : 128,
           'lr' : 0.0005,
           'splits' : [70,20,10]}
-msd.trainModel(training_params = param_model)
+msd.trainModel(training_params = default_par)
 
 # Save the neural model in json format
 msd.saveModel(name = 'msd_preliminary')
@@ -57,7 +57,7 @@ vis.showResult("simulations_test")
 
 # Refine weights with recurrent train
 msd.trainAndAnalyze(num_of_epochs = 10, prediction_samples = 1500, step = 500, lr=0.00001,
-                    closed_loop={'x':'x_n'}, training_params = param_model)
+                    closed_loop={'x':'x_n'}, training_params = default_par)
 
 # Show the network performance on the test dataset on recurrent
 vis.showResult("simulations_test")
@@ -84,7 +84,7 @@ msd.trainModel(models = 'PID',
                prediction_samples = 500,
                step = 500, num_of_epochs = 20,
                lr = 0.05,
-               training_params = param_model)
+               training_params = default_par)
 
 # Print the parameter of the PID
 print(f"The PID controller kp = {msd.parameters['P']} ki = {msd.parameters['I']} kd = {msd.parameters['D']}")
