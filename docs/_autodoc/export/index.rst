@@ -69,6 +69,7 @@ research workflows and real-world deployment, ensuring that models can be easily
 integrated into diverse application environments.
 
 .. rubric:: Additional tools
+  
 Training and validation reports (PDF) can be generated from results using
 :func:`exportReport() <nnodely.operators.exporter.Exporter.exportReport>`.
 
