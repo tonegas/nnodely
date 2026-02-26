@@ -46,14 +46,8 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
-        Example usage:
-            >>> model = Modely()
-            >>> model.neuralizeModel()
-            >>> model.saveTorchModel(name='example_model', model_folder='path/to/save')
+        .. include:: /examples_basics/export_module_ex/saveTorchModel.rst
         """
         check(self._model_def.isDefined(), RuntimeError, "The network has not been defined.")
         check(self._neuralized == True, RuntimeError, 'The model is not neuralized yet!')
@@ -89,14 +83,8 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
-        Example usage:
-            >>> model = Modely()
-            >>> model.neuralizeModel()
-            >>> model.loadTorchModel(name='example_model', model_folder='path/to/load')
+        .. include:: /examples_basics/export_module_ex/loadTorchModel.rst
         """
         check(self.neuralized == True, RuntimeError, 'The model is not neuralized yet.')
         self.__exporter.loadTorchModel(self._model, name, model_folder)
@@ -122,14 +110,8 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
-        Example usage:
-            >>> model = Modely()
-            >>> model.neuralizeModel()
-            >>> model.saveModel(name='example_model', model_folder='folder/')
+        .. include:: /examples_basics/export_module_ex/saveModel.rst
         """
         check(self._model_def.isDefined(), RuntimeError, "The network has not been defined.")
         if models is not None:
@@ -163,13 +145,8 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
-        Example usage:
-            >>> model = Modely()
-            >>> model.loadModel(name='example_model', model_folder='path/to/load')
+        .. include:: /examples_basics/export_module_ex/loadModel.rst
         """
         model_def = self.__exporter.loadModel(name, model_folder)
         check(model_def, RuntimeError, "Error to load the network.")
@@ -214,14 +191,8 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
-        Example usage:
-            >>> model = Modely(name='example_model')
-            >>> model.neuralizeModel()
-            >>> model.exportPythonModel(name='example_model', model_folder='folder/')
+        .. include:: /examples_basics/export_module_ex/exportPythonModel.rst
         """
         check(self._model_def.isDefined(), RuntimeError, "The network has not been defined.")
         check(self._traced == False, RuntimeError,
@@ -262,13 +233,8 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
-        Example usage:
-            >>> model = Modely()
-            >>> model.importPythonModel(name='example_model', model_folder='path/to/import')
+        .. include:: /examples_basics/export_module_ex/importPythonModel.rst
         """
         model_def = self.__exporter.loadModel(name, model_folder)
         check(model_def is not None, RuntimeError, "Error to load the network.")
@@ -308,18 +274,8 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
-        Example usage:
-            >>> input1 = Input('input1').last()
-            >>> input2 = Input('input2').last()
-            >>> out = Output('output1', input1+input2)
-
-            >>> model = Modely()
-            >>> model.neuralizeModel()
-            >>> model.exportONNX(inputs_order=['input1', 'input2'], outputs_order=['output1'], name='example_model', model_folder='path/to/export')
+        .. include:: /examples_basics/export_module_ex/exportONNX.rst
         """
         check(self._model_def.isDefined(), RuntimeError, "The network has not been defined.")
         check(self._traced == False, RuntimeError,
@@ -372,25 +328,8 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
-
-        Example - Feed-Forward:
-            >>> x = Input('x')
-
-            >>> model_folder = folder/
-            >>> dummy_input = {'x':np.ones(shape=(3, 1, 1)).astype(np.float32)}
-            >>> predictions = Modely().onnxInference(dummy_input, model_folder)
             
-        Example - Recurrent:
-            >>> x = Input('x')
-            >>> y = Input('y')
-
-            >>> model_folder = folder/
-            >>> dummy_input = {'x':np.ones(shape=(3, 1, 1, 1)).astype(np.float32)
-                                'y':np.ones(shape=(1, 1, 1)).astype(np.float32)}
-            >>> predictions = Modely().onnxInference(dummy_input, model_folder)
+        .. include:: /examples_basics/export_module_ex/onnxInference.rst
         """
         return self.__exporter.onnxInference(inputs, name, model_folder)
 
@@ -408,14 +347,7 @@ class Exporter(Network):
 
         Examples
         --------
-        .. image:: https://colab.research.google.com/assets/colab-badge.svg
-            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/export.ipynb
-            :alt: Open in Colab
 
-        Example usage:
-            >>> model = Modely()
-            >>> model.neuralizeModel()
-            >>> model.trainModel(train_dataset='train_dataset', validation_dataset='val_dataset', num_of_epochs=10)
-            >>> model.exportReport(name='example_model', model_folder='path/to/export')
+        .. include:: /examples_basics/export_module_ex/exportReport.rst
         """
         self.__exporter.exportReport(self, name, model_folder)
