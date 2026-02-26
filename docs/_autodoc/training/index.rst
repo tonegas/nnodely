@@ -30,49 +30,18 @@ batching strategy that preserves temporal coherence within each batch.
 This ensures that time-dependent relationships are correctly maintained during
 optimization.
 
-**nnodely** supports two complementary training modalities, depending on the
-model architecture.
+.. .. rubric:: Key Features
 
-Feed-forward
------------------------------------
-**Feed-forward** training follows the conventional mini-batch paradigm. Samples
-are shuffled and propagated through an acyclic computation graph, and model
-parameters are updated based on the instantaneous loss using
-:func:`trainModel <nnodely.operators.trainer.Trainer.trainModel>` with optimizers from the :doc:`Optimizer module <optimizer_module>`.
-This modality is suitable for architectures without internal feedback, where
-predictions depend only on the provided inputs.
-
-Recurrent
------------------------------------
-**Recurrent training** targets architectures with closed-loop dependencies, such
-as feedback connections or coupled multi-model structures. In this modality,
-training is performed over a finite prediction horizon. The model is rolled out
-forward in time, and parameter updates are applied only after completing the
-full rollout using :func:`trainModel <nnodely.operators.trainer.Trainer.trainModel>`.
-
-Early stopping strategies from the
-:doc:`Early Stopping module <earlystopping_module>` can be applied to control
-convergence in long-horizon training.
-
-This approach enables correct learning of long-term temporal dependencies and
-dynamic behavior.
-
-Key Features
-------------
-
-- Support for custom loss functions and evaluation metrics via
-  :func:`addMinimize <nnodely.operators.trainer.Trainer.addMinimize>` and :func:`removeMinimize <nnodely.operators.trainer.Trainer.removeMinimize>`
-- Gradient-based optimization with :class:`SGD <nnodely.basic.optimizer.SGD>` and :class:`Adam <nnodely.basic.optimizer.Adam>`
-- Regularization through early stopping methods
-- Temporally coherent batching strategies
-- Dedicated support for feed-forward and recurrent architectures
-- Access to training diagnostics through :func:`getTrainingInfo <nnodely.operators.trainer.Trainer.getTrainingInfo>`
-
-Contents
----------
+.. - Support for custom loss functions and evaluation metrics via
+..   :func:`addMinimize <nnodely.operators.trainer.Trainer.addMinimize>` and :func:`removeMinimize <nnodely.operators.trainer.Trainer.removeMinimize>`
+.. - Gradient-based optimization with :class:`SGD <nnodely.basic.optimizer.SGD>` and :class:`Adam <nnodely.basic.optimizer.Adam>`
+.. - Regularization through early stopping methods
+.. - Temporally coherent batching strategies
+.. - Dedicated support for feed-forward and recurrent architectures
+.. - Access to training diagnostics through :func:`getTrainingInfo <nnodely.operators.trainer.Trainer.getTrainingInfo>`
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
 
    trainer_module
    optimizer_module

@@ -1,6 +1,6 @@
 .. _nnodely-modules-layers:
 
-Model structured NN building blocks
+Building blocks
 ===================================
 
 In **nnodely**, model behavior is defined through a collection of modular
