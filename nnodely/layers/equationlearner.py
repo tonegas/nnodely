@@ -49,8 +49,36 @@ class EquationLearner(NeuObj):
 
     Examples
     --------
+    .. image:: https://colab.research.google.com/assets/colab-badge.svg
+        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/equation_learner.ipynb
+        :alt: Open in Colab
 
-    .. include:: /examples_basics/layer_module_ex/eql.rst
+    Example - basic usage:
+        >>> x = Input('x')
+
+        >>> equation_learner = EquationLearner(functions=[Tan, Sin, Cos])
+        >>> out = Output('out',equation_learner(x.last()))
+
+    Example - passing a linear layer:
+        >>> x = Input('x')
+
+        >>> linear_layer = Linear(output_dimension=3, W_init=init_constant, W_init_params={'value':0})
+        >>> equation_learner = EquationLearner(functions=[Tan, Sin, Cos], linear_in=linear_layer)
+
+        >>> out = Output('out',equation_learner(x.last()))
+
+    Example - passing a custom parametric function and multiple inputs:
+        >>> x = Input('x')
+        >>> F = Input('F')
+
+        >>> def myFun(K1,p1):
+                return K1*p1
+
+        >>> K = Parameter('k', dimensions =  1, sw = 1,values=[[2.0]])
+        >>> parfun = ParamFun(myFun, parameters = [K] )
+
+        >>> equation_learner = EquationLearner([parfun])
+        >>> out = Output('out',equation_learner((x.last(),F.last())))
     """
     @enforce_types
     def __init__(self, functions:list, *, linear_in:Linear|None = None, linear_out:Linear|None = None) -> Stream:

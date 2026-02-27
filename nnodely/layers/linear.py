@@ -72,8 +72,23 @@ class Linear(NeuObj, AutoToStream):
 
     Examples
     --------
+    .. image:: https://colab.research.google.com/assets/colab-badge.svg
+        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/linear.ipynb
+        :alt: Open in Colab
 
-    .. include:: /examples_basics/layer_module_ex/linear.rst
+    Example - basic usage:
+        >>> input = Input('in').tw(0.05)
+        >>> relation = Linear(input)
+
+    Example - passing a weight and bias parameter:
+        >>> input = Input('in').last()
+        >>> weight = Parameter('W', values=[[[1]]])
+        >>> bias = Parameter('b', values=[[1]])
+        >>> relation = Linear(W=weight, b=bias)(input)
+
+    Example - parameters initialization:
+        >>> input = Input('in').last()
+        >>> relation = Linear(b=True, W_init=init_negexp, b_init=init_constant, b_init_params={'value':1})(input)
     """
 
     @enforce_types

@@ -11,8 +11,7 @@ class TestDocumentation(unittest.TestCase):
         docs_output_dir = os.path.join(docs_source_dir, '_build', 'html')
 
         # Command to generate the documentation
-        #TODO Check fail-on-warning command = ['sphinx-build', '--fail-on-warning', '-b',  'html', docs_source_dir, docs_output_dir]
-        command = ['sphinx-build', '-b', 'html', docs_source_dir, docs_output_dir]
+        command = ['sphinx-build', '--fail-on-warning', '-b',  'html', docs_source_dir, docs_output_dir]
 
         # Run the command and capture the output
         result = subprocess.run(command, capture_output=True, text=True)

@@ -25,8 +25,7 @@ class Sin(Stream, ToStream):
     :type obj: Stream
 
     Example:
-    --------
-    .. include:: /examples_basics/layer_module_ex/trig_module_ex/sin.rst
+        >>> sin = Sin(relation)
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant|int|float) -> Stream:
@@ -48,8 +47,7 @@ class Cos(Stream, ToStream):
     :type obj: Stream
 
     Example:
-    --------
-    .. include:: /examples_basics/layer_module_ex/trig_module_ex/cos.rst
+        >>> cos = Cos(relation)
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant|int|float) -> Stream:
@@ -71,8 +69,7 @@ class Tan(Stream, ToStream):
     :type obj: Stream
 
     Example:
-    --------
-    .. include:: /examples_basics/layer_module_ex/trig_module_ex/tan.rst
+        >>> tan = Tan(relation)
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant|int|float) -> Stream:
@@ -94,8 +91,7 @@ class Cosh(Stream, ToStream):
     :type obj: Stream
 
     Example:
-    --------
-    .. include:: /examples_basics/layer_module_ex/trig_module_ex/cosh.rst
+        >>> cosh = Cosh(relation)
     """
     def __init__(self, obj:Stream) -> Stream:
         obj = toStream(obj)
@@ -112,8 +108,7 @@ class Sech(Stream, ToStream):
     :type obj: Stream
 
     Example:
-    --------
-    .. include:: /examples_basics/layer_module_ex/trig_module_ex/sech.rst
+        >>> sech = Sech(relation)
     """
     def __init__(self, obj:Stream) -> Stream:
         obj = toStream(obj)
@@ -134,8 +129,7 @@ class Tanh(Stream, ToStream):
         :type obj: Stream
 
         Example:
-        --------
-        .. include:: /examples_basics/layer_module_ex/trig_module_ex/tanh.rst
+            >>> x = Tanh(x)
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:

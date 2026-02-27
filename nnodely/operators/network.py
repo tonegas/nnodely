@@ -265,14 +265,7 @@ class Network:
         aux_losses = torch.zeros([len(self._model_def['Minimizers']), n_samples // batch_size])
         for idx in range(0, (n_samples - batch_size + 1), batch_size):
             ## Build the input tensor
-            XY = {}
-            for key, val in data.items():
-                if self._model_def['Inputs'].get(key, None):
-                    if self._model_def['Inputs'][key].get('type', None) == 'derivate':
-                        XY[key] = val[idx:idx + batch_size].detach().requires_grad_(True)
-                    else:
-                        XY[key] = val[idx:idx + batch_size]
-            #XY = {key: val[idx:idx + batch_size].detach().requires_grad_(True) for key, val in data.items()}
+            XY = {key: val[idx:idx + batch_size] for key, val in data.items()}
             for key in self._model_def.recurrentInputs().keys():
                 if key not in XY.keys():
                     window_size = self._input_n_samples[key]
@@ -306,7 +299,7 @@ class Network:
 
             ## Gradient step
             if optimizer:
-                total_loss.backward()  ## Backpropagate the error
+                total_loss.backward()
                 optimizer.step()
                 self.visualizer.showWeightsInTrain(batch=idx // batch_size)
 
@@ -338,6 +331,8 @@ class Network:
                 out, minimize_out, out_closed_loop, out_connect = self._model(X)
 
                 if self._log_internal:
+                    #assert (check_gradient_operations(self._states) == 0)
+                    #assert (check_gradient_operations(data) == 0)
                     internals_dict = {'XY': tensor_to_list(X), 'out': out, 'param': self._model.all_parameters,
                                       'closedLoop': self._model.closed_loop_update, 'connect': self._model.connect_update}
 

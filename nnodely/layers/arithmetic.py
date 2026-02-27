@@ -37,8 +37,9 @@ class Add(Stream, ToStream):
         :type obj: Tensor
 
         Example:
-        --------
-        .. include:: /examples_basics/layer_module_ex/arithmetic_module_ex/add.rst
+            >>> add = Add(relation1, relation2)
+            or
+            >>> add = relation1 + relation2
     """
     @enforce_types
     def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float) -> Stream:
@@ -58,8 +59,9 @@ class Sub(Stream, ToStream):
         :type obj: Tensor
 
         Example:
-        --------
-        .. include:: /examples_basics/layer_module_ex/arithmetic_module_ex/sub.rst
+            >>> sub = Sub(relation1, relation2)
+            or
+            >>> sub = relation1 - relation2
     """
     @enforce_types
     def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float) -> Stream:
@@ -78,8 +80,9 @@ class Mul(Stream, ToStream):
         :type obj: Tensor
 
         Example:
-        --------
-        .. include:: /examples_basics/layer_module_ex/arithmetic_module_ex/mul.rst
+            >>> mul = Mul(relation1, relation2)
+            or
+            >>> mul = relation1 * relation2
     """
     @enforce_types
     def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float) -> Stream:
@@ -98,8 +101,9 @@ class Div(Stream, ToStream):
         :type obj: Tensor
 
         Example:
-        --------
-        .. include:: /examples_basics/layer_module_ex/arithmetic_module_ex/div.rst
+            >>> div = Div(relation1, relation2)
+            or
+            >>> div = relation1 / relation2
     """
     @enforce_types
     def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float) -> Stream:
@@ -122,8 +126,9 @@ class Pow(Stream, ToStream):
         :type obj: float or Tensor
 
         Example:
-        --------
-        .. include:: /examples_basics/layer_module_ex/arithmetic_module_ex/pow.rst
+            >>> pow = Pow(relation, exp)
+            or
+            >>> pow = relation1 ** relation2
     """
     @enforce_types
     def __init__(self, obj1:Stream|Parameter|Constant|int|float, obj2:Stream|Parameter|Constant|int|float) -> Stream:
@@ -139,8 +144,7 @@ class Neg(Stream, ToStream):
         :type obj: Tensor
 
         Example:
-        --------
-        .. include:: /examples_basics/layer_module_ex/arithmetic_module_ex/neg.rst
+            >>> x = Neg(x)
     """
     @enforce_types
     def __init__(self, obj:Stream|Parameter|Constant) -> Stream:

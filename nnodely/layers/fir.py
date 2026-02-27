@@ -73,8 +73,24 @@ class Fir(NeuObj, AutoToStream):
 
     Examples 
     --------
+    .. image:: https://colab.research.google.com/assets/colab-badge.svg
+        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/fir.ipynb
+        :alt: Open in Colab
 
-    .. include:: /examples_basics/layer_module_ex/fir.rst
+    Example - basic usage:
+        >>> input = Input('in')
+        >>> relation = Fir(input.tw(0.05))
+
+    Example - passing a parameter:
+        >>> input = Input('in')
+        >>> par = Parameter('par', dimensions=3, sw=2, init='init_constant')
+        >>> relation = Fir(W=par)(input.sw(2))
+
+    Example - parameters initialization:
+        >>> x = Input('x')
+        >>> F = Input('F')
+        >>> fir_x = Fir(W_init='init_negexp')(x.tw(0.2))
+        >>> fir_F = Fir(W_init='init_constant', W_init_params={'value':1})(F.last())
 
     """
     @enforce_types

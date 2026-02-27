@@ -41,7 +41,7 @@ class NeuObj():
     names = []
     @classmethod
     @enforce_types
-    def clearNames(cls, names:str|list|None=None):
+    def clearNames(self, names:str|list|None=None):
         if names is None:
             NeuObj.count = 0
             NeuObj.names = []
@@ -118,7 +118,7 @@ class Stream(Relation):
     """
     count = 0
     @classmethod
-    def resetCount(cls):
+    def resetCount(self):
         Stream.count = 0
 
     def __init__(self, name, json, dim, count = 1):

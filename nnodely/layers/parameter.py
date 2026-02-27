@@ -36,8 +36,36 @@ class Constant(NeuObj, Relation):
 
     Examples
     --------
+    .. image:: https://colab.research.google.com/assets/colab-badge.svg
+        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/parameter.ipynb
+        :alt: Open in Colab
 
-    .. include:: /examples_basics/parameter_module_ex/constant.rst
+    Example - passing a custom scalar value -> g.dim = {'dim': 1}:
+
+        >>> g = Constant('gravity',values=9.81)
+
+    Example - passing a custom vector value -> n.dim = {'dim': 4}:
+
+        >>> n = Constant('numbers', values=[1,2,3,4])
+
+    Example - passing a custom vector value with single sample window -> n.dim = {'dim': 4, 'sw': 1}:
+
+        >>> n = Constant('numbers', values=[[1,2,3,4]])
+
+    Example - passing a custom vector value with double sample window -> n.dim = {'dim': 4, 'sw': 2}:
+
+        >>> n = Constant('numbers', values=[[2,3,4],[1,2,3]])
+
+    Example - passing a custom vector value with double sample window -> n.dim = {'dim': 4, 'sw': 2}.
+    If the value of the sw is differnt from the dimension of shape[0] an error will be raised.
+
+        >>> n = Constant('numbers', sw = 2, values=[[2,3,4],[1,2,3]])
+
+    Example - passing a custom vector value with time window -> n.dim = {'dim': 4, 'tw': 4}.
+    In this case the samplingtime must be 0.5 otherwise an error will be raised. If the Constant have a time dimension,
+    the input must have a len(shape) == 2.
+
+        >>> n = Constant('numbers', tw = 4, values=[[2,3,4],[1,2,3]])
     """
     @enforce_types
     def __init__(self, name:str,
@@ -110,8 +138,22 @@ class Parameter(NeuObj, Relation):
 
     Examples
     --------
+    .. image:: https://colab.research.google.com/assets/colab-badge.svg
+        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/parameter.ipynb
+        :alt: Open in Colab
 
-    .. include:: /examples_basics/parameter_module_ex/parameter.rst
+    Example - basic usage:
+        >>> k = Parameter('k', dimensions=3, tw=4)
+
+    Example - initialize a parameter with values:
+        >>> x = Input('x')
+        >>> gravity = Parameter('g', dimensions=(4,1),values=[[[1],[2],[3],[4]]])
+        >>> out = Output('out', Linear(W=gravity)(x.sw(3)))
+
+    Example - initialize a parameter with a function:
+        >>> x = Input('x').last()
+        >>> p = Parameter('param', dimensions=1, sw=1, init=init_constant, init_params={'value':1})
+        >>> relation = Fir(parameter=param)(x)
     """
     @enforce_types
     def __init__(self, name:str,
@@ -192,7 +234,7 @@ class SampleTime():
 
     Example
     -------
-    .. include:: /examples_basics/parameter_module_ex/sample_time.rst
+        >>> dt = SampleTime()
     """
     name = 'SampleTime'
     g = Constant(name, values=0)

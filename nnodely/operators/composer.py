@@ -41,7 +41,11 @@ class Composer(Network):
 
         Example
         -------
-        .. include:: /examples_basics/compser_module_ex/addModel.rst
+        Example usage:
+            >>> model = Modely()
+            >>> x = Input('x')
+            >>> out = Output('out', Fir(x.last()))
+            >>> model.addModel('example_model', [out])
         """
         self._model_def.addModel(name, stream_list)
         self._neuralized = False
@@ -58,7 +62,8 @@ class Composer(Network):
 
         Example
         -------
-        .. include:: /examples_basics/compser_module_ex/removeModel.rst
+        Example usage:
+            >>> model.removeModel(['sub_model1', 'sub_model2'])
         """
         self._model_def.removeModel(name_list)
         self._neuralized = False
@@ -77,8 +82,16 @@ class Composer(Network):
 
         Examples
         --------
+        .. image:: https://colab.research.google.com/assets/colab-badge.svg
+            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/states.ipynb
+            :alt: Open in Colab
 
-        .. include:: /examples_basics/compser_module_ex/addConnect.rst
+        Example:
+            >>> model = Modely()
+            >>> x = Input('x')
+            >>> y = Input('y')
+            >>> relation = Fir(x.last())
+            >>> model.addConnect(relation, y)
         """
         self._model_def.addConnection(stream_out, input_in,'connect', local)
         self._neuralized = False
@@ -97,8 +110,16 @@ class Composer(Network):
 
         Examples
         --------
+        .. image:: https://colab.research.google.com/assets/colab-badge.svg
+            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/states.ipynb
+            :alt: Open in Colab
 
-        .. include:: /examples_basics/compser_module_ex/addClosedLoop.rst
+        Example:
+            >>> model = Modely()
+            >>> x = Input('x')
+            >>> y = Input('y')
+            >>> relation = Fir(x.last())
+            >>> model.addClosedLoop(relation, y)
         """
         self._model_def.addConnection(stream_out, input_in,'closedLoop', local)
         self._neuralized = False
@@ -110,13 +131,22 @@ class Composer(Network):
 
         Parameters
         ----------
-        input_in : Input or ``name`` of the input of inputs
+        input_in : Input or name of the input of inputs
             The Input to disconnect.
 
         Examples
         --------
+        .. image:: https://colab.research.google.com/assets/colab-badge.svg
+            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/states.ipynb
+            :alt: Open in Colab
 
-        .. include:: /examples_basics/compser_module_ex/removeConnection.rst
+        Example:
+            >>> model = Modely()
+            >>> x = Input('x')
+            >>> y = Input('y')
+            >>> relation = Fir(x.last())
+            >>> model.addConnect(relation, y)
+            >>> model.removeConnection(y)
         """
         if isinstance(input_in, Input):
             input_name = input_in.name
@@ -148,7 +178,9 @@ class Composer(Network):
 
         Example
         -------
-        .. include:: /examples_basics/compser_module_ex/neuralizeModel.rst
+        Example usage:
+            >>> model = Modely(name='example_model')
+            >>> model.neuralizeModel(sample_time=0.1, clear_model=True)
         """
         if model_def is not None:
             check(sample_time == None, ValueError, 'The sample_time must be None if a model_def is provided')
@@ -219,8 +251,17 @@ class Composer(Network):
 
         Examples
         --------
-        
-        .. include:: /examples_basics/inference_module_ex/inference.rst
+        .. image:: https://colab.research.google.com/assets/colab-badge.svg
+            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/inference.ipynb
+            :alt: Open in Colab
+
+        Example usage:
+            >>> model = Modely()
+            >>> x = Input('x')
+            >>> out = Output('out', Fir(x.last()))
+            >>> model.addModel('example_model', [out])
+            >>> model.neuralizeModel()
+            >>> predictions = model(inputs={'x': [1, 2, 3]})
         """
 
         ## Copy dict for avoid python bug

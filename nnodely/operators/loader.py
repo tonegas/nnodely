@@ -48,8 +48,14 @@ class Loader(Network):
 
         Examples
         --------
+        .. image:: https://colab.research.google.com/assets/colab-badge.svg
+            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb
+            :alt: Open in Colab
 
-        .. include:: /examples_basics/data_loader_module_ex/getSamples.rst
+        Example usage:
+            >>> model = Modely()
+            >>> model.loadData('dataset_name')
+            >>> samples = model.getSamples('dataset_name', index=10, window=5)
         """
         if index is None:
             index = random.randint(0, self._num_of_samples[dataset] - window)
@@ -78,8 +84,16 @@ class Loader(Network):
 
         Examples
         --------
+        .. image:: https://colab.research.google.com/assets/colab-badge.svg
+            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb
+            :alt: Open in Colab
 
-        .. include:: /examples_basics/data_loader_module_ex/filterData.rst
+        Example usage:
+            >>> model = Modely()
+            >>> model.loadData('dataset_name', 'path/to/data')
+            >>> def filter_fn(sample):
+            >>>     return sample['input1'] > 0
+            >>> model.filterData(filter_fn, 'dataset_name')
         """
         idx_to_remove = []
         if dataset_name is None:
@@ -143,38 +157,23 @@ class Loader(Network):
 
         Examples
         --------
+        .. image:: https://colab.research.google.com/assets/colab-badge.svg
+            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb
+            :alt: Open in Colab
 
-        .. include:: /examples_basics/data_loader_module_ex/resamplingData.rst
+        Example usage:
+            >>> model = Modely()
+            >>> df = pd.DataFrame({'time': np.array(range(60), dtype=np.float32),'x': np.array(10*[10] + 20*[20] + 30*[30], dtype=np.float32)})
+            >>> resampled_df = model.resamplingData(df, scale=1e9)
         """
         sample_time_ns = int(self._model_def.getSampleTime() * scale)
-        if sample_time_ns <= 0:
-            raise ValueError(f"Invalid resampling step: {sample_time_ns}ns")
         method = 'linear'
-        if isinstance(df.index, pd.DatetimeIndex):
-            # FORZA risoluzione ns (evita unit='s' interno)
-            if df.index.dtype != "datetime64[ns]":
-                df = df.copy()
-                df.index = df.index.astype("datetime64[ns]")
+        if type(df.index) is pd.DatetimeIndex:
             df = df.resample(f"{sample_time_ns}ns").interpolate(method=method)
-
-        elif "time" in df.columns:
-            df = df.copy()
-
-            # Converte/normalizza SEMPRE a datetime64[ns]
-            if not ptypes.is_datetime64_any_dtype(df["time"]):
-                df["time"] = pd.to_datetime(df["time"], unit="s", origin="unix")
-            else:
-                df["time"] = pd.to_datetime(df["time"])  # normalize types (tz/objects)
-
-            if df["time"].dtype != "datetime64[ns]":
-                df["time"] = df["time"].astype("datetime64[ns]")
-
-            df = df.set_index("time", drop=True)
-
-            # Doppia sicurezza: anche l'index
-            if df.index.dtype != "datetime64[ns]":
-                df.index = df.index.astype("datetime64[ns]")
-
+        elif 'time' in df.columns:
+            if not ptypes.is_datetime64_any_dtype(df['time']):
+                df['time'] = pd.to_datetime(df['time'], unit='s')
+            df = df.set_index('time', drop=True)
             df = df.resample(f"{sample_time_ns}ns").interpolate(method=method)
         else:
             raise TypeError("No time column found in the DataFrame. Please provide a time column for resampling.")
@@ -271,8 +270,30 @@ class Loader(Network):
 
         Examples
         --------
-            
-        .. include:: /examples_basics/data_loader_module_ex/loadData.rst
+        .. image:: https://colab.research.google.com/assets/colab-badge.svg
+            :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/dataset.ipynb
+            :alt: Open in Colab
+
+        Example - load data from files:
+            >>> x = Input('x')
+            >>> y = Input('y')
+            >>> out = Output('out',Fir(x.tw(0.05)))
+            >>> test = Modely(visualizer=None)
+            >>> test.addModel('example_model', out)
+            >>> test.neuralizeModel(0.01)
+            >>> data_struct = ['x', '', 'y']
+            >>> test.loadData(name='example_dataset', source='path/to/data', format=data_struct)
+
+        Example - load data from a crafted dataset:
+            >>> x = Input('x')
+            >>> y = Input('y')
+            >>> out = Output('out',Fir(x.tw(0.05)))
+            >>> test = Modely(visualizer=None)
+            >>> test.addModel('example_model', out)
+            >>> test.neuralizeModel(0.01)
+            >>> data_x = np.array(range(10))
+            >>> dataset = {'x': data_x, 'y': (2*data_x)}
+            >>> test.loadData(name='example_dataset',source=dataset)
         """
         check(self.neuralized, ValueError, "The network is not neuralized.")
         check(delimiter in ['\t', '\n', ';', ',', ' '], ValueError, 'delimiter not valid!')
