@@ -4,7 +4,7 @@
 </p>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Coverage Status](https://coveralls.io/repos/github/tonegas/nnodely/badge.svg?branch=main)](https://coveralls.io/github/tonegas/nnodely?branch=main)
+[![codecov](https://codecov.io/github/tonegas/nnodely/graph/badge.svg?token=8V6P2PSYT4)](https://codecov.io/github/tonegas/nnodely)
 [![Documentation](https://readthedocs.org/projects/nnodely/badge/?version=stable&style=default)](https://nnodely.readthedocs.io/en/stable/)
 [![PyPI](https://img.shields.io/pypi/v/nnodely?color=blue&label=PyPI%20Package)](https://pypi.org/project/nnodely/)
 
