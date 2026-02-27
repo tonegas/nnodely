@@ -9,12 +9,50 @@ def nnodely_basic_model_update_state(data_in, rel):
 def nnodely_basic_model_timeshift(data_in):
     return torch.cat((data_in[:, 1:, :], data_in[:, :1, :]), dim=1)
 
+def nnodely_layers_neuralODE_FNeuralODE5(state, *weights):
+    from nnodely.support.odeint.adjoint import odeint_adjoint as odeint
+    def ode_func_torch(t, state, weight_fir):
+        import torch
+        import torch.nn.functional as F
+        # state: (B, W, 2)
+        #   B = batch size
+        #   W = window length
+        #   2 channels = [position_window, force_window]
+        #
+        # weight_fir: FIR weights applied independently to each channel
+    
+        # Apply two independent FIR filters (grouped convolution):
+        # this produces one-step predictions for each channel
+        # (B, W, 2) -> (B, 2, W) -> conv -> (B, 2, 1)
+        out = F.conv1d(state.transpose(1, 2), weight_fir, groups=2)
+    
+        # Restore time dimension ordering
+        # (B, 2, 1) -> (B, 1, 2)
+        out = out.transpose(1, 2)
+    
+        # Combine the two FIR contributions:
+        # next_velocity = free_response + forced_response
+        out[:, :, 0] = out[:, :, 0] + out[:, :, -1]
+    
+        # Set the force prediction to zero, for the intermediate time steps done in the integration process (if a variable step integrator, such as Dopri5, is used)
+        out[:, :, -1] = 0.0
+    
+        # Shift the sliding window forward by one step
+        # drop the oldest sample and append the new prediction
+        # resulting shape: (B, W, 2)
+        out = torch.cat((state[:, 1:, :], out), dim=1)
+    
+        return out
+    
+    ans = odeint(lambda t, y: ode_func_torch(t, y, *weights), state, t=torch.tensor([0.0, 0.01]), rtol=1e-07, atol=1e-09, method='dopri5', adjoint_params=list(weights))
+    return ans[-1]
+
 class TracerModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.all_parameters = {}
         self.all_constants = {}
-        self.all_parameters["weight_fir"] = torch.nn.Parameter(torch.tensor([[[-5.033620357513428, -4.02910852432251, -3.042726755142212, -1.913421869277954, -0.7563386559486389, 0.523976743221283, 1.7564716339111328, 3.0856471061706543, 4.078126907348633, 5.212916374206543]], [[0.0002466370933689177, 0.0008778220508247614, 0.0017402776284143329, 0.002738319570198655, 0.004075315315276384, 0.00543161341920495, 0.007128583267331123, 0.008107611909508705, 0.009506390430033207, 0.008429705165326595]]]), requires_grad=True)
+        self.all_parameters["weight_fir"] = torch.nn.Parameter(torch.tensor([[[-5.0214056968688965, -4.025257587432861, -3.0458261966705322, -1.9209206104278564, -0.7650308012962341, 0.5171442031860352, 1.7535150051116943, 3.087076187133789, 4.083190441131592, 5.219380855560303]], [[0.00026014805189333856, 0.0007117472123354673, 0.0013745456235483289, 0.002709923079237342, 0.003882204182446003, 0.005919742863625288, 0.0070823198184370995, 0.008177743293344975, 0.009529106318950653, 0.008549299091100693]]]), requires_grad=True)
         self.all_constants["SamplePart10"] = torch.tensor([[1.0]], requires_grad=True)
         self.all_constants["Select7"] = torch.tensor([1.0, 0.0], requires_grad=True)
         self.all_constants["TimePart1"] = torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]], requires_grad=True)
@@ -25,7 +63,6 @@ class TracerModel(torch.nn.Module):
 
     def update(self, closed_loop={}, connect={}, disconnect=False):
         pass
-    
     def forward(self, kwargs):
         getitem = kwargs['x_t']
         relation_forward_sample_part10_w = self.all_constants.SamplePart10
