@@ -23,6 +23,8 @@ distinct levels:
   :meth:`~nnodely.operators.composer.Composer.removeConnection`,
   and :meth:`~nnodely.operators.composer.Composer.neuralizeModel`).
 
+- **Dynamically** : connection are created dynamically at execution time, during training, analysis, or inference.
+
 .. Stream-level example
 .. ^^^^^^^^^^^^^^^^^^^^
 
