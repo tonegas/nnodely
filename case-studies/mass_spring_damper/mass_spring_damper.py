@@ -2,11 +2,11 @@ from nnodely import *
 
 
 # This example shows how to fit a simple linear model.
-# The model chosen is a mass spring damper.
+# The model is a mass spring damper.
 # The data was created previously and loaded from file.
 # The data are the position of the mass and the force applied.
 # The neural model mirrors the structure of the physical model.
-# The network build estimate the future position of the mass.
+# The network estimates the future position of the mass.
 
 # The time history for x
 T_x = 0.1
@@ -33,7 +33,7 @@ msd.addMinimize('x[t]', x_t.next(), x_n)
 # The sampling time depends on the datasets.
 msd.neuralizeModel(0.01)
 
-# Data load
+# Data load carica i file CSV e costruisce automaticamente il dataset compatibile con la struttura della rete.
 data_struct = ['time', ('x','x_t'), '', 'F']
 msd.loadData(name = 'simulations',
              source = 'msd-data/data',
@@ -55,7 +55,7 @@ vis = MPLVisualizer()
 vis.setModely(msd)
 vis.showResult("simulations_test")
 
-# Refine weights with recurrent train
+# Refine weights with recurrent train and analyze the model showing the performance (mse, FVU, AIC).
 msd.trainAndAnalyze(num_of_epochs = 10, prediction_samples = 1500, step = 500, lr=0.00001,
                     closed_loop={'x':'x_n'}, training_params = default_par)
 
