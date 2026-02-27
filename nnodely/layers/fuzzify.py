@@ -45,25 +45,8 @@ class Fuzzify(NeuObj):
 
     Examples
     --------
-    .. image:: https://colab.research.google.com/assets/colab-badge.svg
-        :target: https://colab.research.google.com/github/tonegas/nnodely/blob/main/examples/fuzzify.ipynb
-        :alt: Open in Colab
-        
-    Example - basic usage:
-        >>> x = Input('x')
-        >>> fuz = Fuzzify(output_dimension=5, range=[1,5])
-        >>> out = Output('out', fuz(x.last()))
 
-    Example - passing the centers:
-        >>> fuz = Fuzzify(centers=[-1,0,3,5], functions='Rectangular')
-        >>> out = Output('out', fuz(x.last()))
-
-    Example - using a custom function:
-        >>> def fun(x):
-        >>>     import torch
-        >>>     return torch.tanh(x)
-        >>> fuz = Fuzzify(output_dimension=11, range=[-5,5], functions=fun)
-        >>> out = Output('out', fuz(x.last()))
+    .. include:: /examples_basics/layer_module_ex/fuzzy.rst
     """
     @enforce_types
     def __init__(self, output_dimension: int | None = None,

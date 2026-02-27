@@ -1,2 +1,6 @@
 sphinx-rtd-theme
 myst_parser
+nbsphinx
+pandoc
+jupyter
+jupyterlab

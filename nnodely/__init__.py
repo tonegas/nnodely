@@ -20,6 +20,7 @@ from nnodely.layers.equationlearner import EquationLearner
 from nnodely.layers.timeoperation import Integrate, Differentiate
 from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.rungekutta import ForwardEuler, RK2, RK4
+from nnodely.layers.neuralODE import NeuralODE
 
 # Main nnodely classes
 from nnodely.nnodely import nnodely, Modely, clearNames
@@ -36,7 +37,7 @@ from nnodely.support import logger
 major, minor = sys.version_info.major, sys.version_info.minor
 logger.LOG_LEVEL = logging.INFO
 
-__version__ = '1.5.2'
+__version__ = '1.5.3'
 
 if major < 3:
     sys.exit("Sorry, Python 2 is not supported. You need Python >= 3.10 for "+__package__+".")
@@ -56,6 +57,7 @@ __all__ = [
     'Relu', 'ELU', 'Softmax', 'Sigmoid', 'Identity',
     'Fir',
     'Linear',
+    'NeuralODE',
     'Add', 'Sum', 'Sub', 'Mul', 'Div', 'Pow', 'Neg', 'Sign',
     'Sin', 'Cos', 'Tan', 'Cosh', 'Tanh', 'Sech',
     'ParamFun',

@@ -90,6 +90,8 @@ def enforce_types(func):
         all_args.update(dict(zip(sig, args)))
         if 'self' in sig.keys():
             sig.pop('self')
+        if 'cls' in sig.keys():
+            sig.pop('cls')
 
         for arg_name, arg in all_args.items():
             if (arg_name in hints.keys() or arg_name in sig.keys()) and not isinstance(arg,sig[arg_name].annotation):
