@@ -5,7 +5,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![codecov](https://codecov.io/github/tonegas/nnodely/graph/badge.svg?token=8V6P2PSYT4)](https://codecov.io/github/tonegas/nnodely)
-[![Documentation](https://readthedocs.org/projects/nnodely/badge/?version=stable&style=default)](https://nnodely.readthedocs.io/en/stable/)
+[![Documentation](https://readthedocs.org/projects/nnodely/badge/?version=main&style=default)](https://nnodely.readthedocs.io/)
 [![PyPI](https://img.shields.io/pypi/v/nnodely?color=blue&label=PyPI%20Package)](https://pypi.org/project/nnodely/)
 
 # Neural Network Framekwork for Modelling, Control, and Estimation of Physical Systems
@@ -25,7 +25,7 @@ nnodely is not a replacement for a general purpose deep learning frameworks — 
 
 <br>
 <p align="center">
-  📖 <a href="https://nnodely.readthedocs.io/en/stable/"><b>Documentation</b></a> •
+  📖 <a href="https://nnodely.readthedocs.io/"><b>Documentation</b></a> •
   🔬 <a href="./case-studies/"><b>Case Studies</b></a> •
   🚀 <a href="https://github.com/tonegas/nnodely-applications"><b>Other Applications</b></a>
 </p>
