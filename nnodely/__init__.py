@@ -20,6 +20,7 @@ from nnodely.layers.equationlearner import EquationLearner
 from nnodely.layers.timeoperation import Integrate, Differentiate
 from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.rungekutta import ForwardEuler, RK2, RK4
+from nnodely.layers.neuralODE import NeuralODE
 
 # Main nnodely classes
 from nnodely.nnodely import nnodely, Modely, clearNames
@@ -56,6 +57,7 @@ __all__ = [
     'Relu', 'ELU', 'Softmax', 'Sigmoid', 'Identity',
     'Fir',
     'Linear',
+    'NeuralODE',
     'Add', 'Sum', 'Sub', 'Mul', 'Div', 'Pow', 'Neg', 'Sign',
     'Sin', 'Cos', 'Tan', 'Cosh', 'Tanh', 'Sech',
     'ParamFun',
