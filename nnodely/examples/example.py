@@ -8,7 +8,9 @@ Requisiti: pip install -r requirements.txt
 Set KERAS_BACKEND before any import (avoids TensorFlow when not installed).
 """
 import os
-os.environ.setdefault("KERAS_BACKEND", "torch")
+os.environ.setdefault("KERAS_BACKEND", "tensorflow")  # or "torch", "tensorflow"
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 import numpy as np
 from nnodely import Input, Fir, Output, Model

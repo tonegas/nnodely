@@ -28,10 +28,10 @@ class SampleWindow(Layer):
 
     def build_layer(self, **kwargs):
         """Crea Lambda per slice se window_size < input.time, altrimenti Identity."""
-        seq_t = tuple(self.seq or ())
-        dim_t = to_tuple(self.dim, (1,))
+        seq_t = tuple(self.seq[0] or ())
+        dim_t = to_tuple(self.dim[0], (1,))
         n = self._window_size
-        if n >= self.time:
+        if n >= self.time[0]:
             self._layer = keras.layers.Identity(name=self.name)
         else:
             slices = [slice(None)] * (1 + len(seq_t)) + [slice(-n, None)] + [slice(None)] * len(dim_t)

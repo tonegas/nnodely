@@ -7,7 +7,9 @@ Example2: Le 4 modalità di funzionamento del Model (con/senza build, stream/ten
 Requisiti: pip install -r requirements.txt
 """
 import os
-os.environ.setdefault("KERAS_BACKEND", "torch")
+os.environ.setdefault("KERAS_BACKEND", "tensorflow")
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 import numpy as np
 from nnodely import Input, Fir, Output, Model
@@ -25,11 +27,14 @@ def main():
     print("=" * 55)
     print("1. Modello NON buildato + STREAM")
     s = m1({'x': Input('x', dim=1).sw(5)})
-    print(f"   Output stream: {s.name}, built={m1.built}")
+    print(f"   Output stream: {s.name}, shape: {s.shape}, built={m1.built}")
 
     print("\n2. Modello NON buildato + TENSORI")
-    t = m1({'x': np.random.randn(3, 5, 1).astype(np.float32)})
-    print(f"   Output shape: {t.shape}, built={m1.built}")
+    try:
+        t1 = m1({'x': np.random.randn(3, 5, 1).astype(np.float32)})
+        print(f"   Output shape: {t1.shape}, built={m1.built}")
+    except ValueError as e:
+        print(f"   Error: {e}")
 
     print("\n3. Modello BUILDATO + TENSORI")
     m1.build()
@@ -38,7 +43,7 @@ def main():
 
     print("\n4. Modello BUILDATO + STREAM (compatibile)")
     s2 = m1({'x': Input('x', dim=1).sw(5)})
-    print(f"   Output stream: {s2.name}")
+    print(f"   Output stream: {s2.name}, shape: {s2.shape}, built={m1.built}")
 
     print("\n5. Modello BUILDATO + STREAM (non compatibile)")
     try:
@@ -47,6 +52,7 @@ def main():
         print(f"   Error: {e}")
     #m1.unbuild()
     # --- Modello 2: x2 -> m1(x2.sw(5)) -> z (usa m1 buildato) ---
+    exit(0)
 
     x = Input('x', dim=1)
     m = Model('m', {'x': x}, [

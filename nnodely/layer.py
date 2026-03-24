@@ -15,7 +15,7 @@ class LayerBase:
     """Base per oggetti usati come layer nel Model (Layer, _BinaryOp, _ParamOp)."""
 
 
-class Layer(keras.Layer):
+class Layer(LayerBase):
     """
     Base per layer. __call__ accetta Stream o tensor.
     Crea output Stream con predecessor=[input_stream].
@@ -48,7 +48,6 @@ class Layer(keras.Layer):
         self.seq = getattr(self, 'seq', None)
         self.time = getattr(self, 'time', None)
         self.dim = getattr(self, 'dim', None)
-        super().__init__(name=self.name)
 
     def __call__(self, x):
         if _is_stream(x) or (isinstance(x, list) and all(_is_stream(s) for s in x)):
@@ -67,6 +66,7 @@ class Layer(keras.Layer):
         self.dim = [to_tuple(s.dim, (1,)) for s in stream]
         out_seq, out_time, out_dim = self.output_shape(self.seq, self.time, self.dim)
         prefix = getattr(self.__class__, 'output_stream_prefix', None) or self.__class__.__name__
+        # print(f"{prefix} | seq: {self.seq}, time: {self.time}, dim: {self.dim} → out_seq: {out_seq}, out_time: {out_time}, out_dim: {out_dim}")
         out_name = next_name(prefix)
         props = {**self._properties, 'layer': self}
         out_stream = Stream(
@@ -76,7 +76,13 @@ class Layer(keras.Layer):
             **props
         )
         return out_stream
-
+    
     def output_shape(self, seq, time, dim):
         """Ritorna (out_seq, out_time, out_dim). Override per modificare. Default: propaga invariato."""
         return seq[0], time[0], dim[0]
+    
+    def build_layer(self):
+        raise NotImplementedError("build_layer must be implemented in subclass")
+    
+    def call(self, x):
+        raise NotImplementedError("call must be implemented in subclass")

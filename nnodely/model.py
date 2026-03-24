@@ -880,9 +880,17 @@ class Model:
         Se buildato: stream → check compatibilità + traversa; tensori → keras.Model."""
         inputs_dict = _to_dict(inputs, keys=self._input_names)
         self._check_no_self_input(inputs_dict)
+        are_streams = all(_is_stream(s) for s in inputs_dict.values())
         if self._model:
-            return self._call_built_stream(inputs_dict)
-        return self._call_unbuilt_stream(inputs_dict)
+            return self._call_built_stream(inputs_dict) if are_streams else self._call_built_tensor(inputs_dict)
+        elif are_streams:
+            return self._call_unbuilt_stream(inputs_dict)
+        else:
+            self.build()
+            out = self._call_built_tensor(inputs_dict)
+            self.unbuild()
+            return out
+            #raise ValueError("Model not built, cannot call with tensors. Call build() first.")
 
     def unbuild(self):
         """Rimuove il modello Keras buildato. built diventa False."""
@@ -1028,11 +1036,11 @@ class Model:
     def _ensure_layer_built(self, layer, node, node_input):
         """Builda layer se necessario (seq, time, dim da node_input)."""
         seq, time, dim = get_seq_time_dim(node_input)
-        built_seq, built_time, built_dim = get_seq_time_dim(layer)
-        if getattr(layer, '_layer', None) and (built_seq, built_time, built_dim) != (seq, time, dim):
+        built_seq, built_time, built_dim = layer.seq, layer.time, layer.dim
+        if getattr(layer, '_layer', None) and (built_seq, built_time, built_dim) != ([seq], [time], [dim]):
             raise ValueError(f"Layer {getattr(layer, 'name', node.name)} already built.")
         if not getattr(layer, '_layer', None):
-            layer.seq, layer.time, layer.dim = seq, time, dim
+            layer.seq, layer.time, layer.dim = [seq], [time], [dim]
             layer.build_layer()
 
     # -------------------------------------------------------------------------
@@ -1068,6 +1076,8 @@ class Model:
 
     def _call_built_tensor(self, inputs_dict: dict):
         """Modello buildato + input tensori → keras.Model inference."""
+        if not self._model:
+            raise ValueError("Model not built, cannot run with tensors.")
         out = self._model(inputs_dict)
         return _unwrap_single(out, self._output_names)
 
