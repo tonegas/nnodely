@@ -170,6 +170,7 @@ cython_debug/
 
 # default results folder
 results
+html
 
 # default temp folder
 temp

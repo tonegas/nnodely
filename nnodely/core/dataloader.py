@@ -7,7 +7,6 @@ from typing import Any, Dict, Iterator, List, Literal
 import numpy as np
 import pandas as pd
 
-
 @dataclass
 class DataLoader:
     """
@@ -49,34 +48,36 @@ class DataLoader:
     def __init__(
         self,
         model: Any,
-        folder: str,
+        source: str | dict,
         format: Dict[str, str|int] | None = None,
         trim: bool = False,
         csv_glob: str = "*.csv",
         dtype: Any = np.float32,
     ):
         self.model = model
-        self.folder = Path(folder)
         self.format = format
-        if self.format is not None and not isinstance(self.format, dict):
-            raise TypeError("format must be a dict mapping input name to column name or index")
         self.trim = trim
         self.csv_glob = csv_glob
         self.dtype = dtype
 
-        if not self.folder.exists():
-            raise FileNotFoundError(f"Folder does not exist: {self.folder}")
-        if not self.folder.is_dir():
-            raise NotADirectoryError(f"Not a folder: {self.folder}")
-
-        self.input_specs = self._extract_input_specs(model)
+        if model._train_model is None:
+            raise ValueError(f"Model {model.name} is not built. Make sure to call {model.name}.build() first.")
+        self.input_specs = {node.name: node.time for node in model.train_inputs}
         if not self.input_specs:
             raise ValueError("Could not infer any inputs from model.inputs")
 
-        for minimizer in model._minimizers: ## TODO: Finish the data loader 
-            if minimizer[''] in self.input_specs:
-                raise ValueError(f"Input '{minimizer['source']}' is used as a minimizer source, which is not supported.")
-        self.dataset = self._build_from_folder()
+        if isinstance(source, str):
+            self.source = Path(source)
+            if not self.source.exists():
+                raise FileNotFoundError(f"Source does not exist: {self.source}")
+            if not self.source.is_dir():
+                raise NotADirectoryError(f"Not a folder: {self.source}")
+            if self.format is not None and not isinstance(self.format, dict):
+                raise TypeError("format must be a dict mapping input name to column name or index")
+            self.dataset = self._build_from_folder()
+        elif isinstance(source, dict):
+            self.dataset = self._build_from_dict(source)
+
         self._num_steps = self._infer_num_steps()
 
     @property
@@ -110,11 +111,115 @@ class DataLoader:
     # Build dataset
     # ------------------------------------------------------------------
 
+    def _build_from_dict(self, source: Dict[str, Any]) -> Dict[str, np.ndarray]:
+        """
+        Build dataset from an in-memory dict.
+
+        Expected input:
+            {
+                "x": np.ndarray,
+                "y": np.ndarray,
+                ...
+            }
+
+        Each value can be:
+        - list
+        - numpy array
+        - pandas Series
+        - pandas DataFrame (single column or multi-column)
+        
+        Rolling windows are built exactly like in _build_from_dataframe(),
+        using self.input_specs[name] as the required window length.
+
+        Output format:
+            {
+                "x": np.ndarray of shape (N, W_x, ...),
+                "y": np.ndarray of shape (N, W_y, ...),
+                ...
+            }
+        """
+        missing = [name for name in self.input_specs if name not in source]
+        if missing:
+            raise ValueError(f"Source dict is missing required inputs: {missing}")
+
+        # Normalize all provided arrays
+        arrays: Dict[str, np.ndarray] = {}
+        for name in self.input_specs:
+            value = source[name]
+
+            if isinstance(value, pd.Series):
+                arr = value.to_numpy(dtype=self.dtype)
+            elif isinstance(value, pd.DataFrame):
+                arr = value.to_numpy(dtype=self.dtype)
+            else:
+                arr = np.asarray(value, dtype=self.dtype)
+
+            if arr.ndim == 0:
+                raise ValueError(f"Input '{name}' must be at least 1D, got scalar")
+
+            # Normalize shape:
+            #   (T,)       -> scalar feature over time
+            #   (T, D)     -> D features over time
+            #   (T, ...)   -> generic trailing feature dims
+            arrays[name] = arr
+
+        lengths = {name: arr.shape[0] for name, arr in arrays.items()}
+        if not lengths:
+            return {}
+
+        min_rows = min(lengths.values())
+        max_rows = max(lengths.values())
+
+        if min_rows == 0:
+            raise ValueError("At least one provided input array is empty.")
+
+        if len(set(lengths.values())) > 1:
+            if self.trim:
+                for name in arrays:
+                    arrays[name] = arrays[name][:min_rows]
+            else:
+                raise ValueError(
+                    f"Input arrays are not aligned in length: {lengths}. "
+                    f"Use trim=True to align automatically."
+                )
+
+        n_rows = next(iter(arrays.values())).shape[0]
+        max_window = max(self.input_specs.values())
+
+        if n_rows < max_window:
+            raise ValueError(
+                f"Input arrays have only {n_rows} rows, but the largest required window is {max_window}."
+            )
+
+        t_start = max_window - 1
+        t_end = n_rows - 1
+
+        raw_data: Dict[str, List[np.ndarray]] = {name: [] for name in self.input_specs}
+
+        for t in range(t_start, t_end + 1):
+            for name, w in self.input_specs.items():
+                start = t - w + 1
+                end = t + 1
+
+                values = arrays[name][start:end]
+
+                if values.shape[0] != w:
+                    raise RuntimeError(
+                        f"Internal error while building window for '{name}': "
+                        f"expected {w}, got {values.shape[0]}"
+                    )
+
+                raw_data[name].append(values)
+
+        dataset = {name: np.stack(windows, axis=0).astype(self.dtype) for name, windows in raw_data.items()}
+        self._check_alignment(dataset)
+        return dataset
+
     def _build_from_folder(self) -> Dict[str, np.ndarray]:
-        csv_files = sorted(self.folder.glob(self.csv_glob))
+        csv_files = sorted(self.source.glob(self.csv_glob))
         if not csv_files:
             raise FileNotFoundError(
-                f"No CSV files matching '{self.csv_glob}' found in {self.folder}"
+                f"No CSV files matching '{self.csv_glob}' found in {self.source}"
             )
         chunks: Dict[str, List[np.ndarray]] = {name: [] for name in self.input_specs}
         for csv_path in csv_files:
@@ -218,30 +323,3 @@ class DataLoader:
         if not self.dataset:
             return 0
         return min(len(v) for v in self.dataset.values())
-
-    # ------------------------------------------------------------------
-    # Model introspection
-    # ------------------------------------------------------------------
-
-    def _extract_input_specs(self, model: Any) -> Dict[str, Dict[str, int]]:
-        """
-        Extract input names and window sizes from model.inputs.
-
-        Expected output:
-            {
-                "data_1": 5,
-                "data_2": 1,
-                ...
-            }
-
-        This assumes each input object has:
-        - a name: input.name
-        - possibly a window/sample-window attribute if sw(...) was used
-        """
-        #raw_inputs = getattr(model, "inputs", None)
-        input_shapes = getattr(model, "_input_shapes", None)
-
-        specs: Dict[str, int] = {}
-        for inp, shapes  in input_shapes.items():
-            specs[inp] = shapes[1]
-        return specs

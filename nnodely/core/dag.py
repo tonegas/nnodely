@@ -6,9 +6,7 @@ Dimensioni: seq, time, dim. Shape = seq + (time,) + dim.
 Default: seq=(), time=1, dim=(1,)
 """
 
-# Default dimensioni
 SEQ_TIME_DIM_DEFAULT = ((), 1, (1,))
-
 
 def to_tuple(x, default=(1,)):
     """Converte int/tuple/None in tuple. 0 -> default."""
@@ -17,7 +15,6 @@ def to_tuple(x, default=(1,)):
     if isinstance(x, int):
         return (x,) if x != 0 else default
     return tuple(x) if x else default
-
 
 def get_seq_time_dim(node):
     """Estrae (seq, time, dim) da Stream, Input o Layer. Default: seq=(), time=1, dim=(1,)."""
@@ -33,6 +30,8 @@ def seq_time_dim_to_shape(seq, time, dim):
     dim = to_tuple(dim, (1,))
     return seq + (time,) + dim
 
+def same_shape(a, b):
+    return get_seq_time_dim(a) == get_seq_time_dim(b)
 
 def collect_and_order(output_nodes):
     """
