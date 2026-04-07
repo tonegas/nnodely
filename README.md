@@ -8,7 +8,7 @@
 [![Documentation](https://readthedocs.org/projects/nnodely/badge/?version=main&style=default)](https://nnodely.readthedocs.io/)
 [![PyPI](https://img.shields.io/pypi/v/nnodely?color=blue&label=PyPI%20Package)](https://pypi.org/project/nnodely/)
 
-# Neural Network Framekwork for Modelling, Control, and Estimation of Physical Systems
+# Neural Network Framework for Modelling, Control, and Estimation of Physical Systems
 
 Modeling, control, and estimation of physical systems are central to many engineering disciplines. While data-driven methods like neural networks offer powerful tools, they often struggle to **incorporate prior domain knowledge**, limiting their interpretability, generalizability, and safety.
 
