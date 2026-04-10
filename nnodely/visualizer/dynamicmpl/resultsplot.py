@@ -1,6 +1,7 @@
 import json
 import sys
 import os
+
 # append a new directory to sys.path
 sys.path.append(os.getcwd())
 
@@ -17,12 +18,12 @@ if line:
     try:
         # Convert to float and append to buffer
         data_point = json.loads(line)
-        name_data = data_point['name_data']
-        key = data_point['key']
-        A = data_point['prediction_A']
-        B = data_point['prediction_B']
-        data_idxs = data_point['data_idxs']
-        sample_time = data_point['sample_time']
+        name_data = data_point["name_data"]
+        key = data_point["key"]
+        A = data_point["prediction_A"]
+        B = data_point["prediction_B"]
+        data_idxs = data_point["data_idxs"]
+        sample_time = data_point["sample_time"]
 
         fig, ax = plt.subplots()
         ax.cla()

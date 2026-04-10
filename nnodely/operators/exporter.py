@@ -9,13 +9,25 @@ from nnodely.basic.relation import Stream, NeuObj
 
 class Exporter(Network):
     @enforce_types
-    def __init__(self, exporter:EmptyExporter|str|None=None, workspace:str|None=None, *, save_history:bool=False):
-        check(type(self) is not Exporter, TypeError, "Exporter class cannot be instantiated directly")
+    def __init__(
+        self,
+        exporter: EmptyExporter | str | None = None,
+        workspace: str | None = None,
+        *,
+        save_history: bool = False,
+    ):
+        check(
+            type(self) is not Exporter,
+            TypeError,
+            "Exporter class cannot be instantiated directly",
+        )
         super().__init__()
 
         # Exporter
-        if exporter == 'Standard':
-            self.__exporter = StandardExporter(workspace, self.visualizer, save_history=save_history)
+        if exporter == "Standard":
+            self.__exporter = StandardExporter(
+                workspace, self.visualizer, save_history=save_history
+            )
         elif exporter != None:
             self.__exporter = exporter
         else:
@@ -26,7 +38,13 @@ class Exporter(Network):
         return self.__exporter.getWorkspace()
 
     @enforce_types
-    def saveTorchModel(self, name:str='net', model_folder:str|None=None, *, models:str|None=None) -> None:
+    def saveTorchModel(
+        self,
+        name: str = "net",
+        model_folder: str | None = None,
+        *,
+        models: str | None = None,
+    ) -> None:
         """
         Saves the neural network model in PyTorch format.
 
@@ -49,15 +67,21 @@ class Exporter(Network):
 
         .. include:: /examples_basics/export_module_ex/saveTorchModel.rst
         """
-        check(self._model_def.isDefined(), RuntimeError, "The network has not been defined.")
-        check(self._neuralized == True, RuntimeError, 'The model is not neuralized yet!')
+        check(
+            self._model_def.isDefined(),
+            RuntimeError,
+            "The network has not been defined.",
+        )
+        check(
+            self._neuralized == True, RuntimeError, "The model is not neuralized yet!"
+        )
         if models is not None:
             if type(models) is str:
                 models = [models]
-            if name == 'net':
-                name += '_' + '_'.join(models)
+            if name == "net":
+                name += "_" + "_".join(models)
             model_def = ModelDef(self._model_def.getJson(models))
-            model_def.setBuildWindow(self._model_def['Info']['SampleTime'])
+            model_def.setBuildWindow(self._model_def["Info"]["SampleTime"])
             model_def.updateParameters(self._model)
             model = Model(model_def.getJson())
         else:
@@ -65,7 +89,9 @@ class Exporter(Network):
         self.__exporter.saveTorchModel(model, name, model_folder)
 
     @enforce_types
-    def loadTorchModel(self, name:str='net', model_folder:str|None=None) -> None:
+    def loadTorchModel(
+        self, name: str = "net", model_folder: str | None = None
+    ) -> None:
         """
         Loads a neural network model from a PyTorch format file.
 
@@ -86,11 +112,17 @@ class Exporter(Network):
 
         .. include:: /examples_basics/export_module_ex/loadTorchModel.rst
         """
-        check(self.neuralized == True, RuntimeError, 'The model is not neuralized yet.')
+        check(self.neuralized == True, RuntimeError, "The model is not neuralized yet.")
         self.__exporter.loadTorchModel(self._model, name, model_folder)
 
     @enforce_types
-    def saveModel(self, name:str='net', model_folder:str|None=None, *, models:str|list|None=None) -> None:
+    def saveModel(
+        self,
+        name: str = "net",
+        model_folder: str | None = None,
+        *,
+        models: str | list | None = None,
+    ) -> None:
         """
         Saves the neural network model definition in a json file.
 
@@ -113,21 +145,25 @@ class Exporter(Network):
 
         .. include:: /examples_basics/export_module_ex/saveModel.rst
         """
-        check(self._model_def.isDefined(), RuntimeError, "The network has not been defined.")
+        check(
+            self._model_def.isDefined(),
+            RuntimeError,
+            "The network has not been defined.",
+        )
         if models is not None:
             if type(models) is str:
                 models = [models]
-            if name == 'net':
-                name += '_' + '_'.join(models)
+            if name == "net":
+                name += "_" + "_".join(models)
             model_def = ModelDef(self._model_def.getJson(models))
-            model_def.setBuildWindow(self._model_def['Info']['SampleTime'])
+            model_def.setBuildWindow(self._model_def["Info"]["SampleTime"])
             model_def.updateParameters(self._model)
         else:
             model_def = self._model_def
         self.__exporter.saveModel(model_def.getJson(), name, model_folder)
 
     @enforce_types
-    def loadModel(self, name:str='net', model_folder:str|None=None) -> None:
+    def loadModel(self, name: str = "net", model_folder: str | None = None) -> None:
         """
         Loads a neural network model from a json file containing the model definition.
 
@@ -150,17 +186,19 @@ class Exporter(Network):
         """
         model_def = self.__exporter.loadModel(name, model_folder)
         check(model_def, RuntimeError, "Error to load the network.")
-        new_tags = (list(model_def['Inputs'].keys()) +
-                    list(model_def['Functions'].keys()) +
-                    list(model_def['Relations'].keys()) +
-                    list(model_def['Parameters'].keys())+
-                    list(model_def['Constants'].keys()))
+        new_tags = (
+            list(model_def["Inputs"].keys())
+            + list(model_def["Functions"].keys())
+            + list(model_def["Relations"].keys())
+            + list(model_def["Parameters"].keys())
+            + list(model_def["Constants"].keys())
+        )
         ## TODO: setting the Stream.count is not enough, we need a global tag manager
         # old_tags = list(self._model_def['Functions'].keys()) + list(self._model_def['Relations'].keys()) + list(self._model_def['Parameters'].keys()) if self._model_def is not None else []
         # check that there are no common tags
         # common_tags = set(new_tags).intersection(set(old_tags))
         # check(len(common_tags) == 0, RuntimeError, f"The model contains some tags that are already present in the current model: {common_tags}.\n Please rename them before loading the model.")
-        #check(Stream.count == 0, RuntimeError, "There are some defined Stream, loadModel can be called only at the beginning, when the neural graph is empty.")
+        # check(Stream.count == 0, RuntimeError, "There are some defined Stream, loadModel can be called only at the beginning, when the neural graph is empty.")
         Stream.count = Stream.count + len(new_tags) + 1
         NeuObj.count = NeuObj.count + len(new_tags) + 1
         self._model_def = ModelDef(model_def)
@@ -169,7 +207,13 @@ class Exporter(Network):
         self._traced = False
 
     @enforce_types
-    def exportPythonModel(self, name:str='net', model_folder:str|None=None, *, models:str|None=None) -> None:
+    def exportPythonModel(
+        self,
+        name: str = "net",
+        model_folder: str | None = None,
+        *,
+        models: str | None = None,
+    ) -> None:
         """
         Exports the neural network model as a standalone PyTorch Module class.
 
@@ -194,20 +238,31 @@ class Exporter(Network):
 
         .. include:: /examples_basics/export_module_ex/exportPythonModel.rst
         """
-        check(self._model_def.isDefined(), RuntimeError, "The network has not been defined.")
-        check(self._traced == False, RuntimeError,
-              'The model is traced and cannot be exported to Python.\n Run neuralizeModel() to recreate a standard model.')
+        check(
+            self._model_def.isDefined(),
+            RuntimeError,
+            "The network has not been defined.",
+        )
+        check(
+            self._traced == False,
+            RuntimeError,
+            "The model is traced and cannot be exported to Python.\n Run neuralizeModel() to recreate a standard model.",
+        )
         if models is not None:
             if type(models) is str:
                 models = [models]
-            if name == 'net':
-                name += '_' + '_'.join(models)
+            if name == "net":
+                name += "_" + "_".join(models)
             model_def = ModelDef(self._model_def.getJson(models))
-            model_def.setBuildWindow(self._model_def['Info']['SampleTime'])
+            model_def.setBuildWindow(self._model_def["Info"]["SampleTime"])
             model_def.updateParameters(self._model)
             model = Model(model_def.getJson())
         else:
-            check(self._neuralized == True, RuntimeError, 'The model is not neuralized yet.')
+            check(
+                self._neuralized == True,
+                RuntimeError,
+                "The model is not neuralized yet.",
+            )
             model_def = self._model_def
             model = self._model
             model.update()
@@ -215,7 +270,9 @@ class Exporter(Network):
         self.__exporter.exportPythonModel(model_def, model, name, model_folder)
 
     @enforce_types
-    def importPythonModel(self, name:str='net', model_folder:str|None=None) -> None:
+    def importPythonModel(
+        self, name: str = "net", model_folder: str | None = None
+    ) -> None:
         """
         Imports a neural network model from a standalone PyTorch Module class.
 
@@ -244,7 +301,15 @@ class Exporter(Network):
         self._model_def.updateParameters(self._model)
 
     @enforce_types
-    def exportONNX(self, inputs_order:list|None=None, outputs_order:list|None=None, name:str='net', model_folder:str|None=None, *, models:str|list|None=None) -> None:
+    def exportONNX(
+        self,
+        inputs_order: list | None = None,
+        outputs_order: list | None = None,
+        name: str = "net",
+        model_folder: str | None = None,
+        *,
+        models: str | list | None = None,
+    ) -> None:
         """
         Exports the neural network model to an ONNX file.
 
@@ -277,32 +342,52 @@ class Exporter(Network):
 
         .. include:: /examples_basics/export_module_ex/exportONNX.rst
         """
-        check(self._model_def.isDefined(), RuntimeError, "The network has not been defined.")
-        check(self._traced == False, RuntimeError,
-              'The model is traced and cannot be exported to ONNX.\n Run neuralizeModel() to recreate a standard model.')
-        check(self._neuralized == True, RuntimeError, 'The model is not neuralized yet.')
+        check(
+            self._model_def.isDefined(),
+            RuntimeError,
+            "The network has not been defined.",
+        )
+        check(
+            self._traced == False,
+            RuntimeError,
+            "The model is traced and cannot be exported to ONNX.\n Run neuralizeModel() to recreate a standard model.",
+        )
+        check(
+            self._neuralized == True, RuntimeError, "The model is not neuralized yet."
+        )
         # From here --------------
         if models is not None:
             if type(models) is str:
                 models = [models]
-            if name == 'net':
-                name += '_' + '_'.join(models)
+            if name == "net":
+                name += "_" + "_".join(models)
             model_def = ModelDef(self._model_def.getJson(models))
-            check(len(model_def.recurrentInputs().keys()) < len(model_def['Inputs'].keys()), TypeError,
-                  "The network has only recurrent inputs.")
-            model_def.setBuildWindow(self._model_def['Info']['SampleTime'])
+            check(
+                len(model_def.recurrentInputs().keys())
+                < len(model_def["Inputs"].keys()),
+                TypeError,
+                "The network has only recurrent inputs.",
+            )
+            model_def.setBuildWindow(self._model_def["Info"]["SampleTime"])
             model_def.updateParameters(self._model)
             model = Model(model_def.getJson())
         else:
             model_def = self._model_def
             model = self._model
             model.update()
-        check(len(model_def.recurrentInputs().keys()) < len(model_def['Inputs'].keys()), TypeError,
-              "The network is autonomous because only recurrent variables are present.")
-        self.__exporter.exportONNX(model_def, model, inputs_order, outputs_order, name, model_folder)
+        check(
+            len(model_def.recurrentInputs().keys()) < len(model_def["Inputs"].keys()),
+            TypeError,
+            "The network is autonomous because only recurrent variables are present.",
+        )
+        self.__exporter.exportONNX(
+            model_def, model, inputs_order, outputs_order, name, model_folder
+        )
 
     @enforce_types
-    def onnxInference(self, inputs:dict, name:str='net', model_folder:str|None=None) -> dict:
+    def onnxInference(
+        self, inputs: dict, name: str = "net", model_folder: str | None = None
+    ) -> dict:
         """
         Run an inference session using an onnx model previously exported using the nnodely framework.
 
@@ -328,13 +413,13 @@ class Exporter(Network):
 
         Examples
         --------
-            
+
         .. include:: /examples_basics/export_module_ex/onnxInference.rst
         """
         return self.__exporter.onnxInference(inputs, name, model_folder)
 
     @enforce_types
-    def exportReport(self, name:str='net', model_folder:str|None=None) -> None:
+    def exportReport(self, name: str = "net", model_folder: str | None = None) -> None:
         """
         Generates a PDF report with plots containing the results of the training and validation of the neural network.
 

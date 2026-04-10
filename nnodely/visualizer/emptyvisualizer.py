@@ -8,10 +8,12 @@ COLOR_BOLD_SEQ = "\033[1;%dm"
 BOLD_SEQ = "\033[1m"
 BLACK, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE = range(8)
 
-def color(msg, color_val = GREEN, bold = False):
+
+def color(msg, color_val=GREEN, bold=False):
     if bold:
         return COLOR_BOLD_SEQ % (30 + color_val) + msg + RESET_SEQ
     return COLOR_SEQ % (30 + color_val) + msg + RESET_SEQ
+
 
 class EmptyVisualizer:
     def __init__(self):
@@ -23,7 +25,7 @@ class EmptyVisualizer:
     def showModel(self, model):
         pass
 
-    def showaddMinimize(self,variable_name):
+    def showaddMinimize(self, variable_name):
         pass
 
     def showModelInputWindow(self):
@@ -35,13 +37,13 @@ class EmptyVisualizer:
     def showBuiltModel(self):
         pass
 
-    def showWeights(self, weights = None):
+    def showWeights(self, weights=None):
         pass
 
-    def showFunctions(self, functions = None):
+    def showFunctions(self, functions=None):
         pass
 
-    def showWeightsInTrain(self, batch = None, epoch = None, weights = None):
+    def showWeightsInTrain(self, batch=None, epoch=None, weights=None):
         pass
 
     def showDataset(self, name):

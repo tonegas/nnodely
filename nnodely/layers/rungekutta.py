@@ -11,9 +11,9 @@ from nnodely.basic.model import Model
 import textwrap, inspect
 from collections.abc import Callable
 
-fe_relation_name = 'ForwardEuler'
-rk2_relation_name = 'RK2'
-rk4_relation_name = 'RK4'
+fe_relation_name = "ForwardEuler"
+rk2_relation_name = "RK2"
+rk4_relation_name = "RK4"
 
 # class ForwardEuler(NeuObj):
 #     """
@@ -30,6 +30,7 @@ rk4_relation_name = 'RK4'
 #             'name' : f.__name__,
 #         }
 
+
 #     @enforce_types
 #     def __call__(self, obj:Stream) -> Stream:
 #         stream_name = fe_relation_name + str(Stream.count)
@@ -42,55 +43,62 @@ class ForwardEuler(NeuObj):
     """
     This operation perform Forward Euler Integration on a Stream
     """
+
     @enforce_types
-    def __init__(self, f:Callable|ParamFun) -> Stream:
-        super().__init__('F' + fe_relation_name + str(NeuObj.count))
+    def __init__(self, f: Callable | ParamFun) -> Stream:
+        super().__init__("F" + fe_relation_name + str(NeuObj.count))
         self.f = f if isinstance(f, ParamFun) else ParamFun(f)
         self.dt = SampleTime()
+
     @enforce_types
-    def __call__(self, obj:Stream) -> Stream:
+    def __call__(self, obj: Stream) -> Stream:
         return obj + self.dt * self.f(obj)
+
 
 class RK2(NeuObj):
     """
     This operation perform RK2 Integration on a Stream
     """
+
     @enforce_types
-    def __init__(self, f:Callable|ParamFun) -> Stream:
+    def __init__(self, f: Callable | ParamFun) -> Stream:
         super().__init__(rk2_relation_name + str(NeuObj.count))
         self.f = f if isinstance(f, ParamFun) else ParamFun(f)
-        #self.fe = ForwardEuler(self.f)
+        # self.fe = ForwardEuler(self.f)
         self.dt = SampleTime()
 
     @enforce_types
-    def __call__(self, obj:Stream) -> Stream:
+    def __call__(self, obj: Stream) -> Stream:
         f1 = self.f(obj)
-        f2 = self.f(obj + (self.dt/2) * f1)
+        f2 = self.f(obj + (self.dt / 2) * f1)
         return obj + self.dt * f2
+
 
 class RK4(NeuObj):
     """
     This operation perform RK4 Integration on a Stream
     """
+
     @enforce_types
-    def __init__(self, f:Callable|ParamFun) -> Stream:
+    def __init__(self, f: Callable | ParamFun) -> Stream:
         super().__init__(rk4_relation_name + str(NeuObj.count))
         self.f = f if isinstance(f, ParamFun) else ParamFun(f)
         self.dt = SampleTime()
 
     @enforce_types
-    def __call__(self, obj:Stream, t:Stream|None = None) -> Stream:
-        if t: ## Partial differential equation
+    def __call__(self, obj: Stream, t: Stream | None = None) -> Stream:
+        if t:  ## Partial differential equation
             f1 = self.f(obj, t)
-            f2 = self.f(obj + (self.dt/2) * f1, t + (self.dt/2))
-            f3 = self.f(obj + (self.dt/2) * f2, t + (self.dt/2))
+            f2 = self.f(obj + (self.dt / 2) * f1, t + (self.dt / 2))
+            f3 = self.f(obj + (self.dt / 2) * f2, t + (self.dt / 2))
             f4 = self.f(obj + self.dt * f3, t + self.dt)
-        else: ## Ordinary differential equation
+        else:  ## Ordinary differential equation
             f1 = self.f(obj)
-            f2 = self.f(obj + (self.dt/2) * f1)
-            f3 = self.f(obj + (self.dt/2) * f2)
+            f2 = self.f(obj + (self.dt / 2) * f1)
+            f3 = self.f(obj + (self.dt / 2) * f2)
             f4 = self.f(obj + self.dt * f3)
-        return obj + (self.dt/6) * (f1 + 2*f2 + 2*f3 + f4)
+        return obj + (self.dt / 6) * (f1 + 2 * f2 + 2 * f3 + f4)
+
 
 # class ForwardEuler_Layer(nn.Module):
 #     #: :noindex:
@@ -108,7 +116,7 @@ class RK4(NeuObj):
 #         func = globals()[self.name]
 #         print(f'ForwardEuler executing function name {self.name} which is {func}')
 #         return x + self.dt * func(x)
-    
+
 # def createForwardEuler(name, *inputs):
 #     #: :noindex:
 #     return ForwardEuler_Layer(inputs[0])

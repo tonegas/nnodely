@@ -2,14 +2,35 @@ import warnings
 import torch
 import torch.nn as nn
 from nnodely.support.odeint.my_odeint import SOLVERS, odeint
-from nnodely.support.odeint.utils import _check_inputs, _flat_to_shape, _mixed_norm, _all_callback_names, _all_adjoint_callback_names
+from nnodely.support.odeint.utils import (
+    _check_inputs,
+    _flat_to_shape,
+    _mixed_norm,
+    _all_callback_names,
+    _all_adjoint_callback_names,
+)
 
 
 class OdeintAdjointMethod(torch.autograd.Function):
-
     @staticmethod
-    def forward(ctx, shapes, func, y0, t, rtol, atol, method, options, event_fn, adjoint_rtol, adjoint_atol, adjoint_method,
-                adjoint_options, t_requires_grad, *adjoint_params):
+    def forward(
+        ctx,
+        shapes,
+        func,
+        y0,
+        t,
+        rtol,
+        atol,
+        method,
+        options,
+        event_fn,
+        adjoint_rtol,
+        adjoint_atol,
+        adjoint_method,
+        adjoint_options,
+        t_requires_grad,
+        *adjoint_params,
+    ):
 
         ctx.shapes = shapes
         ctx.func = func
@@ -21,7 +42,16 @@ class OdeintAdjointMethod(torch.autograd.Function):
         ctx.event_mode = event_fn is not None
 
         with torch.no_grad():
-            ans = odeint(func, y0, t, rtol=rtol, atol=atol, method=method, options=options, event_fn=event_fn)
+            ans = odeint(
+                func,
+                y0,
+                t,
+                rtol=rtol,
+                atol=atol,
+                method=method,
+                options=options,
+                event_fn=event_fn,
+            )
 
             if event_fn is None:
                 y = ans
@@ -61,8 +91,14 @@ class OdeintAdjointMethod(torch.autograd.Function):
             ##################################
 
             # [-1] because y and grad_y are both of shape (len(t), *y0.shape)
-            aug_state = [torch.zeros((), dtype=y.dtype, device=y.device), y[-1], grad_y[-1]]  # vjp_t, y, vjp_y
-            aug_state.extend([torch.zeros_like(param) for param in adjoint_params])  # vjp_params
+            aug_state = [
+                torch.zeros((), dtype=y.dtype, device=y.device),
+                y[-1],
+                grad_y[-1],
+            ]  # vjp_t, y, vjp_y
+            aug_state.extend(
+                [torch.zeros_like(param) for param in adjoint_params]
+            )  # vjp_params
 
             ##################################
             #    Set up backward ODE func    #
@@ -89,23 +125,32 @@ class OdeintAdjointMethod(torch.autograd.Function):
                     # Workaround for PyTorch bug #39784
                     _t = torch.as_strided(t, (), ())  # noqa
                     _y = torch.as_strided(y, (), ())  # noqa
-                    _params = tuple(torch.as_strided(param, (), ()) for param in adjoint_params)  # noqa
+                    _params = tuple(
+                        torch.as_strided(param, (), ()) for param in adjoint_params
+                    )  # noqa
 
                     vjp_t, vjp_y, *vjp_params = torch.autograd.grad(
-                        func_eval, (t, y) + adjoint_params, -adj_y,
-                        allow_unused=True, retain_graph=True
+                        func_eval,
+                        (t, y) + adjoint_params,
+                        -adj_y,
+                        allow_unused=True,
+                        retain_graph=True,
                     )
 
                 # autograd.grad returns None if no gradient, set to zero.
                 vjp_t = torch.zeros_like(t) if vjp_t is None else vjp_t
                 vjp_y = torch.zeros_like(y) if vjp_y is None else vjp_y
-                vjp_params = [torch.zeros_like(param) if vjp_param is None else vjp_param
-                              for param, vjp_param in zip(adjoint_params, vjp_params)]
+                vjp_params = [
+                    torch.zeros_like(param) if vjp_param is None else vjp_param
+                    for param, vjp_param in zip(adjoint_params, vjp_params)
+                ]
 
                 return (vjp_t, func_eval, vjp_y, *vjp_params)
 
             # Add adjoint callbacks
-            for callback_name, adjoint_callback_name in zip(_all_callback_names, _all_adjoint_callback_names):
+            for callback_name, adjoint_callback_name in zip(
+                _all_callback_names, _all_adjoint_callback_names
+            ):
                 try:
                     callback = getattr(func, adjoint_callback_name)
                 except AttributeError:
@@ -132,36 +177,78 @@ class OdeintAdjointMethod(torch.autograd.Function):
 
                 # Run the augmented system backwards in time.
                 aug_state = odeint(
-                    augmented_dynamics, tuple(aug_state),
-                    t[i - 1:i + 1].flip(0),
-                    rtol=adjoint_rtol, atol=adjoint_atol, method=adjoint_method, options=adjoint_options
+                    augmented_dynamics,
+                    tuple(aug_state),
+                    t[i - 1 : i + 1].flip(0),
+                    rtol=adjoint_rtol,
+                    atol=adjoint_atol,
+                    method=adjoint_method,
+                    options=adjoint_options,
                 )
                 aug_state = [a[1] for a in aug_state]  # extract just the t[i - 1] value
-                aug_state[1] = y[i - 1]  # update to use our forward-pass estimate of the state
-                aug_state[2] += grad_y[i - 1]  # update any gradients wrt state at this time point
+                aug_state[1] = y[
+                    i - 1
+                ]  # update to use our forward-pass estimate of the state
+                aug_state[2] += grad_y[
+                    i - 1
+                ]  # update any gradients wrt state at this time point
 
             if t_requires_grad:
                 time_vjps[0] = aug_state[0]
 
             # Only compute gradient wrt initial time when in event handling mode.
             if event_mode and t_requires_grad:
-                time_vjps = torch.cat([time_vjps[0].reshape(-1), torch.zeros_like(_t[1:])])
+                time_vjps = torch.cat(
+                    [time_vjps[0].reshape(-1), torch.zeros_like(_t[1:])]
+                )
 
             adj_y = aug_state[2]
             adj_params = aug_state[3:]
 
-        return (None, None, adj_y, time_vjps, None, None, None, None, None, None, None, None, None, None, *adj_params)
+        return (
+            None,
+            None,
+            adj_y,
+            time_vjps,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            *adj_params,
+        )
 
 
-def odeint_adjoint(func, y0, t, *, rtol=1e-7, atol=1e-9, method=None, options=None, event_fn=None,
-                   adjoint_rtol=None, adjoint_atol=None, adjoint_method=None, adjoint_options=None, adjoint_params=None):
+def odeint_adjoint(
+    func,
+    y0,
+    t,
+    *,
+    rtol=1e-7,
+    atol=1e-9,
+    method=None,
+    options=None,
+    event_fn=None,
+    adjoint_rtol=None,
+    adjoint_atol=None,
+    adjoint_method=None,
+    adjoint_options=None,
+    adjoint_params=None,
+):
 
     # We need this in order to access the variables inside this module,
     # since we have no other way of getting variables along the execution path.
     if adjoint_params is None and not isinstance(func, nn.Module):
-        raise ValueError('func must be an instance of nn.Module to specify the adjoint parameters; alternatively they '
-                         'can be specified explicitly via the `adjoint_params` argument. If there are no parameters '
-                         'then it is allowable to set `adjoint_params=()`.')
+        raise ValueError(
+            "func must be an instance of nn.Module to specify the adjoint parameters; alternatively they "
+            "can be specified explicitly via the `adjoint_params` argument. If there are no parameters "
+            "then it is allowable to set `adjoint_params=()`."
+        )
 
     # Must come before _check_inputs as we don't want to use normalised input (in particular any changes to options)
     if adjoint_rtol is None:
@@ -172,11 +259,17 @@ def odeint_adjoint(func, y0, t, *, rtol=1e-7, atol=1e-9, method=None, options=No
         adjoint_method = method
 
     if adjoint_method != method and options is not None and adjoint_options is None:
-        raise ValueError("If `adjoint_method != method` then we cannot infer `adjoint_options` from `options`. So as "
-                         "`options` has been passed then `adjoint_options` must be passed as well.")
+        raise ValueError(
+            "If `adjoint_method != method` then we cannot infer `adjoint_options` from `options`. So as "
+            "`options` has been passed then `adjoint_options` must be passed as well."
+        )
 
     if adjoint_options is None:
-        adjoint_options = {k: v for k, v in options.items() if k != "norm"} if options is not None else {}
+        adjoint_options = (
+            {k: v for k, v in options.items() if k != "norm"}
+            if options is not None
+            else {}
+        )
     else:
         # Avoid in-place modifying a user-specified dict.
         adjoint_options = adjoint_options.copy()
@@ -192,19 +285,38 @@ def odeint_adjoint(func, y0, t, *, rtol=1e-7, atol=1e-9, method=None, options=No
     if len(adjoint_params) != oldlen_:
         # Some params were excluded.
         # Issue a warning if a user-specified norm is specified.
-        if 'norm' in adjoint_options and callable(adjoint_options['norm']):
-            warnings.warn("An adjoint parameter was passed without requiring gradient. For efficiency this will be "
-                          "excluded from the adjoint pass, and will not appear as a tensor in the adjoint norm.")
+        if "norm" in adjoint_options and callable(adjoint_options["norm"]):
+            warnings.warn(
+                "An adjoint parameter was passed without requiring gradient. For efficiency this will be "
+                "excluded from the adjoint pass, and will not appear as a tensor in the adjoint norm."
+            )
 
     # Convert to flattened state.
-    shapes, func, y0, t, rtol, atol, method, options, event_fn, decreasing_time = _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS)
+    shapes, func, y0, t, rtol, atol, method, options, event_fn, decreasing_time = (
+        _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS)
+    )
 
     # Handle the adjoint norm function.
     state_norm = options["norm"]
     handle_adjoint_norm_(adjoint_options, shapes, state_norm)
 
-    ans = OdeintAdjointMethod.apply(shapes, func, y0, t, rtol, atol, method, options, event_fn, adjoint_rtol, adjoint_atol,
-                                    adjoint_method, adjoint_options, t.requires_grad, *adjoint_params)
+    ans = OdeintAdjointMethod.apply(
+        shapes,
+        func,
+        y0,
+        t,
+        rtol,
+        atol,
+        method,
+        options,
+        event_fn,
+        adjoint_rtol,
+        adjoint_atol,
+        adjoint_method,
+        adjoint_options,
+        t.requires_grad,
+        *adjoint_params,
+    )
 
     if event_fn is None:
         solution = ans
@@ -228,10 +340,14 @@ def find_parameters(module):
     assert isinstance(module, nn.Module)
 
     # If called within DataParallel, parameters won't appear in module.parameters().
-    if getattr(module, '_is_replica', False):
+    if getattr(module, "_is_replica", False):
 
         def find_tensor_attributes(module):
-            tuples = [(k, v) for k, v in module.__dict__.items() if torch.is_tensor(v) and v.requires_grad]
+            tuples = [
+                (k, v)
+                for k, v in module.__dict__.items()
+                if torch.is_tensor(v) and v.requires_grad
+            ]
             return tuples
 
         gen = module._named_members(get_members_fn=find_tensor_attributes)
@@ -255,20 +371,21 @@ def handle_adjoint_norm_(adjoint_options, shapes, state_norm):
     else:
         # `adjoint_options` was explicitly specified by the user...
         try:
-            adjoint_norm = adjoint_options['norm']
+            adjoint_norm = adjoint_options["norm"]
         except KeyError:
             # ...but they did not specify the norm argument. Back to plan A: use the default norm.
-            adjoint_options['norm'] = default_adjoint_norm
+            adjoint_options["norm"] = default_adjoint_norm
         else:
             # ...and they did specify the norm argument.
-            if adjoint_norm == 'seminorm':
+            if adjoint_norm == "seminorm":
                 # They told us they want to use seminorms. Slight modification to plan A: use the default norm,
                 # but ignore the parameter state
                 def adjoint_seminorm(tensor_tuple):
                     t, y, adj_y, *adj_params = tensor_tuple
                     # (If the state is actually a flattened tuple then this will be unpacked again in state_norm.)
                     return max(t.abs(), state_norm(y), state_norm(adj_y))
-                adjoint_options['norm'] = adjoint_seminorm
+
+                adjoint_options["norm"] = adjoint_seminorm
             else:
                 # And they're using their own custom norm.
                 if shapes is None:
@@ -285,4 +402,5 @@ def handle_adjoint_norm_(adjoint_options, shapes, state_norm):
                         y = _flat_to_shape(y, (), shapes)
                         adj_y = _flat_to_shape(adj_y, (), shapes)
                         return adjoint_norm((t, *y, *adj_y, *adj_params))
-                    adjoint_options['norm'] = _adjoint_norm
+
+                    adjoint_options["norm"] = _adjoint_norm

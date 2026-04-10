@@ -11,9 +11,11 @@ from nnodely.support.utils import check, enforce_types, TORCH_DTYPE
 from nnodely.support.jsonutils import merge
 
 from nnodely.support.logger import logging, nnLogger
+
 log = nnLogger(__name__, logging.WARNING)
 
-fir_relation_name = 'Fir'
+fir_relation_name = "Fir"
+
 
 class Fir(NeuObj, AutoToStream):
     """
@@ -71,21 +73,26 @@ class Fir(NeuObj, AutoToStream):
     output_dimension : int
         The output dimension of the FIR relation.
 
-    Examples 
+    Examples
     --------
 
     .. include:: /examples_basics/layer_module_ex/fir.rst
 
     """
+
     @enforce_types
-    def __init__(self, output_dimension:int|None = None, *,
-                 W_init:Callable|str|None = None,
-                 W_init_params:dict|None = None,
-                 b_init:Callable|str|None = None,
-                 b_init_params:dict|None = None,
-                 W:Parameter|str|None = None,
-                 b:bool|str|Parameter|None = None,
-                 dropout:int|float = 0):
+    def __init__(
+        self,
+        output_dimension: int | None = None,
+        *,
+        W_init: Callable | str | None = None,
+        W_init_params: dict | None = None,
+        b_init: Callable | str | None = None,
+        b_init_params: dict | None = None,
+        W: Parameter | str | None = None,
+        b: bool | str | Parameter | None = None,
+        dropout: int | float = 0,
+    ):
 
         self.W = W
         self.b = b
@@ -93,72 +100,124 @@ class Fir(NeuObj, AutoToStream):
         self.bname = None
         self.dropout = dropout
 
-        super().__init__('P'+fir_relation_name + str(NeuObj.count))
+        super().__init__("P" + fir_relation_name + str(NeuObj.count))
 
         if type(self.W) is Parameter:
-            check('tw' in self.W.dim or 'sw' in self.W.dim, TypeError, f'The "W" Parameter must have a time dimension or a sample dimension but got {self.W.dim}.')
-            #check(len(self.W.dim) == 2,ValueError,f"The values of the parameters must have two dimensions [tw/sample_rate,output_dimension] or [sw,output_dimension].")
+            check(
+                "tw" in self.W.dim or "sw" in self.W.dim,
+                TypeError,
+                f'The "W" Parameter must have a time dimension or a sample dimension but got {self.W.dim}.',
+            )
+            # check(len(self.W.dim) == 2,ValueError,f"The values of the parameters must have two dimensions [tw/sample_rate,output_dimension] or [sw,output_dimension].")
             if output_dimension is None:
-                check(type(self.W.dim['dim']) is int, TypeError, 'Dimension of the parameter must be an integer for the Fir')
-                self.output_dimension = self.W.dim['dim']
+                check(
+                    type(self.W.dim["dim"]) is int,
+                    TypeError,
+                    "Dimension of the parameter must be an integer for the Fir",
+                )
+                self.output_dimension = self.W.dim["dim"]
             else:
                 self.output_dimension = output_dimension
-                check(self.W.dim['dim'] == self.output_dimension,
-                      ValueError,
-                      'output_dimension must be equal to dim of the Parameter')
+                check(
+                    self.W.dim["dim"] == self.output_dimension,
+                    ValueError,
+                    "output_dimension must be equal to dim of the Parameter",
+                )
             self.Wname = self.W.name
             W_json = self.W.json
         else:  ## Create a new default parameter
             self.output_dimension = 1 if output_dimension is None else output_dimension
-            self.Wname = W if type(W) is str else self.name + 'W'
-            W_json = Parameter(name=self.Wname, dimensions=self.output_dimension, init=W_init, init_params=W_init_params).json
-        self.json = merge(self.json,W_json)
+            self.Wname = W if type(W) is str else self.name + "W"
+            W_json = Parameter(
+                name=self.Wname,
+                dimensions=self.output_dimension,
+                init=W_init,
+                init_params=W_init_params,
+            ).json
+        self.json = merge(self.json, W_json)
 
         if self.b is not None and self.b is not False:
             if type(self.b) is Parameter:
-                check('tw' not in self.b.dim and 'sw' not in self.b.dim, TypeError, f'The "bias" must no have a time dimensions but got {self.b.dim}.')
-                check(type(self.b.dim['dim']) is int, ValueError, 'The "bias" dimensions must be an integer.')
-                check(self.b.dim['dim'] == self.output_dimension, ValueError, 'output_dimension must be equal to the dim of the "bias".')
+                check(
+                    "tw" not in self.b.dim and "sw" not in self.b.dim,
+                    TypeError,
+                    f'The "bias" must no have a time dimensions but got {self.b.dim}.',
+                )
+                check(
+                    type(self.b.dim["dim"]) is int,
+                    ValueError,
+                    'The "bias" dimensions must be an integer.',
+                )
+                check(
+                    self.b.dim["dim"] == self.output_dimension,
+                    ValueError,
+                    'output_dimension must be equal to the dim of the "bias".',
+                )
                 self.bname = self.b.name
                 b_json = self.b.json
             else:
-                self.bname = b if type(self.b) is str else self.name + 'b'
-                b_json = Parameter(name=self.bname, dimensions=self.output_dimension, init=b_init, init_params=b_init_params).json
-            self.json = merge(self.json,b_json)
+                self.bname = b if type(self.b) is str else self.name + "b"
+                b_json = Parameter(
+                    name=self.bname,
+                    dimensions=self.output_dimension,
+                    init=b_init,
+                    init_params=b_init_params,
+                ).json
+            self.json = merge(self.json, b_json)
         self.json_stream = {}
 
     @enforce_types
-    def __call__(self, obj:Stream) -> Stream:
+    def __call__(self, obj: Stream) -> Stream:
         stream_name = fir_relation_name + str(Stream.count)
-        check('dim' in obj.dim and obj.dim['dim'] == 1,
-              ValueError,
-              f"Input dimension is {obj.dim['dim']} and not scalar")
-        window = 'tw' if 'tw' in obj.dim else ('sw' if 'sw' in obj.dim else None)
+        check(
+            "dim" in obj.dim and obj.dim["dim"] == 1,
+            ValueError,
+            f"Input dimension is {obj.dim['dim']} and not scalar",
+        )
+        window = "tw" if "tw" in obj.dim else ("sw" if "sw" in obj.dim else None)
 
         json_stream_name = window + str(obj.dim[window])
         if json_stream_name not in self.json_stream:
             if len(self.json_stream) > 0:
-                log.warning(f"The Fir {self.name} was called with inputs with different dimensions. If both Fir enter in the model an error will be raised.")
+                log.warning(
+                    f"The Fir {self.name} was called with inputs with different dimensions. If both Fir enter in the model an error will be raised."
+                )
             self.json_stream[json_stream_name] = copy.deepcopy(self.json)
-        self.json_stream[json_stream_name]['Parameters'][self.Wname][window] = obj.dim[window]
+        self.json_stream[json_stream_name]["Parameters"][self.Wname][window] = obj.dim[
+            window
+        ]
 
         if window:
             if type(self.W) is Parameter:
-                check(window in self.json['Parameters'][self.Wname],
-                      TypeError,
-                      f"The window \'{window}\' of the input is not in the W")
-                check(self.json['Parameters'][self.Wname][window] == obj.dim[window],
-                      ValueError,
-                      f"The window \'{window}\' of the input must be the same of the W")
+                check(
+                    window in self.json["Parameters"][self.Wname],
+                    TypeError,
+                    f"The window '{window}' of the input is not in the W",
+                )
+                check(
+                    self.json["Parameters"][self.Wname][window] == obj.dim[window],
+                    ValueError,
+                    f"The window '{window}' of the input must be the same of the W",
+                )
         else:
             if type(self.W) is Parameter:
-                cond = 'sw' not in self.json_stream[json_stream_name]['Parameters'][self.Wname] and 'tw' not in \
-                       self.json_stream[json_stream_name]['Parameters'][self.Wname]
-                check(cond, KeyError, 'The W have a time window and the input no')
+                cond = (
+                    "sw"
+                    not in self.json_stream[json_stream_name]["Parameters"][self.Wname]
+                    and "tw"
+                    not in self.json_stream[json_stream_name]["Parameters"][self.Wname]
+                )
+                check(cond, KeyError, "The W have a time window and the input no")
 
-        stream_json = merge(self.json_stream[json_stream_name],obj.json)
-        stream_json['Relations'][stream_name] = [fir_relation_name, [obj.name], self.Wname, self.bname, self.dropout]
-        return Stream(stream_name, stream_json,{'dim':self.output_dimension, 'sw': 1})
+        stream_json = merge(self.json_stream[json_stream_name], obj.json)
+        stream_json["Relations"][stream_name] = [
+            fir_relation_name,
+            [obj.name],
+            self.Wname,
+            self.bname,
+            self.dropout,
+        ]
+        return Stream(stream_name, stream_json, {"dim": self.output_dimension, "sw": 1})
 
 
 class Fir_Layer(nn.Module):
@@ -186,7 +245,9 @@ class Fir_Layer(nn.Module):
             x = self.dropout(x)
         return x
 
+
 def createFir(self, *inputs):
     return Fir_Layer(weights=inputs[0], bias=inputs[1], dropout=inputs[2])
+
 
 setattr(Model, fir_relation_name, createFir)

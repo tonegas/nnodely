@@ -3,9 +3,9 @@ import os
 from datetime import datetime
 from nnodely.visualizer import EmptyVisualizer
 
-class EmptyExporter:
 
-    def __init__(self, workspace = None, visualizer = None, save_history = False):
+class EmptyExporter:
+    def __init__(self, workspace=None, visualizer=None, save_history=False):
         # Export parameters
         if workspace is not None:
             self.workspace = workspace
@@ -22,26 +22,28 @@ class EmptyExporter:
         else:
             self.visualizer = EmptyVisualizer()
 
-    def saveTorchModel(self, model, name = 'net', model_folder = None):
+    def saveTorchModel(self, model, name="net", model_folder=None):
         pass
 
-    def loadTorchModel(self, name = 'net', model_folder = None):
+    def loadTorchModel(self, name="net", model_folder=None):
         pass
 
-    def saveModel(self, model, name = 'net', model_folder = None):
+    def saveModel(self, model, name="net", model_folder=None):
         pass
 
-    def loadModel(self, name = 'net', model_folder = None):
+    def loadModel(self, name="net", model_folder=None):
         pass
 
-    def exportPythonModel(self, name = 'net', model_folder = None):
+    def exportPythonModel(self, name="net", model_folder=None):
         pass
 
-    def importPythonModel(self, name = 'net', model_folder = None):
+    def importPythonModel(self, name="net", model_folder=None):
         pass
 
-    def onnxInference(self, inputs:dict, name:str='net', model_folder:str|None=None):
+    def onnxInference(
+        self, inputs: dict, name: str = "net", model_folder: str | None = None
+    ):
         pass
 
-    def exportReport(self, name = 'net', model_folder = None):
+    def exportReport(self, name="net", model_folder=None):
         pass

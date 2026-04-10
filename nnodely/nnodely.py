@@ -16,12 +16,14 @@ from nnodely.basic.relation import NeuObj
 from nnodely.support.utils import ReadOnlyDict, ParamDict, enforce_types, check
 
 from nnodely.support.logger import logging, nnLogger
+
 log = nnLogger(__name__, logging.INFO)
 
 
 @enforce_types
-def clearNames(names:str|list|None = None):
+def clearNames(names: str | list | None = None):
     NeuObj.clearNames(names)
+
 
 class Modely(Composer, Trainer, Loader, Validator, Exporter):
     """
@@ -46,21 +48,25 @@ class Modely(Composer, Trainer, Loader, Validator, Exporter):
     -------
         >>> model = Modely()
     """
+
     @enforce_types
-    def __init__(self, *,
-                 visualizer:str|EmptyVisualizer|None = 'Standard',
-                 exporter:str|EmptyExporter|None = 'Standard',
-                 seed:int|None = None,
-                 workspace:str|None = None,
-                 log_internal:bool = False,
-                 save_history:bool = False):
+    def __init__(
+        self,
+        *,
+        visualizer: str | EmptyVisualizer | None = "Standard",
+        exporter: str | EmptyExporter | None = "Standard",
+        seed: int | None = None,
+        workspace: str | None = None,
+        log_internal: bool = False,
+        save_history: bool = False,
+    ):
 
         ## Set the random seed for reproducibility
         if seed is not None:
             self.resetSeed(seed)
 
         # Visualizer
-        if visualizer == 'Standard':
+        if visualizer == "Standard":
             self.visualizer = TextVisualizer(1)
         elif visualizer != None:
             self.visualizer = visualizer
@@ -87,7 +93,9 @@ class Modely(Composer, Trainer, Loader, Validator, Exporter):
 
     @neuralized.setter
     def neuralized(self, value):
-        raise AttributeError("Cannot modify read-only property 'neuralized' use neuralizeModel() instead.")
+        raise AttributeError(
+            "Cannot modify read-only property 'neuralized' use neuralizeModel() instead."
+        )
 
     @property
     def traced(self):
@@ -100,24 +108,31 @@ class Modely(Composer, Trainer, Loader, Validator, Exporter):
     @property
     def parameters(self):
         if self._neuralized:
-            return ParamDict(self._model_def['Parameters'], self._model.all_parameters)
+            return ParamDict(self._model_def["Parameters"], self._model.all_parameters)
         else:
-            return ParamDict(self._model_def['Parameters'])
+            return ParamDict(self._model_def["Parameters"])
 
     @property
     def constants(self):
-        return ReadOnlyDict({key:value.detach().numpy().tolist() for key,value in self._model.all_constants})
+        return ReadOnlyDict(
+            {
+                key: value.detach().numpy().tolist()
+                for key, value in self._model.all_constants
+            }
+        )
 
     @property
     def states(self):
-        return {key:value.detach().numpy().tolist() for key,value in self._states.items()}
+        return {
+            key: value.detach().numpy().tolist() for key, value in self._states.items()
+        }
 
     @property
     def json(self):
         return copy.deepcopy(self._model_def._ModelDef__json)
 
     @enforce_types
-    def resetSeed(self, seed:int) -> None:
+    def resetSeed(self, seed: int) -> None:
         """
         Resets the random seed for reproducibility.
 
@@ -135,7 +150,13 @@ class Modely(Composer, Trainer, Loader, Validator, Exporter):
         random.seed(seed)  ## set the random module seed
         np.random.seed(seed)  ## set the numpy seed
 
-    def trainAndAnalyze(self, *, test_dataset: str | list | dict | None = None, test_batch_size: int = 128, **kwargs):
+    def trainAndAnalyze(
+        self,
+        *,
+        test_dataset: str | list | dict | None = None,
+        test_batch_size: int = 128,
+        **kwargs,
+    ):
         """
         Trains the model using the provided datasets and parameters. After training, it analyzes the results on the training, validation, and test datasets.
 
@@ -212,38 +233,83 @@ class Modely(Composer, Trainer, Loader, Validator, Exporter):
         self.trainModel(**kwargs)
         params = self.running_parameters
 
-        minimize_gain = params['minimize_gain']
-        closed_loop, connect, prediction_samples = params['closed_loop'], params['connect'], params['prediction_samples']
+        minimize_gain = params["minimize_gain"]
+        closed_loop, connect, prediction_samples = (
+            params["closed_loop"],
+            params["connect"],
+            params["prediction_samples"],
+        )
 
-        if kwargs.get('train_dataset', None) is None:
-            check(test_dataset is None, ValueError, 'If train_dataset is None, test_dataset must also be None.')
+        if kwargs.get("train_dataset", None) is None:
+            check(
+                test_dataset is None,
+                ValueError,
+                "If train_dataset is None, test_dataset must also be None.",
+            )
         else:
-            params['test_tag'] = self._get_tag(test_dataset)
-            params['XY_test'] = self._get_data(test_dataset)
-            params['n_samples_test'] = next(iter(params['XY_test'].values())).size(0) if params['XY_test'] else 0
-            params['test_indexes'] = self._get_batch_indexes(test_dataset, params['n_samples_test'], prediction_samples)
+            params["test_tag"] = self._get_tag(test_dataset)
+            params["XY_test"] = self._get_data(test_dataset)
+            params["n_samples_test"] = (
+                next(iter(params["XY_test"].values())).size(0)
+                if params["XY_test"]
+                else 0
+            )
+            params["test_indexes"] = self._get_batch_indexes(
+                test_dataset, params["n_samples_test"], prediction_samples
+            )
 
         ## Training set Results
-        self._analyze(params['XY_train'], dataset_tag=params['train_tag'], indexes=params['train_indexes'], minimize_gain=minimize_gain,
-                          closed_loop=closed_loop, connect=connect, prediction_samples=prediction_samples,
-                          step=params['train_step'], batch_size=params['train_batch_size'])
-        
+        self._analyze(
+            params["XY_train"],
+            dataset_tag=params["train_tag"],
+            indexes=params["train_indexes"],
+            minimize_gain=minimize_gain,
+            closed_loop=closed_loop,
+            connect=connect,
+            prediction_samples=prediction_samples,
+            step=params["train_step"],
+            batch_size=params["train_batch_size"],
+        )
+
         ## Validation set Results
-        if params['n_samples_val'] > 0:
-            self._analyze(params['XY_val'], dataset_tag=params['val_tag'], indexes=params['val_indexes'], minimize_gain=minimize_gain,
-                              closed_loop=closed_loop, connect=connect, prediction_samples=prediction_samples,
-                              step=params['val_step'], batch_size=params['val_batch_size'])
+        if params["n_samples_val"] > 0:
+            self._analyze(
+                params["XY_val"],
+                dataset_tag=params["val_tag"],
+                indexes=params["val_indexes"],
+                minimize_gain=minimize_gain,
+                closed_loop=closed_loop,
+                connect=connect,
+                prediction_samples=prediction_samples,
+                step=params["val_step"],
+                batch_size=params["val_batch_size"],
+            )
         else:
-            log.warning("Validation dataset is empty. Skipping validation results analysis.")
+            log.warning(
+                "Validation dataset is empty. Skipping validation results analysis."
+            )
 
         ## Test set Results
-        if params['n_samples_test'] > 0:
-            params['test_batch_size'] = self._clip_batch_size(len(params['test_indexes']), test_batch_size)
-            params['test_step'] = self._clip_step(params['step'], params['test_indexes'], params['test_batch_size'])
-            self._analyze(params['XY_test'], dataset_tag=params['test_tag'], indexes=params['test_indexes'], minimize_gain=minimize_gain,
-                              closed_loop=closed_loop, connect=connect, prediction_samples=prediction_samples,
-                              step=params['test_step'], batch_size=test_batch_size)
+        if params["n_samples_test"] > 0:
+            params["test_batch_size"] = self._clip_batch_size(
+                len(params["test_indexes"]), test_batch_size
+            )
+            params["test_step"] = self._clip_step(
+                params["step"], params["test_indexes"], params["test_batch_size"]
+            )
+            self._analyze(
+                params["XY_test"],
+                dataset_tag=params["test_tag"],
+                indexes=params["test_indexes"],
+                minimize_gain=minimize_gain,
+                closed_loop=closed_loop,
+                connect=connect,
+                prediction_samples=prediction_samples,
+                step=params["test_step"],
+                batch_size=test_batch_size,
+            )
         else:
             log.warning("Test dataset is empty. Skipping test results analysis.")
+
 
 nnodely = Modely

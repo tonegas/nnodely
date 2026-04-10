@@ -1,5 +1,6 @@
 import sys
 import os
+
 # append a new directory to sys.path
 sys.path.append(os.getcwd())
 
@@ -19,6 +20,7 @@ epoch = 0
 # Set up the plot
 fig, ax = plt.subplots()
 
+
 def update_graph(frame):
     global last, title, epoch
     if last > 0:
@@ -28,13 +30,13 @@ def update_graph(frame):
             try:
                 # Convert to float and append to buffer
                 data = json.loads(line)
-                data_train.append(data['train_losses'])
-                if data['val_losses']:
-                    data_val.append(data['val_losses'])
-                title = data['title']
-                key = data['key']
-                last = data['last']
-                epoch = data['epoch']
+                data_train.append(data["train_losses"])
+                if data["val_losses"]:
+                    data_val.append(data["val_losses"])
+                title = data["title"]
+                key = data["key"]
+                last = data["last"]
+                epoch = data["epoch"]
                 # Clear the current plot
                 ax.cla()
                 # Clear the current plot
@@ -43,6 +45,7 @@ def update_graph(frame):
                 pass
     else:
         pass
+
 
 # Use FuncAnimation to update the plot dynamically
 ani = animation.FuncAnimation(fig, update_graph, interval=10, save_count=20)

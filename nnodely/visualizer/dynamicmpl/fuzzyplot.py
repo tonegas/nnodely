@@ -14,13 +14,13 @@ if line:
     try:
         # Convert to float and append to buffer
         data_point = json.loads(line)
-        name = data_point['name']
-        x = data_point['x']
-        chan_centers = data_point['chan_centers']
+        name = data_point["name"]
+        x = data_point["x"]
+        chan_centers = data_point["chan_centers"]
         tableau_colors = mcolors.TABLEAU_COLORS
         num_of_colors = len(list(tableau_colors.keys()))
-        for ind, key in enumerate(data_point['y'].keys()):
-            y.append(data_point['y'][key])
+        for ind, key in enumerate(data_point["y"].keys()):
+            y.append(data_point["y"][key])
 
         fig, ax = plt.subplots()
         ax.cla()

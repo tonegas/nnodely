@@ -13,6 +13,7 @@ NP_DTYPE = np.float32
 
 ForbiddenTags = keyword.kwlist
 
+
 class ReadOnlyDict:
     def __init__(self, data):
         self._data = data
@@ -40,6 +41,7 @@ class ReadOnlyDict:
 
     def __repr__(self):
         from pprint import pformat
+
         return pformat(self._data)
 
     def __or__(self, other):
@@ -51,6 +53,7 @@ class ReadOnlyDict:
     def __str__(self):
         from nnodely.visualizer.emptyvisualizer import color, GREEN
         from pprint import pformat
+
         return color(pformat(self._data), GREEN)
 
     def __eq__(self, other):
@@ -58,18 +61,20 @@ class ReadOnlyDict:
             return self._data == other
         return self._data == other._data
 
+
 class ParamDict(ReadOnlyDict):
-    def __init__(self, data, internal_data = None):
+    def __init__(self, data, internal_data=None):
         super().__init__(data)
         self._internal_data = internal_data if internal_data is not None else {}
 
     def __setitem__(self, key, value):
-        self._data[key]['values'] = value
+        self._data[key]["values"] = value
         self._internal_data[key] = self._internal_data[key].new_tensor(value)
 
     def __getitem__(self, key):
-        value = self._data[key]['values'] if 'values' in self._data[key] else None
+        value = self._data[key]["values"] if "values" in self._data[key] else None
         return value
+
 
 def enforce_types(func):
     @wraps(func)
@@ -81,27 +86,35 @@ def enforce_types(func):
         if len(sig) != len(args):
             var_type = None
             for ind, arg in enumerate(args):
-                if ind < len(list(sig.values())) and list(sig.values())[ind].kind == inspect.Parameter.VAR_POSITIONAL:
+                if (
+                    ind < len(list(sig.values()))
+                    and list(sig.values())[ind].kind == inspect.Parameter.VAR_POSITIONAL
+                ):
                     var_name = list(sig.keys())[ind]
                     var_type = sig.pop(var_name)
                 if var_type:
-                    sig[var_name+str(ind)] = var_type
+                    sig[var_name + str(ind)] = var_type
 
         all_args.update(dict(zip(sig, args)))
-        if 'self' in sig.keys():
-            sig.pop('self')
-        if 'cls' in sig.keys():
-            sig.pop('cls')
+        if "self" in sig.keys():
+            sig.pop("self")
+        if "cls" in sig.keys():
+            sig.pop("cls")
 
         for arg_name, arg in all_args.items():
-            if (arg_name in hints.keys() or arg_name in sig.keys()) and not isinstance(arg,sig[arg_name].annotation):
-                class_name = func.__qualname__.split('.')[0]
+            if (arg_name in hints.keys() or arg_name in sig.keys()) and not isinstance(
+                arg, sig[arg_name].annotation
+            ):
+                class_name = func.__qualname__.split(".")[0]
                 if isinstance(sig[arg_name].annotation, types.UnionType):
-                    type_list = [val.__name__ for val in sig[arg_name].annotation.__args__]
+                    type_list = [
+                        val.__name__ for val in sig[arg_name].annotation.__args__
+                    ]
                 else:
                     type_list = sig[arg_name].annotation.__name__
                 raise TypeError(
-                    f"In Function or Class {class_name} the argument '{arg_name}' to be of type {type_list}, but got {type(arg).__name__}")
+                    f"In Function or Class {class_name} the argument '{arg_name}' to be of type {type_list}, but got {type(arg).__name__}"
+                )
 
         # for arg, arg_type in hints.items():
         #     if arg in all_args and not isinstance(all_args[arg], arg_type):
@@ -112,14 +125,17 @@ def enforce_types(func):
 
     return wrapper
 
+
 def is_notebook():
     try:
         from IPython import get_ipython
-        if 'IPKernelApp' in get_ipython().config:
+
+        if "IPKernelApp" in get_ipython().config:
             return True  # È un notebook
     except Exception:
         pass
     return False  # È uno script
+
 
 def tensor_to_list(data):
     if isinstance(data, torch.Tensor):
@@ -141,24 +157,34 @@ def tensor_to_list(data):
         # Altri tipi di dati rimangono invariati
         return data
 
-def get_batch_size(n_samples, batch_size = None, predicion_samples = 0):
+
+def get_batch_size(n_samples, batch_size=None, predicion_samples=0):
     batch_size = batch_size if batch_size is not None else n_samples
-    predicion_samples = 0 if predicion_samples == -1 else predicion_samples #This value is used to disconnect the connect
-    batch_size = batch_size if batch_size <= n_samples - predicion_samples else max(0, n_samples - predicion_samples)
-    check(batch_size > 0, ValueError, f'The batch_size must be greater than 0.')
+    predicion_samples = (
+        0 if predicion_samples == -1 else predicion_samples
+    )  # This value is used to disconnect the connect
+    batch_size = (
+        batch_size
+        if batch_size <= n_samples - predicion_samples
+        else max(0, n_samples - predicion_samples)
+    )
+    check(batch_size > 0, ValueError, f"The batch_size must be greater than 0.")
     return batch_size
+
 
 def check_and_get_list(name_list, available_names, error_fun):
     if type(name_list) is str:
         name_list = [name_list]
     if type(name_list) is list:
         for name in name_list:
-            check(name in available_names, IndexError,  error_fun(name))
+            check(name in available_names, IndexError, error_fun(name))
     return name_list
+
 
 def check(condition, exception, string):
     if not condition:
         raise exception(string)
+
 
 # Function used to verified the number of gradient operations in the graph
 # def count_gradient_operations(grad_fn):

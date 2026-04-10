@@ -1,22 +1,26 @@
 import torch
 import warnings
 
-_all_callback_names = ['callback_step', 'callback_accept_step', 'callback_reject_step']
-_all_adjoint_callback_names = [name + '_adjoint' for name in _all_callback_names]
+_all_callback_names = ["callback_step", "callback_accept_step", "callback_reject_step"]
+_all_adjoint_callback_names = [name + "_adjoint" for name in _all_callback_names]
 _null_callback = lambda *args, **kwargs: None
+
 
 def _linf_norm(tensor):
     return tensor.abs().max()
 
+
 def _rms_norm(tensor):
     return tensor.abs().pow(2).mean().sqrt()
 
+
 def _zero_norm(tensor):
-    return 0.
+    return 0.0
+
 
 def _mixed_norm(tensor_tuple):
     if len(tensor_tuple) == 0:
-        return 0.
+        return 0.0
     return max([_rms_norm(tensor) for tensor in tensor_tuple])
 
 
@@ -41,8 +45,12 @@ def _tuple_tol(name, tol, shapes):
     except TypeError:
         return tol
     tol = tuple(tol)
-    assert len(tol) == len(shapes), "If using tupled {} it must have the same length as the tuple y0".format(name)
-    tol = [torch.as_tensor(tol_).expand(shape.numel()) for tol_, shape in zip(tol, shapes)]
+    assert len(tol) == len(shapes), (
+        "If using tupled {} it must have the same length as the tuple y0".format(name)
+    )
+    tol = [
+        torch.as_tensor(tol_).expand(shape.numel()) for tol_, shape in zip(tol, shapes)
+    ]
     return torch.cat(tol)
 
 
@@ -59,17 +67,21 @@ def _flat_to_shape(tensor, length, shapes):
 
 def _assert_floating(name, t):
     if not torch.is_floating_point(t):
-        raise TypeError('`{}` must be a floating point Tensor but is a {}'.format(name, t.type()))
+        raise TypeError(
+            "`{}` must be a floating point Tensor but is a {}".format(name, t.type())
+        )
 
 
 def _check_timelike(name, timelike, can_grad):
-    assert isinstance(timelike, torch.Tensor), '{} must be a torch.Tensor'.format(name)
+    assert isinstance(timelike, torch.Tensor), "{} must be a torch.Tensor".format(name)
     _assert_floating(name, timelike)
     assert timelike.ndimension() == 1, "{} must be one dimensional".format(name)
     if not can_grad:
         assert not timelike.requires_grad, "{} cannot require gradient".format(name)
     diff = timelike[1:] > timelike[:-1]
-    assert diff.all() or (~diff).all(), '{} must be strictly increasing or decreasing'.format(name)
+    assert diff.all() or (~diff).all(), (
+        "{} must be strictly increasing or decreasing".format(name)
+    )
 
 
 class _TupleFunc(torch.nn.Module):
@@ -107,7 +119,9 @@ def _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS):
 
     if event_fn is not None:
         if len(t) != 2:
-            raise ValueError(f"We require len(t) == 2 when in event handling mode, but got len(t)={len(t)}.")
+            raise ValueError(
+                f"We require len(t) == 2 when in event handling mode, but got len(t)={len(t)}."
+            )
 
         # Combine event functions if the output is multivariate.
         event_fn = combine_event_functions(event_fn, t[0], y0)
@@ -119,10 +133,10 @@ def _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS):
     shapes = None
     is_tuple = not isinstance(y0, torch.Tensor)
     if is_tuple:
-        assert isinstance(y0, tuple), 'y0 must be either a torch.Tensor or a tuple'
+        assert isinstance(y0, tuple), "y0 must be either a torch.Tensor or a tuple"
         shapes = [y0_.shape for y0_ in y0]
-        rtol = _tuple_tol('rtol', rtol, shapes)
-        atol = _tuple_tol('atol', atol, shapes)
+        rtol = _tuple_tol("rtol", rtol, shapes)
+        atol = _tuple_tol("atol", atol, shapes)
         y0 = torch.cat([y0_.reshape(-1) for y0_ in y0])
         func = _TupleFunc(func, shapes)
         if event_fn is not None:
@@ -134,18 +148,21 @@ def _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS):
     else:
         options = options.copy()
     if method is None:
-        method = 'dopri5'
+        method = "dopri5"
     if method not in SOLVERS:
-        raise ValueError('Invalid method "{}". Must be one of {}'.format(method,
-                                                                         '{"' + '", "'.join(SOLVERS.keys()) + '"}.'))
+        raise ValueError(
+            'Invalid method "{}". Must be one of {}'.format(
+                method, '{"' + '", "'.join(SOLVERS.keys()) + '"}.'
+            )
+        )
 
     if is_tuple:
         # We accept tupled input. This is an abstraction that is hidden from the rest of odeint (exception when
         # returning values), so here we need to maintain the abstraction by wrapping norm functions.
 
-        if 'norm' in options:
+        if "norm" in options:
             # If the user passed a norm then get that...
-            norm = options['norm']
+            norm = options["norm"]
         else:
             # ...otherwise we default to a mixed Linf/L2 norm over tupled input.
             norm = _mixed_norm
@@ -157,10 +174,11 @@ def _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS):
         def _norm(tensor):
             y = _flat_to_shape(tensor, (), shapes)
             return norm(y)
-        options['norm'] = _norm
+
+        options["norm"] = _norm
 
     else:
-        if 'norm' in options:
+        if "norm" in options:
             # No need to change the norm function.
             pass
         else:
@@ -168,10 +186,10 @@ def _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS):
             # Technically we don't need to set that here (RKAdaptiveStepsizeODESolver has it as a default), but it
             # makes it easier to reason about, in the adjoint norm logic, if we know that options['norm'] is
             # definitely set to something.
-            options['norm'] = _rms_norm
+            options["norm"] = _rms_norm
 
     # Normalise time
-    _check_timelike('t', t, True)
+    _check_timelike("t", t, True)
     t_is_reversed = False
     if len(t) > 1 and t[0] > t[1]:
         t_is_reversed = True
@@ -188,18 +206,20 @@ def _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS):
 
         # For fixed step solvers.
         try:
-            _grid_constructor = options['grid_constructor']
+            _grid_constructor = options["grid_constructor"]
         except KeyError:
             pass
         else:
-            options['grid_constructor'] = lambda func, y0, t: -_grid_constructor(func, y0, -t)
+            options["grid_constructor"] = lambda func, y0, t: (
+                -_grid_constructor(func, y0, -t)
+            )
 
         # For RK solvers.
-        #_flip_option(options, 'step_t')
-        #_flip_option(options, 'jump_t')
+        # _flip_option(options, 'step_t')
+        # _flip_option(options, 'jump_t')
 
     # Can only do after having normalised time
-    assert (t[1:] > t[:-1]).all(), 't must be strictly increasing or decreasing'
+    assert (t[1:] > t[:-1]).all(), "t must be strictly increasing or decreasing"
 
     # Tol checking
     if torch.is_tensor(rtol):
@@ -214,7 +234,7 @@ def _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS):
     # ~Backward compatibility
 
     # Add perturb argument to func.
-    #func = _PerturbFunc(func)
+    # func = _PerturbFunc(func)
 
     # Add callbacks to wrapped_func
     callback_names = set()
@@ -229,12 +249,16 @@ def _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS):
                 # At the moment all callbacks have the arguments (t0, y0, dt).
                 # These will need adjusting on a per-callback basis if that changes in the future.
                 if is_tuple:
+
                     def callback(t0, y0, dt, _callback=callback):
                         y0 = _flat_to_shape(y0, (), shapes)
                         return _callback(t0, y0, dt)
+
                 if t_is_reversed:
+
                     def callback(t0, y0, dt, _callback=callback):
                         return _callback(-t0, y0, dt)
+
             setattr(func, callback_name, callback)
     for callback_name in _all_adjoint_callback_names:
         try:
@@ -246,6 +270,10 @@ def _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS):
 
     invalid_callbacks = callback_names - SOLVERS[method].valid_callbacks()
     if len(invalid_callbacks) > 0:
-        warnings.warn("Solver '{}' does not support callbacks {}".format(method, invalid_callbacks))
+        warnings.warn(
+            "Solver '{}' does not support callbacks {}".format(
+                method, invalid_callbacks
+            )
+        )
 
-    return shapes, func, y0, t, rtol, atol, method, options, event_fn, t_is_reversed    
+    return shapes, func, y0, t, rtol, atol, method, options, event_fn, t_is_reversed

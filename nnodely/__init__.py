@@ -14,7 +14,15 @@ from nnodely.layers.arithmetic import Add, Sum, Sub, Mul, Div, Pow, Neg, Sign
 from nnodely.layers.trigonometric import Sin, Cos, Tan, Cosh, Tanh, Sech
 from nnodely.layers.parametricfunction import ParamFun
 from nnodely.layers.fuzzify import Fuzzify
-from nnodely.layers.part import Part, Select, Concatenate, SamplePart, SampleSelect, TimePart, TimeConcatenate
+from nnodely.layers.part import (
+    Part,
+    Select,
+    Concatenate,
+    SamplePart,
+    SampleSelect,
+    TimePart,
+    TimeConcatenate,
+)
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.equationlearner import EquationLearner
 from nnodely.layers.timeoperation import Integrate, Differentiate
@@ -37,43 +45,85 @@ from nnodely.support import logger
 major, minor = sys.version_info.major, sys.version_info.minor
 logger.LOG_LEVEL = logging.INFO
 
-__version__ = '1.5.4'
+__version__ = "1.5.4"
 
 if major < 3:
-    sys.exit("Sorry, Python 2 is not supported. You need Python >= 3.10 for "+__package__+".")
+    sys.exit(
+        "Sorry, Python 2 is not supported. You need Python >= 3.10 for "
+        + __package__
+        + "."
+    )
 elif minor < 9:
-    sys.exit("Sorry, You need Python >= 3.10 for "+__package__+".")
+    sys.exit("Sorry, You need Python >= 3.10 for " + __package__ + ".")
 else:
-    print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>' +
-          f' {__package__}_v{__version__} '.center(20, '-') +
-          '<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
+    print(
+        ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>"
+        + f" {__package__}_v{__version__} ".center(20, "-")
+        + "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
+    )
 
 
 __all__ = [
-    'nnodely', 'Modely', 'clearNames',
-    'Input', 'Connect', 'ClosedLoop',
-    'Parameter', 'Constant', 'SampleTime',
-    'Output',
-    'Relu', 'ELU', 'Softmax', 'Sigmoid', 'Identity',
-    'Fir',
-    'Linear',
-    'NeuralODE',
-    'Add', 'Sum', 'Sub', 'Mul', 'Div', 'Pow', 'Neg', 'Sign',
-    'Sin', 'Cos', 'Tan', 'Cosh', 'Tanh', 'Sech',
-    'ParamFun',
-    'Fuzzify',
-    'Part',  'Select',  'Concatenate',
-    'SamplePart',  'SampleSelect',
-    'TimePart',  'TimeConcatenate',
-    'LocalModel',
-    'EquationLearner',
-    'Integrate',  'Differentiate',
-    'Interpolation',
-    'ForwardEuler', 'RK2', 'RK4',
-    'TextVisualizer', 'MPLVisualizer', 'MPLNotebookVisualizer',
-    'StandardExporter',
-    'SGD', 'Adam', 'Optimizer',
-    'init_negexp', 'init_lin', 'init_constant', 'init_exp',
+    "nnodely",
+    "Modely",
+    "clearNames",
+    "Input",
+    "Connect",
+    "ClosedLoop",
+    "Parameter",
+    "Constant",
+    "SampleTime",
+    "Output",
+    "Relu",
+    "ELU",
+    "Softmax",
+    "Sigmoid",
+    "Identity",
+    "Fir",
+    "Linear",
+    "NeuralODE",
+    "Add",
+    "Sum",
+    "Sub",
+    "Mul",
+    "Div",
+    "Pow",
+    "Neg",
+    "Sign",
+    "Sin",
+    "Cos",
+    "Tan",
+    "Cosh",
+    "Tanh",
+    "Sech",
+    "ParamFun",
+    "Fuzzify",
+    "Part",
+    "Select",
+    "Concatenate",
+    "SamplePart",
+    "SampleSelect",
+    "TimePart",
+    "TimeConcatenate",
+    "LocalModel",
+    "EquationLearner",
+    "Integrate",
+    "Differentiate",
+    "Interpolation",
+    "ForwardEuler",
+    "RK2",
+    "RK4",
+    "TextVisualizer",
+    "MPLVisualizer",
+    "MPLNotebookVisualizer",
+    "StandardExporter",
+    "SGD",
+    "Adam",
+    "Optimizer",
+    "init_negexp",
+    "init_lin",
+    "init_constant",
+    "init_exp",
     # Main nnodely classes
-    '__version__'
+    "__version__",
 ]

@@ -1,5 +1,4 @@
-
-def init_constant(indexes, params_size, dict_param = {'value':1}):
+def init_constant(indexes, params_size, dict_param={"value": 1}):
     """
     Initializes parameters to a constant value.
 
@@ -10,9 +9,12 @@ def init_constant(indexes, params_size, dict_param = {'value':1}):
             value : int or float
                 The constant value to initialize the parameters with.
     """
-    return dict_param['value']
+    return dict_param["value"]
 
-def init_negexp(indexes, params_size, dict_param = {'size_index':0, 'first_value':1, 'lambda':3}):
+
+def init_negexp(
+    indexes, params_size, dict_param={"size_index": 0, "first_value": 1, "lambda": 3}
+):
     """
     Initializes parameters using a negative decay exponential function.
 
@@ -32,12 +34,27 @@ def init_negexp(indexes, params_size, dict_param = {'size_index':0, 'first_value
                 The decay rate parameter of the exponential function.
     """
     import numpy as np
-    size_index = dict_param['size_index']
-    # check if the size of the list of parameters is 1, to avoid a division by zero
-    x = 1 if params_size[size_index]-1 == 0 else indexes[size_index]/(params_size[size_index]-1)
-    return dict_param['first_value']*np.exp(-dict_param['lambda']*(1-x))
 
-def init_exp(indexes, params_size, dict_param = {'size_index':0, 'max_value':1, 'lambda':3, 'monotonicity':'decreasing'}):
+    size_index = dict_param["size_index"]
+    # check if the size of the list of parameters is 1, to avoid a division by zero
+    x = (
+        1
+        if params_size[size_index] - 1 == 0
+        else indexes[size_index] / (params_size[size_index] - 1)
+    )
+    return dict_param["first_value"] * np.exp(-dict_param["lambda"] * (1 - x))
+
+
+def init_exp(
+    indexes,
+    params_size,
+    dict_param={
+        "size_index": 0,
+        "max_value": 1,
+        "lambda": 3,
+        "monotonicity": "decreasing",
+    },
+):
     """
     Initializes parameters using an increasing or decreasing exponential function.
 
@@ -64,21 +81,37 @@ def init_exp(indexes, params_size, dict_param = {'size_index':0, 'max_value':1, 
         If the monotonicity is not 'increasing' or 'decreasing'.
     """
     import numpy as np
-    size_index = dict_param['size_index']
-    monotonicity = dict_param['monotonicity']
-    if monotonicity == 'increasing':
+
+    size_index = dict_param["size_index"]
+    monotonicity = dict_param["monotonicity"]
+    if monotonicity == "increasing":
         # increasing exponential, the 'max_value' is the value at x=1, i.e, at the end of the range
-        x = 1 if params_size[size_index]-1 == 0 else indexes[size_index]/(params_size[size_index]-1)
-        out = dict_param['max_value']*np.exp(dict_param['lambda']*(x-1))
-    elif monotonicity == 'decreasing':
+        x = (
+            1
+            if params_size[size_index] - 1 == 0
+            else indexes[size_index] / (params_size[size_index] - 1)
+        )
+        out = dict_param["max_value"] * np.exp(dict_param["lambda"] * (x - 1))
+    elif monotonicity == "decreasing":
         # decreasing exponential, the 'max_value' is the value at x=0, i.e, at the beginning of the range
-        x = 0 if params_size[size_index]-1 == 0 else indexes[size_index]/(params_size[size_index]-1)
-        out = dict_param['max_value']*np.exp(-dict_param['lambda']*x)
+        x = (
+            0
+            if params_size[size_index] - 1 == 0
+            else indexes[size_index] / (params_size[size_index] - 1)
+        )
+        out = dict_param["max_value"] * np.exp(-dict_param["lambda"] * x)
     else:
-        raise ValueError('The parameter monotonicity must be either increasing or decreasing.')
+        raise ValueError(
+            "The parameter monotonicity must be either increasing or decreasing."
+        )
     return out
 
-def init_lin(indexes, params_size, dict_param = {'size_index':0, 'first_value':1, 'last_value':0}):
+
+def init_lin(
+    indexes,
+    params_size,
+    dict_param={"size_index": 0, "first_value": 1, "last_value": 0},
+):
     """
     Initializes parameters using a linear function.
 
@@ -97,6 +130,12 @@ def init_lin(indexes, params_size, dict_param = {'size_index':0, 'first_value':1
             last_value : int or float
                 The value at the end of the range.
     """
-    size_index = dict_param['size_index']
-    x = 0 if params_size[size_index]-1 == 0 else indexes[size_index]/(params_size[size_index]-1)
-    return (dict_param['last_value'] - dict_param['first_value']) * x + dict_param['first_value']
+    size_index = dict_param["size_index"]
+    x = (
+        0
+        if params_size[size_index] - 1 == 0
+        else indexes[size_index] / (params_size[size_index] - 1)
+    )
+    return (dict_param["last_value"] - dict_param["first_value"]) * x + dict_param[
+        "first_value"
+    ]

@@ -5,7 +5,9 @@ from nnodely.support.utils import enforce_types
 from nnodely.support.jsonutils import stream_to_str
 
 from nnodely.support.logger import logging, nnLogger
+
 log = nnLogger(__name__, logging.INFO)
+
 
 class Output(NeuObj):
     """
@@ -27,8 +29,9 @@ class Output(NeuObj):
     dim : dict
         A dictionary containing the dimensions of the output.
     """
+
     @enforce_types
-    def __init__(self, name:str, relation:Stream):
+    def __init__(self, name: str, relation: Stream):
         """
         Initializes the Output object.
 
@@ -41,12 +44,12 @@ class Output(NeuObj):
         """
         super().__init__(name, relation.json, relation.dim)
         log.debug(f"Output {name}")
-        self.json['Outputs'][name] = {}
-        self.json['Outputs'][name] = relation.name
-        log.debug("\n"+pformat(self.json))
+        self.json["Outputs"][name] = {}
+        self.json["Outputs"][name] = relation.name
+        log.debug("\n" + pformat(self.json))
 
     def __str__(self):
-        return stream_to_str(self, 'Output')
+        return stream_to_str(self, "Output")
 
     def __repr__(self):
         return self.__str__()

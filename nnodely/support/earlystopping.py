@@ -22,20 +22,24 @@ def early_stop_patience(train_losses, val_losses, params):
     bool
         True if training should be stopped early, False otherwise.
     """
-    patience = params['patience'] if 'patience' in params.keys() else 50
+    patience = params["patience"] if "patience" in params.keys() else 50
     if val_losses:
         losses = val_losses
     else:
         # if there is no validation set, use the training losses
         losses = train_losses
 
-    if 'error' in params.keys():
+    if "error" in params.keys():
         # if the type of loss to be used is provided by the user
-        losses_use = losses[params['error']]
+        losses_use = losses[params["error"]]
     else:
         # take the mean of all the losses for all the keys of the dictionary
         import numpy as np
-        losses_use = [np.mean([losses[key][index] for key in losses.keys()]) for index in range(len(losses[list(losses.keys())[0]]))]
+
+        losses_use = [
+            np.mean([losses[key][index] for key in losses.keys()])
+            for index in range(len(losses[list(losses.keys())[0]]))
+        ]
     if len(losses_use) > patience:
         # index of the minimum validation loss
         min_val_loss_index = losses_use.index(min(losses_use))
@@ -69,8 +73,12 @@ def select_best_model(train_losses, val_losses, params):
         # if there is no validation set, use the training losses
         losses = train_losses
     import numpy as np
-    losses_use = [np.mean([losses[key][index] for key in losses.keys()]) for index in range(len(losses[list(losses.keys())[0]]))]
-    if len(losses_use)-1 == losses_use.index(min(losses_use)):
+
+    losses_use = [
+        np.mean([losses[key][index] for key in losses.keys()])
+        for index in range(len(losses[list(losses.keys())[0]]))
+    ]
+    if len(losses_use) - 1 == losses_use.index(min(losses_use)):
         return True
     else:
         return False
@@ -94,9 +102,11 @@ def mean_stopping(train_losses, val_losses, params):
     bool
         True if training should be stopped early, False otherwise.
     """
-    tol = params['tol'] if 'tol' in params.keys() else 0.001
+    tol = params["tol"] if "tol" in params.keys() else 0.001
     if val_losses:
-        for (train_loss_name, train_loss_value), (val_loss_name, val_loss_value) in zip(train_losses.items(), val_losses.items()):
+        for (train_loss_name, train_loss_value), (val_loss_name, val_loss_value) in zip(
+            train_losses.items(), val_losses.items()
+        ):
             if abs(train_loss_value[-1] - val_loss_value[-1]) < tol:
                 return True
     else:
@@ -104,6 +114,7 @@ def mean_stopping(train_losses, val_losses, params):
             if loss_value[-1] < tol:
                 return True
     return False
+
 
 def standard_early_stopping(train_losses, val_losses, params):
     """
@@ -123,12 +134,14 @@ def standard_early_stopping(train_losses, val_losses, params):
     bool
         True if training should be stopped early, False otherwise.
     """
-    n = params['tol'] if 'tol' in params.keys() else 10
+    n = params["tol"] if "tol" in params.keys() else 10
     if val_losses:
-        for (_, train_loss_value), (_, val_loss_value) in zip(train_losses.items(), val_losses.items()):
+        for (_, train_loss_value), (_, val_loss_value) in zip(
+            train_losses.items(), val_losses.items()
+        ):
             if (len(train_loss_value) <= n) and (len(val_loss_value) <= n):
                 return False
-            
+
             tol = 0.0
             for train_loss, val_loss in zip(train_loss_value[-n:], val_loss_value[-n:]):
                 if abs(train_loss - val_loss) > tol:
@@ -137,13 +150,12 @@ def standard_early_stopping(train_losses, val_losses, params):
                     return False
     else:
         for _, loss_value in train_losses.items():
-            if (len(loss_value) <= n):
+            if len(loss_value) <= n:
                 return False
-            
+
             tol = loss_value[-n]
-            for loss in loss_value[-n+1:]:
+            for loss in loss_value[-n + 1 :]:
                 if loss < tol:
                     return False
-                
+
     return True
-            

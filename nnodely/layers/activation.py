@@ -7,80 +7,95 @@ from nnodely.basic.model import Model
 from nnodely.support.utils import check, enforce_types
 
 
-relu_relation_name = 'Relu'
-elu_relation_name = 'ELU'
-sigmoid_relation_name = 'Sigmoid'
-identity_relation_name = 'Identity'
-softmax_relation_name = 'Softmax'
+relu_relation_name = "Relu"
+elu_relation_name = "ELU"
+sigmoid_relation_name = "Sigmoid"
+identity_relation_name = "Identity"
+softmax_relation_name = "Softmax"
+
 
 class Relu(Stream, ToStream):
     """
-        Implement the Rectified-Linear Unit (ReLU) relation function.
+    Implement the Rectified-Linear Unit (ReLU) relation function.
 
-        See also:
-            Official PyTorch ReLU documentation: 
-            `torch.nn.ReLU <https://pytorch.org/docs/stable/generated/torch.nn.ReLU.html>`_
+    See also:
+        Official PyTorch ReLU documentation:
+        `torch.nn.ReLU <https://pytorch.org/docs/stable/generated/torch.nn.ReLU.html>`_
 
-        :param obj: The relation stream.
-        :type obj: Stream 
+    :param obj: The relation stream.
+    :type obj: Stream
 
-        Example:
-        --------
-        .. include:: /examples_basics/layer_module_ex/activation_module_ex/relu.rst
+    Example:
+    --------
+    .. include:: /examples_basics/layer_module_ex/activation_module_ex/relu.rst
     """
+
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
+    def __init__(self, obj: Stream | Parameter | Constant | float | int) -> Stream:
         obj = toStream(obj)
-        check(type(obj) is Stream, TypeError,
-              f"The type of {obj} is {type(obj)} and is not supported for Relu operation.")
-        super().__init__(relu_relation_name + str(Stream.count),obj.json,obj.dim)
-        self.json['Relations'][self.name] = [relu_relation_name,[obj.name]]
+        check(
+            type(obj) is Stream,
+            TypeError,
+            f"The type of {obj} is {type(obj)} and is not supported for Relu operation.",
+        )
+        super().__init__(relu_relation_name + str(Stream.count), obj.json, obj.dim)
+        self.json["Relations"][self.name] = [relu_relation_name, [obj.name]]
+
 
 class ELU(Stream, ToStream):
     """
-        Implement the Exponential-Linear Unit (ELU) relation function.
+    Implement the Exponential-Linear Unit (ELU) relation function.
 
-        See also:
-            Official PyTorch ReLU documentation: 
-            `torch.nn.ELU <https://pytorch.org/docs/stable/generated/torch.nn.ELU.html>`_
+    See also:
+        Official PyTorch ReLU documentation:
+        `torch.nn.ELU <https://pytorch.org/docs/stable/generated/torch.nn.ELU.html>`_
 
-        :param obj: The relation stream.
-        :type obj: Stream 
+    :param obj: The relation stream.
+    :type obj: Stream
 
-        Example:
-        ---------
-        .. include:: /examples_basics/layer_module_ex/activation_module_ex/elu.rst
+    Example:
+    ---------
+    .. include:: /examples_basics/layer_module_ex/activation_module_ex/elu.rst
     """
+
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
+    def __init__(self, obj: Stream | Parameter | Constant | float | int) -> Stream:
         obj = toStream(obj)
-        check(type(obj) is Stream,TypeError,
-              f"The type of {obj} is {type(obj)} and is not supported for Tanh operation.")
-        super().__init__(elu_relation_name + str(Stream.count),obj.json,obj.dim)
-        self.json['Relations'][self.name] = [elu_relation_name,[obj.name]]
+        check(
+            type(obj) is Stream,
+            TypeError,
+            f"The type of {obj} is {type(obj)} and is not supported for Tanh operation.",
+        )
+        super().__init__(elu_relation_name + str(Stream.count), obj.json, obj.dim)
+        self.json["Relations"][self.name] = [elu_relation_name, [obj.name]]
+
 
 class Identity(Stream, ToStream):
     """
     Implement the Identity relation function that simply returns the input vector x.
 
     See also:
-        Official PyTorch Identity documentation: 
+        Official PyTorch Identity documentation:
         `torch.nn.Identity <https://pytorch.org/docs/stable/generated/torch.nn.Identity.html>`_
 
     :param obj: The relation stream.
-    :type obj: Stream 
+    :type obj: Stream
 
     Example:
     ---------
     .. include:: /examples_basics/layer_module_ex/activation_module_ex/identity.rst
     """
+
     @enforce_types
-    def __init__(self, obj: Stream|Parameter|Constant|float|int) -> Stream:
+    def __init__(self, obj: Stream | Parameter | Constant | float | int) -> Stream:
         obj = toStream(obj)
-        check(type(obj) is Stream, TypeError,
-              f"The type of {obj} is {type(obj)} and is not supported for Identity operation.")
+        check(
+            type(obj) is Stream,
+            TypeError,
+            f"The type of {obj} is {type(obj)} and is not supported for Identity operation.",
+        )
         super().__init__(identity_relation_name + str(Stream.count), obj.json, obj.dim)
-        self.json['Relations'][self.name] = [identity_relation_name, [obj.name]]
+        self.json["Relations"][self.name] = [identity_relation_name, [obj.name]]
 
 
 class Softmax(Stream, ToStream):
@@ -98,13 +113,18 @@ class Softmax(Stream, ToStream):
     ---------
     .. include:: /examples_basics/layer_module_ex/activation_module_ex/softmax.rst
     """
+
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
+    def __init__(self, obj: Stream | Parameter | Constant | float | int) -> Stream:
         obj = toStream(obj)
-        check(type(obj) is Stream, TypeError,
-              f"The type of {obj} is {type(obj)} and is not supported for Softmax operation.")
+        check(
+            type(obj) is Stream,
+            TypeError,
+            f"The type of {obj} is {type(obj)} and is not supported for Softmax operation.",
+        )
         super().__init__(softmax_relation_name + str(Stream.count), obj.json, obj.dim)
-        self.json['Relations'][self.name] = [softmax_relation_name, [obj.name]]
+        self.json["Relations"][self.name] = [softmax_relation_name, [obj.name]]
+
 
 class Sigmoid(Stream, ToStream):
     r"""
@@ -125,73 +145,93 @@ class Sigmoid(Stream, ToStream):
     ---------
     .. include:: /examples_basics/layer_module_ex/activation_module_ex/sigmoid.rst
     """
+
     @enforce_types
-    def __init__(self, obj:Stream|Parameter|Constant|float|int) -> Stream:
+    def __init__(self, obj: Stream | Parameter | Constant | float | int) -> Stream:
         obj = toStream(obj)
-        check(type(obj) is Stream, TypeError,
-              f"The type of {obj} is {type(obj)} and is not supported for {sigmoid_relation_name} operation.")
+        check(
+            type(obj) is Stream,
+            TypeError,
+            f"The type of {obj} is {type(obj)} and is not supported for {sigmoid_relation_name} operation.",
+        )
         super().__init__(sigmoid_relation_name + str(Stream.count), obj.json, obj.dim)
-        self.json['Relations'][self.name] = [sigmoid_relation_name, [obj.name]]
+        self.json["Relations"][self.name] = [sigmoid_relation_name, [obj.name]]
+
 
 class Relu_Layer(nn.Module):
     """
-     :noindex:
+    :noindex:
     """
-    def __init__(self,):
+
+    def __init__(
+        self,
+    ):
         super(Relu_Layer, self).__init__()
+
     def forward(self, x):
         return torch.relu(x)
-    
+
+
 def createRelu(self, *input):
     """
-     :noindex:
+    :noindex:
     """
     return Relu_Layer()
-    
+
 
 def createELU(self, *input):
     """
-     :noindex:
+    :noindex:
     """
     return nn.ELU()
 
+
 class Identity_Layer(nn.Module):
     """
-     :noindex:
+    :noindex:
     """
+
     def __init__(self, *args):
         super(Identity_Layer, self).__init__()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x
-    
+
+
 def createIdentity(self, *input):
     """
-     :noindex:
+    :noindex:
     """
     return Identity_Layer()
 
 
 class Sigmoid_Layer(nn.Module):
     """
-     :noindex:
+    :noindex:
     """
-    def __init__(self,):
+
+    def __init__(
+        self,
+    ):
         super(Sigmoid_Layer, self).__init__()
+
     def forward(self, x):
-        return 1/(1+torch.exp(-x))
-    
+        return 1 / (1 + torch.exp(-x))
+
+
 def createSigmoid(self, *input):
     """
-     :noindex:
+    :noindex:
     """
     return Sigmoid_Layer()
 
+
 def createSoftmax(self, *input):
     """
-     :noindex:
+    :noindex:
     """
     return nn.Softmax(dim=-1)
+
 
 setattr(Model, relu_relation_name, createRelu)
 setattr(Model, elu_relation_name, createELU)

@@ -6,6 +6,7 @@ from nnodely.support.jsonutils import merge, stream_to_str
 from nnodely.layers.part import SamplePart, TimePart
 from nnodely.layers.timeoperation import Differentiate, Integrate
 
+
 class Input(NeuObj):
     """
     Represents an Input in the neural network model.
@@ -30,7 +31,8 @@ class Input(NeuObj):
     json : dict
         A dictionary containing the configuration of the Input.
     """
-    def __init__(self, name:str, *, dimensions:int = 1):
+
+    def __init__(self, name: str, *, dimensions: int = 1):
         """
         Initializes the Input object.
 
@@ -44,12 +46,12 @@ class Input(NeuObj):
             The number of dimensions for the Input. Default is 1.
         """
         NeuObj.__init__(self, name)
-        check(type(dimensions) == int, TypeError,"The dimensions must be a integer")
-        self.json['Inputs'][self.name] = {'dim': dimensions }
-        self.dim = {'dim': dimensions}
+        check(type(dimensions) == int, TypeError, "The dimensions must be a integer")
+        self.json["Inputs"][self.name] = {"dim": dimensions}
+        self.dim = {"dim": dimensions}
 
     @enforce_types
-    def tw(self, tw:int|float|list, offset:int|float|None = None) -> Stream:
+    def tw(self, tw: int | float | list, offset: int | float | None = None) -> Stream:
         """
         Selects a time window for the Input.
 
@@ -75,23 +77,39 @@ class Input(NeuObj):
         dim = copy.deepcopy(self.dim)
         json = copy.deepcopy(self.json)
         if type(tw) is list:
-            check(len(tw) == 2, TypeError, "The time window must be a list of two elements.")
-            check(tw[1] > tw[0], ValueError, "The dimension of the sample window must be positive")
-            json['Inputs'][self.name]['tw'] = tw
+            check(
+                len(tw) == 2,
+                TypeError,
+                "The time window must be a list of two elements.",
+            )
+            check(
+                tw[1] > tw[0],
+                ValueError,
+                "The dimension of the sample window must be positive",
+            )
+            json["Inputs"][self.name]["tw"] = tw
             tw = tw[1] - tw[0]
         else:
-            json['Inputs'][self.name]['tw'] = [-tw, 0]
+            json["Inputs"][self.name]["tw"] = [-tw, 0]
         check(tw > 0, ValueError, "The time window must be positive")
-        dim['tw'] = tw
+        dim["tw"] = tw
         if offset is not None:
-            check(json['Inputs'][self.name]['tw'][0] <= offset < json['Inputs'][self.name]['tw'][1],
-                  IndexError,
-                  "The offset must be inside the time window")
-        return TimePart(Stream(self.name, json, dim), json['Inputs'][self.name]['tw'][0], json['Inputs'][self.name]['tw'][1], offset)
-
+            check(
+                json["Inputs"][self.name]["tw"][0]
+                <= offset
+                < json["Inputs"][self.name]["tw"][1],
+                IndexError,
+                "The offset must be inside the time window",
+            )
+        return TimePart(
+            Stream(self.name, json, dim),
+            json["Inputs"][self.name]["tw"][0],
+            json["Inputs"][self.name]["tw"][1],
+            offset,
+        )
 
     @enforce_types
-    def sw(self, sw:int|list, offset:int|None = None) -> Stream:
+    def sw(self, sw: int | list, offset: int | None = None) -> Stream:
         """
         Selects a sample window for the Input.
 
@@ -119,24 +137,45 @@ class Input(NeuObj):
         dim = copy.deepcopy(self.dim)
         json = copy.deepcopy(self.json)
         if type(sw) is list:
-            check(len(sw) == 2, TypeError, "The sample window must be a list of two elements.")
-            check(type(sw[0]) == int and type(sw[1]) == int, TypeError, "The sample window must be integer")
-            check(sw[1] > sw[0], ValueError, "The dimension of the sample window must be positive")
-            json['Inputs'][self.name]['sw'] = sw
+            check(
+                len(sw) == 2,
+                TypeError,
+                "The sample window must be a list of two elements.",
+            )
+            check(
+                type(sw[0]) == int and type(sw[1]) == int,
+                TypeError,
+                "The sample window must be integer",
+            )
+            check(
+                sw[1] > sw[0],
+                ValueError,
+                "The dimension of the sample window must be positive",
+            )
+            json["Inputs"][self.name]["sw"] = sw
             sw = sw[1] - sw[0]
         else:
             check(type(sw) == int, TypeError, "The sample window must be integer")
-            json['Inputs'][self.name]['sw'] = [-sw, 0]
+            json["Inputs"][self.name]["sw"] = [-sw, 0]
         check(sw > 0, ValueError, "The sample window must be positive")
-        dim['sw'] = sw
+        dim["sw"] = sw
         if offset is not None:
-            check(json['Inputs'][self.name]['sw'][0] <= offset < json['Inputs'][self.name]['sw'][1],
-                  IndexError,
-                  "The offset must be inside the sample window")
-        return SamplePart(Stream(self.name, json, dim), json['Inputs'][self.name]['sw'][0], json['Inputs'][self.name]['sw'][1], offset)
+            check(
+                json["Inputs"][self.name]["sw"][0]
+                <= offset
+                < json["Inputs"][self.name]["sw"][1],
+                IndexError,
+                "The offset must be inside the sample window",
+            )
+        return SamplePart(
+            Stream(self.name, json, dim),
+            json["Inputs"][self.name]["sw"][0],
+            json["Inputs"][self.name]["sw"][1],
+            offset,
+        )
 
     @enforce_types
-    def z(self, delay:int) -> Stream:
+    def z(self, delay: int) -> Stream:
         """
         Considering the Zeta transform notation. The function is used to selects a unitary delay from the Input.
 
@@ -157,9 +196,14 @@ class Input(NeuObj):
         dim = copy.deepcopy(self.dim)
         json = copy.deepcopy(self.json)
         sw = [(-delay) - 1, (-delay)]
-        json['Inputs'][self.name]['sw'] = sw
-        dim['sw'] = sw[1] - sw[0]
-        return SamplePart(Stream(self.name, json, dim), json['Inputs'][self.name]['sw'][0], json['Inputs'][self.name]['sw'][1], None)
+        json["Inputs"][self.name]["sw"] = sw
+        dim["sw"] = sw[1] - sw[0]
+        return SamplePart(
+            Stream(self.name, json, dim),
+            json["Inputs"][self.name]["sw"][0],
+            json["Inputs"][self.name]["sw"][1],
+            None,
+        )
 
     @enforce_types
     def last(self) -> Stream:
@@ -186,7 +230,14 @@ class Input(NeuObj):
         return self.z(-1)
 
     @enforce_types
-    def s(self, order:int, *, der_name:str|None = None, int_name:str|None = None, method:str = 'euler') -> Stream:
+    def s(
+        self,
+        order: int,
+        *,
+        der_name: str | None = None,
+        int_name: str | None = None,
+        method: str = "euler",
+    ) -> Stream:
         """
         Considering the Laplace transform notation. The function is used to operate an integral or derivate operation on the input.
         The order of the integral or the derivative operation is indicated by the order parameter.
@@ -203,19 +254,25 @@ class Input(NeuObj):
         Stream
             A Stream of the signal represents the integral or derivation operation.
         """
-        check(order != 0, ValueError, "The order must be a positive or negative integer not a zero")
+        check(
+            order != 0,
+            ValueError,
+            "The order must be a positive or negative integer not a zero",
+        )
         if order > 0:
             o = self.last()
             for i in range(order):
-                o = Differentiate(o, der_name = der_name, int_name = int_name, method = method)
+                o = Differentiate(
+                    o, der_name=der_name, int_name=int_name, method=method
+                )
         elif order < 0:
             o = self.last()
             for i in range(-order):
-                o = Integrate(o, der_name = der_name, int_name = int_name, method = method)
+                o = Integrate(o, der_name=der_name, int_name=int_name, method=method)
         return o
 
     @enforce_types
-    def connect(self, obj:Stream) -> "Input":
+    def connect(self, obj: Stream) -> "Input":
         """
         Update and return the current Input with a given Stream object.
 
@@ -236,17 +293,24 @@ class Input(NeuObj):
         KeyError
             If the Input variable is already connected.
         """
-        check(type(obj) is Stream, TypeError,
-              f"The {obj} must be a Stream and not a {type(obj)}.")
+        check(
+            type(obj) is Stream,
+            TypeError,
+            f"The {obj} must be a Stream and not a {type(obj)}.",
+        )
         self.json = merge(self.json, obj.json)
-        check('closedLoop' not in self.json['Inputs'][self.name] or 'connect' not in self.json['Inputs'][self.name], KeyError,
-              f"The Input variable {self.name} is already connected.")
-        self.json['Inputs'][self.name]['connect'] = obj.name
-        self.json['Inputs'][self.name]['local'] = 1
+        check(
+            "closedLoop" not in self.json["Inputs"][self.name]
+            or "connect" not in self.json["Inputs"][self.name],
+            KeyError,
+            f"The Input variable {self.name} is already connected.",
+        )
+        self.json["Inputs"][self.name]["connect"] = obj.name
+        self.json["Inputs"][self.name]["local"] = 1
         return self
 
     @enforce_types
-    def closedLoop(self, obj:Stream) -> "Input":
+    def closedLoop(self, obj: Stream) -> "Input":
         """
         Update and return the current Input in a closed loop with a given Stream object.
 
@@ -268,40 +332,58 @@ class Input(NeuObj):
             If the Input variable is already connected.
         """
         from nnodely.layers.input import Input
-        check(type(obj) is Stream, TypeError,
-              f"The {obj} must be a Stream and not a {type(obj)}.")
+
+        check(
+            type(obj) is Stream,
+            TypeError,
+            f"The {obj} must be a Stream and not a {type(obj)}.",
+        )
         self.json = merge(self.json, obj.json)
-        check('closedLoop' not in self.json['Inputs'][self.name] or 'connect' not in self.json['Inputs'][self.name],
-              KeyError,
-              f"The Input variable {self.name} is already connected.")
-        self.json['Inputs'][self.name]['closedLoop'] = self.name
-        self.json['Inputs'][self.name]['local'] = 1
+        check(
+            "closedLoop" not in self.json["Inputs"][self.name]
+            or "connect" not in self.json["Inputs"][self.name],
+            KeyError,
+            f"The Input variable {self.name} is already connected.",
+        )
+        self.json["Inputs"][self.name]["closedLoop"] = self.name
+        self.json["Inputs"][self.name]["local"] = 1
         return self
 
     def __str__(self):
-        return stream_to_str(self, 'Input')
+        return stream_to_str(self, "Input")
 
     def __repr__(self):
         return self.__str__()
 
+
 # connect operation
-connect_name = 'connect'
-closedloop_name = 'closedLoop'
+connect_name = "connect"
+closedloop_name = "closedLoop"
+
 
 class Connect(Stream, ToStream):
     @enforce_types
-    def __init__(self, obj1:Stream, obj2:Input, *, local:bool=False) -> Stream:
-        super().__init__(obj1.name,merge(obj1.json, obj2.json),obj1.dim)
-        check(closedloop_name not in self.json['Inputs'][obj2.name] or connect_name not in self.json['Inputs'][obj2.name],
-              KeyError,f"The input variable {obj2.name} is already connected.")
-        self.json['Inputs'][obj2.name][connect_name] = obj1.name
-        self.json['Inputs'][obj2.name]['local'] = int(local)
+    def __init__(self, obj1: Stream, obj2: Input, *, local: bool = False) -> Stream:
+        super().__init__(obj1.name, merge(obj1.json, obj2.json), obj1.dim)
+        check(
+            closedloop_name not in self.json["Inputs"][obj2.name]
+            or connect_name not in self.json["Inputs"][obj2.name],
+            KeyError,
+            f"The input variable {obj2.name} is already connected.",
+        )
+        self.json["Inputs"][obj2.name][connect_name] = obj1.name
+        self.json["Inputs"][obj2.name]["local"] = int(local)
+
 
 class ClosedLoop(Stream, ToStream):
     @enforce_types
-    def __init__(self, obj1:Stream, obj2:Input, *, local:bool=False) -> Stream:
+    def __init__(self, obj1: Stream, obj2: Input, *, local: bool = False) -> Stream:
         super().__init__(obj1.name, merge(obj1.json, obj2.json), obj1.dim)
-        check(closedloop_name not in self.json['Inputs'][obj2.name] or connect_name not in self.json['Inputs'][obj2.name],
-              KeyError, f"The input variable {obj2.name} is already connected.")
-        self.json['Inputs'][obj2.name][closedloop_name] = obj1.name
-        self.json['Inputs'][obj2.name]['local'] = int(local)
+        check(
+            closedloop_name not in self.json["Inputs"][obj2.name]
+            or connect_name not in self.json["Inputs"][obj2.name],
+            KeyError,
+            f"The input variable {obj2.name} is already connected.",
+        )
+        self.json["Inputs"][obj2.name][closedloop_name] = obj1.name
+        self.json["Inputs"][obj2.name]["local"] = int(local)

@@ -10,12 +10,18 @@ from nnodely.operators.network import Network
 from nnodely.support.utils import check, enforce_types
 
 from nnodely.support.logger import logging, nnLogger
+
 log = nnLogger(__name__, logging.WARNING)
+
 
 class Loader(Network):
     @enforce_types
     def __init__(self):
-        check(type(self) is not Loader, TypeError, "Loader class cannot be instantiated directly")
+        check(
+            type(self) is not Loader,
+            TypeError,
+            "Loader class cannot be instantiated directly",
+        )
         super().__init__()
 
         # Dataaset Parameters
@@ -23,7 +29,9 @@ class Loader(Network):
         self.__datasets_loaded = set()
 
     @enforce_types
-    def getSamples(self, dataset:str, *, index:int|None = None, window:int=1) -> dict:
+    def getSamples(
+        self, dataset: str, *, index: int | None = None, window: int = 1
+    ) -> dict:
         """
         Retrieves a window of samples from a given dataset.
 
@@ -53,19 +61,25 @@ class Loader(Network):
         """
         if index is None:
             index = random.randint(0, self._num_of_samples[dataset] - window)
-        check(self._data_loaded, ValueError, 'The Dataset must first be loaded using <loadData> function!')
+        check(
+            self._data_loaded,
+            ValueError,
+            "The Dataset must first be loaded using <loadData> function!",
+        )
         if self._data_loaded:
             result_dict = {}
-            for key in self._model_def['Inputs'].keys():
+            for key in self._model_def["Inputs"].keys():
                 result_dict[key] = []
             for idx in range(window):
-                for key ,samples in self._data[dataset].items():
-                    if key in self._model_def['Inputs'].keys():
-                        result_dict[key].append(samples[index+idx])
+                for key, samples in self._data[dataset].items():
+                    if key in self._model_def["Inputs"].keys():
+                        result_dict[key].append(samples[index + idx])
             return result_dict
 
     @enforce_types
-    def filterData(self, filter_function:Callable, dataset_name:str|None = None) -> None:
+    def filterData(
+        self, filter_function: Callable, dataset_name: str | None = None
+    ) -> None:
         """
         Filters the data in the dataset using the provided filter function.
 
@@ -97,7 +111,9 @@ class Loader(Network):
                         idx_to_remove.append(idx)
 
                 for key in self._data[name].keys():
-                    self._data[name][key] = np.delete(self._data[name][key], idx_to_remove, axis=0)
+                    self._data[name][key] = np.delete(
+                        self._data[name][key], idx_to_remove, axis=0
+                    )
                     self._num_of_samples[name] = self._data[name][key].shape[0]
                 self.visualizer.showDataset(name=name)
 
@@ -115,12 +131,16 @@ class Loader(Network):
                     idx_to_remove.append(idx)
 
             for key in self._data[dataset_name].keys():
-                self._data[dataset_name][key] = np.delete(self._data[dataset_name][key], idx_to_remove, axis=0)
-                self._num_of_samples[dataset_name] = self._data[dataset_name][key].shape[0]
+                self._data[dataset_name][key] = np.delete(
+                    self._data[dataset_name][key], idx_to_remove, axis=0
+                )
+                self._num_of_samples[dataset_name] = self._data[dataset_name][
+                    key
+                ].shape[0]
             self.visualizer.showDataset(name=dataset_name)
 
     @enforce_types
-    def resamplingData(self, df:pd.DataFrame, *, scale:float = 1e9) -> None:
+    def resamplingData(self, df: pd.DataFrame, *, scale: float = 1e9) -> None:
         """
         Resamples the DataFrame to a specified sample time.
 
@@ -149,7 +169,7 @@ class Loader(Network):
         sample_time_ns = int(self._model_def.getSampleTime() * scale)
         if sample_time_ns <= 0:
             raise ValueError(f"Invalid resampling step: {sample_time_ns}ns")
-        method = 'linear'
+        method = "linear"
         if isinstance(df.index, pd.DatetimeIndex):
             # FORZA risoluzione ns (evita unit='s' interno)
             if df.index.dtype != "datetime64[ns]":
@@ -177,12 +197,14 @@ class Loader(Network):
 
             df = df.resample(f"{sample_time_ns}ns").interpolate(method=method)
         else:
-            raise TypeError("No time column found in the DataFrame. Please provide a time column for resampling.")
+            raise TypeError(
+                "No time column found in the DataFrame. Please provide a time column for resampling."
+            )
         return df
-    
+
     @enforce_types
     def __get_format_idxs(self, format: list | None = None) -> dict:
-        model_inputs = self._model_def['Inputs']
+        model_inputs = self._model_def["Inputs"]
         format_idx = {}
         idx = 0
         for item in format:
@@ -190,11 +212,17 @@ class Loader(Network):
                 n_cols = None
                 for key in item:
                     if key in model_inputs.keys():
-                        if n_cols is None or n_cols == model_inputs[key]['dim']:
-                            n_cols = model_inputs[key]['dim']
+                        if n_cols is None or n_cols == model_inputs[key]["dim"]:
+                            n_cols = model_inputs[key]["dim"]
                         else:
-                            raise ValueError(f'The variables {item} have different dimensionality.')
-                        check(key not in format_idx, ValueError, f"The format '{format}' in not correct some variables appears more than once.")
+                            raise ValueError(
+                                f"The variables {item} have different dimensionality."
+                            )
+                        check(
+                            key not in format_idx,
+                            ValueError,
+                            f"The format '{format}' in not correct some variables appears more than once.",
+                        )
                         format_idx[key] = (idx, idx + n_cols)
                 if n_cols is not None:
                     idx += n_cols
@@ -204,15 +232,18 @@ class Loader(Network):
                 if item not in model_inputs.keys():
                     idx += 1
                     continue
-                n_cols = model_inputs[item]['dim']
-                check(item not in format_idx, ValueError,
-                      f"The format '{format}' in not correct some variables appears more than once.")
+                n_cols = model_inputs[item]["dim"]
+                check(
+                    item not in format_idx,
+                    ValueError,
+                    f"The format '{format}' in not correct some variables appears more than once.",
+                )
                 format_idx[item] = (idx, idx + n_cols)
                 idx += n_cols
         return format_idx
-    
+
     @enforce_types
-    def __get_files(self, folder:str) -> list:
+    def __get_files(self, folder: str) -> list:
         try:
             _, _, files = next(os.walk(folder))
             files.sort()
@@ -220,14 +251,14 @@ class Loader(Network):
             check(False, StopIteration, f'ERROR: The path "{folder}" does not exist!')
             return []
         return files
-    
+
     @enforce_types
     def __stack_arrays(self, data: dict) -> tuple:
         ## Convert lists to numpy arrays
         num_of_samples = {}
         for key in data:
             data[key] = np.stack(data[key])
-            if self._model_def['Inputs'][key]['dim'] > 1:
+            if self._model_def["Inputs"][key]["dim"] > 1:
                 data[key] = np.array(data[key].tolist(), dtype=np.float64)
             if data[key].ndim == 2:  ## Add the sample dimension
                 data[key] = np.expand_dims(data[key], axis=-1)
@@ -237,14 +268,17 @@ class Loader(Network):
         return num_of_samples
 
     @enforce_types
-    def loadData(self, name:str,
-                 source: str | dict | pd.DataFrame, *,
-                 format: list | None = None,
-                 skiplines: int = 0,
-                 delimiter: str = ',',
-                 header: int | str | Sequence | None = None,
-                 resampling: bool = False
-                 ) -> None:
+    def loadData(
+        self,
+        name: str,
+        source: str | dict | pd.DataFrame,
+        *,
+        format: list | None = None,
+        skiplines: int = 0,
+        delimiter: str = ",",
+        header: int | str | Sequence | None = None,
+        resampling: bool = False,
+    ) -> None:
         """
         Loads data into the model. The data can be loaded from a directory path containing the csv files or from a crafted dataset.
 
@@ -271,13 +305,15 @@ class Loader(Network):
 
         Examples
         --------
-            
+
         .. include:: /examples_basics/data_loader_module_ex/loadData.rst
         """
         check(self.neuralized, ValueError, "The network is not neuralized.")
-        check(delimiter in ['\t', '\n', ';', ',', ' '], ValueError, 'delimiter not valid!')
+        check(
+            delimiter in ["\t", "\n", ";", ",", " "], ValueError, "delimiter not valid!"
+        )
 
-        json_inputs = self._model_def['Inputs']
+        json_inputs = self._model_def["Inputs"]
         ## Initialize the dictionary containing the data
         check_names(name, self._data.keys(), f"Dataset")
 
@@ -299,23 +335,46 @@ class Loader(Network):
             for file in files:
                 try:
                     ## read the csv
-                    df = pd.read_csv(os.path.join(source, file), skiprows=skiplines, delimiter=delimiter, header=header)
+                    df = pd.read_csv(
+                        os.path.join(source, file),
+                        skiprows=skiplines,
+                        delimiter=delimiter,
+                        header=header,
+                    )
                     if not all(df.iloc[0].apply(lambda x: isinstance(x, (int, float)))):
-                        log.warning(f"The file {file} does not contain a numerical column.")
+                        log.warning(
+                            f"The file {file} does not contain a numerical column."
+                        )
                     ## Resampling if the time column is provided (must be a Datetime object)
                     if resampling:
                         self.resamplingData(df)
                 except:
-                    log.warning(f'Cannot read file {os.path.join(source, file)}')
+                    log.warning(f"Cannot read file {os.path.join(source, file)}")
                     continue
                 if self._file_count > 1:
-                    self._multifile[name].append((self._multifile[name][-1] + (len(df) - self._max_n_samples + 1)) if self._multifile[name] else len(df) - self._max_n_samples + 1)
+                    self._multifile[name].append(
+                        (
+                            self._multifile[name][-1]
+                            + (len(df) - self._max_n_samples + 1)
+                        )
+                        if self._multifile[name]
+                        else len(df) - self._max_n_samples + 1
+                    )
                 ## Cycle through all the windows
                 for key, idxs in format_idx.items():
-                    back, forw = self._input_ns_backward[key], self._input_ns_forward[key]
+                    back, forw = (
+                        self._input_ns_backward[key],
+                        self._input_ns_forward[key],
+                    )
                     ## Save as numpy array the data
-                    data = df.iloc[:, idxs[0]:idxs[1]].to_numpy()
-                    self._data[name][key] += [data[i - back:i + forw] for i in range(self._max_samples_backward, len(df) - self._max_samples_forward + 1)]
+                    data = df.iloc[:, idxs[0] : idxs[1]].to_numpy()
+                    self._data[name][key] += [
+                        data[i - back : i + forw]
+                        for i in range(
+                            self._max_samples_backward,
+                            len(df) - self._max_samples_forward + 1,
+                        )
+                    ]
         else:  ## we have a crafted dataset
             ## add the dataset
             self._data[name] = {}
@@ -326,9 +385,17 @@ class Loader(Network):
                     if key not in source.keys():
                         continue
                     self._data[name][key] = []  ## Initialize the dataset
-                    back, forw = self._input_ns_backward[key], self._input_ns_forward[key]
+                    back, forw = (
+                        self._input_ns_backward[key],
+                        self._input_ns_forward[key],
+                    )
                     for idx in range(len(source[key]) - self._max_n_samples + 1):
-                        self._data[name][key].append(source[key][idx + (self._max_samples_backward - back):idx + (self._max_samples_backward + forw)])
+                        self._data[name][key].append(
+                            source[key][
+                                idx + (self._max_samples_backward - back) : idx
+                                + (self._max_samples_backward + forw)
+                            ]
+                        )
             else:
                 if resampling:
                     source = self.resamplingData(source)
@@ -336,15 +403,25 @@ class Loader(Network):
                     if key not in source.columns:
                         continue
                     self._data[name][key] = []  ## Initialize the dataset
-                    back, forw = self._input_ns_backward[key], self._input_ns_forward[key]
+                    back, forw = (
+                        self._input_ns_backward[key],
+                        self._input_ns_forward[key],
+                    )
                     for idx in range(len(source) - self._max_n_samples + 1):
-                        window = source[key].iloc[idx + (self._max_samples_backward - back):idx + (self._max_samples_backward + forw)]
+                        window = source[key].iloc[
+                            idx + (self._max_samples_backward - back) : idx
+                            + (self._max_samples_backward + forw)
+                        ]
                         self._data[name][key].append(window.to_numpy())
 
         ## Convert lists to numpy arrays
         num_of_samples = self.__stack_arrays(self._data[name])
         # Check dim of the samples
-        check(len(set(num_of_samples.values())) == 1, ValueError, f"The number of the sample of the dataset {name} are not the same for all input in the dataset: {num_of_samples}")
+        check(
+            len(set(num_of_samples.values())) == 1,
+            ValueError,
+            f"The number of the sample of the dataset {name} are not the same for all input in the dataset: {num_of_samples}",
+        )
         self._num_of_samples[name] = num_of_samples[list(num_of_samples.keys())[0]]
         ## Set the Loaded flag to True
         self._data_loaded = True
