@@ -331,7 +331,6 @@ class Input(NeuObj):
         KeyError
             If the Input variable is already connected.
         """
-        from nnodely.layers.input import Input
 
         check(
             type(obj) is Stream,

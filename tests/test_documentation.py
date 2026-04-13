@@ -1,6 +1,4 @@
 import unittest
-import subprocess
-import os
 
 
 class TestDocumentation(unittest.TestCase):

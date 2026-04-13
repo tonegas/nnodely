@@ -1,4 +1,9 @@
-import sys, os, unittest, torch, shutil, torch.onnx, importlib
+import os
+import unittest
+import torch
+import shutil
+import torch.onnx
+import importlib
 import numpy as np
 
 from nnodely import *

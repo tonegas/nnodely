@@ -1,8 +1,7 @@
 import numpy as np
 from pprint import pformat
 
-from nnodely.support.utils import is_notebook
-from nnodely.visualizer.emptyvisualizer import EmptyVisualizer, color, GREEN, RED, BLUE
+from nnodely.visualizer.emptyvisualizer import EmptyVisualizer, color, GREEN, BLUE
 
 
 class TextVisualizer(EmptyVisualizer):
@@ -137,7 +136,7 @@ class TextVisualizer(EmptyVisualizer):
                     )
 
             if epoch is not None:
-                print(color("|" + (f"").center(10 + 20 * (dim + 1), "-") + "|"))
+                print(color("|" + ("").center(10 + 20 * (dim + 1), "-") + "|"))
 
     def showDataset(self, name):
         if self.verbose >= 1:
@@ -162,30 +161,30 @@ class TextVisualizer(EmptyVisualizer):
                 " nnodely Training ",
                 12 + (len(self.modely._model_def["Minimizers"]) + 1) * 20,
             )
-            print(color("|" + (f"Epoch").center(10, " ") + "|"), end="")
+            print(color("|" + ("Epoch").center(10, " ") + "|"), end="")
             for key in self.modely._model_def["Minimizers"].keys():
                 print(color((f"{key}").center(19, " ") + "|"), end="")
-            print(color((f"Total").center(19, " ") + "|"))
+            print(color(("Total").center(19, " ") + "|"))
 
-            print(color("|" + (f" ").center(10, " ") + "|"), end="")
+            print(color("|" + (" ").center(10, " ") + "|"), end="")
             for key in self.modely._model_def["Minimizers"].keys():
-                print(color((f"Loss").center(19, " ") + "|"), end="")
-            print(color((f"Loss").center(19, " ") + "|"))
+                print(color(("Loss").center(19, " ") + "|"), end="")
+            print(color(("Loss").center(19, " ") + "|"))
 
-            print(color("|" + (f" ").center(10, " ") + "|"), end="")
+            print(color("|" + (" ").center(10, " ") + "|"), end="")
             for key in self.modely._model_def["Minimizers"].keys():
                 if par["n_samples_val"]:
-                    print(color((f"train").center(9, " ") + "|"), end="")
-                    print(color((f"val").center(9, " ") + "|"), end="")
+                    print(color(("train").center(9, " ") + "|"), end="")
+                    print(color(("val").center(9, " ") + "|"), end="")
                 else:
-                    print(color((f"train").center(19, " ") + "|"), end="")
+                    print(color(("train").center(19, " ") + "|"), end="")
             if par["n_samples_val"]:
-                print(color((f"train").center(9, " ") + "|"), end="")
-                print(color((f"val").center(9, " ") + "|"))
+                print(color(("train").center(9, " ") + "|"), end="")
+                print(color(("val").center(9, " ") + "|"))
             else:
-                print(color((f"train").center(19, " ") + "|"))
+                print(color(("train").center(19, " ") + "|"))
 
-            print(color("|" + (f"").center(10 + 20 * (dim + 1), "-") + "|"))
+            print(color("|" + ("").center(10 + 20 * (dim + 1), "-") + "|"))
 
     def showTraining(self, epoch, train_losses, val_losses):
         if self.verbose >= 1:
@@ -273,7 +272,7 @@ class TextVisualizer(EmptyVisualizer):
                         )
 
             if epoch + 1 == par["num_of_epochs"]:
-                print(color("|" + (f"").center(10 + 20 * (dim + 1), "-") + "|"))
+                print(color("|" + ("").center(10 + 20 * (dim + 1), "-") + "|"))
 
     def showTrainingTime(self, time):
         if self.verbose >= 1:
@@ -361,22 +360,22 @@ class TextVisualizer(EmptyVisualizer):
                 f" nnodely Model Results for {name_data} ",
                 dim_loss + 2 + (len(loss_type_list) + 2) * 20,
             )
-            print(color("|" + (f"Loss").center(dim_loss, " ") + "|"), end="")
+            print(color("|" + ("Loss").center(dim_loss, " ") + "|"), end="")
             for loss in loss_type_list:
                 print(color((f"{loss}").center(19, " ") + "|"), end="")
-            print(color((f"FVU").center(19, " ") + "|"), end="")
-            print(color((f"AIC").center(19, " ") + "|"))
+            print(color(("FVU").center(19, " ") + "|"), end="")
+            print(color(("AIC").center(19, " ") + "|"))
 
-            print(color("|" + (f"").center(dim_loss, " ") + "|"), end="")
+            print(color("|" + ("").center(dim_loss, " ") + "|"), end="")
             for i in range(len(loss_type_list)):
-                print(color((f"small better").center(19, " ") + "|"), end="")
-            print(color((f"small better").center(19, " ") + "|"), end="")
-            print(color((f"lower better").center(19, " ") + "|"))
+                print(color(("small better").center(19, " ") + "|"), end="")
+            print(color(("small better").center(19, " ") + "|"), end="")
+            print(color(("lower better").center(19, " ") + "|"))
 
             print(
                 color(
                     "|"
-                    + (f"").center(dim_loss + 20 * (len(loss_type_list) + 2), "-")
+                    + ("").center(dim_loss + 20 * (len(loss_type_list) + 2), "-")
                     + "|"
                 )
             )
@@ -396,7 +395,7 @@ class TextVisualizer(EmptyVisualizer):
                             end="",
                         )
                     else:
-                        print(color((f" ").center(19, " ") + "|"), end="")
+                        print(color((" ").center(19, " ") + "|"), end="")
                 print(
                     color(
                         (
@@ -418,11 +417,11 @@ class TextVisualizer(EmptyVisualizer):
             print(
                 color(
                     "|"
-                    + (f"").center(dim_loss + 20 * (len(loss_type_list) + 2), "-")
+                    + ("").center(dim_loss + 20 * (len(loss_type_list) + 2), "-")
                     + "|"
                 )
             )
-            print(color("|" + (f"Total").center(dim_loss, " ") + "|"), end="")
+            print(color("|" + ("Total").center(dim_loss, " ") + "|"), end="")
             print(
                 color(
                     (
@@ -453,7 +452,7 @@ class TextVisualizer(EmptyVisualizer):
             print(
                 color(
                     "|"
-                    + (f"").center(dim_loss + 20 * (len(loss_type_list) + 2), "-")
+                    + ("").center(dim_loss + 20 * (len(loss_type_list) + 2), "-")
                     + "|"
                 )
             )

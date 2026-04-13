@@ -173,7 +173,9 @@ class Optimizer:
         return params
 
     def get_torch_optimizer(self):
-        raise NotImplemented("The function get_torch_optimizer must be implemented.")
+        raise NotImplementedError(
+            "The function get_torch_optimizer must be implemented."
+        )
 
 
 class SGD(Optimizer):

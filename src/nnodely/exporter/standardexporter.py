@@ -1,4 +1,5 @@
-import os, torch
+import os
+import torch
 
 from nnodely.visualizer import EmptyVisualizer
 from nnodely.exporter.emptyexporter import EmptyExporter

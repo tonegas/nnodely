@@ -1,4 +1,7 @@
-import unittest, os, sys, torch
+import unittest
+import os
+import sys
+import torch
 import numpy as np
 
 from nnodely import *

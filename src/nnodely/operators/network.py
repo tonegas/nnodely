@@ -2,7 +2,8 @@ import copy
 from collections import defaultdict
 
 import numpy as np
-import torch, random
+import torch
+import random
 
 from nnodely.support.utils import (
     TORCH_DTYPE,
@@ -216,7 +217,7 @@ class Network:
             ValueError,
             f"The number of available sample are {n_samples - batch_size + 1}",
         )
-        check(batch_size > 0, ValueError, f"The batch_size must be greater than 0.")
+        check(batch_size > 0, ValueError, "The batch_size must be greater than 0.")
         return batch_size
 
     def __split_dataset(self, dataset: str | list | dict, splits: list):

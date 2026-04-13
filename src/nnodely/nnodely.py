@@ -1,5 +1,7 @@
 # Extern packages
-import random, torch, copy
+import random
+import torch
+import copy
 import numpy as np
 
 # Main operators

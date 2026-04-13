@@ -1,4 +1,5 @@
-import sys, json
+import sys
+import json
 
 import matplotlib.pyplot as plt
 

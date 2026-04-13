@@ -1,4 +1,5 @@
-import copy, torch
+import copy
+import torch
 
 import numpy as np
 
@@ -326,7 +327,7 @@ class Composer(Network):
         )
 
         if num_of_samples is not None and sampled == True:
-            log.warning(f"num_of_samples is ignored if sampled is equal to True")
+            log.warning("num_of_samples is ignored if sampled is equal to True")
 
         ## Get the maximum inference window
         if num_of_samples and not sampled:
@@ -375,7 +376,7 @@ class Composer(Network):
             window_dim = min(windows) if windows else 0
         else:  ## No inputs
             window_dim = 1 if non_mandatory_inputs else 0
-        check(window_dim > 0, StopIteration, f"Missing samples in the input window")
+        check(window_dim > 0, StopIteration, "Missing samples in the input window")
 
         if len(set(num_of_windows.values())) > 1:
             max_ind_key, max_dim = argmax_dict(num_of_windows)

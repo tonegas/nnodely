@@ -1,4 +1,5 @@
-import torch, inspect
+import torch
+import inspect
 import types
 
 from collections import OrderedDict
@@ -168,7 +169,7 @@ def get_batch_size(n_samples, batch_size=None, predicion_samples=0):
         if batch_size <= n_samples - predicion_samples
         else max(0, n_samples - predicion_samples)
     )
-    check(batch_size > 0, ValueError, f"The batch_size must be greater than 0.")
+    check(batch_size > 0, ValueError, "The batch_size must be greater than 0.")
     return batch_size
 
 

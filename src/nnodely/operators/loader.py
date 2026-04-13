@@ -1,4 +1,5 @@
-import os, random
+import os
+import random
 
 import pandas as pd
 import numpy as np
@@ -247,7 +248,7 @@ class Loader(Network):
         try:
             _, _, files = next(os.walk(folder))
             files.sort()
-        except StopIteration as e:
+        except StopIteration:
             check(False, StopIteration, f'ERROR: The path "{folder}" does not exist!')
             return []
         return files
@@ -315,7 +316,7 @@ class Loader(Network):
 
         json_inputs = self._model_def["Inputs"]
         ## Initialize the dictionary containing the data
-        check_names(name, self._data.keys(), f"Dataset")
+        check_names(name, self._data.keys(), "Dataset")
 
         if type(source) is str:  ## we have a directory path containing the files
             ## collect column indexes

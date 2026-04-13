@@ -77,5 +77,5 @@ class Reporter:
                         )
                     c.showPage()
         else:
-            c.drawString(100, height - 30, f"No Minimize")
+            c.drawString(100, height - 30, "No Minimize")
         c.save()

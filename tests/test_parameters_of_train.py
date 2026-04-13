@@ -1,4 +1,6 @@
-import unittest, os, sys
+import unittest
+import os
+import sys
 import numpy as np
 
 from nnodely import *

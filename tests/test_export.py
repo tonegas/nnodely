@@ -1,8 +1,10 @@
-import os, unittest, torch, shutil
+import os
+import unittest
+import torch
+import shutil
 import numpy as np
 
 from nnodely import *
-from nnodely.basic.relation import NeuObj
 from nnodely.support.logger import logging, nnLogger
 
 log = nnLogger(__name__, logging.CRITICAL)

@@ -1,11 +1,12 @@
-import torch, warnings
+import torch
+import warnings
 import numpy as np
 
 from nnodely.support.utils import ReadOnlyDict, get_batch_size
 
 from nnodely.basic.loss import CustomLoss
 from nnodely.operators.network import Network
-from nnodely.support.utils import check, TORCH_DTYPE, enforce_types
+from nnodely.support.utils import check, enforce_types
 
 
 class Validator(Network):

@@ -1,4 +1,8 @@
-import sys, os, torch, importlib, json
+import sys
+import os
+import torch
+import importlib
+import json
 
 from torch.fx import symbolic_trace
 
@@ -265,10 +269,10 @@ def export_python_model(model_def, model, model_path):
             file.write(f"        results = {{{result_str}}}\n")
             file.write("        X = dict()\n")
             file.write("        for idx in range(n_samples):\n")
-            file.write(f"            for key in self.inputs:\n")
-            file.write(f"                X[key] = kwargs[key][idx]\n")
-            file.write(f"            for key, value in self.states.items():\n")
-            file.write(f"                X[key] = value\n")
+            file.write("            for key in self.inputs:\n")
+            file.write("                X[key] = kwargs[key][idx]\n")
+            file.write("            for key, value in self.states.items():\n")
+            file.write("                X[key] = value\n")
             file.write("            out, _, closed_loop, connect = self.Cell(X)\n")
             file.write("            for key, value in results.items():\n")
             file.write("                results[key].append(out[key])\n")

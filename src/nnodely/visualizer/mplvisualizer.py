@@ -1,4 +1,7 @@
-import subprocess, json, os, importlib
+import subprocess
+import json
+import os
+import importlib
 import numpy as np
 
 from nnodely.visualizer.textvisualizer import TextVisualizer

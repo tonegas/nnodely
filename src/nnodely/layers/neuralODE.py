@@ -1,4 +1,6 @@
-import inspect, copy, textwrap, torch, math
+import inspect
+import copy
+import textwrap
 
 import torch.nn as nn
 
@@ -51,7 +53,7 @@ class NeuralODE(NeuObj):
             + code.replace("\n", "\n    ")
             + "\n"
             + f"    ans = odeint(lambda t, y: {func.param_fun.__name__}(t, y, *weights), state, t=torch.tensor([0.0, {self.dt}]), rtol={self.rtol}, atol={self.atol}, method='{self.method}', adjoint_params=list(weights))"
-            + f"\n    return ans[-1]\n"
+            + "\n    return ans[-1]\n"
         )
 
         self.json["Functions"][self.name] = {

@@ -1,4 +1,7 @@
-import sys, os, unittest, copy
+import sys
+import os
+import unittest
+import copy
 
 import numpy as np
 

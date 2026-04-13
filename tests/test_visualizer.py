@@ -1,10 +1,9 @@
-import sys, io, os, unittest, torch
-import numpy as np
+import sys
+import os
+import unittest
 
 from nnodely import *
-from nnodely.basic.relation import NeuObj
 from nnodely.support.logger import logging, nnLogger
-from nnodely.support.jsonutils import plot_structure
 
 log = nnLogger(__name__, logging.ERROR)
 log.setAllLevel(logging.ERROR)

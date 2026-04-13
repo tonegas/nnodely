@@ -1,4 +1,8 @@
-import inspect, copy, textwrap, torch, math
+import inspect
+import copy
+import textwrap
+import torch
+import math
 
 import torch.nn as nn
 import numpy as np
@@ -163,7 +167,7 @@ class ParamFun(NeuObj):
             check(
                 n_missing_parameters >= 0,
                 ValueError,
-                f"The function is called with too many parameter and inputs.",
+                "The function is called with too many parameter and inputs.",
             )
             self.__create_missing_parameters(
                 self.json_stream[n_call_input], n_call_input, n_missing_parameters

@@ -1,6 +1,7 @@
-import unittest, os, sys
+import unittest
+import os
+import sys
 import numpy as np
-from pygments.unistring import xid_start
 
 from nnodely import *
 from nnodely.basic.relation import NeuObj

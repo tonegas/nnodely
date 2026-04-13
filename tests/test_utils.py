@@ -1,4 +1,7 @@
-import unittest, os, sys, torch
+import unittest
+import os
+import sys
+import torch
 
 from nnodely import *
 from nnodely.support.mathutils import linear_interp

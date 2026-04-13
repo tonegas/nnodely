@@ -1,14 +1,8 @@
-import torch.nn as nn
-import torch
-
 from nnodely.layers.parametricfunction import ParamFun
 from nnodely.layers.parameter import SampleTime
 
-from nnodely.basic.relation import Stream, NeuObj, ToStream
-from nnodely.support.utils import enforce_types, check
-from nnodely.support.jsonutils import merge, subjson_from_relation
-from nnodely.basic.model import Model
-import textwrap, inspect
+from nnodely.basic.relation import Stream, NeuObj
+from nnodely.support.utils import enforce_types
 from collections.abc import Callable
 
 fe_relation_name = "ForwardEuler"
