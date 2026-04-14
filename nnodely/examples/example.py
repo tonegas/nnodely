@@ -93,6 +93,10 @@ def main(example=1):
         model1.build()  # Rebuild the model after removing the minimizer otherwise the training loop will still try to compute the loss and update the model based on it, even if it's not used for training anymore
         model1.train(train_data=data_train, epochs=60, batch_size=4)
 
+        # ------ Visualize the model -------
+        model1.plot(to_file='html/model1_trained.png')
+
+        # ------ Remove one minimizer and retrain with a constant value -------
         model1.remove_minimizer('error_fir_y')
         model1.minimize('error_fir_y', source=y_fir, target=3.0, loss='mse') ## this will minimize the difference between y_fir and the constant value 3.0, effectively training the model to make y_fir close to 3.0
         model1.build()
@@ -105,7 +109,7 @@ def main(example=1):
         const = Constant('const1', value=[1.0])
         x_param = x.sw(1) * param + const
         x_out = Output('x_out', x_param)
-        model = Modely('model_with_param', outputs=x_out)
+        model = Modely('model', outputs=x_out)
         model.minimize('error', source=x_out, target=Input('x_target', dim=1).sw(1), loss='mse')
         model.build()
 
@@ -137,12 +141,12 @@ def main(example=1):
         model.export_html(out_dir='html', filename='model_with_param')
 
     if example == 4:
-        # ------- Model Composition, Visualization and Export -------
+        # ------- Model Flatten and Visualization -------
         x = Input('x', dim=1)
         param = Parameter('param1', dim=1)
         x_param = x.sw(5) * param
         x_out = Output('x_out', x_param)
-        model1 = Modely('model_with_param', outputs=x_out)
+        model1 = Modely('model1', outputs=x_out)
         model1.build()
 
         y = Input('y', dim=1)
@@ -158,23 +162,47 @@ def main(example=1):
         model3 = Modely('model3', outputs=z_out)
         model3.build()
 
-        # ------- Visualize and export the composed model -------
-        model3.plot(to_file='html/model3.png')
+        # ------- Visualize the Flatten model -------
         model3.export_html(out_dir='html', filename='model3')
+        model3.plot(to_file='html/model3_standard.png')
+        model3.plot(to_file='html/model3_flattened.png', flatten=True)
 
-        result = model3({'z': np.ones((1, 5, 1), dtype=np.float32)})  # Test inference to make sure the model is working before export
-        model3.export_keras(filename='model3')
-        model3.save(filename='model3.nnodely')
+        # x = Input('x', dim=1)
+        # y = Input('y', dim=1)
+        # z = Input('z', dim=1)
+        # r1 = x.sw(1)+y.sw(1)
+        # out1 = Output('out1', r1)
+        # model1 = Modely('model1', outputs=out1)
+        # model1.build()
 
-        new_model = Modely.load('html/model3.nnodely')
-        new_model.plot(to_file='html/model3_loaded.png')
-        new_model.export_html(out_dir='html', filename='model3_loaded')
-        result_loaded = new_model({'z': np.ones((1, 5, 1), dtype=np.float32)})  # Test inference to make sure the loaded model is working
-        print("Inference result from original model:", result)
-        print("Inference result from loaded model:", result_loaded)
+        # r2 = Fir(out_features=1)(z.sw(3))
+        # out2 = Output('out2', model1({'x': r2, 'y': z.sw(1)}))
+        # model2 = Modely('model2', outputs=out2)
+        # model2.build()
+
+        # k = Input('k', dim=1)
+        # f = Input('f', dim=1)
+        # r3 = model2({'z': k.sw(3)}) + model2({'z': f.sw(3)})
+        # out3 = Output('out3', r3)
+        # model3 = Modely('model3', outputs=out3)
+        # model3.build()
+
 
     if example == 5:
         # ------- Model with closed loop connections -------
+
+        pass
+
+    if example == 6:
+        # ------- Model with time window partitioning, Past and Future -------
+        pass
+
+    if example == 7:
+        # ------- Model Export and Import -------
+        pass
+
+    if example == 8:
+        # ------- High-level Blocks (Local Models) with Multi-inputs -------
         pass
 
 if __name__ == '__main__':

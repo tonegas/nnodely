@@ -1,5 +1,3 @@
-"""Stream-aware layers."""
-
 from __future__ import annotations
 
 import keras
@@ -27,8 +25,8 @@ class Layer(Stream):
         self._layer = None
         self._properties = dict(kwargs)
 
-        for k, v in kwargs.items():
-            setattr(self, k, v)
+        # for k, v in kwargs.items():
+        #     setattr(self, k, v)
 
         super().__init__(
             name=name or next_name(self.node_type),
@@ -62,13 +60,8 @@ class Layer(Stream):
         self._layer = keras.layers.Identity(name=self.name)
         return self._layer
 
-    def ensure_layer(self):
-        if self._layer is None:
-            self._layer = self.build_layer()
-        return self._layer
-
     def call(self, *xs):
-        layer = self.ensure_layer()
+        layer = self.build_layer()
         if len(xs) == 1:
             return layer(xs[0])
         return layer(list(xs))
@@ -77,14 +70,14 @@ class Layer(Stream):
     # Symbolic graph logic
     # ------------------------------------------------------------------
 
-    def _clone_for_graph(self):
-        """
-        Create a fresh symbolic node with the same configuration,
-        but without reusing the concrete built Keras layer.
-        """
-        cfg = copy.copy(self._properties)
-        new_node = self.__class__(**cfg)
-        return new_node
+    # def _clone_for_graph(self):
+    #     """
+    #     Create a fresh symbolic node with the same configuration,
+    #     but without reusing the concrete built Keras layer.
+    #     """
+    #     cfg = copy.copy(self._properties)
+    #     new_node = self.__class__(**cfg)
+    #     return new_node
 
     def __call__(self, *inputs):
         if not inputs:
@@ -95,7 +88,7 @@ class Layer(Stream):
             seqs, times, dims = zip(*(get_seq_time_dim(x) for x in inputs))
             out_seq, out_time, out_dim = self.output_shape(seqs, times, dims)
 
-            node = self._clone_for_graph()
+            node = self.__class__(**self._properties) #self._clone_for_graph()
             node.seq = out_seq
             node.time = out_time
             node.dim = out_dim

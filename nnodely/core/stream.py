@@ -66,13 +66,6 @@ class Stream:
         """
         return len(self.shape)
 
-    def with_predecessors(self, predecessors):
-        """
-        Utility for symbolic graph construction.
-        """
-        self.predecessors = list(predecessors)
-        return self
-
     def __add__(self, other):
         from nnodely.core.layer import Add
         return Add()(self, other)

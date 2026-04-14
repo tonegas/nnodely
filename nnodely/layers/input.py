@@ -12,7 +12,7 @@ class Input(Stream):
     Input di rete. Come Layer ha seq, time, dim.
     """
     def __init__(self, name: str, *, dim: int | tuple = 1, seq: int | tuple | None = ()):
-        super().__init__(name=name, node_type='input', seq=seq, time=1, dim=dim, predecessors=[])
+        super().__init__(name=name, node_type='Input', seq=seq, time=1, dim=dim, predecessors=[])
         self.input = keras.Input(shape=self.shape, name=self.name)
 
     def sw(self, window_size: int):
