@@ -1,7 +1,7 @@
 numpy==2.2.5
 onnx==1.17.0
 pandas==2.2.3
-torch==2.6.0
+torch==2.8.0
 reportlab==4.3.1
 matplotlib==3.10.1
 onnxruntime==1.21.1
