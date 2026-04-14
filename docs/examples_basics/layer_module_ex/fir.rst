@@ -16,7 +16,7 @@ Passing a parameter:
 Parameters initialization:
 
 .. code-block:: python
-  
+
   x = Input('x')
   F = Input('F')
   fir_x = Fir(W_init='init_negexp')(x.tw(0.2))
