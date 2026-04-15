@@ -19,9 +19,7 @@ You are now up and running, just make sure to run everything via `uv` (e.g.,
 ### IDE
 
 We have config files for the IDEs we use, so `VSCode`, `PyCharm`, and `neovim`
-should be ready to go. Anyhow, here are some tips for each, but keep in mind
-that the CI and pre-commit hooks are the main source of truth for linting and
-formatting.
+should be ready to go.
 
 - `VSCode`: you can find a `.vscode` folder which should prompt you to install
   the necessary plugins and enable them as we expect them to be. Nonetheless
@@ -33,10 +31,6 @@ formatting.
 - `neovim`: you have to add the `pyright` and `ruff` (e.g., using `mason`) and
   enable them (e.g., `vim.lsp.enable(...)`). To pick up `uv` just run `uv run
 nvim .` in the project root.
-
-> `neovim` is harder to setup, but worth it! Checkout my
-> [config](https://github.com/SebastianoTaddei/nvim-config) for reference on
-> the Python setup.
 
 ## Code Style
 
@@ -75,7 +69,7 @@ This project uses `ruff` for both linting and formatting.
 A `pre-commit` hook will take care of this, but you can also run it manually with:
 
 ```bash
-uv run ruff check
+uv run ruff check --fix
 uv run ruff format
 ```
 
@@ -98,13 +92,17 @@ table = [
 
 ## Naming Conventions
 
-> Needs to be understood.
+We use:
+
+- `snake_case` for functions and variables
+- `CamelCase` for classes
+- `UPPERCASE` for constants
 
 ---
 
 ## Type Hints
 
-- Always use type hints unless absolutely unfeasible.
+- Required unless impractical.
 - Make custom types whenever your type gets too big, for example:
 
   ```python
@@ -112,7 +110,7 @@ table = [
   list[dict[str, list[int]]]
 
   # Should become
-  CustomType = list[dict[str, list[int]]]
+  CustomType: TypeAlias = list[dict[str, list[int]]]
   ```
 
 - Heavily prefer strong typing (e.g., `Enum` and `dataclass`), for example:
@@ -130,23 +128,14 @@ table = [
     ...
   ```
 
-Docstrings and Comments
-• Use docstrings for public modules, classes, and functions
-• Follow the project’s configured docstring style
-• Comments should explain why, not what
-• Avoid obvious or redundant comments
-
 ---
 
-## Pre-commit Hooks
+## Docstrings and Comments
 
-This project uses pre-commit hooks to enforce good behaviour. You are expected
-to install and run them locally:
-
-```bash
-uv run pre-commit install --install-hooks
-uv run pre-commit run --all-files
-```
+- Use docstrings for public modules, classes, and functions
+- Follow the project's configured docstring style
+- Comments should explain why, not what
+- Avoid obvious or redundant comments
 
 ---
 
@@ -158,9 +147,10 @@ uv run pre-commit run --all-files
   - Always stable.
   - Always releasable.
   - Protected (no direct commits).
-- `dev` is the rolling branch where we put all development not quite stable
-  yet.
-- All work happens on **feature branches**, created from `main`
+- `develop` is the rolling branch
+  - Put all development not quite stable yet.
+  - Protected (no direct commits).
+- All work happens on branches created from `develop`.
 
 ### Branch Naming
 
@@ -174,19 +164,10 @@ We follow [this](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ---
 
-## Dev tips
-
-A collection of tips for the developers of the library.
-
-### Why `uv`
-
-It will take too long to explain here. I strongly suggest you to try it out on
-a sample project and it will be clear why.
-
-### GitHub Actions
+## GitHub Actions
 
 Testing GitHub Actions is a pain, but it becomes easier if you test at least
 some of their functionality with [act](https://github.com/nektos/act).
 
 For example, to test the `codecov.xml` action just setup `act` and run: `act
---workflows .github/workflows/codecov.yml".
+--workflows .github/workflows/codecov.yml`.
