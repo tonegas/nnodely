@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterator, List, Literal
 import numpy as np
 import pandas as pd
 
+
 @dataclass
 class DataLoader:
     """
@@ -42,6 +43,7 @@ class DataLoader:
             "data_2": np.array([2])
         }
     """
+
     dataset: Dict[str, np.ndarray] = field(default_factory=dict)
     align: Literal["trim", "error"] = "trim"
 
@@ -49,7 +51,7 @@ class DataLoader:
         self,
         model: Any,
         source: str | dict,
-        format: Dict[str, str|int] | None = None,
+        format: Dict[str, str | int] | None = None,
         trim: bool = False,
         csv_glob: str = "*.csv",
         dtype: Any = np.float32,
@@ -61,7 +63,9 @@ class DataLoader:
         self.dtype = dtype
 
         if model._train_model is None:
-            raise ValueError(f"Model {model.name} is not built. Make sure to call {model.name}.build() first.")
+            raise ValueError(
+                f"Model {model.name} is not built. Make sure to call {model.name}.build() first."
+            )
         self.input_specs = {node.name: node.time for node in model.train_inputs}
         if not self.input_specs:
             raise ValueError("Could not infer any inputs from model.inputs")
@@ -73,7 +77,9 @@ class DataLoader:
             if not self.source.is_dir():
                 raise NotADirectoryError(f"Not a folder: {self.source}")
             if self.format is not None and not isinstance(self.format, dict):
-                raise TypeError("format must be a dict mapping input name to column name or index")
+                raise TypeError(
+                    "format must be a dict mapping input name to column name or index"
+                )
             self.dataset = self._build_from_folder()
         elif isinstance(source, dict):
             self.dataset = self._build_from_dict(source)
@@ -127,7 +133,7 @@ class DataLoader:
         - numpy array
         - pandas Series
         - pandas DataFrame (single column or multi-column)
-        
+
         Rolling windows are built exactly like in _build_from_dataframe(),
         using self.input_specs[name] as the required window length.
 
@@ -168,7 +174,6 @@ class DataLoader:
             return {}
 
         min_rows = min(lengths.values())
-        max_rows = max(lengths.values())
 
         if min_rows == 0:
             raise ValueError("At least one provided input array is empty.")
@@ -211,7 +216,10 @@ class DataLoader:
 
                 raw_data[name].append(values)
 
-        dataset = {name: np.stack(windows, axis=0).astype(self.dtype) for name, windows in raw_data.items()}
+        dataset = {
+            name: np.stack(windows, axis=0).astype(self.dtype)
+            for name, windows in raw_data.items()
+        }
         self._check_alignment(dataset)
         return dataset
 
@@ -226,7 +234,9 @@ class DataLoader:
             df = pd.read_csv(csv_path)
             missing = []
             for name in self.input_specs:
-                col = self.format[name] if (self.format and name in self.format) else name
+                col = (
+                    self.format[name] if (self.format and name in self.format) else name
+                )
                 if isinstance(col, int):
                     if col < 0 or col >= df.shape[1]:
                         missing.append(f"{name} -> index {col}")
@@ -286,12 +296,16 @@ class DataLoader:
                 start = t - w + 1
                 end = t + 1
 
-                col = self.format[name] if (self.format and name in self.format) else name
+                col = (
+                    self.format[name] if (self.format and name in self.format) else name
+                )
                 if isinstance(col, int):
                     try:
                         values = df.iloc[start:end, col].to_numpy(dtype=self.dtype)
                     except IndexError:
-                        raise ValueError(f"Column index {col} out of range for input '{name}'")
+                        raise ValueError(
+                            f"Column index {col} out of range for input '{name}'"
+                        )
                 else:
                     values = df[col].iloc[start:end].to_numpy(dtype=self.dtype)
 
@@ -303,7 +317,9 @@ class DataLoader:
 
                 raw_data[name].append(values)
 
-        dataset = {name: np.stack(windows, axis=0) for name, windows in raw_data.items()}
+        dataset = {
+            name: np.stack(windows, axis=0) for name, windows in raw_data.items()
+        }
         self._check_alignment(dataset)
         return dataset
 

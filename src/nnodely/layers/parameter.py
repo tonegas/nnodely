@@ -15,6 +15,7 @@ class Parameter(Stream):
     Shape without batch:
         seq + (time,) + dim
     """
+
     node_type = "Parameter"
 
     def __init__(

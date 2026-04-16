@@ -15,6 +15,7 @@ class Loop(Layer):
     - each ingress stream must have exactly one seq axis
     - the order of Loop(...) inputs must match f.inputs
     """
+
     node_type = "Loop"
 
     def __init__(self, f: Modely, closed_loop: dict, name=None):
@@ -74,9 +75,9 @@ class Loop(Layer):
                 def pad_fn():
                     pad_shape = keras.ops.concatenate(
                         [
-                            keras.ops.shape(x)[:1],              # batch
-                            keras.ops.reshape(pad_len, (1,)),   # padded seq
-                            keras.ops.shape(x)[2:],             # rest
+                            keras.ops.shape(x)[:1],  # batch
+                            keras.ops.reshape(pad_len, (1,)),  # padded seq
+                            keras.ops.shape(x)[2:],  # rest
                         ],
                         axis=0,
                     )
@@ -123,13 +124,15 @@ class Loop(Layer):
                     step_inputs = {}
 
                     for idx, input_name in enumerate(fn_input_names):
-                        x_t = x_t_pack[0][idx]   # current tensor slice
+                        x_t = x_t_pack[0][idx]  # current tensor slice
                         valid_t = x_t_pack[1][idx]  # scalar bool for this step
 
                         if idx == loop_in_idx:
                             # before sequence end -> use dataset value
                             # after sequence end  -> use previous output
-                            x_used = keras.ops.cond(valid_t, lambda: x_t, lambda: prev_y)
+                            x_used = keras.ops.cond(
+                                valid_t, lambda: x_t, lambda: prev_y
+                            )
                         else:
                             # shorter non-looped inputs are already padded with zeros
                             x_used = x_t
@@ -148,16 +151,19 @@ class Loop(Layer):
 
                 # scan over both data slices and masks
                 xs_pack = (
-                    [x for x in xs],           # per-step input slices
+                    [x for x in xs],  # per-step input slices
                     [m for m in valid_masks],  # per-step validity flags
                 )
 
                 # initial carry: zeros like one step of output
-                sample_input = padded_inputs[0]          # (batch, S, ...)
+                sample_input = padded_inputs[0]  # (batch, S, ...)
                 batch = keras.ops.shape(sample_input)[0]
-                out_shape = self.outer.shape             # symbolic shape without batch
+                out_shape = self.outer.shape  # symbolic shape without batch
                 init_shape = keras.ops.concatenate(
-                    [keras.ops.reshape(batch, (1,)), keras.ops.convert_to_tensor(out_shape)],
+                    [
+                        keras.ops.reshape(batch, (1,)),
+                        keras.ops.convert_to_tensor(out_shape),
+                    ],
                     axis=0,
                 )
                 init = keras.ops.zeros(init_shape, dtype=sample_input.dtype)

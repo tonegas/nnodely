@@ -1,6 +1,9 @@
-import os, re, json
+import os
+import re
+import json
 from pathlib import Path
 from nnodely.core.modely import Modely
+
 
 def plot_graphviz(
     model: Modely,
@@ -106,7 +109,7 @@ def plot_graphviz(
         for pred in getattr(node, "predecessors", []) or []:
             _add_node(pred)
             shape_label = str(pred.shape) if hasattr(pred, "shape") else ""
-            _add_edge(pred.name,node.name,label=shape_label)
+            _add_edge(pred.name, node.name, label=shape_label)
 
     # Add minimizers
     if include_minimizers:
@@ -117,18 +120,42 @@ def plot_graphviz(
             source = m.get("source")
             target = m.get("target")
 
-            source_name = source if isinstance(source, str) else getattr(source, "name", str(source))
-            target_name = target if isinstance(target, str) else getattr(target, "name", str(target)) if target is not None else None
+            source_name = (
+                source
+                if isinstance(source, str)
+                else getattr(source, "name", str(source))
+            )
+            target_name = (
+                target
+                if isinstance(target, str)
+                else getattr(target, "name", str(target))
+                if target is not None
+                else None
+            )
 
             loss_node_id = f"__min_{min_name}"
             loss_fill = "#8e44ad"
 
-            dot.node(loss_node_id,label=f"{min_name}\n{loss_name}",shape="hexagon",style="filled",fillcolor=loss_fill,color=loss_fill,fontcolor="white",)
+            dot.node(
+                loss_node_id,
+                label=f"{min_name}\n{loss_name}",
+                shape="hexagon",
+                style="filled",
+                fillcolor=loss_fill,
+                color=loss_fill,
+                fontcolor="white",
+            )
 
             if source_name:
                 _add_edge(source_name, loss_node_id, color=loss_fill, penwidth="1.6")
             if target_name:
-                _add_edge(target_name, loss_node_id, color=loss_fill, style="dashed", penwidth="1.6")
+                _add_edge(
+                    target_name,
+                    loss_node_id,
+                    color=loss_fill,
+                    style="dashed",
+                    penwidth="1.6",
+                )
 
     # Render
     try:
@@ -246,7 +273,7 @@ def export_html(
             nid = getattr(node, "name", str(node))
             if nid in seen_nodes:
                 continue
-            kind = node.node_type #if hasattr(node, "node_type") else "Other"
+            kind = node.node_type  # if hasattr(node, "node_type") else "Other"
             nodes.append((node, nid, kind, _safe_attrs(node)))
             seen_nodes.add(nid)
 
@@ -346,20 +373,24 @@ def export_html(
             edge_attrs = {
                 "from class": type(pred).__name__,
                 "to class": type(node).__name__,
-                #"from_type": getattr(pred, "node_type", None),
-                #"to_type": getattr(node, "node_type", None),
+                # "from_type": getattr(pred, "node_type", None),
+                # "to_type": getattr(node, "node_type", None),
                 "shape": str(getattr(pred, "shape", "")),
             }
 
-            vis_edges.append({
-                "from": src,
-                "to": dst,
-                "arrows": "to",
-                "label": str(getattr(pred, "shape", "")),
-                "font": {"align": "middle", "size": 10},
-                "title": json.dumps(edge_attrs, ensure_ascii=False, indent=2, default=str),
-                "color": {"color": "#7f8c8d"},
-            })
+            vis_edges.append(
+                {
+                    "from": src,
+                    "to": dst,
+                    "arrows": "to",
+                    "label": str(getattr(pred, "shape", "")),
+                    "font": {"align": "middle", "size": 10},
+                    "title": json.dumps(
+                        edge_attrs, ensure_ascii=False, indent=2, default=str
+                    ),
+                    "color": {"color": "#7f8c8d"},
+                }
+            )
 
         target = "_blank" if open_subgraph_in_new_tab else "_self"
 
@@ -394,13 +425,13 @@ def export_html(
         background: #ffffff;
         color: #111;
     }}
-    header {{ 
-        padding: 12px 16px; 
-        border-bottom: 1px solid #eee; 
-        display: flex; 
-        align-items: center; 
-        gap: 12px; 
-        flex-wrap: wrap; 
+    header {{
+        padding: 12px 16px;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
     }}
     .header-left {{
         justify-self: start;
@@ -421,14 +452,14 @@ def export_html(
         margin: 0;
         font-weight: 600;
     }}
-    .legend {{ 
-        margin-left: auto; 
-        display: flex; 
-        gap: 10px; 
-        align-items: center; 
-        font-size: 12px; 
-        color: #444; 
-        flex-wrap: wrap; 
+    .legend {{
+        margin-left: auto;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        font-size: 12px;
+        color: #444;
+        flex-wrap: wrap;
     }}
     .swatch {{
         width: 10px;
@@ -557,7 +588,7 @@ def export_html(
 <header>
     <div class="header-left">
         <img src="../imgs/logo_info.png" alt="nnodely logo" width="120" height="40"/>
-        <h1>{page_title}{' [flattened]' if flattened else ''}</h1>
+        <h1>{page_title}{" [flattened]" if flattened else ""}</h1>
         {back_html}
     </div>
     <div class="legend">

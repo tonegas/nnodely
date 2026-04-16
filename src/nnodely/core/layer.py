@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import keras
 
-import copy
 
 from nnodely.core.dag import get_seq_time_dim, next_name, same_shape
 from nnodely.core.stream import Stream
@@ -10,7 +9,7 @@ from nnodely.core.stream import Stream
 
 def _is_stream(x):
     return isinstance(x, Stream)
-    
+
 
 class Layer(Stream):
     """
@@ -19,9 +18,12 @@ class Layer(Stream):
     - If called with Stream(s): returns a new symbolic node
     - If called with tensor(s): applies the built Keras layer
     """
+
     node_type = "Layer"
 
-    def __init__(self, name=None, predecessors=None, seq=(), time=1, dim=(1,), **kwargs):
+    def __init__(
+        self, name=None, predecessors=None, seq=(), time=1, dim=(1,), **kwargs
+    ):
         self._layer = None
         self._properties = dict(kwargs)
 
@@ -88,7 +90,7 @@ class Layer(Stream):
             seqs, times, dims = zip(*(get_seq_time_dim(x) for x in inputs))
             out_seq, out_time, out_dim = self.output_shape(seqs, times, dims)
 
-            node = self.__class__(**self._properties) #self._clone_for_graph()
+            node = self.__class__(**self._properties)  # self._clone_for_graph()
             node.seq = out_seq
             node.time = out_time
             node.dim = out_dim

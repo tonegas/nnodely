@@ -2,7 +2,6 @@ import numpy as np
 import keras
 
 from nnodely.core.stream import Stream
-from nnodely.core.dag import to_tuple
 
 
 class Constant(Stream):
@@ -18,11 +17,12 @@ class Constant(Stream):
 
     seq is kept empty by default.
     """
+
     node_type = "Constant"
 
     def __init__(
         self,
-        name: str|None = None,
+        name: str | None = None,
         *,
         value,
         dtype="float32",

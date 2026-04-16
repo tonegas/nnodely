@@ -1,6 +1,6 @@
-import os 
+import os
 
-from nnodely.core.dag import collect_and_order, get_seq_time_dim, flatten
+from nnodely.core.dag import collect_and_order, flatten
 from nnodely.core.stream import Stream
 
 from nnodely.layers.output import Output
@@ -12,7 +12,8 @@ import tensorflow as tf
 
 import numpy as np
 from tqdm import tqdm
-            
+
+
 class ModelCall(Stream):
     """
     Symbolic node representing the application of a Modely to upstream Stream inputs.
@@ -32,6 +33,7 @@ class ModelCall(Stream):
         self.output_map = {node.name: node for node in self.model.outputs}
         self.output_name = output_name
 
+
 class Modely:
     """
     Modello definito dal DAG. Chiamabile con stream o tensori.
@@ -42,7 +44,7 @@ class Modely:
     # API pubblica
     # -------------------------------------------------------------------------
 
-    def __init__(self, name: str, outputs : Output | list[Output]):
+    def __init__(self, name: str, outputs: Output | list[Output]):
         """Crea modello da DAG. inputs/outputs: Input/Output o dict {name: node}."""
         self.name = name
         self.outputs = outputs if isinstance(outputs, list) else [outputs]
@@ -61,7 +63,7 @@ class Modely:
     def built(self):
         """True se build() è stato chiamato, False altrimenti."""
         return self._model is not None
-    
+
     def build(self):
         self._parameter_nodes = []
         self._parameter_vars = []
@@ -71,7 +73,9 @@ class Modely:
 
         keras_outputs = {}
         for node in self.outputs:
-            keras_outputs[node.name] = self._resolve_tensor(node, input_map, anchor=default_anchor)
+            keras_outputs[node.name] = self._resolve_tensor(
+                node, input_map, anchor=default_anchor
+            )
 
         keras_inputs = {node.name: node.input for node in self.inputs}
         self._model = keras.Model(
@@ -94,14 +98,20 @@ class Modely:
             known = {node.name for node in self.inputs}
             extra_inputs = [node for node in extra_inputs if node.name not in known]
 
-            input_map = ({node.name: node.input for node in self.inputs} | {node.name: node.input for node in extra_inputs})
+            input_map = {node.name: node.input for node in self.inputs} | {
+                node.name: node.input for node in extra_inputs
+            }
             default_anchor = next(iter(input_map.values()), None)
 
             for node in extra_outputs:
-                keras_outputs[node.name] = self._resolve_tensor(node, input_map, anchor=default_anchor)
+                keras_outputs[node.name] = self._resolve_tensor(
+                    node, input_map, anchor=default_anchor
+                )
 
             self.train_inputs = self.inputs + extra_inputs
-            keras_inputs = ({node.name: node.input for node in self.inputs} | {node.name: node.input for node in extra_inputs})
+            keras_inputs = {node.name: node.input for node in self.inputs} | {
+                node.name: node.input for node in extra_inputs
+            }
 
             self._train_model = keras.Model(
                 name=self.name + "_train",
@@ -117,14 +127,16 @@ class Modely:
         # symbolic composition mode
         if isinstance(inputs, Stream):
             return self._call_with_streams({inputs.name: inputs})
-        if isinstance(inputs, dict) and all(isinstance(v, Stream) for v in inputs.values()):
+        if isinstance(inputs, dict) and all(
+            isinstance(v, Stream) for v in inputs.values()
+        ):
             return self._call_with_streams(inputs)
 
         # tensor execution mode
         if self._model is None:
             self.build()
         return self._model(inputs)
-    
+
     def _call_with_streams(self, inputs_dict):
         """
         Compose this model symbolically with upstream Stream inputs.
@@ -145,7 +157,7 @@ class Modely:
         if len(outputs) == 1:
             return next(iter(outputs.values()))
         return outputs
-    
+
     def _resolve_tensor(self, node, tensor_map, anchor=None):
         if node.name in tensor_map:
             return tensor_map[node.name]
@@ -186,11 +198,15 @@ class Modely:
             y = pred_tensors[0]
         else:
             layer = node.build_layer() if node._layer is None else node._layer
-            y = layer(pred_tensors[0]) if len(pred_tensors) == 1 else layer(pred_tensors)
+            y = (
+                layer(pred_tensors[0])
+                if len(pred_tensors) == 1
+                else layer(pred_tensors)
+            )
 
         tensor_map[node.name] = y
         return y
-    
+
     def _resolve_model_call(self, node, tensor_map):
         """
         Resolve a symbolic submodel application into a KerasTensor.
@@ -216,31 +232,40 @@ class Modely:
         raise ValueError(
             f"Submodel '{submodel.name}' returned non-dict output for multi-output case."
         )
+
     # -------------------------------------------------------------------------
     # Train API
     # -------------------------------------------------------------------------
-    
-    def minimize(self, name:str, source:Output|Stream, target:Output|Stream|float|None = None, loss='mse'):
+
+    def minimize(
+        self,
+        name: str,
+        source: Output | Stream,
+        target: Output | Stream | float | None = None,
+        loss="mse",
+    ):
         """Register a loss to minimize during training.
         name: identifier for this loss (used as an output name in the training model)
         source: node/stream producing predictions (e.g., an Output node)
         target: node/stream providing target values (usually derived from an Input)
         loss: loss identifier accepted by `keras.losses.get`
         """
-        if target is None: ## Transform it into a Constant with value zero
-            target = Constant(name=None, value=0.0, dtype='float32')
+        if target is None:  ## Transform it into a Constant with value zero
+            target = Constant(name=None, value=0.0, dtype="float32")
         if isinstance(target, float):
-            target = Constant(name=None, value=[target], dtype='float32')
-        self._minimizers.append({'name': name, 'source': source, 'target': target, 'loss': loss})
+            target = Constant(name=None, value=[target], dtype="float32")
+        self._minimizers.append(
+            {"name": name, "source": source, "target": target, "loss": loss}
+        )
         return self
-    
-    def remove_minimizer(self, name:str):
+
+    def remove_minimizer(self, name: str):
         """Remove a registered minimizer by name."""
-        self._minimizers = [m for m in self._minimizers if m['name'] != name]
-    
+        self._minimizers = [m for m in self._minimizers if m["name"] != name]
+
     def train(
         self,
-        train_data : DataLoader,
+        train_data: DataLoader,
         epochs: int = 1,
         batch_size: int = 1,
         optimizer=None,
@@ -274,10 +299,12 @@ class Modely:
         # Model input keys that must be loaded by the DataLoader
         for k in [node.name for node in self.train_inputs]:
             if k not in train_data.inputs:
-                raise ValueError(f"train_data must provide input '{k}' required by the model.")
-    
+                raise ValueError(
+                    f"train_data must provide input '{k}' required by the model."
+                )
+
         # Default optimizer ## TODO: change with a user defined optimizer
-        if optimizer is None: 
+        if optimizer is None:
             optimizer = keras.optimizers.Adam(learning_rate=lr)
         ## Default losses for each minimizer ## TODO: allow user to specify loss per minimizer
         losses = {m["name"]: keras.losses.MeanSquaredError() for m in self._minimizers}
@@ -289,14 +316,16 @@ class Modely:
             np.random.shuffle(idxs)
             epoch_losses = []
             for start in range(0, n_samples, batch_size):
-                batch_idx = idxs[start:start + batch_size]
+                batch_idx = idxs[start : start + batch_size]
 
                 # Collect samples from DataLoader
                 batch_samples = [train_data[i] for i in batch_idx]
                 # Build batch inputs:
                 batch_inputs = {}
                 for k in [node.name for node in self.train_inputs]:
-                    batch_inputs[k] = tf.convert_to_tensor(np.stack([sample[k] for sample in batch_samples], axis=0))
+                    batch_inputs[k] = tf.convert_to_tensor(
+                        np.stack([sample[k] for sample in batch_samples], axis=0)
+                    )
 
                 with tf.GradientTape() as tape:
                     preds = km(batch_inputs, training=True)
@@ -310,8 +339,7 @@ class Modely:
                         y_pred, y_true = preds[source_name], preds[target_name]
 
                         loss_obj = losses[name]
-                        l = loss_obj(y_true, y_pred)
-                        total = total + tf.reduce_mean(l)
+                        total = total + tf.reduce_mean(loss_obj(y_true, y_pred))
 
                 # gradients = tape.gradient(total, km.trainable_weights)
                 # # Filter out None gradients (non-differentiable vars) before applying
@@ -326,7 +354,11 @@ class Modely:
                         unique_vars.append(v)
 
                 gradients = tape.gradient(total, unique_vars)
-                grads_and_vars = [(g, v) for g, v in zip(gradients or [], unique_vars) if g is not None]
+                grads_and_vars = [
+                    (g, v)
+                    for g, v in zip(gradients or [], unique_vars)
+                    if g is not None
+                ]
                 if grads_and_vars:
                     optimizer.apply_gradients(grads_and_vars)
                 else:
@@ -346,7 +378,7 @@ class Modely:
 
     def flatten(self) -> "Modely":
         return flatten(model=self)
-    
+
     # -------------------------------------------------------------------------
     # Visualization API
     # -------------------------------------------------------------------------
@@ -376,13 +408,18 @@ class Modely:
             Path to the root exported HTML file.
         """
         from nnodely.utils.plot import export_html
-        return export_html(model=self, 
-                           out_dir=out_dir, 
-                           filename=filename, 
-                           open_subgraph_in_new_tab=open_subgraph_in_new_tab, 
-                           physics=physics)
 
-    def plot(self, to_file: str, include_minimizers: bool = True, flatten: bool = False):
+        return export_html(
+            model=self,
+            out_dir=out_dir,
+            filename=filename,
+            open_subgraph_in_new_tab=open_subgraph_in_new_tab,
+            physics=physics,
+        )
+
+    def plot(
+        self, to_file: str, include_minimizers: bool = True, flatten: bool = False
+    ):
         """
         Render a left-to-right graph of the model DAG to `to_file` using graphviz.
 
@@ -396,34 +433,41 @@ class Modely:
         labeled with its loss type and connected from source/target.
         """
         from nnodely.utils.plot import plot_graphviz
-        return plot_graphviz(model=self, 
-                             to_file=to_file, 
-                             include_minimizers=include_minimizers,
-                             flatten=flatten)
+
+        return plot_graphviz(
+            model=self,
+            to_file=to_file,
+            include_minimizers=include_minimizers,
+            flatten=flatten,
+        )
 
     # -------------------------------------------------------------------------
     # Save and load (pickle)
     # -------------------------------------------------------------------------
 
-    def save(self, filename:str):
+    def save(self, filename: str):
         """Save the nnodely Model to a file."""
         import pickle
-        with open(filename+".pkl", 'wb') as out:
+
+        with open(filename + ".pkl", "wb") as out:
             pickle.dump(self, out, protocol=pickle.HIGHEST_PROTOCOL)
 
     @staticmethod
-    def load(filename:str) -> 'Modely':
+    def load(filename: str) -> "Modely":
         """Load a nnodely Model from a file."""
         import pickle
-        with open(filename+".pkl", 'rb') as inp:
+
+        with open(filename + ".pkl", "rb") as inp:
             return pickle.load(inp)
-        
-    def export_keras(self, filename:str):
+
+    def export_keras(self, filename: str):
         """Export the built Keras model to a file."""
         if not self.built:
             self.build()
-        self._model.save(filename+".keras")
+        self._model.save(filename + ".keras")
 
-    def import_keras(self, filename:str):
+    def import_keras(self, filename: str):
         """Import the built Keras model from a file."""
-        self._model = keras.models.load_model(filename+".keras", safe_mode=False) # WARNING: safe_mode=False per custom layers con torch.nn.Module.
+        self._model = keras.models.load_model(
+            filename + ".keras", safe_mode=False
+        )  # WARNING: safe_mode=False per custom layers con torch.nn.Module.

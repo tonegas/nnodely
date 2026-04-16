@@ -5,10 +5,12 @@ Each node has predecessors; Model traverses from output backwards.
 Dimensioni: seq, time, dim. Shape = seq + (time,) + dim.
 Default: seq=(), time=1, dim=(1,)
 """
+
 import copy
 
 SEQ_TIME_DIM_DEFAULT = ((), 1, (1,))
 _node_counter = 0
+
 
 def next_name(prefix: str) -> str:
     """Nome univoco per nodi generati."""
@@ -16,9 +18,10 @@ def next_name(prefix: str) -> str:
     _node_counter += 1
     return f"{prefix}{_node_counter}"
 
-#------------------------------------------------------------------
+
+# ------------------------------------------------------------------
 # flattening logic
-#------------------------------------------------------------------
+# ------------------------------------------------------------------
 def flatten(model):
     flattened = model
     for node in model._order:
@@ -27,6 +30,7 @@ def flatten(model):
     if any(n.node_type == "Model" for n in flattened._order):
         return flatten(flattened)
     return flattened
+
 
 def _clone_graph(order):
     """
@@ -43,7 +47,9 @@ def _clone_graph(order):
     # second pass: reconnect predecessors
     for node in order:
         new_node = clone_map[node]
-        new_node.predecessors = [clone_map[p] for p in node.predecessors if p in clone_map]
+        new_node.predecessors = [
+            clone_map[p] for p in node.predecessors if p in clone_map
+        ]
 
     cloned_order = [clone_map[node] for node in order]
     return cloned_order, clone_map
@@ -52,9 +58,8 @@ def _clone_graph(order):
 def _aggregate_models(model, submodel):
     model_order, model_map = _clone_graph(model._order)
     submodel_cloned = model_map[submodel]
-    submodel_order, submodel_map = _clone_graph(submodel.model._order)
+    submodel_order, _ = _clone_graph(submodel.model._order)
 
-    cloned_sub_inputs = {n.name: n for n in submodel_order if n.node_type == "Input"}
     cloned_sub_outputs = {n.name: n for n in submodel_order if n.node_type == "Output"}
 
     # Replace submodel inputs with external mapped streams
@@ -64,7 +69,9 @@ def _aggregate_models(model, submodel):
             input_map_cloned[in_name] = model_map[ext_stream]
 
     # remove child input/output nodes from inserted subgraph
-    submodel_order = [n for n in submodel_order if n.node_type not in ("Input", "Output")]
+    submodel_order = [
+        n for n in submodel_order if n.node_type not in ("Input", "Output")
+    ]
 
     # reconnect predecessors inside child graph
     for node in submodel_order:
@@ -78,7 +85,7 @@ def _aggregate_models(model, submodel):
 
     # Replace parent references to the ModelCall with the selected child output predecessor
     selected_output = cloned_sub_outputs[submodel.output_name]
-    replacement_preds = selected_output.predecessors[:]   # usually one predecessor
+    replacement_preds = selected_output.predecessors[:]  # usually one predecessor
 
     model_order = [n for n in model_order if n is not submodel_cloned]
 
@@ -95,6 +102,7 @@ def _aggregate_models(model, submodel):
     cloned_outputs = [model_map[out] for out in model.outputs]
 
     from nnodely.core.modely import Modely
+
     flat_model = Modely(
         name=model.name + "_" + submodel.model.name,
         outputs=cloned_outputs,
@@ -104,9 +112,10 @@ def _aggregate_models(model, submodel):
 
     return flat_model
 
-#------------------------------------------------------------------
+
+# ------------------------------------------------------------------
 # DAG logic
-#------------------------------------------------------------------
+# ------------------------------------------------------------------
 def to_tuple(x, default=(1,)):
     """Converte int/tuple/None in tuple. 0 -> default."""
     if x is None:
@@ -115,11 +124,12 @@ def to_tuple(x, default=(1,)):
         return (x,) if x != 0 else default
     return tuple(x) if x else default
 
+
 def get_seq_time_dim(node):
     """Estrae (seq, time, dim) da Stream, Input o Layer. Default: seq=(), time=1, dim=(1,)."""
-    seq = tuple(getattr(node, 'seq', ()) or ())
-    time = getattr(node, 'time', None) or 1
-    dim = to_tuple(getattr(node, 'dim', (1,)), (1,))
+    seq = tuple(getattr(node, "seq", ()) or ())
+    time = getattr(node, "time", None) or 1
+    dim = to_tuple(getattr(node, "dim", (1,)), (1,))
     return seq, time, dim
 
 
@@ -129,8 +139,10 @@ def seq_time_dim_to_shape(seq, time, dim):
     dim = to_tuple(dim, (1,))
     return seq + (time,) + dim
 
+
 def same_shape(a, b):
     return get_seq_time_dim(a) == get_seq_time_dim(b)
+
 
 def collect_and_order(output_nodes):
     """
@@ -146,11 +158,10 @@ def collect_and_order(output_nodes):
         if id(node) in visited:
             return
         visited.add(id(node))
-        for pred in getattr(node, 'predecessors', []):
+        for pred in getattr(node, "predecessors", []):
             dfs(pred)
         result.append(node)
 
     for out in output_nodes:
         dfs(out)
     return result
-

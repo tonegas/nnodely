@@ -1,14 +1,15 @@
 from nnodely.core.layer import Layer
-from nnodely.core.dag import to_tuple
 
 import keras
+
 
 class SampleWindow(Layer):
     """
     Layer che estrae finestra temporale. Se window_size < input.time, applica slice.
     Simmetrico agli altri layer: usa build_layer e call.
     """
-    node_type = 'SampleWindow'
+
+    node_type = "SampleWindow"
 
     def __init__(self, window_size: int, name=None):
         self.window_size = int(window_size)
@@ -21,18 +22,24 @@ class SampleWindow(Layer):
     def build_layer(self, **kwargs):
         """Crea Lambda per slice se window_size < input.time, altrimenti Identity."""
         seq_t = self.seq
-        dim_t = self.dim 
+        dim_t = self.dim
         n = self.window_size
         if n >= self.time:
             self._layer = keras.layers.Identity(name=self.name)
         else:
-            slices = [slice(None)] * (1 + len(seq_t)) + [slice(-n, None)] + [slice(None)] * len(dim_t)
-            self._layer = keras.layers.Lambda(lambda x: x[tuple(slices)], name=self.name,)
+            slices = (
+                [slice(None)] * (1 + len(seq_t))
+                + [slice(-n, None)]
+                + [slice(None)] * len(dim_t)
+            )
+            self._layer = keras.layers.Lambda(
+                lambda x: x[tuple(slices)],
+                name=self.name,
+            )
         return self._layer
 
     # def call(self, x):
     #     return self._layer(x)
-    
 
 
 # ## TODO: SamplePart, SampleSelect and make it time dependend with past and future

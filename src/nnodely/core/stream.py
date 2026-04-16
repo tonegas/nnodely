@@ -34,8 +34,8 @@ class Stream:
 
     def __init__(
         self,
-        name: str|None = None,
-        node_type: str = 'Stream',
+        name: str | None = None,
+        node_type: str = "Stream",
         seq=(),
         time: int = 1,
         dim=(1,),
@@ -68,18 +68,22 @@ class Stream:
 
     def __add__(self, other):
         from nnodely.core.layer import Add
+
         return Add()(self, other)
 
     def __sub__(self, other):
         from nnodely.core.layer import Subtract
+
         return Subtract()(self, other)
 
     def __mul__(self, other):
         from nnodely.core.layer import Multiply
+
         return Multiply()(self, other)
 
     def __truediv__(self, other):
         from nnodely.core.layer import Divide
+
         return Divide()(self, other)
 
     def __repr__(self):
