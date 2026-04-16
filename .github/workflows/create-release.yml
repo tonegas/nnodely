@@ -45,10 +45,10 @@ jobs:
       - name: Basic test (source distribution)
         run: uv run --isolated --no-project --with dist/*.tar.gz python -c "import nnodely"
 
-      - name: Test publish
+      - name: TestPyPi publish
         run: uv publish --index testpypi
 
-      - name: Publish
+      - name: PyPI publish
         run: uv publish
 
       - name: Upload artifacts
