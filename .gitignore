@@ -6,13 +6,10 @@ __pycache__
 !.vscode/extensions.json
 
 results
-<<<<<<< HEAD
-html
-=======
 dist/
 docs/_build
 docs/out_docs
->>>>>>> develop
+html
 
 .DS_Store
 .coverage
