@@ -167,34 +167,45 @@ def main(example=1):
         model3.plot(to_file='html/model3_standard.png')
         model3.plot(to_file='html/model3_flattened.png', flatten=True)
 
-        # x = Input('x', dim=1)
-        # y = Input('y', dim=1)
-        # z = Input('z', dim=1)
-        # r1 = x.sw(1)+y.sw(1)
-        # out1 = Output('out1', r1)
-        # model1 = Modely('model1', outputs=out1)
-        # model1.build()
-
-        # r2 = Fir(out_features=1)(z.sw(3))
-        # out2 = Output('out2', model1({'x': r2, 'y': z.sw(1)}))
-        # model2 = Modely('model2', outputs=out2)
-        # model2.build()
-
-        # k = Input('k', dim=1)
-        # f = Input('f', dim=1)
-        # r3 = model2({'z': k.sw(3)}) + model2({'z': f.sw(3)})
-        # out3 = Output('out3', r3)
-        # model3 = Modely('model3', outputs=out3)
-        # model3.build()
-
-
     if example == 5:
         # ------- Model with closed loop connections -------
+        from nnodely.layers.loop import Loop
+        x = Input(name="x", dim=1)
+        y = Input(name="y", dim=1)
+        r1 = x.sw(1) + y.sw(1)
+        out1 = Output("out1", r1)
+        model1 = Modely(name="model1", outputs=[out1])
 
-        pass
+        z = Input(name="z", dim=1, seq=5)
+        const = Constant('const', value=2.0)
+        r2 = z.sw(1) * const
+        loop_fn = Loop(f=model1, closed_loop={out1: z})
+        out = Output("out", loop_fn(z,r2))
+        model = Modely(name="model", outputs=[out])
+
+        model.build()
 
     if example == 6:
         # ------- Model with time window partitioning, Past and Future -------
+        x = Input('x', dim=1)
+        y = Input('y', dim=1)
+        z = Input('z', dim=1)
+        r1 = x.sw(1)+y.sw(1)
+        out1 = Output('out1', r1)
+        model1 = Modely('model1', outputs=out1)
+        model1.build()
+
+        r2 = Fir(out_features=1)(z.sw(3))
+        out2 = Output('out2', model1({'x': r2, 'y': z.sw(1)}))
+        model2 = Modely('model2', outputs=out2)
+        model2.build()
+
+        k = Input('k', dim=1)
+        f = Input('f', dim=1)
+        r3 = model2({'z': k.sw(3)}) + model2({'z': f.sw(3)})
+        out3 = Output('out3', r3)
+        model3 = Modely('model3', outputs=out3)
+        model3.build()
         pass
 
     if example == 7:
@@ -203,6 +214,10 @@ def main(example=1):
 
     if example == 8:
         # ------- High-level Blocks (Local Models) with Multi-inputs -------
+        pass
+
+    if example == 9:
+        # ------- Custom Layers -------
         pass
 
 if __name__ == '__main__':
