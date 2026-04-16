@@ -4,14 +4,19 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 # -- Path setup --------------------------------------------------------------
 import os
+
+
 def read_version():
-    version_file = os.path.join(os.path.dirname(__file__), '..', 'nnodely', '__init__.py')
-    with open(version_file, 'r') as f:
+    version_file = os.path.join(
+        os.path.dirname(__file__), "..", "nnodely", "__init__.py"
+    )
+    with open(version_file, "r") as f:
         for line in f:
-            if line.startswith('__version__'):
+            if line.startswith("__version__"):
                 delim = '"' if '"' in line else "'"
                 return line.split(delim)[1]
     raise RuntimeError("Unable to find version string.")
+
 
 def skip_nnodely(app, what, name, obj, skip, options):
     # Skip the alias nnodely
@@ -19,14 +24,16 @@ def skip_nnodely(app, what, name, obj, skip, options):
         return True  # esclude questo membro dalla documentazione
     return skip
 
+
 def setup(app):
     app.connect("autodoc-skip-member", skip_nnodely)
+
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = __package__
-author = 'tonegas'
+author = "tonegas"
 release = read_version()
 version = read_version()
 
@@ -34,12 +41,12 @@ version = read_version()
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
-#    'sphinx.ext.autodoc',
-    'sphinx.ext.napoleon',
-    'sphinx.ext.viewcode',
-    'sphinx.ext.mathjax',
-    'myst_parser',
-    'nbsphinx',
+    #    'sphinx.ext.autodoc',
+    "sphinx.ext.napoleon",
+    "sphinx.ext.viewcode",
+    "sphinx.ext.mathjax",
+    "myst_parser",
+    "nbsphinx",
 ]
 
 templates_path = []
@@ -60,8 +67,8 @@ html_theme_options = {
 }
 
 
-html_static_path = ['_static']
-html_logo = '_static/logo.png'
+html_static_path = ["_static"]
+html_logo = "_static/logo.png"
 
 # -- Options for EPUB output -------------------------------------------------
-epub_copyright = '2024, tonegas'  # Add this line
+epub_copyright = "2024, tonegas"  # Add this line

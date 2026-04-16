@@ -1,3 +1,3 @@
 .. code-block :: python
 
-  x = Neg(x)  
+  x = Neg(x)

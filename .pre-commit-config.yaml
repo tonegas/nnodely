@@ -1,0 +1,41 @@
+default_install_hook_types:
+  - pre-commit
+  - post-merge
+  - post-rewrite
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v2.3.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+  - repo: local
+    hooks:
+      - id: uv-sync
+        name: uv sync
+        entry: uv sync
+        language: system
+        pass_filenames: false
+        stages: [post-merge, post-rewrite]
+      - id: uv-lock
+        name: uv lock
+        entry: uv lock
+        language: system
+        pass_filenames: false
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]
+      - id: pytest
+        name: pytest
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
+        types: [python]
