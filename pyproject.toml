@@ -35,8 +35,10 @@ dependencies = [
 "Repository" = "https://github.com/tonegas/nnodely"
 
 [dependency-groups]
-dev = [
-    "pre-commit>=4.5.1",
-    "pytest-cov>=7.1.0",
-    "ruff>=0.15.10",
-]
+dev = ["pre-commit>=4.5.1", "pytest-cov>=7.1.0", "ruff>=0.15.10"]
+
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit = true
