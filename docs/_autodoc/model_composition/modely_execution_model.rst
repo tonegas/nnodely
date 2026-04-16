@@ -25,7 +25,7 @@ This dynamic composition can be performed by calling one of the following method
 .. code-block:: python
 
     msd.trainAndAnalyze(models='PID', closed_loop={'x':'x_n', 'x_m':'x_n'}, connect={'F':'F_PID'}, ...)
-    
+
 
 .. .. automethod:: nnodely.nnodely.Modely.trainAndAnalyze
 ..    :no-index:

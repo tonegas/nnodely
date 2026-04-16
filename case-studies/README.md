@@ -8,9 +8,9 @@ The subfolders are organized as follows:
 
 Contains three Python notebooks (plus all the other relative files) relative to the lateral vehicle dynamics model:
 
-- `lateral_dynamics_model.ipynp`: Design of the lateral vehicle dynamics model as presented in the paper  
+- `lateral_dynamics_model.ipynp`: Design of the lateral vehicle dynamics model as presented in the paper
 - `lateral_dynamics_control.ipynp`: Design and training of the lateral controller as presented in the paper
-- `lateral_dynamics_model_torch.ipynp`: A comparative implementation of the lateral dynamics model developed in native **PyTorch**  
+- `lateral_dynamics_model_torch.ipynp`: A comparative implementation of the lateral dynamics model developed in native **PyTorch**
 
 ## 2. `mass_spring_damper`
 

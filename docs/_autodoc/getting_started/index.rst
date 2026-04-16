@@ -174,13 +174,13 @@ Reacher Estimator
 
  Here is simple two-joint planar manipulator. The inputs are the joint angles :math:`\theta_1` and :math:`\theta_2`, while the outputs are the end-effector coordinates :math:`(x, y)`.
  The link lengths :math:`l_1` and :math:`l_2` are unknown and are estimated from data using *nnodely* as learnable parameters.
- 
+
 
 The kinematic model is given by:
 
 
-.. math::   
-   x = l_1 \cos(\theta_1) + l_2 \cos(\theta_1 + \theta_2), \quad  
+.. math::
+   x = l_1 \cos(\theta_1) + l_2 \cos(\theta_1 + \theta_2), \quad
    y = l_1 \sin(\theta_1) + l_2 \sin(\theta_1 + \theta_2).
 
 
@@ -188,7 +188,7 @@ The kinematic model is given by:
 **Local Module Path Configuration and Package Import**
 
 
-First, we ensure Python can locate modules in the current working directory, 
+First, we ensure Python can locate modules in the current working directory,
 enabling the import of nnodely components for use in the script.
 
 .. code-block:: python
@@ -204,8 +204,8 @@ enabling the import of nnodely components for use in the script.
 
 
 
-  
- Input variables are created using the :class:`Input` class. The learnable parameters are given within the :class:`Parameter`. The :class:`Output` class defines the model output and takes two arguments: 
+
+ Input variables are created using the :class:`Input` class. The learnable parameters are given within the :class:`Parameter`. The :class:`Output` class defines the model output and takes two arguments:
  the name of the output and its structure.
 
 
@@ -219,7 +219,7 @@ enabling the import of nnodely components for use in the script.
 
    l1 = Parameter('l1')  #parameters to be estimated
    l2 = Parameter('l2')  #parameters to be estimated
-   
+
    x_out = Output('x_out', (l1 * Cos(theta1.last())) +
           (l2 * Cos(theta1.last() + theta2.last())))
    y_out = Output('y_out', (l1 * Sin(theta1.last())) +
@@ -227,21 +227,21 @@ enabling the import of nnodely components for use in the script.
 
 **Model composition**
 
-:class:`addModel` adds the defined output to the model. 
-:class:`addMinimize` defines the loss function. This function uses the following inputs: The first input is the name of the error (`x-error` and `y-error` in this case). The second and third inputs are the variables whose 
-difference we want to minimize. The fourth input is the loss function to be used, in this case the mean square error (`mse`). 
+:class:`addModel` adds the defined output to the model.
+:class:`addMinimize` defines the loss function. This function uses the following inputs: The first input is the name of the error (`x-error` and `y-error` in this case). The second and third inputs are the variables whose
+difference we want to minimize. The fourth input is the loss function to be used, in this case the mean square error (`mse`).
 :class:`neuralizeModel` builds the discrete-time MS-NN where its input parameter is the sampling time.
 
 
 .. code-block:: python
 
-   # Model composition 
+   # Model composition
    model = Modely(seed=0)
    model.addModel('x_out', x_out)
    model.addModel('y_out', y_out)
    model.addMinimize('x-error', x_tip.last(), x_out, 'mse') # Objectives
    model.addMinimize('y-error', y_tip.last(), y_out, 'mse') # Objectives
-   model.neuralizeModel(sample_time=0.02) 
+   model.neuralizeModel(sample_time=0.02)
 
 **Data loading**
 
@@ -251,15 +251,15 @@ difference we want to minimize. The fourth input is the loss function to be used
 
    data_struct = ['step', 'T1','T2','theta1', 'theta2', 'x_tip', 'y_tip',
                   'thetadot1', 'thetadot2', 'thetaddot1', 'thetaddot2'] # dataset creation
-   
+
    data_folder = os.path.join(os.getcwd(), 'dataset', 'data')
-   
+
    model.loadData(name='reacher_data', source=data_folder,
-               format=data_struct, delimiter=';')  # Data loading 
+               format=data_struct, delimiter=';')  # Data loading
 
 **Training**
 
-Trains the model for `200` epochs (batch size `128`, learning rate `0.01`) using a `70/20/10` 
+Trains the model for `200` epochs (batch size `128`, learning rate `0.01`) using a `70/20/10`
 train-validation-test split.
 
 
@@ -279,7 +279,7 @@ train-validation-test split.
        Code
      </a>
    </p>
-   
+
 --------------------------------------------------------
 
 Applications
@@ -318,4 +318,3 @@ For the tutorial please refer to the link below.
        Tutorials
      </a>
    </p>
-

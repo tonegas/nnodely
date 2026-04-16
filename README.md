@@ -8,16 +8,16 @@
 [![Documentation](https://readthedocs.org/projects/nnodely/badge/?version=main&style=default)](https://nnodely.readthedocs.io/)
 [![PyPI](https://img.shields.io/pypi/v/nnodely?color=blue&label=PyPI%20Package)](https://pypi.org/project/nnodely/)
 
-# Neural Network Framekwork for Modelling, Control, and Estimation of Physical Systems
+# Neural Network Framework for Modelling, Control, and Estimation of Physical Systems
 
 Modeling, control, and estimation of physical systems are central to many engineering disciplines. While data-driven methods like neural networks offer powerful tools, they often struggle to **incorporate prior domain knowledge**, limiting their interpretability, generalizability, and safety.
 
-To bridge this gap, we present ***nnodely*** (where "nn" can be read as "m," forming *Modely*) — a framework that facilitates the creation and deployment of **Model-Structured Neural Networks** (**MS-NNs**).  
+To bridge this gap, we present ***nnodely*** (where "nn" can be read as "m," forming *Modely*) — a framework that facilitates the creation and deployment of **Model-Structured Neural Networks** (**MS-NNs**).
 MS-NNs combine the learning capabilities of neural networks with structural **priors** grounded in **physics, control, and estimation theory**, enabling:
 
-- **Reduced training data** requirements  
-- **Generalization** to unseen scenarios  
-- **Real-time** deployment in real-world applications  
+- **Reduced training data** requirements
+- **Generalization** to unseen scenarios
+- **Real-time** deployment in real-world applications
 
 In short:
 
@@ -126,10 +126,10 @@ The `nnodely` main class defined in __nnodely.py__, it contains all the main pro
 2. __loader.py__ contains the function for managing the dataset, the main function is `dataLoad`.
 3. __trainer.py__ contains the function for training the network as the `trainModel`.
 4. __exporter.py__ contains all the function for import and export: `saveModel`, `loadModel`, `exportONNX` etc..
-5. __validator.py__ contains all the function for validate the model and the `resultsAnalysis`. 
+5. __validator.py__ contains all the function for validate the model and the `resultsAnalysis`.
 6. All the operators derive from `Network` defined in __network.py__, that contains the shared support functions for all the operators.
 
-The folder `basic/` contains the main classes for the low level functionalities: 
+The folder `basic/` contains the main classes for the low level functionalities:
 1. __model.py__ containts the pytorch template model for the structured network.
 2. __modeldef.py__ containts the operation for work with the json model definition.
 3. __loss.py__ contains the loss functions.
@@ -153,14 +153,14 @@ The main basic layers without parameters are:
 2. __arithmetic.py__ this file contains the aritmetic functions as: +, -, /, *., **.
 3. __trigonometric.py__ this file contains all the trigonometric functions.
 4. __part.py__ are used for selecting part of the data.
-5. __fuzzify.py__ contains the operation for the fuzzification of a variable, 
+5. __fuzzify.py__ contains the operation for the fuzzification of a variable,
 commonly used in the local model as activation function as in [[1]](#1) with rectangular activation functions or in [[3]](#3), [[4]](#4) and [[5]](#5) with triangular activation function activation functions.
 Using fuzzification it is also possible create a channel coding as presented in [[2]](#2).
 
 The main basic layers with parameters are:
-1. __fir.py__ this file contains the finite impulse response filter function. It is a linear operation on the time dimension (second dimension). 
+1. __fir.py__ this file contains the finite impulse response filter function. It is a linear operation on the time dimension (second dimension).
 This filter was introduced in [[1]](#1).
-2. __linear.py__ this file contains the linear function. Typical Linear operation `W*x+b` operated on the space dimension (third dimension). 
+2. __linear.py__ this file contains the linear function. Typical Linear operation `W*x+b` operated on the space dimension (third dimension).
 This operation is presented in [[1]](#1).
 3. __localmodel.py__ this file contains the logic for build a local model. This operation is presented in [[1]](#1), [[3]](#3), [[4]](#4) and [[5]](#5).
 4. __parametricfunction.py__ are the user custom function. The function can use the pytorch syntax. A parametric function is presented in [[3]](#3), [[4]](#4), [[5]](#5).
@@ -196,8 +196,8 @@ This folder contains the images used in the documentation.
 
 To contribute to the nnodely framework, you can:
 
-- Open a pull request if you have a new feature or bug fix.  
-- Open an issue if you have a question or suggestion.  
+- Open a pull request if you have a new feature or bug fix.
+- Open an issue if you have a question or suggestion.
 
 We welcome contributions and collaborations.
 
@@ -212,53 +212,53 @@ This project is released under the license [License: MIT](https://opensource.org
 <a name="references"></a>
 ## References
 
-<a id="1">[1]</a> 
-Mauro Da Lio, Daniele Bortoluzzi, Gastone Pietro Rosati Papini. (2019). 
-Modelling longitudinal vehicle dynamics with neural networks. 
+<a id="1">[1]</a>
+Mauro Da Lio, Daniele Bortoluzzi, Gastone Pietro Rosati Papini. (2019).
+Modelling longitudinal vehicle dynamics with neural networks.
 Vehicle System Dynamics. https://doi.org/10.1080/00423114.2019.1638947 (look the [[code]](https://github.com/tonegas/nnodely-applications/blob/main/vehicle/model_longit_vehicle_dynamics/model_longit_vehicle_dynamics.py))
 
-<a id="2">[2]</a> 
-Alice Plebe, Mauro Da Lio, Daniele Bortoluzzi. (2019). 
-On Reliable Neural Network Sensorimotor Control in Autonomous Vehicles. 
+<a id="2">[2]</a>
+Alice Plebe, Mauro Da Lio, Daniele Bortoluzzi. (2019).
+On Reliable Neural Network Sensorimotor Control in Autonomous Vehicles.
 IEEE Transaction on Intelligent Transportation System. https://doi.org/10.1109/TITS.2019.2896375
 
-<a id="3">[3]</a> 
-Mauro Da Lio, Riccardo Donà, Gastone Pietro Rosati Papini, Francesco Biral, Henrik Svensson. (2020). 
+<a id="3">[3]</a>
+Mauro Da Lio, Riccardo Donà, Gastone Pietro Rosati Papini, Francesco Biral, Henrik Svensson. (2020).
 A Mental Simulation Approach for Learning Neural-Network Predictive Control (in Self-Driving Cars).
 IEEE Access. https://doi.org/10.1109/ACCESS.2020.3032780 (look the [[code]](https://github.com/tonegas/nnodely-applications/blob/main/vehicle/model_lateral_vehicle_dynamics/model_lateral_vehicle_dynamics.ipynb))
 
-<a id="4">[4]</a> 
-Edoardo Pagot, Mattia Piccinini, Enrico Bertolazzi, Francesco Biral. (2023). 
+<a id="4">[4]</a>
+Edoardo Pagot, Mattia Piccinini, Enrico Bertolazzi, Francesco Biral. (2023).
 Fast Planning and Tracking of Complex Autonomous Parking Maneuvers With Optimal Control and Pseudo-Neural Networks.
 IEEE Access. https://doi.org/10.1109/ACCESS.2023.3330431 (look the [[code]](https://github.com/tonegas/nnodely-applications/blob/main/vehicle/control_steer_car_parking/control_steer_car_parking.ipynb))
 
-<a id="5">[5]</a> 
+<a id="5">[5]</a>
 Mattia Piccinini, Sebastiano Taddei, Matteo Larcher, Mattia Piazza, Francesco Biral. (2023).
 A Physics-Driven Artificial Agent for Online Time-Optimal Vehicle Motion Planning and Control.
 IEEE Access. https://doi.org/10.1109/ACCESS.2023.3274836 (look [[code basic]](https://github.com/tonegas/nnodely-applications/blob/main/vehicle/control_steer_artificial_race_driver/control_steer_artificial_race_driver.ipynb)
 and [[code extended]](https://github.com/tonegas/nnodely-applications/blob/main/vehicle/control_steer_artificial_race_driver_extended/control_steer_artificial_race_driver_extended.ipynb))
 
-<a id="6">[6]</a> 
+<a id="6">[6]</a>
 Hector Perez-Villeda, Justus Piater, Matteo Saveriano. (2023).
 Learning and extrapolation of robotic skills using task-parameterized equation learner networks.
 Robotics and Autonomous Systems. https://doi.org/10.1016/j.robot.2022.104309 (look the [[code]](https://github.com/tonegas/nnodely-applications/blob/main/equation_learner/equation_learner.ipynb))
 
-<a id="7">[7]</a> 
+<a id="7">[7]</a>
 M. Raissi. P. Perdikaris b, G.E. Karniadakis a. (2019).
 Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations
 Journal of Computational Physics. https://doi.org/10.1016/j.jcp.2018.10.045 (look the [[example Burger's equation]](https://github.com/tonegas/nnodely-applications/blob/main/pinn/pinn_Burgers_equation.ipynb))
 
-<a id="8">[8]</a> 
+<a id="8">[8]</a>
 Wojciech Marian Czarnecki, Simon Osindero, Max Jaderberg, Grzegorz Świrszcz, Razvan Pascanu. (2017).
 Sobolev Training for Neural Networks.
 arXiv. https://doi.org/10.48550/arXiv.1706.04859 (look the [[code]](https://github.com/tonegas/nnodely-applications/blob/main/sobolev/Sobolev_learning.ipynb))
 
-<a id="9">[9]</a> 
+<a id="9">[9]</a>
 Mattia Piccinini, Matteo Zumerle, Johannes Betz, Gastone Pietro Rosati Papini. (2025).
 A Road Friction-Aware Anti-Lock Braking System Based on Model-Structured Neural Networks.
 IEEE Open Journal of Intelligent Transportation Systems. https://doi.org/10.1109/OJITS.2025.3563347 (look at the [[code]](https://github.com/tonegas/nnodely-applications/tree/main/vehicle/road_friction_aware_ABS))
 
-<a id="10">[10]</a> 
+<a id="10">[10]</a>
 Mauro Da Lio, Mattia Piccinini, Francesco Biral. (2023).
 Robust and Sample-Efficient Estimation of Vehicle Lateral Velocity Using Neural Networks With Explainable Structure Informed by Kinematic Principles.
 IEEE Transactions on Intelligent Transportation Systems. https://doi.org/10.1109/TITS.2023.3303776

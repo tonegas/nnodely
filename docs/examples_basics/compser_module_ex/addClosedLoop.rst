@@ -5,4 +5,3 @@
   y = Input('y')
   relation = Fir(x.last())
   model.addClosedLoop(relation, y)
-  
