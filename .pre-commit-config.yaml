@@ -23,6 +23,11 @@ repos:
         entry: uv lock
         language: system
         pass_filenames: false
+      - id: pyright
+        name: pyright
+        entry: uv run pyright
+        language: system
+        types: [python]
       - id: ruff-check
         name: ruff check
         entry: uv run ruff check --fix
