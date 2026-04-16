@@ -3,7 +3,7 @@ name: Publish
 on:
   push:
     tags:
-      - "v*.*.*" # Push events to matching v*, i.e., v1.0.0
+      - "v*"
 
 jobs:
   publish:
@@ -79,6 +79,16 @@ jobs:
           inputs: |
             ./dist/*.tar.gz
             ./dist/*.whl
+      - name: Detect prerelease
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "PRERELEASE=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "PRERELEASE=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Release
         uses: softprops/action-gh-release@v3
@@ -88,3 +98,4 @@ jobs:
             dist/*.tar.gz
             dist/*.whl
           generate_release_notes: true
+          prerelease: ${{ steps.version.outputs.PRERELEASE }}
