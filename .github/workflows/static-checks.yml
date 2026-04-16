@@ -1,4 +1,4 @@
-name: Lint
+name: Static checks
 
 on:
   pull_request:
@@ -19,5 +19,8 @@ jobs:
       - name: Install the project
         run: uv sync --locked --all-extras --dev
 
-      - name: Lint
+      - name: PyRight
+        run: uv run pyright
+
+      - name: Ruff
         run: uv run ruff check
