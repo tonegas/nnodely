@@ -130,12 +130,60 @@ We use:
 
 ---
 
-## Docstrings and Comments
+## Docstrings
 
-- Use docstrings for public modules, classes, and functions
-- Follow the project's configured docstring style
-- Comments should explain why, not what
-- Avoid obvious or redundant comments
+We use the `reST` docstring style, an example of which is:
+
+```python
+"""Example reST docstring
+
+:param param: a parameter
+:return: what the function returns
+"""
+```
+
+I strongly suggest you to **not** write docstrings by hand, but rather use one
+of the many editor plugins. Hereafter some examples for each editor we use.
+
+> We do not put types in the docstrings! You **have** to put type hints
+> whenever you can.
+
+### VSCode
+
+We use the
+[autoDocstring](https://marketplace.visualstudio.com/items?itemName=njpwerner.autodocstring)
+plugin, with the "sphinx-notypes" docstring format.
+
+### PyCharm
+
+Simply enable the "reStructuredText" docstring format in "Settings > Python >
+Tools > Integrated Tools".
+
+### neovim
+
+We use the [neogen](https://github.com/danymat/neogen) plugin, configured as such:
+
+```lua
+require("neogen").setup({
+    snippet_engine = "nvim",
+    languages = {
+        python = {
+            template = {
+                annotation_convention = "reST",
+            },
+        },
+    },
+})
+```
+
+---
+
+## Comments
+
+Please refrain from writing useless comments. As a rule of thumb, you should
+always be able to understand code without needing comments. As such, write
+comments only when absolutely necessary, like to explain a particular exclusion
+of a static checker rule.
 
 ---
 
