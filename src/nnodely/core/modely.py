@@ -1,5 +1,7 @@
 import os
 
+from typing import cast
+
 from nnodely.core.dag import collect_and_order, flatten
 from nnodely.core.stream import Stream
 
@@ -135,6 +137,8 @@ class Modely:
         # tensor execution mode
         if self._model is None:
             self.build()
+        if self._model is None:
+            raise ValueError("Model build failed, _model is still None.")
         return self._model(inputs)
 
     def _call_with_streams(self, inputs_dict):
@@ -330,7 +334,7 @@ class Modely:
                 with tf.GradientTape() as tape:
                     preds = km(batch_inputs, training=True)
 
-                    total = 0.0
+                    total = keras.ops.zeros(())
                     for m in self._minimizers:
                         name = m["name"]
                         source_name = m["source"].name
@@ -339,20 +343,34 @@ class Modely:
                         y_pred, y_true = preds[source_name], preds[target_name]
 
                         loss_obj = losses[name]
-                        total = total + tf.reduce_mean(loss_obj(y_true, y_pred))
+                        # total = total + tf.reduce_mean(loss_obj(y_true, y_pred))
+                        total = total + keras.ops.mean(
+                            loss_obj(y_true, y_pred)
+                        )  # ensure scalar loss
 
                 # gradients = tape.gradient(total, km.trainable_weights)
                 # # Filter out None gradients (non-differentiable vars) before applying
                 # grads_and_vars = [(g, v) for g, v in zip(gradients or [], km.trainable_weights) if g is not None]
-                trainable_vars = list(km.trainable_weights) + list(self._parameter_vars)
+                # trainable_vars = list(km.trainable_weights) + list(self._parameter_vars)
+                # seen = set()
+                # unique_vars = []
+                # for v in trainable_vars:
+                #     vid = id(v)
+                #     if vid not in seen:
+                #         seen.add(vid)
+                #         unique_vars.append(v)
+
+                # gradients = tape.gradient(total, unique_vars)
+                unique_vars: list[tf.Variable] = []
                 seen = set()
-                unique_vars = []
-                for v in trainable_vars:
+
+                for v in list(km.trainable_weights) + list(self._parameter_vars):
                     vid = id(v)
                     if vid not in seen:
                         seen.add(vid)
-                        unique_vars.append(v)
+                        unique_vars.append(cast(tf.Variable, v))
 
+                total = cast(tf.Tensor, total)
                 gradients = tape.gradient(total, unique_vars)
                 grads_and_vars = [
                     (g, v)
@@ -364,7 +382,8 @@ class Modely:
                 else:
                     print("Warning: No gradients to apply in this step.")
 
-                epoch_losses.append(float(total.numpy()))
+                if isinstance(total, tf.Tensor):
+                    epoch_losses.append(float(total.numpy()))
 
             mean_epoch_loss = float(np.mean(epoch_losses))
             history["loss"].append(mean_epoch_loss)
@@ -462,9 +481,8 @@ class Modely:
 
     def export_keras(self, filename: str):
         """Export the built Keras model to a file."""
-        if not self.built:
-            self.build()
-        self._model.save(filename + ".keras")
+        # if self.built:
+        #     self._model.save(filename + ".keras")
 
     def import_keras(self, filename: str):
         """Import the built Keras model from a file."""

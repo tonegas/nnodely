@@ -19,9 +19,6 @@ class Loop(Layer):
     node_type = "Loop"
 
     def __init__(self, f: Modely, closed_loop: dict, name=None):
-        if not isinstance(f, Modely):
-            raise TypeError("Loop currently supports only f=Modely")
-
         if len(f.outputs) != 1:
             raise ValueError("Loop currently supports Modely with exactly one output")
 
@@ -50,16 +47,19 @@ class Loop(Layer):
 
     def build_layer(self):
         f = self.f
-        loop_in_name = self.loop_in_stream.name
+        # loop_in_name = self.loop_in_stream.name
         loop_out_name = self.loop_out_stream.name
 
         if f._model is None:
             f.build()
 
         fn_input_names = [node.name for node in f.inputs]
-        if loop_in_name not in fn_input_names:
+        # if loop_in_name not in fn_input_names:
+        #     raise ValueError(f"{self.name}: closed-loop input '{loop_in_name}' is not among f.inputs={fn_input_names}")
+        fn_output_names = [node.name for node in f.outputs]
+        if loop_out_name not in fn_output_names:
             raise ValueError(
-                f"{self.name}: closed-loop input '{loop_in_name}' is not among f.inputs={fn_input_names}"
+                f"{self.name}: closed-loop output '{loop_out_name}' is not among f.outputs={fn_output_names}"
             )
 
         class _LoopImpl(keras.layers.Layer):
@@ -117,7 +117,8 @@ class Loop(Layer):
                     for x in padded_inputs
                 ]
 
-                loop_in_idx = fn_input_names.index(loop_in_name)
+                # loop_in_idx = fn_input_names.index(loop_in_name)
+                loop_in_idx = 0
 
                 def step(carry, x_t_pack):
                     prev_y = carry
@@ -125,20 +126,21 @@ class Loop(Layer):
 
                     for idx, input_name in enumerate(fn_input_names):
                         x_t = x_t_pack[0][idx]  # current tensor slice
-                        valid_t = x_t_pack[1][idx]  # scalar bool for this step
+                        # valid_t = x_t_pack[1][idx]  # scalar bool for this step
 
                         if idx == loop_in_idx:
                             # before sequence end -> use dataset value
                             # after sequence end  -> use previous output
-                            x_used = keras.ops.cond(
-                                valid_t, lambda: x_t, lambda: prev_y
-                            )
+                            # x_used = keras.ops.cond(valid_t, lambda: x_t, lambda: prev_y)
+                            x_used = prev_y
                         else:
                             # shorter non-looped inputs are already padded with zeros
                             x_used = x_t
 
                         step_inputs[input_name] = x_used
 
+                    if f._model is None:
+                        raise ValueError("f._model is None, expected a built Modely")
                     y = f._model(step_inputs)
 
                     if isinstance(y, dict):
@@ -158,16 +160,19 @@ class Loop(Layer):
                 # initial carry: zeros like one step of output
                 sample_input = padded_inputs[0]  # (batch, S, ...)
                 batch = keras.ops.shape(sample_input)[0]
-                out_shape = self.outer.shape  # symbolic shape without batch
+
+                # one-step output shape, NOT the full Loop output shape
+                step_out_node = f.outputs[0]
+                step_out_shape = step_out_node.shape  # e.g. (1, 1)
+
                 init_shape = keras.ops.concatenate(
                     [
                         keras.ops.reshape(batch, (1,)),
-                        keras.ops.convert_to_tensor(out_shape),
+                        keras.ops.convert_to_tensor(step_out_shape),
                     ],
                     axis=0,
                 )
                 init = keras.ops.zeros(init_shape, dtype=sample_input.dtype)
-
                 _, ys = keras.ops.scan(step, init, xs_pack)
 
                 # ys shape: (S, batch, ...)

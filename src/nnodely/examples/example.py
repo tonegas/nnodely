@@ -10,7 +10,8 @@ from nnodely.layers.constant import Constant
 
 import os
 
-os.environ.setdefault("KERAS_BACKEND", "torch")
+# os.environ.setdefault("KERAS_BACKEND", "torch")
+os.environ["KERAS_BACKEND"] = "torch"
 
 
 def main(example=1):
@@ -202,6 +203,7 @@ def main(example=1):
         r1 = x.sw(1) + y.sw(1)
         out1 = Output("out1", r1)
         model1 = Modely(name="model1", outputs=[out1])
+        model1.build()
 
         z = Input(name="z", dim=1, seq=5)
         const = Constant("const", value=2.0)
@@ -209,31 +211,55 @@ def main(example=1):
         loop_fn = Loop(f=model1, closed_loop={out1: z})
         out = Output("out", loop_fn(z, r2))
         model = Modely(name="model", outputs=[out])
-
         model.build()
 
+        # ------- Model inference -------
+        batch_size = 1
+        dummy_input_x = np.ones((batch_size, 1, 1), dtype=np.float32)
+        dummy_input_y = np.ones((batch_size, 1, 1), dtype=np.float32)
+        dummy_input_z = np.ones((batch_size, 5, 1, 1), dtype=np.float32)
+
+        result1 = model1({"x": dummy_input_x, "y": dummy_input_y})
+        print("Model1 - Input shape:", dummy_input_x.shape)
+        print("Model1 - Output shape:", result1["out1"].shape)
+        print("Model1 - Output:", result1)
+
+        result2 = model({"z": dummy_input_z})
+        print("Model2 - Input shape:", dummy_input_z.shape)
+        print("Model2 - Output shape:", result2["out"].shape)
+        print("Model2 - Output:", result2)
+
+        # ------- Model visualization -------
+        model1.plot(to_file="html/model1.png")
+        model.plot(to_file="html/model2.png")
+
+        # # ------- Model export to HTML -------
+        model1.export_html(out_dir="html", filename="model1")
+        model.export_html(out_dir="html", filename="model2")
+
     if example == 6:
-        # ------- Model with time window partitioning, Past and Future -------
-        x = Input("x", dim=1)
-        y = Input("y", dim=1)
-        z = Input("z", dim=1)
-        r1 = x.sw(1) + y.sw(1)
-        out1 = Output("out1", r1)
-        model1 = Modely("model1", outputs=out1)
-        model1.build()
-
-        r2 = Fir(out_features=1)(z.sw(3))
-        out2 = Output("out2", model1({"x": r2, "y": z.sw(1)}))
-        model2 = Modely("model2", outputs=out2)
-        model2.build()
-
-        k = Input("k", dim=1)
-        f = Input("f", dim=1)
-        r3 = model2({"z": k.sw(3)}) + model2({"z": f.sw(3)})
-        out3 = Output("out3", r3)
-        model3 = Modely("model3", outputs=out3)
-        model3.build()
         pass
+        # # ------- Model with time window partitioning, Past and Future -------
+        # x = Input("x", dim=1)
+        # y = Input("y", dim=1)
+        # z = Input("z", dim=1)
+        # r1 = x.sw(1) + y.sw(1)
+        # out1 = Output("out1", r1)
+        # model1 = Modely("model1", outputs=out1)
+        # model1.build()
+
+        # r2 = Fir(out_features=1)(z.sw(3))
+        # out2 = Output("out2", model1({"x": r2, "y": z.sw(1)}))
+        # model2 = Modely("model2", outputs=out2)
+        # model2.build()
+
+        # k = Input("k", dim=1)
+        # f = Input("f", dim=1)
+        # r3 = model2({"z": k.sw(3)}) + model2({"z": f.sw(3)})
+        # out3 = Output("out3", r3)
+        # model3 = Modely("model3", outputs=out3)
+        # model3.build()
+        # pass
 
     if example == 7:
         # ------- Model Export and Import -------
@@ -249,4 +275,4 @@ def main(example=1):
 
 
 if __name__ == "__main__":
-    main(example=4)
+    main(example=3)

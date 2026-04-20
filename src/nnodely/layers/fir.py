@@ -56,5 +56,5 @@ class Fir(Layer):
         self._layer = _FirImpl(name=self.name)
         return self._layer
 
-    def call(self, x):
-        return self._layer(x)
+    def call(self, *xs):
+        return self._layer(xs)

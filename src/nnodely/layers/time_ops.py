@@ -15,9 +15,9 @@ class SampleWindow(Layer):
         self.window_size = int(window_size)
         super().__init__(name=name, window_size=self.window_size)
 
-    def output_shape(self, seq, time, dim):
+    def output_shape(self, seqs, times, dims):
         """Output ha time=window_size."""
-        return seq[0], self.window_size, dim[0]
+        return seqs[0], self.window_size, dims[0]
 
     def build_layer(self, **kwargs):
         """Crea Lambda per slice se window_size < input.time, altrimenti Identity."""

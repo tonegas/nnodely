@@ -115,7 +115,10 @@ class BinaryOp(Layer):
         return seqs[0], times[0], dims[0]
 
     def build_layer(self):
-        return self.keras_op(name=self.name)
+        if self.keras_op is not None:
+            return self.keras_op(name=self.name)
+        else:
+            return super().build_layer()
 
 
 class Add(BinaryOp):
