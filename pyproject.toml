@@ -11,23 +11,25 @@ requires-python = ">=3.10,<3.14"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
-    { name = "Gastone Pietro Rosati Papini", email = "tonegas@gmail.com" },
+  { name = "Gastone Pietro Rosati Papini", email = "tonegas@gmail.com" },
 ]
 classifiers = [
-    "Programming Language :: Python :: 3",
-    "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
 ]
 dependencies = [
-    "graphviz>=0.21",
-    "jax>=0.6.2",
-    "keras>=3.12.1",
-    "matplotlib>=3.10.8",
-    "numpy>=1.26.4",
-    "pandas>=2.3.3",
-    "tensorflow>=2.21.0",
-    "torch>=2.2.2",
-    "tqdm>=4.67.3",
+  "graphviz>=0.21",
+  "keras>=3.12.1",
+  "matplotlib>=3.10.8",
+  "numpy>=1.26.4",
+  "pandas>=2.3.3",
+  "tensorflow>=2.21.0",
+  "tqdm>=4.67.3",
 ]
+
+[project.optional-dependencies]
+torch = ["torch>=2.2.2"]
+jax = ["jax>=0.6.2"]
 
 [project.urls]
 "Homepage" = "https://github.com/tonegas/nnodely"
@@ -35,11 +37,18 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pre-commit>=4.5.1",
-    "pyright>=1.1.408",
-    "pytest-cov>=7.1.0",
-    "ruff>=0.15.10",
+  "pre-commit>=4.5.1",
+  "pyright>=1.1.408",
+  "pytest-cov>=7.1.0",
+  "ruff>=0.15.10",
 ]
+
+[tool.pyright]
+pythonVersion = "3.10"
+typeCheckingMode = "standard"
+
+[tool.ruff]
+target-version = "py310"
 
 [[tool.uv.index]]
 name = "testpypi"
