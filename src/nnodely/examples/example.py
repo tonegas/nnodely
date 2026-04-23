@@ -4,10 +4,11 @@ from nnodely.core.modely import Modely
 from nnodely.layers.input import Input
 from nnodely.layers.output import Output
 from nnodely.layers.fir import Fir
+from nnodely.layers.fuzzify import Fuzzify
+from nnodely.layers.localmodel import LocalModel
+from nnodely.core.dataloader import DataLoader
 from nnodely.layers.parameter import Parameter
 from nnodely.layers.constant import Constant
-from nnodely.layers.loop import Loop
-from nnodely.core.dataloader import DataLoader
 
 import os
 
@@ -216,6 +217,7 @@ def main(example=1):
 
     if example == 5:
         # ------- Model with closed loop connections -------
+        from nnodely.layers.loop import Loop
         x = Input(name="x", dim=1)
         y = Input(name="y", dim=1)
         r1 = x.sw(1) + y.sw(1)
@@ -315,12 +317,87 @@ def main(example=1):
         print("Model2 - Output:", result2)
 
     if example == 8:
-        # ------- High-level Blocks (Local Models) with Multi-inputs -------
-        pass
+        # ------- Fuzzify Block -------
+        x = Input("x", dim=1)
+
+        x_stream = x.sw(1)
+
+        fuzzy = Fuzzify(centers=[0.0, 0.5, 1.0], function="rectangular")
+
+        x_out = Output("x_pred", fuzzy(x_stream))
+        model1 = Modely("model1", outputs=x_out)
+        print(f"order: {model1._order}")
+        model1.build()
+
+        # ------- Model inference -------
+        dummy_input_x = np.array([[[-7]], [[0.5]], [[0.8]]], dtype=np.float32)
+        result1 = model1({"x": dummy_input_x})
+        print("Model1 - Input shape:", dummy_input_x.shape)
+        print("Model1 - Output shape:", result1["x_pred"].shape)
+        print("Model1 - Output:", result1)
+
+        # ------- Save/load model inference -------
+        model1.save("results/model_fuzzify")
+        loaded_model1 = Modely.load("results/model_fuzzify")
+        loaded_model1.build()
+        loaded_result1 = loaded_model1({"x": dummy_input_x})
+        print("Loaded Model1 - Output shape:", loaded_result1["x_pred"].shape)
+        print("Loaded Model1 - Output:", loaded_result1)
 
     if example == 9:
-        # ------- Custom Layers -------
-        pass
+        # ------- High-level Blocks (Local Models) with Multi-inputs -------
+        x = Input("x", dim=5)
+        y = Input("y", dim=5)
+        z = Input("z", dim=5)
+        k = Input("k", dim=1)
+
+        # LocalModel now auto-encapsulates in a ModelCall when called with Streams
+        fuzzy_k = Fuzzify(centers=[0.0, 0.5, 1.0], function="rectangular")(k.sw(1))
+        local_model = LocalModel(name="local_model", function="Fir")
+        # Call with Stream inputs directly - returns a ModelCall automatically
+        output_local = local_model({"x": x.sw(5), "y": y.sw(5), "z": z.sw(5)}, fuzzy_k)
+        out = Output("out", output_local)
+        model = Modely("model_with_local", outputs=out)
+        model.build()
+
+        # ------- Model inference -------
+        batch_size = 3
+        dummy_input_x = np.ones((batch_size, 5, 5), dtype=np.float32) * 1.0
+        dummy_input_y = np.ones((batch_size, 5, 5), dtype=np.float32) * 2.0
+        dummy_input_z = np.ones((batch_size, 5, 5), dtype=np.float32) * 3.0
+        dummy_input_k = np.array([[[0.0]], [[0.5]], [[1.0]]], dtype=np.float32)
+
+        result = model(
+            {
+                "x": dummy_input_x,
+                "y": dummy_input_y,
+                "z": dummy_input_z,
+                "k": dummy_input_k,
+            }
+        )
+
+        print("Model - Input shape x:", dummy_input_x.shape)
+        print("Model - Input shape k:", dummy_input_k.shape)
+        print("Model - Output shape:", result["out"].shape)
+        print("Model - Output:", result)
+
+        model.plot(to_file="html/local_model.png")
+        model.export_html(out_dir="html", filename="model_with_local")
+
+        # ------- Save/load model inference -------
+        model.save("results/model_local")
+        loaded_model = Modely.load("results/model_local")
+        loaded_model.build()
+        loaded_result = loaded_model(
+            {
+                "x": dummy_input_x,
+                "y": dummy_input_y,
+                "z": dummy_input_z,
+                "k": dummy_input_k,
+            }
+        )
+        print("Loaded Model - Output shape:", loaded_result["out"].shape)
+        print("Loaded Model - Output:", loaded_result)
 
     if example == 10:
         # ------- Test all nnodely blocks -------
@@ -345,4 +422,4 @@ def main(example=1):
 
 
 if __name__ == "__main__":
-    main(example=4)
+    main(example=9)
