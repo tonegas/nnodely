@@ -1,89 +1,46 @@
 """
-DAG - Lazy/DAG approach. No global graph.
-Each node has predecessors; Model traverses from output backwards.
-
-Dimensioni: seq, time, dim. Shape = seq + (time,) + dim.
-Default: seq=(), time=1, dim=(1,)
+DAG
 """
 
 import copy
+from typing import Sequence, cast
 
-_node_counter = 0
+from nnodely.core.modely import ModelCall, Modely
+from nnodely.core.stream import Stream
+from nnodely.layers.output import Output
+
+_node_counter: int = 0
 
 
 def next_name(prefix: str) -> str:
-    """Nome univoco per nodi generati."""
+    """Generate a unique name for nodes
+
+    :param prefix: Prefix to add to the unique name.
+    :return: The unique name.
+    """
+
     global _node_counter
     _node_counter += 1
     return f"{prefix}{_node_counter}"
 
 
-# ------------------------------------------------------------------
-# flattening logic
-# ------------------------------------------------------------------
-def flatten(model):
+def flatten(model: Modely) -> Modely:
+    """Flatten a model
+
+    :param model: The model to flatten.
+    :return: The flattened model.
+    """
+
     flattened = model
     for node in model._order:
-        if node.node_type == "Model":
+        if type(node) is ModelCall:
             flattened = _aggregate_models(model=flattened, submodel=node)
-    if any(n.node_type == "Model" for n in flattened._order):
+    if any(type(n) is ModelCall for n in flattened._order):
         return flatten(flattened)
     return flattened
 
 
-# def _clone_graph(order):
-#     """
-#     Clone all nodes in `order` and reconnect predecessors to the cloned nodes.
-#     """
-#     cloned_order = []
-#     for node in order:
-#         new_node = copy.copy(node)
-#         new_node.predecessors = copy.copy(node.predecessors)
-#         cloned_order.append(new_node)
-#     return cloned_order
-
-# def _aggregate_models(model, submodel):
-#     model_order = _clone_graph(model._order)
-#     submodel_order = _clone_graph(submodel.model._order)
-
-#     cloned_sub_outputs = [n for n in submodel_order if n.node_type == "Output"]
-#     cloned_model_outputs = [n for n in model_order if n.node_type == "Output"]
-
-#     ## Remove Inputs and Outputs
-#     submodel_order = [n for n in submodel_order if n.node_type not in ["Input", "Output"]]
-
-#     ## substitute submodel inputs predecessors with external mapped streams
-#     for node in submodel_order:
-#         for pred in node.predecessors:
-#             if pred.node_type == "Input" and pred.name in submodel.input_map:
-#                 ext_stream = submodel.input_map[pred.name]
-#                 node.predecessors.remove(pred)
-#                 node.predecessors.append(ext_stream)
-
-#     ## Remove ModelCall node from parent graph and reconnect to selected child output predecessors
-#     model_order = [n for n in model_order if n is not submodel]
-
-#     for node in model_order:
-#         for pred in node.predecessors:
-#             if pred is submodel:
-#                 node.predecessors.remove(pred)
-#                 node.predecessors.extend(p for p in cloned_sub_outputs)
-
-#     from nnodely.core.modely import Modely
-#     flat_model = Modely(
-#         name=model.name + "_" + submodel.model.name,
-#         outputs=cloned_sub_outputs + cloned_model_outputs,
-#     )
-#     # keep minimizers
-#     flat_model._minimizers = copy.copy(model._minimizers)
-
-#     return flat_model
-
-
-def _clone_graph(order):
-    """
-    Clone all nodes in `order` and reconnect predecessors to the cloned nodes.
-    """
+def _clone_graph(order: Sequence[Stream]) -> tuple[list[Stream], dict[Stream, Stream]]:
     clone_map = {}
     cloned_order = []
     for node in order:
@@ -96,7 +53,7 @@ def _clone_graph(order):
     return cloned_order, clone_map
 
 
-def _aggregate_models(model, submodel):
+def _aggregate_models(model: Modely, submodel: ModelCall) -> Modely:
     model_order, model_map = _clone_graph(model._order)
     submodel_cloned = model_map[submodel]
     submodel_order, _ = _clone_graph(submodel.model._order)
@@ -139,9 +96,9 @@ def _aggregate_models(model, submodel):
         node.predecessors = new_preds
 
     # Rebuild outputs from cloned parent outputs
-    cloned_outputs = [model_map[out] for out in model.outputs]
-
-    from nnodely.core.modely import Modely
+    cloned_outputs = [
+        cast(Output, model_map[out]) for out in model.outputs
+    ]  # HACK: requires further attention
 
     flat_model = Modely(
         name=model.name + "_" + submodel.model.name,
@@ -153,25 +110,25 @@ def _aggregate_models(model, submodel):
     return flat_model
 
 
-# ------------------------------------------------------------------
-# DAG topological ordering
-# ------------------------------------------------------------------
-def toposort(output_nodes):
+def toposort(output_nodes: list[Output] | Output) -> list[Stream]:
+    """Topologically sort a graph given its output nodes
+
+    DFS post-order from outputs to inputs
+
+    :param output_nodes: The output nodes of the graph.
+    :return: The topological sort of the graph.
     """
-    Restituisce l'ordine topologico dei nodi a partire dagli output.
-    DFS post-order da output verso input.
-    """
+
     if not isinstance(output_nodes, (list, tuple)):
         output_nodes = [output_nodes]
     result = []
     visited = set()
 
-    def dfs(node):
-        if id(node) in visited:
-            return
+    def dfs(node: Stream):
         visited.add(id(node))
-        for pred in getattr(node, "predecessors", []):
-            dfs(pred)
+        for pred in node.predecessors:
+            if id(pred) not in visited:
+                dfs(pred)
         result.append(node)
 
     for out in output_nodes:
