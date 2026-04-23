@@ -4,6 +4,125 @@ from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
 
 
+@keras.saving.register_keras_serializable(package="nnodely")
+class LoopImpl(keras.layers.Layer):
+    def __init__(self, submodel, loop_out_name, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.submodel = submodel
+        self.loop_out_name = loop_out_name
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "submodel": keras.saving.serialize_keras_object(self.submodel),
+                "loop_out_name": self.loop_out_name,
+            }
+        )
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        config = dict(config)
+        config["submodel"] = keras.saving.deserialize_keras_object(config["submodel"])
+        return cls(**config)
+
+    def _pad_to_horizon(self, x, horizon):
+        s = keras.ops.shape(x)[1]
+        pad_len = horizon - s
+
+        def pad_fn():
+            pad_shape = keras.ops.concatenate(
+                [
+                    keras.ops.shape(x)[:1],
+                    keras.ops.reshape(pad_len, (1,)),
+                    keras.ops.shape(x)[2:],
+                ],
+                axis=0,
+            )
+            zeros = keras.ops.zeros(pad_shape, dtype=x.dtype)
+            return keras.ops.concatenate([x, zeros], axis=1)
+
+        return keras.ops.cond(pad_len > 0, pad_fn, lambda: x)
+
+    def _make_valid_mask(self, x, horizon):
+        s = keras.ops.shape(x)[1]
+        t = keras.ops.arange(horizon)
+        return keras.ops.cast(t < s, "bool")
+
+    def call(self, inputs):
+        if not isinstance(inputs, (list, tuple)):
+            inputs = [inputs]
+
+        fn_input_names = [node.name for node in self.submodel.inputs]
+        if len(inputs) != len(fn_input_names):
+            raise ValueError(
+                f"{self.name}: expected {len(fn_input_names)} inputs, got {len(inputs)}"
+            )
+
+        seq_lengths = [keras.ops.shape(x)[1] for x in inputs]
+        horizon = seq_lengths[0]
+        for s in seq_lengths[1:]:
+            horizon = keras.ops.maximum(horizon, s)
+
+        padded_inputs = [self._pad_to_horizon(x, horizon) for x in inputs]
+        valid_masks = [self._make_valid_mask(x, horizon) for x in inputs]
+
+        xs = [
+            keras.ops.transpose(x, [1, 0] + list(range(2, len(x.shape))))
+            for x in padded_inputs
+        ]
+
+        loop_in_idx = 0
+
+        def step(carry, x_t_pack):
+            prev_y = carry
+            step_inputs = {}
+
+            for idx, input_name in enumerate(fn_input_names):
+                x_t = x_t_pack[0][idx]
+
+                if idx == loop_in_idx:
+                    x_used = prev_y
+                else:
+                    x_used = x_t
+
+                step_inputs[input_name] = x_used
+
+            y = self.submodel(step_inputs)
+
+            if isinstance(y, dict):
+                y_t = y[self.loop_out_name]
+            else:
+                y_t = y
+
+            return y_t, y_t
+
+        xs_pack = (
+            [x for x in xs],
+            [m for m in valid_masks],
+        )
+
+        sample_input = padded_inputs[0]
+        batch = keras.ops.shape(sample_input)[0]
+
+        step_out_node = self.submodel.outputs[0]
+        step_out_shape = [1 if dim is None else dim for dim in step_out_node.shape[1:]]
+
+        init_shape = keras.ops.concatenate(
+            [
+                keras.ops.reshape(batch, (1,)),
+                keras.ops.convert_to_tensor(step_out_shape, dtype="int32"),
+            ],
+            axis=0,
+        )
+        init = keras.ops.zeros(init_shape, dtype=sample_input.dtype)
+        _, ys = keras.ops.scan(step, init, xs_pack)
+
+        ys = keras.ops.transpose(ys, [1, 0] + list(range(2, len(ys.shape))))
+        return ys
+
+
 class Loop(Layer):
     """
     Roll out a one-step Modely over the first seq axis.
@@ -53,7 +172,7 @@ class Loop(Layer):
         if f._model is None:
             f.build()
 
-        fn_input_names = [node.name for node in f.inputs]
+        # fn_input_names = [node.name for node in f.inputs]
         # if loop_in_name not in fn_input_names:
         #     raise ValueError(f"{self.name}: closed-loop input '{loop_in_name}' is not among f.inputs={fn_input_names}")
         fn_output_names = [node.name for node in f.outputs]
@@ -62,122 +181,5 @@ class Loop(Layer):
                 f"{self.name}: closed-loop output '{loop_out_name}' is not among f.outputs={fn_output_names}"
             )
 
-        class _LoopImpl(keras.layers.Layer):
-            def __init__(self, outer, name=None):
-                super().__init__(name=name)
-                self.outer = outer
-
-            def _pad_to_horizon(self, x, horizon):
-                # x shape: (batch, S, ...)
-                s = keras.ops.shape(x)[1]
-                pad_len = horizon - s
-
-                def pad_fn():
-                    pad_shape = keras.ops.concatenate(
-                        [
-                            keras.ops.shape(x)[:1],  # batch
-                            keras.ops.reshape(pad_len, (1,)),  # padded seq
-                            keras.ops.shape(x)[2:],  # rest
-                        ],
-                        axis=0,
-                    )
-                    zeros = keras.ops.zeros(pad_shape, dtype=x.dtype)
-                    return keras.ops.concatenate([x, zeros], axis=1)
-
-                return keras.ops.cond(pad_len > 0, pad_fn, lambda: x)
-
-            def _make_valid_mask(self, x, horizon):
-                # x shape: (batch, S, ...)
-                s = keras.ops.shape(x)[1]
-                t = keras.ops.arange(horizon)
-                return keras.ops.cast(t < s, "bool")  # (horizon,)
-
-            def call(self, inputs):
-                if not isinstance(inputs, (list, tuple)):
-                    inputs = [inputs]
-
-                if len(inputs) != len(fn_input_names):
-                    raise ValueError(
-                        f"{self.outer.name}: expected {len(fn_input_names)} inputs, got {len(inputs)}"
-                    )
-
-                # infer common horizon
-                seq_lengths = [keras.ops.shape(x)[1] for x in inputs]
-                horizon = seq_lengths[0]
-                for s in seq_lengths[1:]:
-                    horizon = keras.ops.maximum(horizon, s)
-
-                padded_inputs = [self._pad_to_horizon(x, horizon) for x in inputs]
-                valid_masks = [self._make_valid_mask(x, horizon) for x in inputs]
-
-                # scan wants leading scan axis first:
-                # (batch, S, ...) -> (S, batch, ...)
-                xs = [
-                    keras.ops.transpose(x, [1, 0] + list(range(2, len(x.shape))))
-                    for x in padded_inputs
-                ]
-
-                # loop_in_idx = fn_input_names.index(loop_in_name)
-                loop_in_idx = 0
-
-                def step(carry, x_t_pack):
-                    prev_y = carry
-                    step_inputs = {}
-
-                    for idx, input_name in enumerate(fn_input_names):
-                        x_t = x_t_pack[0][idx]  # current tensor slice
-                        # valid_t = x_t_pack[1][idx]  # scalar bool for this step
-
-                        if idx == loop_in_idx:
-                            # before sequence end -> use dataset value
-                            # after sequence end  -> use previous output
-                            # x_used = keras.ops.cond(valid_t, lambda: x_t, lambda: prev_y)
-                            x_used = prev_y
-                        else:
-                            # shorter non-looped inputs are already padded with zeros
-                            x_used = x_t
-
-                        step_inputs[input_name] = x_used
-
-                    if f._model is None:
-                        raise ValueError("f._model is None, expected a built Modely")
-                    y = f._model(step_inputs)
-
-                    if isinstance(y, dict):
-                        y_t = y[loop_out_name]
-                    else:
-                        y_t = y
-
-                    # carry == y_t ; in TF backend this is the easiest stable case
-                    return y_t, y_t
-
-                # scan over both data slices and masks
-                xs_pack = (
-                    [x for x in xs],  # per-step input slices
-                    [m for m in valid_masks],  # per-step validity flags
-                )
-
-                # initial carry: zeros like one step of output
-                sample_input = padded_inputs[0]  # (batch, S, ...)
-                batch = keras.ops.shape(sample_input)[0]
-
-                # one-step output shape, NOT the full Loop output shape
-                step_out_node = f.outputs[0]
-                step_out_shape = step_out_node.shape  # e.g. (1, 1)
-
-                init_shape = keras.ops.concatenate(
-                    [
-                        keras.ops.reshape(batch, (1,)),
-                        keras.ops.convert_to_tensor(step_out_shape),
-                    ],
-                    axis=0,
-                )
-                init = keras.ops.zeros(init_shape, dtype=sample_input.dtype)
-                _, ys = keras.ops.scan(step, init, xs_pack)
-
-                # ys shape: (S, batch, ...)
-                ys = keras.ops.transpose(ys, [1, 0] + list(range(2, len(ys.shape))))
-                return ys
-
-        self._layer = _LoopImpl(self, name=self.name)
+        self._layer = LoopImpl(f._model, loop_out_name, name=self.name)
         return self._layer

@@ -481,8 +481,8 @@ class Modely:
 
     def export_keras(self, filename: str):
         """Export the built Keras model to a file."""
-        # if self.built:
-        #     self._model.save(filename + ".keras")
+        if self.built and isinstance(self._model, keras.Model):
+            self._model.save(filename + ".keras")
 
     def import_keras(self, filename: str):
         """Import the built Keras model from a file."""

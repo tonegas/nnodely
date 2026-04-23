@@ -7,6 +7,39 @@ import keras
 from nnodely.core.layer import Layer
 
 
+@keras.saving.register_keras_serializable(package="nnodely")
+class FirImpl(keras.layers.Layer):
+    def __init__(self, out_features, use_bias=True, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.out_features = int(out_features)
+        self.use_bias = bool(use_bias)
+        self.flatten = keras.layers.Flatten()
+        self.proj = keras.layers.Dense(self.out_features, use_bias=self.use_bias)
+        self.reshape = keras.layers.Reshape((1, self.out_features))
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "out_features": self.out_features,
+                "use_bias": self.use_bias,
+            }
+        )
+        return config
+
+    def build(self, input_shape):
+        flat_shape = self.flatten.compute_output_shape(input_shape)
+        self.proj.build(flat_shape)
+        proj_shape = self.proj.compute_output_shape(flat_shape)
+        self.reshape.build(proj_shape)
+        super().build(input_shape)
+
+    def call(self, x):
+        x = self.flatten(x)
+        x = self.proj(x)
+        return self.reshape(x)
+
+
 class Fir(Layer):
     """
     Linear temporal mixing over the time axis followed by a dense projection.
@@ -38,22 +71,9 @@ class Fir(Layer):
         return seq, 1, (self.out_features,)
 
     def build_layer(self):
-        out_features = self.out_features
-        use_bias = self.use_bias
-
-        class _FirImpl(keras.layers.Layer):
-            def __init__(self, name=None):
-                super().__init__(name=name)
-                self.flatten = keras.layers.Flatten()
-                self.proj = keras.layers.Dense(out_features, use_bias=use_bias)
-                self.reshape = keras.layers.Reshape((1, out_features))
-
-            def call(self, x):
-                x = self.flatten(x)
-                x = self.proj(x)
-                return self.reshape(x)
-
-        self._layer = _FirImpl(name=self.name)
+        self._layer = FirImpl(
+            out_features=self.out_features, use_bias=self.use_bias, name=self.name
+        )
         return self._layer
 
     def call(self, *xs):

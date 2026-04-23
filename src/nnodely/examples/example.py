@@ -64,6 +64,18 @@ def main(example=1):
         print("Model2 - Output shape:", result2["z_pred"].shape)
         print("Model2 - Output:", result2)
 
+        # ------- Save/load model inference -------
+        model1.save("results/model1")
+        model2.save("results/model2")
+        loaded_model1 = Modely.load("results/model1")
+        loaded_model2 = Modely.load("results/model2")
+        loaded_model1.build()
+        loaded_model2.build()
+        loaded_result1 = loaded_model1({"x": dummy_input_x, "y": dummy_input_y})
+        loaded_result2 = loaded_model2({"z": dummy_input_z})
+        print("Loaded Model1 - Output:", loaded_result1)
+        print("Loaded Model2 - Output:", loaded_result2)
+
         # ------- Model visualization -------
         model1.plot(to_file="html/model1.png")
         model2.plot(to_file="html/model2.png")
@@ -164,6 +176,13 @@ def main(example=1):
         result_after_training = model({"x": dummy_input_x})
         print("Output after training:", result_after_training)
 
+        # ------ Inference after Save/Load -------
+        model.save("results/model_with_param")
+        model_loaded = Modely.load("results/model_with_param")
+        model_loaded.build()
+        result_loaded = model_loaded({"x": dummy_input_x})
+        print("Output after loading the model:", result_loaded)
+
         # ------ Visualize the model -------
         model.plot(to_file="html/model_with_param.png")
         model.export_html(out_dir="html", filename="model_with_param")
@@ -229,12 +248,12 @@ def main(example=1):
         print("Model2 - Output:", result2)
 
         # ------- Model visualization -------
-        model1.plot(to_file="html/model1.png")
-        model.plot(to_file="html/model2.png")
+        # model1.plot(to_file="html/model1.png")
+        # model.plot(to_file="html/model2.png")
 
         # # ------- Model export to HTML -------
-        model1.export_html(out_dir="html", filename="model1")
-        model.export_html(out_dir="html", filename="model2")
+        # model1.export_html(out_dir="html", filename="model1")
+        # model.export_html(out_dir="html", filename="model2")
 
     if example == 6:
         pass
@@ -262,7 +281,38 @@ def main(example=1):
 
     if example == 7:
         # ------- Model Export and Import -------
-        pass
+        from nnodely.layers.loop import Loop
+
+        x = Input(name="x", dim=1)
+        y = Input(name="y", dim=1)
+        r1 = x.sw(1) + y.sw(1)
+        out1 = Output("out1", r1)
+        model1 = Modely(name="model1", outputs=[out1])
+        model1.build()
+
+        z = Input(name="z", dim=1, seq=5)
+        const = Constant("const", value=2.0)
+        r2 = z.sw(1) * const
+        loop_fn = Loop(f=model1, closed_loop={out1: z})
+        out = Output("out", loop_fn(z, r2))
+        model = Modely(name="model", outputs=[out])
+        model.build()
+
+        model.save(filename="results/model_k")
+
+        new_model = Modely.load(filename="results/model_k")
+        new_model.build()
+
+        # ------- New model inference -------
+        batch_size = 1
+        dummy_input_x = np.ones((batch_size, 1, 1), dtype=np.float32)
+        dummy_input_y = np.ones((batch_size, 1, 1), dtype=np.float32)
+        dummy_input_z = np.ones((batch_size, 5, 1, 1), dtype=np.float32)
+
+        result2 = new_model({"z": dummy_input_z})
+        print("Model2 - Input shape:", dummy_input_z.shape)
+        print("Model2 - Output shape:", result2["out"].shape)
+        print("Model2 - Output:", result2)
 
     if example == 8:
         # ------- High-level Blocks (Local Models) with Multi-inputs -------
