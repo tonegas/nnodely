@@ -9,7 +9,7 @@ class SampleWindow(Layer):
     Simmetrico agli altri layer: usa build_layer e call.
     """
 
-    node_type = "SampleWindow"
+    # node_type = "SampleWindow"
 
     def __init__(self, window_size: int, name=None):
         self.window_size = int(window_size)

@@ -218,6 +218,7 @@ def main(example=1):
     if example == 5:
         # ------- Model with closed loop connections -------
         from nnodely.layers.loop import Loop
+
         x = Input(name="x", dim=1)
         y = Input(name="y", dim=1)
         r1 = x.sw(1) + y.sw(1)
@@ -250,12 +251,12 @@ def main(example=1):
         print("Model2 - Output:", result2)
 
         # ------- Model visualization -------
-        # model1.plot(to_file="html/model1.png")
-        # model.plot(to_file="html/model2.png")
+        model1.plot(to_file="html/model1.png")
+        model.plot(to_file="html/model2.png")
 
-        # # ------- Model export to HTML -------
-        # model1.export_html(out_dir="html", filename="model1")
-        # model.export_html(out_dir="html", filename="model2")
+        # ------- Model export to HTML -------
+        model1.export_html(out_dir="html", filename="model1")
+        model.export_html(out_dir="html", filename="model2")
 
     if example == 6:
         pass
@@ -422,4 +423,6 @@ def main(example=1):
 
 
 if __name__ == "__main__":
-    main(example=9)
+    for i in range(1, 11):
+        print(f"\n\n--- Running Example {i} ---\n\n")
+        main(example=i)

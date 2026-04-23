@@ -48,7 +48,7 @@ class Fir(Layer):
     Output: (batch, 1, out_features)
     """
 
-    node_type = "Fir"
+    # node_type = "Fir"
 
     def __init__(self, out_features: int, use_bias: bool = True, name=None):
         self.out_features = int(out_features)

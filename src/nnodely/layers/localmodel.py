@@ -111,7 +111,7 @@ class LocalModelImpl(keras.layers.Layer):
 class LocalModel(Layer):
     """Apply one function per input and aggregate outputs with fuzzy activations."""
 
-    node_type = "LocalModel"
+    # node_type = "LocalModel"
 
     def __init__(
         self,

@@ -22,11 +22,13 @@ def next_name(prefix: str) -> str:
 # flattening logic
 # ------------------------------------------------------------------
 def flatten(model):
+    from nnodely.core.modely import ModelCall
+
     flattened = model
     for node in model._order:
-        if node.node_type == "Model":
+        if isinstance(node, ModelCall):
             flattened = _aggregate_models(model=flattened, submodel=node)
-    if any(n.node_type == "Model" for n in flattened._order):
+    if any(isinstance(n, ModelCall) for n in flattened._order):
         return flatten(flattened)
     return flattened
 
@@ -97,11 +99,14 @@ def _clone_graph(order):
 
 
 def _aggregate_models(model, submodel):
+    from nnodely.layers.output import Output
+    from nnodely.layers.input import Input
+
     model_order, model_map = _clone_graph(model._order)
     submodel_cloned = model_map[submodel]
     submodel_order, _ = _clone_graph(submodel.model._order)
 
-    cloned_sub_outputs = {n.name: n for n in submodel_order if n.node_type == "Output"}
+    cloned_sub_outputs = {n.name: n for n in submodel_order if isinstance(n, Output)}
     # Replace submodel inputs with external mapped streams
     input_map_cloned = {}
     for in_name, ext_stream in submodel.input_map.items():
@@ -109,15 +114,13 @@ def _aggregate_models(model, submodel):
             input_map_cloned[in_name] = model_map[ext_stream]
 
     # remove child input/output nodes from inserted subgraph
-    submodel_order = [
-        n for n in submodel_order if n.node_type not in ("Input", "Output")
-    ]
+    submodel_order = [n for n in submodel_order if not isinstance(n, (Input, Output))]
 
     # reconnect predecessors inside child graph
     for node in submodel_order:
         new_preds = []
         for pred in node.predecessors:
-            if pred.node_type == "Input" and pred.name in input_map_cloned:
+            if isinstance(pred, Input) and pred.name in input_map_cloned:
                 new_preds.append(input_map_cloned[pred.name])
             else:
                 new_preds.append(pred)

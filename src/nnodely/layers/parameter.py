@@ -16,7 +16,7 @@ class Parameter(Stream):
         seq + (time,) + dim
     """
 
-    node_type = "Parameter"
+    # node_type = "Parameter"
 
     def __init__(
         self,
@@ -33,7 +33,7 @@ class Parameter(Stream):
         # seq = to_tuple(seq, ())
         super().__init__(
             name=name,
-            node_type=self.node_type,
+            # node_type=self.node_type,
             seq=seq,
             time=time,
             dim=dim,

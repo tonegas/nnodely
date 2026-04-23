@@ -98,7 +98,7 @@ class FuzzifyImpl(keras.layers.Layer):
 class Fuzzify(Layer):
     """Fuzzify a scalar stream into membership degrees over a set of centers."""
 
-    node_type = "Fuzzify"
+    # node_type = "Fuzzify"
 
     def __init__(
         self,

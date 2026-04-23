@@ -135,7 +135,7 @@ class Loop(Layer):
     - the order of Loop(...) inputs must match f.inputs
     """
 
-    node_type = "Loop"
+    # node_type = "Loop"
 
     def __init__(self, f: Modely, closed_loop: dict, name=None):
         if len(f.outputs) != 1:

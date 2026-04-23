@@ -7,7 +7,9 @@ from nnodely.core.stream import Stream
 
 from nnodely.layers.output import Output
 from nnodely.layers.constant import Constant
+from nnodely.layers.parameter import Parameter
 from nnodely.core.dataloader import DataLoader
+from nnodely.layers.input import Input
 
 import keras
 import tensorflow as tf
@@ -24,7 +26,7 @@ class ModelCall(Stream):
     def __init__(self, model, input_map, output_name, seq, time, dim, predecessors):
         super().__init__(
             name=f"{model.name}",
-            node_type="Model",
+            # node_type="Model",
             seq=seq,
             time=time,
             dim=dim,
@@ -51,7 +53,7 @@ class Modely:
         self.name = name
         self.outputs = outputs if isinstance(outputs, list) else [outputs]
         self._order = toposort(self.outputs)
-        self.inputs = [node for node in self._order if node.node_type == "Input"]
+        self.inputs = [node for node in self._order if isinstance(node, Input)]
         self.train_inputs = self.inputs
         self._model = None
         self._train_model = None
@@ -95,7 +97,7 @@ class Modely:
 
         if extra_outputs:
             order = toposort(extra_outputs)
-            extra_inputs = [node for node in order if node.node_type == "Input"]
+            extra_inputs = [node for node in order if isinstance(node, Input)]
 
             known = {node.name for node in self.inputs}
             extra_inputs = [node for node in extra_inputs if node.name not in known]
@@ -166,7 +168,7 @@ class Modely:
         if node.name in tensor_map:
             return tensor_map[node.name]
 
-        if node.node_type in ("Parameter", "Constant"):
+        if isinstance(node, Parameter) or isinstance(node, Constant):
             if anchor is None:
                 anchor = next(iter(tensor_map.values()), None)
             if anchor is None:
@@ -177,14 +179,14 @@ class Modely:
             y = node.as_tensor(anchor)
             tensor_map[node.name] = y
 
-            if node.node_type == "Parameter":
+            if isinstance(node, Parameter):
                 if node not in self._parameter_nodes:
                     self._parameter_nodes.append(node)
                 if node.param is not None and node.param not in self._parameter_vars:
                     self._parameter_vars.append(node.param)
             return y
 
-        if node.node_type == "Model":
+        if isinstance(node, ModelCall):
             y = self._resolve_model_call(node, tensor_map)
             tensor_map[node.name] = y
             return y
@@ -198,7 +200,7 @@ class Modely:
             if local_anchor is None:
                 local_anchor = pt
 
-        if node.node_type == "Output":
+        if isinstance(node, Output):
             y = pred_tensors[0]
         else:
             layer = node.build_layer() if node._layer is None else node._layer

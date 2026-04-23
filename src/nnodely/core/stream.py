@@ -35,14 +35,16 @@ class Stream:
     def __init__(
         self,
         name: str | None = None,
-        node_type: str = "Stream",
+        # node_type: str = "Stream",
         seq: int | tuple[int] | None = None,
         time: int = 1,
         dim: int | tuple = (1,),
         predecessors=None,
     ):
-        self.name = str(name) if name is not None else next_name(node_type)
-        self.node_type = str(node_type)
+        self.name = (
+            str(name) if name is not None else next_name(self.__class__.__name__)
+        )
+        # self.node_type = str(node_type)
         self.seq = () if seq is None else (seq,) if isinstance(seq, int) else seq
         self.time = time
         self.dim = (dim,) if isinstance(dim, int) else dim
@@ -94,7 +96,7 @@ class Stream:
         return (
             f"{self.__class__.__name__}("
             f"name={self.name!r}, "
-            f"type={self.node_type!r}, "
+            f"type={self.__class__.__name__!r}, "
             f"shape={self.shape}, "
             f"predecessors={pred_names}"
             f")"

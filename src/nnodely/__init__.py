@@ -9,6 +9,8 @@ from nnodely.layers.fir import Fir
 from nnodely.layers.parameter import Parameter
 from nnodely.layers.constant import Constant
 from nnodely.layers.loop import Loop
+from nnodely.layers.localmodel import LocalModel
+from nnodely.layers.fuzzify import Fuzzify
 
 # Public API
 __all__ = [
@@ -20,4 +22,6 @@ __all__ = [
     "Parameter",
     "Constant",
     "Loop",
+    "LocalModel",
+    "Fuzzify",
 ]

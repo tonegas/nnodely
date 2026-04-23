@@ -19,7 +19,7 @@ class Layer(Stream):
     - If called with tensor(s): applies the built Keras layer
     """
 
-    node_type = "Layer"
+    # node_type = "Layer"
 
     def __init__(
         self, name=None, predecessors=None, seq=(), time=1, dim=(1,), **kwargs
@@ -27,16 +27,13 @@ class Layer(Stream):
         self._layer = None
         self._properties = dict(kwargs)
 
-        # for k, v in kwargs.items():
-        #     setattr(self, k, v)
-
         super().__init__(
-            name=name or next_name(self.node_type),
-            node_type=self.node_type,
+            name=next_name(self.__class__.__name__) if name is None else name,
+            # node_type=self.node_type,
             seq=seq,
             time=time,
             dim=dim,
-            predecessors=predecessors or [],
+            predecessors=predecessors,
         )
 
     # ------------------------------------------------------------------
@@ -101,7 +98,7 @@ class BinaryOp(Layer):
             for p in self.predecessors[1:]:
                 if ref.shape != p.shape:
                     raise ValueError(
-                        f"{self.node_type} requires identical shapes, got {ref.shape} and {p.shape}"
+                        f"{self.__class__.__name__} requires identical shapes, got {ref.shape} and {p.shape}"
                     )
         return seqs[0], times[0], dims[0]
 
@@ -113,22 +110,22 @@ class BinaryOp(Layer):
 
 
 class Add(BinaryOp):
-    node_type = "Add"
+    # node_type = "Add"
     keras_op = keras.layers.Add
 
 
 class Subtract(BinaryOp):
-    node_type = "Subtract"
+    # node_type = "Subtract"
     keras_op = keras.layers.Subtract
 
 
 class Multiply(BinaryOp):
-    node_type = "Multiply"
+    # node_type = "Multiply"
     keras_op = keras.layers.Multiply
 
 
 class Divide(BinaryOp):
-    node_type = "Divide"
+    # node_type = "Divide"
     keras_op = keras.layers.Lambda
 
     def build_layer(self):
