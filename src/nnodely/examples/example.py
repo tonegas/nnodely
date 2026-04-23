@@ -4,9 +4,10 @@ from nnodely.core.modely import Modely
 from nnodely.layers.input import Input
 from nnodely.layers.output import Output
 from nnodely.layers.fir import Fir
-from nnodely.core.dataloader import DataLoader
 from nnodely.layers.parameter import Parameter
 from nnodely.layers.constant import Constant
+from nnodely.layers.loop import Loop
+from nnodely.core.dataloader import DataLoader
 
 import os
 
@@ -91,7 +92,7 @@ def main(example=1):
         data_train = DataLoader(
             model1,
             format={"x": "data_1", "y": "data_2", "x_target": "data_3"},
-            source=os.path.join("nnodely", "examples", "data"),
+            source=os.path.join("src", "nnodely", "examples", "data"),
         )
 
         # ------ Train the model -------
@@ -196,8 +197,6 @@ def main(example=1):
 
     if example == 5:
         # ------- Model with closed loop connections -------
-        from nnodely.layers.loop import Loop
-
         x = Input(name="x", dim=1)
         y = Input(name="y", dim=1)
         r1 = x.sw(1) + y.sw(1)
@@ -273,6 +272,27 @@ def main(example=1):
         # ------- Custom Layers -------
         pass
 
+    if example == 10:
+        # ------- Test all nnodely blocks -------
+        x = Input("x", dim=1)
+        param = Parameter("param1", dim=1)
+        const = Constant("const1", value=[1.0])
+
+        add = param + const
+        mul = param * const
+        sub = param - const
+        div = param / const
+
+        Fir_out = Fir(out_features=1)(x.sw(2))
+        out_add = Output("out_add", add)
+        out_mul = Output("out_mul", mul)
+        out_sub = Output("out_sub", sub)
+        out_div = Output("out_div", div)
+        out_fir = Output("out_fir", Fir_out)
+        model = Modely("model", outputs=[out_add, out_mul, out_sub, out_div, out_fir])
+        model.build()
+        model.plot(to_file="html/model_all_blocks.png")
+
 
 if __name__ == "__main__":
-    main(example=3)
+    main(example=4)

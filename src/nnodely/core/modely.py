@@ -2,7 +2,7 @@ import os
 
 from typing import cast
 
-from nnodely.core.dag import collect_and_order, flatten
+from nnodely.core.dag import toposort, flatten
 from nnodely.core.stream import Stream
 
 from nnodely.layers.output import Output
@@ -50,7 +50,7 @@ class Modely:
         """Crea modello da DAG. inputs/outputs: Input/Output o dict {name: node}."""
         self.name = name
         self.outputs = outputs if isinstance(outputs, list) else [outputs]
-        self._order = collect_and_order(self.outputs)
+        self._order = toposort(self.outputs)
         self.inputs = [node for node in self._order if node.node_type == "Input"]
         self.train_inputs = self.inputs
         self._model = None
@@ -94,7 +94,7 @@ class Modely:
                 extra_outputs.append(minimizer["target"])
 
         if extra_outputs:
-            order = collect_and_order(extra_outputs)
+            order = toposort(extra_outputs)
             extra_inputs = [node for node in order if node.node_type == "Input"]
 
             known = {node.name for node in self.inputs}

@@ -243,6 +243,15 @@ def export_html(
             except Exception:
                 pass
 
+        if getattr(node, "node_type", None) == "Loop":
+            try:
+                attrs["properties"]["f"] = attrs["properties"]["f"].name
+                attrs["properties"]["closed_loop"] = {
+                    out.name: inp.name
+                    for out, inp in attrs["properties"]["closed_loop"].items()
+                }
+            except Exception:
+                pass
         # if getattr(node, "node_type", None) == "Model":
         #     submodel = getattr(node, "model", None)
         #     if submodel is not None:

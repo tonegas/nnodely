@@ -2,7 +2,7 @@
 Stream - nodo del DAG con predecessors.
 """
 
-from nnodely.core.dag import to_tuple, next_name
+from nnodely.core.dag import next_name
 
 
 class Stream:
@@ -36,16 +36,16 @@ class Stream:
         self,
         name: str | None = None,
         node_type: str = "Stream",
-        seq=(),
+        seq: int | tuple[int] | None = None,
         time: int = 1,
-        dim=(1,),
+        dim: int | tuple = (1,),
         predecessors=None,
     ):
         self.name = str(name) if name is not None else next_name(node_type)
         self.node_type = str(node_type)
-        self.seq = to_tuple(seq, ())
-        self.time = int(time)
-        self.dim = to_tuple(dim, (1,))
+        self.seq = () if seq is None else (seq,) if isinstance(seq, int) else seq
+        self.time = time
+        self.dim = (dim,) if isinstance(dim, int) else dim
         self.predecessors = list(predecessors) if predecessors is not None else []
 
     @property
@@ -53,11 +53,14 @@ class Stream:
         """
         Shape without batch dimension.
         """
-        if isinstance(self.seq, list):
-            self.seq = tuple(self.seq)
-        if isinstance(self.dim, list):
-            self.dim = tuple(self.dim)
         return self.seq + (self.time,) + self.dim
+
+    @property
+    def dimensions(self):
+        """
+        Return seq, time, dim separately
+        """
+        return self.seq, self.time, self.dim
 
     @property
     def rank(self) -> int:

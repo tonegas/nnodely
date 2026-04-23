@@ -34,16 +34,16 @@ class Constant(Stream):
 
         if arr.ndim == 0:
             arr = arr.reshape(1, 1)
-            seq = ()
+            seq = None
             time = 1
             dim = (1,)
         elif arr.ndim == 1:
             arr = arr.reshape(arr.shape[0], 1)
-            seq = ()
+            seq = None
             time = arr.shape[0]
             dim = (1,)
         else:
-            seq = ()
+            seq = None
             time = arr.shape[0]
             dim = tuple(arr.shape[1:])
 

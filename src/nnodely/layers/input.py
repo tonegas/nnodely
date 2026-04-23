@@ -15,7 +15,7 @@ class Input(Stream):
     """
 
     def __init__(
-        self, name: str, *, dim: int | tuple = 1, seq: int | tuple | None = ()
+        self, name: str, *, dim: int | tuple = 1, seq: int | tuple[int] | None = None
     ):
         super().__init__(
             name=name, node_type="Input", seq=seq, time=1, dim=dim, predecessors=[]

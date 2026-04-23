@@ -3,7 +3,7 @@ from __future__ import annotations
 import keras
 
 
-from nnodely.core.dag import get_seq_time_dim, next_name, same_shape
+from nnodely.core.dag import next_name
 from nnodely.core.stream import Stream
 
 
@@ -72,22 +72,13 @@ class Layer(Stream):
     # Symbolic graph logic
     # ------------------------------------------------------------------
 
-    # def _clone_for_graph(self):
-    #     """
-    #     Create a fresh symbolic node with the same configuration,
-    #     but without reusing the concrete built Keras layer.
-    #     """
-    #     cfg = copy.copy(self._properties)
-    #     new_node = self.__class__(**cfg)
-    #     return new_node
-
     def __call__(self, *inputs):
         if not inputs:
             raise TypeError(f"{self.__class__.__name__} expects at least one input")
 
         # Symbolic mode: Layer(Stream, ...) -> new Stream node
         if all(_is_stream(x) for x in inputs):
-            seqs, times, dims = zip(*(get_seq_time_dim(x) for x in inputs))
+            seqs, times, dims = zip(*(x.dimensions for x in inputs))
             out_seq, out_time, out_dim = self.output_shape(seqs, times, dims)
 
             node = self.__class__(**self._properties)  # self._clone_for_graph()
@@ -108,7 +99,7 @@ class BinaryOp(Layer):
         ref = self.predecessors[0] if self.predecessors else None
         if ref is not None:
             for p in self.predecessors[1:]:
-                if not same_shape(ref, p):
+                if ref.shape != p.shape:
                     raise ValueError(
                         f"{self.node_type} requires identical shapes, got {ref.shape} and {p.shape}"
                     )

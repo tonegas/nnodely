@@ -8,7 +8,6 @@ Default: seq=(), time=1, dim=(1,)
 
 import copy
 
-SEQ_TIME_DIM_DEFAULT = ((), 1, (1,))
 _node_counter = 0
 
 
@@ -32,26 +31,68 @@ def flatten(model):
     return flattened
 
 
+# def _clone_graph(order):
+#     """
+#     Clone all nodes in `order` and reconnect predecessors to the cloned nodes.
+#     """
+#     cloned_order = []
+#     for node in order:
+#         new_node = copy.copy(node)
+#         new_node.predecessors = copy.copy(node.predecessors)
+#         cloned_order.append(new_node)
+#     return cloned_order
+
+# def _aggregate_models(model, submodel):
+#     model_order = _clone_graph(model._order)
+#     submodel_order = _clone_graph(submodel.model._order)
+
+#     cloned_sub_outputs = [n for n in submodel_order if n.node_type == "Output"]
+#     cloned_model_outputs = [n for n in model_order if n.node_type == "Output"]
+
+#     ## Remove Inputs and Outputs
+#     submodel_order = [n for n in submodel_order if n.node_type not in ["Input", "Output"]]
+
+#     ## substitute submodel inputs predecessors with external mapped streams
+#     for node in submodel_order:
+#         for pred in node.predecessors:
+#             if pred.node_type == "Input" and pred.name in submodel.input_map:
+#                 ext_stream = submodel.input_map[pred.name]
+#                 node.predecessors.remove(pred)
+#                 node.predecessors.append(ext_stream)
+
+#     ## Remove ModelCall node from parent graph and reconnect to selected child output predecessors
+#     model_order = [n for n in model_order if n is not submodel]
+
+#     for node in model_order:
+#         for pred in node.predecessors:
+#             if pred is submodel:
+#                 node.predecessors.remove(pred)
+#                 node.predecessors.extend(p for p in cloned_sub_outputs)
+
+#     from nnodely.core.modely import Modely
+#     flat_model = Modely(
+#         name=model.name + "_" + submodel.model.name,
+#         outputs=cloned_sub_outputs + cloned_model_outputs,
+#     )
+#     # keep minimizers
+#     flat_model._minimizers = copy.copy(model._minimizers)
+
+#     return flat_model
+
+
 def _clone_graph(order):
     """
     Clone all nodes in `order` and reconnect predecessors to the cloned nodes.
     """
     clone_map = {}
-
-    # first pass: clone nodes only
+    cloned_order = []
     for node in order:
         new_node = copy.copy(node)
-        new_node.predecessors = []
-        clone_map[node] = new_node
-
-    # second pass: reconnect predecessors
-    for node in order:
-        new_node = clone_map[node]
         new_node.predecessors = [
             clone_map[p] for p in node.predecessors if p in clone_map
         ]
-
-    cloned_order = [clone_map[node] for node in order]
+        clone_map[node] = new_node
+        cloned_order.append(new_node)
     return cloned_order, clone_map
 
 
@@ -61,7 +102,6 @@ def _aggregate_models(model, submodel):
     submodel_order, _ = _clone_graph(submodel.model._order)
 
     cloned_sub_outputs = {n.name: n for n in submodel_order if n.node_type == "Output"}
-
     # Replace submodel inputs with external mapped streams
     input_map_cloned = {}
     for in_name, ext_stream in submodel.input_map.items():
@@ -87,7 +127,7 @@ def _aggregate_models(model, submodel):
     selected_output = cloned_sub_outputs[submodel.output_name]
     replacement_preds = selected_output.predecessors[:]  # usually one predecessor
 
-    model_order = [n for n in model_order if n is not submodel_cloned]
+    model_order.remove(submodel_cloned)  # remove the ModelCall node
 
     for node in model_order:
         new_preds = []
@@ -114,39 +154,11 @@ def _aggregate_models(model, submodel):
 
 
 # ------------------------------------------------------------------
-# DAG logic
+# DAG topological ordering
 # ------------------------------------------------------------------
-def to_tuple(x, default=(1,)):
-    """Converte int/tuple/None in tuple. 0 -> default."""
-    if x is None:
-        return default
-    if isinstance(x, int):
-        return (x,) if x != 0 else default
-    return tuple(x) if x else default
-
-
-def get_seq_time_dim(node):
-    """Estrae (seq, time, dim) da Stream, Input o Layer. Default: seq=(), time=1, dim=(1,)."""
-    seq = tuple(getattr(node, "seq", ()) or ())
-    time = getattr(node, "time", None) or 1
-    dim = to_tuple(getattr(node, "dim", (1,)), (1,))
-    return seq, time, dim
-
-
-def seq_time_dim_to_shape(seq, time, dim):
-    """Converte (seq, time, dim) nella shape Keras (senza batch)."""
-    seq = tuple(seq or ())
-    dim = to_tuple(dim, (1,))
-    return seq + (time,) + dim
-
-
-def same_shape(a, b):
-    return get_seq_time_dim(a) == get_seq_time_dim(b)
-
-
-def collect_and_order(output_nodes):
+def toposort(output_nodes):
     """
-    Raccoglie tutti i nodi dagli output e restituisce ordine topologico.
+    Restituisce l'ordine topologico dei nodi a partire dagli output.
     DFS post-order da output verso input.
     """
     if not isinstance(output_nodes, (list, tuple)):

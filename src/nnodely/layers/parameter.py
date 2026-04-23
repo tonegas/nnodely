@@ -2,7 +2,7 @@ import numpy as np
 import keras
 
 from nnodely.core.stream import Stream
-from nnodely.core.dag import to_tuple
+# from nnodely.core.dag import to_tuple
 
 
 class Parameter(Stream):
@@ -26,12 +26,11 @@ class Parameter(Stream):
         initializer="random_normal",
         seq=(),
         time=1,
-        dim=1,
+        dim=(1,),
         dtype="float32",
     ):
-        dim = to_tuple(dim, (1,))
-        seq = to_tuple(seq, ())
-
+        # dim = to_tuple(dim, (1,))
+        # seq = to_tuple(seq, ())
         super().__init__(
             name=name,
             node_type=self.node_type,
