@@ -30,7 +30,7 @@ should be ready to go.
   should also pick up `uv` automatically.
 - `neovim`: you have to add the `pyright` and `ruff` (e.g., using `mason`) and
   enable them (e.g., `vim.lsp.enable(...)`). To pick up `uv` just run `uv run
-nvim .` in the project root.
+nvim .` in the project root or install the `venv-selector` plugin.
 
 ## Code Style
 
