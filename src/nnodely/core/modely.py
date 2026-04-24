@@ -287,6 +287,47 @@ class Modely:
                     ...
                 }
         """
+
+        @tf.function
+        def train_step(batch_inputs, optimizer, losses):
+            with tf.GradientTape() as tape:
+                preds = km(batch_inputs, training=True)
+
+                total = keras.ops.zeros(())
+                for m in self._minimizers:
+                    name = m["name"]
+                    source_name = m["source"].name
+                    target_name = m["target"].name
+
+                    y_pred, y_true = preds[source_name], preds[target_name]
+
+                    loss_obj = losses[name]
+                    # total = total + tf.reduce_mean(loss_obj(y_true, y_pred))
+                    total = total + keras.ops.mean(
+                        loss_obj(y_true, y_pred)
+                    )  # ensure scalar loss
+
+            unique_vars: list[tf.Variable] = []
+            seen = set()
+
+            for v in list(km.trainable_weights) + list(self._parameter_vars):
+                vid = id(v)
+                if vid not in seen:
+                    seen.add(vid)
+                    unique_vars.append(cast(tf.Variable, v))
+
+            total = cast(tf.Tensor, total)
+            gradients = tape.gradient(total, unique_vars)
+            grads_and_vars = [
+                (g, v) for g, v in zip(gradients or [], unique_vars) if g is not None
+            ]
+            if grads_and_vars:
+                optimizer.apply_gradients(grads_and_vars)
+            else:
+                print("Warning: No gradients to apply in this step.")
+
+            return total
+
         if not self._minimizers:
             print("No minimizers defined. Call minimize() before train().")
             return
@@ -333,23 +374,9 @@ class Modely:
                         np.stack([sample[k] for sample in batch_samples], axis=0)
                     )
 
-                with tf.GradientTape() as tape:
-                    preds = km(batch_inputs, training=True)
-
-                    total = keras.ops.zeros(())
-                    for m in self._minimizers:
-                        name = m["name"]
-                        source_name = m["source"].name
-                        target_name = m["target"].name
-
-                        y_pred, y_true = preds[source_name], preds[target_name]
-
-                        loss_obj = losses[name]
-                        # total = total + tf.reduce_mean(loss_obj(y_true, y_pred))
-                        total = total + keras.ops.mean(
-                            loss_obj(y_true, y_pred)
-                        )  # ensure scalar loss
-
+                total = train_step(batch_inputs, optimizer, losses)
+                if isinstance(total, tf.Tensor):
+                    epoch_losses.append(float(total.numpy()))
                 # gradients = tape.gradient(total, km.trainable_weights)
                 # # Filter out None gradients (non-differentiable vars) before applying
                 # grads_and_vars = [(g, v) for g, v in zip(gradients or [], km.trainable_weights) if g is not None]
@@ -363,29 +390,6 @@ class Modely:
                 #         unique_vars.append(v)
 
                 # gradients = tape.gradient(total, unique_vars)
-                unique_vars: list[tf.Variable] = []
-                seen = set()
-
-                for v in list(km.trainable_weights) + list(self._parameter_vars):
-                    vid = id(v)
-                    if vid not in seen:
-                        seen.add(vid)
-                        unique_vars.append(cast(tf.Variable, v))
-
-                total = cast(tf.Tensor, total)
-                gradients = tape.gradient(total, unique_vars)
-                grads_and_vars = [
-                    (g, v)
-                    for g, v in zip(gradients or [], unique_vars)
-                    if g is not None
-                ]
-                if grads_and_vars:
-                    optimizer.apply_gradients(grads_and_vars)
-                else:
-                    print("Warning: No gradients to apply in this step.")
-
-                if isinstance(total, tf.Tensor):
-                    epoch_losses.append(float(total.numpy()))
 
             mean_epoch_loss = float(np.mean(epoch_losses))
             history["loss"].append(mean_epoch_loss)

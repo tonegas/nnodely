@@ -22,8 +22,13 @@ class SampleWindow(Layer):
         seq_t = self.seq
         dim_t = self.dim
         n = self.window_size
-        if n >= self.time:
-            return keras.layers.Identity(name=self.name)
+        input_time = (
+            self.predecessors[0].time
+            if getattr(self, "predecessors", None)
+            else self.time
+        )
+        if n >= input_time:
+            self._layer = keras.layers.Identity(name=self.name)
         else:
             slices = (
                 [slice(None)] * (1 + len(seq_t))

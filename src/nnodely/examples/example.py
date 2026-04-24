@@ -9,6 +9,20 @@ from nnodely.layers.localmodel import LocalModel
 from nnodely.core.dataloader import DataLoader
 from nnodely.layers.parameter import Parameter
 from nnodely.layers.constant import Constant
+from nnodely.layers.concatenate import Concatenate
+from nnodely.layers.activations import (
+    ReLU,
+    ELU,
+    LeakyReLU,
+    PReLU,
+    Sigmoid,
+    Tanh,
+    Softmax,
+    Swish,
+    GELU,
+    Softplus,
+)
+from nnodely.layers.trigonometric import Sin, Cos, Tan, Asin, Acos, Atan
 
 import os
 
@@ -412,17 +426,73 @@ def main(example=1):
         div = param / const
 
         Fir_out = Fir(out_features=1)(x.sw(2))
+        print("Fir output shape:", x.sw(1).shape)
         out_add = Output("out_add", add)
         out_mul = Output("out_mul", mul)
         out_sub = Output("out_sub", sub)
         out_div = Output("out_div", div)
         out_fir = Output("out_fir", Fir_out)
-        model = Modely("model", outputs=[out_add, out_mul, out_sub, out_div, out_fir])
+        out_concat = Output("out_concat", Concatenate(axis=-1)([x.sw(1), Fir_out]))
+        model = Modely(
+            "model", outputs=[out_add, out_mul, out_sub, out_div, out_fir, out_concat]
+        )
         model.build()
         model.plot(to_file="html/model_all_blocks.png")
 
+    if example == 11:
+        # ------- Test activation layers -------
+        x = Input("x", dim=1)
+        relu_out = Output("out_relu", ReLU(max_value=1.0)(x.sw(1)))
+        elu_out = Output("out_elu", ELU(alpha=1.0)(x.sw(2)))
+        leaky_relu_out = Output(
+            "out_leaky_relu", LeakyReLU(negative_slope=0.3)(x.sw(1))
+        )
+        prelu_out = Output("out_prelu", PReLU()(x.sw(1)))
+        sigmoid_out = Output("out_sigmoid", Sigmoid()(x.sw(5)))
+        tanh_out = Output("out_tanh", Tanh()(x.sw(1)))
+        softmax_out = Output("out_softmax", Softmax(axis=-1)(x.sw(3)))
+        swish_out = Output("out_swish", Swish()(x.sw(1)))
+        gelu_out = Output("out_gelu", GELU()(x.sw(1)))
+        softplus_out = Output("out_softplus", Softplus()(x.sw(1)))
+        model = Modely(
+            "activation_model",
+            outputs=[
+                relu_out,
+                elu_out,
+                leaky_relu_out,
+                prelu_out,
+                sigmoid_out,
+                tanh_out,
+                softmax_out,
+                swish_out,
+                gelu_out,
+                softplus_out,
+            ],
+        )
+        model.build()
+        model.plot(to_file="html/model_activation_blocks.png")
+
+    if example == 12:
+        # ------- Test trigonometric layers -------
+        x = Input("x", dim=1)
+
+        sin_out = Output("out_sin", Sin()(x.sw(1)))
+        cos_out = Output("out_cos", Cos()(x.sw(3)))
+        tan_out = Output("out_tan", Tan()(x.sw(1)))
+        asin_out = Output("out_asin", Asin()(x.sw(4)))
+        acos_out = Output("out_acos", Acos()(x.sw(1)))
+        atan_out = Output("out_atan", Atan()(x.sw(2)))
+        model = Modely(
+            "trig_model",
+            outputs=[sin_out, cos_out, tan_out, asin_out, acos_out, atan_out],
+        )
+        model.build()
+        model.plot(to_file="html/model_trig.png")
+
 
 if __name__ == "__main__":
-    for i in range(1, 11):
-        print(f"\n\n--- Running Example {i} ---\n\n")
-        main(example=i)
+    main(example=12)
+    exit(0)
+    # for i in range(1, 11):
+    #     print(f"\n\n--- Running Example {i} ---\n\n")
+    #     main(example=i)
