@@ -24,6 +24,7 @@ from nnodely.layers.activations import (
     Swish,
     Tanh,
 )
+from nnodely.layers.trigonometric import Acos, Asin, Atan, Cos, Sin, Tan
 
 # Public API
 __all__ = [
@@ -48,4 +49,10 @@ __all__ = [
     "Swish",
     "GELU",
     "Softplus",
+    "Sin",
+    "Cos",
+    "Tan",
+    "Asin",
+    "Acos",
+    "Atan",
 ]
