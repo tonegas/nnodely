@@ -72,13 +72,13 @@ class Modely:
         self._parameter_nodes = []
         self._parameter_vars = []
 
-        input_map = {node.name: node.input for node in self.inputs}
-        default_anchor = next(iter(input_map.values()), None)
+        tensor_map = {node.name: node.input for node in self.inputs}
+        default_anchor = next(iter(tensor_map.values()), None)
 
         keras_outputs = {}
         for node in self.outputs:
             keras_outputs[node.name] = self._resolve_tensor(
-                node, input_map, anchor=default_anchor
+                node, tensor_map, anchor=default_anchor
             )
 
         keras_inputs = {node.name: node.input for node in self.inputs}
@@ -97,26 +97,25 @@ class Modely:
 
         if extra_outputs:
             order = toposort(extra_outputs)
-            extra_inputs = [node for node in order if isinstance(node, Input)]
+            extra_inputs = [
+                node
+                for node in order
+                if isinstance(node, Input) and node not in self.inputs
+            ]
 
-            known = {node.name for node in self.inputs}
-            extra_inputs = [node for node in extra_inputs if node.name not in known]
-
-            input_map = {node.name: node.input for node in self.inputs} | {
-                node.name: node.input for node in extra_inputs
-            }
-            default_anchor = next(iter(input_map.values()), None)
+            for node in extra_inputs:
+                tensor_map[node.name] = node.input
+            default_anchor = next(iter(tensor_map.values()), None)
 
             for node in extra_outputs:
                 keras_outputs[node.name] = self._resolve_tensor(
-                    node, input_map, anchor=default_anchor
+                    node, tensor_map, anchor=default_anchor
                 )
 
             self.train_inputs = self.inputs + extra_inputs
             keras_inputs = {node.name: node.input for node in self.inputs} | {
                 node.name: node.input for node in extra_inputs
             }
-
             self._train_model = keras.Model(
                 name=self.name + "_train",
                 inputs=keras_inputs,
@@ -203,12 +202,13 @@ class Modely:
         if isinstance(node, Output):
             y = pred_tensors[0]
         else:
-            layer = node.build_layer() if node._layer is None else node._layer
-            y = (
-                layer(pred_tensors[0])
-                if len(pred_tensors) == 1
-                else layer(pred_tensors)
-            )
+            # layer = node.build_layer()# if node._layer is None else node._layer
+            # y = (
+            #     layer(pred_tensors[0])
+            #     if len(pred_tensors) == 1
+            #     else layer(pred_tensors)
+            # )
+            y = node.call(*pred_tensors)
 
         tensor_map[node.name] = y
         return y

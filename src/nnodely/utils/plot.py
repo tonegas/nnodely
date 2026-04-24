@@ -285,7 +285,7 @@ def export_html(
             if nid in seen_nodes:
                 continue
             kind = (node.__class__.__name__,)
-            nodes.append((node, nid, kind[0], _safe_attrs(node)))
+            nodes.append((node, nid, kind, _safe_attrs(node)))
             seen_nodes.add(nid)
 
         for node in model_obj._order:
