@@ -7,6 +7,7 @@ from nnodely.core.dag import next_name
 
 class Stream:
     """
+
     Symbolic DAG node representing a data stream.
 
     Shape convention (without batch):
@@ -31,6 +32,8 @@ class Stream:
     predecessors : list[Stream]
         Parent nodes in the DAG.
     """
+
+    _literal_constant_cache = {}
 
     def __init__(
         self,
@@ -74,22 +77,75 @@ class Stream:
     def __add__(self, other):
         from nnodely.core.layer import Add
 
-        return Add()(self, other)
+        return Add()(self, self._coerce_operand(other))
+
+    def __radd__(self, other):
+        from nnodely.core.layer import Add
+
+        return Add()(self._coerce_operand(other), self)
 
     def __sub__(self, other):
         from nnodely.core.layer import Subtract
 
-        return Subtract()(self, other)
+        return Subtract()(self, self._coerce_operand(other))
+
+    def __rsub__(self, other):
+        from nnodely.core.layer import Subtract
+
+        return Subtract()(self._coerce_operand(other), self)
 
     def __mul__(self, other):
         from nnodely.core.layer import Multiply
 
-        return Multiply()(self, other)
+        return Multiply()(self, self._coerce_operand(other))
+
+    def __rmul__(self, other):
+        from nnodely.core.layer import Multiply
+
+        return Multiply()(self._coerce_operand(other), self)
 
     def __truediv__(self, other):
         from nnodely.core.layer import Divide
 
-        return Divide()(self, other)
+        return Divide()(self, self._coerce_operand(other))
+
+    def __rtruediv__(self, other):
+        from nnodely.core.layer import Divide
+
+        return Divide()(self._coerce_operand(other), self)
+
+    @staticmethod
+    def _coerce_operand(value):
+        if isinstance(value, Stream):
+            return value
+
+        from nnodely.layers.constant import Constant
+
+        key = Stream._literal_constant_key(value)
+        if key is not None:
+            cached = Stream._literal_constant_cache.get(key)
+            if cached is None:
+                cached = Constant(name=None, value=key[1])
+                Stream._literal_constant_cache[key] = cached
+            return cached
+
+        return Constant(name=None, value=value)
+
+    @staticmethod
+    def _literal_constant_key(value):
+        if isinstance(value, bool):
+            return ("scalar_bool", bool(value))
+
+        if isinstance(value, (int, float)):
+            return ("scalar_num", float(value))
+
+        if hasattr(value, "item"):
+            try:
+                return Stream._literal_constant_key(value.item())
+            except Exception:
+                return None
+
+        return None
 
     def __repr__(self):
         pred_names = [pred.name for pred in self.predecessors]
