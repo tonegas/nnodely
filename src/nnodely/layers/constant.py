@@ -18,8 +18,6 @@ class Constant(Stream):
     seq is kept empty by default.
     """
 
-    # node_type = "Constant"
-
     def __init__(
         self,
         name: str | None = None,
@@ -49,7 +47,6 @@ class Constant(Stream):
 
         super().__init__(
             name=name,
-            # node_type=self.node_type,
             seq=seq,
             time=time,
             dim=dim,

@@ -135,8 +135,6 @@ class Loop(Layer):
     - the order of Loop(...) inputs must match f.inputs
     """
 
-    # node_type = "Loop"
-
     def __init__(self, f: Modely, closed_loop: dict, name=None):
         if len(f.outputs) != 1:
             raise ValueError("Loop currently supports Modely with exactly one output")
@@ -154,15 +152,14 @@ class Loop(Layer):
 
     def output_shape(self, seqs, times, dims):
         # all ingress streams must have exactly one seq axis
-        for seq in seqs:
-            if len(seq) != 1:
-                raise ValueError(
-                    f"{self.name}: each Loop input must have exactly one seq axis, got seq={seq}"
-                )
-
-        horizon = max(seq[0] for seq in seqs)
+        if len(seqs) != 1:
+            raise ValueError(
+                f"{self.name}: each Loop input must have exactly one seq axis, got seq={seqs}"
+            )
+        # horizon = max(seq[0] for seq in seqs)
         out_node = self.f.outputs[0]
-        return (horizon,), out_node.time, out_node.dim
+        return super().output_shape(out_node.seq, out_node.time, out_node.dim)
+        # return (horizon,), out_node.time, out_node.dim
 
     def build_layer(self):
         f = self.f
@@ -180,6 +177,4 @@ class Loop(Layer):
             raise ValueError(
                 f"{self.name}: closed-loop output '{loop_out_name}' is not among f.outputs={fn_output_names}"
             )
-
-        self._layer = LoopImpl(f._model, loop_out_name, name=self.name)
-        return self._layer
+        return LoopImpl(f._model, loop_out_name, name=self.name)

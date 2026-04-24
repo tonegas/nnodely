@@ -9,17 +9,15 @@ class SampleWindow(Layer):
     Simmetrico agli altri layer: usa build_layer e call.
     """
 
-    # node_type = "SampleWindow"
-
     def __init__(self, window_size: int, name=None):
         self.window_size = int(window_size)
         super().__init__(name=name, window_size=self.window_size)
 
     def output_shape(self, seqs, times, dims):
         """Output ha time=window_size."""
-        return seqs[0], self.window_size, dims[0]
+        return super().output_shape(seqs, self.window_size, dims)
 
-    def build_layer(self, **kwargs):
+    def build_layer(self):
         """Crea Lambda per slice se window_size < input.time, altrimenti Identity."""
         seq_t = self.seq
         dim_t = self.dim
@@ -37,14 +35,10 @@ class SampleWindow(Layer):
                 + [slice(-n, None)]
                 + [slice(None)] * len(dim_t)
             )
-            self._layer = keras.layers.Lambda(
+            return keras.layers.Lambda(
                 lambda x: x[tuple(slices)],
                 name=self.name,
             )
-        return self._layer
-
-    # def call(self, x):
-    #     return self._layer(x)
 
 
 # ## TODO: SamplePart, SampleSelect and make it time dependend with past and future

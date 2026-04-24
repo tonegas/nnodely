@@ -98,8 +98,6 @@ class FuzzifyImpl(keras.layers.Layer):
 class Fuzzify(Layer):
     """Fuzzify a scalar stream into membership degrees over a set of centers."""
 
-    # node_type = "Fuzzify"
-
     def __init__(
         self,
         output_dimension: int | None = None,
@@ -153,21 +151,16 @@ class Fuzzify(Layer):
         )
 
     def output_shape(self, seqs, times, dims):
-        seq = seqs[0]
-        time = times[0]
-        in_dim = dims[0]
-
-        if len(in_dim) != 1:
+        if len(dims) != 1:
             raise ValueError(
-                f"Fuzzify currently expects a single input feature axis, got dim={in_dim}"
+                f"Fuzzify currently expects a single input feature axis, got dim={dims}"
             )
 
-        return seq, time, (self.output_dimension,)
+        return super().output_shape(seqs, times, (self.output_dimension,))
 
     def build_layer(self):
-        self._layer = FuzzifyImpl(
+        return FuzzifyImpl(
             centers=self.centers,
             function_name=self.functions,
             name=self.name,
         )
-        return self._layer

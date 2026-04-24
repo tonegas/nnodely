@@ -16,24 +16,37 @@ class Parameter(Stream):
         seq + (time,) + dim
     """
 
-    # node_type = "Parameter"
-
     def __init__(
         self,
         name: str,
         *,
         value=None,
         initializer="random_normal",
-        seq=(),
-        time=1,
-        dim=(1,),
+        seq=None,
+        time=None,
+        dim=None,
         dtype="float32",
     ):
-        # dim = to_tuple(dim, (1,))
-        # seq = to_tuple(seq, ())
+        if value:
+            arr = np.asarray(value, dtype=np.float32)
+
+            if arr.ndim == 0:
+                arr = arr.reshape(1, 1)
+                seq = None
+                time = 1
+                dim = (1,)
+            elif arr.ndim == 1:
+                arr = arr.reshape(arr.shape[0], 1)
+                seq = None
+                time = arr.shape[0]
+                dim = (1,)
+            else:
+                seq = None
+                time = arr.shape[0]
+                dim = tuple(arr.shape[1:])
+
         super().__init__(
             name=name,
-            # node_type=self.node_type,
             seq=seq,
             time=time,
             dim=dim,
