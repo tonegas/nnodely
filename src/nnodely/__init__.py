@@ -11,6 +11,19 @@ from nnodely.layers.constant import Constant
 from nnodely.layers.loop import Loop
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.fuzzify import Fuzzify
+from nnodely.layers.concatenate import Concatenate
+from nnodely.layers.activations import (
+    ELU,
+    GELU,
+    PReLU,
+    ReLU,
+    LeakyReLU,
+    Sigmoid,
+    Softmax,
+    Softplus,
+    Swish,
+    Tanh,
+)
 
 # Public API
 __all__ = [
@@ -24,4 +37,15 @@ __all__ = [
     "Loop",
     "LocalModel",
     "Fuzzify",
+    "Concatenate",
+    "ReLU",
+    "LeakyReLU",
+    "ELU",
+    "PReLU",
+    "Sigmoid",
+    "Tanh",
+    "Softmax",
+    "Swish",
+    "GELU",
+    "Softplus",
 ]
