@@ -146,8 +146,8 @@ class LocalModel(Layer):
 
         return super().__call__(*inputs)
 
-    def output_shape(self, seqs, times, dims):
-        return super().output_shape(seqs, times, (self.out_features,))
+    def output_shape(self, *inputs):
+        return inputs[0].seq, inputs[0].time, (self.out_features,)
 
     def build_layer(self):
         num_models = max(0, len(self.predecessors) - 1)

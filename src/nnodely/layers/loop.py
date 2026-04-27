@@ -150,16 +150,16 @@ class Loop(Layer):
 
         super().__init__(name=name, f=f, closed_loop=self.closed_loop)
 
-    def output_shape(self, seqs, times, dims):
+    def output_shape(self, *inputs):
         # all ingress streams must have exactly one seq axis
-        if len(seqs) != 1:
-            raise ValueError(
-                f"{self.name}: each Loop input must have exactly one seq axis, got seq={seqs}"
-            )
-        # horizon = max(seq[0] for seq in seqs)
+        for inp in inputs:
+            if len(inp.seq) != 1:
+                raise ValueError(
+                    f"{self.name}: each Loop input must have exactly one seq axis, got input {inp.name} with seq={inp.seq}"
+                )
+        horizon = max(inp.seq[0] for inp in inputs)
         out_node = self.f.outputs[0]
-        return super().output_shape(out_node.seq, out_node.time, out_node.dim)
-        # return (horizon,), out_node.time, out_node.dim
+        return (horizon,), out_node.time, out_node.dim
 
     def build_layer(self):
         f = self.f

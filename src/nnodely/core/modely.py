@@ -181,8 +181,9 @@ class Modely:
             if isinstance(node, Parameter):
                 if node not in self._parameter_nodes:
                     self._parameter_nodes.append(node)
-                if node.param is not None and node.param not in self._parameter_vars:
-                    self._parameter_vars.append(node.param)
+                if node.param is not None:
+                    if not any(node.param is v for v in self._parameter_vars):
+                        self._parameter_vars.append(node.param)
             return y
 
         if isinstance(node, ModelCall):

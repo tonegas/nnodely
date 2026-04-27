@@ -9,7 +9,7 @@ from nnodely.layers.localmodel import LocalModel
 from nnodely.core.dataloader import DataLoader
 from nnodely.layers.parameter import Parameter
 from nnodely.layers.constant import Constant
-from nnodely.layers.concatenate import Concatenate
+from nnodely.layers.concatenate import Concatenate, TimeConcatenate
 from nnodely.layers.activations import (
     ReLU,
     ELU,
@@ -426,15 +426,39 @@ def main(example=1):
         div = param / const
 
         Fir_out = Fir(out_features=1)(x.sw(2))
-        print("Fir output shape:", x.sw(1).shape)
         out_add = Output("out_add", add)
         out_mul = Output("out_mul", mul)
         out_sub = Output("out_sub", sub)
         out_div = Output("out_div", div)
         out_fir = Output("out_fir", Fir_out)
-        out_concat = Output("out_concat", Concatenate(axis=-1)([x.sw(1), Fir_out]))
+        out_concat = Output(
+            "out_concat", TimeConcatenate(name="time_concat")(x.sw(2), Fir_out)
+        )
+        param2 = Parameter("param2", dim=(3, 2))
+        param3 = Parameter("param3", dim=(1, 2))
+        param4 = Parameter("param4", dim=(1, 2))
+        out_concat2 = Output(
+            "out_concat2", Concatenate(name="concat", axis=0)(param2, param3)
+        )
+        out_concat3 = Output(
+            "out_concat3", Concatenate(name="concat2", axis=1)(param3, param4)
+        )
+        out_concat4 = Output(
+            "out_concat4", Concatenate(name="concat3", axis=0)(param2, param3, param4)
+        )
         model = Modely(
-            "model", outputs=[out_add, out_mul, out_sub, out_div, out_fir, out_concat]
+            "model",
+            outputs=[
+                out_add,
+                out_mul,
+                out_sub,
+                out_div,
+                out_fir,
+                out_concat,
+                out_concat2,
+                out_concat3,
+                out_concat4,
+            ],
         )
         model.build()
         model.plot(to_file="html/model_all_blocks.png")
@@ -491,8 +515,6 @@ def main(example=1):
 
 
 if __name__ == "__main__":
-    main(example=12)
-    exit(0)
-    # for i in range(1, 11):
-    #     print(f"\n\n--- Running Example {i} ---\n\n")
-    #     main(example=i)
+    for i in range(1, 13):
+        print(f"\n\n--- Running Example {i} ---\n\n")
+        main(example=i)

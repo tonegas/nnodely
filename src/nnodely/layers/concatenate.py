@@ -8,59 +8,97 @@ from nnodely.core.layer import Layer
 
 
 class Concatenate(Layer):
-    """Concatenate multiple streams along a chosen axis of stream shape."""
+    """Concatenate multiple streams along a chosen axis of the dim shape."""
 
-    def __init__(self, axis: int = -1, name=None):
-        self.axis = int(axis)
+    def __init__(self, axis: int = 0, name=None):
+        self.axis = axis
         super().__init__(name=name, axis=self.axis)
 
-    def _resolve_axis(self, rank: int) -> int:
+    def _resolve_dim_axis(self, dim_rank: int) -> int:
         axis = self.axis
-        if axis < 0:
-            axis += rank
-        if axis < 0 or axis >= rank:
+        if axis < 0 or axis >= dim_rank:
             raise ValueError(
-                f"{self.name}: axis {self.axis} is out of bounds for rank {rank}."
+                f"{self.name}: axis {self.axis} is out of bounds for dim rank {dim_rank}."
             )
         return axis
 
-    def __call__(self, *inputs):
-        if len(inputs) == 1 and isinstance(inputs[0], (list, tuple)):
-            inputs = tuple(inputs[0])
-        return super().__call__(*inputs)
+    def output_shape(self, *inputs):
+        if not inputs:
+            raise ValueError(f"{self.name}: Concatenate requires at least one input.")
 
-    def output_shape(self, seqs, times, dims):
-        shapes = [
-            tuple(seq) + (int(time),) + tuple(dim)
-            for seq, time, dim in zip(seqs, times, dims)
-        ]
-        ref = shapes[0]
-        rank = len(ref)
-        axis = self._resolve_axis(rank)
+        ref_seq = inputs[0].seq
+        ref_time = inputs[0].time
+        ref_dim = inputs[0].dim
 
-        out = list(ref)
-        for shape in shapes[1:]:
-            if len(shape) != rank:
+        dim_rank = len(ref_dim)
+        axis = self._resolve_dim_axis(dim_rank)
+
+        out_dim = list(ref_dim)
+
+        for inp in inputs[1:]:
+            seq = inp.seq
+            time = inp.time
+            dim = inp.dim
+
+            if seq != ref_seq:
                 raise ValueError(
-                    f"{self.name}: all inputs must have the same rank, got {rank} and {len(shape)}."
+                    f"{self.name}: all inputs must have the same seq shape, "
+                    f"got {ref_seq} and {seq}."
                 )
 
-            for idx, (left, right) in enumerate(zip(out, shape)):
-                if idx == axis:
-                    continue
-                if left != right:
-                    raise ValueError(
-                        f"{self.name}: input shapes differ on axis {idx}: {left} vs {right}."
-                    )
+            if time != ref_time:
+                raise ValueError(
+                    f"{self.name}: all inputs must have the same time dimension, "
+                    f"got {ref_time} and {time}."
+                )
 
-            out[axis] += shape[axis]
+            if len(dim) != dim_rank:
+                raise ValueError(
+                    f"{self.name}: all inputs must have the same dim rank, "
+                    f"got {dim_rank} and {len(dim)}."
+                )
 
-        seq_rank = len(seqs[0])
-        out_seq = tuple(out[:seq_rank])
-        out_time = out[seq_rank]
-        out_dim = tuple(out[seq_rank + 1 :])
-        return out_seq, out_time, out_dim
+            out_dim[axis] += dim[axis]
+
+        return ref_seq, ref_time, tuple(out_dim)
 
     def build_layer(self):
-        self._layer = keras.layers.Concatenate(axis=self.axis, name=self.name)
-        return self._layer
+        dim_rank = len(self.dim)
+        dim_axis = self._resolve_dim_axis(dim_rank)
+        keras_axis = 1 + len(self.seq) + 1 + dim_axis
+        return keras.layers.Concatenate(axis=keras_axis, name=self.name)
+
+
+class TimeConcatenate(Layer):
+    """Concatenate multiple streams the time dimension"""
+
+    def __init__(self, name=None):
+        super().__init__(name=name)
+
+    def output_shape(self, *inputs):
+        if not inputs:
+            raise ValueError(
+                f"{self.name}: TimeConcatenate requires at least one input."
+            )
+
+        ref_seq = inputs[0].seq
+        ref_dim = inputs[0].dim
+
+        for inp in inputs[1:]:
+            if inp.seq != ref_seq:
+                raise ValueError(
+                    f"{self.name}: all inputs must have the same seq shape, "
+                    f"got {ref_seq} and {inp.seq}."
+                )
+            if inp.dim != ref_dim:
+                raise ValueError(
+                    f"{self.name}: all inputs must have the same dim shape, "
+                    f"got {ref_dim} and {inp.dim}."
+                )
+
+        time_out = sum(inp.time for inp in inputs)
+        return ref_seq, time_out, ref_dim
+
+    def build_layer(self):
+        keras_axis = 1 + len(self.seq)
+        return keras.layers.Concatenate(axis=keras_axis, name=self.name)

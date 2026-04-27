@@ -55,9 +55,9 @@ class Fir(Layer):
             name=name, out_features=self.out_features, use_bias=self.use_bias
         )
 
-    def output_shape(self, seqs, times, dims):
-        seq = seqs
-        in_dim = dims
+    def output_shape(self, *inputs):
+        seq = inputs[0].seq
+        in_dim = inputs[0].dim
         if len(seq) != 0:
             raise NotImplementedError(
                 "This proposal handles seq=() streams first; extend here for nested sequence dims."
@@ -66,7 +66,7 @@ class Fir(Layer):
             raise ValueError(
                 f"Fir currently expects a single feature axis, got dim={in_dim}"
             )
-        return super().output_shape(seqs, 1, (self.out_features,))
+        return seq, 1, (self.out_features,)
 
     def build_layer(self):
         return FirImpl(

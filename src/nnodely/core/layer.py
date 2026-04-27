@@ -36,12 +36,12 @@ class Layer(Stream):
     # Shape logic
     # ------------------------------------------------------------------
 
-    def output_shape(self, seqs, times, dims):
+    def output_shape(self, *inputs):
         """
         Default: propagate shape of the first predecessor.
-        seqs, times, dims are tuples/lists, one entry per predecessor.
+        By default all inputs must have the same shape, but this can be overridden in subclasses.
         """
-        return seqs, times, dims
+        return inputs[0].dimensions
 
     # ------------------------------------------------------------------
     # Keras layer logic
@@ -50,7 +50,6 @@ class Layer(Stream):
     def build_layer(self):
         """
         Override in subclasses.
-        Must set self._layer and return it.
         """
         return keras.layers.Identity(name=self.name)
 
@@ -67,9 +66,7 @@ class Layer(Stream):
     def __call__(self, *inputs):
         # Symbolic mode: Layer(Stream, ...) -> new Stream node
         if all(_is_stream(x) for x in inputs):
-            out_seq, out_time, out_dim = self.output_shape(
-                inputs[0].seq, inputs[0].time, inputs[0].dim
-            )
+            out_seq, out_time, out_dim = self.output_shape(*inputs)
             node = self.__class__(**self._properties)
             node.seq = out_seq
             node.time = out_time
@@ -83,16 +80,6 @@ class Layer(Stream):
 
 class BinaryOp(Layer):
     keras_op = None
-
-    def output_shape(self, seqs, times, dims):
-        ref = self.predecessors[0] if self.predecessors else None
-        if ref is not None:
-            for p in self.predecessors[1:]:
-                if ref.shape != p.shape:
-                    raise ValueError(
-                        f"{self.__class__.__name__} requires identical shapes, got {ref.shape} and {p.shape}"
-                    )
-        return seqs, times, dims
 
     def build_layer(self):
         if self.keras_op is not None:

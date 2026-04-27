@@ -150,13 +150,13 @@ class Fuzzify(Layer):
             functions=self.functions,
         )
 
-    def output_shape(self, seqs, times, dims):
-        if len(dims) != 1:
-            raise ValueError(
-                f"Fuzzify currently expects a single input feature axis, got dim={dims}"
-            )
-
-        return super().output_shape(seqs, times, (self.output_dimension,))
+    def output_shape(self, *inputs):
+        for inp in inputs:
+            if len(inp.dim) != 1:
+                raise ValueError(
+                    f"Fuzzify currently expects a single input feature axis, got dim={inp.dim}"
+                )
+        return inputs[0].seq, inputs[0].time, (self.output_dimension,)
 
     def build_layer(self):
         return FuzzifyImpl(

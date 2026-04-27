@@ -13,21 +13,16 @@ class SampleWindow(Layer):
         self.window_size = int(window_size)
         super().__init__(name=name, window_size=self.window_size)
 
-    def output_shape(self, seqs, times, dims):
+    def output_shape(self, *inputs):
         """Output ha time=window_size."""
-        return super().output_shape(seqs, self.window_size, dims)
+        return inputs[0].seq, self.window_size, inputs[0].dim
 
     def build_layer(self):
         """Crea Lambda per slice se window_size < input.time, altrimenti Identity."""
         seq_t = self.seq
         dim_t = self.dim
         n = self.window_size
-        input_time = (
-            self.predecessors[0].time
-            if getattr(self, "predecessors", None)
-            else self.time
-        )
-        if n >= input_time:
+        if n >= self.time:
             return keras.layers.Identity(name=self.name)
         else:
             slices = (
@@ -35,10 +30,7 @@ class SampleWindow(Layer):
                 + [slice(-n, None)]
                 + [slice(None)] * len(dim_t)
             )
-            return keras.layers.Lambda(
-                lambda x: x[tuple(slices)],
-                name=self.name,
-            )
+            return keras.layers.Lambda(lambda x: x[tuple(slices)], name=self.name)
 
 
 # ## TODO: SamplePart, SampleSelect and make it time dependend with past and future
