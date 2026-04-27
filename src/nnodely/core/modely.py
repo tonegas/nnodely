@@ -393,7 +393,7 @@ class Modely:
 
             mean_epoch_loss = float(np.mean(epoch_losses))
             history["loss"].append(mean_epoch_loss)
-            epoch_bar.set_postfix(epoch_loss=f"{mean_epoch_loss:.4f}")
+            epoch_bar.set_postfix(epoch_loss=f"{mean_epoch_loss:.3e}")
 
         return history
 
