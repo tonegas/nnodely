@@ -3,6 +3,7 @@ Stream - nodo del DAG con predecessors.
 """
 
 from nnodely.core.dag import next_name
+from nnodely.utils.type_defs import StreamOperand
 
 
 class Stream:
@@ -19,15 +20,13 @@ class Stream:
 
     Attributes
     ----------
-    name : str
+    name : str|None
         Unique node name in the graph.
-    node_type : str
-        Semantic node type, e.g. 'input', 'output', 'Fir', 'SampleWindow'.
-    seq : tuple
+    seq : int | tuple[int, ...] | None
         Optional sequence axes before time.
-    time : int
+    time : int | None
         Time/window axis.
-    dim : tuple
+    dim : int | tuple[int, ...] | None
         Feature dimensions after time.
     predecessors : list[Stream]
         Parent nodes in the DAG.
@@ -38,10 +37,10 @@ class Stream:
     def __init__(
         self,
         name: str | None = None,
-        seq: int | tuple[int] | None = None,
+        seq: int | tuple[int, ...] | None = None,
         time: int | None = None,
-        dim: int | tuple | None = None,
-        predecessors=None,
+        dim: int | tuple[int, ...] | None = None,
+        predecessors: list["Stream"] | None = None,
     ):
         self.name = (
             str(name) if name is not None else next_name(self.__class__.__name__)
@@ -52,14 +51,14 @@ class Stream:
         self.predecessors = list(predecessors) if predecessors is not None else []
 
     @property
-    def shape(self) -> tuple:
+    def shape(self) -> tuple[int, ...]:
         """
         Shape without batch dimension.
         """
         return self.seq + (self.time,) + self.dim
 
     @property
-    def dimensions(self):
+    def dimensions(self) -> tuple[tuple[int, ...], int, tuple[int, ...]]:
         """
         Return seq, time, dim separately
         """
@@ -72,48 +71,48 @@ class Stream:
         """
         return len(self.shape)
 
-    def __add__(self, other):
+    def __add__(self, other: StreamOperand) -> "Stream":
         from nnodely.core.layer import Add
 
         return Add()(self, self._coerce_operand(other))
 
-    def __radd__(self, other):
+    def __radd__(self, other: StreamOperand) -> "Stream":
         from nnodely.core.layer import Add
 
         return Add()(self._coerce_operand(other), self)
 
-    def __sub__(self, other):
+    def __sub__(self, other: StreamOperand) -> "Stream":
         from nnodely.core.layer import Subtract
 
         return Subtract()(self, self._coerce_operand(other))
 
-    def __rsub__(self, other):
+    def __rsub__(self, other: StreamOperand) -> "Stream":
         from nnodely.core.layer import Subtract
 
         return Subtract()(self._coerce_operand(other), self)
 
-    def __mul__(self, other):
+    def __mul__(self, other: StreamOperand) -> "Stream":
         from nnodely.core.layer import Multiply
 
         return Multiply()(self, self._coerce_operand(other))
 
-    def __rmul__(self, other):
+    def __rmul__(self, other: StreamOperand) -> "Stream":
         from nnodely.core.layer import Multiply
 
         return Multiply()(self._coerce_operand(other), self)
 
-    def __truediv__(self, other):
+    def __truediv__(self, other: StreamOperand) -> "Stream":
         from nnodely.core.layer import Divide
 
         return Divide()(self, self._coerce_operand(other))
 
-    def __rtruediv__(self, other):
+    def __rtruediv__(self, other: StreamOperand) -> "Stream":
         from nnodely.core.layer import Divide
 
         return Divide()(self._coerce_operand(other), self)
 
     @staticmethod
-    def _coerce_operand(value):
+    def _coerce_operand(value: StreamOperand) -> "Stream":
         if isinstance(value, Stream):
             return value
 
@@ -130,22 +129,15 @@ class Stream:
         return Constant(name=None, value=value)
 
     @staticmethod
-    def _literal_constant_key(value):
-        if isinstance(value, bool):
-            return ("scalar_bool", bool(value))
-
+    def _literal_constant_key(
+        value: list | int | float,
+    ) -> tuple[str, list[int | float | list] | float]:
         if isinstance(value, (int, float)):
-            return ("scalar_num", float(value))
+            return ("scalar", float(value))
 
-        if hasattr(value, "item"):
-            try:
-                return Stream._literal_constant_key(value.item())
-            except Exception:
-                return None
+        return ("array", value)
 
-        return None
-
-    def __repr__(self):
+    def __repr__(self) -> str:
         pred_names = [pred.name for pred in self.predecessors]
         return (
             f"{self.__class__.__name__}("

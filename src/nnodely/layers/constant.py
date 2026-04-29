@@ -22,11 +22,9 @@ class Constant(Stream):
         self,
         name: str | None = None,
         *,
-        value,
+        value: list[int | float | list] | float | int,
         dtype="float32",
     ):
-        if value is None:
-            raise ValueError("Constant requires a value.")
 
         arr = np.asarray(value, dtype=np.float32)
 
