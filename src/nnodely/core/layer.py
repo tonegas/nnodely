@@ -20,7 +20,7 @@ class Layer(Stream):
     """
 
     def __init__(
-        self, name=None, predecessors=None, seq=None, time=None, dim=None, **kwargs
+        self, name: str | None = None, predecessors: list[Stream] | None = None, seq: int | tuple[int, ...] | None = None, time: int | None = None, dim: int | tuple[int, ...] | None = None, **kwargs
     ):
         self._properties = dict(kwargs)
 
@@ -36,7 +36,7 @@ class Layer(Stream):
     # Shape logic
     # ------------------------------------------------------------------
 
-    def output_shape(self, *inputs):
+    def output_shape(self, *inputs: Stream) -> tuple[tuple[int, ...], int, tuple[int, ...]]:
         """
         Default: propagate shape of the first predecessor.
         By default all inputs must have the same shape, but this can be overridden in subclasses.
@@ -63,19 +63,19 @@ class Layer(Stream):
     # Symbolic graph logic
     # ------------------------------------------------------------------
 
-    def __call__(self, *inputs):
+    def __call__(self, *inputs: Stream) -> Stream:
         # Symbolic mode: Layer(Stream, ...) -> new Stream node
-        if all(_is_stream(x) for x in inputs):
-            out_seq, out_time, out_dim = self.output_shape(*inputs)
-            node = self.__class__(**self._properties)
-            node.seq = out_seq
-            node.time = out_time
-            node.dim = out_dim
-            node.predecessors = list(inputs)
-            return node
+        out_seq, out_time, out_dim = self.output_shape(*inputs)
+        node = self.__class__(**self._properties)
+        node.seq = out_seq
+        node.time = out_time
+        node.dim = out_dim
+        node.predecessors = list(inputs)
+        return node
 
         # Tensor mode: Layer(tensor, ...) -> KerasTensor / Tensor
-        return self.call(*inputs)
+        # Never called
+        #return self.call(*inputs)
 
 
 class BinaryOp(Layer):

@@ -20,12 +20,12 @@ class Parameter(Stream):
         self,
         name: str,
         *,
-        value=None,
-        initializer="random_normal",
-        seq=None,
-        time=None,
-        dim=None,
-        dtype="float32",
+        value: list[int | float | list] | float | int | None = None,
+        initializer: str = "random_normal",
+        seq: int | tuple[int, ...] | None = None,
+        time: int | None = None,
+        dim: int | tuple[int, ...] | None = None,
+        dtype: str = "float32",
     ):
         if value:
             arr = np.asarray(value, dtype=np.float32)
@@ -59,7 +59,7 @@ class Parameter(Stream):
 
         self.param = None
 
-    def build_parameter(self):
+    def build_parameter(self) -> keras.Variable:
         """
         Create the trainable Keras weight if it does not exist yet.
         """
@@ -100,7 +100,7 @@ class Parameter(Stream):
         )
         return self.param
 
-    def as_tensor(self, anchor):
+    def as_tensor(self, anchor: "Parameter") -> list[int | float | list] | float:
         v = self.build_parameter()
         return keras.layers.Lambda(
             lambda x: v,
@@ -109,7 +109,7 @@ class Parameter(Stream):
         )(anchor)
 
     @property
-    def value_numpy(self):
+    def value_numpy(self) -> np.ndarray | None:
         if self.param is None:
             return None
         return np.array(self.param)

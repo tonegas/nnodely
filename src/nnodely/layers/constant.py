@@ -23,7 +23,7 @@ class Constant(Stream):
         name: str | None = None,
         *,
         value: list[int | float | list] | float | int,
-        dtype="float32",
+        dtype: str = "float32",
     ):
 
         arr = np.asarray(value, dtype=np.float32)
@@ -55,7 +55,7 @@ class Constant(Stream):
         self.dtype = dtype
         self.constant = None
 
-    def build_constant(self):
+    def build_constant(self) -> keras.Variable:
         if self.constant is not None:
             return self.constant
 
@@ -68,7 +68,7 @@ class Constant(Stream):
         )
         return self.constant
 
-    def as_tensor(self, anchor):
+    def as_tensor(self, anchor: "Constant") -> list[int | float | list] | float:
         v = self.build_constant()
         return keras.layers.Lambda(
             lambda x: v,
@@ -77,7 +77,7 @@ class Constant(Stream):
         )(anchor)
 
     @property
-    def value_numpy(self):
+    def value_numpy(self) -> np.ndarray:
         if self.constant is None:
             return self.value
         return np.array(self.constant)
