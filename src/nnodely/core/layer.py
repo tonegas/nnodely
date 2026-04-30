@@ -23,44 +23,28 @@ class Layer(Stream, ABC):
         - If called with tensor(s): applies the built Keras layer
     """
 
-    node_type: str = "Layer"
-
-    _layer: keras.Layer
-    _properties: dict
-
     def __init__(
-        self,
-        name: str | None = None,
-        predecessors: list[Stream] | None = None,
-        seq: Shape = (),
-        time: int = 1,
-        dim: Shape = (1,),
-        **kwargs,
-    ) -> None:
+        self, name: str | None = None, predecessors: list[Stream] | None = None, seq: int | tuple[int, ...] | None = None, time: int | None = None, dim: int | tuple[int, ...] | None = None, **kwargs
+    ):
+        self._properties = dict(kwargs)
+
         super().__init__(
-            name=name or next_name(self.node_type),
-            node_type=self.node_type,
+            name=next_name(self.__class__.__name__) if name is None else name,
             seq=seq,
             time=time,
             dim=dim,
-            predecessors=predecessors or [],
+            predecessors=predecessors,
         )
 
         self._layer = keras.layers.Identity(name=self.name)
         self._properties = dict(kwargs)
 
-    def output_shape(
-        self, seqs: Sequence[Shape], times: Sequence[int], dims: Sequence[Shape]
-    ) -> tuple[Shape, int, Shape]:
-        """Propagate the shape of the first predecessor
-
-        :param seqs: Sequences of predecessors.
-        :param times: Times of predecessors.
-        :param dims: Dimensions of predecessors.
-        :return: The shape of the first predecessor
+    def output_shape(self, *inputs: Stream) -> tuple[tuple[int, ...], int, tuple[int, ...]]:
         """
-
-        return seqs[0], times[0], dims[0]
+        Default: propagate shape of the first predecessor.
+        By default all inputs must have the same shape, but this can be overridden in subclasses.
+        """
+        return inputs[0].dimensions
 
     @abstractmethod
     def build_layer(self) -> keras.Layer:
@@ -73,63 +57,49 @@ class Layer(Stream, ABC):
             return self._layer(args[0])
         return self._layer(list(args))
 
-    def __call__(self, *inputs):
-        if not inputs:
-            raise TypeError(f"{self.__class__.__name__} expects at least one input")
-
+    def __call__(self, *inputs: Stream | dict[str, Stream]) -> Stream:
+        from typing import cast as type_cast
         # Symbolic mode: Layer(Stream, ...) -> new Stream node
-        if all(isinstance(x, Stream) for x in inputs):
-            seqs, times, dims = zip(*(x.dimensions for x in inputs))
-            out_seq, out_time, out_dim = self.output_shape(seqs, times, dims)
-
-            node = self.__class__(**self._properties)  # HACK: needs further inspection
-            node.seq = out_seq
-            node.time = out_time
-            node.dim = out_dim
-            node.predecessors = list(inputs)
-            return node
+        if len(inputs) == 1 and isinstance(inputs[0], dict):
+            out_seq, out_time, out_dim = self.output_shape(*list(inputs[0].values()))
+        else:
+            out_seq, out_time, out_dim = self.output_shape(*[type_cast(Stream, x) for x in inputs])
+        node = self.__class__(**self._properties)
+        node.seq = out_seq
+        node.time = out_time
+        node.dim = out_dim
+        node.predecessors = list(inputs)
+        return node
 
         # Tensor mode: Layer(tensor, ...) -> KerasTensor / Tensor
-        return self.call(*inputs)
+        # Never called
+        #return self.call(*inputs)
 
 
 class BinaryOp(Layer):
-    def output_shape(
-        self, seqs: Sequence[Shape], times: Sequence[int], dims: Sequence[Shape]
-    ) -> tuple[Shape, int, Shape]:
-        ref = self.predecessors[0] if self.predecessors else None
-        if ref is not None:
-            for p in self.predecessors[1:]:
-                if ref.shape != p.shape:
-                    raise ValueError(
-                        f"{self.node_type} requires identical shapes, got {ref.shape} and {p.shape}"
-                    )
-        return seqs[0], times[0], dims[0]
+    keras_op = None
+
+    def build_layer(self):
+        if self.keras_op is not None:
+            return self.keras_op(name=self.name)
+        else:
+            return super().build_layer()
 
 
 class Add(BinaryOp):
-    node_type = "Add"
-
-    def build_layer(self) -> keras.Layer:
-        return keras.layers.Add(name=self.name)
+    keras_op = keras.layers.Add
 
 
 class Subtract(BinaryOp):
-    node_type = "Subtract"
-
-    def build_layer(self) -> keras.Layer:
-        return keras.layers.Subtract(name=self.name)
+    keras_op = keras.layers.Subtract
 
 
 class Multiply(BinaryOp):
-    node_type = "Multiply"
-
-    def build_layer(self) -> keras.Layer:
-        return keras.layers.Multiply(name=self.name)
+    keras_op = keras.layers.Multiply
 
 
 class Divide(BinaryOp):
-    node_type = "Divide"
+    keras_op = keras.layers.Lambda
 
     def build_layer(self) -> keras.Layer:
         return keras.layers.Lambda(lambda xs: xs[0] / xs[1], name=self.name)

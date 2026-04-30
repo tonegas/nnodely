@@ -18,17 +18,13 @@ class Constant(Stream):
     seq is kept empty by default.
     """
 
-    node_type = "Constant"
-
     def __init__(
         self,
         name: str | None = None,
         *,
-        value,
-        dtype="float32",
+        value: list[int | float | list] | float | int,
+        dtype: str = "float32",
     ):
-        if value is None:
-            raise ValueError("Constant requires a value.")
 
         arr = np.asarray(value, dtype=np.float32)
 
@@ -49,7 +45,6 @@ class Constant(Stream):
 
         super().__init__(
             name=name,
-            node_type=self.node_type,
             seq=seq,
             time=time,
             dim=dim,
@@ -60,7 +55,7 @@ class Constant(Stream):
         self.dtype = dtype
         self.constant = None
 
-    def build_constant(self):
+    def build_constant(self) -> keras.Variable:
         if self.constant is not None:
             return self.constant
 
@@ -73,7 +68,7 @@ class Constant(Stream):
         )
         return self.constant
 
-    def as_tensor(self, anchor):
+    def as_tensor(self, anchor: keras.KerasTensor) -> keras.KerasTensor:
         v = self.build_constant()
         return keras.layers.Lambda(
             lambda x: v,
@@ -82,7 +77,7 @@ class Constant(Stream):
         )(anchor)
 
     @property
-    def value_numpy(self):
+    def value_numpy(self) -> np.ndarray:
         if self.constant is None:
             return self.value
         return np.array(self.constant)

@@ -3,11 +3,12 @@ DAG
 """
 
 import copy
-from typing import Sequence, cast
+from typing import TYPE_CHECKING, Sequence, cast
 
-from nnodely.core.modely import ModelCall, Modely
-from nnodely.core.stream import Stream
-from nnodely.layers.output import Output
+if TYPE_CHECKING:
+    from nnodely.layers.output import Output
+    from nnodely.core.modely import Modely, ModelCall
+    from nnodely.core.stream import Stream
 
 _node_counter: int = 0
 
@@ -24,18 +25,22 @@ def next_name(prefix: str) -> str:
     return f"{prefix}{_node_counter}"
 
 
-def flatten(model: Modely) -> Modely:
+# ------------------------------------------------------------------
+# flattening logic
+# ------------------------------------------------------------------
+def flatten(model: "Modely") -> "Modely":
     """Flatten a model
 
     :param model: The model to flatten.
     :return: The flattened model.
     """
+    from nnodely.core.modely import ModelCall
 
     flattened = model
     for node in model._order:
-        if type(node) is ModelCall:
+        if isinstance(node, ModelCall):
             flattened = _aggregate_models(model=flattened, submodel=node)
-    if any(type(n) is ModelCall for n in flattened._order):
+    if any(isinstance(n, ModelCall) for n in flattened._order):
         return flatten(flattened)
     return flattened
 
@@ -58,7 +63,7 @@ def _aggregate_models(model: Modely, submodel: ModelCall) -> Modely:
     submodel_cloned = model_map[submodel]
     submodel_order, _ = _clone_graph(submodel.model._order)
 
-    cloned_sub_outputs = {n.name: n for n in submodel_order if n.node_type == "Output"}
+    cloned_sub_outputs = {n.name: n for n in submodel_order if isinstance(n, Output)}
     # Replace submodel inputs with external mapped streams
     input_map_cloned = {}
     for in_name, ext_stream in submodel.input_map.items():
@@ -66,15 +71,13 @@ def _aggregate_models(model: Modely, submodel: ModelCall) -> Modely:
             input_map_cloned[in_name] = model_map[ext_stream]
 
     # remove child input/output nodes from inserted subgraph
-    submodel_order = [
-        n for n in submodel_order if n.node_type not in ("Input", "Output")
-    ]
+    submodel_order = [n for n in submodel_order if not isinstance(n, (Input, Output))]
 
     # reconnect predecessors inside child graph
     for node in submodel_order:
         new_preds = []
         for pred in node.predecessors:
-            if pred.node_type == "Input" and pred.name in input_map_cloned:
+            if isinstance(pred, Input) and pred.name in input_map_cloned:
                 new_preds.append(input_map_cloned[pred.name])
             else:
                 new_preds.append(pred)
@@ -110,7 +113,10 @@ def _aggregate_models(model: Modely, submodel: ModelCall) -> Modely:
     return flat_model
 
 
-def toposort(output_nodes: list[Output] | Output) -> list[Stream]:
+# ------------------------------------------------------------------
+# DAG topological ordering
+# ------------------------------------------------------------------
+def toposort(output_nodes: "list[Output]") -> "list[Stream]":
     """Topologically sort a graph given its output nodes
 
     DFS post-order from outputs to inputs

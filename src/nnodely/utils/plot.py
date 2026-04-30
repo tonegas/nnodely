@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from nnodely.core.modely import Modely
 
+from nnodely.layers.loop import Loop
+
 
 def plot_graphviz(
     model: Modely,
@@ -48,7 +50,7 @@ def plot_graphviz(
                 "style": "rounded,filled",
                 "fillcolor": "#ff0000",
             }
-        if node_type == "Model":
+        if node_type == "ModelCall":
             return {
                 "shape": "folder",
                 "style": "filled",
@@ -77,10 +79,10 @@ def plot_graphviz(
         if nid in added_nodes:
             return
 
-        style = _node_style(node.node_type)
+        style = _node_style(node.__class__.__name__)
         dot.node(
             nid,
-            label=f"{node.name}\n{node.node_type}",
+            label=f"{node.name}\n{node.__class__.__name__}",
             shape=style["shape"],
             style=style["style"],
             fillcolor=style["fillcolor"],
@@ -108,7 +110,7 @@ def plot_graphviz(
     for node in model._order:
         for pred in getattr(node, "predecessors", []) or []:
             _add_node(pred)
-            shape_label = str(pred.shape) if hasattr(pred, "shape") else ""
+            shape_label = str(pred.shape)
             _add_edge(pred.name, node.name, label=shape_label)
 
     # Add minimizers
@@ -196,7 +198,7 @@ def export_html(
             return "#2ecc71"
         if kind == "Output":
             return "#e74c3c"
-        if kind == "Model":
+        if kind == "ModelCall":
             return "#3498db"
         if kind == "Parameter":
             return "#ff9900"
@@ -208,7 +210,7 @@ def export_html(
         attrs = {
             "class": type(node).__name__,
             "name": getattr(node, "name", None),
-            "node_type": getattr(node, "node_type", None),
+            # "type": node.__class__.__name__,
         }
 
         for attr in ("seq", "time", "dim", "shape"):
@@ -243,7 +245,7 @@ def export_html(
             except Exception:
                 pass
 
-        if getattr(node, "node_type", None) == "Loop":
+        if isinstance(node, Loop):
             try:
                 attrs["properties"]["f"] = attrs["properties"]["f"].name
                 attrs["properties"]["closed_loop"] = {
@@ -282,7 +284,7 @@ def export_html(
             nid = getattr(node, "name", str(node))
             if nid in seen_nodes:
                 continue
-            kind = node.node_type  # if hasattr(node, "node_type") else "Other"
+            kind = (node.__class__.__name__,)
             nodes.append((node, nid, kind, _safe_attrs(node)))
             seen_nodes.add(nid)
 
@@ -321,7 +323,7 @@ def export_html(
         url_map: dict[str, str] = {}
         if not flattened:
             for node, nid, kind, attrs in graph_nodes:
-                if kind != "Model":
+                if kind != "ModelCall":
                     continue
 
                 submodel = getattr(node, "model", None)
@@ -363,7 +365,7 @@ def export_html(
                 "font": {"color": "#111111"},
             }
 
-            if kind == "Model":
+            if kind == "ModelCall":
                 rec["shape"] = "diamond"
                 rec["size"] = 18
             # elif kind in ("Parameter", "Constant", "Input", "Output"):

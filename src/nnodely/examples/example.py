@@ -9,6 +9,20 @@ from nnodely.layers.localmodel import LocalModel
 from nnodely.core.dataloader import DataLoader
 from nnodely.layers.parameter import Parameter
 from nnodely.layers.constant import Constant
+from nnodely.layers.concatenate import Concatenate, TimeConcatenate
+from nnodely.layers.activations import (
+    ReLU,
+    ELU,
+    LeakyReLU,
+    PReLU,
+    Sigmoid,
+    Tanh,
+    Softmax,
+    Swish,
+    GELU,
+    Softplus,
+)
+from nnodely.layers.trigonometric import Sin, Cos, Tan, Asin, Acos, Atan
 
 import os
 
@@ -218,6 +232,7 @@ def main(example=1):
     if example == 5:
         # ------- Model with closed loop connections -------
         from nnodely.layers.loop import Loop
+
         x = Input(name="x", dim=1)
         y = Input(name="y", dim=1)
         r1 = x.sw(1) + y.sw(1)
@@ -250,12 +265,12 @@ def main(example=1):
         print("Model2 - Output:", result2)
 
         # ------- Model visualization -------
-        # model1.plot(to_file="html/model1.png")
-        # model.plot(to_file="html/model2.png")
+        model1.plot(to_file="html/model1.png")
+        model.plot(to_file="html/model2.png")
 
-        # # ------- Model export to HTML -------
-        # model1.export_html(out_dir="html", filename="model1")
-        # model.export_html(out_dir="html", filename="model2")
+        # ------- Model export to HTML -------
+        model1.export_html(out_dir="html", filename="model1")
+        model.export_html(out_dir="html", filename="model2")
 
     if example == 6:
         pass
@@ -416,10 +431,90 @@ def main(example=1):
         out_sub = Output("out_sub", sub)
         out_div = Output("out_div", div)
         out_fir = Output("out_fir", Fir_out)
-        model = Modely("model", outputs=[out_add, out_mul, out_sub, out_div, out_fir])
+        out_concat = Output(
+            "out_concat", TimeConcatenate(name="time_concat")(x.sw(2), Fir_out)
+        )
+        param2 = Parameter("param2", dim=(3, 2))
+        param3 = Parameter("param3", dim=(1, 2))
+        param4 = Parameter("param4", dim=(1, 2))
+        out_concat2 = Output(
+            "out_concat2", Concatenate(name="concat", axis=0)(param2, param3)
+        )
+        out_concat3 = Output(
+            "out_concat3", Concatenate(name="concat2", axis=1)(param3, param4)
+        )
+        out_concat4 = Output(
+            "out_concat4", Concatenate(name="concat3", axis=0)(param2, param3, param4)
+        )
+        model = Modely(
+            "model",
+            outputs=[
+                out_add,
+                out_mul,
+                out_sub,
+                out_div,
+                out_fir,
+                out_concat,
+                out_concat2,
+                out_concat3,
+                out_concat4,
+            ],
+        )
         model.build()
         model.plot(to_file="html/model_all_blocks.png")
 
+    if example == 11:
+        # ------- Test activation layers -------
+        x = Input("x", dim=1)
+        relu_out = Output("out_relu", ReLU(max_value=1.0)(x.sw(1)))
+        elu_out = Output("out_elu", ELU(alpha=1.0)(x.sw(2)))
+        leaky_relu_out = Output(
+            "out_leaky_relu", LeakyReLU(negative_slope=0.3)(x.sw(1))
+        )
+        prelu_out = Output("out_prelu", PReLU()(x.sw(1)))
+        sigmoid_out = Output("out_sigmoid", Sigmoid()(x.sw(5)))
+        tanh_out = Output("out_tanh", Tanh()(x.sw(1)))
+        softmax_out = Output("out_softmax", Softmax(axis=-1)(x.sw(3)))
+        swish_out = Output("out_swish", Swish()(x.sw(1)))
+        gelu_out = Output("out_gelu", GELU()(x.sw(1)))
+        softplus_out = Output("out_softplus", Softplus()(x.sw(1)))
+        model = Modely(
+            "activation_model",
+            outputs=[
+                relu_out,
+                elu_out,
+                leaky_relu_out,
+                prelu_out,
+                sigmoid_out,
+                tanh_out,
+                softmax_out,
+                swish_out,
+                gelu_out,
+                softplus_out,
+            ],
+        )
+        model.build()
+        model.plot(to_file="html/model_activation_blocks.png")
+
+    if example == 12:
+        # ------- Test trigonometric layers -------
+        x = Input("x", dim=1)
+
+        sin_out = Output("out_sin", Sin()(x.sw(1)))
+        cos_out = Output("out_cos", Cos()(x.sw(3)))
+        tan_out = Output("out_tan", Tan()(x.sw(1)))
+        asin_out = Output("out_asin", Asin()(x.sw(4)))
+        acos_out = Output("out_acos", Acos()(x.sw(1)))
+        atan_out = Output("out_atan", Atan()(x.sw(2)))
+        model = Modely(
+            "trig_model",
+            outputs=[sin_out, cos_out, tan_out, asin_out, acos_out, atan_out],
+        )
+        model.build()
+        model.plot(to_file="html/model_trig.png")
+
 
 if __name__ == "__main__":
-    main(example=9)
+    for i in range(1, 13):
+        print(f"\n\n--- Running Example {i} ---\n\n")
+        main(example=i)

@@ -1,5 +1,3 @@
-"""Local model layer."""
-
 from __future__ import annotations
 
 import keras
@@ -111,8 +109,6 @@ class LocalModelImpl(keras.layers.Layer):
 class LocalModel(Layer):
     """Apply one function per input and aggregate outputs with fuzzy activations."""
 
-    node_type = "LocalModel"
-
     def __init__(
         self,
         function="Fir",
@@ -150,55 +146,15 @@ class LocalModel(Layer):
 
         return super().__call__(*inputs)
 
-    def output_shape(self, seqs, times, dims):
-        if len(seqs) < 2:
-            raise ValueError(
-                "LocalModel expects at least one local input plus one activation input."
-            )
-
-        local_seqs = seqs[:-1]
-        local_times = times[:-1]
-        local_dims = dims[:-1]
-        activation_dim = dims[-1]
-
-        if len(local_seqs[0]) != 0:
-            raise NotImplementedError(
-                "LocalModel currently supports local inputs with seq=() only."
-            )
-
-        for dim in local_dims:
-            if len(dim) != 1:
-                raise ValueError(
-                    f"LocalModel currently expects 1D feature inputs, got dim={dim}."
-                )
-
-        if len(activation_dim) != 1:
-            raise ValueError(
-                f"LocalModel activation input must have one feature axis, got dim={activation_dim}."
-            )
-
-        if activation_dim[0] != len(local_dims):
-            raise ValueError(
-                f"LocalModel activation width ({activation_dim[0]}) must match number of local inputs ({len(local_dims)})."
-            )
-
-        ref_seq = local_seqs[0]
-        ref_time = local_times[0]
-        for seq, time in zip(local_seqs[1:], local_times[1:]):
-            if seq != ref_seq or time != ref_time:
-                raise ValueError(
-                    "All LocalModel local inputs must share the same shape."
-                )
-
-        return ref_seq, 1, (self.out_features,)
+    def output_shape(self, *inputs):
+        return inputs[0].seq, inputs[0].time, (self.out_features,)
 
     def build_layer(self):
         num_models = max(0, len(self.predecessors) - 1)
-        self._layer = LocalModelImpl(
+        return LocalModelImpl(
             function_name=self.function,
             out_features=self.out_features,
             use_bias=self.use_bias,
             num_models=num_models,
             name=self.name,
         )
-        return self._layer

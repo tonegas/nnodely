@@ -48,8 +48,6 @@ class Fir(Layer):
     Output: (batch, 1, out_features)
     """
 
-    node_type = "Fir"
-
     def __init__(self, out_features: int, use_bias: bool = True, name=None):
         self.out_features = int(out_features)
         self.use_bias = bool(use_bias)
@@ -57,9 +55,9 @@ class Fir(Layer):
             name=name, out_features=self.out_features, use_bias=self.use_bias
         )
 
-    def output_shape(self, seqs, times, dims):
-        seq = seqs[0]
-        in_dim = dims[0]
+    def output_shape(self, *inputs):
+        seq = inputs[0].seq
+        in_dim = inputs[0].dim
         if len(seq) != 0:
             raise NotImplementedError(
                 "This proposal handles seq=() streams first; extend here for nested sequence dims."
@@ -71,10 +69,6 @@ class Fir(Layer):
         return seq, 1, (self.out_features,)
 
     def build_layer(self):
-        self._layer = FirImpl(
+        return FirImpl(
             out_features=self.out_features, use_bias=self.use_bias, name=self.name
         )
-        return self._layer
-
-    def call(self, *xs):
-        return self._layer(xs)

@@ -1,13 +1,16 @@
 import os
 
-from typing import cast
+from typing import Any, cast
 
 from nnodely.core.dag import toposort, flatten
 from nnodely.core.stream import Stream
 
 from nnodely.layers.output import Output
 from nnodely.layers.constant import Constant
+from nnodely.layers.parameter import Parameter
 from nnodely.core.dataloader import DataLoader
+from nnodely.layers.input import Input
+from nnodely.core.layer import Layer
 
 import keras
 import tensorflow as tf
@@ -15,16 +18,26 @@ import tensorflow as tf
 import numpy as np
 from tqdm import tqdm
 
+from nnodely.utils.type_defs import TensorLike
+
 
 class ModelCall(Stream):
     """
     Symbolic node representing the application of a Modely to upstream Stream inputs.
     """
 
-    def __init__(self, model, input_map, output_name, seq, time, dim, predecessors):
+    def __init__(
+        self,
+        model: "Modely",
+        input_map: dict[str, Stream],
+        output_name: str,
+        seq: int | tuple[int, ...] | None,
+        time: int,
+        dim: int | tuple[int, ...],
+        predecessors: list[Stream],
+    ):
         super().__init__(
             name=f"{model.name}",
-            node_type="Model",
             seq=seq,
             time=time,
             dim=dim,
@@ -51,7 +64,7 @@ class Modely:
         self.name = name
         self.outputs = outputs if isinstance(outputs, list) else [outputs]
         self._order = toposort(self.outputs)
-        self.inputs = [node for node in self._order if node.node_type == "Input"]
+        self.inputs = [node for node in self._order if isinstance(node, Input)]
         self.train_inputs = self.inputs
         self._model = None
         self._train_model = None
@@ -62,7 +75,7 @@ class Modely:
         self._parameter_vars = []
 
     @property
-    def built(self):
+    def built(self) -> bool:
         """True se build() è stato chiamato, False altrimenti."""
         return self._model is not None
 
@@ -70,13 +83,15 @@ class Modely:
         self._parameter_nodes = []
         self._parameter_vars = []
 
-        input_map = {node.name: node.input for node in self.inputs}
-        default_anchor = next(iter(input_map.values()), None)
+        tensor_map = {node.name: node.input for node in self.inputs}
+        default_anchor = cast(
+            keras.KerasTensor | None, next(iter(tensor_map.values()), None)
+        )
 
         keras_outputs = {}
         for node in self.outputs:
             keras_outputs[node.name] = self._resolve_tensor(
-                node, input_map, anchor=default_anchor
+                node, tensor_map, anchor=default_anchor
             )
 
         keras_inputs = {node.name: node.input for node in self.inputs}
@@ -95,26 +110,27 @@ class Modely:
 
         if extra_outputs:
             order = toposort(extra_outputs)
-            extra_inputs = [node for node in order if node.node_type == "Input"]
+            extra_inputs = [
+                node
+                for node in order
+                if isinstance(node, Input) and node not in self.inputs
+            ]
 
-            known = {node.name for node in self.inputs}
-            extra_inputs = [node for node in extra_inputs if node.name not in known]
-
-            input_map = {node.name: node.input for node in self.inputs} | {
-                node.name: node.input for node in extra_inputs
-            }
-            default_anchor = next(iter(input_map.values()), None)
+            for node in extra_inputs:
+                tensor_map[node.name] = node.input
+            default_anchor = cast(
+                keras.KerasTensor | None, next(iter(tensor_map.values()), None)
+            )
 
             for node in extra_outputs:
                 keras_outputs[node.name] = self._resolve_tensor(
-                    node, input_map, anchor=default_anchor
+                    node, tensor_map, anchor=default_anchor
                 )
 
             self.train_inputs = self.inputs + extra_inputs
             keras_inputs = {node.name: node.input for node in self.inputs} | {
                 node.name: node.input for node in extra_inputs
             }
-
             self._train_model = keras.Model(
                 name=self.name + "_train",
                 inputs=keras_inputs,
@@ -125,23 +141,25 @@ class Modely:
             self._train_model = self._model
         return self
 
-    def __call__(self, inputs):
+    def __call__(self, inputs: Stream | dict[str, TensorLike]) -> Any:
         # symbolic composition mode
         if isinstance(inputs, Stream):
             return self._call_with_streams({inputs.name: inputs})
         if isinstance(inputs, dict) and all(
             isinstance(v, Stream) for v in inputs.values()
         ):
-            return self._call_with_streams(inputs)
+            return self._call_with_streams(cast(dict[str, Stream], inputs))
 
         # tensor execution mode
         if self._model is None:
             self.build()
         if self._model is None:
             raise ValueError("Model build failed, _model is still None.")
-        return self._model(inputs)
+        return self._model(inputs)  # type: dict
 
-    def _call_with_streams(self, inputs_dict):
+    def _call_with_streams(
+        self, inputs_dict: dict[str, Stream]
+    ) -> Stream | dict[str, Stream]:
         """
         Compose this model symbolically with upstream Stream inputs.
         Returns a Stream if the model has one output, otherwise a dict.
@@ -162,11 +180,16 @@ class Modely:
             return next(iter(outputs.values()))
         return outputs
 
-    def _resolve_tensor(self, node, tensor_map, anchor=None):
+    def _resolve_tensor(
+        self,
+        node: Stream,
+        tensor_map: dict[str, Any],
+        anchor: keras.KerasTensor | None = None,
+    ) -> keras.KerasTensor:
         if node.name in tensor_map:
             return tensor_map[node.name]
 
-        if node.node_type in ("Parameter", "Constant"):
+        if isinstance(node, Parameter) or isinstance(node, Constant):
             if anchor is None:
                 anchor = next(iter(tensor_map.values()), None)
             if anchor is None:
@@ -177,14 +200,15 @@ class Modely:
             y = node.as_tensor(anchor)
             tensor_map[node.name] = y
 
-            if node.node_type == "Parameter":
+            if isinstance(node, Parameter):
                 if node not in self._parameter_nodes:
                     self._parameter_nodes.append(node)
-                if node.param is not None and node.param not in self._parameter_vars:
-                    self._parameter_vars.append(node.param)
+                if node.param is not None:
+                    if not any(node.param is v for v in self._parameter_vars):
+                        self._parameter_vars.append(node.param)
             return y
 
-        if node.node_type == "Model":
+        if isinstance(node, ModelCall):
             y = self._resolve_model_call(node, tensor_map)
             tensor_map[node.name] = y
             return y
@@ -195,27 +219,41 @@ class Modely:
         for pred in node.predecessors:
             pt = self._resolve_tensor(pred, tensor_map, anchor=local_anchor)
             pred_tensors.append(pt)
-            if local_anchor is None:
+            if local_anchor is None and isinstance(pt, keras.KerasTensor):
                 local_anchor = pt
 
-        if node.node_type == "Output":
+        if isinstance(node, Output):
             y = pred_tensors[0]
+        elif isinstance(node, Layer):
+            # layer = node.build_layer()# if node._layer is None else node._layer
+            # y = (
+            #     layer(pred_tensors[0])
+            #     if len(pred_tensors) == 1
+            #     else layer(pred_tensors)
+            # )
+            y = node.call(*pred_tensors)
         else:
-            layer = node.build_layer() if node._layer is None else node._layer
-            y = (
-                layer(pred_tensors[0])
-                if len(pred_tensors) == 1
-                else layer(pred_tensors)
+            raise ValueError(
+                f"Unsupported node type '{type(node)}' for tensor resolution."
             )
 
         tensor_map[node.name] = y
         return y
 
-    def _resolve_model_call(self, node, tensor_map):
+    def _resolve_model_call(
+        self, node: ModelCall, tensor_map: dict[str, Any]
+    ):
         """
         Resolve a symbolic submodel application into a KerasTensor.
         """
         submodel = node.model
+
+        if submodel._model is None:
+            submodel.build()
+        if submodel._model is None:
+            raise ValueError(
+                f"Submodel '{submodel.name}' build failed, _model is still None."
+            )
 
         # resolve upstream tensors for each submodel input
         sub_inputs = {}
@@ -246,8 +284,8 @@ class Modely:
         name: str,
         source: Output | Stream,
         target: Output | Stream | float | None = None,
-        loss="mse",
-    ):
+        loss: str = "mse",
+    ) -> "Modely":
         """Register a loss to minimize during training.
         name: identifier for this loss (used as an output name in the training model)
         source: node/stream producing predictions (e.g., an Output node)
@@ -272,9 +310,9 @@ class Modely:
         train_data: DataLoader,
         epochs: int = 1,
         batch_size: int = 1,
-        optimizer=None,
-        lr: float = 1e-2,
-    ):
+        optimizer: keras.optimizers.Optimizer | None = None,
+        lr: float = 1e-3,
+    ) -> dict[str, list[float]]:
         """Custom Keras training loop using a DataLoader iterable.
 
         Expected train_data:
@@ -285,12 +323,51 @@ class Modely:
                     ...
                 }
         """
+
+        @tf.function
+        def train_step(batch_inputs, optimizer, losses):
+            with tf.GradientTape() as tape:
+                preds = km(batch_inputs, training=True)
+
+                total = keras.ops.zeros(())
+                for m in self._minimizers:
+                    name = m["name"]
+                    source_name = m["source"].name
+                    target_name = m["target"].name
+
+                    y_pred, y_true = preds[source_name], preds[target_name]
+
+                    loss_obj = losses[name]
+                    # total = total + tf.reduce_mean(loss_obj(y_true, y_pred))
+                    total = total + keras.ops.mean(
+                        loss_obj(y_true, y_pred)
+                    )  # ensure scalar loss
+
+            unique_vars: list[tf.Variable] = []
+            seen = set()
+
+            for v in list(km.trainable_weights) + list(self._parameter_vars):
+                vid = id(v)
+                if vid not in seen:
+                    seen.add(vid)
+                    unique_vars.append(cast(tf.Variable, v))
+
+            total = cast(tf.Tensor, total)
+            gradients = tape.gradient(total, unique_vars)
+            grads_and_vars = [
+                (g, v) for g, v in zip(gradients or [], unique_vars) if g is not None
+            ]
+            if grads_and_vars:
+                optimizer.apply_gradients(grads_and_vars)
+            else:
+                print("Warning: No gradients to apply in this step.")
+
+            return total
+
         if not self._minimizers:
             print("No minimizers defined. Call minimize() before train().")
-            return
+            return {"loss": []}
 
-        if train_data is None:
-            raise ValueError("No training data selected.")
         n_samples = len(train_data)
         if n_samples == 0:
             raise ValueError("train_data is empty.")
@@ -331,23 +408,9 @@ class Modely:
                         np.stack([sample[k] for sample in batch_samples], axis=0)
                     )
 
-                with tf.GradientTape() as tape:
-                    preds = km(batch_inputs, training=True)
-
-                    total = keras.ops.zeros(())
-                    for m in self._minimizers:
-                        name = m["name"]
-                        source_name = m["source"].name
-                        target_name = m["target"].name
-
-                        y_pred, y_true = preds[source_name], preds[target_name]
-
-                        loss_obj = losses[name]
-                        # total = total + tf.reduce_mean(loss_obj(y_true, y_pred))
-                        total = total + keras.ops.mean(
-                            loss_obj(y_true, y_pred)
-                        )  # ensure scalar loss
-
+                total = train_step(batch_inputs, optimizer, losses)
+                if isinstance(total, tf.Tensor):
+                    epoch_losses.append(float(total.numpy()))
                 # gradients = tape.gradient(total, km.trainable_weights)
                 # # Filter out None gradients (non-differentiable vars) before applying
                 # grads_and_vars = [(g, v) for g, v in zip(gradients or [], km.trainable_weights) if g is not None]
@@ -361,33 +424,10 @@ class Modely:
                 #         unique_vars.append(v)
 
                 # gradients = tape.gradient(total, unique_vars)
-                unique_vars: list[tf.Variable] = []
-                seen = set()
-
-                for v in list(km.trainable_weights) + list(self._parameter_vars):
-                    vid = id(v)
-                    if vid not in seen:
-                        seen.add(vid)
-                        unique_vars.append(cast(tf.Variable, v))
-
-                total = cast(tf.Tensor, total)
-                gradients = tape.gradient(total, unique_vars)
-                grads_and_vars = [
-                    (g, v)
-                    for g, v in zip(gradients or [], unique_vars)
-                    if g is not None
-                ]
-                if grads_and_vars:
-                    optimizer.apply_gradients(grads_and_vars)
-                else:
-                    print("Warning: No gradients to apply in this step.")
-
-                if isinstance(total, tf.Tensor):
-                    epoch_losses.append(float(total.numpy()))
 
             mean_epoch_loss = float(np.mean(epoch_losses))
             history["loss"].append(mean_epoch_loss)
-            epoch_bar.set_postfix(epoch_loss=f"{mean_epoch_loss:.4f}")
+            epoch_bar.set_postfix(epoch_loss=f"{mean_epoch_loss:.3e}")
 
         return history
 

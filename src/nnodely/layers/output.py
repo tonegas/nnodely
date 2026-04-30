@@ -14,7 +14,6 @@ class Output(Stream):
         self.stream = stream
         super().__init__(
             name=name,
-            node_type="Output",
             seq=stream.seq,
             time=stream.time,
             dim=stream.dim,

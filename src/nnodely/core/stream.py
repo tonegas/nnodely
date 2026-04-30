@@ -5,60 +5,62 @@ Stream - Symbolic DAG node representing a data stream.
 from __future__ import annotations
 
 from nnodely.core.dag import next_name
-from nnodely.core.types import Shape
+from nnodely.utils.type_defs import StreamOperand
 
 
 class Stream:
-    """Symbolic DAG node representing a data stream.
-
-    :param name: Unique node name in the graph.
-    :param node_type: Semantic node type, e.g. 'input', 'output', 'Fir', 'SampleWindow'.
-    :param seq: Optional sequence axes before time.
-    :param time: Time/window axis.
-    :param dim: Feature dimensions after time.
-    :param predecessors: Parent nodes in the DAG.
-
-
-    **Examples**
-
-    Shape convention (without batch): seq + (time,) + dim.
-
-    Basic usage:
-
-    >>> Stream(seq=(), time=10, dim=(3,)) # shape = (10, 3)
-    >>> Stream(seq=(4,), time=10, dim=(3,)) # shape = (4, 10, 3)
     """
 
-    name: str
-    node_type: str
-    seq: Shape
-    time: int
-    dim: Shape
-    predecessors: list[Stream]
+    Symbolic DAG node representing a data stream.
+
+    Shape convention (without batch):
+        seq + (time,) + dim
+
+    Examples:
+        seq=(), time=10, dim=(3,)      -> shape = (10, 3)
+        seq=(4,), time=10, dim=(3,)    -> shape = (4, 10, 3)
+
+    Attributes
+    ----------
+    name : str|None
+        Unique node name in the graph.
+    seq : int | tuple[int, ...] | None
+        Optional sequence axes before time.
+    time : int | None
+        Time/window axis.
+    dim : int | tuple[int, ...] | None
+        Feature dimensions after time.
+    predecessors : list[Stream]
+        Parent nodes in the DAG.
+    """
+
+    _literal_constant_cache = {}
 
     def __init__(
         self,
         name: str | None = None,
-        node_type: str = "Stream",
-        seq: int | Shape | None = None,
-        time: int = 1,
-        dim: Shape = (1,),
-        predecessors: list[Stream] | None = None,
-    ) -> None:
-        self.name = str(name) if name is not None else next_name(node_type)
-        self.node_type = str(node_type)
+        seq: int | tuple[int, ...] | None = None,
+        time: int | None = None,
+        dim: int | tuple[int, ...] | None = None,
+        predecessors: list["Stream"] | None = None,
+    ):
+        self.name = (
+            str(name) if name is not None else next_name(self.__class__.__name__)
+        )
         self.seq = () if seq is None else (seq,) if isinstance(seq, int) else seq
-        self.time = time
-        self.dim = (dim,) if isinstance(dim, int) else dim
+        self.time = 1 if time is None else time
+        self.dim = (1,) if dim is None else (dim,) if isinstance(dim, int) else dim
         self.predecessors = list(predecessors) if predecessors is not None else []
 
     @property
-    def shape(self) -> Shape:
-        """Shape without batch dimension."""
+    def shape(self) -> tuple[int, ...]:
+        """
+        Shape without batch dimension.
+        """
         return self.seq + (self.time,) + self.dim
 
     @property
-    def dimensions(self):
+    def dimensions(self) -> tuple[tuple[int, ...], int, tuple[int, ...]]:
         """
         Return seq, time, dim separately
         """
@@ -69,32 +71,78 @@ class Stream:
         """Rank without batch dimension."""
         return len(self.shape)
 
-    def __add__(self, other):
+    def __add__(self, other: StreamOperand) -> "Stream":
         from nnodely.core.layer import Add
 
-        return Add()(self, other)
+        return Add()(self, self._coerce_operand(other))
 
-    def __sub__(self, other):
+    def __radd__(self, other: StreamOperand) -> "Stream":
+        from nnodely.core.layer import Add
+
+        return Add()(self._coerce_operand(other), self)
+
+    def __sub__(self, other: StreamOperand) -> "Stream":
         from nnodely.core.layer import Subtract
 
-        return Subtract()(self, other)
+        return Subtract()(self, self._coerce_operand(other))
 
-    def __mul__(self, other):
+    def __rsub__(self, other: StreamOperand) -> "Stream":
+        from nnodely.core.layer import Subtract
+
+        return Subtract()(self._coerce_operand(other), self)
+
+    def __mul__(self, other: StreamOperand) -> "Stream":
         from nnodely.core.layer import Multiply
 
-        return Multiply()(self, other)
+        return Multiply()(self, self._coerce_operand(other))
 
-    def __truediv__(self, other):
+    def __rmul__(self, other: StreamOperand) -> "Stream":
+        from nnodely.core.layer import Multiply
+
+        return Multiply()(self._coerce_operand(other), self)
+
+    def __truediv__(self, other: StreamOperand) -> "Stream":
         from nnodely.core.layer import Divide
 
-        return Divide()(self, other)
+        return Divide()(self, self._coerce_operand(other))
 
-    def __repr__(self):
+    def __rtruediv__(self, other: StreamOperand) -> "Stream":
+        from nnodely.core.layer import Divide
+
+        return Divide()(self._coerce_operand(other), self)
+
+    @staticmethod
+    def _coerce_operand(value: StreamOperand) -> "Stream":
+        if isinstance(value, Stream):
+            return value
+
+        from nnodely.layers.constant import Constant
+
+        key = Stream._literal_constant_key(value)
+        if key is not None:
+            cached = Stream._literal_constant_cache.get(key)
+            if cached is None:
+                cached = Constant(name=None, value=key[1])
+                Stream._literal_constant_cache[key] = cached
+            return cached
+
+        return Constant(name=None, value=value)
+
+    @staticmethod
+    def _literal_constant_key(
+        value: list | int | float,
+    ) -> tuple[str, list[int | float | list] | float]:
+        if isinstance(value, (int, float)):
+            return ("scalar", float(value))
+
+        return ("array", value)
+
+    def __repr__(self) -> str:
         pred_names = [pred.name for pred in self.predecessors]
         return (
             f"{self.__class__.__name__}("
             f"name={self.name!r}, "
-            f"type={self.node_type!r}, "
+            f"type={self.__class__.__name__!r}, "
             f"shape={self.shape}, "
             f"predecessors={pred_names}"
             f")"

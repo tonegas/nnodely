@@ -16,24 +16,37 @@ class Parameter(Stream):
         seq + (time,) + dim
     """
 
-    node_type = "Parameter"
-
     def __init__(
         self,
         name: str,
         *,
-        value=None,
-        initializer="random_normal",
-        seq=(),
-        time=1,
-        dim=(1,),
-        dtype="float32",
+        value: list[int | float | list] | float | int | None = None,
+        initializer: str = "random_normal",
+        seq: int | tuple[int, ...] | None = None,
+        time: int | None = None,
+        dim: int | tuple[int, ...] | None = None,
+        dtype: str = "float32",
     ):
-        # dim = to_tuple(dim, (1,))
-        # seq = to_tuple(seq, ())
+        if value:
+            arr = np.asarray(value, dtype=np.float32)
+
+            if arr.ndim == 0:
+                arr = arr.reshape(1, 1)
+                seq = None
+                time = 1
+                dim = (1,)
+            elif arr.ndim == 1:
+                arr = arr.reshape(arr.shape[0], 1)
+                seq = None
+                time = arr.shape[0]
+                dim = (1,)
+            else:
+                seq = None
+                time = arr.shape[0]
+                dim = tuple(arr.shape[1:])
+
         super().__init__(
             name=name,
-            node_type=self.node_type,
             seq=seq,
             time=time,
             dim=dim,
@@ -46,7 +59,7 @@ class Parameter(Stream):
 
         self.param = None
 
-    def build_parameter(self):
+    def build_parameter(self) -> keras.Variable:
         """
         Create the trainable Keras weight if it does not exist yet.
         """
@@ -87,7 +100,7 @@ class Parameter(Stream):
         )
         return self.param
 
-    def as_tensor(self, anchor):
+    def as_tensor(self, anchor: keras.KerasTensor) -> keras.KerasTensor:
         v = self.build_parameter()
         return keras.layers.Lambda(
             lambda x: v,
@@ -96,7 +109,7 @@ class Parameter(Stream):
         )(anchor)
 
     @property
-    def value_numpy(self):
+    def value_numpy(self) -> np.ndarray | None:
         if self.param is None:
             return None
         return np.array(self.param)

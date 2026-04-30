@@ -15,11 +15,13 @@ class Input(Stream):
     """
 
     def __init__(
-        self, name: str, *, dim: int | tuple = 1, seq: int | tuple[int] | None = None
+        self,
+        name: str,
+        *,
+        dim: int | tuple | None = None,
+        seq: int | tuple[int] | None = None,
     ):
-        super().__init__(
-            name=name, node_type="Input", seq=seq, time=1, dim=dim, predecessors=[]
-        )
+        super().__init__(name=name, seq=seq, time=None, dim=dim, predecessors=None)
         self.input = keras.Input(shape=self.shape, name=self.name)
 
     def sw(self, window_size: int):
