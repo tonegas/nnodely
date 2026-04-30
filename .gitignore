@@ -9,6 +9,7 @@ results
 dist/
 docs/_build
 docs/out_docs
+experimental/
 
 .DS_Store
 .coverage
