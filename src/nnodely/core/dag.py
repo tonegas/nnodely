@@ -4,11 +4,12 @@ DAG
 
 import copy
 from typing import TYPE_CHECKING, Sequence, cast
+from nnodely.layers.output import Output
+from nnodely.layers.input import Input
+from nnodely.core.stream import Stream
 
 if TYPE_CHECKING:
-    from nnodely.layers.output import Output
     from nnodely.core.modely import Modely, ModelCall
-    from nnodely.core.stream import Stream
 
 _node_counter: int = 0
 
@@ -45,7 +46,7 @@ def flatten(model: "Modely") -> "Modely":
     return flattened
 
 
-def _clone_graph(order: Sequence[Stream]) -> tuple[list[Stream], dict[Stream, Stream]]:
+def _clone_graph(order: "Sequence[Stream]") -> "tuple[list[Stream], dict[Stream, Stream]]":
     clone_map = {}
     cloned_order = []
     for node in order:
@@ -58,7 +59,8 @@ def _clone_graph(order: Sequence[Stream]) -> tuple[list[Stream], dict[Stream, St
     return cloned_order, clone_map
 
 
-def _aggregate_models(model: Modely, submodel: ModelCall) -> Modely:
+def _aggregate_models(model: "Modely", submodel: "ModelCall") -> "Modely":
+    from nnodely.core.modely import Modely
     model_order, model_map = _clone_graph(model._order)
     submodel_cloned = model_map[submodel]
     submodel_order, _ = _clone_graph(submodel.model._order)

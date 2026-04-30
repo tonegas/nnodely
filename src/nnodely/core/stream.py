@@ -4,7 +4,6 @@ Stream - Symbolic DAG node representing a data stream.
 
 from __future__ import annotations
 
-from nnodely.core.dag import next_name
 from nnodely.utils.type_defs import StreamOperand
 
 
@@ -44,6 +43,7 @@ class Stream:
         dim: int | tuple[int, ...] | None = None,
         predecessors: list["Stream"] | None = None,
     ):
+        from nnodely.core.dag import next_name
         self.name = (
             str(name) if name is not None else next_name(self.__class__.__name__)
         )
