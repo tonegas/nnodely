@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import keras
 
-
 from nnodely.core.dag import next_name
 from nnodely.core.stream import Stream
 
@@ -63,9 +62,13 @@ class Layer(Stream):
     # Symbolic graph logic
     # ------------------------------------------------------------------
 
-    def __call__(self, *inputs: Stream) -> Stream:
+    def __call__(self, *inputs: Stream | dict[str, Stream]) -> Stream:
+        from typing import cast as type_cast
         # Symbolic mode: Layer(Stream, ...) -> new Stream node
-        out_seq, out_time, out_dim = self.output_shape(*inputs)
+        if len(inputs) == 1 and isinstance(inputs[0], dict):
+            out_seq, out_time, out_dim = self.output_shape(*list(inputs[0].values()))
+        else:
+            out_seq, out_time, out_dim = self.output_shape(*[type_cast(Stream, x) for x in inputs])
         node = self.__class__(**self._properties)
         node.seq = out_seq
         node.time = out_time

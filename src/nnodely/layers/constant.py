@@ -68,7 +68,7 @@ class Constant(Stream):
         )
         return self.constant
 
-    def as_tensor(self, anchor: "Constant") -> list[int | float | list] | float:
+    def as_tensor(self, anchor: keras.KerasTensor) -> keras.KerasTensor:
         v = self.build_constant()
         return keras.layers.Lambda(
             lambda x: v,

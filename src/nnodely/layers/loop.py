@@ -152,12 +152,14 @@ class Loop(Layer):
 
     def output_shape(self, *inputs):
         # all ingress streams must have exactly one seq axis
+        seq_lengths = []
         for inp in inputs:
             if len(inp.seq) != 1:
                 raise ValueError(
                     f"{self.name}: each Loop input must have exactly one seq axis, got input {inp.name} with seq={inp.seq}"
                 )
-        horizon = max(inp.seq[0] for inp in inputs)
+            seq_lengths.append(inp.seq[0])
+        horizon = max(seq_lengths)
         out_node = self.f.outputs[0]
         return (horizon,), out_node.time, out_node.dim
 

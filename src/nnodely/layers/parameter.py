@@ -100,7 +100,7 @@ class Parameter(Stream):
         )
         return self.param
 
-    def as_tensor(self, anchor: "Parameter") -> list[int | float | list] | float:
+    def as_tensor(self, anchor: keras.KerasTensor) -> keras.KerasTensor:
         v = self.build_parameter()
         return keras.layers.Lambda(
             lambda x: v,

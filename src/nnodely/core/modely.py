@@ -1,6 +1,6 @@
 import os
 
-from typing import cast
+from typing import Any, cast
 
 from nnodely.core.dag import toposort, flatten
 from nnodely.core.stream import Stream
@@ -10,6 +10,7 @@ from nnodely.layers.constant import Constant
 from nnodely.layers.parameter import Parameter
 from nnodely.core.dataloader import DataLoader
 from nnodely.layers.input import Input
+from nnodely.core.layer import Layer
 
 import keras
 import tensorflow as tf
@@ -17,16 +18,26 @@ import tensorflow as tf
 import numpy as np
 from tqdm import tqdm
 
+from nnodely.utils.type_defs import TensorLike
+
 
 class ModelCall(Stream):
     """
     Symbolic node representing the application of a Modely to upstream Stream inputs.
     """
 
-    def __init__(self, model, input_map, output_name, seq, time, dim, predecessors):
+    def __init__(
+        self,
+        model: "Modely",
+        input_map: dict[str, Stream],
+        output_name: str,
+        seq: int | tuple[int, ...] | None,
+        time: int,
+        dim: int | tuple[int, ...],
+        predecessors: list[Stream],
+    ):
         super().__init__(
             name=f"{model.name}",
-            # node_type="Model",
             seq=seq,
             time=time,
             dim=dim,
@@ -64,7 +75,7 @@ class Modely:
         self._parameter_vars = []
 
     @property
-    def built(self):
+    def built(self) -> bool:
         """True se build() è stato chiamato, False altrimenti."""
         return self._model is not None
 
@@ -73,7 +84,9 @@ class Modely:
         self._parameter_vars = []
 
         tensor_map = {node.name: node.input for node in self.inputs}
-        default_anchor = next(iter(tensor_map.values()), None)
+        default_anchor = cast(
+            keras.KerasTensor | None, next(iter(tensor_map.values()), None)
+        )
 
         keras_outputs = {}
         for node in self.outputs:
@@ -105,7 +118,9 @@ class Modely:
 
             for node in extra_inputs:
                 tensor_map[node.name] = node.input
-            default_anchor = next(iter(tensor_map.values()), None)
+            default_anchor = cast(
+                keras.KerasTensor | None, next(iter(tensor_map.values()), None)
+            )
 
             for node in extra_outputs:
                 keras_outputs[node.name] = self._resolve_tensor(
@@ -126,23 +141,25 @@ class Modely:
             self._train_model = self._model
         return self
 
-    def __call__(self, inputs):
+    def __call__(self, inputs: Stream | dict[str, TensorLike]) -> Any:
         # symbolic composition mode
         if isinstance(inputs, Stream):
             return self._call_with_streams({inputs.name: inputs})
         if isinstance(inputs, dict) and all(
             isinstance(v, Stream) for v in inputs.values()
         ):
-            return self._call_with_streams(inputs)
+            return self._call_with_streams(cast(dict[str, Stream], inputs))
 
         # tensor execution mode
         if self._model is None:
             self.build()
         if self._model is None:
             raise ValueError("Model build failed, _model is still None.")
-        return self._model(inputs)
+        return self._model(inputs)  # type: dict
 
-    def _call_with_streams(self, inputs_dict):
+    def _call_with_streams(
+        self, inputs_dict: dict[str, Stream]
+    ) -> Stream | dict[str, Stream]:
         """
         Compose this model symbolically with upstream Stream inputs.
         Returns a Stream if the model has one output, otherwise a dict.
@@ -163,7 +180,12 @@ class Modely:
             return next(iter(outputs.values()))
         return outputs
 
-    def _resolve_tensor(self, node, tensor_map, anchor=None):
+    def _resolve_tensor(
+        self,
+        node: Stream,
+        tensor_map: dict[str, Any],
+        anchor: keras.KerasTensor | None = None,
+    ) -> keras.KerasTensor:
         if node.name in tensor_map:
             return tensor_map[node.name]
 
@@ -197,12 +219,12 @@ class Modely:
         for pred in node.predecessors:
             pt = self._resolve_tensor(pred, tensor_map, anchor=local_anchor)
             pred_tensors.append(pt)
-            if local_anchor is None:
+            if local_anchor is None and isinstance(pt, keras.KerasTensor):
                 local_anchor = pt
 
         if isinstance(node, Output):
             y = pred_tensors[0]
-        else:
+        elif isinstance(node, Layer):
             # layer = node.build_layer()# if node._layer is None else node._layer
             # y = (
             #     layer(pred_tensors[0])
@@ -210,15 +232,28 @@ class Modely:
             #     else layer(pred_tensors)
             # )
             y = node.call(*pred_tensors)
+        else:
+            raise ValueError(
+                f"Unsupported node type '{type(node)}' for tensor resolution."
+            )
 
         tensor_map[node.name] = y
         return y
 
-    def _resolve_model_call(self, node, tensor_map):
+    def _resolve_model_call(
+        self, node: ModelCall, tensor_map: dict[str, Any]
+    ):
         """
         Resolve a symbolic submodel application into a KerasTensor.
         """
         submodel = node.model
+
+        if submodel._model is None:
+            submodel.build()
+        if submodel._model is None:
+            raise ValueError(
+                f"Submodel '{submodel.name}' build failed, _model is still None."
+            )
 
         # resolve upstream tensors for each submodel input
         sub_inputs = {}
@@ -249,8 +284,8 @@ class Modely:
         name: str,
         source: Output | Stream,
         target: Output | Stream | float | None = None,
-        loss="mse",
-    ):
+        loss: str = "mse",
+    ) -> "Modely":
         """Register a loss to minimize during training.
         name: identifier for this loss (used as an output name in the training model)
         source: node/stream producing predictions (e.g., an Output node)
@@ -275,9 +310,9 @@ class Modely:
         train_data: DataLoader,
         epochs: int = 1,
         batch_size: int = 1,
-        optimizer=None,
-        lr: float = 1e-2,
-    ):
+        optimizer: keras.optimizers.Optimizer | None = None,
+        lr: float = 1e-3,
+    ) -> dict[str, list[float]]:
         """Custom Keras training loop using a DataLoader iterable.
 
         Expected train_data:
@@ -331,10 +366,8 @@ class Modely:
 
         if not self._minimizers:
             print("No minimizers defined. Call minimize() before train().")
-            return
+            return {"loss": []}
 
-        if train_data is None:
-            raise ValueError("No training data selected.")
         n_samples = len(train_data)
         if n_samples == 0:
             raise ValueError("train_data is empty.")

@@ -7,6 +7,13 @@ Default: seq=(), time=1, dim=(1,)
 """
 
 import copy
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from nnodely.layers.output import Output
+    from nnodely.core.modely import Modely, ModelCall
+    from nnodely.core.stream import Stream
 
 _node_counter = 0
 
@@ -21,7 +28,7 @@ def next_name(prefix: str) -> str:
 # ------------------------------------------------------------------
 # flattening logic
 # ------------------------------------------------------------------
-def flatten(model):
+def flatten(model: "Modely") -> "Modely":
     from nnodely.core.modely import ModelCall
 
     flattened = model
@@ -82,7 +89,7 @@ def flatten(model):
 #     return flat_model
 
 
-def _clone_graph(order):
+def _clone_graph(order: "list[Stream]") -> "tuple[list[Stream], dict]":
     """
     Clone all nodes in `order` and reconnect predecessors to the cloned nodes.
     """
@@ -98,7 +105,7 @@ def _clone_graph(order):
     return cloned_order, clone_map
 
 
-def _aggregate_models(model, submodel):
+def _aggregate_models(model: "Modely", submodel: "ModelCall") -> "Modely":
     from nnodely.layers.output import Output
     from nnodely.layers.input import Input
 
@@ -159,7 +166,7 @@ def _aggregate_models(model, submodel):
 # ------------------------------------------------------------------
 # DAG topological ordering
 # ------------------------------------------------------------------
-def toposort(output_nodes):
+def toposort(output_nodes: "list[Output]") -> "list[Stream]":
     """
     Restituisce l'ordine topologico dei nodi a partire dagli output.
     DFS post-order da output verso input.
