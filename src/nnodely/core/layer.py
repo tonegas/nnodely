@@ -4,13 +4,10 @@ Layer - Symbolic DAG node that can lazily build its concrete Keras layer.
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Sequence
 
 import keras
 
-from nnodely.core.dag import next_name
 from nnodely.core.stream import Stream
-from nnodely.core.types import Shape
 
 
 class Layer(Stream, ABC):
@@ -26,6 +23,7 @@ class Layer(Stream, ABC):
     def __init__(
         self, name: str | None = None, predecessors: list[Stream] | None = None, seq: int | tuple[int, ...] | None = None, time: int | None = None, dim: int | tuple[int, ...] | None = None, **kwargs
     ):
+        from nnodely.core.dag import next_name
         self._properties = dict(kwargs)
 
         super().__init__(
