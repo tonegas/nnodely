@@ -1,5 +1,7 @@
 import numpy as np
 
+from nnodely.core.dag import flatten
+
 from nnodely.core.modely import Modely
 from nnodely.layers.input import Input
 from nnodely.layers.output import Output
@@ -23,6 +25,7 @@ from nnodely.layers.activations import (
     Softplus,
 )
 from nnodely.layers.trigonometric import Sin, Cos, Tan, Asin, Acos, Atan
+from nnodely.core.layer import Add, Multiply
 
 import os
 
@@ -41,27 +44,21 @@ def main(example=1):
         y_stream = y.sw(window_size)
 
         fir = Fir(out_features=2)
-        result_fir = fir(x_stream + y_stream)
+        result_fir = fir([x_stream + y_stream])
 
         x_out = Output("x_pred", result_fir)
-        model1 = Modely("model1", outputs=x_out)
-        print(f"order: {model1._order}")
+        model1 = Modely("model1", inputs=[x, y], outputs=[x_out])
+        print(model1)
         model1.build()
-        print(
-            f"Model1 - Output stream: {x_out}, shape: {x_out.shape} \n Input streams: {model1.inputs}, shape: {list(model1._input_shapes.values())}"
-        )
 
         # ------- Model composition -------
         z = Input("z", dim=1)
         z_stream = z.sw(window_size)
-        z_fir = Fir(out_features=1)(model1({"x": z_stream, "y": z_stream}))
+        z_fir = Fir(out_features=1)(model1([z_stream, z_stream]))
         z_out = Output("z_pred", z_fir)
-        model2 = Modely("composed_model", outputs=z_out)
-        print(f"order: {model2._order}")
+        model2 = Modely("composed_model", inputs=[z], outputs=[z_out])
+        print(model2)
         model2.build()
-        print(
-            f"Model2 - Output stream: {z_out}, shape: {z_out.shape} \n Input streams: {model2.inputs}, shape: {list(model2._input_shapes.values())}"
-        )
 
         # ------- Model inference -------
         batch_size = 4
@@ -69,12 +66,12 @@ def main(example=1):
         dummy_input_y = np.ones((batch_size, window_size, 1), dtype=np.float32)
         dummy_input_z = np.ones((batch_size, window_size, 1), dtype=np.float32)
 
-        result1 = model1({"x": dummy_input_x, "y": dummy_input_y})
+        result1 = model1([dummy_input_x, dummy_input_y])
         print("Model1 - Input shape:", dummy_input_x.shape)
         print("Model1 - Output shape:", result1["x_pred"].shape)
         print("Model1 - Output:", result1)
 
-        result2 = model2({"z": dummy_input_z})
+        result2 = model2([dummy_input_z])
         print("Model2 - Input shape:", dummy_input_z.shape)
         print("Model2 - Output shape:", result2["z_pred"].shape)
         print("Model2 - Output:", result2)
@@ -86,8 +83,8 @@ def main(example=1):
         loaded_model2 = Modely.load("results/model2")
         loaded_model1.build()
         loaded_model2.build()
-        loaded_result1 = loaded_model1({"x": dummy_input_x, "y": dummy_input_y})
-        loaded_result2 = loaded_model2({"z": dummy_input_z})
+        loaded_result1 = loaded_model1([dummy_input_x, dummy_input_y])
+        loaded_result2 = loaded_model2([dummy_input_z])
         print("Loaded Model1 - Output:", loaded_result1)
         print("Loaded Model2 - Output:", loaded_result2)
 
@@ -103,11 +100,11 @@ def main(example=1):
         # ------- Model definition and training -------
         x = Input("x", dim=1)
         y = Input("y", dim=1)
-        x_fir = Fir(out_features=1)(x.sw(5))
-        y_fir = Fir(out_features=1)(y.sw(5))
+        x_fir = Fir(out_features=1)([x.sw(5)])
+        y_fir = Fir(out_features=1)([y.sw(5)])
 
         x_out = Output("fir_pred", x_fir + y_fir)
-        model1 = Modely("linear_fit", outputs=[x_out])
+        model1 = Modely("linear_fit", inputs=[x, y], outputs=[x_out])
 
         # ------- Define loss and minimizer -------
         model1.minimize(
@@ -158,7 +155,7 @@ def main(example=1):
         const = Constant("const1", value=[1.0])
         x_param = x.sw(1) * param + const
         x_out = Output("x_out", x_param)
-        model = Modely("model", outputs=x_out)
+        model = Modely("model", inputs=[x], outputs=[x_out])
         model.minimize(
             "error", source=x_out, target=Input("x_target", dim=1).sw(1), loss="mse"
         )
@@ -208,20 +205,20 @@ def main(example=1):
         param = Parameter("param1", dim=1)
         x_param = x.sw(5) * param
         x_out = Output("x_out", x_param)
-        model1 = Modely("model1", outputs=x_out)
+        model1 = Modely("model1", inputs=[x], outputs=[x_out])
         model1.build()
 
         y = Input("y", dim=1)
-        y_fir = Fir(out_features=1)(model1({"x": y.sw(5)}))
+        y_fir = Fir(out_features=1)(model1([y.sw(5)]))
         y_out = Output("y_out", y_fir)
-        model2 = Modely("model2", outputs=y_out)
+        model2 = Modely("model2", inputs=[y], outputs=[y_out])
         model2.build()
 
         z = Input("z", dim=1)
         const_z = Constant("const_z", value=[1.0, 2.0, 3.0, 4.0, 5.0])
-        z_fir = Fir(out_features=1)(model2({"y": z.sw(5) + const_z}))
+        z_fir = Fir(out_features=1)(model2([z.sw(5) + const_z]))
         z_out = Output("z_out", z_fir)
-        model3 = Modely("model3", outputs=z_out)
+        model3 = Modely("model3", inputs=[z], outputs=[z_out])
         model3.build()
 
         # ------- Visualize the Flatten model -------
@@ -237,15 +234,15 @@ def main(example=1):
         y = Input(name="y", dim=1)
         r1 = x.sw(1) + y.sw(1)
         out1 = Output("out1", r1)
-        model1 = Modely(name="model1", outputs=[out1])
+        model1 = Modely(name="model1", inputs=[x, y], outputs=[out1])
         model1.build()
 
         z = Input(name="z", dim=1, seq=5)
         const = Constant("const", value=2.0)
         r2 = z.sw(1) * const
         loop_fn = Loop(f=model1, closed_loop={out1: z})
-        out = Output("out", loop_fn(z, r2))
-        model = Modely(name="model", outputs=[out])
+        out = Output("out", loop_fn([z, r2]))
+        model = Modely(name="model", inputs=[z], outputs=[out])
         model.build()
 
         # ------- Model inference -------
@@ -304,15 +301,15 @@ def main(example=1):
         y = Input(name="y", dim=1)
         r1 = x.sw(1) + y.sw(1)
         out1 = Output("out1", r1)
-        model1 = Modely(name="model1", outputs=[out1])
+        model1 = Modely(name="model1", inputs=[x, y], outputs=[out1])
         model1.build()
 
         z = Input(name="z", dim=1, seq=5)
         const = Constant("const", value=2.0)
         r2 = z.sw(1) * const
         loop_fn = Loop(f=model1, closed_loop={out1: z})
-        out = Output("out", loop_fn(z, r2))
-        model = Modely(name="model", outputs=[out])
+        out = Output("out", loop_fn([z, r2]))
+        model = Modely(name="model", inputs=[z], outputs=[out])
         model.build()
 
         model.save(filename="results/model_k")
@@ -339,9 +336,9 @@ def main(example=1):
 
         fuzzy = Fuzzify(centers=[0.0, 0.5, 1.0], function="rectangular")
 
-        x_out = Output("x_pred", fuzzy(x_stream))
-        model1 = Modely("model1", outputs=x_out)
-        print(f"order: {model1._order}")
+        x_out = Output("x_pred", fuzzy([x_stream]))
+        model1 = Modely("model1", inputs=[x], outputs=[x_out])
+        print(model1)
         model1.build()
 
         # ------- Model inference -------
@@ -367,12 +364,12 @@ def main(example=1):
         k = Input("k", dim=1)
 
         # LocalModel now auto-encapsulates in a ModelCall when called with Streams
-        fuzzy_k = Fuzzify(centers=[0.0, 0.5, 1.0], function="rectangular")(k.sw(1))
+        fuzzy_k = Fuzzify(centers=[0.0, 0.5, 1.0], function="rectangular")([k.sw(1)])
         local_model = LocalModel(name="local_model", function="Fir")
         # Call with Stream inputs directly - returns a ModelCall automatically
-        output_local = local_model({"x": x.sw(5), "y": y.sw(5), "z": z.sw(5)}, fuzzy_k)
+        output_local = local_model([[x.sw(5), y.sw(5), z.sw(5)], fuzzy_k])
         out = Output("out", output_local)
-        model = Modely("model_with_local", outputs=out)
+        model = Modely("model_with_local", inputs=[x, y, z, k], outputs=[out])
         model.build()
 
         # ------- Model inference -------
@@ -425,29 +422,30 @@ def main(example=1):
         sub = param - const
         div = param / const
 
-        Fir_out = Fir(out_features=1)(x.sw(2))
+        Fir_out = Fir(out_features=1)([x.sw(2)])
         out_add = Output("out_add", add)
         out_mul = Output("out_mul", mul)
         out_sub = Output("out_sub", sub)
         out_div = Output("out_div", div)
         out_fir = Output("out_fir", Fir_out)
         out_concat = Output(
-            "out_concat", TimeConcatenate(name="time_concat")(x.sw(2), Fir_out)
+            "out_concat", TimeConcatenate(name="time_concat")([x.sw(2), Fir_out])
         )
         param2 = Parameter("param2", dim=(3, 2))
         param3 = Parameter("param3", dim=(1, 2))
         param4 = Parameter("param4", dim=(1, 2))
         out_concat2 = Output(
-            "out_concat2", Concatenate(name="concat", axis=0)(param2, param3)
+            "out_concat2", Concatenate(name="concat", axis=0)([param2, param3])
         )
         out_concat3 = Output(
-            "out_concat3", Concatenate(name="concat2", axis=1)(param3, param4)
+            "out_concat3", Concatenate(name="concat2", axis=1)([param3, param4])
         )
         out_concat4 = Output(
-            "out_concat4", Concatenate(name="concat3", axis=0)(param2, param3, param4)
+            "out_concat4", Concatenate(name="concat3", axis=0)([param2, param3, param4])
         )
         model = Modely(
             "model",
+            inputs=[x],
             outputs=[
                 out_add,
                 out_mul,
@@ -466,20 +464,21 @@ def main(example=1):
     if example == 11:
         # ------- Test activation layers -------
         x = Input("x", dim=1)
-        relu_out = Output("out_relu", ReLU(max_value=1.0)(x.sw(1)))
-        elu_out = Output("out_elu", ELU(alpha=1.0)(x.sw(2)))
+        relu_out = Output("out_relu", ReLU(max_value=1.0)([x.sw(1)]))
+        elu_out = Output("out_elu", ELU(alpha=1.0)([x.sw(2)]))
         leaky_relu_out = Output(
-            "out_leaky_relu", LeakyReLU(negative_slope=0.3)(x.sw(1))
+            "out_leaky_relu", LeakyReLU(negative_slope=0.3)([x.sw(1)])
         )
-        prelu_out = Output("out_prelu", PReLU()(x.sw(1)))
-        sigmoid_out = Output("out_sigmoid", Sigmoid()(x.sw(5)))
-        tanh_out = Output("out_tanh", Tanh()(x.sw(1)))
-        softmax_out = Output("out_softmax", Softmax(axis=-1)(x.sw(3)))
-        swish_out = Output("out_swish", Swish()(x.sw(1)))
-        gelu_out = Output("out_gelu", GELU()(x.sw(1)))
-        softplus_out = Output("out_softplus", Softplus()(x.sw(1)))
+        prelu_out = Output("out_prelu", PReLU()([x.sw(1)]))
+        sigmoid_out = Output("out_sigmoid", Sigmoid()([x.sw(5)]))
+        tanh_out = Output("out_tanh", Tanh()([x.sw(1)]))
+        softmax_out = Output("out_softmax", Softmax(axis=-1)([x.sw(3)]))
+        swish_out = Output("out_swish", Swish()([x.sw(1)]))
+        gelu_out = Output("out_gelu", GELU()([x.sw(1)]))
+        softplus_out = Output("out_softplus", Softplus()([x.sw(1)]))
         model = Modely(
             "activation_model",
+            inputs=[x],
             outputs=[
                 relu_out,
                 elu_out,
@@ -500,21 +499,104 @@ def main(example=1):
         # ------- Test trigonometric layers -------
         x = Input("x", dim=1)
 
-        sin_out = Output("out_sin", Sin()(x.sw(1)))
-        cos_out = Output("out_cos", Cos()(x.sw(3)))
-        tan_out = Output("out_tan", Tan()(x.sw(1)))
-        asin_out = Output("out_asin", Asin()(x.sw(4)))
-        acos_out = Output("out_acos", Acos()(x.sw(1)))
-        atan_out = Output("out_atan", Atan()(x.sw(2)))
+        sin_out = Output("out_sin", Sin()([x.sw(1)]))
+        cos_out = Output("out_cos", Cos()([x.sw(3)]))
+        tan_out = Output("out_tan", Tan()([x.sw(1)]))
+        asin_out = Output("out_asin", Asin()([x.sw(4)]))
+        acos_out = Output("out_acos", Acos()([x.sw(1)]))
+        atan_out = Output("out_atan", Atan()([x.sw(2)]))
         model = Modely(
             "trig_model",
+            inputs=[x],
             outputs=[sin_out, cos_out, tan_out, asin_out, acos_out, atan_out],
         )
         model.build()
         model.plot(to_file="html/model_trig.png")
 
+    if example == 13:
+        x1 = Input("x1")
+        x2 = Input("x2")
+        x3 = Input("x3")
+        mul1 = Multiply("mul1")([x1, x2])
+        mul2 = Multiply("mul2")([x2, x3])
+        add = Add("add")([mul1, mul2])
+        y = Output("y", add)
+        m1 = Modely(name="m1", inputs=[x1, x2], outputs=[y])
+
+        m1_flat = flatten(m1)
+
+        a1 = Input("a1")
+        a2 = Input("a2")
+        m1c = m1([a1, a2])
+        m2 = Modely("m2", [a1, a2], [m1c[0], m1c[0]])
+
+        m2_flat = flatten(m2)
+
+        c1 = Input("c1")
+        c2 = Input("c2")
+        m2c1, m2c2 = m2([c1, c2])
+        d1 = Output("d1", m2c1)
+        d2 = Output("d2", m2c2)
+        m3 = Modely("m3", [c1, c2], [d1, d2])
+
+        m3_flat = flatten(m3)
+
+        e1 = Input("e1")
+        e2 = Input("e2")
+        m2e1, m2e2 = m2([e1, e2])
+        m3e1, m3e2 = m3([m2e1, m2e2])
+        f1 = Output("f1", m3e1)
+        f2 = Output("f2", m3e2)
+        m4 = Modely("m4", [e1, e2], [f1, f2])
+
+        m4_flat = flatten(m4)
+
+        g1 = Input("g1")
+        m4g1, m4g2 = m4([g1, g1])
+        h1 = Output("h1", m4g1)
+        h2 = Output("h2", m4g2)
+        m5 = Modely("m5", [g1], [h1, h2])
+
+        m5_flat = flatten(m5)
+
+        print(m1)
+        print(m1_flat)
+        print(m2)
+        print(m2_flat)
+        print(m3)
+        print(m3_flat)
+        print(m4)
+        print(m4_flat)
+        print(m5)
+        print(m5_flat)
+
+    if example == 14:
+
+        class Tangent:
+            def __init__(self, name):
+                self.name = name
+
+            def __call__(self, inputs):
+                ret = Sin(name=f"{self.name}_sin")(inputs) / Cos(
+                    name=f"{self.name}_cos"
+                )(inputs)
+                return Modely(name=f"{self.name}_model", inputs=inputs, outputs=[ret])(
+                    inputs
+                )
+
+        input = Input("input")
+        tan = Tangent(name="tangent")([input])
+        output = Output("output", tan)
+
+        model = Modely(name="model", inputs=[input], outputs=[output])
+        model_flat = flatten(model)
+
+        print(model)
+        print(model_flat)
+
 
 if __name__ == "__main__":
-    for i in range(1, 13):
+    for i in range(1, 14):
         print(f"\n\n--- Running Example {i} ---\n\n")
         main(example=i)
+    # main(example=9)

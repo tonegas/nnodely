@@ -131,18 +131,18 @@ class LocalModel(Layer):
         if not inputs:
             raise TypeError("LocalModel expects at least one input")
 
-        first = inputs[0]
+        # first = inputs[0]
 
-        if isinstance(first, dict):
-            if len(inputs) != 2:
-                raise ValueError(
-                    "LocalModel with dict inputs expects exactly two arguments: dict inputs and activations."
-                )
-            ordered_inputs = [first[key] for key in first]
-            return super().__call__(*ordered_inputs, inputs[1])
+        # if isinstance(first, dict):
+        #     if len(inputs) != 2:
+        #         raise ValueError(
+        #             "LocalModel with dict inputs expects exactly two arguments: dict inputs and activations."
+        #         )
+        #     ordered_inputs = [first[key] for key in first]
+        #     return super().__call__(*ordered_inputs, inputs[1])
 
-        if len(inputs) == 2 and isinstance(first, (list, tuple)):
-            return super().__call__(*list(first), inputs[1])
+        # if len(inputs) == 2 and isinstance(first, (list, tuple)):
+        #     return super().__call__(*list(first), inputs[1])
 
         return super().__call__(*inputs)
 
@@ -150,7 +150,7 @@ class LocalModel(Layer):
         return inputs[0].seq, inputs[0].time, (self.out_features,)
 
     def build_layer(self):
-        num_models = max(0, len(self.predecessors) - 1)
+        num_models = max(0, len(self.preds) - 1)
         return LocalModelImpl(
             function_name=self.function,
             out_features=self.out_features,

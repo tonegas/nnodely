@@ -166,7 +166,7 @@ class Loop(Layer):
         # loop_in_name = self.loop_in_stream.name
         loop_out_name = self.loop_out_stream.name
 
-        if f._model is None:
+        if f.model is None:
             f.build()
 
         # fn_input_names = [node.name for node in f.inputs]
@@ -177,4 +177,4 @@ class Loop(Layer):
             raise ValueError(
                 f"{self.name}: closed-loop output '{loop_out_name}' is not among f.outputs={fn_output_names}"
             )
-        return LoopImpl(f._model, loop_out_name, name=self.name)
+        return LoopImpl(f.model, loop_out_name, name=self.name)

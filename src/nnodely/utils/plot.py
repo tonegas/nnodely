@@ -44,7 +44,7 @@ def plot_graphviz(
                 "style": "rounded,filled",
                 "fillcolor": "#00ff15",
             }
-        if node_type == "Output":
+        if node_type == "Output" or node_type == "IntermediateOutput":
             return {
                 "shape": "box",
                 "style": "rounded,filled",
@@ -97,7 +97,7 @@ def plot_graphviz(
         added_edges.add(edge)
 
     # Add all model nodes from the DAG order
-    for node in model._order:
+    for node in model.order:
         _add_node(node)
 
     # Ensure top-level inputs/outputs are always present
@@ -107,15 +107,15 @@ def plot_graphviz(
         _add_node(node)
 
     # Add normal DAG edges
-    for node in model._order:
-        for pred in getattr(node, "predecessors", []) or []:
+    for node in model.order:
+        for pred in getattr(node, "preds", []) or []:
             _add_node(pred)
-            shape_label = str(pred.shape)
+            shape_label = str(pred.shape) if hasattr(pred, "shape") else ""
             _add_edge(pred.name, node.name, label=shape_label)
 
     # Add minimizers
     if include_minimizers:
-        for i, m in enumerate(model._minimizers):
+        for i, m in enumerate(model.minimizers):
             loss_name = m.get("loss", "loss")
             min_name = m.get("name", f"loss_{i}")
 
@@ -196,7 +196,7 @@ def export_html(
     def _node_color(kind: str) -> str:
         if kind == "Input":
             return "#2ecc71"
-        if kind == "Output":
+        if kind == "Output" or kind == "IntermediateOutput":
             return "#e74c3c"
         if kind == "ModelCall":
             return "#3498db"
@@ -280,17 +280,17 @@ def export_html(
         seen_nodes = set()
         seen_edges = set()
 
-        for node in model_obj._order:
+        for node in model_obj.order:
             nid = getattr(node, "name", str(node))
             if nid in seen_nodes:
                 continue
-            kind = (node.__class__.__name__,)
+            kind = node.__class__.__name__
             nodes.append((node, nid, kind, _safe_attrs(node)))
             seen_nodes.add(nid)
 
-        for node in model_obj._order:
+        for node in model_obj.order:
             dst = getattr(node, "name", str(node))
-            for pred in getattr(node, "predecessors", []) or []:
+            for pred in getattr(node, "preds", []) or []:
                 src = getattr(pred, "name", str(pred))
                 edge = (src, dst)
                 if edge in seen_edges:

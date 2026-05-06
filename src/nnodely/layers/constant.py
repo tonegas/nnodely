@@ -50,7 +50,7 @@ class Constant(Stream):
             seq=seq,
             time=time,
             dim=dim,
-            predecessors=[],
+            preds=[],
         )
 
         self.value = arr
@@ -75,7 +75,7 @@ class Constant(Stream):
         return keras.layers.Lambda(
             lambda x: v,
             output_shape=self.shape,
-            name=self.name,
+            name=f"{self.name}_tensor",
         )(anchor)
 
     @property

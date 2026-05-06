@@ -21,11 +21,11 @@ class Input(Stream):
         dim: int | tuple | None = None,
         seq: int | tuple[int] | None = None,
     ):
-        super().__init__(name=name, seq=seq, time=None, dim=dim, predecessors=None)
+        super().__init__(name=name, seq=seq, time=None, dim=dim, preds=None)
         self.input = keras.Input(shape=self.shape, name=self.name)
 
     def sw(self, window_size: int):
         """Crea SampleWindow (Layer) con finestra temporale. Aggiorna self.time (max finestra)."""
         self.time = max(self.time, window_size)
         self.input = keras.Input(shape=self.shape, name=self.name)
-        return SampleWindow(window_size)(self)
+        return SampleWindow(window_size)([self])

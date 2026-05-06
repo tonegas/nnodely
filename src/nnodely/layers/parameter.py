@@ -2,7 +2,6 @@ import numpy as np
 import keras
 
 from nnodely.core.stream import Stream
-# from nnodely.core.dag import to_tuple
 
 
 class Parameter(Stream):
@@ -27,7 +26,7 @@ class Parameter(Stream):
         dim=None,
         dtype="float32",
     ):
-        if value:
+        if value is not None:
             arr = np.asarray(value, dtype=np.float32)
 
             if arr.ndim == 0:
@@ -50,7 +49,7 @@ class Parameter(Stream):
             seq=seq,
             time=time,
             dim=dim,
-            predecessors=[],
+            preds=[],
         )
 
         self.value = value
@@ -105,7 +104,7 @@ class Parameter(Stream):
         return keras.layers.Lambda(
             lambda x: v,
             output_shape=self.shape,
-            name=self.name,
+            name=f"{self.name}_tensor",
         )(anchor)
 
     @property

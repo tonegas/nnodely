@@ -2,54 +2,55 @@
 Stream - nodo del DAG con predecessors.
 """
 
-from nnodely.core.dag import next_name
+from __future__ import annotations
+
+from copy import copy
+from typing import Sequence
 
 
-class Stream:
-    """
+class Node:
+    name: str
+    preds: list[Node]
 
-    Symbolic DAG node representing a data stream.
+    def __init__(self, name: str, preds: list[Node] | None = None) -> None:
+        self.name = name
+        self.preds = preds or []
 
-    Shape convention (without batch):
-        seq + (time,) + dim
+    def __call__(self, inputs: Sequence[Node]) -> Node:
+        node = copy(self)
+        node.preds = list(inputs)
 
-    Examples:
-        seq=(), time=10, dim=(3,)      -> shape = (10, 3)
-        seq=(4,), time=10, dim=(3,)    -> shape = (4, 10, 3)
+        return node
 
-    Attributes
-    ----------
-    name : str
-        Unique node name in the graph.
-    node_type : str
-        Semantic node type, e.g. 'input', 'output', 'Fir', 'SampleWindow'.
-    seq : tuple
-        Optional sequence axes before time.
-    time : int
-        Time/window axis.
-    dim : tuple
-        Feature dimensions after time.
-    predecessors : list[Stream]
-        Parent nodes in the DAG.
-    """
+    def __repr__(self) -> str:
+        return str(
+            f'{self.__class__.__name__}("{self.name}: {[pred.name for pred in self.preds]}")'
+        )
 
+    def __hash__(self) -> int:
+        return id(self)
+
+
+class Stream(Node):
     _literal_constant_cache = {}
+    seq: tuple[int, ...]
+    time: int
+    dim: tuple[int, ...]
 
     def __init__(
         self,
         name: str | None = None,
-        seq: int | tuple[int] | None = None,
+        seq: int | tuple[int, ...] | None = None,
         time: int | None = None,
-        dim: int | tuple | None = None,
-        predecessors=None,
+        dim: int | tuple[int, ...] | None = None,
+        preds: list[Node] | None = None,
     ):
-        self.name = (
-            str(name) if name is not None else next_name(self.__class__.__name__)
+        super().__init__(
+            name if name is not None else f"{self.__class__.__name__}_{id(self)}", preds
         )
         self.seq = () if seq is None else (seq,) if isinstance(seq, int) else seq
         self.time = 1 if time is None else time
         self.dim = (1,) if dim is None else (dim,) if isinstance(dim, int) else dim
-        self.predecessors = list(predecessors) if predecessors is not None else []
 
     @property
     def shape(self) -> tuple:
@@ -75,42 +76,42 @@ class Stream:
     def __add__(self, other):
         from nnodely.core.layer import Add
 
-        return Add()(self, self._coerce_operand(other))
+        return Add()([self, self._coerce_operand(other)])
 
     def __radd__(self, other):
         from nnodely.core.layer import Add
 
-        return Add()(self._coerce_operand(other), self)
+        return Add()([self._coerce_operand(other), self])
 
     def __sub__(self, other):
         from nnodely.core.layer import Subtract
 
-        return Subtract()(self, self._coerce_operand(other))
+        return Subtract()([self, self._coerce_operand(other)])
 
     def __rsub__(self, other):
         from nnodely.core.layer import Subtract
 
-        return Subtract()(self._coerce_operand(other), self)
+        return Subtract()([self._coerce_operand(other), self])
 
     def __mul__(self, other):
         from nnodely.core.layer import Multiply
 
-        return Multiply()(self, self._coerce_operand(other))
+        return Multiply()([self, self._coerce_operand(other)])
 
     def __rmul__(self, other):
         from nnodely.core.layer import Multiply
 
-        return Multiply()(self._coerce_operand(other), self)
+        return Multiply()([self._coerce_operand(other), self])
 
     def __truediv__(self, other):
         from nnodely.core.layer import Divide
 
-        return Divide()(self, self._coerce_operand(other))
+        return Divide()([self, self._coerce_operand(other)])
 
     def __rtruediv__(self, other):
         from nnodely.core.layer import Divide
 
-        return Divide()(self._coerce_operand(other), self)
+        return Divide()([self._coerce_operand(other), self])
 
     @staticmethod
     def _coerce_operand(value):
@@ -146,7 +147,7 @@ class Stream:
         return None
 
     def __repr__(self):
-        pred_names = [pred.name for pred in self.predecessors]
+        pred_names = [pred.name for pred in self.preds]
         return (
             f"{self.__class__.__name__}("
             f"name={self.name!r}, "

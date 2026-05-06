@@ -2,13 +2,8 @@ from __future__ import annotations
 
 import keras
 
-
-from nnodely.core.dag import next_name
 from nnodely.core.stream import Stream
-
-
-def _is_stream(x):
-    return isinstance(x, Stream)
+from nnodely.core.dag import next_name
 
 
 class Layer(Stream):
@@ -19,9 +14,7 @@ class Layer(Stream):
     - If called with tensor(s): applies the built Keras layer
     """
 
-    def __init__(
-        self, name=None, predecessors=None, seq=None, time=None, dim=None, **kwargs
-    ):
+    def __init__(self, name=None, preds=None, seq=None, time=None, dim=None, **kwargs):
         self._properties = dict(kwargs)
 
         super().__init__(
@@ -29,7 +22,7 @@ class Layer(Stream):
             seq=seq,
             time=time,
             dim=dim,
-            predecessors=predecessors,
+            preds=preds,
         )
 
     # ------------------------------------------------------------------
@@ -57,21 +50,21 @@ class Layer(Stream):
         layer = self.build_layer()
         if len(xs) == 1:
             return layer(xs[0])
-        return layer(list(xs))
+        return layer(xs)
 
     # ------------------------------------------------------------------
     # Symbolic graph logic
     # ------------------------------------------------------------------
 
-    def __call__(self, *inputs):
+    def __call__(self, inputs):
         # Symbolic mode: Layer(Stream, ...) -> new Stream node
-        if all(_is_stream(x) for x in inputs):
+        if all(isinstance(x, Stream) for x in inputs):
             out_seq, out_time, out_dim = self.output_shape(*inputs)
             node = self.__class__(**self._properties)
             node.seq = out_seq
             node.time = out_time
             node.dim = out_dim
-            node.predecessors = list(inputs)
+            node.preds = list(inputs)
             return node
 
         # Tensor mode: Layer(tensor, ...) -> KerasTensor / Tensor
