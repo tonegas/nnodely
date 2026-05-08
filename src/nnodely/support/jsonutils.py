@@ -1,94 +1,172 @@
 import copy
 from pprint import pformat
 
-
 from nnodely.support.utils import check
-
 from nnodely.support.logger import logging, nnLogger
 
 log = nnLogger(__name__, logging.WARNING)
 
+# Sections whose inner *entries* are mutated in place by callers after merge() and
+# therefore must be detached (shallow-copied) in the result:
+#   Inputs      -> connect / closedLoop / local / ns / ntot
+#   Functions   -> Fuzzify / LocalModel / dim_out / params_and_consts
+#   Parameters  -> values / init_values / init_fun / dim
+#   Constants   -> values
+# All other sections (Relations / Outputs / Models / Minimizers) are append-only at
+# the section level, so their inner values are shared between operands and result.
+_MUTABLE_ENTRY_SECTIONS = frozenset(("Inputs", "Functions", "Parameters", "Constants"))
+
 
 def get_window(obj):
+    """Return the window key (``'tw'``/``'sw'``) of ``obj.dim``, or ``None``."""
     return "tw" if "tw" in obj.dim else ("sw" if "sw" in obj.dim else None)
 
 
-# Codice per comprimere le relazioni
-# print(self.json['Relations'])
-# used_rel = {string for values in self.json['Relations'].values() for string in values[1]}
-# if obj1.name not in used_rel and obj1.name in self.json['Relations'].keys() and self.json['Relations'][obj1.name][0] == add_relation_name:
-#     self.json['Relations'][self.name] = [add_relation_name, self.json['Relations'][obj1.name][1]+[obj2.name]]
-#     del self.json['Relations'][obj1.name]
-# else:
-# Devo aggiungere un operazione che rimuove un operazione di Add,Sub,Mul,Div se può essere unita ad un'altra operazione dello stesso tipo
-#
-def merge(source, destination, main=True):
-    if main:
-        for key, value in destination["Functions"].items():
-            if (
-                key in source["Functions"].keys()
-                and "n_input" in value.keys()
-                and "n_input" in source["Functions"][key].keys()
-            ):
-                check(
-                    value == {}
-                    or source["Functions"][key] == {}
-                    or value["n_input"] == source["Functions"][key]["n_input"],
-                    TypeError,
-                    f"The ParamFun {key} is present multiple times, with different number of inputs. "
-                    f"The ParamFun {key} is called with {value['n_input']} parameters and with {source['Functions'][key]['n_input']} parameters.",
-                )
-        for key, value in destination["Parameters"].items():
-            if key in source["Parameters"].keys():
-                if "dim" in value.keys() and "dim" in source["Parameters"][key].keys():
-                    check(
-                        value["dim"] == source["Parameters"][key]["dim"],
-                        TypeError,
-                        f"The Parameter {key} is present multiple times, with different dimensions. "
-                        f"The Parameter {key} is called with {value['dim']} dimension and with {source['Parameters'][key]['dim']} dimension.",
-                    )
-                window_dest = (
-                    "tw" if "tw" in value else ("sw" if "sw" in value else None)
-                )
-                window_source = (
-                    "tw"
-                    if "tw" in source["Parameters"][key]
-                    else ("sw" if "sw" in source["Parameters"][key] else None)
-                )
-                if window_dest is not None:
-                    check(
-                        window_dest == window_source
-                        and value[window_dest]
-                        == source["Parameters"][key][window_source],
-                        TypeError,
-                        f"The Parameter {key} is present multiple times, with different window. "
-                        f"The Parameter {key} is called with {window_dest}={value[window_dest]} dimension and with {window_source}={source['Parameters'][key][window_source]} dimension.",
-                    )
+def _shallow_copy_entries(d):
+    """Return a fresh dict where dict-typed values are shallow-copied."""
+    if not d:
+        return {}
+    return {k: dict(v) if isinstance(v, dict) else v for k, v in d.items()}
 
-        log.debug("Merge Source")
-        log.debug("\n" + pformat(source))
-        log.debug("Merge Destination")
-        log.debug("\n" + pformat(destination))
-        result = copy.deepcopy(destination)
-    else:
-        result = destination
-    for key, value in source.items():
-        if isinstance(value, dict):
-            # get node or create one
-            node = result.setdefault(key, {})
-            merge(value, node, False)
+
+def _window_union(a, b):
+    """Return ``[min(a[0], b[0]), max(a[1], b[1])]`` without mutating *a* or *b*."""
+    return [a[0] if a[0] <= b[0] else b[0], a[1] if a[1] >= b[1] else b[1]]
+
+
+def _overlay_with_windows(dst, src):
+    """Overlay *src* onto a fresh copy of *dst*; union ``tw``/``sw`` lists.
+
+    Used for the ``Info`` section and for individual ``Inputs`` descriptors,
+    which share the same shape (flat dict of scalars/2-element windows).
+    """
+    out = dict(dst) if isinstance(dst, dict) else {}
+    if not isinstance(src, dict) or not src:
+        return out
+    for k, v in src.items():
+        if (
+            (k == "tw" or k == "sw")
+            and isinstance(v, list)
+            and isinstance(out.get(k), list)
+        ):
+            out[k] = _window_union(out[k], v)
         else:
-            if key in result and type(result[key]) is list:
-                if key == "tw" or key == "sw":
-                    if result[key][0] > value[0]:
-                        result[key][0] = value[0]
-                    if result[key][1] < value[1]:
-                        result[key][1] = value[1]
-            else:
-                result[key] = value
-    if main == True:
-        log.debug("Merge Result")
-        log.debug("\n" + pformat(result))
+            out[k] = v
+    return out
+
+
+def _merge_section(sec, dst, src):
+    """Merge a single named section of the model JSON.
+
+    Three regimes:
+    * ``Info`` — flat dict: scalar overlay + ``tw``/``sw`` window union.
+    * ``_MUTABLE_ENTRY_SECTIONS`` — union of named entries; each surviving
+      entry is shallow-copied so callers can mutate the result.
+      ``Inputs`` additionally union'es per-entry windows.
+    * Everything else (``Relations`` / ``Outputs`` / ``Models`` / ``Minimizers``):
+      union of named entries; inner values are *shared* with the operands
+      (callers only add new keys, never mutate inner values in place).
+    """
+    if sec == "Info":
+        return _overlay_with_windows(dst, src)
+
+    if sec in _MUTABLE_ENTRY_SECTIONS:
+        out = _shallow_copy_entries(dst)
+        if not src:
+            return out
+        if sec == "Inputs":
+            for k, sv in src.items():
+                out[k] = _overlay_with_windows(out.get(k), sv)
+        else:
+            for k, sv in src.items():
+                out[k] = dict(sv) if isinstance(sv, dict) else sv
+        return out
+
+    # Shared-value sections: dict-union if both are dicts, else source overrides.
+    if isinstance(dst, dict) and isinstance(src, dict):
+        out = dict(dst)
+        out.update(src)
+        return out
+    if isinstance(src, dict):
+        return dict(src)
+    if isinstance(dst, dict):
+        return dict(dst)
+    return src if src is not None else dst
+
+
+def _iter_overlap(a, b):
+    """Yield ``(key, a[key], b[key])`` for keys present in both dicts, scanning
+    the smaller side."""
+    if not a or not b:
+        return
+    small, big = (a, b) if len(a) <= len(b) else (b, a)
+    for key, value in small.items():
+        other = big.get(key)
+        if other is not None:
+            yield key, value, other
+
+
+def _validate_compat(source, destination):
+    """Verify that overlapping Functions/Parameters agree on their declared shape
+    (``n_input``, ``dim``, ``tw``/``sw``)."""
+    for key, a, b in _iter_overlap(
+        source.get("Functions") or {}, destination.get("Functions") or {}
+    ):
+        if a and b and "n_input" in a and "n_input" in b:
+            check(
+                a["n_input"] == b["n_input"],
+                TypeError,
+                f"The ParamFun {key} is present multiple times, with different number of inputs. "
+                f"The ParamFun {key} is called with {a['n_input']} parameters and with {b['n_input']} parameters.",
+            )
+
+    for key, a, b in _iter_overlap(
+        source.get("Parameters") or {}, destination.get("Parameters") or {}
+    ):
+        if "dim" in a and "dim" in b:
+            check(
+                a["dim"] == b["dim"],
+                TypeError,
+                f"The Parameter {key} is present multiple times, with different dimensions. "
+                f"The Parameter {key} is called with {a['dim']} dimension and with {b['dim']} dimension.",
+            )
+        wa = "tw" if "tw" in a else ("sw" if "sw" in a else None)
+        if wa is None:
+            continue
+        wb = "tw" if "tw" in b else ("sw" if "sw" in b else None)
+        check(
+            wa == wb and a[wa] == b[wb],
+            TypeError,
+            f"The Parameter {key} is present multiple times, with different window. "
+            f"The Parameter {key} is called with {wa}={a[wa]} dimension and with {wb}={b[wb] if wb else None} dimension.",
+        )
+
+
+def merge(source, destination):
+    """
+    Combine two model JSONs into a fresh, independent dict.
+
+    Complexity: ``O(|sections| + |mutable entries| + |new keys in source|)``
+    per call. No recursion, no full deep-copy of *destination*. Inner values
+    of named sections are shared with the operands wherever safe; entries in
+    ``Inputs``/``Functions``/``Parameters``/``Constants`` are shallow-copied
+    because callers mutate them in place. ``tw``/``sw`` ranges are union'd.
+    """
+    if source is destination:
+        return {sec: _merge_section(sec, v, None) for sec, v in destination.items()}
+
+    _validate_compat(source, destination)
+
+    sections = set(destination) | set(source)
+    result = {
+        sec: _merge_section(sec, destination.get(sec), source.get(sec))
+        for sec in sections
+    }
+
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug("Merge Source\n" + pformat(source))
+        log.debug("Merge Destination\n" + pformat(destination))
+        log.debug("Merge Result\n" + pformat(result))
     return result
 
 
@@ -163,52 +241,54 @@ def binary_cheks(self, obj1, obj2, name):
 
 
 def subjson_from_relation(json, relation):
-    json = copy.deepcopy(json)
-    # Get all the inputs needed to compute a specific relation from the json graph
+    # Read-only DAG walk with iterative DFS + visited memo (relations form a DAG with
+    # heavy reuse, e.g. RK4 expansions: recursive untracked walks blow up exponentially).
     inputs = set()
     relations = set()
     constants = set()
     parameters = set()
     functions = set()
 
-    def search(rel):
-        if rel in json["Inputs"]:  # Found an input
-            inputs.add(rel)
-            if rel in json["Inputs"]:
-                if (
-                    "connect" in json["Inputs"][rel]
-                    and json["Inputs"][rel]["local"] == 1
-                ):
-                    search(json["Inputs"][rel]["connect"])
-                if (
-                    "closed_loop" in json["Inputs"][rel]
-                    and json["Inputs"][rel]["local"] == 1
-                ):
-                    search(json["Inputs"][rel]["closed_loop"])
-                # if 'init' in json['Inputs'][rel]:
-                #     search(json['Inputs'][rel]['init'])
-        elif rel in json["Constants"]:  # Found a constant or parameter
-            constants.add(rel)
-        elif rel in json["Parameters"]:
-            parameters.add(rel)
-        elif rel in json["Functions"]:
-            functions.add(rel)
-            if "params_and_consts" in json["Functions"][rel]:
-                for sub_rel in json["Functions"][rel]["params_and_consts"]:
-                    search(sub_rel)
-        elif rel in json["Relations"]:  # Another relation
-            relations.add(rel)
-            for sub_rel in json["Relations"][rel][1]:
-                search(sub_rel)
-            for sub_rel in json["Relations"][rel][2:]:
-                if json["Relations"][rel][0] in ("Fir", "Linear"):
-                    search(sub_rel)
-                if json["Relations"][rel][0] in ("Fuzzify"):
-                    search(sub_rel)
-                if json["Relations"][rel][0] in ("ParamFun"):
-                    search(sub_rel)
+    j_inputs = json["Inputs"]
+    j_constants = json["Constants"]
+    j_parameters = json["Parameters"]
+    j_functions = json["Functions"]
+    j_relations = json["Relations"]
 
-    search(relation)
+    visited = set()
+    stack = [relation]
+    while stack:
+        rel = stack.pop()
+        if rel in visited:
+            continue
+        visited.add(rel)
+        if rel in j_inputs:
+            inputs.add(rel)
+            entry = j_inputs[rel]
+            if "connect" in entry and entry.get("local") == 1:
+                stack.append(entry["connect"])
+            if "closed_loop" in entry and entry.get("local") == 1:
+                stack.append(entry["closed_loop"])
+        elif rel in j_constants:
+            constants.add(rel)
+        elif rel in j_parameters:
+            parameters.add(rel)
+        elif rel in j_functions:
+            functions.add(rel)
+            f_entry = j_functions[rel]
+            pcs = (
+                f_entry.get("params_and_consts") if isinstance(f_entry, dict) else None
+            )
+            if pcs:
+                stack.extend(pcs)
+        elif rel in j_relations:
+            relations.add(rel)
+            r_entry = j_relations[rel]
+            stack.extend(r_entry[1])
+            kind = r_entry[0]
+            if kind in ("Fir", "Linear", "Fuzzify", "ParamFun") and len(r_entry) > 2:
+                stack.extend(r_entry[2:])
+
     from nnodely.basic.relation import MAIN_JSON
 
     sub_json = copy.deepcopy(MAIN_JSON)
@@ -233,7 +313,6 @@ def subjson_from_relation(json, relation):
 
 
 def subjson_from_output(json, outputs: str | list):
-    json = copy.deepcopy(json)
     from nnodely.basic.relation import MAIN_JSON
 
     sub_json = copy.deepcopy(MAIN_JSON)
@@ -248,7 +327,6 @@ def subjson_from_output(json, outputs: str | list):
 def subjson_from_model(json, models: str | list):
     from nnodely.basic.relation import MAIN_JSON
 
-    json = copy.deepcopy(json)
     sub_json = copy.deepcopy(MAIN_JSON)
     models_names = (
         set([json["Models"]])
@@ -301,7 +379,6 @@ def subjson_from_model(json, models: str | list):
 def subjson_from_minimize(json, minimizers: str | list):
     from nnodely.basic.relation import MAIN_JSON
 
-    json = copy.deepcopy(json)
     sub_json = copy.deepcopy(MAIN_JSON)
 
     if "Minimizers" in json:
