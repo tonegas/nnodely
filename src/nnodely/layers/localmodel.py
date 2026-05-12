@@ -3,10 +3,21 @@ import inspect
 from collections.abc import Callable
 
 from nnodely.basic.relation import NeuObj, Stream
+from nnodely.layers.arithmetic import add_relation_name
 from nnodely.layers.part import Select
+from nnodely.support.jsonutils import merge
 from nnodely.support.utils import check, enforce_types
 
 localmodel_relation_name = "LocalModel"
+
+
+def _signature_len(fn) -> int:
+    return len(inspect.signature(fn).parameters)
+
+
+def _apply(fn, x):
+    """Invoke ``fn`` on a Stream or on the unpacked elements of a tuple."""
+    return fn(*x) if type(x) is tuple else fn(x)
 
 
 class LocalModel(NeuObj):
@@ -47,84 +58,140 @@ class LocalModel(NeuObj):
         *,
         pass_indexes: bool = False,
     ):
-
         self.relation_name = localmodel_relation_name
         self.pass_indexes = pass_indexes
+        self.input_function = input_function
+        self.output_function = output_function
         super().__init__(localmodel_relation_name + str(NeuObj.count))
         self.json["Functions"][self.name] = {}
-        if input_function is not None:
-            check(
-                callable(input_function),
-                TypeError,
-                "The input_function must be callable",
-            )
-        self.input_function = input_function
-        if output_function is not None:
-            check(
-                callable(output_function),
-                TypeError,
-                "The output_function must be callable",
-            )
-        self.output_function = output_function
 
     @enforce_types
     def __call__(self, inputs: Stream | tuple, activations: Stream | tuple = None):
-        out_sum = []
         if type(activations) is not tuple:
             activations = (activations,)
-        self.___activations_matrix(activations, inputs, out_sum)
 
-        out = out_sum[0]
-        for ind in range(1, len(out_sum)):
-            out = out + out_sum[ind]
-        return out
+        in_func = self.input_function
+        check(
+            in_func is not None or type(inputs) is not tuple,
+            TypeError,
+            "The input cannot be a tuple without input_function",
+        )
 
-    # Definisci una funzione ricorsiva per annidare i cicli for
-    def ___activations_matrix(self, activations, inputs, out, idx=0, idx_list=[]):
-        if idx != len(activations):
-            for i in range(activations[idx].dim["dim"]):
-                self.___activations_matrix(
-                    activations, inputs, out, idx + 1, idx_list + [i]
+        # ``input_function`` output is reusable across cells iff the same
+        # callable is invoked with the same arguments for every cell:
+        # ``pass_indexes`` False and not a zero-arg factory.
+        shared_out_in = None
+        if (
+            in_func is not None
+            and not self.pass_indexes
+            and _signature_len(in_func) > 0
+        ):
+            shared_out_in = _apply(in_func, inputs)
+
+        select_cache: dict[tuple[int, int], Stream] = {}
+
+        def cached_select(act_idx: int, i: int) -> Stream:
+            cached = select_cache.get((act_idx, i))
+            if cached is None:
+                cached = Select(activations[act_idx], i)
+                select_cache[(act_idx, i)] = cached
+            return cached
+
+        cells: list[Stream] = []
+        self._build_cells(
+            activations,
+            inputs,
+            cells,
+            cached_select,
+            shared_out_in,
+            prefix=None,
+            idx_list=[],
+            depth=0,
+        )
+        return self._nary_add(cells)
+
+    def _build_cells(
+        self,
+        activations,
+        inputs,
+        cells,
+        cached_select,
+        shared_out_in,
+        *,
+        prefix,
+        idx_list,
+        depth,
+    ):
+        # ``prefix`` is the cached product of Selects for indices [0..depth);
+        # sibling subtrees reuse the same Stream, turning the per-cell K-1
+        # chain of activation muls into an incremental tree build.
+        if depth == len(activations):
+            out_in = (
+                shared_out_in
+                if shared_out_in is not None
+                else self._apply_fn(
+                    self.input_function,
+                    inputs,
+                    idx_list,
                 )
+            )
+            cells.append(
+                self._apply_fn(
+                    self.output_function,
+                    out_in * prefix,
+                    idx_list,
+                )
+            )
+            return
+
+        for i in range(activations[depth].dim["dim"]):
+            sel = cached_select(depth, i)
+            new_prefix = sel if prefix is None else prefix * sel
+            self._build_cells(
+                activations,
+                inputs,
+                cells,
+                cached_select,
+                shared_out_in,
+                prefix=new_prefix,
+                idx_list=idx_list + [i],
+                depth=depth + 1,
+            )
+
+    def _apply_fn(self, fn, x, idx_list):
+        # Dispatch on the user function's signature:
+        # zero-arg ``fn`` is a factory producing a fresh cell callable;
+        # ``pass_indexes`` makes the factory idx-dependent; otherwise ``fn``
+        # is already the cell callable (shared params across cells).
+        if fn is None:
+            return x
+        if _signature_len(fn) == 0:
+            cell_fn = fn()
+        elif self.pass_indexes:
+            cell_fn = fn(idx_list)
         else:
-            if self.input_function is not None:
-                if len(inspect.signature(self.input_function).parameters) == 0:
-                    if type(inputs) is tuple:
-                        out_in = self.input_function()(*inputs)
-                    else:
-                        out_in = self.input_function()(inputs)
-                else:
-                    if self.pass_indexes:
-                        if type(inputs) is tuple:
-                            out_in = self.input_function(idx_list)(*inputs)
-                        else:
-                            out_in = self.input_function(idx_list)(inputs)
-                    else:
-                        if type(inputs) is tuple:
-                            out_in = self.input_function(*inputs)
-                        else:
-                            out_in = self.input_function(inputs)
-            else:
-                check(
-                    type(inputs) is not tuple,
-                    TypeError,
-                    "The input cannot be a tuple without input_function",
-                )
-                out_in = inputs
+            cell_fn = fn
+        return _apply(cell_fn, x)
 
-            act = Select(activations[0], idx_list[0])
-            for ind, i in enumerate(idx_list[1:]):
-                act = act * Select(activations[ind + 1], i)
+    @staticmethod
+    def _nary_add(cells: list[Stream]) -> Stream:
+        # Equivalent to ``cells[0] + cells[1] + ... + cells[-1]``, but folded
+        # into a single ``Add`` relation. ``Add_Layer.forward(*inputs)`` does
+        # the same left-to-right fold at runtime, so the float result is
+        # bit-exact to the chained binary version while the build avoids
+        # ``N-1`` intermediate Streams (each of which would deep-copy a
+        # growing JSON).
+        if len(cells) == 1:
+            return cells[0]
 
-            prod = out_in * act
+        combined = cells[0].json
+        for c in cells[1:]:
+            combined = merge(combined, c.json)
 
-            if self.output_function is not None:
-                if len(inspect.signature(self.output_function).parameters) == 0:
-                    out.append(self.output_function()(prod))
-                else:
-                    if self.pass_indexes:
-                        out.append(self.output_function(idx_list)(prod))
-                    else:
-                        out.append(self.output_function(prod))
-            else:
-                out.append(prod)
+        name = add_relation_name + str(Stream.count)
+        new_stream = Stream(name, combined, cells[0].dim)
+        new_stream.json["Relations"][name] = [
+            add_relation_name,
+            [c.name for c in cells],
+        ]
+        return new_stream
