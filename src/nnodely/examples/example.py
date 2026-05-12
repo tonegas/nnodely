@@ -1,4 +1,5 @@
 import numpy as np
+from typing import Any
 
 from nnodely.core.modely import Modely
 from nnodely.layers.input import Input
@@ -29,6 +30,15 @@ import os
 # os.environ.setdefault("KERAS_BACKEND", "torch")
 os.environ["KERAS_BACKEND"] = "torch"
 
+def dummy_input(shape, method="ones"):
+    if method == "ones":
+        return np.ones(shape, dtype=np.float32)
+    elif method == "zeros":
+        return np.zeros(shape, dtype=np.float32)
+    elif method == "random":
+        return np.random.rand(*shape).astype(np.float32)
+    elif method == "sequential":
+        return np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
 
 def main(example=1):
     if example == 1:
@@ -65,9 +75,9 @@ def main(example=1):
 
         # ------- Model inference -------
         batch_size = 4
-        dummy_input_x = np.ones((batch_size, window_size, 1), dtype=np.float32)
-        dummy_input_y = np.ones((batch_size, window_size, 1), dtype=np.float32)
-        dummy_input_z = np.ones((batch_size, window_size, 1), dtype=np.float32)
+        dummy_input_x = dummy_input((batch_size, window_size, 1), method="ones")
+        dummy_input_y = dummy_input((batch_size, window_size, 1), method="ones")
+        dummy_input_z = dummy_input((batch_size, window_size, 1), method="ones")
 
         result1 = model1({"x": dummy_input_x, "y": dummy_input_y})
         print("Model1 - Input shape:", dummy_input_x.shape)
@@ -233,44 +243,44 @@ def main(example=1):
         # ------- Model with closed loop connections -------
         from nnodely.layers.loop import Loop
 
-        x = Input(name="x", dim=1)
-        y = Input(name="y", dim=1)
-        r1 = x.sw(1) + y.sw(1)
+        _x = Input(name="_x", dim=1)
+        _y = Input(name="_y", dim=1)
+        r1 = _x.sw(1) + _y.sw(1)
         out1 = Output("out1", r1)
-        model1 = Modely(name="model1", outputs=[out1])
-        model1.build()
+        model_add = Modely(name="model1", outputs=[out1])
+        model_add.build()
 
-        z = Input(name="z", dim=1, seq=5)
-        const = Constant("const", value=2.0)
-        r2 = z.sw(1) * const
-        loop_fn = Loop(f=model1, closed_loop={out1: z})
-        out = Output("out", loop_fn(z, r2))
-        model = Modely(name="model", outputs=[out])
-        model.build()
+        x = Input(name="x", dim=1)
+        y = Input(name="y", dim=1, seq=4)
+        loop_fn = Loop(f=model_add, closed_loop={"x": "out1"}, name="loop_model_add")
+        out = Output("out", loop_fn(x, y))
+        model_in = Modely(name="model", outputs=[out])
+        model_in.build()
+
+        w = Input(name="w", dim=1)
+        z = Input(name="z", dim=1, seq=(4, 2))
+        loop_fn2 = Loop(f=model_in, closed_loop={"z": "out"}, name="loop_model_in")
+        out_w = Output("out_w", loop_fn2(w, z))
+        model_out = Modely(name="model_with_loop_w", outputs=[out_w])
+        model_out.build()
+
+        model_in.plot(to_file="html/model_with_loop.png")
+        model_out.plot(to_file="html/model_with_loop_w.png")
 
         # ------- Model inference -------
         batch_size = 1
-        dummy_input_x = np.ones((batch_size, 1, 1), dtype=np.float32)
-        dummy_input_y = np.ones((batch_size, 1, 1), dtype=np.float32)
-        dummy_input_z = np.ones((batch_size, 5, 1, 1), dtype=np.float32)
+        dummy_input_x = dummy_input((batch_size, 1, 1), method="ones")
+        dummy_input_y = dummy_input((batch_size, 1, 1, 4), method="sequential")
 
-        result1 = model1({"x": dummy_input_x, "y": dummy_input_y})
-        print("Model1 - Input shape:", dummy_input_x.shape)
-        print("Model1 - Output shape:", result1["out1"].shape)
-        print("Model1 - Output:", result1)
+        result_in = model_in({"x": dummy_input_x, "y": dummy_input_y})
+        print("Model with loop - Output shape:", result_in.shape)
+        print("Model with loop - Output:", result_in)
 
-        result2 = model({"z": dummy_input_z})
-        print("Model2 - Input shape:", dummy_input_z.shape)
-        print("Model2 - Output shape:", result2["out"].shape)
-        print("Model2 - Output:", result2)
-
-        # ------- Model visualization -------
-        model1.plot(to_file="html/model1.png")
-        model.plot(to_file="html/model2.png")
-
-        # ------- Model export to HTML -------
-        model1.export_html(out_dir="html", filename="model1")
-        model.export_html(out_dir="html", filename="model2")
+        dummy_input_w = dummy_input((batch_size, 1, 1), method="ones")
+        dummy_input_z = dummy_input((batch_size, 1, 1, 4, 2), method="ones")
+        result_out = model_out({"z": dummy_input_z, "w": dummy_input_w})
+        print("Model with loop w - Output shape:", result_out.shape)
+        print("Model with loop w - Output:", result_out)
 
     if example == 6:
         pass
@@ -310,7 +320,7 @@ def main(example=1):
         z = Input(name="z", dim=1, seq=5)
         const = Constant("const", value=2.0)
         r2 = z.sw(1) * const
-        loop_fn = Loop(f=model1, closed_loop={out1: z})
+        loop_fn = Loop(f=model1, closed_loop={"out1": "z"})
         out = Output("out", loop_fn(z, r2))
         model = Modely(name="model", outputs=[out])
         model.build()
@@ -513,8 +523,109 @@ def main(example=1):
         model.build()
         model.plot(to_file="html/model_trig.png")
 
+    if example == 13:
+        # ------- Test CustomLayer -------
+        from nnodely.core.custom_layer import custom_layer
+        from inspect import signature
+        import keras
 
+        @custom_layer
+        class MyFirImpl(keras.layers.Layer):
+            """
+            A simple FIR implementation as a custom Keras layer.
+
+            Args:
+                out_features: Number of output features.
+                use_bias: Whether to include a bias term.
+                name: Optional name for the layer.
+                **kwargs: Additional keyword arguments.
+            """
+
+            def __init__(
+                self,
+                out_features: int,
+                use_bias: bool = True,
+                name: str | None = None,
+                **kwargs: Any,
+            ):
+                super().__init__(name=name, **kwargs)
+                self.out_features = int(out_features)
+                self.use_bias = bool(use_bias)
+                self.flatten = keras.layers.Flatten()
+                self.proj = keras.layers.Dense(
+                    self.out_features, use_bias=self.use_bias
+                )
+                self.reshape = keras.layers.Reshape((1, self.out_features))
+
+            def get_config(self):
+                config = super().get_config()
+                config.update(
+                    {
+                        "out_features": self.out_features,
+                        "use_bias": self.use_bias,
+                    }
+                )
+                return config
+
+            def output_shape(self, *inputs):
+                print("Fir.output_shape called with inputs:", inputs)
+                seq = inputs[0].seq
+                in_dim = inputs[0].dim
+                if len(seq) != 0:
+                    raise NotImplementedError(
+                        "This proposal handles seq=() streams first; extend here for nested sequence dims."
+                    )
+                if len(in_dim) != 1:
+                    raise ValueError(
+                        f"Fir currently expects a single feature axis, got dim={in_dim}"
+                    )
+                return seq, 1, (self.out_features,)
+
+            def build(self, input_shape):
+                flat_shape = self.flatten.compute_output_shape(input_shape)
+                self.proj.build(flat_shape)
+                proj_shape = self.proj.compute_output_shape(flat_shape)
+                self.reshape.build(proj_shape)
+                super().build(input_shape)
+
+            def call(self, x):
+                x = self.flatten(x)
+                x = self.proj(x)
+                return self.reshape(x)
+
+        impl = MyFirImpl(out_features=1, use_bias=False)
+        print(signature(MyFirImpl.__init__))
+        print("type of impl:", type(impl))
+        # Firr = custom_layer(MyFirImpl)#(out_features=1, use_bias=False)
+        # print("type of impl after custom_layer:", type(Firr))
+        # impl = Firr(out_features=1, use_bias=False)
+        x = Input("x", dim=1)
+        out = Output("out", impl(x.sw(5)))
+        model = Modely("model_with_custom_layer", outputs=out)
+        model.build()
+        model.plot(to_file="html/model_with_custom_layer.png")
+        model.export_html(out_dir="html", filename="model_with_custom_layer")
+
+        # ------- Model inference -------
+        batch_size = 3
+        dummy_input_x = np.ones((batch_size, 5, 1), dtype=np.float32)
+        result = model({"x": dummy_input_x})
+        print("Model - Input shape x:", dummy_input_x.shape)
+        print("Model - Output shape:", result["out"].shape)
+        print("Model - Output:", result)
+
+        # ------- Save/load model inference -------
+        model.save("results/model_with_custom_layer")
+        loaded_model = Modely.load("results/model_with_custom_layer")
+        loaded_model.build()
+        loaded_result = loaded_model({"x": dummy_input_x})
+        print("Loaded Model - Output shape:", loaded_result["out"].shape)
+        print("Loaded Model - Output:", loaded_result)
+
+import keras
 if __name__ == "__main__":
+    main(example=5)
+    exit(0)
     for i in range(1, 13):
         print(f"\n\n--- Running Example {i} ---\n\n")
         main(example=i)

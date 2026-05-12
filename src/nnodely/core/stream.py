@@ -38,17 +38,17 @@ class Stream:
     def __init__(
         self,
         name: str | None = None,
-        seq: int | tuple[int] | None = None,
-        time: int | None = None,
         dim: int | tuple | None = None,
+        time: int | None = None,
+        seq: int | tuple[int] | None = None,
         predecessors=None,
     ):
         self.name = (
             str(name) if name is not None else next_name(self.__class__.__name__)
         )
-        self.seq = () if seq is None else (seq,) if isinstance(seq, int) else seq
-        self.time = 1 if time is None else time
         self.dim = (1,) if dim is None else (dim,) if isinstance(dim, int) else dim
+        self.time = 1 if time is None else time
+        self.seq = (1,) if seq is None else (seq,) if isinstance(seq, int) else seq
         self.predecessors = list(predecessors) if predecessors is not None else []
 
     @property
@@ -56,14 +56,14 @@ class Stream:
         """
         Shape without batch dimension.
         """
-        return self.seq + (self.time,) + self.dim
+        return self.dim + (self.time,) + self.seq
 
     @property
     def dimensions(self):
         """
         Return seq, time, dim separately
         """
-        return self.seq, self.time, self.dim
+        return self.dim, self.time, self.seq
 
     @property
     def rank(self) -> int:

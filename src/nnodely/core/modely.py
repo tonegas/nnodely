@@ -23,7 +23,7 @@ class ModelCall(Stream):
     Symbolic node representing the application of a Modely to upstream Stream inputs.
     """
 
-    def __init__(self, model, input_map, output_name, seq, time, dim, predecessors):
+    def __init__(self, model, input_map, output_name, dim, time, seq, predecessors):
         super().__init__(
             name=f"{model.name}",
             # node_type="Model",
@@ -140,7 +140,10 @@ class Modely:
             self.build()
         if self._model is None:
             raise ValueError("Model build failed, _model is still None.")
-        return self._model(inputs)
+        out = self._model(inputs)
+        if isinstance(out, dict) and len(out) == 1:
+            return next(iter(out.values()))
+        return out
 
     def _call_with_streams(self, inputs_dict):
         """
@@ -473,18 +476,18 @@ class Modely:
 
     def save(self, filename: str):
         """Save the nnodely Model to a file."""
-        import pickle
+        import cloudpickle
 
         with open(filename + ".pkl", "wb") as out:
-            pickle.dump(self, out, protocol=pickle.HIGHEST_PROTOCOL)
+            cloudpickle.dump(self, out)
 
     @staticmethod
     def load(filename: str) -> "Modely":
         """Load a nnodely Model from a file."""
-        import pickle
+        import cloudpickle
 
         with open(filename + ".pkl", "rb") as inp:
-            return pickle.load(inp)
+            return cloudpickle.load(inp)
 
     def export_keras(self, filename: str):
         """Export the built Keras model to a file."""

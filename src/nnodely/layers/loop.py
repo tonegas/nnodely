@@ -3,20 +3,30 @@ import keras
 from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
 
-
-@keras.saving.register_keras_serializable(package="nnodely")
 class LoopImpl(keras.layers.Layer):
-    def __init__(self, submodel, loop_out_name, name=None, **kwargs):
+    def __init__(self, submodel, closed_loop: dict[str, str], name=None, inputs=None, longest_seq=None, **kwargs):
         super().__init__(name=name, **kwargs)
         self.submodel = submodel
-        self.loop_out_name = loop_out_name
+        self.closed_loop = closed_loop
+        self.inputs = inputs
+        self.longest_seq = longest_seq
+
+        # Validate input sequence dimensions to be the same for all inputs, except the zero default (non-sequence) value.
+        seq_dims = set()
+        for inp in self.inputs:
+            if inp.seq != (1,):
+                seq_dims.add(inp.seq[0]) # leftmost seq dimension
+        if len(seq_dims) > 1:
+            raise ValueError(f"LoopImpl: all inputs must have the same seq dimensions, got {seq_dims}")
 
     def get_config(self):
         config = super().get_config()
         config.update(
             {
                 "submodel": keras.saving.serialize_keras_object(self.submodel),
-                "loop_out_name": self.loop_out_name,
+                "closed_loop": self.closed_loop,
+                "inputs": self.inputs,
+                "longest_seq": self.longest_seq,
             }
         )
         return config
@@ -26,113 +36,75 @@ class LoopImpl(keras.layers.Layer):
         config = dict(config)
         config["submodel"] = keras.saving.deserialize_keras_object(config["submodel"])
         return cls(**config)
+    
+    def _pad_to_horizon(self, idx, x, horizon: int):
+        seq_len = self.inputs[idx].seq
+        if seq_len is None:
+            return x
+        
+        if seq_len == ():
+            return x
 
-    def _pad_to_horizon(self, x, horizon):
-        s = keras.ops.shape(x)[1]
-        pad_len = horizon - s
+        seq_len = int(seq_len[0])
+        if seq_len == horizon:
+            return x
 
-        def pad_fn():
-            pad_shape = keras.ops.concatenate(
-                [
-                    keras.ops.shape(x)[:1],
-                    keras.ops.reshape(pad_len, (1,)),
-                    keras.ops.shape(x)[2:],
-                ],
-                axis=0,
-            )
-            zeros = keras.ops.zeros(pad_shape, dtype=x.dtype)
-            return keras.ops.concatenate([x, zeros], axis=1)
+        # if seq_len < horizon:
+        #     last = x[:, -1:, ...]
+        #     pad_repeats = [1, horizon - seq_len] + [1] * (len(last.shape) - 2)
+        #     padding = keras.ops.tile(last, pad_repeats)
+        #     return keras.ops.concatenate([x, padding], axis=1)
 
-        return keras.ops.cond(pad_len > 0, pad_fn, lambda: x)
-
-    def _make_valid_mask(self, x, horizon):
-        s = keras.ops.shape(x)[1]
-        t = keras.ops.arange(horizon)
-        return keras.ops.cast(t < s, "bool")
+        return x
 
     def call(self, inputs):
         if not isinstance(inputs, (list, tuple)):
             inputs = [inputs]
 
-        fn_input_names = [node.name for node in self.submodel.inputs]
-        if len(inputs) != len(fn_input_names):
-            raise ValueError(
-                f"{self.name}: expected {len(fn_input_names)} inputs, got {len(inputs)}"
-            )
+        #determine horizon from all looped inputs (leftmost seq axis)
+        horizon = max(x.shape[-1] for x in inputs) if inputs else 1
+        
+        # pad/broadcast looped inputs to horizon along leftmost seq axis
+        # padded_inputs = [self._pad_to_horizon(idx, x, horizon) for idx, x in enumerate(inputs)]
+        # print(f"LoopImpl.call: horizon={horizon}, padded_inputs={[x.shape for x in padded_inputs]}")
 
-        seq_lengths = [keras.ops.shape(x)[1] for x in inputs]
-        horizon = seq_lengths[0]
-        for s in seq_lengths[1:]:
-            horizon = keras.ops.maximum(horizon, s)
+        # for loop
+        step_inputs = {}
+        for idx, inp in enumerate(self.submodel.inputs):
+            step_inputs[inp.name] = inputs[idx][..., 0]
 
-        padded_inputs = [self._pad_to_horizon(x, horizon) for x in inputs]
-        valid_masks = [self._make_valid_mask(x, horizon) for x in inputs]
-
-        xs = [
-            keras.ops.transpose(x, [1, 0] + list(range(2, len(x.shape))))
-            for x in padded_inputs
-        ]
-
-        loop_in_idx = 0
-
-        def step(carry, x_t_pack):
-            prev_y = carry
-            step_inputs = {}
-
-            for idx, input_name in enumerate(fn_input_names):
-                x_t = x_t_pack[0][idx]
-
-                if idx == loop_in_idx:
-                    x_used = prev_y
+        outputs = {}
+        for t in range(horizon):
+            for idx, inp in enumerate(self.inputs):
+                if t > 0 and inp.name in self.closed_loop.keys():
+                    step_inputs[self.submodel.inputs[idx].name] = y[self.closed_loop[inp.name]] if isinstance(y, dict) else y
                 else:
-                    x_used = x_t
-
-                step_inputs[input_name] = x_used
+                    step_inputs[self.submodel.inputs[idx].name] = inputs[idx][..., t] if inputs[idx].shape[-1] > t else inputs[idx][..., -1]
 
             y = self.submodel(step_inputs)
 
-            if isinstance(y, dict):
-                y_t = y[self.loop_out_name]
-            else:
-                y_t = y
+            for out_name, out_value in (y.items() if isinstance(y, dict) else {"output": y}.items()):
+                out_value = out_value if len(self.longest_seq) <= 1 else keras.ops.expand_dims(out_value, axis=-1)
+                if out_name not in outputs:
+                    outputs[out_name] = out_value
+                else:
+                    outputs[out_name] = keras.ops.concatenate([outputs[out_name], out_value], axis=-1)
 
-            return y_t, y_t
-
-        xs_pack = (
-            [x for x in xs],
-            [m for m in valid_masks],
-        )
-
-        sample_input = padded_inputs[0]
-        batch = keras.ops.shape(sample_input)[0]
-
-        step_out_node = self.submodel.outputs[0]
-        step_out_shape = [1 if dim is None else dim for dim in step_out_node.shape[1:]]
-
-        init_shape = keras.ops.concatenate(
-            [
-                keras.ops.reshape(batch, (1,)),
-                keras.ops.convert_to_tensor(step_out_shape, dtype="int32"),
-            ],
-            axis=0,
-        )
-        init = keras.ops.zeros(init_shape, dtype=sample_input.dtype)
-        _, ys = keras.ops.scan(step, init, xs_pack)
-
-        ys = keras.ops.transpose(ys, [1, 0] + list(range(2, len(ys.shape))))
-        return ys
-
+        if len(outputs) == 1:
+            return next(iter(outputs.values()))
+        return outputs
 
 class Loop(Layer):
     """
-    Roll out a one-step Modely over the first seq axis.
+    Roll out a one-step Modely over the rightmost sequence axis.
 
-    First stable version restrictions:
-    - f must be a Modely
-    - f must have exactly one output
-    - closed_loop must have exactly one {output: input} pair
-    - each ingress stream must have exactly one seq axis
-    - the order of Loop(...) inputs must match f.inputs
+    Semantics:
+    - The layer unrolls over the rightmost sequence axis of its inputs (axis=1).
+    - Inputs without a sequence axis are broadcast across the horizon.
+    - Inputs with seq=1 are repeated across the horizon.
+    - If inputs have multiple seq dimensions (nested loops), only the rightmost is
+      iterated by this Loop; remaining seq dims are passed through to the inner model.
+    - The closed-loop mapped input is updated each step with the submodel output.
     """
 
     def __init__(self, f: Modely, closed_loop: dict, name=None):
@@ -145,36 +117,29 @@ class Loop(Layer):
         self.f = f
         self.closed_loop = dict(closed_loop)
 
-        # extract the single mapping
-        self.loop_out_stream, self.loop_in_stream = next(iter(self.closed_loop.items()))
-
         super().__init__(name=name, f=f, closed_loop=self.closed_loop)
 
     def output_shape(self, *inputs):
-        # all ingress streams must have exactly one seq axis
-        for inp in inputs:
-            if len(inp.seq) != 1:
-                raise ValueError(
-                    f"{self.name}: each Loop input must have exactly one seq axis, got input {inp.name} with seq={inp.seq}"
-                )
-        horizon = max(inp.seq[0] for inp in inputs)
+        # output follows the first input leftmost seq (looped axis)
+        if len(inputs) > 0 and len(inputs[0].seq) > 0:
+            horizon = inputs[0].seq[0]
+        else:
+            horizon = 1
         out_node = self.f.outputs[0]
-        return (horizon,), out_node.time, out_node.dim
+        out_seq = (horizon,) + tuple(out_node.seq)
+        return out_seq, out_node.time, out_node.dim
 
     def build_layer(self):
-        f = self.f
-        # loop_in_name = self.loop_in_stream.name
-        loop_out_name = self.loop_out_stream.name
+        self.longest_seq = max(inp.seq for inp in self.inputs)
 
-        if f._model is None:
-            f.build()
+        if self.f._model is None:
+            self.f.build()
 
-        # fn_input_names = [node.name for node in f.inputs]
-        # if loop_in_name not in fn_input_names:
-        #     raise ValueError(f"{self.name}: closed-loop input '{loop_in_name}' is not among f.inputs={fn_input_names}")
-        fn_output_names = [node.name for node in f.outputs]
-        if loop_out_name not in fn_output_names:
+        fn_output_names = [node.name for node in self.f.outputs]
+        if any(out not in fn_output_names for out in self.closed_loop.values()):
             raise ValueError(
-                f"{self.name}: closed-loop output '{loop_out_name}' is not among f.outputs={fn_output_names}"
+                f"{self.name}: closed-loop outputs: '{[out for out in self.closed_loop.values() if out not in fn_output_names]}' not in f.outputs={fn_output_names}"
             )
-        return LoopImpl(f._model, loop_out_name, name=self.name)
+        return LoopImpl(
+            self.f._model, self.closed_loop, name=self.name, inputs=self.inputs, longest_seq=self.longest_seq
+        )

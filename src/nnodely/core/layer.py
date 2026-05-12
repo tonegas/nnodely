@@ -23,12 +23,13 @@ class Layer(Stream):
         self, name=None, predecessors=None, seq=None, time=None, dim=None, **kwargs
     ):
         self._properties = dict(kwargs)
+        self.inputs = None
 
         super().__init__(
             name=next_name(self.__class__.__name__) if name is None else name,
-            seq=seq,
-            time=time,
             dim=dim,
+            time=time,
+            seq=seq,
             predecessors=predecessors,
         )
 
@@ -66,8 +67,9 @@ class Layer(Stream):
     def __call__(self, *inputs):
         # Symbolic mode: Layer(Stream, ...) -> new Stream node
         if all(_is_stream(x) for x in inputs):
-            out_seq, out_time, out_dim = self.output_shape(*inputs)
-            node = self.__class__(**self._properties)
+            out_dim, out_time, out_seq = self.output_shape(*inputs)
+            node = self.__class__(name=self.name, **self._properties)
+            node.inputs = inputs
             node.seq = out_seq
             node.time = out_time
             node.dim = out_dim
