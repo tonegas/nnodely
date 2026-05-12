@@ -358,58 +358,65 @@ def main(example=1):
 
     if example == 9:
         # ------- High-level Blocks (Local Models) with Multi-inputs -------
-        x = Input("x", dim=5)
-        y = Input("y", dim=5)
-        z = Input("z", dim=5)
+        x = Input("x", dim=1)
+        # y = Input("y", dim=5)
+        # z = Input("z", dim=5)
         k = Input("k", dim=1)
+        g = Constant("gravity", value=[9.81])
 
-        # LocalModel now auto-encapsulates in a ModelCall when called with Streams
+        # fuzzy_k = Fuzzify(centers=[0.0, 0.5, 1.0], function="rectangular")([k.sw(1)])
+        # local_model = LocalModel(name="local_model", function="Fir")
+        # output_local = local_model([[x.sw(5), y.sw(5), z.sw(5)], fuzzy_k])
+        # out = Output("out", output_local)
+        # model = Modely("model_with_local", inputs=[x, y, z, k], outputs=[out])
+        # model.build()
+
         fuzzy_k = Fuzzify(centers=[0.0, 0.5, 1.0], function="rectangular")([k.sw(1)])
-        local_model = LocalModel(name="local_model", function="Fir")
-        # Call with Stream inputs directly - returns a ModelCall automatically
-        output_local = local_model([[x.sw(5), y.sw(5), z.sw(5)], fuzzy_k])
-        out = Output("out", output_local)
-        model = Modely("model_with_local", inputs=[x, y, z, k], outputs=[out])
+        local_model = LocalModel(
+            input_function=Fir(out_features=1),
+            output_function=ReLU(),
+            name="local_model",
+        )(activation=fuzzy_k)
+        print("Local model ", local_model)
+        out = Output("out", local_model([x]) + g)
+        model = Modely("model_with_local", inputs=[x, k], outputs=[out])
+        print("model:", model)
         model.build()
 
         # ------- Model inference -------
-        batch_size = 3
-        dummy_input_x = np.ones((batch_size, 5, 5), dtype=np.float32) * 1.0
-        dummy_input_y = np.ones((batch_size, 5, 5), dtype=np.float32) * 2.0
-        dummy_input_z = np.ones((batch_size, 5, 5), dtype=np.float32) * 3.0
-        dummy_input_k = np.array([[[0.0]], [[0.5]], [[1.0]]], dtype=np.float32)
+        # batch_size = 3
+        # dummy_input_x = np.ones((batch_size, 5, 5), dtype=np.float32) * 1.0
+        # dummy_input_y = np.ones((batch_size, 5, 5), dtype=np.float32) * 2.0
+        # dummy_input_z = np.ones((batch_size, 5, 5), dtype=np.float32) * 3.0
+        # dummy_input_k = np.array([[[0.0]], [[0.5]], [[1.0]]], dtype=np.float32)
 
-        result = model(
-            {
-                "x": dummy_input_x,
-                "y": dummy_input_y,
-                "z": dummy_input_z,
-                "k": dummy_input_k,
-            }
-        )
+        # batch_size = 3
+        # dummy_input_x = np.ones((batch_size, 1, 1), dtype=np.float32) * 1.0
+        # dummy_input_k = np.array([[[0.0]], [[0.5]], [[1.0]]], dtype=np.float32)
 
-        print("Model - Input shape x:", dummy_input_x.shape)
-        print("Model - Input shape k:", dummy_input_k.shape)
-        print("Model - Output shape:", result["out"].shape)
-        print("Model - Output:", result)
+        # result = model({"x": dummy_input_x,"k": dummy_input_k})
+
+        # print("Model - Input shape x:", dummy_input_x.shape)
+        # print("Model - Input shape k:", dummy_input_k.shape)
+        # print("Model - Output shape:", result["out"].shape)
+        # print("Model - Output:", result)
 
         model.plot(to_file="html/local_model.png")
+        model.plot(to_file="html/local_model_flattened.png", flatten=True)
         model.export_html(out_dir="html", filename="model_with_local")
 
         # ------- Save/load model inference -------
-        model.save("results/model_local")
-        loaded_model = Modely.load("results/model_local")
-        loaded_model.build()
-        loaded_result = loaded_model(
-            {
-                "x": dummy_input_x,
-                "y": dummy_input_y,
-                "z": dummy_input_z,
-                "k": dummy_input_k,
-            }
-        )
-        print("Loaded Model - Output shape:", loaded_result["out"].shape)
-        print("Loaded Model - Output:", loaded_result)
+        # model.save("results/model_local")
+        # loaded_model = Modely.load("results/model_local")
+        # loaded_model.build()
+        # loaded_result = loaded_model(
+        #     {
+        #         "x": dummy_input_x,
+        #         "k": dummy_input_k,
+        #     }
+        # )
+        # print("Loaded Model - Output shape:", loaded_result["out"].shape)
+        # print("Loaded Model - Output:", loaded_result)
 
     if example == 10:
         # ------- Test all nnodely blocks -------
@@ -573,20 +580,17 @@ def main(example=1):
     if example == 14:
 
         class Tangent:
-            def __init__(self, name):
+            def __init__(self, name: str | None = "Tangent"):
                 self.name = name
 
             def __call__(self, inputs):
-                ret = Sin(name=f"{self.name}_sin")(inputs) / Cos(
-                    name=f"{self.name}_cos"
-                )(inputs)
-                return Modely(name=f"{self.name}_model", inputs=inputs, outputs=[ret])(
-                    inputs
-                )
+                ret = Sin()(inputs) / Cos()(inputs)
+                out = Output(name=f"{self.name}_out", stream=ret)
+                return Modely(name=f"{self.name}", inputs=inputs, outputs=[out])(inputs)
 
         input = Input("input")
         tan = Tangent(name="tangent")([input])
-        output = Output("output", tan)
+        output = Output("output", tan[0])
 
         model = Modely(name="model", inputs=[input], outputs=[output])
         model_flat = flatten(model)
@@ -594,9 +598,75 @@ def main(example=1):
         print(model)
         print(model_flat)
 
+        model.plot(to_file="html/model_tangent.png")
+        model_flat.plot(to_file="html/model_tangent_flat.png")
+
+        model.export_html(out_dir="html", filename="model_tangent")
+        # model_flat.export_html(out_dir="html", filename="model_tangent_flat")
+
+    if example == 15:
+        # ------- Test Model Longitudinal Vehicle Dynamics -------
+        n = 25
+        na = 21
+
+        # Create neural model inputs
+        velocity = Input("vel")
+        brake = Input("brk")
+        gear = Input("gear")
+        torque = Input("trq")
+        altitude = Input("alt", dim=na)
+        acc = Input("acc")
+
+        # Create neural network relations
+        air_drag_force = Fir(out_features=1, use_bias=True)([velocity.sw(1)])
+        breaking_force = Fir(out_features=1)([brake.sw(n)])
+        breaking_force = ReLU()([breaking_force])
+        breaking_force = -1 * breaking_force
+        # gravity_force = Linear(W_init='init_constant', W_init_params={'value':0}, dropout=0.1, W='gravity')(altitude.sw(1))
+        gravity_force = Fir(out_features=1, use_bias=True)([altitude.sw(1)])
+        fuzzi_gear = Fuzzify(6, range=[2, 7], functions="Rectangular")([gear.sw(1)])
+        local_model = LocalModel(input_function=Fir(out_features=1), name="local_model")
+        engine_force = local_model(fuzzi_gear)
+
+        # Create neural network output
+        out = Output(
+            "accelleration",
+            air_drag_force
+            + breaking_force
+            + gravity_force
+            + engine_force([torque.sw(n)]),
+        )
+
+        # Add the neural model to the nnodely structure and neuralization of the model
+        vehicle = Modely(
+            "vehicle",
+            inputs=[velocity, brake, gear, torque, altitude, acc],
+            outputs=[out],
+        )
+        vehicle.minimize("acc_error", acc.sw(1), out, loss="rmse")
+        vehicle.build()
+        vehicle.plot(to_file="html/vehicle_model.png")
+
+        # Load the training and the validation dataset
+        data_folder = os.path.join(
+            os.path.dirname(os.path.realpath(__file__)), "dataset", "trainingset"
+        )
+        DataLoader(
+            model=vehicle,
+            format={"vel": 0, "trq": 1, "brk": 2, "gear": 3, "alt": 4, "acc": 5},
+            source=data_folder,
+        )
+        data_folder = os.path.join(
+            os.path.dirname(os.path.realpath(__file__)), "dataset", "validationset"
+        )
+        DataLoader(
+            model=vehicle,
+            format={"vel": 0, "trq": 1, "brk": 2, "gear": 3, "alt": 4, "acc": 5},
+            source=data_folder,
+        )
+
 
 if __name__ == "__main__":
-    for i in range(1, 14):
+    for i in range(1, 16):
         print(f"\n\n--- Running Example {i} ---\n\n")
         main(example=i)
-    # main(example=9)

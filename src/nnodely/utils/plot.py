@@ -6,6 +6,14 @@ from nnodely.core.modely import Modely
 
 from nnodely.layers.loop import Loop
 
+## nnodely pallette
+# :root {
+#   --color-primary: #6C75DF;   /* modely blue-purple */
+#   --color-secondary: #89C1F9; /* light sky blue */
+#   --color-accent: #81ACF4;    /* soft gradient blue */
+#   --color-text: #000000;      /* logo black */
+# }
+
 
 def plot_graphviz(
     model: Modely,

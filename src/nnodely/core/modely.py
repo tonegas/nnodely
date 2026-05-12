@@ -48,8 +48,8 @@ class Modely:
             mc.inputs_map = {old: new for old, new in zip(self.inputs, inputs)}
             outputs = [IntermediateOutput(output, mc) for output in self.outputs]
             mc.outputs_map = {new: old for old, new in zip(self.outputs, outputs)}
-            # return outputs[0] if len(outputs) == 1 else outputs
-            return outputs
+            return outputs[0] if len(outputs) == 1 else outputs
+            # return outputs
 
         # tensor execution mode
         if self.model is None:
@@ -153,12 +153,17 @@ class Modely:
 
         pred_tensors = [self._resolve_tensor(pred, tensor_map) for pred in node.preds]
 
+        print(
+            f"Resolving node '{node.name}' of type {type(node).__name__} with preds {[pred.name for pred in node.preds]} and pred_tensors {[str(t) for t in pred_tensors]}"
+        )
         if isinstance(node, Output):
             if len(pred_tensors) != 1:
                 raise ValueError(
                     f"Output '{node.name}' expects exactly one predecessor."
                 )
             y = pred_tensors[0]
+        elif isinstance(node, Input):
+            y = node.input
         else:
             y = node.call(*pred_tensors)
 

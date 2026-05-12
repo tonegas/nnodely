@@ -33,6 +33,86 @@ class SampleWindow(Layer):
             return keras.layers.Lambda(lambda x: x[tuple(slices)], name=self.name)
 
 
+class Select(Layer):
+    """
+    Select one index along a chosen dim axis.
+
+    Runtime tensor shape:
+        [batch, *seq, time, dim1, dim2, ...]
+
+    The selected dim axis is kept with length 1.
+
+    Examples
+    --------
+    dim=(4, 3), axis=0 -> dim=(1, 3)
+    dim=(4, 3), axis=1 -> dim=(4, 1)
+    """
+
+    def __init__(self, idx: int, axis: int = 0, name=None):
+        self.idx = int(idx)
+        self.axis = int(axis)
+        super().__init__(name=name, idx=self.idx, axis=self.axis)
+
+    def _resolve_dim_axis(self, dim_rank: int) -> int:
+        axis = self.axis
+        if axis < 0:
+            axis += dim_rank
+        if axis < 0 or axis >= dim_rank:
+            raise ValueError(
+                f"{self.name}: axis {self.axis} out of bounds for dim rank {dim_rank}."
+            )
+        return axis
+
+    def output_shape(self, *inputs):
+        inp = inputs[0]
+
+        if len(inp.dim) < 1:
+            raise ValueError(
+                f"{self.name}: SampleSelect requires at least one dim axis."
+            )
+
+        dim = list(inp.dim)
+        axis = self._resolve_dim_axis(len(dim))
+
+        idx = self.idx
+        if idx < 0:
+            idx += dim[axis]
+
+        if idx < 0 or idx >= dim[axis]:
+            raise ValueError(
+                f"{self.name}: idx {self.idx} out of bounds for dim axis {axis} "
+                f"of size {dim[axis]}."
+            )
+
+        dim[axis] = 1
+        return inp.seq, inp.time, tuple(dim)
+
+    def build_layer(self):
+        axis = self._resolve_dim_axis(len(self.dim))
+
+        idx = self.idx
+        if idx < 0:
+            idx += self.dim[axis]
+
+        # Runtime tensor:
+        # [batch, *seq, time, dim1, dim2, ...]
+        #
+        # First dim axis starts after:
+        # batch + seq axes + time axis
+        keras_axis = 1 + len(self.seq) + 1 + axis
+
+        slices = (
+            [slice(None)] * keras_axis
+            + [slice(idx, idx + 1)]
+            + [slice(None)] * (len(self.dim) - axis - 1)
+        )
+
+        return keras.layers.Lambda(
+            lambda x: x[tuple(slices)],
+            name=self.name,
+        )
+
+
 # ## TODO: SamplePart, SampleSelect and make it time dependend with past and future
 # class SampleWindow(Layer):
 #     """
