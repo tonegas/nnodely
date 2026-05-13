@@ -38,9 +38,9 @@ class Stream:
     def __init__(
         self,
         name: str | None = None,
-        dim: int | tuple | None = None,
+        dim: int | tuple[int, ...] | None = None,
         time: int | None = None,
-        seq: int | tuple[int] | None = None,
+        seq: int | tuple[int | None, ...] | None = None,
         predecessors=None,
     ):
         self.name = (
@@ -48,7 +48,7 @@ class Stream:
         )
         self.dim = (1,) if dim is None else (dim,) if isinstance(dim, int) else dim
         self.time = 1 if time is None else time
-        self.seq = (1,) if seq is None else (seq,) if isinstance(seq, int) else seq
+        self.seq = () if seq is None else (seq,) if isinstance(seq, int) else seq
         self.predecessors = list(predecessors) if predecessors is not None else []
 
     @property

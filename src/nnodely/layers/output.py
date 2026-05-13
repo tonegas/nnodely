@@ -19,3 +19,4 @@ class Output(Stream):
             dim=stream.dim,
             predecessors=[stream],
         )
+

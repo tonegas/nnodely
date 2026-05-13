@@ -38,7 +38,7 @@ def dummy_input(shape, method="ones"):
     elif method == "random":
         return np.random.rand(*shape).astype(np.float32)
     elif method == "sequential":
-        return np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
+        return np.arange(np.prod(shape), dtype=np.float32).reshape(shape)+1
 
 def main(example=1):
     if example == 1:
@@ -243,6 +243,7 @@ def main(example=1):
         # ------- Model with closed loop connections -------
         from nnodely.layers.loop import Loop
 
+        # Define a simple model to be used in the loop
         _x = Input(name="_x", dim=1)
         _y = Input(name="_y", dim=1)
         r1 = _x.sw(1) + _y.sw(1)
@@ -250,16 +251,23 @@ def main(example=1):
         model_add = Modely(name="model1", outputs=[out1])
         model_add.build()
 
+        # Option 1: use Loop layer directly in the output definition
+        # x = Input(name="x", dim=1)
+        # y = Input(name="y", dim=1, seq=4)
+        # loop_fn = Loop(f=model_add, closed_loop={"x": "out1"}, name="loop_model_add")
+        # out = Output("out", loop_fn(x, y))
+        # model_in = Modely(name="model", outputs=[out])
+        # model_in.build()
+
+        # Option 2: use closed_loop shortcut in Modely.closed_loop() for more concise syntax
         x = Input(name="x", dim=1)
         y = Input(name="y", dim=1, seq=4)
-        loop_fn = Loop(f=model_add, closed_loop={"x": "out1"}, name="loop_model_add")
-        out = Output("out", loop_fn(x, y))
-        model_in = Modely(name="model", outputs=[out])
-        model_in.build()
+        model_in = model_add.closed_loop(name="model_with_loop", inputs = [x, y], closed_loop={"x": "out1"})
 
+        # Create a nested loop model
         w = Input(name="w", dim=1)
         z = Input(name="z", dim=1, seq=(4, 2))
-        loop_fn2 = Loop(f=model_in, closed_loop={"z": "out"}, name="loop_model_in")
+        loop_fn2 = Loop(f=model_in, closed_loop={"z": "out1"}, name="loop_model_in")
         out_w = Output("out_w", loop_fn2(w, z))
         model_out = Modely(name="model_with_loop_w", outputs=[out_w])
         model_out.build()
@@ -277,7 +285,8 @@ def main(example=1):
         print("Model with loop - Output:", result_in)
 
         dummy_input_w = dummy_input((batch_size, 1, 1), method="ones")
-        dummy_input_z = dummy_input((batch_size, 1, 1, 4, 2), method="ones")
+        dummy_input_z = dummy_input((batch_size, 1, 1, 4, 2), method="sequential")
+        print("Dummy input z:", dummy_input_z)
         result_out = model_out({"z": dummy_input_z, "w": dummy_input_w})
         print("Model with loop w - Output shape:", result_out.shape)
         print("Model with loop w - Output:", result_out)

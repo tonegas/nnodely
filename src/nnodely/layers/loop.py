@@ -14,10 +14,11 @@ class LoopImpl(keras.layers.Layer):
         # Validate input sequence dimensions to be the same for all inputs, except the zero default (non-sequence) value.
         seq_dims = set()
         for inp in self.inputs:
-            if inp.seq != (1,):
+            print(f"LoopImpl init - input '{inp.name}' seq: {inp.seq}")
+            if inp.seq != ():
                 seq_dims.add(inp.seq[0]) # leftmost seq dimension
         if len(seq_dims) > 1:
-            raise ValueError(f"LoopImpl: all inputs must have the same seq dimensions, got {seq_dims}")
+            raise ValueError(f"LoopImpl: all inputs must have the same seq dimensions or not have a sequence, got {seq_dims}")
 
     def get_config(self):
         config = super().get_config()
@@ -36,38 +37,14 @@ class LoopImpl(keras.layers.Layer):
         config = dict(config)
         config["submodel"] = keras.saving.deserialize_keras_object(config["submodel"])
         return cls(**config)
-    
-    def _pad_to_horizon(self, idx, x, horizon: int):
-        seq_len = self.inputs[idx].seq
-        if seq_len is None:
-            return x
-        
-        if seq_len == ():
-            return x
-
-        seq_len = int(seq_len[0])
-        if seq_len == horizon:
-            return x
-
-        # if seq_len < horizon:
-        #     last = x[:, -1:, ...]
-        #     pad_repeats = [1, horizon - seq_len] + [1] * (len(last.shape) - 2)
-        #     padding = keras.ops.tile(last, pad_repeats)
-        #     return keras.ops.concatenate([x, padding], axis=1)
-
-        return x
 
     def call(self, inputs):
         if not isinstance(inputs, (list, tuple)):
             inputs = [inputs]
 
         #determine horizon from all looped inputs (leftmost seq axis)
-        horizon = max(x.shape[-1] for x in inputs) if inputs else 1
+        horizon = max(x.shape[-1] if x.shape[-1] is not None else 1 for x in inputs) if inputs else 1
         
-        # pad/broadcast looped inputs to horizon along leftmost seq axis
-        # padded_inputs = [self._pad_to_horizon(idx, x, horizon) for idx, x in enumerate(inputs)]
-        # print(f"LoopImpl.call: horizon={horizon}, padded_inputs={[x.shape for x in padded_inputs]}")
-
         # for loop
         step_inputs = {}
         for idx, inp in enumerate(self.submodel.inputs):
@@ -79,12 +56,13 @@ class LoopImpl(keras.layers.Layer):
                 if t > 0 and inp.name in self.closed_loop.keys():
                     step_inputs[self.submodel.inputs[idx].name] = y[self.closed_loop[inp.name]] if isinstance(y, dict) else y
                 else:
-                    step_inputs[self.submodel.inputs[idx].name] = inputs[idx][..., t] if inputs[idx].shape[-1] > t else inputs[idx][..., -1]
+                    step_inputs[self.submodel.inputs[idx].name] = inputs[idx][..., t] if inputs[idx].shape[-1] is not None and inputs[idx].shape[-1] > t else inputs[idx][..., -1]
 
             y = self.submodel(step_inputs)
+            # print(f"Loop step {t+1}/{horizon} - inputs: {[f'{inp.name}:{step_inputs[inp.name]}' for inp in self.submodel.inputs]} - outputs: {next(iter(y.items()))[1]}")
 
             for out_name, out_value in (y.items() if isinstance(y, dict) else {"output": y}.items()):
-                out_value = out_value if len(self.longest_seq) <= 1 else keras.ops.expand_dims(out_value, axis=-1)
+                out_value = out_value if len(self.longest_seq) < 1 else keras.ops.expand_dims(out_value, axis=-1)
                 if out_name not in outputs:
                     outputs[out_name] = out_value
                 else:

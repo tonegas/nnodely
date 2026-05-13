@@ -470,6 +470,47 @@ class Modely:
             flatten=flatten,
         )
 
+
+    # -------------------------------------------------------------------------
+    # Closed-loop
+    # -------------------------------------------------------------------------
+    def closed_loop(self, inputs: list[Stream], closed_loop: dict[str|Stream, str|Stream], name: str | None = None) -> "Modely":
+        """
+        Create a new Modely that rolls out over the rightmost sequence axis.
+
+        Semantics:
+        - The layer unrolls over the rightmost sequence axis of its inputs (axis=-1).
+        - Inputs without a sequence axis are broadcast across the horizon.
+        - If inputs have multiple seq dimensions (nested loops), only the rightmost is
+          iterated by this Loop. Remaining seq dims are passed through to the inner model.
+        - The closed-loop mapped input is updated each step with the submodel output.
+        """
+        from nnodely.layers.loop import Loop
+
+        # Validate closed_loop keys and values
+        if len(closed_loop) == 0:
+            raise ValueError("closed_loop cannot be empty.")
+        for inp, out in closed_loop.items():
+            inp_name = inp.name if isinstance(inp, Stream) else str(inp)
+            out_name = out.name if isinstance(out, Stream) else str(out)
+            if inp_name not in [node.name for node in inputs]:
+                raise ValueError(f"Closed-loop input '{inp_name}' not found among model inputs.")
+            if out_name not in [node.name for node in self.outputs]:
+                raise ValueError(f"Closed-loop output '{out_name}' not found among model outputs.")
+        
+        if not self.built:
+            self.build()
+
+        loop_fn =  Loop(f=self, closed_loop=closed_loop, name=name)
+        loop_outputs = loop_fn(*inputs)
+        if isinstance(loop_outputs, dict):
+            outputs = [Output(out_name, loop_outputs[out_name]) for out_name in loop_outputs]
+        else:
+            outputs = [Output(self.outputs[0].name, loop_outputs)]
+        
+        return Modely(name=name or self.name + "_closed_loop", outputs=outputs)
+
+
     # -------------------------------------------------------------------------
     # Save and load (pickle)
     # -------------------------------------------------------------------------
