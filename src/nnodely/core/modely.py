@@ -153,9 +153,6 @@ class Modely:
 
         pred_tensors = [self._resolve_tensor(pred, tensor_map) for pred in node.preds]
 
-        print(
-            f"Resolving node '{node.name}' of type {type(node).__name__} with preds {[pred.name for pred in node.preds]} and pred_tensors {[str(t) for t in pred_tensors]}"
-        )
         if isinstance(node, Output):
             if len(pred_tensors) != 1:
                 raise ValueError(
