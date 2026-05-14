@@ -246,7 +246,9 @@ def main(example=1):
         # Define a simple model to be used in the loop
         _x = Input(name="_x", dim=1)
         _y = Input(name="_y", dim=1)
-        r1 = _x.sw(1) + _y.sw(1)
+        c = Parameter("c", dim=1)
+        d = Parameter("d", dim=1)
+        r1 = _x.sw(1)*c + _y.sw(1)*d
         out1 = Output("out1", r1)
         model_add = Modely(name="model1", outputs=[out1])
         model_add.build()
@@ -270,10 +272,26 @@ def main(example=1):
         loop_fn2 = Loop(f=model_in, closed_loop={"z": "out1"}, name="loop_model_in")
         out_w = Output("out_w", loop_fn2(w, z))
         model_out = Modely(name="model_with_loop_w", outputs=[out_w])
+
+        model_out.minimize(
+            "error",
+            source=out_w,
+            target=Input("w_target", dim=1, seq=(4, 2)).sw(1),
+            loss="mse",
+        )
+
         model_out.build()
 
         model_in.plot(to_file="html/model_with_loop.png")
         model_out.plot(to_file="html/model_with_loop_w.png")
+
+        # ------- Model training -------
+        data_size = 5000
+        data_train = DataLoader(
+            model_out,
+            source={"w": [dummy_input((1,), method="random") for _ in range(data_size)], "z": [dummy_input((1, 4, 2), method="random") for _ in range(data_size)], "w_target": [dummy_input((1, 4, 2), method="zeros") for _ in range(data_size)]},
+        )
+        model_out.train(train_data=data_train, epochs=200, batch_size=64, lr=1e-3)
 
         # ------- Model inference -------
         batch_size = 1
@@ -286,7 +304,6 @@ def main(example=1):
 
         dummy_input_w = dummy_input((batch_size, 1, 1), method="ones")
         dummy_input_z = dummy_input((batch_size, 1, 1, 4, 2), method="sequential")
-        print("Dummy input z:", dummy_input_z)
         result_out = model_out({"z": dummy_input_z, "w": dummy_input_w})
         print("Model with loop w - Output shape:", result_out.shape)
         print("Model with loop w - Output:", result_out)

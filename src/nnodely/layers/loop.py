@@ -2,9 +2,18 @@ import keras
 
 from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
+import tensorflow as tf
 
 class LoopImpl(keras.layers.Layer):
-    def __init__(self, submodel, closed_loop: dict[str, str], name=None, inputs=None, longest_seq=None, **kwargs):
+    def __init__(
+        self,
+        submodel,
+        closed_loop: dict[str, str],
+        name=None,
+        inputs=None,
+        longest_seq=None,
+        **kwargs,
+    ):
         super().__init__(name=name, **kwargs)
         self.submodel = submodel
         self.closed_loop = closed_loop
@@ -14,11 +23,12 @@ class LoopImpl(keras.layers.Layer):
         # Validate input sequence dimensions to be the same for all inputs, except the zero default (non-sequence) value.
         seq_dims = set()
         for inp in self.inputs:
-            print(f"LoopImpl init - input '{inp.name}' seq: {inp.seq}")
             if inp.seq != ():
-                seq_dims.add(inp.seq[0]) # leftmost seq dimension
+                seq_dims.add(inp.seq[0])  # leftmost seq dimension
         if len(seq_dims) > 1:
-            raise ValueError(f"LoopImpl: all inputs must have the same seq dimensions or not have a sequence, got {seq_dims}")
+            raise ValueError(
+                f"LoopImpl: all inputs must have the same seq dimensions or not have a sequence, got {seq_dims}"
+            )
 
     def get_config(self):
         config = super().get_config()
@@ -42,35 +52,107 @@ class LoopImpl(keras.layers.Layer):
         if not isinstance(inputs, (list, tuple)):
             inputs = [inputs]
 
-        #determine horizon from all looped inputs (leftmost seq axis)
-        horizon = max(x.shape[-1] if x.shape[-1] is not None else 1 for x in inputs) if inputs else 1
-        
-        # for loop
+        # Determine horizon from the known sequence metadata stored during build.
+        horizon = self.longest_seq[-1] if self.longest_seq else 1
+
+        # Prepare initial step inputs by taking the first time step from each input sequence.
         step_inputs = {}
+        y = None
         for idx, inp in enumerate(self.submodel.inputs):
             step_inputs[inp.name] = inputs[idx][..., 0]
 
+        # Iteratively call the submodel for each time step, updating closed-loop inputs with previous outputs as needed.
         outputs = {}
         for t in range(horizon):
             for idx, inp in enumerate(self.inputs):
-                if t > 0 and inp.name in self.closed_loop.keys():
-                    step_inputs[self.submodel.inputs[idx].name] = y[self.closed_loop[inp.name]] if isinstance(y, dict) else y
+                if t > 0 and inp.name in self.closed_loop:
+                    step_inputs[self.submodel.inputs[idx].name] = (
+                        y[self.closed_loop[inp.name]] if isinstance(y, dict) else y
+                    )
                 else:
-                    step_inputs[self.submodel.inputs[idx].name] = inputs[idx][..., t] if inputs[idx].shape[-1] is not None and inputs[idx].shape[-1] > t else inputs[idx][..., -1]
+                    step_inputs[self.submodel.inputs[idx].name] = (
+                        inputs[idx][..., t]
+                        if inputs[idx].shape[-1] is not None
+                        and inputs[idx].shape[-1] > t
+                        else inputs[idx][..., -1]
+                    )
 
             y = self.submodel(step_inputs)
-            # print(f"Loop step {t+1}/{horizon} - inputs: {[f'{inp.name}:{step_inputs[inp.name]}' for inp in self.submodel.inputs]} - outputs: {next(iter(y.items()))[1]}")
 
-            for out_name, out_value in (y.items() if isinstance(y, dict) else {"output": y}.items()):
-                out_value = out_value if len(self.longest_seq) < 1 else keras.ops.expand_dims(out_value, axis=-1)
+            for out_name, out_value in (
+                y.items() if isinstance(y, dict) else {"output": y}.items()
+            ):
+                out_value = (
+                    out_value
+                    if len(self.longest_seq) < 1
+                    else keras.ops.expand_dims(out_value, axis=-1)
+                )
                 if out_name not in outputs:
                     outputs[out_name] = out_value
                 else:
-                    outputs[out_name] = keras.ops.concatenate([outputs[out_name], out_value], axis=-1)
+                    outputs[out_name] = keras.ops.concatenate(
+                        [outputs[out_name], out_value], axis=-1
+                    )
 
         if len(outputs) == 1:
             return next(iter(outputs.values()))
         return outputs
+    
+    # Alternative implementation of the call method that uses keras.ops.scan. (Not currently used, slower than the for-loop version)
+    def call_scan(self, inputs):
+        if not isinstance(inputs, (list, tuple)):
+            inputs = [inputs]
+
+        horizon = self.longest_seq[-1] if self.longest_seq else 1
+
+        def _slice_to_horizon(tensor):
+            seq_len = keras.ops.shape(tensor)[-1]
+            indices = keras.ops.minimum(
+                keras.ops.arange(horizon, dtype=tf.int32),
+                tf.cast(seq_len - 1, tf.int32),
+            )
+            return tf.gather(tensor, indices, axis=-1)
+
+        def _move_loop_axis_front(tensor):
+            rank = tensor.shape.rank
+            perm = [rank - 1] + list(range(rank - 1))
+            return tf.transpose(tensor, perm=perm)
+
+        def _flatten_output(output):
+            return next(iter(output.values())) if isinstance(output, dict) else output
+
+        step_tensors = [_move_loop_axis_front(_slice_to_horizon(t)) for t in inputs]
+        init_step = {
+            self.submodel.inputs[idx].name: step_tensors[idx][0]
+            for idx in range(len(inputs))
+        }
+
+        y0 = _flatten_output(self.submodel(init_step))
+        if horizon == 1:
+            return (
+                y0 if len(self.longest_seq) < 1 else keras.ops.expand_dims(y0, axis=-1)
+            )
+
+        xs = [tensor[1:] for tensor in step_tensors]
+
+        def step_fn(prev_output, step_values):
+            step_inputs = {}
+            for idx, inp in enumerate(self.inputs):
+                if inp.name in self.closed_loop:
+                    step_inputs[self.submodel.inputs[idx].name] = prev_output
+                else:
+                    step_inputs[self.submodel.inputs[idx].name] = step_values[idx]
+
+            y = _flatten_output(self.submodel(step_inputs))
+            return y, y
+
+        _, scanned_outputs = keras.ops.scan(step_fn, y0, xs=xs, length=horizon - 1)
+        outputs = keras.ops.concatenate(
+            [keras.ops.expand_dims(y0, axis=0), scanned_outputs], axis=0
+        )
+        perm = list(range(1, outputs.shape.rank)) + [0]
+        return tf.transpose(outputs, perm=perm)
+
 
 class Loop(Layer):
     """
@@ -98,13 +180,16 @@ class Loop(Layer):
         super().__init__(name=name, f=f, closed_loop=self.closed_loop)
 
     def output_shape(self, *inputs):
-        # output follows the first input leftmost seq (looped axis)
-        if len(inputs) > 0 and len(inputs[0].seq) > 0:
-            horizon = inputs[0].seq[0]
+        # Determine loop horizon from the deepest sequence input.
+        seq_inputs = [inp.seq for inp in inputs if len(inp.seq) > 0]
+        if seq_inputs:
+            longest_seq = max(seq_inputs, key=len)
+            horizon = longest_seq[-1]
         else:
             horizon = 1
+
         out_node = self.f.outputs[0]
-        out_seq = (horizon,) + tuple(out_node.seq)
+        out_seq = tuple(out_node.seq) + (horizon,)
         return out_seq, out_node.time, out_node.dim
 
     def build_layer(self):
@@ -119,5 +204,9 @@ class Loop(Layer):
                 f"{self.name}: closed-loop outputs: '{[out for out in self.closed_loop.values() if out not in fn_output_names]}' not in f.outputs={fn_output_names}"
             )
         return LoopImpl(
-            self.f._model, self.closed_loop, name=self.name, inputs=self.inputs, longest_seq=self.longest_seq
+            self.f._model,
+            self.closed_loop,
+            name=self.name,
+            inputs=self.inputs,
+            longest_seq=self.longest_seq,
         )

@@ -377,7 +377,6 @@ class Modely:
                     batch_inputs[k] = tf.convert_to_tensor(
                         np.stack([sample[k] for sample in batch_samples], axis=0)
                     )
-
                 total = train_step(batch_inputs, optimizer, losses)
                 if isinstance(total, tf.Tensor):
                     epoch_losses.append(float(total.numpy()))
