@@ -2,6 +2,7 @@ import os
 
 
 from nnodely import Input, Output, Fir, Modely
+import numpy as np
 
 
 def test_save_model(tmp_path):
@@ -28,24 +29,27 @@ def test_save_model(tmp_path):
     model2.build()
 
     # ------- Model inference -------
-    # dummy_input_x = np.ones((4, 10, 1), dtype=np.float32)
-    # dummy_input_y = np.ones((4, 10, 1), dtype=np.float32)
-    # dummy_input_z = np.ones((4, 10, 1), dtype=np.float32)
+    dummy_input_x = np.ones((4, 1, 10), dtype=np.float32)
+    dummy_input_y = np.ones((4, 1, 10), dtype=np.float32)
+    dummy_input_z = np.ones((4, 1, 10), dtype=np.float32)
 
-    # result1 = model1([dummy_input_x, dummy_input_y])
-    # result2 = model2([dummy_input_z])
+    result1 = model1([dummy_input_x, dummy_input_y])
+    result2 = model2([dummy_input_z])
 
     # ------- Save/load model inference -------
-    model1.save(os.path.join(tmp_path, "model1"))
-    model2.save(os.path.join(tmp_path, "model2"))
-    loaded_model1 = Modely.load(os.path.join(tmp_path, "model1"))
-    loaded_model2 = Modely.load(os.path.join(tmp_path, "model2"))
-    loaded_model1.build()
-    loaded_model2.build()
-    # loaded_result1 = loaded_model1([dummy_input_x, dummy_input_y])
-    # loaded_result2 = loaded_model2([dummy_input_z])
-    # assert result1["x_pred"] == loaded_result1["x_pred"]
-    # assert result2["z_pred"] == loaded_result2["z_pred"]
+    model1.save(filename=os.path.join(tmp_path, "model1"))
+    model2.save(filename=os.path.join(tmp_path, "model2"))
+    loaded_model1 = Modely.load(filename=os.path.join(tmp_path, "model1"))
+    loaded_model2 = Modely.load(filename=os.path.join(tmp_path, "model2"))
+    loaded_result1 = loaded_model1([dummy_input_x, dummy_input_y])
+    loaded_result2 = loaded_model2([dummy_input_z])
+
+    assert np.allclose(
+        result1["x_pred"].cpu().detach().numpy(), loaded_result1["x_pred"].cpu().detach().numpy(), atol=1e-5
+    )
+    assert np.allclose(
+        result2["z_pred"].cpu().detach().numpy(), loaded_result2["z_pred"].cpu().detach().numpy(), atol=1e-5
+    )
 
 
 # def test_export_html(tmp_path):

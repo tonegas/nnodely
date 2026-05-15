@@ -60,7 +60,7 @@ class Concatenate(Layer):
 
             out_dim[axis] += dim[axis]
 
-        return ref_seq, ref_time, tuple(out_dim)
+        return tuple(out_dim), ref_time, ref_seq
 
     def build_layer(self):
         dim_rank = len(self.dim)

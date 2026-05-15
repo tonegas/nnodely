@@ -1,7 +1,44 @@
 import numpy as np
 import keras
+import tensorflow as tf
 
 from nnodely.core.stream import Stream
+
+
+class _ParameterLayer(keras.layers.Layer):
+    def __init__(self, parameter, **kwargs):
+        super().__init__(**kwargs)
+        self.parameter = parameter
+
+    def build(self, input_shape):
+        if self.parameter.param is None:
+            shape = self.parameter.shape
+            if self.parameter.value is not None:
+                value = np.asarray(self.parameter.value, dtype=np.float32)
+                if value.shape != shape:
+                    try:
+                        value = np.reshape(value, shape)
+                    except Exception as e:
+                        raise ValueError(
+                            f"Parameter '{self.parameter.name}' value shape {value.shape} "
+                            f"is incompatible with expected shape {shape}"
+                        ) from e
+                initializer = keras.initializers.Constant(value)
+            else:
+                initializer = keras.initializers.get(self.parameter.initializer)
+            self.parameter.param = self.add_weight(
+                name=self.parameter.name,
+                shape=shape,
+                initializer=initializer,
+                trainable=True,
+                dtype=self.parameter.dtype,
+            )
+        else:
+            self._trainable_weights = [self.parameter.param]
+        super().build(input_shape)
+
+    def call(self, inputs):
+        return tf.broadcast_to(self.parameter.param, inputs.shape)
 
 
 class Parameter(Stream):
@@ -100,12 +137,7 @@ class Parameter(Stream):
         return self.param
 
     def as_tensor(self, anchor):
-        v = self.build_parameter()
-        return keras.layers.Lambda(
-            lambda x: v,
-            output_shape=self.shape,
-            name=f"{self.name}_tensor",
-        )(anchor)
+        return _ParameterLayer(self, name=self.name)(anchor)
 
     @property
     def value_numpy(self):

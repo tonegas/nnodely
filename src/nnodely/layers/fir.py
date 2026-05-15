@@ -15,7 +15,7 @@ class FirImpl(keras.layers.Layer):
         self.use_bias = bool(use_bias)
         self.flatten = keras.layers.Flatten()
         self.proj = keras.layers.Dense(self.out_features, use_bias=self.use_bias)
-        self.reshape = keras.layers.Reshape((1, self.out_features))
+        self.reshape = keras.layers.Reshape((self.out_features, 1))
 
     def get_config(self):
         config = super().get_config()
@@ -44,8 +44,8 @@ class Fir(Layer):
     """
     Linear temporal mixing over the time axis followed by a dense projection.
 
-    Input:  (batch, time, in_features)
-    Output: (batch, 1, out_features)
+    Input:  (batch, in_features, time)
+    Output: (batch, out_features, 1)
     """
 
     def __init__(self, out_features: int, use_bias: bool = True, name=None):
@@ -58,7 +58,7 @@ class Fir(Layer):
     def output_shape(self, *inputs):
         seq = inputs[0].seq
         in_dim = inputs[0].dim
-        if len(seq) != 0:
+        if len(seq) > 1:
             raise NotImplementedError(
                 "This proposal handles seq=() streams first; extend here for nested sequence dims."
             )
@@ -66,7 +66,7 @@ class Fir(Layer):
             raise ValueError(
                 f"Fir currently expects a single feature axis, got dim={in_dim}"
             )
-        return seq, 1, (self.out_features,)
+        return (self.out_features,), 1, seq
 
     def build_layer(self):
         return FirImpl(

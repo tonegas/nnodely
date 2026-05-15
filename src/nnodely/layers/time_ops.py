@@ -15,7 +15,7 @@ class SampleWindow(Layer):
 
     def output_shape(self, *inputs):
         """Output ha time=window_size."""
-        return inputs[0].seq, self.window_size, inputs[0].dim
+        return inputs[0].dim, self.window_size, inputs[0].seq
 
     def build_layer(self):
         """Crea Lambda per slice se window_size < input.time, altrimenti Identity."""
@@ -26,9 +26,9 @@ class SampleWindow(Layer):
             return keras.layers.Identity(name=self.name)
         else:
             slices = (
-                [slice(None)] * (1 + len(seq_t))
+                [slice(None)] * len(dim_t)
                 + [slice(-n, None)]
-                + [slice(None)] * len(dim_t)
+                + [slice(None)] * (1 + len(seq_t))
             )
             return keras.layers.Lambda(lambda x: x[tuple(slices)], name=self.name)
 

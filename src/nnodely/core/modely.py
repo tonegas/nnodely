@@ -21,11 +21,11 @@ import keras
 class Modely:
     name: str
     inputs: list[Input]
-    outputs: list[Stream]
+    outputs: list[Output]
     order: list[Node]
     calls: int
 
-    def __init__(self, name: str, inputs: list[Input], outputs: list[Stream]) -> None:
+    def __init__(self, name: str, inputs: list[Input], outputs: list[Output]) -> None:
         self.name = name
         self.inputs = inputs
         self.outputs = outputs
@@ -233,7 +233,7 @@ class Modely:
         epochs: int = 1,
         batch_size: int = 1,
         optimizer=None,
-        lr: float = 1e-2,
+        lr: float = 1e-3,
     ):
         @tf.function
         def train_step(model, batch_inputs, optimizer, losses):
@@ -389,23 +389,64 @@ class Modely:
             flatten=flatten,
         )
 
+
+    # -------------------------------------------------------------------------
+    # Closed-loop
+    # -------------------------------------------------------------------------
+    def closed_loop(self, inputs: list[Input], closed_loop: dict[str|Node, str|Node], name: str | None = None) -> "Modely":
+        """
+        Create a new Modely that rolls out over the rightmost sequence axis.
+
+        Semantics:
+        - The layer unrolls over the rightmost sequence axis of its inputs (axis=-1).
+        - Inputs without a sequence axis are broadcast across the horizon.
+        - If inputs have multiple seq dimensions (nested loops), only the rightmost is
+          iterated by this Loop. Remaining seq dims are passed through to the inner model.
+        - The closed-loop mapped input is updated each step with the submodel output.
+        """
+        from nnodely.layers.loop import Loop
+
+        # Validate closed_loop keys and values
+        if len(closed_loop) == 0:
+            raise ValueError("closed_loop cannot be empty.")
+        for inp, out in closed_loop.items():
+            inp_name = inp.name if isinstance(inp, Input) else str(inp)
+            out_name = out.name if isinstance(out, Output) else str(out)
+            if inp_name not in [node.name for node in inputs]:
+                raise ValueError(f"Closed-loop input '{inp_name}' not found among model inputs.")
+            if out_name not in [node.name for node in self.outputs]:
+                raise ValueError(f"Closed-loop output '{out_name}' not found among model outputs.")
+        
+        if not self.built:
+            self.build()
+
+        loop_fn =  Loop(f=self, closed_loop=closed_loop, name=name)
+        loop_outputs = loop_fn(inputs)
+        if isinstance(loop_outputs, dict):
+            outputs = [Output(out_name, loop_outputs[out_name]) for out_name in loop_outputs]
+        else:
+            outputs = [Output(self.outputs[0].name, loop_outputs)]
+        
+        return Modely(name=name or self.name + "_closed_loop", inputs=inputs, outputs=outputs)
+
+
     # -------------------------------------------------------------------------
     # Save and load (pickle)
     # -------------------------------------------------------------------------
     def save(self, filename: str):
         """Save the nnodely Model to a file."""
-        import pickle
+        import cloudpickle
 
         with open(filename + ".pkl", "wb") as out:
-            pickle.dump(self, out, protocol=pickle.HIGHEST_PROTOCOL)
+            cloudpickle.dump(self, out)
 
     @staticmethod
     def load(filename: str) -> "Modely":
         """Load a nnodely Model from a file."""
-        import pickle
+        import cloudpickle
 
         with open(filename + ".pkl", "rb") as inp:
-            return pickle.load(inp)
+            return cloudpickle.load(inp)
 
     def export_keras(self, filename: str):
         """Export the built Keras model to a file."""

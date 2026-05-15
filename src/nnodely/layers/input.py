@@ -19,7 +19,7 @@ class Input(Stream):
         name: str,
         *,
         dim: int | tuple | None = None,
-        seq: int | tuple[int] | None = None,
+        seq: int | tuple[int | None, ...] | None = None,
     ):
         super().__init__(name=name, seq=seq, time=None, dim=dim, preds=None)
         self.input = keras.Input(shape=self.shape, name=self.name)
