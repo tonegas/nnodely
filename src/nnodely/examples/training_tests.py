@@ -1,4 +1,9 @@
-# import numpy as np
+
+import os
+
+os.environ.setdefault("KERAS_BACKEND", "tensorflow")
+# os.environ.setdefault("KERAS_BACKEND", "torch")
+# os.environ.setdefault("KERAS_BACKEND", "jax")
 
 from nnodely import Input, Output, Modely, Loop, Parameter, DataLoader
 import numpy as np
@@ -16,8 +21,6 @@ def dummy_input(shape, method="random"):
         raise ValueError(f"Unknown dummy input method: {method}")
 
 def test_closed_loop():
-    # ------- Model with closed loop connections -------
-    batch_size = 10
     # Define a simple model to be used in the loop
     _x = Input(name="_x", dim=1)
     _y = Input(name="_y", dim=1)
@@ -66,19 +69,32 @@ def test_closed_loop():
         model_out,
         source={"w": [dummy_input((1,), method="random") for _ in range(data_size)], "z": [dummy_input((1, 4, 2), method="random") for _ in range(data_size)], "w_target": [dummy_input((1, 4, 2), method="zeros") for _ in range(data_size)]},
     )
-    model_out.train(train_data=data_train, epochs=10, batch_size=64, lr=1e-3)
 
+    import time
+    start_time = time.time()
+    model_out.train(train_data=data_train, epochs=100, batch_size=64, lr=1e-3)
+    end_time = time.time()
     # ------- Model inference -------
     batch_size = 1
     dummy_input_x = dummy_input((batch_size, 1, 1), method="ones")
     dummy_input_y = dummy_input((batch_size, 1, 1, 4), method="sequential")
 
     result_in = model_in({"x": dummy_input_x, "y": dummy_input_y})
-    print("Model with loop - Output shape:", result_in['out1'].shape)
-    print("Model with loop - Output:", result_in['out1'])
 
     dummy_input_w = dummy_input((batch_size, 1, 1), method="ones")
     dummy_input_z = dummy_input((batch_size, 1, 1, 4, 2), method="sequential")
     result_out = model_out({"z": dummy_input_z, "w": dummy_input_w})
+
+    return end_time - start_time, result_in, result_out
+
+# Try with different backends:
+# - TensorFlow: set KERAS_BACKEND="tensorflow": relatively fast
+# - PyTorch: set KERAS_BACKEND="torch": much slower than TF
+# - JAX: set KERAS_BACKEND="jax": super fast
+if __name__ == "__main__":
+    time_taken, result_in, result_out = test_closed_loop()
+    print(f"Time taken for training: {time_taken:.2f} seconds")
+    print("Model with loop - Output shape:", result_in['out1'].shape)
+    print("Model with loop - Output:", result_in['out1'])
     print("Model with loop w - Output shape:", result_out['out_w'].shape)
     print("Model with loop w - Output:", result_out['out_w'])

@@ -235,45 +235,6 @@ class Modely:
         optimizer=None,
         lr: float = 1e-3,
     ):
-        @tf.function
-        def train_step(model, batch_inputs, optimizer, losses):
-            with tf.GradientTape() as tape:
-                preds = model(batch_inputs, training=True)
-
-                total = keras.ops.zeros(())
-                for m in self.minimizers:
-                    name = m["name"]
-                    source_name = m["source"].name
-                    target_name = m["target"].name
-
-                    y_pred, y_true = preds[source_name], preds[target_name]
-
-                    loss_obj = losses[name]
-                    # total = total + tf.reduce_mean(loss_obj(y_true, y_pred))
-                    total = total + keras.ops.mean(
-                        loss_obj(y_true, y_pred)
-                    )  # ensure scalar loss
-
-            unique_vars: list[tf.Variable] = []
-            seen = set()
-
-            for v in list(km.trainable_weights) + self._training_params:
-                vid = id(v)
-                if vid not in seen:
-                    seen.add(vid)
-                    unique_vars.append(cast(tf.Variable, v))
-
-            total = cast(tf.Tensor, total)
-            gradients = tape.gradient(total, unique_vars)
-            grads_and_vars = [
-                (g, v) for g, v in zip(gradients or [], unique_vars) if g is not None
-            ]
-            if grads_and_vars:
-                optimizer.apply_gradients(grads_and_vars)
-            else:
-                print("Warning: No gradients to apply in this step.")
-            return total
-
         if not self.minimizers:
             raise ValueError("No minimizers defined. Call minimize() before train().")
 
@@ -289,36 +250,214 @@ class Modely:
         # Default optimizer ## TODO: change with a user defined optimizer
         if optimizer is None:
             optimizer = keras.optimizers.Adam(learning_rate=lr)
-        ## Default losses for each minimizer ## TODO: allow user to specify loss per minimizer
-        losses = {m["name"]: keras.losses.MeanSquaredError() for m in self.minimizers}
 
-        history = {"loss": []}
-        idxs = np.arange(n_samples)
-        epoch_bar = tqdm(range(epochs), desc=f"Training {self.name}", unit="epoch")
-        for _ in epoch_bar:
-            np.random.shuffle(idxs)
-            epoch_losses = []
-            for start in range(0, n_samples, batch_size):
-                batch_idx = idxs[start : start + batch_size]
+        x_data = {
+            name: np.asarray(values) for name, values in train_data.as_dict().items()
+        }
 
-                # Collect samples from DataLoader
-                batch_samples = [train_data[i] for i in batch_idx]
-                # Build batch inputs:
-                batch_inputs = {}
-                for k in train_data.inputs:
-                    batch_inputs[k] = tf.convert_to_tensor(
-                        np.stack([sample[k] for sample in batch_samples], axis=0)
+        def _resolve_label_name(node):
+            if node.name in x_data:
+                return node.name
+
+            preds = getattr(node, "preds", [])
+            if len(preds) == 1:
+                return _resolve_label_name(preds[0])
+
+            return None
+
+        y_data = {}
+        for minimizer in self.minimizers:
+            source_name = minimizer["source"].name
+            target = minimizer["target"]
+            target_name = target.name
+
+            label_name = _resolve_label_name(target)
+            if label_name is not None:
+                y_data[source_name] = x_data[label_name]
+                continue
+
+            target_value = getattr(target, "value_numpy", None)
+            if target_value is None:
+                raise ValueError(
+                    f"Training target '{target_name}' must be present in the dataset or be a constant value."
+                )
+
+            target_value = np.asarray(target_value, dtype=np.float32)
+            y_shape = (n_samples,) + tuple(minimizer["source"].shape)
+            y_data[source_name] = np.broadcast_to(target_value, y_shape).astype(
+                np.float32
+            )
+
+        backend = keras.backend.backend()
+
+        if backend == "tensorflow":
+
+            @tf.function
+            def train_step(model, batch_inputs, batch_targets, optimizer, losses):
+                with tf.GradientTape() as tape:
+                    preds = model(batch_inputs, training=True)
+
+                    total = keras.ops.zeros(())
+                    for m in self.minimizers:
+                        name = m["name"]
+                        source_name = m["source"].name
+
+                        y_pred = preds[source_name]
+                        y_true = batch_targets[source_name]
+
+                        loss_obj = losses[name]
+                        total = total + keras.ops.mean(loss_obj(y_true, y_pred))
+
+                unique_vars: list[tf.Variable] = []
+                seen = set()
+
+                for v in list(km.trainable_weights) + self._training_params:
+                    vid = id(v)
+                    if vid not in seen:
+                        seen.add(vid)
+                        unique_vars.append(cast(tf.Variable, v))
+
+                gradients = tape.gradient(total, unique_vars)
+                grads_and_vars = [
+                    (g, v)
+                    for g, v in zip(gradients or [], unique_vars)
+                    if g is not None
+                ]
+                if grads_and_vars:
+                    optimizer.apply_gradients(grads_and_vars)
+                else:
+                    print("Warning: No gradients to apply in this step.")
+                return total
+
+            losses = {m["name"]: keras.losses.get(m["loss"]) for m in self.minimizers}
+
+            history = {"loss": []}
+            idxs = np.arange(n_samples)
+            epoch_bar = tqdm(range(epochs), desc=f"Training {self.name}", unit="epoch")
+            for _ in epoch_bar:
+                np.random.shuffle(idxs)
+                epoch_losses = []
+                for start in range(0, n_samples, batch_size):
+                    batch_idx = idxs[start : start + batch_size]
+
+                    batch_samples = [train_data[i] for i in batch_idx]
+                    batch_inputs = {}
+                    for k in train_data.inputs:
+                        batch_inputs[k] = tf.convert_to_tensor(
+                            np.stack([sample[k] for sample in batch_samples], axis=0)
+                        )
+
+                    batch_targets = {}
+                    for minimizer in self.minimizers:
+                        source_name = minimizer["source"].name
+                        batch_targets[source_name] = tf.convert_to_tensor(
+                            np.stack(
+                                [y_data[source_name][i] for i in batch_idx], axis=0
+                            )
+                        )
+
+                    total = train_step(
+                        km, batch_inputs, batch_targets, optimizer, losses
                     )
+                    if isinstance(total, tf.Tensor):
+                        epoch_losses.append(float(total.numpy()))
 
-                total = train_step(km, batch_inputs, optimizer, losses)
-                if isinstance(total, tf.Tensor):
-                    epoch_losses.append(float(total.numpy()))
+                mean_epoch_loss = float(np.mean(epoch_losses))
+                history["loss"].append(mean_epoch_loss)
+                epoch_bar.set_postfix(epoch_loss=f"{mean_epoch_loss:.3e}")
 
-            mean_epoch_loss = float(np.mean(epoch_losses))
-            history["loss"].append(mean_epoch_loss)
-            epoch_bar.set_postfix(epoch_loss=f"{mean_epoch_loss:.3e}")
+            return history
 
-        return history
+        if backend == "torch":
+            import torch
+
+            unique_params = []
+            seen = set()
+            for v in list(km.parameters()) + self._training_params:
+                vid = id(v)
+                if vid not in seen:
+                    seen.add(vid)
+                    unique_params.append(v)
+
+            if optimizer is None or not (
+                hasattr(optimizer, "zero_grad") and hasattr(optimizer, "step")
+            ):
+                optimizer = torch.optim.Adam(unique_params, lr=lr)
+
+            criterion = torch.nn.MSELoss()
+            device = unique_params[0].device if unique_params else torch.device("cpu")
+            torch_x_data = {
+                name: torch.as_tensor(values, dtype=torch.float32, device=device)
+                for name, values in x_data.items()
+            }
+            torch_y_data = {
+                name: torch.as_tensor(values, dtype=torch.float32, device=device)
+                for name, values in y_data.items()
+            }
+            history = {"loss": []}
+            idxs = np.arange(n_samples)
+            epoch_bar = tqdm(range(epochs), desc=f"Training {self.name}", unit="epoch")
+
+            km.train()
+            for _ in epoch_bar:
+                np.random.shuffle(idxs)
+                epoch_losses = []
+
+                for start in range(0, n_samples, batch_size):
+                    batch_idx = idxs[start : start + batch_size]
+
+                    batch_inputs = {
+                        name: tensor[batch_idx] for name, tensor in torch_x_data.items()
+                    }
+                    batch_targets = {
+                        minimizer["source"].name: torch_y_data[
+                            minimizer["source"].name
+                        ][batch_idx]
+                        for minimizer in self.minimizers
+                    }
+
+                    optimizer.zero_grad()
+                    preds = km(batch_inputs, training=True)
+
+                    total = torch.zeros((), dtype=torch.float32, device=device)
+                    for minimizer in self.minimizers:
+                        source_name = minimizer["source"].name
+                        total = total + criterion(
+                            preds[source_name], batch_targets[source_name]
+                        )
+
+                    total.backward()
+                    optimizer.step()
+
+                    epoch_losses.append(float(total.detach().cpu().item()))
+
+                mean_epoch_loss = float(np.mean(epoch_losses))
+                history["loss"].append(mean_epoch_loss)
+                epoch_bar.set_postfix(epoch_loss=f"{mean_epoch_loss:.3e}")
+
+            km.eval()
+            return history
+
+        compile_losses: dict[str, Any] = {
+            name: None for name in getattr(km, "output_names", [])
+        }
+        for minimizer in self.minimizers:
+            compile_losses[minimizer["source"].name] = keras.losses.get(
+                minimizer["loss"]
+            )
+
+        km.compile(optimizer=optimizer, loss=compile_losses)
+
+        history = km.fit(
+            x=x_data,
+            y=y_data,
+            epochs=epochs,
+            batch_size=batch_size,
+            shuffle=True,
+            verbose="1",
+        )  # type: ignore[arg-type]
+
+        return history.history
 
     # -------------------------------------------------------------------------
     # Flatten API
@@ -389,11 +528,15 @@ class Modely:
             flatten=flatten,
         )
 
-
     # -------------------------------------------------------------------------
     # Closed-loop
     # -------------------------------------------------------------------------
-    def closed_loop(self, inputs: list[Input], closed_loop: dict[str|Node, str|Node], name: str | None = None) -> "Modely":
+    def closed_loop(
+        self,
+        inputs: list[Input],
+        closed_loop: dict[str | Node, str | Node],
+        name: str | None = None,
+    ) -> "Modely":
         """
         Create a new Modely that rolls out over the rightmost sequence axis.
 
@@ -413,22 +556,29 @@ class Modely:
             inp_name = inp.name if isinstance(inp, Input) else str(inp)
             out_name = out.name if isinstance(out, Output) else str(out)
             if inp_name not in [node.name for node in inputs]:
-                raise ValueError(f"Closed-loop input '{inp_name}' not found among model inputs.")
+                raise ValueError(
+                    f"Closed-loop input '{inp_name}' not found among model inputs."
+                )
             if out_name not in [node.name for node in self.outputs]:
-                raise ValueError(f"Closed-loop output '{out_name}' not found among model outputs.")
-        
+                raise ValueError(
+                    f"Closed-loop output '{out_name}' not found among model outputs."
+                )
+
         if not self.built:
             self.build()
 
-        loop_fn =  Loop(f=self, closed_loop=closed_loop, name=name)
+        loop_fn = Loop(f=self, closed_loop=closed_loop, name=name)
         loop_outputs = loop_fn(inputs)
         if isinstance(loop_outputs, dict):
-            outputs = [Output(out_name, loop_outputs[out_name]) for out_name in loop_outputs]
+            outputs = [
+                Output(out_name, loop_outputs[out_name]) for out_name in loop_outputs
+            ]
         else:
             outputs = [Output(self.outputs[0].name, loop_outputs)]
-        
-        return Modely(name=name or self.name + "_closed_loop", inputs=inputs, outputs=outputs)
 
+        return Modely(
+            name=name or self.name + "_closed_loop", inputs=inputs, outputs=outputs
+        )
 
     # -------------------------------------------------------------------------
     # Save and load (pickle)

@@ -59,7 +59,10 @@ class LoopImpl(keras.layers.Layer):
         step_inputs = {}
         y = None
         for idx, inp in enumerate(self.submodel.inputs):
-            step_inputs[inp.name] = inputs[idx][..., 0]
+            if self.inputs[idx].seq == ():
+                step_inputs[inp.name] = inputs[idx]
+            else:
+                step_inputs[inp.name] = inputs[idx][..., 0]
 
         # Iteratively call the submodel for each time step, updating closed-loop inputs with previous outputs as needed.
         outputs = {}

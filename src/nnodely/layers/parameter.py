@@ -1,6 +1,5 @@
 import numpy as np
 import keras
-import tensorflow as tf
 
 from nnodely.core.stream import Stream
 
@@ -38,7 +37,7 @@ class _ParameterLayer(keras.layers.Layer):
         super().build(input_shape)
 
     def call(self, inputs):
-        return tf.broadcast_to(self.parameter.param, inputs.shape)
+        return self.parameter.param
 
 
 class Parameter(Stream):

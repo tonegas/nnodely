@@ -63,9 +63,8 @@ class Concatenate(Layer):
         return tuple(out_dim), ref_time, ref_seq
 
     def build_layer(self):
-        dim_rank = len(self.dim)
-        dim_axis = self._resolve_dim_axis(dim_rank)
-        keras_axis = 1 + len(self.seq) + 1 + dim_axis
+        keras_axis = self._resolve_dim_axis(len(self.dim))
+        print(f"{self.name}: building Concatenate layer with keras_axis={keras_axis}")
         return keras.layers.Concatenate(axis=keras_axis, name=self.name)
 
 
@@ -97,8 +96,8 @@ class TimeConcatenate(Layer):
                 )
 
         time_out = sum(inp.time for inp in inputs)
-        return ref_seq, time_out, ref_dim
+        return ref_dim, time_out, ref_seq
 
     def build_layer(self):
-        keras_axis = 1 + len(self.seq)
+        keras_axis = 1 + len(self.dim)
         return keras.layers.Concatenate(axis=keras_axis, name=self.name)
