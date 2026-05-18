@@ -7,6 +7,8 @@ from typing import Any, Dict, Iterator, List, Literal
 import numpy as np
 import pandas as pd
 
+import keras
+
 
 @dataclass
 class DataLoader:
@@ -66,7 +68,9 @@ class DataLoader:
             raise ValueError(
                 f"Model {model.name} is not built. Make sure to call {model.name}.build() first."
             )
-        self.input_specs = {node.name: node.time for node in model.train_inputs}
+        self.input_specs = {
+            node.name: [node.past, node.future] for node in model.train_inputs
+        }
         if not self.input_specs:
             raise ValueError("Could not infer any inputs from model.inputs")
 
@@ -96,12 +100,24 @@ class DataLoader:
     def get_input(self, name: str) -> np.ndarray:
         return self.dataset[name]
 
+    # def get_step(self, idx: int) -> Dict[str, Any]:
+    #     if idx < 0:
+    #         idx = self._num_steps + idx
+    #     if idx < 0 or idx >= self._num_steps:
+    #         raise IndexError(f"idx out of range: {idx} (len={self._num_steps})")
+    #     return {k: v[idx] for k, v in self.dataset.items()}
+
     def get_step(self, idx: int) -> Dict[str, Any]:
         if idx < 0:
             idx = self._num_steps + idx
+
         if idx < 0 or idx >= self._num_steps:
             raise IndexError(f"idx out of range: {idx} (len={self._num_steps})")
-        return {k: v[idx] for k, v in self.dataset.items()}
+
+        return {
+            k: keras.ops.convert_to_tensor(v[idx][None, ...])
+            for k, v in self.dataset.items()
+        }
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         return self.get_step(idx)
@@ -189,7 +205,9 @@ class DataLoader:
                 )
 
         n_rows = next(iter(arrays.values())).shape[0]
-        max_window = max(self.input_specs.values())
+        max_past_window = max(spec[0] for spec in self.input_specs.values())
+        max_future_window = max(spec[1] for spec in self.input_specs.values())
+        max_window = max_past_window + max_future_window
 
         if n_rows < max_window:
             raise ValueError(
@@ -202,16 +220,16 @@ class DataLoader:
         raw_data: Dict[str, List[np.ndarray]] = {name: [] for name in self.input_specs}
 
         for t in range(t_start, t_end + 1):
-            for name, w in self.input_specs.items():
-                start = t - w + 1
-                end = t + 1
+            for name, (past, future) in self.input_specs.items():
+                start = t - past + 1
+                end = t + future + 1
 
                 values = arrays[name][start:end]
 
-                if values.shape[0] != w:
+                if values.shape[0] != past + future:
                     raise RuntimeError(
                         f"Internal error while building window for '{name}': "
-                        f"expected {w}, got {values.shape[0]}"
+                        f"expected {past + future}, got {values.shape[0]}"
                     )
 
                 raw_data[name].append(values)
@@ -255,7 +273,9 @@ class DataLoader:
         dataset = {}
         for name, arr_list in chunks.items():
             if not arr_list:
-                dataset[name] = np.empty((0, self.input_specs[name]), dtype=self.dtype)
+                dataset[name] = np.empty(
+                    (0, sum(self.input_specs[name])), dtype=self.dtype
+                )
             else:
                 dataset[name] = np.concatenate(arr_list, axis=0).astype(self.dtype)
         return dataset
@@ -278,7 +298,9 @@ class DataLoader:
         if n_rows == 0:
             raise ValueError("Encountered an empty CSV file.")
 
-        max_window = max(self.input_specs.values())
+        max_past_window = max(spec[0] for spec in self.input_specs.values())
+        max_future_window = max(spec[1] for spec in self.input_specs.values())
+        max_window = max_past_window + max_future_window
         if n_rows < max_window:
             raise ValueError(
                 f"CSV has only {n_rows} rows, but the largest required window is {max_window}."
@@ -286,15 +308,15 @@ class DataLoader:
 
         # Common aligned sample end indices
         # If max_window = 5, valid end indices are 4,5,6,...
-        t_start = max_window - 1
-        t_end = n_rows - 1
+        t_start = max_past_window - 1
+        t_end = n_rows - max_future_window - 1
 
         raw_data: Dict[str, List[np.ndarray]] = {name: [] for name in self.input_specs}
 
         for t in range(t_start, t_end + 1):
-            for name, w in self.input_specs.items():
-                start = t - w + 1
-                end = t + 1
+            for name, (past, future) in self.input_specs.items():
+                start = t - past + 1
+                end = t + future + 1
 
                 col = (
                     self.format[name] if (self.format and name in self.format) else name
@@ -309,10 +331,10 @@ class DataLoader:
                 else:
                     values = df[col].iloc[start:end].to_numpy(dtype=self.dtype)
 
-                if values.shape[0] != w:
+                if values.shape[0] != past + future:
                     raise RuntimeError(
                         f"Internal error while building window for '{name}': "
-                        f"expected {w}, got {values.shape[0]}"
+                        f"expected {past + future}, got {values.shape[0]}"
                     )
 
                 raw_data[name].append(values)

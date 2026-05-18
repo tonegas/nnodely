@@ -9,9 +9,11 @@ class SampleWindow(Layer):
     Simmetrico agli altri layer: usa build_layer e call.
     """
 
-    def __init__(self, window_size: int, name=None):
-        self.window_size = int(window_size)
-        super().__init__(name=name, window_size=self.window_size)
+    def __init__(self, past: int, future: int, name=None):
+        self.past = int(past)
+        self.future = int(future)
+        self.window_size = self.past + self.future
+        super().__init__(name=name, past=self.past, future=self.future)
 
     def output_shape(self, *inputs):
         """Output ha time=window_size."""
@@ -21,16 +23,12 @@ class SampleWindow(Layer):
         """Crea Lambda per slice se window_size < input.time, altrimenti Identity."""
         seq_t = self.seq
         dim_t = self.dim
-        n = self.window_size
-        if n >= self.time:
-            return keras.layers.Identity(name=self.name)
-        else:
-            slices = (
-                [slice(None)] * (1 + len(seq_t))
-                + [slice(-n, None)]
-                + [slice(None)] * len(dim_t)
-            )
-            return keras.layers.Lambda(lambda x: x[tuple(slices)], name=self.name)
+        slices = (
+            [slice(None)] * (1 + len(seq_t))
+            + [slice(self.past, self.past + self.window_size)]
+            + [slice(None)] * len(dim_t)
+        )
+        return keras.layers.Lambda(lambda x: x[tuple(slices)], name=self.name)
 
 
 class Select(Layer):
