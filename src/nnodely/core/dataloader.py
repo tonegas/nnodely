@@ -271,13 +271,28 @@ class DataLoader:
                 chunks[name].append(arr)
 
         dataset = {}
+
         for name, arr_list in chunks.items():
+            time_size = sum(self.input_specs[name])
+
             if not arr_list:
                 dataset[name] = np.empty(
-                    (0, sum(self.input_specs[name])), dtype=self.dtype
+                    (0, 1, time_size),
+                    dtype=self.dtype,
                 )
             else:
-                dataset[name] = np.concatenate(arr_list, axis=0).astype(self.dtype)
+                arr = np.concatenate(arr_list, axis=0).astype(self.dtype)
+
+                # Old shape:
+                #   (N, time)
+                #
+                # New shape:
+                #   (N, 1, time)
+                if arr.ndim == 2:
+                    arr = arr[:, None, :]
+
+                dataset[name] = arr
+
         return dataset
 
     def _build_from_dataframe(self, df: pd.DataFrame) -> Dict[str, np.ndarray]:

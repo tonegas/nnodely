@@ -12,27 +12,28 @@ class SampleWindow(Layer):
     def __init__(self, past: int, future: int, name=None):
         self.past = int(past)
         self.future = int(future)
-        self.window_size = past + future
+        self.window_size = self.past + self.future
         super().__init__(name=name, past=self.past, future=self.future)
 
     def output_shape(self, *inputs):
-        """Output ha time=window_size."""
-        return inputs[0].dim, self.window_size, inputs[0].seq
+        inp = inputs[0]
+        return inp.dim, self.past + self.future, inp.seq
 
     def build_layer(self):
-        """Crea Lambda per slice se window_size < input.time, altrimenti Identity."""
-        print(
-            f"{self.name}: building SampleWindow with past={self.past}, future={self.future}, window_size={self.window_size}"
-        )
-        seq_t = self.seq
-        dim_t = self.dim
+        if self.window_size <= 0:
+            raise ValueError(
+                f"{self.name}: past + future must be positive, got {self.window_size}."
+            )
+
         slices = (
-            [slice(None)] * len(dim_t)
+            [slice(None)] * (1 + len(self.dim))
             + [slice(self.past, self.past + self.window_size)]
-            + [slice(None)] * (1 + len(seq_t))
+            + [slice(None)] * len(self.seq)
         )
-        print(f"{self.name}: slices for Lambda: {slices}")
-        return keras.layers.Lambda(lambda x: x[tuple(slices)], name=self.name)
+        return keras.layers.Lambda(
+            lambda x: x[tuple(slices)],
+            name=self.name,
+        )
 
 
 class Select(Layer):

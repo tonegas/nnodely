@@ -87,7 +87,6 @@ class Modely:
             keras_outputs[out.name] = self._resolve_tensor(out, tensor_map)
 
         keras_inputs = {node.name: node.input for node in self.inputs}
-
         self.model = keras.Model(
             name=self.name,
             inputs=keras_inputs,
@@ -161,7 +160,6 @@ class Modely:
             return y
 
         pred_tensors = [self._resolve_tensor(pred, tensor_map) for pred in node.preds]
-
         if isinstance(node, Output):
             if len(pred_tensors) != 1:
                 raise ValueError(
