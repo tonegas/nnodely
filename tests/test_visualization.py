@@ -1,6 +1,6 @@
 import os
 
-from nnodely import Input, Output, Fir, Modely, Parameter, Constant, Cos, Sin
+from nnodely import Input, Output, Fir, Modely, Parameter, Constant, Cos, Sin, Loop
 
 
 def test_plot_and_export_html(tmp_path):
@@ -74,30 +74,30 @@ def test_multiple_model_composed_visualization(tmp_path):
     model3.plot(to_file=os.path.join(tmp_path, "model3_flattened.png"), flatten=True)
 
 
-# def test_visualize_loop(tmp_path):
-#     # ------- Model with closed loop connections -------
-#     x = Input(name="x", dim=1)
-#     y = Input(name="y", dim=1)
-#     r1 = x.sw(1) + y.sw(1)
-#     out1 = Output("out1", r1)
-#     model1 = Modely(name="model1", inputs=[x, y], outputs=[out1])
-#     model1.build()
+def test_visualize_loop(tmp_path):
+    # ------- Model with closed loop connections -------
+    x = Input(name="x", dim=1)
+    y = Input(name="y", dim=1)
+    r1 = x.sw(1) + y.sw(1)
+    out1 = Output("out1", r1)
+    model1 = Modely(name="model1", inputs=[x, y], outputs=[out1])
+    model1.build()
 
-#     z = Input(name="z", dim=1, seq=5)
-#     const = Constant("const", value=2.0)
-#     r2 = z.sw(1) * const
-#     loop_fn = Loop(f=model1, closed_loop={out1: z})
-#     out = Output("out", loop_fn([z, r2]))
-#     model = Modely(name="model", inputs=[z], outputs=[out])
-#     model.build()
+    z = Input(name="z", dim=1, seq=5)
+    const = Constant("const", value=2.0)
+    r2 = z.sw(1) * const
+    loop_fn = Loop(f=model1, closed_loop={"z": "out1"})
+    out = Output("out", loop_fn([z, r2]))
+    model = Modely(name="model", inputs=[z], outputs=[out])
+    model.build()
 
-#     # ------- Model visualization -------
-#     model1.plot(to_file=tmp_path / "model1.png")
-#     model.plot(to_file=tmp_path / "model2.png")
+    # ------- Model visualization -------
+    model1.plot(to_file=os.path.join(tmp_path, "model1.png"))
+    model.plot(to_file=os.path.join(tmp_path, "model2.png"))
 
-#     # ------- Model export to HTML -------
-#     model1.export_html(out_dir=tmp_path, filename="model1")
-#     model.export_html(out_dir=tmp_path, filename="model2")
+    # ------- Model export to HTML -------
+    model1.export_html(out_dir=tmp_path, filename="model1")
+    model.export_html(out_dir=tmp_path, filename="model2")
 
 
 def test_visualize_high_level_blocks(tmp_path):

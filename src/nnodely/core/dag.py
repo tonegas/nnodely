@@ -7,7 +7,8 @@ Default: seq=(), time=1, dim=(1,)
 """
 
 from copy import copy
-from nnodely.core.stream import Node, Stream
+from nnodely.core.stream import Node
+from nnodely.layers.output import Output
 from typing import Any
 
 _node_counter = 0
@@ -65,7 +66,7 @@ def flatten(model):
     from nnodely.core.modely import Modely
 
     memo: dict[Node, Any] = {}
-    outputs: list[Stream] = [flatten_node(output, memo) for output in model.outputs]
+    outputs: list[Output] = [flatten_node(output, memo) for output in model.outputs]
     inputs: list[Any] = [memo[input] for input in model.inputs]
 
     return Modely(f"{model.name}_flat", inputs, outputs)

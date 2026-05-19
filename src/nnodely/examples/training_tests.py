@@ -1,4 +1,3 @@
-
 import os
 
 os.environ.setdefault("KERAS_BACKEND", "tensorflow")
@@ -8,6 +7,7 @@ os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 from nnodely import Input, Output, Modely, Loop, Parameter, DataLoader
 import numpy as np
 
+
 def dummy_input(shape, method="random"):
     if method == "random":
         return np.random.rand(*shape).astype(np.float32)
@@ -16,9 +16,10 @@ def dummy_input(shape, method="random"):
     elif method == "ones":
         return np.ones(shape, dtype=np.float32)
     elif method == "sequential":
-        return np.arange(np.prod(shape), dtype=np.float32).reshape(shape)+1
+        return np.arange(np.prod(shape), dtype=np.float32).reshape(shape) + 1
     else:
         raise ValueError(f"Unknown dummy input method: {method}")
+
 
 def test_closed_loop():
     # Define a simple model to be used in the loop
@@ -26,7 +27,7 @@ def test_closed_loop():
     _y = Input(name="_y", dim=1)
     c = Parameter("c", dim=1)
     d = Parameter("d", dim=1)
-    r1 = _x.sw(1)*c + _y.sw(1)*d
+    r1 = _x.sw(1) * c + _y.sw(1) * d
     out1 = Output("out1", r1)
     model_add = Modely(name="model1", inputs=[_x, _y], outputs=[out1])
     model_add.build()
@@ -42,7 +43,9 @@ def test_closed_loop():
     # Option 2: use closed_loop shortcut in Modely.closed_loop() for more concise syntax
     x = Input(name="x", dim=1)
     y = Input(name="y", dim=1, seq=4)
-    model_in = model_add.closed_loop(name="model_with_loop", inputs = [x, y], closed_loop={"x": "out1"})
+    model_in = model_add.closed_loop(
+        name="model_with_loop", inputs=[x, y], closed_loop={"x": "out1"}
+    )
 
     # Create a nested loop model
     w = Input(name="w", dim=1)
@@ -67,10 +70,17 @@ def test_closed_loop():
     data_size = 1000
     data_train = DataLoader(
         model_out,
-        source={"w": [dummy_input((1,), method="random") for _ in range(data_size)], "z": [dummy_input((1, 4, 2), method="random") for _ in range(data_size)], "w_target": [dummy_input((1, 4, 2), method="zeros") for _ in range(data_size)]},
+        source={
+            "w": [dummy_input((1,), method="random") for _ in range(data_size)],
+            "z": [dummy_input((1, 4, 2), method="random") for _ in range(data_size)],
+            "w_target": [
+                dummy_input((1, 4, 2), method="zeros") for _ in range(data_size)
+            ],
+        },
     )
 
     import time
+
     start_time = time.time()
     model_out.train(train_data=data_train, epochs=100, batch_size=64, lr=1e-3)
     end_time = time.time()
@@ -87,6 +97,7 @@ def test_closed_loop():
 
     return end_time - start_time, result_in, result_out
 
+
 # Try with different backends:
 # - TensorFlow: set KERAS_BACKEND="tensorflow": relatively fast
 # - PyTorch: set KERAS_BACKEND="torch": much slower than TF
@@ -94,7 +105,7 @@ def test_closed_loop():
 if __name__ == "__main__":
     time_taken, result_in, result_out = test_closed_loop()
     print(f"Time taken for training: {time_taken:.2f} seconds")
-    print("Model with loop - Output shape:", result_in['out1'].shape)
-    print("Model with loop - Output:", result_in['out1'])
-    print("Model with loop w - Output shape:", result_out['out_w'].shape)
-    print("Model with loop w - Output:", result_out['out_w'])
+    print("Model with loop - Output shape:", result_in["out1"].shape)
+    print("Model with loop - Output:", result_in["out1"])
+    print("Model with loop w - Output shape:", result_out["out_w"].shape)
+    print("Model with loop w - Output:", result_out["out_w"])

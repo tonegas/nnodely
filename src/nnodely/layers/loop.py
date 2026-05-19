@@ -4,6 +4,7 @@ from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
 import tensorflow as tf
 
+
 class LoopImpl(keras.layers.Layer):
     def __init__(
         self,
@@ -22,7 +23,7 @@ class LoopImpl(keras.layers.Layer):
 
         # Validate input sequence dimensions to be the same for all inputs, except the zero default (non-sequence) value.
         seq_dims = set()
-        for inp in self.inputs:
+        for inp in self.inputs:  # type:ignore
             if inp.seq != ():
                 seq_dims.add(inp.seq[0])  # leftmost seq dimension
         if len(seq_dims) > 1:
@@ -59,7 +60,7 @@ class LoopImpl(keras.layers.Layer):
         step_inputs = {}
         y = None
         for idx, inp in enumerate(self.submodel.inputs):
-            if self.inputs[idx].seq == ():
+            if self.inputs[idx].seq == ():  # type:ignore
                 step_inputs[inp.name] = inputs[idx]
             else:
                 step_inputs[inp.name] = inputs[idx][..., 0]
@@ -67,7 +68,7 @@ class LoopImpl(keras.layers.Layer):
         # Iteratively call the submodel for each time step, updating closed-loop inputs with previous outputs as needed.
         outputs = {}
         for t in range(horizon):
-            for idx, inp in enumerate(self.inputs):
+            for idx, inp in enumerate(self.inputs):  # type:ignore
                 if t > 0 and inp.name in self.closed_loop:
                     step_inputs[self.submodel.inputs[idx].name] = (
                         y[self.closed_loop[inp.name]] if isinstance(y, dict) else y
@@ -87,7 +88,7 @@ class LoopImpl(keras.layers.Layer):
             ):
                 out_value = (
                     out_value
-                    if len(self.longest_seq) < 1
+                    if len(self.longest_seq) < 1  # type:ignore
                     else keras.ops.expand_dims(out_value, axis=-1)
                 )
                 if out_name not in outputs:
@@ -100,7 +101,7 @@ class LoopImpl(keras.layers.Layer):
         if len(outputs) == 1:
             return next(iter(outputs.values()))
         return outputs
-    
+
     # Alternative implementation of the call method that uses keras.ops.scan. (Not currently used, slower than the for-loop version)
     def call_scan(self, inputs):
         if not isinstance(inputs, (list, tuple)):
@@ -133,14 +134,14 @@ class LoopImpl(keras.layers.Layer):
         y0 = _flatten_output(self.submodel(init_step))
         if horizon == 1:
             return (
-                y0 if len(self.longest_seq) < 1 else keras.ops.expand_dims(y0, axis=-1)
+                y0 if len(self.longest_seq) < 1 else keras.ops.expand_dims(y0, axis=-1)  # type:ignore
             )
 
         xs = [tensor[1:] for tensor in step_tensors]
 
         def step_fn(prev_output, step_values):
             step_inputs = {}
-            for idx, inp in enumerate(self.inputs):
+            for idx, inp in enumerate(self.inputs):  # type:ignore
                 if inp.name in self.closed_loop:
                     step_inputs[self.submodel.inputs[idx].name] = prev_output
                 else:
@@ -153,7 +154,7 @@ class LoopImpl(keras.layers.Layer):
         outputs = keras.ops.concatenate(
             [keras.ops.expand_dims(y0, axis=0), scanned_outputs], axis=0
         )
-        perm = list(range(1, outputs.shape.rank)) + [0]
+        perm = list(range(1, outputs.shape.rank)) + [0]  # type:ignore
         return tf.transpose(outputs, perm=perm)
 
 
@@ -196,7 +197,7 @@ class Loop(Layer):
         return out_seq, out_node.time, out_node.dim
 
     def build_layer(self):
-        self.longest_seq = max(inp.seq for inp in self.inputs)
+        self.longest_seq = max(inp.seq for inp in self.inputs)  # type:ignore
 
         if self.f.model is None:
             self.f.build()

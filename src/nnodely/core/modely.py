@@ -7,6 +7,7 @@ from nnodely.core.stream import Stream, Node
 from nnodely.layers.constant import Constant
 from nnodely.layers.parameter import Parameter
 from nnodely.core.dataloader import DataLoader
+from nnodely.layers.time_ops import SampleWindow
 import tensorflow as tf
 import numpy as np
 from tqdm import tqdm
@@ -36,6 +37,7 @@ class Modely:
         self.train_inputs = []  # List of Input nodes that are required for training (derived from minimizers)
         self._training_params = []  # List of trainable parameters (Keras variables) collected from the DAG
         self.minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
+        # self.default_sampling = 1.0  # default sampling rate for inputs that require it and don't have it specified at init time
 
     def __repr__(self) -> str:
         items = " \n- ".join(map(str, self.order))
@@ -71,6 +73,13 @@ class Modely:
         - Output nodes
         - IntermediateOutput nodes from nested Modely calls
         """
+        ## adjust sample windows with the maximum window size for each input
+        for node in self.order:
+            if isinstance(node, SampleWindow):
+                node_pred = node.preds[0]
+                if isinstance(node_pred, Input):
+                    node.past = node_pred.past - node.past
+
         tensor_map = {node: node.input for node in self.inputs}
 
         keras_outputs = {}
@@ -317,7 +326,7 @@ class Modely:
                         seen.add(vid)
                         unique_vars.append(cast(tf.Variable, v))
 
-                gradients = tape.gradient(total, unique_vars)
+                gradients = tape.gradient(total, unique_vars)  # type:ignore
                 grads_and_vars = [
                     (g, v)
                     for g, v in zip(gradients or [], unique_vars)

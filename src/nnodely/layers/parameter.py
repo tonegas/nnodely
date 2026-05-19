@@ -22,7 +22,7 @@ class _ParameterLayer(keras.layers.Layer):
                             f"Parameter '{self.parameter.name}' value shape {value.shape} "
                             f"is incompatible with expected shape {shape}"
                         ) from e
-                initializer = keras.initializers.Constant(value)
+                initializer = keras.initializers.Constant(value)  # type:ignore
             else:
                 initializer = keras.initializers.get(self.parameter.initializer)
             self.parameter.param = self.add_weight(
@@ -136,6 +136,12 @@ class Parameter(Stream):
         return self.param
 
     def as_tensor(self, anchor):
+        # v = self.build_parameter()
+        # return keras.layers.Lambda(
+        #     lambda x: v,
+        #     output_shape=self.shape,
+        #     name=self.name,
+        # )(anchor)
         return _ParameterLayer(self, name=self.name)(anchor)
 
     @property

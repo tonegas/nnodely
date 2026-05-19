@@ -1,84 +1,96 @@
+# # import numpy as np
+
+# from nnodely import Input, Output, Modely, Loop, Parameter, DataLoader
 # import numpy as np
 
-from nnodely import Input, Output, Modely, Loop, Parameter, DataLoader
-import numpy as np
+# import os
 
-def dummy_input(shape, method="random"):
-    if method == "random":
-        return np.random.rand(*shape).astype(np.float32)
-    elif method == "zeros":
-        return np.zeros(shape, dtype=np.float32)
-    elif method == "ones":
-        return np.ones(shape, dtype=np.float32)
-    elif method == "sequential":
-        return np.arange(np.prod(shape), dtype=np.float32).reshape(shape)+1
-    else:
-        raise ValueError(f"Unknown dummy input method: {method}")
 
-def test_closed_loop():
-    # ------- Model with closed loop connections -------
-    batch_size = 10
-    # Define a simple model to be used in the loop
-    _x = Input(name="_x", dim=1)
-    _y = Input(name="_y", dim=1)
-    c = Parameter("c", dim=1)
-    d = Parameter("d", dim=1)
-    r1 = _x.sw(1)*c + _y.sw(1)*d
-    out1 = Output("out1", r1)
-    model_add = Modely(name="model1", inputs=[_x, _y], outputs=[out1])
-    model_add.build()
+# def dummy_input(shape, method="random"):
+#     if method == "random":
+#         return np.random.rand(*shape).astype(np.float32)
+#     elif method == "zeros":
+#         return np.zeros(shape, dtype=np.float32)
+#     elif method == "ones":
+#         return np.ones(shape, dtype=np.float32)
+#     elif method == "sequential":
+#         return np.arange(np.prod(shape), dtype=np.float32).reshape(shape) + 1
+#     else:
+#         raise ValueError(f"Unknown dummy input method: {method}")
 
-    # Option 1: use Loop layer directly in the output definition
-    # x = Input(name="x", dim=1)
-    # y = Input(name="y", dim=1, seq=4)
-    # loop_fn = Loop(f=model_add, closed_loop={"x": "out1"}, name="loop_model_add")
-    # out = Output("out", loop_fn(x, y))
-    # model_in = Modely(name="model", outputs=[out])
-    # model_in.build()
 
-    # Option 2: use closed_loop shortcut in Modely.closed_loop() for more concise syntax
-    x = Input(name="x", dim=1)
-    y = Input(name="y", dim=1, seq=4)
-    model_in = model_add.closed_loop(name="model_with_loop", inputs = [x, y], closed_loop={"x": "out1"})
+# def test_closed_loop(tmp_path):
+#     # ------- Model with closed loop connections -------
+#     batch_size = 10
+#     # Define a simple model to be used in the loop
+#     _x = Input(name="_x", dim=1)
+#     _y = Input(name="_y", dim=1)
+#     c = Parameter("c", dim=1)
+#     d = Parameter("d", dim=1)
+#     r1 = _x.sw(1) * c + _y.sw(1) * d
+#     out1 = Output("out1", r1)
+#     model_add = Modely(name="model1", inputs=[_x, _y], outputs=[out1])
+#     model_add.build()
 
-    # Create a nested loop model
-    w = Input(name="w", dim=1)
-    z = Input(name="z", dim=1, seq=(4, 2))
-    loop_fn2 = Loop(f=model_in, closed_loop={"z": "out1"}, name="loop_model_in")
-    out_w = Output("out_w", loop_fn2([w, z]))
-    model_out = Modely(name="model_with_loop_w", inputs=[w, z], outputs=[out_w])
+#     # Option 1: use Loop layer directly in the output definition
+#     # x = Input(name="x", dim=1)
+#     # y = Input(name="y", dim=1, seq=4)
+#     # loop_fn = Loop(f=model_add, closed_loop={"x": "out1"}, name="loop_model_add")
+#     # out = Output("out", loop_fn(x, y))
+#     # model_in = Modely(name="model", outputs=[out])
+#     # model_in.build()
 
-    model_out.minimize(
-        "error",
-        source=out_w,
-        target=Input("w_target", dim=1, seq=(4, 2)).sw(1),
-        loss="mse",
-    )
+#     # Option 2: use closed_loop shortcut in Modely.closed_loop() for more concise syntax
+#     x = Input(name="x", dim=1)
+#     y = Input(name="y", dim=1, seq=4)
+#     model_in = model_add.closed_loop(
+#         name="model_with_loop", inputs=[x, y], closed_loop={"x": "out1"}
+#     )
 
-    model_out.build()
+#     # Create a nested loop model
+#     w = Input(name="w", dim=1)
+#     z = Input(name="z", dim=1, seq=(4, 2))
+#     loop_fn2 = Loop(f=model_in, closed_loop={"z": "out1"}, name="loop_model_in")
+#     out_w = Output("out_w", loop_fn2([w, z]))
+#     model_out = Modely(name="model_with_loop_w", inputs=[w, z], outputs=[out_w])
 
-    model_in.plot(to_file="html/model_with_loop.png")
-    model_out.plot(to_file="html/model_with_loop_w.png")
+#     model_out.minimize(
+#         "error",
+#         source=out_w,
+#         target=Input("w_target", dim=1, seq=(4, 2)).sw(1),
+#         loss="mse",
+#     )
 
-    # ------- Model training -------
-    data_size = 1000
-    data_train = DataLoader(
-        model_out,
-        source={"w": [dummy_input((1,), method="random") for _ in range(data_size)], "z": [dummy_input((1, 4, 2), method="random") for _ in range(data_size)], "w_target": [dummy_input((1, 4, 2), method="zeros") for _ in range(data_size)]},
-    )
-    model_out.train(train_data=data_train, epochs=10, batch_size=64, lr=1e-3)
+#     model_out.build()
 
-    # ------- Model inference -------
-    batch_size = 1
-    dummy_input_x = dummy_input((batch_size, 1, 1), method="ones")
-    dummy_input_y = dummy_input((batch_size, 1, 1, 4), method="sequential")
+#     model_in.plot(to_file=os.path.join(tmp_path, "model_with_loop.png"))
+#     model_out.plot(to_file=os.path.join(tmp_path, "model_with_loop_w.png"))
 
-    result_in = model_in({"x": dummy_input_x, "y": dummy_input_y})
-    print("Model with loop - Output shape:", result_in['out1'].shape)
-    print("Model with loop - Output:", result_in['out1'])
+#     # ------- Model training -------
+#     data_size = 1000
+#     data_train = DataLoader(
+#         model_out,
+#         source={
+#             "w": [dummy_input((1,), method="random") for _ in range(data_size)],
+#             "z": [dummy_input((1, 4, 2), method="random") for _ in range(data_size)],
+#             "w_target": [
+#                 dummy_input((1, 4, 2), method="zeros") for _ in range(data_size)
+#             ],
+#         },
+#     )
+#     model_out.train(train_data=data_train, epochs=10, batch_size=64, lr=1e-3)
 
-    dummy_input_w = dummy_input((batch_size, 1, 1), method="ones")
-    dummy_input_z = dummy_input((batch_size, 1, 1, 4, 2), method="sequential")
-    result_out = model_out({"z": dummy_input_z, "w": dummy_input_w})
-    print("Model with loop w - Output shape:", result_out['out_w'].shape)
-    print("Model with loop w - Output:", result_out['out_w'])
+#     # ------- Model inference -------
+#     batch_size = 1
+#     dummy_input_x = dummy_input((batch_size, 1, 1), method="ones")
+#     dummy_input_y = dummy_input((batch_size, 1, 1, 4), method="sequential")
+
+#     result_in = model_in({"x": dummy_input_x, "y": dummy_input_y})
+#     assert "out1" in result_in
+#     assert result_in["out1"].shape == (batch_size, 1, 1, 4)
+
+#     dummy_input_w = dummy_input((batch_size, 1, 1), method="ones")
+#     dummy_input_z = dummy_input((batch_size, 1, 1, 4, 2), method="sequential")
+#     result_out = model_out({"z": dummy_input_z, "w": dummy_input_w})
+#     assert "out_w" in result_out
+#     assert result_out["out_w"].shape == (batch_size, 1, 1, 4)
