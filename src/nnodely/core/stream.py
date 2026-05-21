@@ -72,6 +72,13 @@ class Stream(Node):
         Rank without batch dimension.
         """
         return len(self.shape)
+    
+    @property
+    def time_index(self) -> int:
+        """
+        Return the index of the time dimension in the shape, or None if no time dimension.
+        """
+        return len(self.dim)+1
 
     def __add__(self, other):
         from nnodely.core.layer import Add

@@ -540,8 +540,8 @@ class Modely:
     # -------------------------------------------------------------------------
     def closed_loop(
         self,
-        inputs: list[Input],
         closed_loop: dict[str | Node, str | Node],
+        inputs: list[Input] | None = None,
         name: str | None = None,
     ) -> "Modely":
         """
@@ -559,18 +559,30 @@ class Modely:
         # Validate closed_loop keys and values
         if len(closed_loop) == 0:
             raise ValueError("closed_loop cannot be empty.")
-        for inp, out in closed_loop.items():
-            inp_name = inp.name if isinstance(inp, Input) else str(inp)
-            out_name = out.name if isinstance(out, Output) else str(out)
-            if inp_name not in [node.name for node in inputs]:
-                raise ValueError(
-                    f"Closed-loop input '{inp_name}' not found among model inputs."
-                )
-            if out_name not in [node.name for node in self.outputs]:
-                raise ValueError(
-                    f"Closed-loop output '{out_name}' not found among model outputs."
-                )
-
+        
+        if inputs is None:
+            inputs = self.inputs
+            for idx, inp in enumerate(inputs):
+                if inp.name not in closed_loop:
+                    inputs[idx] = Input(
+                        name=inp.name,
+                        dim=inp.dim,
+                        time=inp.time,
+                        seq=(None,),
+                    )
+        else:
+            for inp, out in closed_loop.items():
+                inp_name = inp.name if isinstance(inp, Input) else str(inp)
+                out_name = out.name if isinstance(out, Output) else str(out)
+                if inp_name not in [node.name for node in inputs]:
+                    raise ValueError(
+                        f"Closed-loop input '{inp_name}' not found among model inputs."
+                    )
+                if out_name not in [node.name for node in self.outputs]:
+                    raise ValueError(
+                        f"Closed-loop output '{out_name}' not found among model outputs."
+                    )
+        print(f"Creating closed-loop model '{name}' with loop mapping: {closed_loop}, anad inputs: {inputs}")
         if not self.built:
             self.build()
 

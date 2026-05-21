@@ -1,12 +1,13 @@
 import os
 
+from nnodely.layers.fir import Fir
+
 os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 # os.environ.setdefault("KERAS_BACKEND", "torch")
 # os.environ.setdefault("KERAS_BACKEND", "jax")
 
 from nnodely import Input, Output, Modely, Loop, Parameter, DataLoader
 import numpy as np
-
 
 def dummy_input(shape, method="random"):
     if method == "random":
@@ -25,9 +26,9 @@ def test_closed_loop():
     # Define a simple model to be used in the loop
     _x = Input(name="_x", dim=1)
     _y = Input(name="_y", dim=1)
-    c = Parameter("c", dim=1)
     d = Parameter("d", dim=1)
-    r1 = _x.sw(1) * c + _y.sw(1) * d
+    fir = Fir(out_features=1)([_x.sw(2)])
+    r1 = fir + _y.sw(1) * d
     out1 = Output("out1", r1)
     model_add = Modely(name="model1", inputs=[_x, _y], outputs=[out1])
     model_add.build()
@@ -41,14 +42,14 @@ def test_closed_loop():
     # model_in.build()
 
     # Option 2: use closed_loop shortcut in Modely.closed_loop() for more concise syntax
-    x = Input(name="x", dim=1)
+    x = Input(name="x", dim=1, time=2)
     y = Input(name="y", dim=1, seq=4)
     model_in = model_add.closed_loop(
         name="model_with_loop", inputs=[x, y], closed_loop={"x": "out1"}
     )
 
     # Create a nested loop model
-    w = Input(name="w", dim=1)
+    w = Input(name="w", dim=1, time=2)
     z = Input(name="z", dim=1, seq=(4, 2))
     loop_fn2 = Loop(f=model_in, closed_loop={"z": "out1"}, name="loop_model_in")
     out_w = Output("out_w", loop_fn2([w, z]))
@@ -71,10 +72,10 @@ def test_closed_loop():
     data_train = DataLoader(
         model_out,
         source={
-            "w": [dummy_input((1,), method="random") for _ in range(data_size)],
-            "z": [dummy_input((1, 4, 2), method="random") for _ in range(data_size)],
+            "w": [dummy_input((1, 2), method="random") for _ in range(data_size)],
+            "z": [dummy_input((1, 1, 4, 2), method="random") for _ in range(data_size)],
             "w_target": [
-                dummy_input((1, 4, 2), method="zeros") for _ in range(data_size)
+                dummy_input((1, 1, 4, 2), method="zeros") for _ in range(data_size)
             ],
         },
     )
@@ -82,20 +83,21 @@ def test_closed_loop():
     import time
 
     start_time = time.time()
-    model_out.train(train_data=data_train, epochs=100, batch_size=64, lr=1e-3)
+    # model_out.train(train_data=data_train, epochs=100, batch_size=64, lr=1e-3)
     end_time = time.time()
     # ------- Model inference -------
     batch_size = 1
-    dummy_input_x = dummy_input((batch_size, 1, 1), method="ones")
+    dummy_input_x = dummy_input((batch_size, 1, 2), method="ones")
     dummy_input_y = dummy_input((batch_size, 1, 1, 4), method="sequential")
 
     result_in = model_in({"x": dummy_input_x, "y": dummy_input_y})
 
-    dummy_input_w = dummy_input((batch_size, 1, 1), method="ones")
+    dummy_input_w = dummy_input((batch_size, 1, 2), method="ones")
     dummy_input_z = dummy_input((batch_size, 1, 1, 4, 2), method="sequential")
     result_out = model_out({"z": dummy_input_z, "w": dummy_input_w})
 
     return end_time - start_time, result_in, result_out
+
 
 
 # Try with different backends:

@@ -58,6 +58,8 @@ class Layer(Stream):
     # ------------------------------------------------------------------
 
     def __call__(self, inputs):
+        if not isinstance(inputs, (list, tuple)):
+            inputs = [inputs]
         # Symbolic mode: Layer(Stream, ...) -> new Stream node
         if all(isinstance(x, Stream) for x in inputs):
             out_dim, out_time, out_seq = self.output_shape(*inputs)
