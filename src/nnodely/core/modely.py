@@ -15,6 +15,7 @@ from typing import cast
 
 from nnodely.layers.output import Output
 from nnodely.layers.input import Input
+from nnodely.core.layer import Layer
 
 import keras
 
@@ -63,68 +64,165 @@ class Modely:
         """True se build() è stato chiamato, False altrimenti."""
         return self.model is not None
 
+    # def build(self):
+    #     """
+    #     Build the Keras Functional model from the symbolic DAG.
+
+    #     Traverses from model outputs backwards through:
+    #     - Input nodes
+    #     - Layer/Stream nodes
+    #     - Output nodes
+    #     - IntermediateOutput nodes from nested Modely calls
+    #     """
+    #     self.model = None  # Reset any existing model before building
+    #     self._train_model = None
+    #     flattened_model = flatten(self)
+    #     print("Flattened model order:", [node.name for node in flattened_model.order])
+
+    #     ## adjust sample windows with the maximum window size for each input
+    #     for node in flattened_model.order:
+    #         if isinstance(node, SampleWindow):
+    #             node_pred = node.preds[0]
+    #             if isinstance(node_pred, Input):
+    #                 node.past = node_pred.past - node.past
+
+    #     tensor_map = {node: node.input for node in flattened_model.inputs}
+    #     keras_outputs = {}
+    #     for out in flattened_model.outputs:
+    #         keras_outputs[out.name] = self._resolve_tensor(out, tensor_map)
+
+    #     keras_inputs = {node.name: node.input for node in flattened_model.inputs}
+    #     self.model = keras.Model(
+    #         name=self.name,
+    #         inputs=keras_inputs,
+    #         outputs=keras_outputs,
+    #     )
+
+    #     extra_outputs, extra_inputs = [], []
+    #     for minimizer in self.minimizers:
+    #         if not isinstance(minimizer["source"], Output):
+    #             extra_outputs.append(minimizer["source"])
+    #         if not isinstance(minimizer["target"], Output):
+    #             extra_outputs.append(minimizer["target"])
+
+    #     if extra_outputs:
+    #         order = toposort_outputs(extra_outputs)
+    #         extra_inputs = [
+    #             node
+    #             for node in order
+    #             if isinstance(node, Input) and node not in self.inputs
+    #         ]
+
+    #         print("Extra inputs for training:", [node.name for node in extra_inputs])
+    #         print("Extra outputs for training:", [node.name for node in extra_outputs])
+    #         for node in extra_inputs:
+    #             tensor_map[node] = node.input
+    #         for node in extra_outputs:
+    #             keras_outputs[node.name] = self._resolve_tensor(node, tensor_map)
+
+    #         print("Final keras outputs for training:", keras_outputs)
+
+    #         self.train_inputs = flattened_model.inputs + extra_inputs
+    #         keras_inputs = {node.name: node.input for node in flattened_model.inputs} | {
+    #             node.name: node.input for node in extra_inputs
+    #         }
+    #         print("Final keras inputs for training:", keras_inputs)
+    #         self._train_model = keras.Model(
+    #             name=self.name + "_train",
+    #             inputs=keras_inputs,
+    #             outputs=keras_outputs,
+    #         )
+    #     else:
+    #         self.train_inputs = flattened_model.inputs
+    #         self._train_model = self.model
+    #     return self
+
     def build(self):
-        """
-        Build the Keras Functional model from the symbolic DAG.
-
-        Traverses from model outputs backwards through:
-        - Input nodes
-        - Layer/Stream nodes
-        - Output nodes
-        - IntermediateOutput nodes from nested Modely calls
-        """
-        ## adjust sample windows with the maximum window size for each input
-        for node in self.order:
-            if isinstance(node, SampleWindow):
-                node_pred = node.preds[0]
-                if isinstance(node_pred, Input):
-                    node.past = node_pred.past - node.past
-
-        tensor_map = {node: node.input for node in self.inputs}
-
-        keras_outputs = {}
-        for out in self.outputs:
-            keras_outputs[out.name] = self._resolve_tensor(out, tensor_map)
-
-        keras_inputs = {node.name: node.input for node in self.inputs}
-        self.model = keras.Model(
+        self.model, flat_model = self._build_keras_graph(
+            roots=self.outputs,
+            inputs=self.inputs,
             name=self.name,
-            inputs=keras_inputs,
-            outputs=keras_outputs,
         )
-        extra_outputs, extra_inputs = [], []
+
+        extra_outputs = []
         for minimizer in self.minimizers:
             if not isinstance(minimizer["source"], Output):
                 extra_outputs.append(minimizer["source"])
             if not isinstance(minimizer["target"], Output):
                 extra_outputs.append(minimizer["target"])
-
         if extra_outputs:
-            order = toposort_outputs(extra_outputs)
-            extra_inputs = [
-                node
-                for node in order
-                if isinstance(node, Input) and node not in self.inputs
-            ]
+            train_roots = list(self.outputs) + extra_outputs
 
-            for node in extra_inputs:
-                tensor_map[node] = node.input
-            for node in extra_outputs:
-                keras_outputs[node.name] = self._resolve_tensor(node, tensor_map)
+            train_inputs = self._collect_inputs_from_roots(train_roots)
 
-            self.train_inputs = self.inputs + extra_inputs
-            keras_inputs = {node.name: node.input for node in self.inputs} | {
-                node.name: node.input for node in extra_inputs
-            }
-            self._train_model = keras.Model(
+            self._train_model, flat_train_model = self._build_keras_graph(
+                roots=train_roots,
+                inputs=train_inputs,
                 name=self.name + "_train",
-                inputs=keras_inputs,
-                outputs=keras_outputs,
             )
+
+            self.train_inputs = flat_train_model.inputs
         else:
-            self.train_inputs = self.inputs
             self._train_model = self.model
+            self.train_inputs = flat_model.inputs
+
         return self
+
+    def _build_keras_graph(self, roots, inputs, name):
+        """
+        Build one fresh Keras graph from roots.
+        Never mix tensors from another build.
+        """
+        tmp = Modely(
+            name=name + "_symbolic",
+            inputs=inputs,
+            outputs=roots,
+        )
+
+        flat = flatten(tmp)
+
+        for node in self.order:
+            if isinstance(node, Layer) and hasattr(node, "_layer"):
+                node._layer = None
+
+        for node in flat.order:
+            if isinstance(node, SampleWindow):
+                pred = node.preds[0]
+                if isinstance(pred, Input):
+                    node.past = pred.past - node.past
+
+        tensor_map = {node: node.input for node in flat.inputs}
+
+        keras_outputs = {}
+        for node in flat.outputs:
+            keras_outputs[node.name] = self._resolve_tensor(node, tensor_map)
+
+        keras_inputs = {node.name: node.input for node in flat.inputs}
+
+        keras_model = keras.Model(
+            name=name,
+            inputs=keras_inputs,
+            outputs=keras_outputs,
+        )
+
+        return keras_model, flat
+
+    def _collect_inputs_from_roots(self, roots):
+        """
+        Collect all Input nodes needed by outputs/minimizers.
+        Keeps self.inputs first, then adds extra inputs such as x_target.
+        """
+        order = toposort_outputs(roots)
+
+        inputs = list(self.inputs)
+        seen = {id(node) for node in inputs}
+
+        for node in order:
+            if isinstance(node, Input) and id(node) not in seen:
+                inputs.append(node)
+                seen.add(id(node))
+
+        return inputs
 
     def _resolve_tensor(self, node, tensor_map):
         if node in tensor_map:
@@ -149,14 +247,11 @@ class Modely:
             y = node.as_tensor(anchor)
             tensor_map[node] = y
 
+            print(
+                f"Collected trainable parameter '{node.name}' with value {node.param}"
+            )
             if node.param is not None:  # and node.param not in self._training_params:
                 self._training_params.append(node.param)
-
-            return y
-
-        if isinstance(node, IntermediateOutput):
-            y = self._resolve_intermediate_output(node, tensor_map)
-            tensor_map[node] = y
             return y
 
         pred_tensors = [self._resolve_tensor(pred, tensor_map) for pred in node.preds]
@@ -173,36 +268,6 @@ class Modely:
 
         tensor_map[node] = y
         return y
-
-    def _resolve_intermediate_output(self, node, tensor_map):
-        """
-        Resolve one output of a nested Modely call.
-
-        `node` is an IntermediateOutput.
-        `node.pred` is the ModelCall object.
-        """
-        call = node.pred
-        submodel = call.model
-
-        if submodel.model is None:
-            submodel.build()
-
-        sub_inputs = {
-            old_input.name: self._resolve_tensor(new_input, tensor_map)
-            for old_input, new_input in call.inputs_map.items()
-        }
-
-        sub_out = submodel.model(sub_inputs)
-
-        if isinstance(sub_out, dict):
-            return sub_out[node.name]
-
-        if len(submodel.outputs) == 1:
-            return sub_out
-
-        raise ValueError(
-            f"Submodel '{submodel.name}' has multiple outputs but returned a non-dict result."
-        )
 
     # -------------------------------------------------------------------------
     # Train API
@@ -346,7 +411,6 @@ class Modely:
                 epoch_losses = []
                 for start in range(0, n_samples, batch_size):
                     batch_idx = idxs[start : start + batch_size]
-
                     batch_samples = [train_data[i] for i in batch_idx]
                     batch_inputs = {}
                     for k in train_data.inputs:

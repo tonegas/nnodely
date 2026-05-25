@@ -48,7 +48,7 @@ class Parameter(Stream):
     stored in `self.param`.
 
     Shape without batch:
-        seq + (time,) + dim
+        dim + (time,) + seq
     """
 
     def __init__(
@@ -68,7 +68,7 @@ class Parameter(Stream):
             if arr.ndim == 0:
                 arr = arr.reshape(1, 1)
                 seq = None
-                time = 1
+                time = None
                 dim = (1,)
             elif arr.ndim == 1:
                 arr = arr.reshape(arr.shape[0], 1)

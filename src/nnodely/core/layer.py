@@ -17,6 +17,7 @@ class Layer(Stream):
     def __init__(self, name=None, preds=None, seq=None, time=None, dim=None, **kwargs):
         self._properties = dict(kwargs)
         self.inputs = None
+        self._layer = None
 
         super().__init__(
             name=next_name(self.__class__.__name__) if name is None else name,
@@ -48,10 +49,11 @@ class Layer(Stream):
         return keras.layers.Identity(name=self.name)
 
     def call(self, *xs):
-        layer = self.build_layer()
+        if self._layer is None:
+            self._layer = self.build_layer()
         if len(xs) == 1:
-            return layer(xs[0])
-        return layer(xs)
+            return self._layer(xs[0])
+        return self._layer(xs)
 
     # ------------------------------------------------------------------
     # Symbolic graph logic
