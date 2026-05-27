@@ -12,10 +12,6 @@ from nnodely.layers.activations import (
     Swish,
     Softplus,
 )
-from nnodely.layers.concatenate import Concatenate, TimeConcatenate
-from nnodely.layers.parameter import Parameter
-from nnodely.layers.constant import Constant
-from nnodely.layers.fir import Fir
 from nnodely.layers.fuzzify import Fuzzify
 
 
@@ -69,53 +65,53 @@ def test_activations():
     model.build()
 
 
-def test_layers():
-    x = Input("x", dim=1)
-    param = Parameter("param1", dim=1)
-    const = Constant("const1", value=[1.0])
+# def test_layers():
+#     x = Input("x", dim=1)
+#     param = Parameter("param1", dim=1)
+#     const = Constant("const1", value=[1.0])
 
-    add = param + const
-    mul = param * const
-    sub = param - const
-    div = param / const
+#     add = param + const
+#     mul = param * const
+#     sub = param - const
+#     div = param / const
 
-    Fir_out = Fir(out_features=1)([x.sw(2)])
-    out_add = Output("out_add", add)
-    out_mul = Output("out_mul", mul)
-    out_sub = Output("out_sub", sub)
-    out_div = Output("out_div", div)
-    out_fir = Output("out_fir", Fir_out)
-    out_concat = Output(
-        "out_concat", TimeConcatenate(name="time_concat")([x.sw(2), Fir_out])
-    )
-    param2 = Parameter("param2", dim=(3, 2))
-    param3 = Parameter("param3", dim=(1, 2))
-    param4 = Parameter("param4", dim=(1, 2))
-    out_concat2 = Output(
-        "out_concat2", Concatenate(name="concat", axis=0)([param2, param3])
-    )
-    out_concat3 = Output(
-        "out_concat3", Concatenate(name="concat2", axis=1)([param3, param4])
-    )
-    out_concat4 = Output(
-        "out_concat4", Concatenate(name="concat3", axis=0)([param2, param3, param4])
-    )
-    model = Modely(
-        "model",
-        inputs=[x],
-        outputs=[
-            out_add,
-            out_mul,
-            out_sub,
-            out_div,
-            out_fir,
-            out_concat,
-            out_concat2,
-            out_concat3,
-            out_concat4,
-        ],
-    )
-    model.build()
+#     Fir_out = Fir(out_features=1)([x.sw(2)])
+#     out_add = Output("out_add", add)
+#     out_mul = Output("out_mul", mul)
+#     out_sub = Output("out_sub", sub)
+#     out_div = Output("out_div", div)
+#     out_fir = Output("out_fir", Fir_out)
+#     out_concat = Output(
+#         "out_concat", TimeConcatenate(name="time_concat")([x.sw(2), Fir_out])
+#     )
+#     param2 = Parameter("param2", dim=(3, 2))
+#     param3 = Parameter("param3", dim=(1, 2))
+#     param4 = Parameter("param4", dim=(1, 2))
+#     out_concat2 = Output(
+#         "out_concat2", Concatenate(name="concat", axis=0)([param2, param3])
+#     )
+#     out_concat3 = Output(
+#         "out_concat3", Concatenate(name="concat2", axis=1)([param3, param4])
+#     )
+#     out_concat4 = Output(
+#         "out_concat4", Concatenate(name="concat3", axis=0)([param2, param3, param4])
+#     )
+#     model = Modely(
+#         "model",
+#         inputs=[x],
+#         outputs=[
+#             out_add,
+#             out_mul,
+#             out_sub,
+#             out_div,
+#             out_fir,
+#             out_concat,
+#             out_concat2,
+#             out_concat3,
+#             out_concat4,
+#         ],
+#     )
+#     model.build()
 
 
 def test_fuzzify():

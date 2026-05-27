@@ -64,7 +64,6 @@ class Concatenate(Layer):
 
     def build_layer(self):
         keras_axis = self._resolve_dim_axis(len(self.dim))
-        print(f"{self.name}: building Concatenate layer with keras_axis={keras_axis}")
         return keras.layers.Concatenate(axis=keras_axis, name=self.name)
 
 

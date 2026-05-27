@@ -6,46 +6,62 @@ from nnodely.core.stream import Stream
 
 class _ParameterLayer(keras.layers.Layer):
     def __init__(self, parameter, **kwargs):
-        super().__init__(**kwargs)
+        super().__init__(dtype=parameter.dtype, **kwargs)
         self.parameter = parameter
 
-    def build(self, input_shape):
-        if self.parameter.param is None:
-            shape = self.parameter.shape
-            if self.parameter.value is not None:
-                value = np.asarray(self.parameter.value, dtype=np.float32)
-                if value.shape != shape:
-                    try:
-                        value = np.reshape(value, shape)
-                    except Exception as e:
-                        raise ValueError(
-                            f"Parameter '{self.parameter.name}' value shape {value.shape} "
-                            f"is incompatible with expected shape {shape}"
-                        ) from e
-                initializer = keras.initializers.Constant(value)  # type:ignore
-            else:
-                initializer = keras.initializers.get(self.parameter.initializer)
-            self.parameter.param = self.add_weight(
-                name=self.parameter.name,
-                shape=shape,
-                initializer=initializer,
-                trainable=True,
-                dtype=self.parameter.dtype,
-            )
+    def build(self, input_shape=None):
+        shape = self.parameter.shape
+
+        if self.parameter.value is not None:
+            value = np.asarray(self.parameter.value, dtype=np.float32)
+            if value.shape != shape:
+                try:
+                    value = np.reshape(value, shape)
+                except Exception as e:
+                    raise ValueError(
+                        f"Parameter '{self.parameter.name}' value shape {value.shape} "
+                        f"is incompatible with expected shape {shape}"
+                    ) from e
+
+            initializer = keras.initializers.Constant(value=value.tolist())
         else:
-            self._trainable_weights = [self.parameter.param]
+            initializer = keras.initializers.get(self.parameter.initializer)
+
+        self.parameter.param = self.add_weight(
+            name="value",
+            shape=shape,
+            initializer=initializer,
+            trainable=True,
+            dtype=self.parameter.dtype,
+        )
+
         super().build(input_shape)
 
-    def call(self, inputs):
-        return self.parameter.param
+    # def call(self, anchor):
+    #     batch = keras.ops.shape(anchor)[0]
+
+    #     out_shape = keras.ops.concatenate(
+    #         [
+    #             keras.ops.reshape(batch, (1,)),
+    #             keras.ops.convert_to_tensor(self.parameter.shape, dtype="int32"),
+    #         ],
+    #         axis=0,
+    #     )
+
+    #     value = keras.ops.expand_dims(self.parameter.param, axis=0)
+    #     return keras.ops.broadcast_to(value, out_shape)
+    def call(self, anchor):
+        value = keras.ops.expand_dims(self.parameter.param, axis=0)
+
+        axes = tuple(range(1, len(anchor.shape)))
+        zeros = keras.ops.sum(anchor, axis=axes, keepdims=True) * 0.0
+
+        return zeros + value
 
 
 class Parameter(Stream):
     """
     Trainable symbolic source node.
-
-    A Parameter is a source Stream with a standalone trainable Keras weight
-    stored in `self.param`.
 
     Shape without batch:
         dim + (time,) + seq
@@ -65,20 +81,25 @@ class Parameter(Stream):
         if value is not None:
             arr = np.asarray(value, dtype=np.float32)
 
+            # Convention: dim + (time,) + seq
             if arr.ndim == 0:
                 arr = arr.reshape(1, 1)
-                seq = None
-                time = None
                 dim = (1,)
+                time = 1
+                seq = None
             elif arr.ndim == 1:
+                # [D] -> [D, time=1]
                 arr = arr.reshape(arr.shape[0], 1)
+                dim = (arr.shape[0],)
+                time = 1
                 seq = None
-                time = arr.shape[0]
-                dim = (1,)
             else:
+                # assume [dim..., time]
+                dim = tuple(arr.shape[:-1])
+                time = arr.shape[-1]
                 seq = None
-                time = arr.shape[0]
-                dim = tuple(arr.shape[1:])
+
+            value = arr
 
         super().__init__(
             name=name,
@@ -92,60 +113,56 @@ class Parameter(Stream):
         self.initializer = initializer
         self.dtype = dtype
 
-        self.param = None
+        self._state = {
+            "param": None,
+            "layer": None,
+        }
 
-    def build_parameter(self):
-        """
-        Create the trainable Keras weight if it does not exist yet.
-        """
-        if self.param is not None:
-            return self.param
-
-        shape = self.shape
-
-        if self.value is not None:
-            value = np.asarray(self.value, dtype=np.float32)
-            if value.shape != shape:
-                try:
-                    value = np.reshape(value, shape)
-                except Exception as e:
-                    raise ValueError(
-                        f"Parameter '{self.name}' value shape {value.shape} "
-                        f"is incompatible with expected shape {shape}"
-                    ) from e
-            init = value
-        else:
-            if self.initializer == "zeros":
-                init = np.zeros(shape, dtype=np.float32)
-            elif self.initializer == "ones":
-                init = np.ones(shape, dtype=np.float32)
-            elif self.initializer == "random_normal":
-                init = np.random.randn(*shape).astype(np.float32)
-            elif self.initializer == "random_uniform":
-                init = np.random.uniform(-0.05, 0.05, size=shape).astype(np.float32)
-            else:
-                raise ValueError(f"Unsupported initializer: {self.initializer!r}")
-
-        self.param = keras.Variable(
-            initializer=init,
-            shape=shape,
-            dtype=self.dtype,
-            trainable=True,
+    def __copy__(self):
+        new = self.__class__(
             name=self.name,
+            value=self.value,
+            initializer=self.initializer,
+            seq=self.seq,
+            time=self.time,
+            dim=self.dim,
+            dtype=self.dtype,
         )
-        return self.param
+        new.preds = list(self.preds)
+
+        # critical: original and flattened copy share param/layer
+        new._state = self._state
+        return new
 
     def as_tensor(self, anchor):
-        # v = self.build_parameter()
-        # return keras.layers.Lambda(
-        #     lambda x: v,
-        #     output_shape=self.shape,
-        #     name=self.name,
-        # )(anchor)
-        return _ParameterLayer(self, name=self.name)(anchor)
+        if anchor is None:
+            raise ValueError(
+                f"Parameter '{self.name}' needs an anchor tensor to enter the Keras graph."
+            )
+
+        if self._layer is None:
+            self._layer = _ParameterLayer(self, name=f"{self.name}_tensor")
+
+        return self._layer(anchor)
+
+    @property
+    def param(self):
+        return self._state["param"]
+
+    @param.setter
+    def param(self, value):
+        self._state["param"] = value
+
+    @property
+    def _layer(self):
+        return self._state["layer"]
+
+    @_layer.setter
+    def _layer(self, value):
+        self._state["layer"] = value
 
     @property
     def value_numpy(self):
         if self.param is None:
             return None
-        return np.array(self.param)
+        return keras.ops.convert_to_numpy(self.param)

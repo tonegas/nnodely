@@ -1,10 +1,10 @@
-from nnodely import Input, Output, Fir, Modely, DataLoader
+from nnodely import Input, Output, Fir, Modely, DataLoader, Parameter, Constant
 
-import pytest
 import os
+import numpy as np
 
 
-@pytest.mark.slow
+# @pytest.mark.slow
 def test_train_basic():
     # ------- Model definition and training -------
     x = Input("x", dim=1)
@@ -56,38 +56,39 @@ def test_train_basic():
 
 
 # @pytest.mark.slow
-# def test_train_with_parameters():
-#     # ------- Model definition with Parameters and Constants -------
-#     x = Input("x", dim=1)
-#     param = Parameter("param1", value=[1.0])
-#     const = Constant("const1", value=[1.0])
-#     x_param = x.sw(1) * param + const
-#     x_out = Output("x_out", x_param)
-#     model = Modely("model", inputs=[x], outputs=[x_out])
-#     model.minimize(
-#         "error", source=x_out, target=Input("x_target", dim=1).sw(1), loss="mse"
-#     )
-#     model.build()
+def test_train_with_parameters():
+    # ------- Model definition with Parameters and Constants -------
+    x = Input("x", dim=1)
+    param = Parameter("param1", value=[1.0])
+    const = Constant("const1", value=[1.0])
+    x_param = x.sw(1) * param + const
+    x_out = Output("x_out", x_param)
+    model = Modely("model", inputs=[x], outputs=[x_out])
+    model.minimize(
+        "error", source=x_out, target=Input("x_target", dim=1).sw(1), loss="mse"
+    )
+    model.build()
 
-#     dummy_input_x = np.ones((4, 1, 1), dtype=np.float32)
+    dummy_input_x = np.ones((1, 1, 1), dtype=np.float32)
 
-#     # ------ Create a simple dataset and train the model -------
-#     true_param = 3.5  # The true parameter value we want to learn
-#     dataframe = {
-#         "x": np.ones((100, 1, 1), dtype=np.float32),
-#         "x_target": np.ones((100, 1, 1), dtype=np.float32) * true_param,
-#     }
-#     data_train = DataLoader(model, source=dataframe)
+    # ------ Create a simple dataset and train the model -------
+    true_param = np.array([3.5])  # The true parameter value we want to learn
+    dataframe = {
+        "x": np.ones((100, 1, 1), dtype=np.float32),
+        "x_target": np.ones((100, 1, 1), dtype=np.float32) * true_param,
+    }
+    data_train = DataLoader(model, source=dataframe)
 
-#     model.train(train_data=data_train, epochs=50, batch_size=16)
-#     print(f"Learned parameter value: {param.value_numpy}, Learned constant value: {const.value_numpy}")
-#     assert np.isclose(
-#         a=np.array(param.value_numpy),
-#         b=np.array(true_param - const.value_numpy),
-#         atol=0.1,
-#     )
-#     assert np.isclose(const.value_numpy, 1.0, atol=0.1)
+    model.train(train_data=data_train, epochs=100, batch_size=16, lr=0.01)
+    assert np.isclose(
+        a=np.array(param.value_numpy),
+        b=np.array(true_param - const.value_numpy),
+        atol=0.01,
+    )
+    assert np.isclose(const.value_numpy, 1.0, atol=0.01)
 
-#     # ------ Inference after training -------
-#     result_after_training = model({"x": dummy_input_x})
-#     assert np.isclose(result_after_training["x_out"].mean(), true_param, atol=0.1)
+    # ------ Inference after training -------
+    result_after_training = model({"x": dummy_input_x})
+    assert np.isclose(
+        result_after_training["x_out"].cpu().detach().numpy(), true_param, atol=0.01
+    )
