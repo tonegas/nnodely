@@ -37,26 +37,11 @@ class _ParameterLayer(keras.layers.Layer):
 
         super().build(input_shape)
 
-    # def call(self, anchor):
-    #     batch = keras.ops.shape(anchor)[0]
-
-    #     out_shape = keras.ops.concatenate(
-    #         [
-    #             keras.ops.reshape(batch, (1,)),
-    #             keras.ops.convert_to_tensor(self.parameter.shape, dtype="int32"),
-    #         ],
-    #         axis=0,
-    #     )
-
-    #     value = keras.ops.expand_dims(self.parameter.param, axis=0)
-    #     return keras.ops.broadcast_to(value, out_shape)
     def call(self, anchor):
         value = keras.ops.expand_dims(self.parameter.param, axis=0)
-
-        axes = tuple(range(1, len(anchor.shape)))
-        zeros = keras.ops.sum(anchor, axis=axes, keepdims=True) * 0.0
-
-        return zeros + value
+        zero = keras.ops.sum(anchor, axis=tuple(range(1, len(anchor.shape)))) * 0.0
+        zero = keras.ops.reshape(zero, (-1,) + (1,) * len(self.parameter.shape))
+        return value + zero
 
 
 class Parameter(Stream):
@@ -134,14 +119,14 @@ class Parameter(Stream):
         new._state = self._state
         return new
 
-    def as_tensor(self, anchor):
+    def as_tensor(self, anchor=None):
         if anchor is None:
             raise ValueError(
                 f"Parameter '{self.name}' needs an anchor tensor to enter the Keras graph."
             )
 
         if self._layer is None:
-            self._layer = _ParameterLayer(self, name=f"{self.name}_tensor")
+            self._layer = _ParameterLayer(parameter=self, name=f"{self.name}_tensor")
 
         return self._layer(anchor)
 

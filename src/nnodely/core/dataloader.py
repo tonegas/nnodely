@@ -103,19 +103,7 @@ class DataLoader:
             idx = self._num_steps + idx
         if idx < 0 or idx >= self._num_steps:
             raise IndexError(f"idx out of range: {idx} (len={self._num_steps})")
-        return {k: v[idx] for k, v in self.dataset.items()}
-
-    # def get_step(self, idx: int) -> Dict[str, Any]:
-    #     if idx < 0:
-    #         idx = self._num_steps + idx
-
-    #     if idx < 0 or idx >= self._num_steps:
-    #         raise IndexError(f"idx out of range: {idx} (len={self._num_steps})")
-
-    #     return {
-    #         k: keras.ops.convert_to_tensor(v[idx][None, ...])
-    #         for k, v in self.dataset.items()
-    #     }
+        return {k: v[idx][None, ...] for k, v in self.dataset.items()}
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         return self.get_step(idx)

@@ -23,7 +23,6 @@ class Input(Stream):
     ):
         super().__init__(name=name, seq=seq, time=None, dim=dim, preds=None)
         self.input = keras.Input(shape=self.shape, name=self.name)
-        # self.sampling = sampling
         self.past, self.future = (
             0,
             0,

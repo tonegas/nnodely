@@ -7,7 +7,6 @@ from nnodely.core.stream import Stream, Node
 from nnodely.layers.constant import Constant
 from nnodely.layers.parameter import Parameter
 from nnodely.core.dataloader import DataLoader
-from nnodely.layers.time_ops import SampleWindow
 import tensorflow as tf
 import numpy as np
 from tqdm import tqdm
@@ -51,7 +50,6 @@ class Modely:
             outputs = [IntermediateOutput(output, mc) for output in self.outputs]
             mc.outputs_map = {new: old for old, new in zip(self.outputs, outputs)}
             return outputs[0] if len(outputs) == 1 else outputs
-            # return outputs
 
         # tensor execution mode
         if self.model is None:
@@ -102,16 +100,14 @@ class Modely:
         flat = flatten(self) if model is None else flatten(model)
         for node in flat.order:
             if isinstance(node, Layer):
-                node._layer = None
-            if isinstance(node, SampleWindow):
-                pred = node.preds[0]
-                if isinstance(pred, Input):
-                    node.past = pred.past - node.past
+                node._layer = None  # reset layer instance to ensure fresh build and avoid mixing tensors from previous builds
 
+        ## Build the tensor map starting with the inputs
         tensor_map = {}
         for node in flat.inputs:
             tensor_map[node] = node.input
 
+        ## Resolve the rest of the relations in topological order
         for node in [node for node in flat.order if not isinstance(node, Input)]:
             if isinstance(node, Layer):
                 tensor_map[node] = node.call([tensor_map[pred] for pred in node.preds])
@@ -119,15 +115,13 @@ class Modely:
             elif isinstance(node, Output):
                 tensor_map[node] = tensor_map[node.preds[0]]
 
-            # elif isinstance(node, Input):
-            #     continue  # already handled
-
             elif isinstance(node, (Constant, Parameter)):
                 anchor = next(iter(tensor_map.values()), None)
                 tensor_map[node] = node.as_tensor(anchor)
             else:
                 raise ValueError(f"Unknown node type '{type(node)}' in DAG.")
 
+        ## Build the Keras model with the resolved tensors
         keras_inputs = {node.name: node.input for node in flat.inputs}
         keras_outputs = {node.name: tensor_map[node] for node in flat.outputs}
         keras_model = keras.Model(

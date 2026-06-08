@@ -36,25 +36,9 @@ class _ConstantLayer(keras.layers.Layer):
 
     def call(self, anchor):
         value = keras.ops.expand_dims(self.constant_node.constant, axis=0)
-
-        axes = tuple(range(1, len(anchor.shape)))
-        zeros = keras.ops.sum(anchor, axis=axes, keepdims=True) * 0.0
-
-        return zeros + value
-
-    # def call(self, anchor):
-    #     batch = keras.ops.shape(anchor)[0]
-
-    #     out_shape = keras.ops.concatenate(
-    #         [
-    #             keras.ops.reshape(batch, (1,)),
-    #             keras.ops.convert_to_tensor(self.constant_node.shape, dtype="int32"),
-    #         ],
-    #         axis=0,
-    #     )
-
-    #     value = keras.ops.expand_dims(self.constant_node.constant, axis=0)
-    #     return keras.ops.broadcast_to(value, out_shape)
+        zero = keras.ops.sum(anchor, axis=tuple(range(1, len(anchor.shape)))) * 0.0
+        zero = keras.ops.reshape(zero, (-1,) + (1,) * len(self.constant_node.shape))
+        return value + zero
 
 
 class Constant(Stream):
