@@ -20,14 +20,17 @@ class SampleWindow(Layer):
         return inp.dim, self.past + self.future, inp.seq
 
     def build_layer(self):
+        from nnodely.layers.input import Input
+
         if self.window_size <= 0:
             raise ValueError(
                 f"{self.name}: past + future must be positive, got {self.window_size}."
             )
 
+        pred_past = self.preds[0].past if isinstance(self.preds[0], Input) else 0
         slices = (
             [slice(None)] * (1 + len(self.dim))
-            + [slice(self.past, self.past + self.window_size)]
+            + [slice(pred_past - self.past, (pred_past - self.past) + self.window_size)]
             + [slice(None)] * len(self.seq)
         )
         return keras.layers.Lambda(

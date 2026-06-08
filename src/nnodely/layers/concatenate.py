@@ -63,8 +63,7 @@ class Concatenate(Layer):
         return tuple(out_dim), ref_time, ref_seq
 
     def build_layer(self):
-        keras_axis = self._resolve_dim_axis(len(self.dim))
-        print(f"{self.name}: building Concatenate layer with keras_axis={keras_axis}")
+        keras_axis = self._resolve_dim_axis(len(self.dim)) + 1
         return keras.layers.Concatenate(axis=keras_axis, name=self.name)
 
 

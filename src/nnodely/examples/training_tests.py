@@ -6,8 +6,9 @@ os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 # os.environ.setdefault("KERAS_BACKEND", "torch")
 # os.environ.setdefault("KERAS_BACKEND", "jax")
 
-from nnodely import Input, Output, Modely, Loop, Parameter, DataLoader
+from nnodely import Input, Output, Modely, Loop, Parameter
 import numpy as np
+
 
 def dummy_input(shape, method="random"):
     if method == "random":
@@ -42,14 +43,14 @@ def test_closed_loop():
     # model_in.build()
 
     # Option 2: use closed_loop shortcut in Modely.closed_loop() for more concise syntax
-    x = Input(name="x", dim=1, time=2)
+    x = Input(name="x", dim=1, time=2)  # type:ignore
     y = Input(name="y", dim=1, seq=4)
     model_in = model_add.closed_loop(
         name="model_with_loop", inputs=[x, y], closed_loop={"x": "out1"}
     )
 
     # Create a nested loop model
-    w = Input(name="w", dim=1, time=2)
+    w = Input(name="w", dim=1, time=2)  # type:ignore
     z = Input(name="z", dim=1, seq=(4, 2))
     loop_fn2 = Loop(f=model_in, closed_loop={"z": "out1"}, name="loop_model_in")
     out_w = Output("out_w", loop_fn2([w, z]))
@@ -68,17 +69,17 @@ def test_closed_loop():
     model_out.plot(to_file="html/model_with_loop_w.png")
 
     # ------- Model training -------
-    data_size = 1000
-    data_train = DataLoader(
-        model_out,
-        source={
-            "w": [dummy_input((1, 2), method="random") for _ in range(data_size)],
-            "z": [dummy_input((1, 1, 4, 2), method="random") for _ in range(data_size)],
-            "w_target": [
-                dummy_input((1, 1, 4, 2), method="zeros") for _ in range(data_size)
-            ],
-        },
-    )
+    # data_size = 1000
+    # data_train = DataLoader(
+    #     model_out,
+    #     source={
+    #         "w": [dummy_input((1, 2), method="random") for _ in range(data_size)],
+    #         "z": [dummy_input((1, 1, 4, 2), method="random") for _ in range(data_size)],
+    #         "w_target": [
+    #             dummy_input((1, 1, 4, 2), method="zeros") for _ in range(data_size)
+    #         ],
+    #     },
+    # )
 
     import time
 
@@ -97,7 +98,6 @@ def test_closed_loop():
     result_out = model_out({"z": dummy_input_z, "w": dummy_input_w})
 
     return end_time - start_time, result_in, result_out
-
 
 
 # Try with different backends:

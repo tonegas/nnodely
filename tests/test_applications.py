@@ -1,65 +1,63 @@
-import os
+# import os
 
-import pytest
-
-from nnodely import Input, Fir, ReLU, Modely, DataLoader, Fuzzify, LocalModel, Output
+# from nnodely import Input, Fir, ReLU, Modely, DataLoader, Fuzzify, LocalModel, Output
 
 
-@pytest.mark.slow
-def vehicle_longitudinal_dynamics():
-    # ------- Test Model Longitudinal Vehicle Dynamics -------
-    n = 25
-    na = 21
+# #@pytest.mark.slow
+# def test_vehicle_longitudinal_dynamics():
+#     # ------- Test Model Longitudinal Vehicle Dynamics -------
+#     n = 25
+#     na = 21
 
-    # Create neural model inputs
-    velocity = Input("vel")
-    brake = Input("brk")
-    gear = Input("gear")
-    torque = Input("trq")
-    altitude = Input("alt", dim=na)
-    acc = Input("acc")
+#     # Create neural model inputs
+#     velocity = Input("vel")
+#     brake = Input("brk")
+#     gear = Input("gear")
+#     torque = Input("trq")
+#     altitude = Input("alt", dim=na)
+#     acc = Input("acc")
 
-    # Create neural network relations
-    air_drag_force = Fir(out_features=1, use_bias=True)([velocity.sw(1)])
-    breaking_force = Fir(out_features=1)([brake.sw(n)])
-    breaking_force = ReLU()([breaking_force])
-    breaking_force = -1 * breaking_force
-    # gravity_force = Linear(W_init='init_constant', W_init_params={'value':0}, dropout=0.1, W='gravity')(altitude.sw(1))
-    gravity_force = Fir(out_features=1, use_bias=True)([altitude.sw(1)])
-    fuzzi_gear = Fuzzify(6, range=[2, 7], functions="Rectangular")([gear.sw(1)])
-    local_model = LocalModel(input_function=Fir(out_features=1), name="local_model")
-    engine_force = local_model(fuzzi_gear)
+#     # Create neural network relations
+#     air_drag_force = Fir(out_features=1, use_bias=True)([velocity.sw(1)])
+#     breaking_force = Fir(out_features=1)([brake.sw(n)])
+#     breaking_force = ReLU()([breaking_force])
+#     breaking_force = -1 * breaking_force
+#     # gravity_force = Linear(W_init='init_constant', W_init_params={'value':0}, dropout=0.1, W='gravity')(altitude.sw(1))
+#     gravity_force = Fir(out_features=1, use_bias=True)([altitude.sw(1)])
+#     fuzzi_gear = Fuzzify(6, range=[2, 7], functions="Rectangular")([gear.sw(1)])
+#     local_model = LocalModel(input_function=Fir(out_features=1), name="local_model")
+#     engine_force = local_model(fuzzi_gear)
 
-    # Create neural network output
-    out = Output(
-        "accelleration",
-        air_drag_force + breaking_force + gravity_force + engine_force([torque.sw(n)]),
-    )
+#     # Create neural network output
+#     out = Output(
+#         "accelleration",
+#         air_drag_force + breaking_force + gravity_force + engine_force([torque.sw(n)]),
+#     )
 
-    # Add the neural model to the nnodely structure and neuralization of the model
-    vehicle = Modely(
-        "vehicle",
-        inputs=[velocity, brake, gear, torque, altitude, acc],
-        outputs=[out],
-    )
-    vehicle.minimize("acc_error", acc.sw(1), out, loss="rmse")
-    vehicle.build()
-    vehicle.plot(to_file="html/vehicle_model.png")
+#     # Add the neural model to the nnodely structure and neuralization of the model
+#     vehicle = Modely(
+#         "vehicle",
+#         inputs=[velocity, brake, gear, torque, altitude, acc],
+#         outputs=[out],
+#     )
+#     vehicle.minimize("acc_error", acc.sw(1), out, loss="rmse")
+#     vehicle.build()
+#     vehicle.plot(to_file="html/vehicle_model.png")
 
-    # Load the training and the validation dataset
-    data_folder = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), "dataset", "trainingset"
-    )
-    DataLoader(
-        model=vehicle,
-        format={"vel": 0, "trq": 1, "brk": 2, "gear": 3, "alt": 4, "acc": 5},
-        source=data_folder,
-    )
-    data_folder = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), "dataset", "validationset"
-    )
-    DataLoader(
-        model=vehicle,
-        format={"vel": 0, "trq": 1, "brk": 2, "gear": 3, "alt": 4, "acc": 5},
-        source=data_folder,
-    )
+#     # Load the training and the validation dataset
+#     data_folder = os.path.join(
+#         os.path.dirname(os.path.realpath(__file__)), "dataset", "trainingset"
+#     )
+#     DataLoader(
+#         model=vehicle,
+#         format={"vel": 0, "trq": 1, "brk": 2, "gear": 3, "alt": 4, "acc": 5},
+#         source=data_folder,
+#     )
+#     data_folder = os.path.join(
+#         os.path.dirname(os.path.realpath(__file__)), "dataset", "validationset"
+#     )
+#     DataLoader(
+#         model=vehicle,
+#         format={"vel": 0, "trq": 1, "brk": 2, "gear": 3, "alt": 4, "acc": 5},
+#         source=data_folder,
+#     )

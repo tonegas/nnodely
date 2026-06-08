@@ -2,7 +2,6 @@ import keras
 
 from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
-import tensorflow as tf
 
 
 class LoopImpl(keras.layers.Layer):
@@ -52,15 +51,22 @@ class LoopImpl(keras.layers.Layer):
     def _shift_time_window(self, prev_tensor, new_tensor, idx):
         # Shift the time window by one step.
         # For example, if time dimension is at index 2 and shape is (batch, features, time, seq), we want to shift along axis=2.
-        if new_tensor.shape[self.inputs[idx].time_index] is not None and new_tensor.shape[self.inputs[idx].time_index] == 1:
+        if (
+            new_tensor.shape[self.inputs[idx].time_index] is not None  # type:ignore
+            and new_tensor.shape[self.inputs[idx].time_index] == 1  # type:ignore
+        ):
             return keras.ops.concatenate(
-                [prev_tensor[..., 1:], new_tensor], axis=self.inputs[idx].time_index
+                [prev_tensor[..., 1:], new_tensor],
+                axis=self.inputs[idx].time_index,  # type:ignore
             )
-        else: # new_tensor has a bigger time window
+        else:  # new_tensor has a bigger time window
             # Check if the new_tensor has the same time dimension as prev_tensor.
-            if new_tensor.shape[self.inputs[idx].time_index] != prev_tensor.shape[self.inputs[idx].time_index]:
+            if (
+                new_tensor.shape[self.inputs[idx].time_index]  # type:ignore
+                != prev_tensor.shape[self.inputs[idx].time_index]  # type:ignore
+            ):
                 raise ValueError(
-                    f"Cannot shift time window: new_tensor time dimension {new_tensor.shape[self.inputs[idx].time_index]} is not equal to prev_tensor time dimension {prev_tensor.shape[self.inputs[idx].time_index]}"
+                    f"Cannot shift time window: new_tensor time dimension {new_tensor.shape[self.inputs[idx].time_index]} is not equal to prev_tensor time dimension {prev_tensor.shape[self.inputs[idx].time_index]}"  # type:ignore
                 )
             return new_tensor
 
@@ -68,14 +74,18 @@ class LoopImpl(keras.layers.Layer):
         if not isinstance(inputs, (list, tuple)):
             inputs = [inputs]
         # Determine horizon from the known sequence metadata stored during build.
-        print(f"LoopImpl.call: self.longest_seq_idx={self.longest_seq_idx}, inputs shapes={[keras.ops.shape(inp) for inp in inputs]}")  # type:ignore
-        horizon = keras.ops.shape(inputs[self.longest_seq_idx])[-1]
+        print(
+            f"LoopImpl.call: self.longest_seq_idx={self.longest_seq_idx}, inputs shapes={[keras.ops.shape(inp) for inp in inputs]}"
+        )  # type:ignore
+        horizon = keras.ops.shape(inputs[self.longest_seq_idx])[-1]  # type:ignore
 
         # Prepare initial step inputs by taking the first time step from each input sequence.
         step_inputs = {}
         y = None
         for idx, inp in enumerate(self.submodel.inputs):
-            if self.inputs[idx].seq == ():  # No sequence dimension, broadcast the input across the horizon.
+            if (
+                self.inputs[idx].seq == ()  # type:ignore
+            ):  # No sequence dimension, broadcast the input across the horizon.
                 step_inputs[inp.name] = inputs[idx]
             else:
                 step_inputs[inp.name] = inputs[idx][..., 0]
@@ -85,23 +95,35 @@ class LoopImpl(keras.layers.Layer):
         for t in range(horizon):
             for idx, inp in enumerate(self.inputs):  # type:ignore
                 if t > 0 and inp.name in self.closed_loop:
-                    if self.inputs[idx].time == 1:
+                    if self.inputs[idx].time == 1:  # type:ignore
                         step_inputs[self.submodel.inputs[idx].name] = (
                             y[self.closed_loop[inp.name]] if isinstance(y, dict) else y
                         )
-                    else: # If the closed-loop input has a time dimension, the time window must be shifted.
-                        step_inputs[self.submodel.inputs[idx].name] = self._shift_time_window(
-                            step_inputs[self.submodel.inputs[idx].name],
-                            y[self.closed_loop[inp.name]] if isinstance(y, dict) else y,
-                            idx
+                    else:  # If the closed-loop input has a time dimension, the time window must be shifted.
+                        step_inputs[self.submodel.inputs[idx].name] = (
+                            self._shift_time_window(
+                                step_inputs[self.submodel.inputs[idx].name],
+                                y[self.closed_loop[inp.name]]
+                                if isinstance(y, dict)
+                                else y,
+                                idx,
+                            )
                         )
                 else:
-                    if self.inputs[idx].seq == ():  # No sequence dimension, broadcast the input across the horizon.
+                    if (
+                        self.inputs[idx].seq == ()  # type:ignore
+                    ):  # No sequence dimension, broadcast the input across the horizon.
                         step_inputs[self.submodel.inputs[idx].name] = inputs[idx]
-                    elif inputs[idx].shape[-1] is not None and inputs[idx].shape[-1] > t:
-                        step_inputs[self.submodel.inputs[idx].name] = inputs[idx][..., t]
+                    elif (
+                        inputs[idx].shape[-1] is not None and inputs[idx].shape[-1] > t
+                    ):
+                        step_inputs[self.submodel.inputs[idx].name] = inputs[idx][
+                            ..., t
+                        ]
                     else:
-                        step_inputs[self.submodel.inputs[idx].name] = inputs[idx][..., -1]
+                        step_inputs[self.submodel.inputs[idx].name] = inputs[idx][
+                            ..., -1
+                        ]
 
             y = self.submodel(step_inputs)
 
@@ -221,7 +243,10 @@ class Loop(Layer):
 
     def build_layer(self):
         # save the index of the longest sequence input for use during call.
-        sequences = [inp.seq[-1] if len(inp.seq) > 0 else inp.seq for inp in self.inputs]
+        sequences = [
+            inp.seq[-1] if len(inp.seq) > 0 else inp.seq
+            for inp in self.inputs  # type:ignore
+        ]
         tmp_max = -1
         for idx, seq in enumerate(sequences):
             if seq is not None:

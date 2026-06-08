@@ -1,11 +1,12 @@
 # import numpy as np
 
-from nnodely import Input, Output, Modely, Loop, Parameter, DataLoader
+from nnodely import Input, Output, Modely, Loop, Parameter
 import numpy as np
 
 import os
 
 from nnodely.layers.fir import Fir
+
 
 def dummy_input(shape, method="random"):
     if method == "random":
@@ -42,9 +43,7 @@ def test_closed_loop(tmp_path):
     # Option 2: use closed_loop shortcut in Modely.closed_loop() for more concise syntax
     # x = Input(name="x", dim=1)
     # y = Input(name="y", dim=1, seq=4)
-    model_in = model_add.closed_loop(
-        name="model_with_loop", closed_loop={"_x": "out1"}
-    )
+    model_in = model_add.closed_loop(name="model_with_loop", closed_loop={"_x": "out1"})
 
     # Create a nested loop model
     w = Input(name="w", dim=1)
@@ -66,18 +65,18 @@ def test_closed_loop(tmp_path):
     model_out.plot(to_file=os.path.join(tmp_path, "model_with_loop_w.png"))
 
     # ------- Model training -------
-    data_size = 1000
-    data_train = DataLoader(
-        model_out,
-        source={
-            "w": [dummy_input((1,), method="random") for _ in range(data_size)],
-            "z": [dummy_input((1, 4, 2), method="random") for _ in range(data_size)],
-            "w_target": [
-                dummy_input((1, 4, 2), method="zeros") for _ in range(data_size)
-            ],
-        },
-    )
-    #model_out.train(train_data=data_train, epochs=10, batch_size=64, lr=1e-3)
+    # data_size = 1000
+    # data_train = DataLoader(
+    #     model_out,
+    #     source={
+    #         "w": [dummy_input((1,), method="random") for _ in range(data_size)],
+    #         "z": [dummy_input((1, 4, 2), method="random") for _ in range(data_size)],
+    #         "w_target": [
+    #             dummy_input((1, 4, 2), method="zeros") for _ in range(data_size)
+    #         ],
+    #     },
+    # )
+    # model_out.train(train_data=data_train, epochs=10, batch_size=64, lr=1e-3)
 
     # ------- Model inference -------
     batch_size = 1
@@ -93,6 +92,7 @@ def test_closed_loop(tmp_path):
     result_out = model_out({"z": dummy_input_z, "w": dummy_input_w})
     assert "out_w" in result_out
     assert result_out["out_w"].shape == (batch_size, 1, 1, 4, 2)
+
 
 def test_sw_closed_loop():
     # Define a simple model to be used in the loop
@@ -114,9 +114,7 @@ def test_sw_closed_loop():
     # model_in.build()
 
     # Option 2: use closed_loop shortcut in Modely.closed_loop() for more concise syntax
-    model_in = model_add.closed_loop(
-        name="model_with_loop", closed_loop={"_x": "out1"}
-    )
+    model_in = model_add.closed_loop(name="model_with_loop", closed_loop={"_x": "out1"})
 
     # Create a nested loop model
     w = Input(name="w", dim=1)
@@ -154,6 +152,7 @@ def test_sw_closed_loop():
 
     assert "out_w" in result_out
     assert result_out["out_w"].shape == (batch_size, 1, 1, 4, 2)
+
 
 def test_sw_2_closed_loop():
     # Define a simple model to be used in the loop

@@ -13,10 +13,10 @@ def test_parameter_constant_shapes():
 
 def test_parameter_constant_model_inference():
     x = Input("x", dim=1)
-    param = Parameter("param1", value=[1.0])
-    const = Constant("const1", value=[1.0])
+    parameter = Parameter("param1", value=[1.0])
+    constant = Constant("const1", value=[1.0])
 
-    y = x.sw(1) * param + const
+    y = x.sw(1) * parameter + constant
     out = Output("x_out", y)
 
     model = Modely("model", inputs=[x], outputs=[out])
@@ -27,3 +27,11 @@ def test_parameter_constant_model_inference():
 
     assert "x_out" in result
     assert result["x_out"].shape == (4, 1, 1)
+    assert np.allclose(
+        result["x_out"].cpu().detach().numpy(), [[[2.0]], [[2.0]], [[2.0]], [[2.0]]]
+    )
+    assert parameter.param is not None
+    if parameter.param is not None:
+        assert parameter.param.shape == (1, 1)
+        assert np.allclose(parameter.param.numpy(), [[1.0]])
+    assert np.allclose(constant.value_numpy, [[1.0]])

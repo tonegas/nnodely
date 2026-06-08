@@ -1,5 +1,7 @@
-from nnodely import Input, Output, Modely
+from nnodely import Input, Output, Modely, Parameter, Constant
+from nnodely.layers.concatenate import Concatenate, TimeConcatenate
 from nnodely.layers.trigonometric import Sin, Cos, Tan, Asin, Acos, Atan
+from nnodely.layers.fir import Fir
 from nnodely.layers.activations import (
     ReLU,
     Sigmoid,
@@ -12,12 +14,9 @@ from nnodely.layers.activations import (
     Swish,
     Softplus,
 )
-from nnodely.layers.concatenate import Concatenate, TimeConcatenate
-from nnodely.layers.parameter import Parameter
-from nnodely.layers.constant import Constant
-from nnodely.layers.fir import Fir
 from nnodely.layers.fuzzify import Fuzzify
 import numpy as np
+
 
 def test_trigonometric():
     # ------- Test trigonometric layers -------
@@ -39,26 +38,41 @@ def test_trigonometric():
     # ------- Model inference -------
     batch_size = 1
     max_time = 4
-    dummy_input_x = np.random.rand(batch_size, 1, max_time) * 2 - 1  # Random values in range [-1, 1]
+    dummy_input_x = (
+        np.random.rand(batch_size, 1, max_time) * 2 - 1
+    )  # Random values in range [-1, 1]
     result = model({"x": dummy_input_x})
     assert "out_sin" in result
     assert result["out_sin"].shape == (batch_size, 1, 1)
-    assert np.allclose(result["out_sin"].detach().cpu().numpy(), np.sin(dummy_input_x[:, :, -1:]))
+    assert np.allclose(
+        result["out_sin"].detach().cpu().numpy(), np.sin(dummy_input_x[:, :, -1:])
+    )
     assert "out_cos" in result
     assert result["out_cos"].shape == (batch_size, 1, 3)
-    assert np.allclose(result["out_cos"].detach().cpu().numpy(), np.cos(dummy_input_x[:, :, -3:]))
+    assert np.allclose(
+        result["out_cos"].detach().cpu().numpy(), np.cos(dummy_input_x[:, :, -3:])
+    )
     assert "out_tan" in result
     assert result["out_tan"].shape == (batch_size, 1, 1)
-    assert np.allclose(result["out_tan"].detach().cpu().numpy(), np.tan(dummy_input_x[:, :, -1:]))
+    assert np.allclose(
+        result["out_tan"].detach().cpu().numpy(), np.tan(dummy_input_x[:, :, -1:])
+    )
     assert "out_asin" in result
     assert result["out_asin"].shape == (batch_size, 1, 4)
-    assert np.allclose(result["out_asin"].detach().cpu().numpy(), np.arcsin(dummy_input_x[:, :, -4:]))
+    assert np.allclose(
+        result["out_asin"].detach().cpu().numpy(), np.arcsin(dummy_input_x[:, :, -4:])
+    )
     assert "out_acos" in result
     assert result["out_acos"].shape == (batch_size, 1, 1)
-    assert np.allclose(result["out_acos"].detach().cpu().numpy(), np.arccos(dummy_input_x[:, :, -1:]))
+    assert np.allclose(
+        result["out_acos"].detach().cpu().numpy(), np.arccos(dummy_input_x[:, :, -1:])
+    )
     assert "out_atan" in result
     assert result["out_atan"].shape == (batch_size, 1, 2)
-    assert np.allclose(result["out_atan"].detach().cpu().numpy(), np.arctan(dummy_input_x[:, :, -2:]))
+    assert np.allclose(
+        result["out_atan"].detach().cpu().numpy(), np.arctan(dummy_input_x[:, :, -2:])
+    )
+
 
 def test_activations():
     # ------- Test activation layers -------

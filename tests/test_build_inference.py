@@ -2,13 +2,16 @@ from nnodely import Modely, Input, Output, Fir
 import numpy as np
 import pytest
 
+
 @pytest.fixture
 def batch_size():
     return 4
 
+
 @pytest.fixture
 def window_size():
     return 5
+
 
 def test_basic_model_build_and_inference(batch_size, window_size):
     x = Input("x", dim=1)

@@ -1,6 +1,6 @@
-from nnodely import Input, Output, Modely, DataLoader
-
 import os
+
+from nnodely import Input, Output, Modely, DataLoader
 
 
 def test_partitioning_windows():
@@ -102,6 +102,7 @@ def test_partitioning_windows():
         [[14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0]],
     ]
 
+    print(data_train[0])
     result = model([data_train[0]])
     assert result["out1"].cpu().numpy().tolist() == [[[33, 46, 61]]]
     assert result["out2"].cpu().numpy().tolist() == [[[26]]]
