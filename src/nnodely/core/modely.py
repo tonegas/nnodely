@@ -90,6 +90,7 @@ class Modely:
         else:
             self._train_model = self.model
             self.train_inputs = flat_model.inputs
+            self.train_inputs = flat_model.inputs
         return self
 
     def _build_keras_graph(self, name, model=None):
@@ -466,10 +467,11 @@ class Modely:
     # -------------------------------------------------------------------------
     def closed_loop(
         self,
-        closed_loop: dict[str | Node, str | Node],
+        closed_loop: dict[str | Input, str | Node],
+        initial_values: dict[str | Input, str | Node],
         inputs: list[Input] | None = None,
         name: str | None = None,
-    ) -> "Modely":
+    ) -> Layer:
         """
         Create a new Modely that rolls out over the rightmost sequence axis.
 
@@ -481,7 +483,6 @@ class Modely:
         - The closed-loop mapped input is updated each step with the submodel output.
         """
         from nnodely.layers.loop import Loop
-
         # Validate closed_loop keys and values
         if len(closed_loop) == 0:
             raise ValueError("closed_loop cannot be empty.")
@@ -514,18 +515,9 @@ class Modely:
         if not self.built:
             self.build()
 
-        loop_fn = Loop(f=self, closed_loop=closed_loop, name=name)
-        loop_outputs = loop_fn(inputs)
-        if isinstance(loop_outputs, dict):
-            outputs = [
-                Output(out_name, loop_outputs[out_name]) for out_name in loop_outputs
-            ]
-        else:
-            outputs = [Output(self.outputs[0].name, loop_outputs)]
+        loop_fn = Loop(f=self, closed_loop=closed_loop, initial_values=initial_values, name=name)
+        return loop_fn
 
-        return Modely(
-            name=name or self.name + "_closed_loop", inputs=inputs, outputs=outputs
-        )
 
     # -------------------------------------------------------------------------
     # Save and load (pickle)

@@ -105,7 +105,6 @@ def test_activations():
     )
     model.build()
 
-
 def test_layers():
     x = Input("x", dim=1)
     param = Parameter("param1", dim=1)

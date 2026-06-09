@@ -86,7 +86,7 @@ def test_visualize_loop(tmp_path):
     z = Input(name="z", dim=1, seq=5)
     const = Constant("const", value=2.0)
     r2 = z.sw(1) * const
-    loop_fn = Loop(f=model1, closed_loop={"z": "out1"})
+    loop_fn = Loop(f=model1, closed_loop={"x": "out1"}, initial_values={"x": z}, name="loop_fn")
     out = Output("out", loop_fn([z, r2]))
     model = Modely(name="model", inputs=[z], outputs=[out])
     model.build()
