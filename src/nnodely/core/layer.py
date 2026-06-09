@@ -47,7 +47,7 @@ class Layer(Stream):
         """
         return keras.layers.Identity(name=self.name)
 
-    def call(self, *xs):
+    def call(self, xs):
         layer = self.build_layer()
         if len(xs) == 1:
             return layer(xs[0])

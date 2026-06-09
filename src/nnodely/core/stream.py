@@ -34,14 +34,14 @@ class Node:
 class Stream(Node):
     _literal_constant_cache = {}
     seq: tuple[int | None, ...]
-    time: int
+    time: int | tuple[()]
     dim: tuple[int, ...]
 
     def __init__(
         self,
         name: str | None = None,
         dim: int | tuple[int, ...] | None = None,
-        time: int | None = None,
+        time: int | tuple[()] | None = None,
         seq: int | tuple[int | None, ...] | None = None,
         preds: list[Node] | None = None,
     ):
@@ -49,7 +49,7 @@ class Stream(Node):
             name if name is not None else f"{self.__class__.__name__}_{id(self)}", preds
         )
         self.dim = (1,) if dim is None else (dim,) if isinstance(dim, int) else dim
-        self.time = 1 if time is None else time
+        self.time = () if time is None else time
         self.seq = () if seq is None else (seq,) if isinstance(seq, int) else seq
 
     @property
@@ -57,7 +57,8 @@ class Stream(Node):
         """
         Shape without batch dimension.
         """
-        return self.dim + (self.time,) + self.seq
+        time = (self.time,) if isinstance(self.time, int) else self.time
+        return self.dim + time + self.seq
 
     @property
     def dimensions(self):
@@ -65,6 +66,14 @@ class Stream(Node):
         Return seq, time, dim separately
         """
         return self.dim, self.time, self.seq
+    
+    @property
+    def shape_len(self):
+        """
+        Return seq, time, dim separately
+        """
+        time = (self.time,) if isinstance(self.time, int) else self.time
+        return len(self.dim), len(time), len(self.seq)
 
     @property
     def rank(self) -> int:
@@ -74,11 +83,11 @@ class Stream(Node):
         return len(self.shape)
     
     @property
-    def time_index(self) -> int:
+    def time_index(self) -> int|None:
         """
         Return the index of the time dimension in the shape, or None if no time dimension.
         """
-        return len(self.dim)+1
+        return len(self.dim)+1 if isinstance(self.time, int) else None
 
     def __add__(self, other):
         from nnodely.core.layer import Add

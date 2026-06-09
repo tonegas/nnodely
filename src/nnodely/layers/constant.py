@@ -31,18 +31,16 @@ class Constant(Stream):
         arr = np.asarray(value, dtype=np.float32)
 
         if arr.ndim == 0:
-            arr = arr.reshape(1, 1)
             seq = None
-            time = 1
+            time = ()
             dim = (1,)
         elif arr.ndim == 1:
-            arr = arr.reshape(arr.shape[0], 1)
             seq = None
-            time = arr.shape[0]
+            time = ()
             dim = (1,)
         else:
             seq = None
-            time = arr.shape[0]
+            time = ()
             dim = tuple(arr.shape[1:])
 
         super().__init__(

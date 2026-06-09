@@ -94,7 +94,7 @@ def toposort(model) -> list[Node]:
     return order
 
 
-def toposort_outputs(outputs: list[Node]) -> list[Node]:
+def toposort_outputs(outputs: list[Output]) -> list[Node]:
     order = []
     visited = set()
 

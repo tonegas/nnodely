@@ -15,6 +15,7 @@ from typing import cast
 
 from nnodely.layers.output import Output
 from nnodely.layers.input import Input
+from nnodely.core.layer import Layer
 
 import keras
 
@@ -64,35 +65,9 @@ class Modely:
         return self.model is not None
 
     def build(self):
-        """
-        Build the Keras Functional model from the symbolic DAG.
+        self.model, flat_model = self._build_keras_graph(name=self.name)
 
-        Traverses from model outputs backwards through:
-        - Input nodes
-        - Layer/Stream nodes
-        - Output nodes
-        - IntermediateOutput nodes from nested Modely calls
-        """
-        ## adjust sample windows with the maximum window size for each input
-        for node in self.order:
-            if isinstance(node, SampleWindow):
-                node_pred = node.preds[0]
-                if isinstance(node_pred, Input):
-                    node.past = node_pred.past - node.past
-
-        tensor_map = {node: node.input for node in self.inputs}
-
-        keras_outputs = {}
-        for out in self.outputs:
-            keras_outputs[out.name] = self._resolve_tensor(out, tensor_map)
-
-        keras_inputs = {node.name: node.input for node in self.inputs}
-        self.model = keras.Model(
-            name=self.name,
-            inputs=keras_inputs,
-            outputs=keras_outputs,
-        )
-        extra_outputs, extra_inputs = [], []
+        extra_outputs = []
         for minimizer in self.minimizers:
             if not isinstance(minimizer["source"], Output):
                 extra_outputs.append(minimizer["source"])
@@ -100,31 +75,85 @@ class Modely:
                 extra_outputs.append(minimizer["target"])
 
         if extra_outputs:
-            order = toposort_outputs(extra_outputs)
-            extra_inputs = [
+            train_outputs = list(self.outputs) + extra_outputs
+            train_inputs = [
                 node
-                for node in order
-                if isinstance(node, Input) and node not in self.inputs
+                for node in toposort_outputs(train_outputs)
+                if isinstance(node, Input)
             ]
-
-            for node in extra_inputs:
-                tensor_map[node] = node.input
-            for node in extra_outputs:
-                keras_outputs[node.name] = self._resolve_tensor(node, tensor_map)
-
-            self.train_inputs = self.inputs + extra_inputs
-            keras_inputs = {node.name: node.input for node in self.inputs} | {
-                node.name: node.input for node in extra_inputs
-            }
-            self._train_model = keras.Model(
-                name=self.name + "_train",
-                inputs=keras_inputs,
-                outputs=keras_outputs,
+            tmp = Modely(
+                name=self.name + "_tmp",
+                inputs=train_inputs,
+                outputs=train_outputs,
             )
+            self._train_model, flat_train_model = self._build_keras_graph(
+                name=self.name + "_train", model=tmp
+            )
+            self.train_inputs = flat_train_model.inputs
         else:
-            self.train_inputs = self.inputs
             self._train_model = self.model
+            self.train_inputs = flat_model.inputs
         return self
+
+    def _build_keras_graph(self, name, model=None):
+        """
+        Build one fresh Keras graph from roots.
+        Never mix tensors from another build.
+        """
+        flat = flatten(self) if model is None else flatten(model)
+        for node in flat.order:
+            if isinstance(node, Layer):
+                node._layer = None
+            if isinstance(node, SampleWindow):
+                pred = node.preds[0]
+                if isinstance(pred, Input):
+                    node.past = pred.past - node.past
+
+        tensor_map = {}
+        for node in flat.inputs:
+            tensor_map[node] = node.input
+
+        for node in [node for node in flat.order if not isinstance(node, Input)]:
+            if isinstance(node, Layer):
+                tensor_map[node] = node.call([tensor_map[pred] for pred in node.preds])
+
+            elif isinstance(node, Output):
+                tensor_map[node] = tensor_map[node.preds[0]]
+
+            # elif isinstance(node, Input):
+            #     continue  # already handled
+
+            elif isinstance(node, (Constant, Parameter)):
+                anchor = next(iter(tensor_map.values()), None)
+                tensor_map[node] = node.as_tensor(anchor)
+            else:
+                raise ValueError(f"Unknown node type '{type(node)}' in DAG.")
+
+        keras_inputs = {node.name: node.input for node in flat.inputs}
+        keras_outputs = {node.name: tensor_map[node] for node in flat.outputs}
+        keras_model = keras.Model(
+            name=name,
+            inputs=keras_inputs,
+            outputs=keras_outputs,
+        )
+        return keras_model, flat
+
+    def _collect_inputs_from_roots(self, roots):
+        """
+        Collect all Input nodes needed by outputs/minimizers.
+        Keeps self.inputs first, then adds extra inputs such as x_target.
+        """
+        order = toposort_outputs(roots)
+
+        inputs = list(self.inputs)
+        seen = {id(node) for node in inputs}
+
+        for node in order:
+            if isinstance(node, Input) and id(node) not in seen:
+                inputs.append(node)
+                seen.add(id(node))
+
+        return inputs
 
     def _resolve_tensor(self, node, tensor_map):
         if node in tensor_map:
@@ -149,14 +178,11 @@ class Modely:
             y = node.as_tensor(anchor)
             tensor_map[node] = y
 
+            print(
+                f"Collected trainable parameter '{node.name}' with value {node.param}"
+            )
             if node.param is not None:  # and node.param not in self._training_params:
                 self._training_params.append(node.param)
-
-            return y
-
-        if isinstance(node, IntermediateOutput):
-            y = self._resolve_intermediate_output(node, tensor_map)
-            tensor_map[node] = y
             return y
 
         pred_tensors = [self._resolve_tensor(pred, tensor_map) for pred in node.preds]
@@ -173,36 +199,6 @@ class Modely:
 
         tensor_map[node] = y
         return y
-
-    def _resolve_intermediate_output(self, node, tensor_map):
-        """
-        Resolve one output of a nested Modely call.
-
-        `node` is an IntermediateOutput.
-        `node.pred` is the ModelCall object.
-        """
-        call = node.pred
-        submodel = call.model
-
-        if submodel.model is None:
-            submodel.build()
-
-        sub_inputs = {
-            old_input.name: self._resolve_tensor(new_input, tensor_map)
-            for old_input, new_input in call.inputs_map.items()
-        }
-
-        sub_out = submodel.model(sub_inputs)
-
-        if isinstance(sub_out, dict):
-            return sub_out[node.name]
-
-        if len(submodel.outputs) == 1:
-            return sub_out
-
-        raise ValueError(
-            f"Submodel '{submodel.name}' has multiple outputs but returned a non-dict result."
-        )
 
     # -------------------------------------------------------------------------
     # Train API
@@ -540,10 +536,11 @@ class Modely:
     # -------------------------------------------------------------------------
     def closed_loop(
         self,
-        closed_loop: dict[str | Node, str | Node],
+        closed_loop: dict[str | Input, str | Node],
+        initial_values: dict[str | Input, str | Node],
         inputs: list[Input] | None = None,
         name: str | None = None,
-    ) -> "Modely":
+    ) -> Layer:
         """
         Create a new Modely that rolls out over the rightmost sequence axis.
 
@@ -555,7 +552,6 @@ class Modely:
         - The closed-loop mapped input is updated each step with the submodel output.
         """
         from nnodely.layers.loop import Loop
-
         # Validate closed_loop keys and values
         if len(closed_loop) == 0:
             raise ValueError("closed_loop cannot be empty.")
@@ -564,12 +560,11 @@ class Modely:
             inputs = self.inputs
             for idx, inp in enumerate(inputs):
                 if inp.name not in closed_loop:
-                    inputs[idx] = Input(
-                        name=inp.name,
-                        dim=inp.dim,
-                        time=inp.time,
-                        seq=(None,),
-                    )
+                    new_input = Input(name=f"{inp.name}_loop", dim=inp.dim, seq=inp.seq+(None,))
+                    new_input.time = inp.time
+                    new_input.past = inp.past
+                    new_input.future = inp.future
+                    inputs[idx] = new_input
         else:
             for inp, out in closed_loop.items():
                 inp_name = inp.name if isinstance(inp, Input) else str(inp)
@@ -586,18 +581,9 @@ class Modely:
         if not self.built:
             self.build()
 
-        loop_fn = Loop(f=self, closed_loop=closed_loop, name=name)
-        loop_outputs = loop_fn(inputs)
-        if isinstance(loop_outputs, dict):
-            outputs = [
-                Output(out_name, loop_outputs[out_name]) for out_name in loop_outputs
-            ]
-        else:
-            outputs = [Output(self.outputs[0].name, loop_outputs)]
+        loop_fn = Loop(f=self, closed_loop=closed_loop, initial_values=initial_values, name=name)
+        return loop_fn
 
-        return Modely(
-            name=name or self.name + "_closed_loop", inputs=inputs, outputs=outputs
-        )
 
     # -------------------------------------------------------------------------
     # Save and load (pickle)
