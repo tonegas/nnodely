@@ -67,18 +67,18 @@ class Constant(Stream):
         if arr.ndim == 0:
             arr = arr.reshape(1, 1)
             dim = (1,)
-            time = 1
+            time = ()
             seq = None
         elif arr.ndim == 1:
-            # [D] -> [D, time=1]
+            # [D]
             arr = arr.reshape(arr.shape[0], 1)
             dim = (arr.shape[0],)
-            time = 1
+            time = ()
             seq = None
         else:
             # assume [dim..., time]
             dim = tuple(arr.shape[:-1])
-            time = arr.shape[-1]
+            time = tuple(arr.shape[-1:])
             seq = None
 
         super().__init__(
