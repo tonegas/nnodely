@@ -68,7 +68,7 @@ def test_partitioning_windows():
     data_train = DataLoader(
         model,
         format={"x": "data_1", "y": "data_2", "z": "data_3"},
-        source=os.path.join("tests", "data"),
+        source=os.path.join("tests", "datasets"),
     )
 
     assert data_train.dataset is not None

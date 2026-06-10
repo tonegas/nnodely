@@ -66,7 +66,7 @@ def test_dataset_creation_and_iteration():
     data_train = DataLoader(
         model,
         format={"x": "data_1", "y": "data_2", "z": "data_3"},
-        source=os.path.join("tests", "data"),
+        source=os.path.join("tests", "datasets"),
     )
 
     ## ------ Iterate through the dataset -------

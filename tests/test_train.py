@@ -25,7 +25,7 @@ def test_train_basic():
     data_train = DataLoader(
         model1,
         format={"x": "data_1", "y": "data_2", "x_target": "data_3"},
-        source=os.path.join("tests", "data"),
+        source=os.path.join("tests", "datasets"),
     )
 
     # ------ Train the model -------

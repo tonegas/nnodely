@@ -51,7 +51,7 @@ class DataLoader:
         self,
         model: Any,
         source: str | dict,
-        format: Dict[str, str | int] | None = None,
+        format: dict[str, str | int] | None = None,
         trim: bool = False,
         csv_glob: str = "*.csv",
         dtype: Any = np.float32,

@@ -16,4 +16,3 @@ class Output(Stream):
             dim=stream.dim,
             preds=[stream],
         )
-        self._closed_loop = {}

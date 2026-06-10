@@ -62,14 +62,21 @@ class Modely:
         return self.model is not None
 
     def build(self):
+        from nnodely.core.layer import Identity
         self.model, flat_model = self._build_keras_graph(name=self.name)
 
         extra_outputs = []
         for minimizer in self.minimizers:
             if not isinstance(minimizer["source"], Output):
-                extra_outputs.append(minimizer["source"])
+                if isinstance(minimizer["source"], Input):
+                    extra_outputs.append(Identity()(minimizer["source"]))
+                else:
+                    extra_outputs.append(minimizer["source"])
             if not isinstance(minimizer["target"], Output):
-                extra_outputs.append(minimizer["target"])
+                if isinstance(minimizer["target"], Input):
+                    extra_outputs.append(Identity()(minimizer["target"]))
+                else:
+                    extra_outputs.append(minimizer["target"])
 
         if extra_outputs:
             train_outputs = list(self.outputs) + extra_outputs
@@ -89,7 +96,6 @@ class Modely:
             self.train_inputs = flat_train_model.inputs
         else:
             self._train_model = self.model
-            self.train_inputs = flat_model.inputs
             self.train_inputs = flat_model.inputs
         return self
 
