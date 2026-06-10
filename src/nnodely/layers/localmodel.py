@@ -182,8 +182,7 @@ class LocalModel:
     def __call__(self, activation):
         ret = []
         local = Input("local_input")
-
-        for i in range(activation.shape[-1]):
+        for i in range(activation.dim[0]):
             x = self.input_function([local]) * Select(idx=i, axis=0)([activation])
             if self.output_function is not None:
                 x = self.output_function([x])

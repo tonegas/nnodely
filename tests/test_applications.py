@@ -1,9 +1,21 @@
 # import os
 
-# from nnodely import Input, Fir, ReLU, Modely, DataLoader, Fuzzify, LocalModel, Output
+# import pytest
+
+# from nnodely import (
+#     Input,
+#     Fir,
+#     Linear,
+#     ReLU,
+#     Modely,
+#     DataLoader,
+#     Fuzzify,
+#     LocalModel,
+#     Output,
+# )
 
 
-# #@pytest.mark.slow
+# @pytest.mark.slow
 # def test_vehicle_longitudinal_dynamics():
 #     # ------- Test Model Longitudinal Vehicle Dynamics -------
 #     n = 25
@@ -19,14 +31,20 @@
 
 #     # Create neural network relations
 #     air_drag_force = Fir(out_features=1, use_bias=True)([velocity.sw(1)])
+
 #     breaking_force = Fir(out_features=1)([brake.sw(n)])
 #     breaking_force = ReLU()([breaking_force])
 #     breaking_force = -1 * breaking_force
-#     # gravity_force = Linear(W_init='init_constant', W_init_params={'value':0}, dropout=0.1, W='gravity')(altitude.sw(1))
+
+#     gravity_force = Linear(out_features=1)([altitude.sw(na)])
 #     gravity_force = Fir(out_features=1, use_bias=True)([altitude.sw(1)])
-#     fuzzi_gear = Fuzzify(6, range=[2, 7], functions="Rectangular")([gear.sw(1)])
+
+#     fuzzi_gear = Fuzzify(
+#         centers=[2.0, 3.0, 4.0, 5.0, 6.0, 7.0], function="Rectangular"
+#     )([gear.sw(1)])
 #     local_model = LocalModel(input_function=Fir(out_features=1), name="local_model")
 #     engine_force = local_model(fuzzi_gear)
+#     engine_force = engine_force([torque.sw(n)])
 
 #     # Create neural network output
 #     out = Output(

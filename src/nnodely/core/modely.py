@@ -483,6 +483,7 @@ class Modely:
         - The closed-loop mapped input is updated each step with the submodel output.
         """
         from nnodely.layers.loop import Loop
+
         # Validate closed_loop keys and values
         if len(closed_loop) == 0:
             raise ValueError("closed_loop cannot be empty.")
@@ -515,9 +516,10 @@ class Modely:
         if not self.built:
             self.build()
 
-        loop_fn = Loop(f=self, closed_loop=closed_loop, initial_values=initial_values, name=name)
+        loop_fn = Loop(
+            f=self, closed_loop=closed_loop, initial_values=initial_values, name=name
+        )
         return loop_fn
-
 
     # -------------------------------------------------------------------------
     # Save and load (pickle)

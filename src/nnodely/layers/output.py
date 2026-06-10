@@ -4,8 +4,10 @@ Output - nomina uno stream come output del modello.
 
 from nnodely.core.stream import Stream
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
-    from nnodely.layers.input import Input
+    pass
+
 
 class Output(Stream):
     def __init__(self, name: str, stream: Stream) -> None:

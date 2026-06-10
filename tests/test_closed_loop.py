@@ -36,7 +36,12 @@ def test_closed_loop(tmp_path):
 
     x = Input(name="x", dim=1)
     y = Input(name="y", dim=1, seq=4)
-    loop_fn = Loop(f=model_add, closed_loop={"_x": "out1"}, initial_values={"_x": x}, name="loop_model_add")  # add initial condition
+    loop_fn = Loop(
+        f=model_add,
+        closed_loop={"_x": "out1"},
+        initial_values={"_x": x},
+        name="loop_model_add",
+    )  # add initial condition
     out = Output("out", loop_fn([x, y]))
     model_in = Modely(name="model", inputs=[x, y], outputs=[out])
     model_in.build()
@@ -44,7 +49,12 @@ def test_closed_loop(tmp_path):
     # Create a nested loop model
     w = Input(name="w", dim=1)
     z = Input(name="z", dim=1, seq=(4, 2))
-    loop_fn2 = Loop(f=model_in, closed_loop={"y": "out"}, initial_values={"y": z}, name="loop_model_in")
+    loop_fn2 = Loop(
+        f=model_in,
+        closed_loop={"y": "out"},
+        initial_values={"y": z},
+        name="loop_model_in",
+    )
     out_w = Output("out_w", loop_fn2([w, z]))
     model_out = Modely(name="model_with_loop_w", inputs=[w, z], outputs=[out_w])
 
@@ -76,6 +86,7 @@ def test_closed_loop(tmp_path):
     assert "out_w" in result_out
     assert result_out["out_w"].shape == (batch_size, 1, 4, 2)
 
+
 def test_sw_closed_loop():
     # Define a simple model to be used in the loop
     _x = Input(name="_x", dim=1)
@@ -90,7 +101,12 @@ def test_sw_closed_loop():
     # Option 1: use Loop layer directly in the output definition
     x = Input(name="x", dim=1)
     y = Input(name="y", dim=1, seq=4)
-    loop_fn = Loop(f=model_add, closed_loop={"_x": "out1"}, initial_values={"_x": x}, name="loop_model_add")
+    loop_fn = Loop(
+        f=model_add,
+        closed_loop={"_x": "out1"},
+        initial_values={"_x": x},
+        name="loop_model_add",
+    )
     out = Output("out", loop_fn([x.sw(2), y.sw(1)]))
     model_in = Modely(name="model", inputs=[x, y], outputs=[out])
     model_in.build()
@@ -98,7 +114,12 @@ def test_sw_closed_loop():
     # Create a nested loop model
     w = Input(name="w", dim=1)
     z = Input(name="z", dim=1, seq=(4, 2))
-    loop_fn2 = Loop(f=model_in, closed_loop={"y": "out"}, initial_values={"y": z}, name="loop_model_in")
+    loop_fn2 = Loop(
+        f=model_in,
+        closed_loop={"y": "out"},
+        initial_values={"y": z},
+        name="loop_model_in",
+    )
     out_w = Output("out_w", loop_fn2([w.sw(2), z.sw(1)]))
     model_out = Modely(name="model_with_loop_w", inputs=[w, z], outputs=[out_w])
     model_out.build()
@@ -139,7 +160,12 @@ def test_sw_2_closed_loop():
     # Option 1: use Loop layer directly in the output definition
     x = Input(name="x", dim=1)
     y = Input(name="y", dim=1, seq=4)
-    loop_fn = Loop(f=model_add, closed_loop={"_x": "out1"}, initial_values={"_x": x}, name="loop_model_add")
+    loop_fn = Loop(
+        f=model_add,
+        closed_loop={"_x": "out1"},
+        initial_values={"_x": x},
+        name="loop_model_add",
+    )
     out = Output("out", loop_fn([x.sw(2), y.sw(2)]))
     model_in = Modely(name="model_loop_add", inputs=[x, y], outputs=[out])
     model_in.build()
@@ -147,7 +173,12 @@ def test_sw_2_closed_loop():
     # Create a nested loop model
     w = Input(name="w", dim=1)
     z = Input(name="z", dim=1, seq=(4, 2))
-    loop_fn2 = Loop(f=model_in, closed_loop={"y": "out"}, initial_values={"y": z}, name="loop_model_in")
+    loop_fn2 = Loop(
+        f=model_in,
+        closed_loop={"y": "out"},
+        initial_values={"y": z},
+        name="loop_model_in",
+    )
     out_w = Output("out_w", loop_fn2([w.sw(2), z.sw(2)]))
     model_out = Modely(name="model_with_loop_w", inputs=[w, z], outputs=[out_w])
 

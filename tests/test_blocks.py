@@ -1,9 +1,43 @@
-# from nnodely import Input, Output, Constant, Modely
-# from nnodely.layers.localmodel import LocalModel
-# from nnodely.layers.fuzzify import Fuzzify
-# from nnodely.layers.fir import Fir
-# from nnodely.layers.activations import ReLU
-# import numpy as np
+from nnodely import Input, Output, Modely
+from nnodely.layers.fuzzify import Fuzzify
+import numpy as np
+
+
+def test_fuzzify():
+    x = Input("x", dim=1)
+    fuzzy_rectangular = Fuzzify(centers=[0.0, 0.5, 1.0], function="rectangular")
+    fuzzy_triangular = Fuzzify(centers=[0.0, 0.5, 1.0], function="triangular")
+    x_out_rectangular = Output("x_pred_rectangular", fuzzy_rectangular([x.sw(1)]))
+    x_out_triangular = Output("x_pred_triangular", fuzzy_triangular([x.sw(1)]))
+    model1 = Modely("model1", inputs=[x], outputs=[x_out_rectangular, x_out_triangular])
+    model1.build()
+
+    # ------- Model inference -------
+    dummy_input_x = np.array([[[-7]], [[0.5]], [[0.8]], [[5.0]]], dtype=np.float32)
+    result1 = model1({"x": dummy_input_x})
+
+    assert "x_pred_rectangular" in result1
+    assert result1["x_pred_rectangular"].shape == (4, 3, 1)
+    assert np.allclose(
+        result1["x_pred_rectangular"].cpu().numpy(),
+        [
+            [[0.0], [0.0], [0.0]],
+            [[0.0], [1.0], [0.0]],
+            [[0.0], [0.0], [1.0]],
+            [[0.0], [0.0], [0.0]],
+        ],
+    )
+    assert "x_pred_triangular" in result1
+    assert result1["x_pred_triangular"].shape == (4, 3, 1)
+    assert np.allclose(
+        result1["x_pred_triangular"].cpu().numpy(),
+        [
+            [[0.0], [0.0], [0.0]],
+            [[0.0], [1.0], [0.0]],
+            [[0.0], [0.4], [0.6]],
+            [[0.0], [0.0], [0.0]],
+        ],
+    )
 
 
 # def test_local_model():
@@ -40,3 +74,7 @@
 #     print("Model - Input shape k:", dummy_input_k.shape)
 #     print("Model - Output shape:", result["out"].shape)
 #     print("Model - Output:", result)
+
+
+if __name__ == "__main__":
+    test_fuzzify()
