@@ -1,11 +1,14 @@
+import pytest
+
 from nnodely import Input, Output, Modely, Loop, Parameter, Constant, DataLoader
 import numpy as np
 
 import os
 
-from nnodely.layers.fir import Fir
 from nnodely.layers.trigonometric import Cos, Sin
+# os.environ.setdefault("KERAS_BACKEND", "jax")
 
+@pytest.mark.slow
 def test_inv_pend(tmp_path):
     # Define inputs
     pos = Input(name="Xpos", dim=1)
@@ -86,6 +89,11 @@ def test_inv_pend(tmp_path):
         inputs=[pos, vel, angle, ang_vel, force],
         outputs=[out_pos, out_vel, out_angle, out_ang_vel]
     )
+    model.build()
+
+    loop_fn = Loop(f=model, closed_loop={"Xpos": "Ypos_pred", "Xvelocity": "Yvelocity_pred", "Xangle": "Yangle_pred", "Xangular_velocity": "Yangular_velocity_pred"}, initial_values={"Xpos": pos, "Xvelocity": vel, "Xangle": angle, "Xangular_velocity": ang_vel}, name="loop_inv_pend")
+    out_loop = Output("loop_out", loop_fn([pos, vel, angle, ang_vel, force]))
+    model = Modely(name="model_with_loop", inputs=[pos, vel, angle, ang_vel, force], outputs=[out_loop])
 
     # Add minimizers for each output
     model.minimize("error_pos", source=out_pos, target=Input(name="Ypos", dim=1), loss="mse")
@@ -102,10 +110,24 @@ def test_inv_pend(tmp_path):
         format=data_struct,
         source=os.path.join("tests", "datasets", "data_inv_pend"),
     )
-    print(data_train[0])
 
     # Train the model
     model.train(train_data=data_train, epochs=10, batch_size=64, lr=1e-3)
+
+    # # Export the trained model
+    # model.save(os.path.join(tmp_path, "model_inv_pend_exported"))
+    # model.export_keras(os.path.join(tmp_path, "model_inv_pend_keras.h5"))
+
+    # # Load the exported model and test it
+    # loaded_model = Modely.load(os.path.join(tmp_path, "model_inv_pend_exported"))
+    test_data = data_train[0]  # Use the first batch of training data for testing
+    predictions = model(test_data)
+
+    assert np.allclose(predictions["Ypos_pred"], test_data["Ypos"], atol=1e-3)
+    assert np.allclose(predictions["Yvelocity_pred"], test_data["Yvelocity"], atol=1e-3)
+    assert np.allclose(predictions["Yangle_pred"], test_data["Yangle"], atol=1e-3)
+    assert np.allclose(predictions["Yangular_velocity_pred"], test_data["Yangular_velocity"], atol=1e-3)
+    
 
 if __name__ == "__main__":
     test_inv_pend(os.path.join("html", "model_inv_pend.png"))

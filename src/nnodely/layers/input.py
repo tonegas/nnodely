@@ -24,7 +24,7 @@ class Input(Stream):
         super().__init__(name=name, seq=seq, time=None, dim=dim, preds=None)
         self.input = keras.Input(shape=self.shape, name=self.name)
         self.past, self.future = (
-            0,
+            1,
             0,
         )  # default window sizes, can be updated by sw() or by build() with sampling
 
