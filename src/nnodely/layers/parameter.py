@@ -66,14 +66,14 @@ class Parameter(Stream):
         if value is not None:
             arr = np.asarray(value, dtype=np.float32)
 
-            # Convention: dim + (time,) + seq
+            # Convention: dim
             if arr.ndim == 0:
-                arr = arr.reshape(1, 1)
+                arr = arr.reshape(1)
                 dim = (1,)
                 time = ()
                 seq = None
             elif arr.ndim == 1:
-                # [D] -> [D, time=1]
+                # [D]
                 arr = arr.reshape(arr.shape[0], 1)
                 dim = (arr.shape[0],)
                 time = ()

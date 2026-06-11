@@ -65,7 +65,7 @@ class Constant(Stream):
 
         # Convention: dim + (time,) + seq
         if arr.ndim == 0:
-            arr = arr.reshape(1, 1)
+            arr = arr.reshape(1)
             dim = (1,)
             time = ()
             seq = None
@@ -80,7 +80,7 @@ class Constant(Stream):
             dim = tuple(arr.shape[:-1])
             time = tuple(arr.shape[-1:])
             seq = None
-
+        
         super().__init__(
             name=name,
             seq=seq,
