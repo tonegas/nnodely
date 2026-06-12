@@ -58,7 +58,6 @@ def flatten_node(node: Node, memo: dict[Node, Node]) -> Any:
     new_node = copy(node)
     new_node.preds = new_preds
     memo[node] = new_node
-
     return new_node
 
 
@@ -76,22 +75,7 @@ def flatten(model):
 # DAG topological ordering
 # ------------------------------------------------------------------
 def toposort(model) -> list[Node]:
-    order = []
-    visited = set()
-
-    def dfs(node: Node) -> None:
-        visited.add(node)
-
-        for pred in node.preds:
-            if pred not in visited:
-                dfs(pred)
-
-        order.append(node)
-
-    for output in model.outputs:
-        dfs(output)
-
-    return order
+    return toposort_outputs(model.outputs)
 
 
 def toposort_outputs(outputs: list[Output]) -> list[Node]:
@@ -104,7 +88,6 @@ def toposort_outputs(outputs: list[Output]) -> list[Node]:
         for pred in node.preds:
             if pred not in visited:
                 dfs(pred)
-
         order.append(node)
 
     for output in outputs:

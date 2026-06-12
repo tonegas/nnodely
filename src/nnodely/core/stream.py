@@ -129,6 +129,11 @@ class Stream(Node):
 
         return Divide()([self._coerce_operand(other), self])
 
+    def __pow__(self, other):
+        from nnodely.core.layer import Power
+
+        return Power()([self, self._coerce_operand(other)])
+
     @staticmethod
     def _coerce_operand(value):
         if isinstance(value, Stream):

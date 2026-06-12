@@ -66,13 +66,15 @@ def test_dataset_creation_and_iteration():
     data_train = DataLoader(
         model,
         format={"x": "data_1", "y": "data_2", "z": "data_3"},
-        source=os.path.join("tests", "data"),
+        source=os.path.join("tests", "datasets"),
     )
 
     ## ------ Iterate through the dataset -------
     for batch in data_train:
         assert "x" in batch and "y" in batch and "z" in batch
-        assert batch["x"].shape[1] == 1  # Check if x has the correct dimension
-        assert batch["y"].shape[1] == 1  # Check if y has the correct dimension
-        assert batch["z"].shape[1] == 1  # Check if z has the correct dimension
-        break  # Just check the first batch for this test
+        assert batch["x"].shape[0] == 1  # Check if x has the correct dimension
+        assert batch["y"].shape[0] == 1  # Check if y has the correct dimension
+        assert batch["z"].shape[0] == 1  # Check if z has the correct dimension
+        assert batch["x"].shape[1] == 5  # Check if x has the correct dimension
+        assert batch["y"].shape[1] == 5  # Check if y has the correct dimension
+        assert batch["z"].shape[1] == 7  # Check if z has the correct dimension

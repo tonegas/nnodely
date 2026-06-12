@@ -606,7 +606,7 @@ def export_html(
 <body>
 <header>
     <div class="header-left">
-        <img src="../imgs/logo_info.png" alt="nnodely logo" width="120" height="40"/>
+        <img src="../../imgs/logo_info.png" alt="nnodely logo" width="120" height="40"/>
         <h1>{page_title}{" [flattened]" if flattened else ""}</h1>
         {back_html}
     </div>

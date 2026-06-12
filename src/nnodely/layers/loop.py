@@ -79,7 +79,11 @@ class LoopImpl(keras.layers.Layer):
         if not isinstance(inputs, (list, tuple)):
             inputs = [inputs]
         # Determine horizon from the known sequence metadata stored during build.
-        horizon = keras.ops.shape(inputs[self.longest_seq_idx])[-1]  # type:ignore
+        horizon = (
+            keras.ops.shape(inputs[self.longest_seq_idx])[-1]
+            if self.longest_seq_idx is not None
+            else 1
+        )
 
         # Prepare initial step inputs by taking the first time step from each input sequence.
         step_inputs = {}
@@ -300,6 +304,7 @@ class Loop(Layer):
             for inp in self.inputs  # type:ignore
         ]
         tmp_max = -1
+        self.longest_seq_idx = None
         for idx, seq in enumerate(sequences):
             if seq is not None:
                 if seq != () and seq > tmp_max:

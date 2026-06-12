@@ -42,8 +42,8 @@ class Modely:
         items = " \n- ".join(map(str, self.order))
         return f"Model {self.name}:\n - {items}"
 
-    def __call__(self, inputs: list[Node] | Any) -> Any:
-        if all(isinstance(v, Node) for v in inputs):
+    def __call__(self, inputs: Any) -> Any:
+        if isinstance(inputs, list) and all(isinstance(v, Node) for v in inputs):
             mc = ModelCall(f"{self.name}_call", self)
             mc.preds = inputs
             mc.inputs_map = {old: new for old, new in zip(self.inputs, inputs)}
@@ -54,6 +54,13 @@ class Modely:
         # tensor execution mode
         if self.model is None:
             raise ValueError("Model build failed, model is still None.")
+        for idx, inp in enumerate(self.inputs):
+            if isinstance(inputs, dict):
+                if len(inputs[inp.name].shape) == inp.rank:
+                    inputs[inp.name] = tf.expand_dims(inputs[inp.name], axis=0)
+            else:
+                if len(inputs[idx].shape) == inp.rank:
+                    inputs[idx] = tf.expand_dims(inputs[idx], axis=0)
         return self.model(inputs)
 
     @property
@@ -62,22 +69,31 @@ class Modely:
         return self.model is not None
 
     def build(self):
+        from nnodely.core.layer import Identity
+
         self.model, flat_model = self._build_keras_graph(name=self.name)
 
-        extra_outputs = []
+        extra_outputs, extra_inputs = [], []
         for minimizer in self.minimizers:
             if not isinstance(minimizer["source"], Output):
-                extra_outputs.append(minimizer["source"])
+                if isinstance(minimizer["source"], Input):
+                    extra_outputs.append(Identity()(minimizer["source"]))
+                else:
+                    extra_outputs.append(minimizer["source"])
             if not isinstance(minimizer["target"], Output):
-                extra_outputs.append(minimizer["target"])
+                if isinstance(minimizer["target"], Input):
+                    extra_outputs.append(Identity()(minimizer["target"]))
+                else:
+                    extra_outputs.append(minimizer["target"])
 
         if extra_outputs:
             train_outputs = list(self.outputs) + extra_outputs
-            train_inputs = [
+            extra_inputs = [
                 node
-                for node in toposort_outputs(train_outputs)
-                if isinstance(node, Input)
+                for node in toposort_outputs(extra_outputs)
+                if isinstance(node, Input) and node not in self.inputs
             ]
+            train_inputs = list(self.inputs) + extra_inputs
             tmp = Modely(
                 name=self.name + "_tmp",
                 inputs=train_inputs,
@@ -89,7 +105,6 @@ class Modely:
             self.train_inputs = flat_train_model.inputs
         else:
             self._train_model = self.model
-            self.train_inputs = flat_model.inputs
             self.train_inputs = flat_model.inputs
         return self
 

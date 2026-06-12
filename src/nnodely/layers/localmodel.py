@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 
-from nnodely.core.layer import Layer
-
 from nnodely.layers.time_ops import Select
 from nnodely.core.layer import Add
 from nnodely.core.modely import Modely
@@ -171,8 +169,8 @@ class LocalModel:
 
     def __init__(
         self,
-        input_function: Layer,
-        output_function: Layer | None = None,
+        input_function,
+        output_function=None,
         name: str | None = None,
     ):
         self.input_function = input_function
