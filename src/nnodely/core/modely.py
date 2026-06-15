@@ -43,6 +43,7 @@ class Modely:
         return f"Model {self.name}:\n - {items}"
 
     def __call__(self, inputs: list[Node] | Any) -> Any:
+        print(f"Calling model '{self.name}' with inputs: {inputs}")
         if all(isinstance(v, Node) for v in inputs):
             mc = ModelCall(f"{self.name}_call", self)
             mc.preds = inputs
@@ -174,6 +175,7 @@ class Modely:
         epochs: int = 1,
         batch_size: int = 1,
         optimizer=None,
+        prediction_samples = 1,
         lr: float = 1e-3,
     ):
         if not self.minimizers:

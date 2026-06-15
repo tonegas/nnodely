@@ -72,6 +72,9 @@ class DataLoader:
         if not self.input_specs:
             raise ValueError("Could not infer any inputs from model.inputs")
 
+        sequences = [node.seq[-1] for node in model.train_inputs if node.seq is not None and len(node.seq) > 0]
+        self.max_sequence_length = max(sequences) if sequences else 0
+
         if isinstance(source, str):
             self.source = Path(source)
             if not self.source.exists():
@@ -103,6 +106,13 @@ class DataLoader:
             idx = self._num_steps + idx
         if idx < 0 or idx >= self._num_steps:
             raise IndexError(f"idx out of range: {idx} (len={self._num_steps})")
+        return {k: v[idx] for k, v in self.dataset.items()}
+    
+    def get_prediction(self, idx: int) -> Dict[str, Any]:
+        if idx < 0:
+            idx = self._num_steps + idx
+        if idx < 0 or idx >= self._num_steps:
+            raise IndexError(f"idx out of range: {idx} (len={self._num_steps})")
         return {k: v[idx][None, ...] for k, v in self.dataset.items()}
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
@@ -111,6 +121,11 @@ class DataLoader:
     def __iter__(self) -> Iterator[Dict[str, Any]]:
         for i in range(self._num_steps):
             yield self.get_step(i)
+
+    def get_train_data(self, batch_size: int) -> Iterator[Dict[str, Any]]:
+        for i in range(0, self._num_steps, batch_size):
+            batch = {k: v[i : i + batch_size] for k, v in self.dataset.items()}
+            yield batch
 
     def as_dict(self) -> Dict[str, np.ndarray]:
         return self.dataset
@@ -339,6 +354,15 @@ class DataLoader:
         dataset = {
             name: np.stack(windows, axis=0) for name, windows in raw_data.items()
         }
+        # Handle the sequences
+        if self.max_sequence_length > 1:
+            new_raw_data = {}
+            for i, (name, windows) in enumerate(dataset.items()):
+                window = np.lib.stride_tricks.sliding_window_view(windows, window_shape = self.max_sequence_length, axis=0)
+                new_raw_data[name] = window
+            dataset = {
+                name: np.stack(windows, axis=0) for name, windows in new_raw_data.items()
+            }
         self._check_alignment(dataset)
         return dataset
 

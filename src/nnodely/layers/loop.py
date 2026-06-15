@@ -5,6 +5,7 @@ from nnodely.core.modely import Modely
 from nnodely.layers.input import Input
 from nnodely.core.stream import Node
 
+
 class LoopImpl(keras.layers.Layer):
     def __init__(
         self,
@@ -53,33 +54,59 @@ class LoopImpl(keras.layers.Layer):
         return cls(**config)
 
     def _shift_time_window(self, prev_tensor, new_tensor, idx):
-        # Shift the time window by one step.
-        # For example, if time dimension is at index 2 and shape is (batch, features, time, seq), we want to shift along axis=2.
-        if keras.ops.shape(new_tensor)[self.inputs[idx].time_index] is not None and keras.ops.shape(new_tensor)[self.inputs[idx].time_index] == 1:
+        time_axis = self.inputs[idx].time_index
+
+        # If the incoming tensor represents a single new timestep,
+        # append it after dropping the oldest timestep.
+        new_time_dim = new_tensor.shape[time_axis]
+
+        if new_time_dim == 1:
+            rank = len(prev_tensor.shape)
+
+            slices = [slice(None)] * rank
+            slices[time_axis] = slice(1, None)
+
+            shifted = prev_tensor[tuple(slices)]
+
             return keras.ops.concatenate(
-                [prev_tensor[..., 1:], new_tensor],
-                axis=self.inputs[idx].time_index,  # type:ignore
+                [shifted, new_tensor],
+                axis=time_axis,
             )
-        else:  # new_tensor has a bigger time window
-            # Check if the new_tensor has the same time dimension as prev_tensor.
-            if keras.ops.shape(new_tensor)[self.inputs[idx].time_index] != keras.ops.shape(prev_tensor)[self.inputs[idx].time_index]:
-                raise ValueError(
-                    f"Cannot shift time window: new_tensor time dimension {keras.ops.shape(new_tensor)[self.inputs[idx].time_index]} is not equal to prev_tensor time dimension {keras.ops.shape(prev_tensor)[self.inputs[idx].time_index]}"
-                )
-            return new_tensor
+
+        # Otherwise expect a complete replacement window.
+        prev_time_dim = prev_tensor.shape[time_axis]
+
+        if (
+            new_time_dim is not None
+            and prev_time_dim is not None
+            and new_time_dim != prev_time_dim
+        ):
+            raise ValueError(
+                f"Cannot shift time window: "
+                f"new_tensor time dimension {new_time_dim} "
+                f"is not equal to prev_tensor time dimension {prev_time_dim}"
+            )
+
+        return new_tensor
 
     def call(self, inputs):
         if not isinstance(inputs, (list, tuple)):
             inputs = [inputs]
         # Determine horizon from the known sequence metadata stored during build.
-        horizon = keras.ops.shape(inputs[self.longest_seq_idx])[-1] if self.longest_seq_idx is not None else 1
+        horizon = (
+            keras.ops.shape(inputs[self.longest_seq_idx])[-1]
+            if self.longest_seq_idx is not None
+            else 1 # TODO: handle dynamic horizon from dataset or a special parameter in training
+        )
 
         # Prepare initial step inputs by taking the first time step from each input sequence.
         step_inputs = {}
         y = None
         for idx, inp in enumerate(self.submodel.inputs):
             if self.inputs[idx].name in self.initial_values:
-                step_inputs[inp.name] = inputs[idx]
+                step_inputs[inp.name] = (
+                    inputs[idx] if self.inputs[idx].seq == () else inputs[idx][..., 0]
+                )
             else:
                 step_inputs[inp.name] = inputs[idx][..., 0]
 
@@ -88,10 +115,11 @@ class LoopImpl(keras.layers.Layer):
         for t in range(horizon):
             for idx, inp in enumerate(self.inputs):  # type:ignore
                 if t > 0 and inp.name in self.closed_loop:
-                    if inp.time == 1 or inp.time == ():
-                        step_inputs[self.submodel.inputs[idx].name] = (
-                            y[self.closed_loop[inp.name]] if isinstance(y, dict) else y
-                        )
+                    if inp.time == 1 or inp.time == (): # If the closed-loop input has no time dimension, we can directly use the previous output without shifting.
+                        loop_value = (y[self.closed_loop[inp.name]] if isinstance(y, dict) else y)
+                        if (getattr(loop_value.shape, "rank", None) == len(self.inputs[idx].shape) + 1):
+                            loop_value = loop_value[:, 0]
+                        step_inputs[self.submodel.inputs[idx].name] = loop_value
                     else:  # If the closed-loop input has a time dimension, the time window must be shifted.
                         step_inputs[self.submodel.inputs[idx].name] = (
                             self._shift_time_window(
@@ -102,30 +130,19 @@ class LoopImpl(keras.layers.Layer):
                                 idx,
                             )
                         )
-                else:
-                    if inp.seq == ():  # No sequence dimension, broadcast the input across the horizon.
+                else: # Not a closed-loop input or first time step, take the appropriate time slice from the input sequence.
+                    if (inp.seq == ()):  # No sequence dimension, broadcast the input across the horizon.
                         step_inputs[self.submodel.inputs[idx].name] = inputs[idx]
-                    elif (
-                        inputs[idx].shape[-1] is not None and inputs[idx].shape[-1] > t
-                    ):
-                        step_inputs[self.submodel.inputs[idx].name] = inputs[idx][
-                            ..., t
-                        ]
-                    else:
-                        step_inputs[self.submodel.inputs[idx].name] = inputs[idx][
-                            ..., -1
-                        ]
+                    elif (inputs[idx].shape[-1] is not None and inputs[idx].shape[-1] > t): # If the input sequence has enough time steps, take the t-th step.
+                        step_inputs[self.submodel.inputs[idx].name] = inputs[idx][..., t]
+                    else: # Input sequence is shorter than the horizon, repeat the last time step.
+                        step_inputs[self.submodel.inputs[idx].name] = inputs[idx][..., -1]
 
             y = self.submodel(step_inputs)
 
             for out_name, out_value in (
                 y.items() if isinstance(y, dict) else {"output": y}.items()
             ):
-                # out_value = (
-                #     out_value
-                #     if len(keras.ops.shape(inputs[self.longest_seq_idx])[-1]) < 1  # type:ignore
-                #     else keras.ops.expand_dims(out_value, axis=-1)
-                # )
                 out_value = keras.ops.expand_dims(out_value, axis=-1)
                 if out_name not in outputs:
                     outputs[out_name] = out_value
@@ -193,7 +210,8 @@ class LoopImpl(keras.layers.Layer):
     #     perm = list(range(1, outputs.shape.rank)) + [0]  # type:ignore
     #     return tf.transpose(outputs, perm=perm)
 
-def _solve_dict_names(d: dict[str|Input, str|Node]) -> dict[str, str]:
+
+def _solve_dict_names(d: dict[str | Input, str | Node]) -> dict[str, str]:
     result = {}
     for key, value in d.items():
         if isinstance(key, Input):
@@ -202,14 +220,14 @@ def _solve_dict_names(d: dict[str|Input, str|Node]) -> dict[str, str]:
             key_name = key
         else:
             raise ValueError("closed_loop keys must be strings or Input instances.")
-        
+
         if isinstance(value, Node):
             value_name = value.name
         elif isinstance(value, str):
             value_name = value
         else:
             raise ValueError("closed_loop values must be strings or Node instances.")
-        
+
         result[key_name] = value_name
     return result
 
@@ -219,35 +237,56 @@ class Loop(Layer):
     Roll out a one-step Modely over the rightmost sequence axis.
     """
 
-    def __init__(self, f: Modely, closed_loop: dict[str | Input, str | Node], initial_values: dict[str|Input, str| Node], name=None):
+    def __init__(
+        self,
+        f: Modely,
+        closed_loop: dict[str | Input, str | Node],
+        initial_values: dict[str | Input, str | Node],
+        name=None,
+    ):
         self.f = f
-        
+
         self.closed_loop = _solve_dict_names(closed_loop)
         self.initial_values = _solve_dict_names(initial_values)
 
-        #check that closed_loop and initial_values keys are valid inputs to f
+        # check that closed_loop and initial_values keys are valid inputs to f
         f_input_names = [node.name for node in self.f.inputs]
         for key in self.closed_loop.keys():
             if key not in f_input_names:
-                raise ValueError(f"Loop: closed_loop key '{key}' not in f.inputs={f_input_names}")
+                raise ValueError(
+                    f"Loop: closed_loop key '{key}' not in f.inputs={f_input_names}"
+                )
         for key in self.initial_values.keys():
             if key not in f_input_names:
-                raise ValueError(f"Loop: initial_values key '{key}' not in f.inputs={f_input_names}")
-        
+                raise ValueError(
+                    f"Loop: initial_values key '{key}' not in f.inputs={f_input_names}"
+                )
+
         # check outputs in closed_loop values are valid outputs of f
         f_output_names = [node.name for node in self.f.outputs]
         for out in self.closed_loop.values():
             if out not in f_output_names:
-                raise ValueError(f"Loop: closed_loop output '{out}' not in f.outputs={f_output_names}")
+                raise ValueError(
+                    f"Loop: closed_loop output '{out}' not in f.outputs={f_output_names}"
+                )
 
         # check if closed_loop and initial_values keys are valid inputs to f
         for f_inp in f_input_names:
             if f_inp in self.closed_loop and f_inp not in self.initial_values:
-                raise ValueError(f"Loop: closed_loop key '{f_inp}' must also be in initial_values.")
+                raise ValueError(
+                    f"Loop: closed_loop key '{f_inp}' must also be in initial_values."
+                )
             if f_inp in self.initial_values and f_inp not in self.closed_loop:
-                raise ValueError(f"Loop: initial_values key '{f_inp}' must also be in closed_loop.")
+                raise ValueError(
+                    f"Loop: initial_values key '{f_inp}' must also be in closed_loop."
+                )
 
-        super().__init__(name=name, f=f, closed_loop=self.closed_loop, initial_values=self.initial_values)
+        super().__init__(
+            name=name,
+            f=f,
+            closed_loop=self.closed_loop,
+            initial_values=self.initial_values,
+        )
 
     def output_shape(self, *inputs):
         # Determine loop horizon from the deepest sequence input.
@@ -260,7 +299,7 @@ class Loop(Layer):
 
         out_node = self.f.outputs[0]
         out_seq = tuple(out_node.seq) + (horizon,)
-        return out_seq, out_node.time, out_node.dim
+        return out_node.dim, out_node.time, out_seq
 
     def build_layer(self):
         # save the index of the longest sequence input for use during call.
