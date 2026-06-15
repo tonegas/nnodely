@@ -80,7 +80,7 @@ class Constant(Stream):
             dim = tuple(arr.shape[:-1])
             time = tuple(arr.shape[-1:])
             seq = None
-        
+
         super().__init__(
             name=name,
             seq=seq,

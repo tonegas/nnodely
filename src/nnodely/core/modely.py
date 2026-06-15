@@ -1,4 +1,6 @@
 import os
+import cloudpickle
+import copy
 
 from typing import Any
 
@@ -8,7 +10,9 @@ from nnodely.layers.constant import Constant
 from nnodely.layers.parameter import Parameter
 from nnodely.core.dataloader import DataLoader
 import tensorflow as tf
+
 import numpy as np
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 from typing import cast
 
@@ -42,8 +46,7 @@ class Modely:
         items = " \n- ".join(map(str, self.order))
         return f"Model {self.name}:\n - {items}"
 
-    def __call__(self, inputs: list[Node] | Any) -> Any:
-        print(f"Calling model '{self.name}' with inputs: {inputs}")
+    def __call__(self, inputs: Any) -> Any:
         if all(isinstance(v, Node) for v in inputs):
             mc = ModelCall(f"{self.name}_call", self)
             mc.preds = inputs
@@ -178,14 +181,141 @@ class Modely:
         """Remove a registered minimizer by name."""
         self.minimizers = [m for m in self.minimizers if m["name"] != name]
 
+    def validate(
+        self,
+        val_data,
+        batch_size: int = 256,
+        out_dir: str | None = "validation",
+        show: bool = False,
+    ):
+        if self._train_model is None:
+            raise ValueError("Model is not built. Call build() before validate().")
+
+        if not self.minimizers:
+            raise ValueError("No minimizers defined. Cannot infer validation targets.")
+
+        if out_dir is not None:
+            os.makedirs(out_dir, exist_ok=True)
+
+        x_data = {
+            name: np.asarray(values) for name, values in val_data.as_dict().items()
+        }
+
+        n_samples = len(val_data)
+        if n_samples == 0:
+            raise ValueError("Validation dataset is empty.")
+
+        input_names = [node.name for node in self.train_inputs]
+
+        # ------------------------------------------------------------------
+        # Run prediction
+        # ------------------------------------------------------------------
+        pred_chunks = {}
+        if keras.backend.backend() == "torch":
+            self._train_model.eval()  # Set the model to evaluation mode (important for layers like dropout or batchnorm)
+
+        for start in range(0, n_samples, batch_size):
+            end = min(start + batch_size, n_samples)
+
+            batch_inputs = {
+                name: x_data[name][start:end, ...]
+                for name in input_names
+                if name in x_data
+            }
+
+            preds = self._train_model(batch_inputs, training=False)
+            for name, value in preds.items():
+                pred_chunks.setdefault(name, []).append(value.detach().cpu())
+
+        predictions = {
+            name: np.concatenate(chunks, axis=0) for name, chunks in pred_chunks.items()
+        }
+
+        metrics = {}
+
+        for minimizer in self.minimizers:
+            source = minimizer["source"]
+            target = minimizer["target"]
+
+            source_name = source.name
+            target_name = target.name
+
+            y_pred = predictions[source_name]
+            y_true = (
+                x_data[target_name]
+                if target_name in x_data
+                else predictions[target_name]
+            )
+
+            n = min(len(y_pred), len(y_true))
+            y_pred = y_pred[:n]
+            y_true = y_true[:n]
+
+            error = y_pred - y_true
+
+            mse = float(np.mean(error**2))
+            rmse = float(np.sqrt(mse))
+            mae = float(np.mean(np.abs(error)))
+
+            denom = float(np.sum((y_true - np.mean(y_true)) ** 2))
+            r2 = (
+                float(1.0 - np.sum(error**2) / denom) if denom > 1e-12 else float("nan")
+            )
+
+            metrics[minimizer["name"]] = {
+                "source": source_name,
+                "target": target_name,
+                "mse": mse,
+                "rmse": rmse,
+                "mae": mae,
+                "r2": r2,
+            }
+
+            print(f"\nValidation - {minimizer['name']}")
+            print(f"  source : {source_name}")
+            print(f"  target : {target_name}")
+            print(f"  MSE    : {mse:.6e}")
+            print(f"  RMSE   : {rmse:.6e}")
+            print(f"  MAE    : {mae:.6e}")
+            print(f"  R2     : {r2:.6f}")
+
+            # Flatten for simple plotting
+            y_true_plot = y_true.reshape(n, -1)[:, 0]
+            y_pred_plot = y_pred.reshape(n, -1)[:, 0]
+
+            plt.figure(figsize=(10, 4))
+            plt.plot(y_true_plot, label="target")
+            plt.plot(y_pred_plot, label="prediction", alpha=0.8)
+            plt.title(f"Validation: {minimizer['name']}")
+            plt.xlabel("sample")
+            plt.ylabel(source_name)
+            plt.grid(True)
+            plt.legend()
+            plt.tight_layout()
+
+            if out_dir is not None:
+                filename = os.path.join(out_dir, f"{minimizer['name']}_prediction.png")
+                plt.savefig(filename, dpi=160)
+
+            if show:
+                plt.show()
+
+            plt.close()
+
+        return {
+            "metrics": metrics,
+            "predictions": predictions,
+        }
+
     def train(
         self,
         train_data: DataLoader,
+        val_data: DataLoader | None = None,
         epochs: int = 1,
         batch_size: int = 1,
         optimizer=None,
-        prediction_samples = 1,
         lr: float = 1e-3,
+        out_dir: str | None = "validation",
     ):
         if not self.minimizers:
             raise ValueError("No minimizers defined. Call minimize() before train().")
@@ -283,7 +413,7 @@ class Modely:
 
             losses = {m["name"]: keras.losses.get(m["loss"]) for m in self.minimizers}
 
-            history = {"loss": []}
+            train_history = {"loss": []}
             idxs = np.arange(n_samples)
             epoch_bar = tqdm(range(epochs), desc=f"Training {self.name}", unit="epoch")
             for _ in epoch_bar:
@@ -314,10 +444,8 @@ class Modely:
                         epoch_losses.append(float(total.numpy()))
 
                 mean_epoch_loss = float(np.mean(epoch_losses))
-                history["loss"].append(mean_epoch_loss)
+                train_history["loss"].append(mean_epoch_loss)
                 epoch_bar.set_postfix(epoch_loss=f"{mean_epoch_loss:.3e}")
-
-            return history
 
         if backend == "torch":
             import torch
@@ -345,7 +473,7 @@ class Modely:
                 name: torch.as_tensor(values, dtype=torch.float32, device=device)
                 for name, values in y_data.items()
             }
-            history = {"loss": []}
+            train_history = {"loss": []}
             idxs = np.arange(n_samples)
             epoch_bar = tqdm(range(epochs), desc=f"Training {self.name}", unit="epoch")
 
@@ -383,32 +511,12 @@ class Modely:
                     epoch_losses.append(float(total.detach().cpu().item()))
 
                 mean_epoch_loss = float(np.mean(epoch_losses))
-                history["loss"].append(mean_epoch_loss)
+                train_history["loss"].append(mean_epoch_loss)
                 epoch_bar.set_postfix(epoch_loss=f"{mean_epoch_loss:.3e}")
 
-            km.eval()
-            return history
-
-        compile_losses: dict[str, Any] = {
-            name: None for name in getattr(km, "output_names", [])
-        }
-        for minimizer in self.minimizers:
-            compile_losses[minimizer["source"].name] = keras.losses.get(
-                minimizer["loss"]
-            )
-
-        km.compile(optimizer=optimizer, loss=compile_losses)
-
-        history = km.fit(
-            x=x_data,
-            y=y_data,
-            epochs=epochs,
-            batch_size=batch_size,
-            shuffle=True,
-            verbose="1",
-        )  # type: ignore[arg-type]
-
-        return history.history
+        if val_data is not None:
+            return self.validate(val_data, batch_size=batch_size, out_dir=out_dir)
+        return
 
     # -------------------------------------------------------------------------
     # Flatten API
@@ -539,33 +647,95 @@ class Modely:
         return loop_fn
 
     # -------------------------------------------------------------------------
-    # Save and load (pickle)
+    # Save and load
     # -------------------------------------------------------------------------
     def save(self, filename: str):
-        """Save the nnodely Model to a file."""
-        import cloudpickle
+        dirname = os.path.dirname(filename)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
+
+        # Save weights from current built model before clearing runtime state
+        if self._train_model is None:
+            raise ValueError(
+                "Model is not built. Call build() before saving the model and weights."
+            )
+        self._train_model.save_weights(filename + ".weights.h5")
+
+        model_copy = copy.deepcopy(self)
+
+        # Clear built Keras models
+        model_copy.model = None
+        model_copy._train_model = None
+
+        # Clear runtime Keras state from symbolic nodes
+        for node in getattr(model_copy, "order", []):
+            if hasattr(node, "_layer"):
+                node._layer = None
+
+            if hasattr(node, "_state"):
+                for key in ("layer", "param", "constant"):
+                    if key in node._state:
+                        node._state[key] = None
 
         with open(filename + ".pkl", "wb") as out:
-            cloudpickle.dump(self, out)
+            cloudpickle.dump(model_copy, out)
 
     @staticmethod
-    def load(filename: str) -> "Modely":
-        """Load a nnodely Model from a file."""
-        import cloudpickle
-
+    def load(filename: str):
         with open(filename + ".pkl", "rb") as inp:
-            return cloudpickle.load(inp)
+            model = cloudpickle.load(inp)
+
+        model.build()
+
+        weights_path = filename + ".weights.h5"
+        if os.path.exists(weights_path):
+            keras_model = model._train_model
+            keras_model.load_weights(weights_path)
+
+        return model
 
     def export_keras(self, filename: str):
-        """Export the built Keras model to a file."""
-        if self.built and isinstance(self.model, keras.Model):
-            self.model.save(filename + ".keras")
+        if self.model is None:
+            raise ValueError("Model is not built. Call build() before export_keras().")
 
-    def import_keras(self, filename: str):
-        """Import the built Keras model from a file."""
-        self.model = keras.models.load_model(
-            filename + ".keras", safe_mode=False
-        )  # WARNING: safe_mode=False per custom layers con torch.nn.Module.
+        if not isinstance(self.model, keras.Model):
+            raise TypeError(f"Expected keras.Model, got {type(self.model)}.")
+
+        self.model.save(filename + ".keras")
+
+    @staticmethod
+    def import_keras(filename: str, safe_mode: bool = True):
+        return keras.models.load_model(
+            filename + ".keras",
+            safe_mode=safe_mode,
+        )
+
+    def export_onnx(self, filename: str):
+        if self.model is None:
+            raise ValueError("Model is not built. Call build() before export_onnx().")
+
+        try:
+            self.model.export(
+                filename + ".onnx",
+                format="onnx",
+            )
+        except Exception as e:
+            raise RuntimeError(
+                "ONNX export failed. "
+                "Make sure Keras >= 3.0 and the ONNX dependencies are installed."
+            ) from e
+
+    @staticmethod
+    def validate_onnx(filename: str, inputs: dict):
+        import onnxruntime as ort
+
+        session = ort.InferenceSession(filename + ".onnx")
+
+        outputs = session.run(
+            None,
+            {k: np.asarray(v, dtype=np.float32) for k, v in inputs.items()},
+        )
+        return outputs
 
 
 class ModelCall(Node):

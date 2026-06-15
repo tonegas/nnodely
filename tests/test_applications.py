@@ -32,7 +32,8 @@ def test_vehicle_longitudinal_dynamics():
     altitude = Input("alt", dim=na)
 
     # Create neural network relations
-    air_drag_force = Linear(out_features=1, use_bias=True)([velocity.last() ** 2])
+    air_drag_force = velocity.last() * velocity.last()
+    air_drag_force = Linear(out_features=1, use_bias=True)([air_drag_force])
 
     breaking_force = Fir(out_features=1)([brake.sw(n)])
     breaking_force = ReLU()([breaking_force])
@@ -87,17 +88,17 @@ def test_vehicle_longitudinal_dynamics():
     assert result["accelleration"].shape == (4, 1, 1)
 
     # Load the training and the validation dataset
-    # data_folder = os.path.join(
-    #     os.path.dirname(os.path.realpath(__file__)),
-    #     "datasets",
-    #     "vehicle_long_dyn",
-    #     "train",
-    # )
-    # data_train = DataLoader(
-    #     model=vehicle,
-    #     format={"vel": 0, "trq": 1, "brk": 2, "gear": 3, "alt": 4, "acc": 5},
-    #     source=data_folder,
-    # )
+    data_folder = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)),
+        "datasets",
+        "vehicle_long_dyn",
+        "train",
+    )
+    data_train = DataLoader(
+        model=vehicle,
+        format={"vel": 0, "trq": 1, "brk": 2, "gear": 3, "alt": 4, "acc": 5},
+        source=data_folder,
+    )
     data_folder = os.path.join(
         os.path.dirname(os.path.realpath(__file__)),
         "datasets",
@@ -110,25 +111,51 @@ def test_vehicle_longitudinal_dynamics():
         source=data_folder,
     )
 
-    ## Train the model
-    vehicle.train(data_val, epochs=3, batch_size=32, lr=0.001)
-
-    ## Validation
+    ## Train the model and validate
+    vehicle.train(
+        train_data=data_train,
+        val_data=data_val,
+        epochs=5,
+        batch_size=256,
+        lr=0.01,
+        out_dir="html/vehicle_training",
+    )
 
     ## Inference after training
+    result = vehicle(dummy_input)
+    print("Inference result after training:", result)
+    assert "accelleration" in result
+    assert result["accelleration"].shape == (4, 1, 1)
 
-    ## Save the model weights
+    # ## Save the model weights
+    # vehicle.save("html/vehicle_model_weights.keras")
 
-    ## Load the model weights
+    # ## Load the model weights
+    # new_vehicle = Modely.load("html/vehicle_model_weights.keras")
 
-    ## inference after loading the model weights
+    # ## inference after loading the model weights
+    # new_result = new_vehicle(dummy_input)
+    # assert "accelleration" in new_result
+    # assert new_result["accelleration"].shape == (4, 1, 1)
+    # assert np.allclose(result["accelleration"], new_result["accelleration"], atol=1e-4)
 
-    ## Export the model in onnx format
+    # ## Export the model in keras format
+    # vehicle.export_keras("html/vehicle_model.keras")
 
-    ## Load onnx model
+    # ## Load keras model
+    # loaded_keras_model = Modely.import_keras("html/vehicle_model.keras")
+    # if loaded_keras_model is None:
+    #     raise ValueError("Failed to load the Keras model.")
 
-    ## onnx inference
+    # ## keras inference
+    # keras_result = loaded_keras_model(dummy_input)
+    # assert "accelleration" in keras_result
+    # assert keras_result["accelleration"].shape == (4, 1, 1)
+    # assert np.allclose(result["accelleration"], keras_result["accelleration"], atol=1e-4)
 
+    # ## Export the model in onnx format
+    # vehicle.export_onnx("html/vehicle_model.onnx")
 
-if __name__ == "__main__":
-    test_vehicle_longitudinal_dynamics()
+    # ## onnx validation
+    # onnx_result = Modely.validate_onnx("html/vehicle_model.onnx", dummy_input)
+    # print("ONNX validation result:", onnx_result)

@@ -102,7 +102,7 @@ def test_partitioning_windows():
         [[14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0]],
     ]
 
-    result = model([data_train[0]])
+    result = model(data_train[0])
     assert result["out1"].cpu().numpy().tolist() == [[[33, 46, 61]]]
     assert result["out2"].cpu().numpy().tolist() == [[[26]]]
     assert result["out3"].cpu().numpy().tolist() == [[[30, 41, 54, 69]]]
@@ -116,7 +116,7 @@ def test_partitioning_windows():
     assert result["out_z_stream2"].cpu().numpy().tolist() == [[[9, 14, 20]]]
     assert result["out_z_stream3"].cpu().numpy().tolist() == [[[20, 26, 33, 41]]]
 
-    result = model([data_train[1]])
+    result = model(data_train[1])
     assert result["out1"].cpu().numpy().tolist() == [[[46, 61, 77]]]
     assert result["out2"].cpu().numpy().tolist() == [[[34]]]
     assert result["out3"].cpu().numpy().tolist() == [[[41, 54, 69, 86]]]

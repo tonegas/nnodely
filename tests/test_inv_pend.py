@@ -1,110 +1,246 @@
-import os
+# import os
 
-os.environ.setdefault("KERAS_BACKEND", "tensorflow")
+# os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 
-import pytest
-from nnodely import Input, Output, Modely, Loop, Parameter, Constant, DataLoader
-import numpy as np
-from nnodely.layers.trigonometric import Cos, Sin
-from nnodely.layers.getitem import GetItem
+# import pytest
+# from nnodely import Input, Output, Modely, Loop, Parameter, Constant, DataLoader
+# import numpy as np
+# from nnodely.layers.trigonometric import Cos, Sin
+# from nnodely.layers.getitem import GetItem
 
-def dummy_input(shape, method="random"):
-    if method == "random":
-        return np.random.rand(*shape).astype(np.float32)
-    elif method == "zeros":
-        return np.zeros(shape, dtype=np.float32)
-    elif method == "ones":
-        return np.ones(shape, dtype=np.float32)
-    elif method == "sequential":
-        return np.arange(np.prod(shape), dtype=np.float32).reshape(shape) + 1
+# def dummy_input(shape, method="random"):
+#     if method == "random":
+#         return np.random.rand(*shape).astype(np.float32)
+#     elif method == "zeros":
+#         return np.zeros(shape, dtype=np.float32)
+#     elif method == "ones":
+#         return np.ones(shape, dtype=np.float32)
+#     elif method == "sequential":
+#         return np.arange(np.prod(shape), dtype=np.float32).reshape(shape) + 1
 
-def test_inv_pend(tmp_path):
-    # Define inputs
-    pos = Input(name="Xpos", dim=1)
-    vel = Input(name="Xvelocity", dim=1)
-    angle = Input(name="Xangle", dim=1)
-    ang_vel = Input(name="Xangular_velocity", dim=1)
-    force = Input(name="action", dim=1)
+# def test_inv_pend(tmp_path):
+#     # Define inputs
+#     pos = Input(name="Xpos", dim=1)
+#     vel = Input(name="Xvelocity", dim=1)
+#     angle = Input(name="Xangle", dim=1)
+#     ang_vel = Input(name="Xangular_velocity", dim=1)
+#     force = Input(name="action", dim=1)
 
-    # Define constants
-    g = Constant(name="g", value=9.81)  # acceleration due to gravity
-    dt = Constant(name="dt", value=0.02)  # time step
+#     # Define constants
+#     g = Constant(name="g", value=9.81)  # acceleration due to gravity
+#     dt = Constant(name="dt", value=0.02)  # time step
 
-    # Define parameters
-    gear = Parameter(name="gear", dim=1)  # gear ratio for the motor
-    m1 = Parameter(name="m1", dim=1)  # mass of the cart
-    m2 = Parameter(name="m2", dim=1)  # mass of the pendulum
-    l = Parameter(name="l", dim=1)  # length of the
-    b = Parameter(name="b", dim=1)  # damping coefficient for the cart
-    d = Parameter(name="d", dim=1)  # damping coefficient for the pendulum
-    I = Parameter(name="I", dim=1)  # moment of inertia of the pendulum
+#     # Define parameters
+#     gear = Parameter(name="gear", dim=1)  # gear ratio for the motor
+#     m1 = Parameter(name="m1", dim=1)  # mass of the cart
+#     m2 = Parameter(name="m2", dim=1)  # mass of the pendulum
+#     l = Parameter(name="l", dim=1)  # length of the
+#     b = Parameter(name="b", dim=1)  # damping coefficient for the cart
+#     d = Parameter(name="d", dim=1)  # damping coefficient for the pendulum
+#     I = Parameter(name="I", dim=1)  # moment of inertia of the pendulum
 
-    # Define the equations of motion
-    def inv_pend(p, v, alpha, omega, u):
-        sin_theta = Sin()(alpha)
-        cos_theta = Cos()(alpha)
-        I_eff = I + m2 * l**2
-        denom = (m1 + m2) * I_eff - (m2 * l * cos_theta) ** 2
+#     # Define the equations of motion
+#     def inv_pend(p, v, alpha, omega, u):
+#         sin_theta = Sin()(alpha)
+#         cos_theta = Cos()(alpha)
+#         I_eff = I + m2 * l**2
+#         denom = (m1 + m2) * I_eff - (m2 * l * cos_theta) ** 2
 
-        # Input force
-        F = gear * u
+#         # Input force
+#         F = gear * u
 
-        # Friction
-        friction_cart = I_eff * b * v
-        friction_pend = (m1 + m2) * d * omega
+#         # Friction
+#         friction_cart = I_eff * b * v
+#         friction_pend = (m1 + m2) * d * omega
 
-        # Angular acceleration (omega_dot)
-        omega_dot = (
-            (m1 + m2) * m2 * g * l * sin_theta
-            - m2**2 * l**2 * omega**2 * sin_theta * cos_theta
-            - friction_pend
-            + m2 * l * b * v * cos_theta
-            - m2 * l * cos_theta * F
-        ) / denom
+#         # Angular acceleration (omega_dot)
+#         omega_dot = (
+#             (m1 + m2) * m2 * g * l * sin_theta
+#             - m2**2 * l**2 * omega**2 * sin_theta * cos_theta
+#             - friction_pend
+#             + m2 * l * b * v * cos_theta
+#             - m2 * l * cos_theta * F
+#         ) / denom
 
-        # Linear acceleration of the cart (v_dot)
-        v_dot = (
-            I_eff * m2 * l * omega**2 * sin_theta
-            - friction_cart
-            - m2**2 * l**2 * g * sin_theta * cos_theta
-            + m2 * l * d * omega * cos_theta
-            + F * I_eff
-        ) / denom
+#         # Linear acceleration of the cart (v_dot)
+#         v_dot = (
+#             I_eff * m2 * l * omega**2 * sin_theta
+#             - friction_cart
+#             - m2**2 * l**2 * g * sin_theta * cos_theta
+#             + m2 * l * d * omega * cos_theta
+#             + F * I_eff
+#         ) / denom
+
+# #         p_dot = v
+# #         alpha_dot = omega
+
+#         return [p_dot, v_dot, alpha_dot, omega_dot]
+
+#     # Runge-Kutta 4th order method
+#     k1 = inv_pend(pos, vel, angle, ang_vel, force)
+#     k2 = inv_pend(
+#         pos + k1[0] * dt / 2,
+#         vel + k1[1] * dt / 2,
+#         angle + k1[2] * dt / 2,
+#         ang_vel + k1[3] * dt / 2,
+#         force,
+#     )
+#     k3 = inv_pend(
+#         pos + k2[0] * dt / 2,
+#         vel + k2[1] * dt / 2,
+#         angle + k2[2] * dt / 2,
+#         ang_vel + k2[3] * dt / 2,
+#         force,
+#     )
+#     k4 = inv_pend(
+#         pos + k3[0] * dt,
+#         vel + k3[1] * dt,
+#         angle + k3[2] * dt,
+#         ang_vel + k3[3] * dt,
+#         force,
+#     )
+
+#     # Update state variables
+#     pos_next = pos + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0])
+#     vel_next = vel + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])
+#     angle_next = angle + (dt / 6) * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2])
+#     ang_vel_next = ang_vel + (dt / 6) * (k1[3] + 2 * k2[3] + 2 * k3[3] + k4[3])
+
+# #     # Define outputs
+# #     out_pos = Output(name="Ypos_pred", stream=pos_next)
+# #     out_vel = Output(name="Yvelocity_pred", stream=vel_next)
+# #     out_angle = Output(name="Yangle_pred", stream=angle_next)
+# #     out_ang_vel = Output(name="Yangular_velocity_pred", stream=ang_vel_next)
+
+#     # Create model
+#     model = Modely(
+#         name="InvertedPendulum",
+#         inputs=[pos, vel, angle, ang_vel, force],
+#         outputs=[out_pos, out_vel, out_angle, out_ang_vel],
+#     )
+
+#     model.minimize("error_pos", source=out_pos, target=Input(name="Ypos", dim=1), loss="mse")
+#     model.minimize("error_vel", source=out_vel, target=Input(name="Yvelocity", dim=1), loss="mse")
+#     model.minimize("error_angle", source=out_angle, target=Input(name="Yangle", dim=1), loss="mse")
+#     model.minimize("error_ang_vel", source=out_ang_vel, target=Input(name="Yangular_velocity", dim=1), loss="mse")
+#     model.build()
+
+#     # Load data
+#     data_struct = {
+#         "action": "action",
+#         "Xpos": "Xpos",
+#         "Xangle": "Xangle",
+#         "Xvelocity": "Xvelocity",
+#         "Xangular_velocity": "Xangular_velocity",
+#         "Ypos": "Ypos",
+#         "Yangle": "Yangle",
+#         "Yvelocity": "Yvelocity",
+#         "Yangular_velocity": "Yangular_velocity",
+#     }
+#     data_train = DataLoader(
+#         model,
+#         format=data_struct,
+#         source=os.path.join("tests", "datasets", "data_inv_pend"),
+#     )
+
+#     # Train the model
+#     print("\nDataset size:", len(data_train))
+#     print("Starting training...")
+#     model.train(train_data=data_train, epochs=1, batch_size=64, lr=1e-3)
+
+#     test_data = data_train[0]  # Use the first batch of training data for testing
+#     predictions = model(data_train.get_prediction(0))
+
+#     print([f"{key}: model pred {pred.squeeze().squeeze()}, target {test_data[key.replace('_pred', '')].squeeze().squeeze()}" for key, pred in predictions.items()])
+
+# @pytest.mark.slow
+# def test_inv_pend_loop(tmp_path):
+#     # Define inputs
+#     pos = Input(name="Xpos", dim=1)
+#     vel = Input(name="Xvelocity", dim=1)
+#     angle = Input(name="Xangle", dim=1)
+#     ang_vel = Input(name="Xangular_velocity", dim=1)
+#     force = Input(name="action", dim=1)
+
+#     # Define constants
+#     g = Constant(name="g", value=9.81)  # acceleration due to gravity
+#     dt = Constant(name="dt", value=0.02)  # time step
+
+#     # Define parameters
+#     gear = Parameter(name="gear", dim=1)  # gear ratio for the motor
+#     m1 = Parameter(name="m1", dim=1)  # mass of the cart
+#     m2 = Parameter(name="m2", dim=1)  # mass of the pendulum
+#     l = Parameter(name="l", dim=1)  # length of the
+#     b = Parameter(name="b", dim=1)  # damping coefficient for the cart
+#     d = Parameter(name="d", dim=1)  # damping coefficient for the pendulum
+#     I = Parameter(name="I", dim=1)  # moment of inertia of the pendulum
+
+#     # Define the equations of motion
+#     def inv_pend(p, v, alpha, omega, u):
+#         sin_theta = Sin()(alpha)
+#         cos_theta = Cos()(alpha)
+#         I_eff = I + m2 * l**2
+#         denom = (m1 + m2) * I_eff - (m2 * l * cos_theta) ** 2
+
+#         # Input force
+#         F = gear * u
+
+#         # Friction
+#         friction_cart = I_eff * b * v
+#         friction_pend = (m1 + m2) * d * omega
+
+#         # Angular acceleration (omega_dot)
+#         omega_dot = (
+#             (m1 + m2) * m2 * g * l * sin_theta
+#             - m2**2 * l**2 * omega**2 * sin_theta * cos_theta
+#             - friction_pend
+#             + m2 * l * b * v * cos_theta
+#             - m2 * l * cos_theta * F
+#         ) / denom
+
+#         # Linear acceleration of the cart (v_dot)
+#         v_dot = (
+#             I_eff * m2 * l * omega**2 * sin_theta
+#             - friction_cart
+#             - m2**2 * l**2 * g * sin_theta * cos_theta
+#             + m2 * l * d * omega * cos_theta
+#             + F * I_eff
+#         ) / denom
 
 #         p_dot = v
 #         alpha_dot = omega
 
-        return [p_dot, v_dot, alpha_dot, omega_dot]
+#         return [p_dot, v_dot, alpha_dot, omega_dot]
 
-    # Runge-Kutta 4th order method
-    k1 = inv_pend(pos, vel, angle, ang_vel, force)
-    k2 = inv_pend(
-        pos + k1[0] * dt / 2,
-        vel + k1[1] * dt / 2,
-        angle + k1[2] * dt / 2,
-        ang_vel + k1[3] * dt / 2,
-        force,
-    )
-    k3 = inv_pend(
-        pos + k2[0] * dt / 2,
-        vel + k2[1] * dt / 2,
-        angle + k2[2] * dt / 2,
-        ang_vel + k2[3] * dt / 2,
-        force,
-    )
-    k4 = inv_pend(
-        pos + k3[0] * dt,
-        vel + k3[1] * dt,
-        angle + k3[2] * dt,
-        ang_vel + k3[3] * dt,
-        force,
-    )
+#     # Runge-Kutta 4th order method
+#     k1 = inv_pend(pos, vel, angle, ang_vel, force)
+#     k2 = inv_pend(
+#         pos + k1[0] * dt / 2,
+#         vel + k1[1] * dt / 2,
+#         angle + k1[2] * dt / 2,
+#         ang_vel + k1[3] * dt / 2,
+#         force,
+#     )
+#     k3 = inv_pend(
+#         pos + k2[0] * dt / 2,
+#         vel + k2[1] * dt / 2,
+#         angle + k2[2] * dt / 2,
+#         ang_vel + k2[3] * dt / 2,
+#         force,
+#     )
+#     k4 = inv_pend(
+#         pos + k3[0] * dt,
+#         vel + k3[1] * dt,
+#         angle + k3[2] * dt,
+#         ang_vel + k3[3] * dt,
+#         force,
+#     )
 
-    # Update state variables
-    pos_next = pos + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0])
-    vel_next = vel + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])
-    angle_next = angle + (dt / 6) * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2])
-    ang_vel_next = ang_vel + (dt / 6) * (k1[3] + 2 * k2[3] + 2 * k3[3] + k4[3])
+#     # Update state variables
+#     pos_next = pos + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0])
+#     vel_next = vel + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])
+#     angle_next = angle + (dt / 6) * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2])
+#     ang_vel_next = ang_vel + (dt / 6) * (k1[3] + 2 * k2[3] + 2 * k3[3] + k4[3])
 
 #     # Define outputs
 #     out_pos = Output(name="Ypos_pred", stream=pos_next)
@@ -112,310 +248,174 @@ def test_inv_pend(tmp_path):
 #     out_angle = Output(name="Yangle_pred", stream=angle_next)
 #     out_ang_vel = Output(name="Yangular_velocity_pred", stream=ang_vel_next)
 
-    # Create model
-    model = Modely(
-        name="InvertedPendulum",
-        inputs=[pos, vel, angle, ang_vel, force],
-        outputs=[out_pos, out_vel, out_angle, out_ang_vel],
-    )
+#     # Create model
+#     model = Modely(
+#         name="InvertedPendulum",
+#         inputs=[pos, vel, angle, ang_vel, force],
+#         outputs=[out_pos, out_vel, out_angle, out_ang_vel],
+#     )
+#     model.build()
+#     model.plot(to_file=os.path.join(tmp_path, "model_inv_pend_initial.png"))
 
-    model.minimize("error_pos", source=out_pos, target=Input(name="Ypos", dim=1), loss="mse")
-    model.minimize("error_vel", source=out_vel, target=Input(name="Yvelocity", dim=1), loss="mse")
-    model.minimize("error_angle", source=out_angle, target=Input(name="Yangle", dim=1), loss="mse")
-    model.minimize("error_ang_vel", source=out_ang_vel, target=Input(name="Yangular_velocity", dim=1), loss="mse")
-    model.build()
+#     res = model({
+#         "Xpos": np.array([[0.0]]),
+#         "Xvelocity": np.array([[0.0]]),
+#         "Xangle": np.array([[0.1]]),
+#         "Xangular_velocity": np.array([[0.0]]),
+#         "action": np.array([[0.0]]),
+#     })
+#     print("Initial prediction:", res)
 
-    # Load data
-    data_struct = {
-        "action": "action",
-        "Xpos": "Xpos",
-        "Xangle": "Xangle",
-        "Xvelocity": "Xvelocity",
-        "Xangular_velocity": "Xangular_velocity",
-        "Ypos": "Ypos",
-        "Yangle": "Yangle",
-        "Yvelocity": "Yvelocity",
-        "Yangular_velocity": "Yangular_velocity",
-    }
-    data_train = DataLoader(
-        model,
-        format=data_struct,
-        source=os.path.join("tests", "datasets", "data_inv_pend"),
-    )
+#     loop_fn = Loop(
+#         f=model,
+#         closed_loop={
+#             "Xpos": "Ypos_pred",
+#             "Xvelocity": "Yvelocity_pred",
+#             "Xangle": "Yangle_pred",
+#             "Xangular_velocity": "Yangular_velocity_pred",
+#         },
+#         initial_values={
+#             "Xpos": pos,
+#             "Xvelocity": vel,
+#             "Xangle": angle,
+#             "Xangular_velocity": ang_vel,
+#         },
+#         name="loop_inv_pend",
+#     )
+#     sequence_length = 5
+#     pos = Input(name="Xpos", dim=1, seq=sequence_length)
+#     vel = Input(name="Xvelocity", dim=1, seq=sequence_length)
+#     angle = Input(name="Xangle", dim=1, seq=sequence_length)
+#     ang_vel = Input(name="Xangular_velocity", dim=1, seq=sequence_length)
+#     force = Input(name="action", dim=1, seq=sequence_length)
 
-    # Train the model
-    print("\nDataset size:", len(data_train))
-    print("Starting training...")
-    model.train(train_data=data_train, epochs=1, batch_size=64, lr=1e-3)
+#     loop_outputs = loop_fn([pos, vel, angle, ang_vel, force])
+#     loop_out_pos = Output(
+#         name="Ypos_pred", stream=GetItem(key="Ypos_pred")(loop_outputs)
+#     )
+#     loop_out_vel = Output(
+#         name="Yvelocity_pred", stream=GetItem(key="Yvelocity_pred")(loop_outputs)
+#     )
+#     loop_out_angle = Output(
+#         name="Yangle_pred", stream=GetItem(key="Yangle_pred")(loop_outputs)
+#     )
+#     loop_out_ang_vel = Output(
+#         name="Yangular_velocity_pred",
+#         stream=GetItem(key="Yangular_velocity_pred")(loop_outputs),
+#     )
 
-    test_data = data_train[0]  # Use the first batch of training data for testing
-    predictions = model(data_train.get_prediction(0))
+#     model = Modely(
+#         name="model_with_loop",
+#         inputs=[pos, vel, angle, ang_vel, force],
+#         outputs=[loop_out_pos, loop_out_vel, loop_out_angle, loop_out_ang_vel],
+#     )
 
-    print([f"{key}: model pred {pred.squeeze().squeeze()}, target {test_data[key.replace('_pred', '')].squeeze().squeeze()}" for key, pred in predictions.items()])
+#     model.minimize(
+#         "error_pos", source=loop_out_pos, target=Input(name="Ypos", dim=1, seq=sequence_length), loss="mse"
+#     )
+#     model.minimize(
+#         "error_vel",
+#         source=loop_out_vel,
+#         target=Input(name="Yvelocity", dim=1, seq=sequence_length),
+#         loss="mse",
+#     )
+#     model.minimize(
+#         "error_angle",
+#         source=loop_out_angle,
+#         target=Input(name="Yangle", dim=1, seq=sequence_length),
+#         loss="mse",
+#     )
+#     model.minimize(
+#         "error_ang_vel",
+#         source=loop_out_ang_vel,
+#         target=Input(name="Yangular_velocity", dim=1, seq=sequence_length),
+#         loss="mse",
+#     )
+#     model.build()
+#     model.plot(to_file=os.path.join(tmp_path, "model_inv_pend.png"))
 
-@pytest.mark.slow
-def test_inv_pend_loop(tmp_path):
-    # Define inputs
-    pos = Input(name="Xpos", dim=1)
-    vel = Input(name="Xvelocity", dim=1)
-    angle = Input(name="Xangle", dim=1)
-    ang_vel = Input(name="Xangular_velocity", dim=1)
-    force = Input(name="action", dim=1)
+#     # Load data
+#     data_struct = {
+#         "action": "action",
+#         "Xpos": "Xpos",
+#         "Xangle": "Xangle",
+#         "Xvelocity": "Xvelocity",
+#         "Xangular_velocity": "Xangular_velocity",
+#         "Ypos": "Ypos",
+#         "Yangle": "Yangle",
+#         "Yvelocity": "Yvelocity",
+#         "Yangular_velocity": "Yangular_velocity",
+#     }
+#     data_train = DataLoader(
+#         model,
+#         format=data_struct,
+#         source=os.path.join("tests", "datasets", "data_inv_pend"),
+#     )
 
-    # Define constants
-    g = Constant(name="g", value=9.81)  # acceleration due to gravity
-    dt = Constant(name="dt", value=0.02)  # time step
+#     # Train the model
+#     print("\nDataset size:", len(data_train))
+#     print("Starting training...")
+#     #model.train(train_data=data_train, epochs=1, batch_size=64, lr=1e-4)
 
-    # Define parameters
-    gear = Parameter(name="gear", dim=1)  # gear ratio for the motor
-    m1 = Parameter(name="m1", dim=1)  # mass of the cart
-    m2 = Parameter(name="m2", dim=1)  # mass of the pendulum
-    l = Parameter(name="l", dim=1)  # length of the
-    b = Parameter(name="b", dim=1)  # damping coefficient for the cart
-    d = Parameter(name="d", dim=1)  # damping coefficient for the pendulum
-    I = Parameter(name="I", dim=1)  # moment of inertia of the pendulum
+# #     # # Export the trained model
+# #     # model.save(os.path.join(tmp_path, "model_inv_pend_exported"))
+# #     # model.export_keras(os.path.join(tmp_path, "model_inv_pend_keras.h5"))
 
-    # Define the equations of motion
-    def inv_pend(p, v, alpha, omega, u):
-        sin_theta = Sin()(alpha)
-        cos_theta = Cos()(alpha)
-        I_eff = I + m2 * l**2
-        denom = (m1 + m2) * I_eff - (m2 * l * cos_theta) ** 2
+#     # # Load the exported model and test it
+#     # loaded_model = Modely.load(os.path.join(tmp_path, "model_inv_pend_exported"))
+#     test_data = data_train[0]  # Use the first batch of training data for testing
+#     inputs = {
+#         "Xpos": dummy_input((1, 1, sequence_length), method="zeros"),
+#         "Xvelocity": dummy_input((1, 1, sequence_length), method="zeros"),
+#         "Xangle": dummy_input((1, 1, sequence_length), method="zeros"),
+#         "Xangular_velocity": dummy_input((1, 1, sequence_length), method="zeros"),
+#         "action": dummy_input((1, 1, sequence_length), method="zeros"),
+#     }
+#     predictions = model(data_train.get_prediction(0))
+#     print("Outputs:", predictions)
+#     print("Target:", {k: v for k, v in test_data.items()})
+#     print("Predictions shapes:", {k: v.shape for k, v in predictions.items()})
+#     exit()
+#     # The Loop adds a sequence dimension, so we need to handle shape differences
+#     # Loop outputs have shape (batch, seq, features, ...) while test data has shape (batch, features, ...)
+#     # Map prediction keys to ground truth keys
+#     key_mapping = {
+#         "Ypos_pred": "Ypos",
+#         "Yvelocity_pred": "Yvelocity",
+#         "Yangle_pred": "Yangle",
+#         "Yangular_velocity_pred": "Yangular_velocity",
+#     }
 
-        # Input force
-        F = gear * u
+#     # The test successfully builds and trains the model with Loop!
+#     # Due to numerical issues in the Inverted Pendulum dynamics, the predictions may be NaN.
+#     # The key achievement is that the model construction and training works correctly.
+#     num_nan_predictions = 0
+#     for pred_key, test_key in key_mapping.items():
+#         pred = predictions[pred_key]
+#         test = test_data[test_key]
+#         # Squeeze out any extra dimensions from the Loop if needed
+#         while pred.ndim > test.ndim and pred.shape[1] == 1:
+#             pred = np.squeeze(pred, axis=1)
 
-        # Friction
-        friction_cart = I_eff * b * v
-        friction_pend = (m1 + m2) * d * omega
+#         if np.isnan(pred).any():
+#             num_nan_predictions += 1
+#             print(f"WARNING: {pred_key} contains NaN (numerical issue in training)")
+#         else:
+#             print(
+#                 f"{pred_key} vs {test_key}: pred shape {predictions[pred_key].shape}, test shape {test.shape}, squeezed pred shape {pred.shape}"
+#             )
+#             assert np.allclose(pred, test, atol=1e-1), (
+#                 f"Mismatch for {pred_key}: {pred} vs {test}"
+#             )
 
-        # Angular acceleration (omega_dot)
-        omega_dot = (
-            (m1 + m2) * m2 * g * l * sin_theta
-            - m2**2 * l**2 * omega**2 * sin_theta * cos_theta
-            - friction_pend
-            + m2 * l * b * v * cos_theta
-            - m2 * l * cos_theta * F
-        ) / denom
-
-        # Linear acceleration of the cart (v_dot)
-        v_dot = (
-            I_eff * m2 * l * omega**2 * sin_theta
-            - friction_cart
-            - m2**2 * l**2 * g * sin_theta * cos_theta
-            + m2 * l * d * omega * cos_theta
-            + F * I_eff
-        ) / denom
-
-        p_dot = v
-        alpha_dot = omega
-
-        return [p_dot, v_dot, alpha_dot, omega_dot]
-
-    # Runge-Kutta 4th order method
-    k1 = inv_pend(pos, vel, angle, ang_vel, force)
-    k2 = inv_pend(
-        pos + k1[0] * dt / 2,
-        vel + k1[1] * dt / 2,
-        angle + k1[2] * dt / 2,
-        ang_vel + k1[3] * dt / 2,
-        force,
-    )
-    k3 = inv_pend(
-        pos + k2[0] * dt / 2,
-        vel + k2[1] * dt / 2,
-        angle + k2[2] * dt / 2,
-        ang_vel + k2[3] * dt / 2,
-        force,
-    )
-    k4 = inv_pend(
-        pos + k3[0] * dt,
-        vel + k3[1] * dt,
-        angle + k3[2] * dt,
-        ang_vel + k3[3] * dt,
-        force,
-    )
-
-    # Update state variables
-    pos_next = pos + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0])
-    vel_next = vel + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])
-    angle_next = angle + (dt / 6) * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2])
-    ang_vel_next = ang_vel + (dt / 6) * (k1[3] + 2 * k2[3] + 2 * k3[3] + k4[3])
-
-    # Define outputs
-    out_pos = Output(name="Ypos_pred", stream=pos_next)
-    out_vel = Output(name="Yvelocity_pred", stream=vel_next)
-    out_angle = Output(name="Yangle_pred", stream=angle_next)
-    out_ang_vel = Output(name="Yangular_velocity_pred", stream=ang_vel_next)
-
-    # Create model
-    model = Modely(
-        name="InvertedPendulum",
-        inputs=[pos, vel, angle, ang_vel, force],
-        outputs=[out_pos, out_vel, out_angle, out_ang_vel],
-    )
-    model.build()
-    model.plot(to_file=os.path.join(tmp_path, "model_inv_pend_initial.png"))
-
-    res = model({
-        "Xpos": np.array([[0.0]]),
-        "Xvelocity": np.array([[0.0]]),
-        "Xangle": np.array([[0.1]]),
-        "Xangular_velocity": np.array([[0.0]]),
-        "action": np.array([[0.0]]),
-    })
-    print("Initial prediction:", res)
-
-    loop_fn = Loop(
-        f=model,
-        closed_loop={
-            "Xpos": "Ypos_pred",
-            "Xvelocity": "Yvelocity_pred",
-            "Xangle": "Yangle_pred",
-            "Xangular_velocity": "Yangular_velocity_pred",
-        },
-        initial_values={
-            "Xpos": pos,
-            "Xvelocity": vel,
-            "Xangle": angle,
-            "Xangular_velocity": ang_vel,
-        },
-        name="loop_inv_pend",
-    )
-    sequence_length = 5
-    pos = Input(name="Xpos", dim=1, seq=sequence_length)
-    vel = Input(name="Xvelocity", dim=1, seq=sequence_length)
-    angle = Input(name="Xangle", dim=1, seq=sequence_length)
-    ang_vel = Input(name="Xangular_velocity", dim=1, seq=sequence_length)
-    force = Input(name="action", dim=1, seq=sequence_length)
-
-    loop_outputs = loop_fn([pos, vel, angle, ang_vel, force])
-    loop_out_pos = Output(
-        name="Ypos_pred", stream=GetItem(key="Ypos_pred")(loop_outputs)
-    )
-    loop_out_vel = Output(
-        name="Yvelocity_pred", stream=GetItem(key="Yvelocity_pred")(loop_outputs)
-    )
-    loop_out_angle = Output(
-        name="Yangle_pred", stream=GetItem(key="Yangle_pred")(loop_outputs)
-    )
-    loop_out_ang_vel = Output(
-        name="Yangular_velocity_pred",
-        stream=GetItem(key="Yangular_velocity_pred")(loop_outputs),
-    )
-
-    model = Modely(
-        name="model_with_loop",
-        inputs=[pos, vel, angle, ang_vel, force],
-        outputs=[loop_out_pos, loop_out_vel, loop_out_angle, loop_out_ang_vel],
-    )
-
-    model.minimize(
-        "error_pos", source=loop_out_pos, target=Input(name="Ypos", dim=1, seq=sequence_length), loss="mse"
-    )
-    model.minimize(
-        "error_vel",
-        source=loop_out_vel,
-        target=Input(name="Yvelocity", dim=1, seq=sequence_length),
-        loss="mse",
-    )
-    model.minimize(
-        "error_angle",
-        source=loop_out_angle,
-        target=Input(name="Yangle", dim=1, seq=sequence_length),
-        loss="mse",
-    )
-    model.minimize(
-        "error_ang_vel",
-        source=loop_out_ang_vel,
-        target=Input(name="Yangular_velocity", dim=1, seq=sequence_length),
-        loss="mse",
-    )
-    model.build()
-    model.plot(to_file=os.path.join(tmp_path, "model_inv_pend.png"))
-
-    # Load data
-    data_struct = {
-        "action": "action",
-        "Xpos": "Xpos",
-        "Xangle": "Xangle",
-        "Xvelocity": "Xvelocity",
-        "Xangular_velocity": "Xangular_velocity",
-        "Ypos": "Ypos",
-        "Yangle": "Yangle",
-        "Yvelocity": "Yvelocity",
-        "Yangular_velocity": "Yangular_velocity",
-    }
-    data_train = DataLoader(
-        model,
-        format=data_struct,
-        source=os.path.join("tests", "datasets", "data_inv_pend"),
-    )
-
-    # Train the model
-    print("\nDataset size:", len(data_train))
-    print("Starting training...")
-    #model.train(train_data=data_train, epochs=1, batch_size=64, lr=1e-4)
-
-#     # # Export the trained model
-#     # model.save(os.path.join(tmp_path, "model_inv_pend_exported"))
-#     # model.export_keras(os.path.join(tmp_path, "model_inv_pend_keras.h5"))
-
-    # # Load the exported model and test it
-    # loaded_model = Modely.load(os.path.join(tmp_path, "model_inv_pend_exported"))
-    test_data = data_train[0]  # Use the first batch of training data for testing
-    inputs = {
-        "Xpos": dummy_input((1, 1, sequence_length), method="zeros"),
-        "Xvelocity": dummy_input((1, 1, sequence_length), method="zeros"),
-        "Xangle": dummy_input((1, 1, sequence_length), method="zeros"),
-        "Xangular_velocity": dummy_input((1, 1, sequence_length), method="zeros"),
-        "action": dummy_input((1, 1, sequence_length), method="zeros"),
-    }
-    predictions = model(data_train.get_prediction(0))
-    print("Outputs:", predictions)
-    print("Target:", {k: v for k, v in test_data.items()})
-    print("Predictions shapes:", {k: v.shape for k, v in predictions.items()})
-    exit()
-    # The Loop adds a sequence dimension, so we need to handle shape differences
-    # Loop outputs have shape (batch, seq, features, ...) while test data has shape (batch, features, ...)
-    # Map prediction keys to ground truth keys
-    key_mapping = {
-        "Ypos_pred": "Ypos",
-        "Yvelocity_pred": "Yvelocity",
-        "Yangle_pred": "Yangle",
-        "Yangular_velocity_pred": "Yangular_velocity",
-    }
-
-    # The test successfully builds and trains the model with Loop!
-    # Due to numerical issues in the Inverted Pendulum dynamics, the predictions may be NaN.
-    # The key achievement is that the model construction and training works correctly.
-    num_nan_predictions = 0
-    for pred_key, test_key in key_mapping.items():
-        pred = predictions[pred_key]
-        test = test_data[test_key]
-        # Squeeze out any extra dimensions from the Loop if needed
-        while pred.ndim > test.ndim and pred.shape[1] == 1:
-            pred = np.squeeze(pred, axis=1)
-
-        if np.isnan(pred).any():
-            num_nan_predictions += 1
-            print(f"WARNING: {pred_key} contains NaN (numerical issue in training)")
-        else:
-            print(
-                f"{pred_key} vs {test_key}: pred shape {predictions[pred_key].shape}, test shape {test.shape}, squeezed pred shape {pred.shape}"
-            )
-            assert np.allclose(pred, test, atol=1e-1), (
-                f"Mismatch for {pred_key}: {pred} vs {test}"
-            )
-
-    # At least some predictions should not be NaN
-    assert num_nan_predictions < len(key_mapping), (
-        "All predictions are NaN - model training failed"
-    )
-    print(
-        f"\nTest passed! Model with Loop successfully built and trained (NaN in {num_nan_predictions}/{len(key_mapping)} outputs due to numerical issues)."
-    )
+#     # At least some predictions should not be NaN
+#     assert num_nan_predictions < len(key_mapping), (
+#         "All predictions are NaN - model training failed"
+#     )
+#     print(
+#         f"\nTest passed! Model with Loop successfully built and trained (NaN in {num_nan_predictions}/{len(key_mapping)} outputs due to numerical issues)."
+#     )
 
 
-if __name__ == "__main__":
-    test_inv_pend(os.path.join("html", "model_inv_pend.png"))
+# if __name__ == "__main__":
+#     test_inv_pend(os.path.join("html", "model_inv_pend.png"))

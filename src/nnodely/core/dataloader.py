@@ -72,7 +72,11 @@ class DataLoader:
         if not self.input_specs:
             raise ValueError("Could not infer any inputs from model.inputs")
 
-        sequences = [node.seq[-1] for node in model.train_inputs if node.seq is not None and len(node.seq) > 0]
+        sequences = [
+            node.seq[-1]
+            for node in model.train_inputs
+            if node.seq is not None and len(node.seq) > 0
+        ]
         self.max_sequence_length = max(sequences) if sequences else 0
 
         if isinstance(source, str):
@@ -351,10 +355,13 @@ class DataLoader:
         if self.max_sequence_length > 1:
             new_raw_data = {}
             for i, (name, windows) in enumerate(dataset.items()):
-                window = np.lib.stride_tricks.sliding_window_view(windows, window_shape = self.max_sequence_length, axis=0)
+                window = np.lib.stride_tricks.sliding_window_view(
+                    windows, window_shape=self.max_sequence_length, axis=0
+                )
                 new_raw_data[name] = window
             dataset = {
-                name: np.stack(windows, axis=0) for name, windows in new_raw_data.items()
+                name: np.stack(windows, axis=0)
+                for name, windows in new_raw_data.items()
             }
         self._check_alignment(dataset)
         return dataset
