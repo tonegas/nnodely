@@ -17,13 +17,15 @@ class LinearImpl(keras.layers.Layer):
         [batch, out_dim, time, *seq]
     """
 
-    def __init__(self, out_features: int, use_bias: bool = True, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
+    def __init__(self, out_features: int = 1, use_bias: bool = True, name=None, initializer="glorot_uniform", bias_initializer="glorot_uniform"):
+        super().__init__(name=name)
         self.out_features = int(out_features)
         self.use_bias = bool(use_bias)
         self.proj = keras.layers.Dense(
             self.out_features,
             use_bias=self.use_bias,
+            kernel_initializer=initializer,
+            bias_initializer=bias_initializer,
         )
 
     def get_config(self):
@@ -32,6 +34,8 @@ class LinearImpl(keras.layers.Layer):
             {
                 "out_features": self.out_features,
                 "use_bias": self.use_bias,
+                "initializer": self.proj.kernel_initializer,
+                "bias_initializer": self.proj.bias_initializer,
             }
         )
         return config
@@ -65,13 +69,18 @@ class Linear(Layer):
         [batch, out_features, time, *seq]
     """
 
-    def __init__(self, out_features: int, use_bias: bool = True, name=None):
+    def __init__(self, out_features: int = 1, use_bias: bool = True, name=None, initializer="glorot_uniform", bias_initializer="glorot_uniform", **kwargs):
         self.out_features = int(out_features)
         self.use_bias = bool(use_bias)
+        self.initializer = initializer
+        self.bias_initializer = bias_initializer
         super().__init__(
             name=name,
             out_features=self.out_features,
             use_bias=self.use_bias,
+            initializer=initializer,
+            bias_initializer=bias_initializer,
+            **kwargs
         )
 
     def output_shape(self, *inputs):
@@ -89,4 +98,6 @@ class Linear(Layer):
             out_features=self.out_features,
             use_bias=self.use_bias,
             name=self.name,
+            initializer=self.initializer,
+            bias_initializer=self.bias_initializer
         )

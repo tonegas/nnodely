@@ -371,7 +371,7 @@ def test_inv_pend_loop(tmp_path):
         "Xangular_velocity": dummy_input((1, 1, sequence_length), method="zeros"),
         "action": dummy_input((1, 1, sequence_length), method="zeros"),
     }
-    predictions = model(data_train.get_prediction(0))
+    predictions = model(data_train[0])
     print("Outputs:", predictions)
     print("Target:", {k: v for k, v in test_data.items()})
     print("Predictions shapes:", {k: v.shape for k, v in predictions.items()})

@@ -333,7 +333,7 @@ class Modely:
             if optimizer is None or not (
                 hasattr(optimizer, "zero_grad") and hasattr(optimizer, "step")
             ):
-                optimizer = torch.optim.Adam(unique_params, lr=lr)
+                optimizer = torch.optim.SGD(unique_params, lr=lr)
 
             criterion = torch.nn.MSELoss()
             device = unique_params[0].device if unique_params else torch.device("cpu")
@@ -347,7 +347,7 @@ class Modely:
             }
             history = {"loss": []}
             idxs = np.arange(n_samples)
-            epoch_bar = tqdm(range(epochs), desc=f"Training {self.name}", unit="epoch")
+            epoch_bar = tqdm(range(epochs), desc=f"Training {self.name} in torch", unit="epoch")
 
             km.train()
             for _ in epoch_bar:
@@ -369,6 +369,8 @@ class Modely:
 
                     optimizer.zero_grad()
                     preds = km(batch_inputs, training=True)
+                    print(f"Predictions: {preds}")
+                    print(f"Batch targets: {batch_targets}")
 
                     total = torch.zeros((), dtype=torch.float32, device=device)
                     for minimizer in self.minimizers:
@@ -376,7 +378,15 @@ class Modely:
                         total = total + criterion(
                             preds[source_name], batch_targets[source_name]
                         )
+                    print(f"Total loss: {total.item()}")
 
+                    # Print gradients for debugging
+                    print("Gradients before backward pass:")
+                    for name, param in km.named_parameters():
+                        if param.grad is not None:
+                            print(f"{name}: {param.grad}")
+                        else:
+                            print(f"{name}: None")
                     total.backward()
                     optimizer.step()
 
