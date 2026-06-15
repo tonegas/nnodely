@@ -6,6 +6,7 @@ from nnodely.layers.input import Input
 from nnodely.core.stream import Node
 
 
+
 class LoopImpl(keras.layers.Layer):
     def __init__(
         self,
@@ -212,6 +213,8 @@ class LoopImpl(keras.layers.Layer):
 
 
 def _solve_dict_names(d: dict[str | Input, str | Node]) -> dict[str, str]:
+
+def _solve_dict_names(d: dict[str | Input, str | Node]) -> dict[str, str]:
     result = {}
     for key, value in d.items():
         if isinstance(key, Input):
@@ -221,12 +224,14 @@ def _solve_dict_names(d: dict[str | Input, str | Node]) -> dict[str, str]:
         else:
             raise ValueError("closed_loop keys must be strings or Input instances.")
 
+
         if isinstance(value, Node):
             value_name = value.name
         elif isinstance(value, str):
             value_name = value
         else:
             raise ValueError("closed_loop values must be strings or Node instances.")
+
 
         result[key_name] = value_name
     return result
@@ -244,11 +249,20 @@ class Loop(Layer):
         initial_values: dict[str | Input, str | Node],
         name=None,
     ):
+    def __init__(
+        self,
+        f: Modely,
+        closed_loop: dict[str | Input, str | Node],
+        initial_values: dict[str | Input, str | Node],
+        name=None,
+    ):
         self.f = f
+
 
         self.closed_loop = _solve_dict_names(closed_loop)
         self.initial_values = _solve_dict_names(initial_values)
 
+        # check that closed_loop and initial_values keys are valid inputs to f
         # check that closed_loop and initial_values keys are valid inputs to f
         f_input_names = [node.name for node in self.f.inputs]
         for key in self.closed_loop.keys():
@@ -256,8 +270,15 @@ class Loop(Layer):
                 raise ValueError(
                     f"Loop: closed_loop key '{key}' not in f.inputs={f_input_names}"
                 )
+                raise ValueError(
+                    f"Loop: closed_loop key '{key}' not in f.inputs={f_input_names}"
+                )
         for key in self.initial_values.keys():
             if key not in f_input_names:
+                raise ValueError(
+                    f"Loop: initial_values key '{key}' not in f.inputs={f_input_names}"
+                )
+
                 raise ValueError(
                     f"Loop: initial_values key '{key}' not in f.inputs={f_input_names}"
                 )
@@ -269,6 +290,9 @@ class Loop(Layer):
                 raise ValueError(
                     f"Loop: closed_loop output '{out}' not in f.outputs={f_output_names}"
                 )
+                raise ValueError(
+                    f"Loop: closed_loop output '{out}' not in f.outputs={f_output_names}"
+                )
 
         # check if closed_loop and initial_values keys are valid inputs to f
         for f_inp in f_input_names:
@@ -276,11 +300,23 @@ class Loop(Layer):
                 raise ValueError(
                     f"Loop: closed_loop key '{f_inp}' must also be in initial_values."
                 )
+                raise ValueError(
+                    f"Loop: closed_loop key '{f_inp}' must also be in initial_values."
+                )
             if f_inp in self.initial_values and f_inp not in self.closed_loop:
                 raise ValueError(
                     f"Loop: initial_values key '{f_inp}' must also be in closed_loop."
                 )
+                raise ValueError(
+                    f"Loop: initial_values key '{f_inp}' must also be in closed_loop."
+                )
 
+        super().__init__(
+            name=name,
+            f=f,
+            closed_loop=self.closed_loop,
+            initial_values=self.initial_values,
+        )
         super().__init__(
             name=name,
             f=f,

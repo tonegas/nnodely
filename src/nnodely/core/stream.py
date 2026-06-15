@@ -66,7 +66,7 @@ class Stream(Node):
         Return seq, time, dim separately
         """
         return self.dim, self.time, self.seq
-    
+
     @property
     def shape_len(self):
         """
@@ -83,11 +83,11 @@ class Stream(Node):
         return len(self.shape)
 
     @property
-    def time_index(self) -> int|None:
+    def time_index(self) -> int | None:
         """
         Return the index of the time dimension in the shape, or None if no time dimension.
         """
-        return len(self.dim)+1 if isinstance(self.time, int) else None
+        return len(self.dim) + 1 if isinstance(self.time, int) else None
 
     def __add__(self, other):
         from nnodely.core.layer import Add
@@ -128,7 +128,7 @@ class Stream(Node):
         from nnodely.core.layer import Divide
 
         return Divide()([self._coerce_operand(other), self])
-    
+
     def __pow__(self, other):
         from nnodely.core.layer import Power
 

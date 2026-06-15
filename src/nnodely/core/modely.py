@@ -55,6 +55,13 @@ class Modely:
         # tensor execution mode
         if self.model is None:
             raise ValueError("Model build failed, model is still None.")
+        for idx, inp in enumerate(self.inputs):
+            if isinstance(inputs, dict):
+                if len(inputs[inp.name].shape) == inp.rank:
+                    inputs[inp.name] = tf.expand_dims(inputs[inp.name], axis=0)
+            else:
+                if len(inputs[idx].shape) == inp.rank:
+                    inputs[idx] = tf.expand_dims(inputs[idx], axis=0)
         return self.model(inputs)
 
     @property
@@ -64,9 +71,10 @@ class Modely:
 
     def build(self):
         from nnodely.core.layer import Identity
+
         self.model, flat_model = self._build_keras_graph(name=self.name)
 
-        extra_outputs = []
+        extra_outputs, extra_inputs = [], []
         for minimizer in self.minimizers:
             if not isinstance(minimizer["source"], Output):
                 if isinstance(minimizer["source"], Input):
@@ -81,11 +89,12 @@ class Modely:
 
         if extra_outputs:
             train_outputs = list(self.outputs) + extra_outputs
-            train_inputs = [
+            extra_inputs = [
                 node
-                for node in toposort_outputs(train_outputs)
-                if isinstance(node, Input)
+                for node in toposort_outputs(extra_outputs)
+                if isinstance(node, Input) and node not in self.inputs
             ]
+            train_inputs = list(self.inputs) + extra_inputs
             tmp = Modely(
                 name=self.name + "_tmp",
                 inputs=train_inputs,
@@ -491,6 +500,7 @@ class Modely:
         - The closed-loop mapped input is updated each step with the submodel output.
         """
         from nnodely.layers.loop import Loop
+
         # Validate closed_loop keys and values
         if len(closed_loop) == 0:
             raise ValueError("closed_loop cannot be empty.")
@@ -523,9 +533,10 @@ class Modely:
         if not self.built:
             self.build()
 
-        loop_fn = Loop(f=self, closed_loop=closed_loop, initial_values=initial_values, name=name)
+        loop_fn = Loop(
+            f=self, closed_loop=closed_loop, initial_values=initial_values, name=name
+        )
         return loop_fn
-
 
     # -------------------------------------------------------------------------
     # Save and load (pickle)

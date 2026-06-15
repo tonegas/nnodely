@@ -6,6 +6,7 @@ from nnodely.core.dataloader import DataLoader
 from nnodely.layers.input import Input
 from nnodely.layers.output import Output
 from nnodely.layers.fir import Fir
+from nnodely.layers.linear import Linear
 from nnodely.layers.parameter import Parameter
 from nnodely.layers.constant import Constant
 from nnodely.layers.loop import Loop
@@ -33,6 +34,7 @@ __all__ = [
     "Input",
     "Output",
     "Fir",
+    "Linear",
     "Parameter",
     "Constant",
     "Loop",

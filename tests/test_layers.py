@@ -14,7 +14,6 @@ from nnodely.layers.activations import (
     Swish,
     Softplus,
 )
-from nnodely.layers.fuzzify import Fuzzify
 import numpy as np
 
 
@@ -105,6 +104,7 @@ def test_activations():
     )
     model.build()
 
+
 def test_layers():
     x = Input("x", dim=1)
     param = Parameter("param1", dim=1)
@@ -154,16 +154,57 @@ def test_layers():
     model.build()
 
 
-def test_fuzzify():
-    x = Input("x", dim=1)
-    x_stream = x.sw(1)
-    fuzzy = Fuzzify(centers=[0.0, 0.5, 1.0], function="rectangular")
-    x_out = Output("x_pred", fuzzy([x_stream]))
-    model1 = Modely("model1", inputs=[x], outputs=[x_out])
-    model1.build()
+def test_fir_simple():
+    input1 = Input("in1")
+    rel1 = Fir(out_features=1)([input1.last()])
+    fun = Output("out", rel1)
 
-    # ------- Model inference -------
-    dummy_input_x = np.array([[[-7]], [[0.5]], [[0.8]]], dtype=np.float32)
-    result1 = model1({"x": dummy_input_x})
-    assert "x_pred" in result1
-    assert result1["x_pred"].shape == (3, 1, 3)
+    test = Modely(name="test_model", inputs=[input1], outputs=[fun])
+    test.build()
+
+
+def test_double_fir_simple():
+    input1 = Input("in1")
+    rel1 = Fir(out_features=1)([input1.sw(5)])
+    rel2 = Fir(out_features=1)([input1.sw(1)])
+    fun = Output("out", rel1 + rel2)
+
+    test = Modely(name="test_model", inputs=[input1], outputs=[fun])
+    test.build()
+
+
+def test_fir_tw():
+    input1 = Input("in1")
+    input2 = Input("in2")
+    rel1 = Fir(out_features=1)([input1.sw(5)])
+    rel2 = Fir(out_features=1)([input1.sw(1)])
+    rel3 = Fir(out_features=1)([input2.sw(1)])
+    rel4 = Fir(out_features=1)([input2.sw([2, 2])])
+    fun = Output("out", rel1 + rel2 + rel3 + rel4)
+
+    test = Modely(name="test_model", inputs=[input1, input2], outputs=[fun])
+    test.build()
+
+
+def test_fir_tw2():
+    input1 = Input("in1")
+    rel3 = Fir(out_features=1)([input1.sw(5)])
+    rel4 = Fir(out_features=1)([input1.sw([2, 2])])
+    rel5 = Fir(out_features=1)([input1.sw([3, 3])])
+    rel6 = Fir(out_features=1)([input1.sw([3, 0])])
+    rel7 = Fir(out_features=1)([input1.sw(3)])
+    fun = Output("out", rel3 + rel4 + rel5 + rel6 + rel7)
+
+    test = Modely(name="test_model", inputs=[input1], outputs=[fun])
+    test.build()
+
+
+def test_fir_tw3():
+    input1 = Input("in1")
+    rel3 = Fir(out_features=1)([input1.sw(5)])
+    rel4 = Fir(out_features=1)([input1.sw([1, 3])])
+    rel5 = Fir(out_features=1)([input1.sw([4, 1])])
+    fun = Output("out", rel3 + rel4 + rel5)
+
+    test = Modely(name="test_model", inputs=[input1], outputs=[fun])
+    test.build()
