@@ -213,8 +213,6 @@ class LoopImpl(keras.layers.Layer):
 
 
 def _solve_dict_names(d: dict[str | Input, str | Node]) -> dict[str, str]:
-
-def _solve_dict_names(d: dict[str | Input, str | Node]) -> dict[str, str]:
     result = {}
     for key, value in d.items():
         if isinstance(key, Input):
@@ -242,13 +240,6 @@ class Loop(Layer):
     Roll out a one-step Modely over the rightmost sequence axis.
     """
 
-    def __init__(
-        self,
-        f: Modely,
-        closed_loop: dict[str | Input, str | Node],
-        initial_values: dict[str | Input, str | Node],
-        name=None,
-    ):
     def __init__(
         self,
         f: Modely,
@@ -311,12 +302,6 @@ class Loop(Layer):
                     f"Loop: initial_values key '{f_inp}' must also be in closed_loop."
                 )
 
-        super().__init__(
-            name=name,
-            f=f,
-            closed_loop=self.closed_loop,
-            initial_values=self.initial_values,
-        )
         super().__init__(
             name=name,
             f=f,

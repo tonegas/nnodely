@@ -1,6 +1,6 @@
 import os
 
-os.environ.setdefault("KERAS_BACKEND", "torch")
+os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 
 import numpy as np
 import pytest
