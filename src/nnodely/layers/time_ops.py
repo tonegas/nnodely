@@ -44,7 +44,7 @@ class Select(Layer):
     Select one index along a chosen dim axis.
 
     Runtime tensor shape:
-        [batch, *seq, time, dim1, dim2, ...]
+        [batch, dim1, dim2, ..., time, seq1, seq2, ...]
 
     The selected dim axis is kept with length 1.
 
@@ -63,19 +63,19 @@ class Select(Layer):
         axis = self.axis
         if axis < 0:
             axis += dim_rank
+
         if axis < 0 or axis >= dim_rank:
             raise ValueError(
                 f"{self.name}: axis {self.axis} out of bounds for dim rank {dim_rank}."
             )
+
         return axis
 
     def output_shape(self, *inputs):
         inp = inputs[0]
 
         if len(inp.dim) < 1:
-            raise ValueError(
-                f"{self.name}: SampleSelect requires at least one dim axis."
-            )
+            raise ValueError(f"{self.name}: Select requires at least one dim axis.")
 
         dim = list(inp.dim)
         axis = self._resolve_dim_axis(len(dim))
@@ -91,7 +91,8 @@ class Select(Layer):
             )
 
         dim[axis] = 1
-        return inp.seq, inp.time, tuple(dim)
+
+        return tuple(dim), inp.time, inp.seq
 
     def build_layer(self):
         axis = self._resolve_dim_axis(len(self.dim))
@@ -101,16 +102,15 @@ class Select(Layer):
             idx += self.dim[axis]
 
         # Runtime tensor:
-        # [batch, *seq, time, dim1, dim2, ...]
+        # [batch, dim1, dim2, ..., time, seq1, seq2, ...]
         #
-        # First dim axis starts after:
-        # batch + seq axes + time axis
-        keras_axis = 1 + len(self.seq) + 1 + axis
+        # Dim axes start immediately after batch.
+        keras_axis = 1 + axis
 
         slices = (
             [slice(None)] * keras_axis
             + [slice(idx, idx + 1)]
-            + [slice(None)] * (len(self.dim) - axis - 1)
+            + [slice(None)] * (len(self.shape) - axis - 1)
         )
 
         return keras.layers.Lambda(

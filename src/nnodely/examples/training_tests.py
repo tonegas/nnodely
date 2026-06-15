@@ -47,12 +47,12 @@ def test_closed_loop():
     y = Input(name="y", dim=1, seq=4)
     model_in = model_add.closed_loop(
         name="model_with_loop", inputs=[x, y], closed_loop={"x": "out1"}
-    )
+    )  # type:ignore
 
     # Create a nested loop model
     w = Input(name="w", dim=1, time=2)  # type:ignore
     z = Input(name="z", dim=1, seq=(4, 2))
-    loop_fn2 = Loop(f=model_in, closed_loop={"z": "out1"}, name="loop_model_in")
+    loop_fn2 = Loop(f=model_in, closed_loop={"z": "out1"}, name="loop_model_in")  # type:ignore
     out_w = Output("out_w", loop_fn2([w, z]))
     model_out = Modely(name="model_with_loop_w", inputs=[w, z], outputs=[out_w])
 

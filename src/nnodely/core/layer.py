@@ -104,12 +104,14 @@ class Divide(BinaryOp):
 
     def build_layer(self):
         return keras.layers.Lambda(lambda xs: xs[0] / xs[1], name=self.name)
-    
+
+
 class Power(BinaryOp):
     keras_op = keras.layers.Lambda
 
     def build_layer(self):
         return keras.layers.Lambda(lambda xs: xs[0] ** xs[1], name=self.name)
+
 
 class Identity(Layer):
     def build_layer(self):
