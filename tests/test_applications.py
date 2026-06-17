@@ -44,6 +44,7 @@ def test_vehicle_longitudinal_dynamics():
     fuzzi_gear = Fuzzify(
         centers=[2.0, 3.0, 4.0, 5.0, 6.0, 7.0], function="Rectangular"
     )([gear.last()])
+
     local_model = LocalModel(
         input_function=lambda x: Fir(out_features=1)(x), name="local_model"
     )
@@ -61,6 +62,29 @@ def test_vehicle_longitudinal_dynamics():
         inputs=[velocity, brake, gear, torque, altitude],
         outputs=[out],
     )
+
+    # def from_config(config):
+    #     from nnodely.core.stream import Node
+    #     tmp = []
+    #     for child in config['preds']:
+    #         tmp.append(from_config(child))
+
+    #     return Node(name=config['name'], preds=tmp)
+
+    # for output in vehicle.outputs:
+    #     config = output.get_config()
+
+    #     new_output = from_config(config)
+    #     print(f"Original output: {output}")
+    #     print(f"Reconstructed output: {new_output}")
+
+    # new_model = Modely(
+    #     "vehicle_reconstructed",
+    #     inputs=vehicle.inputs,
+    #     outputs=[new_output],
+    # )
+    # pprint(f"Original model order: {[node.name for node in vehicle.order]}")
+    # pprint(f"new model order: {[node.name for node in new_model.order]}")
 
     # Define the training objective
     vehicle.minimize("acc_error", out, Input("acc").last(), loss="mse")
@@ -82,6 +106,7 @@ def test_vehicle_longitudinal_dynamics():
         "brk": np.ones((4, 1, n), dtype=np.float32),
         "gear": np.ones((4, 1, 1), dtype=np.float32),
         "alt": np.ones((4, na, 1), dtype=np.float32),
+        "acc": np.ones((4, 1, 1), dtype=np.float32),
     }
     result = vehicle(dummy_input)
     assert "accelleration" in result
@@ -123,23 +148,22 @@ def test_vehicle_longitudinal_dynamics():
 
     ## Inference after training
     result = vehicle(dummy_input)
-    print("Inference result after training:", result)
     assert "accelleration" in result
     assert result["accelleration"].shape == (4, 1, 1)
 
-    # ## Save the model weights
+    ## Save the model weights
     # vehicle.save("html/vehicle_model_weights.keras")
 
-    # ## Load the model weights
+    ## Load the model weights
     # new_vehicle = Modely.load("html/vehicle_model_weights.keras")
 
-    # ## inference after loading the model weights
+    ## inference after loading the model weights
     # new_result = new_vehicle(dummy_input)
     # assert "accelleration" in new_result
     # assert new_result["accelleration"].shape == (4, 1, 1)
     # assert np.allclose(result["accelleration"], new_result["accelleration"], atol=1e-4)
 
-    # ## Export the model in keras format
+    ## Export the model in keras format
     # vehicle.export_keras("html/vehicle_model.keras")
 
     # ## Load keras model
@@ -153,9 +177,13 @@ def test_vehicle_longitudinal_dynamics():
     # assert keras_result["accelleration"].shape == (4, 1, 1)
     # assert np.allclose(result["accelleration"], keras_result["accelleration"], atol=1e-4)
 
-    # ## Export the model in onnx format
+    ## Export the model in onnx format
     # vehicle.export_onnx("html/vehicle_model.onnx")
 
-    # ## onnx validation
+    ## onnx validation
     # onnx_result = Modely.validate_onnx("html/vehicle_model.onnx", dummy_input)
     # print("ONNX validation result:", onnx_result)
+
+
+if __name__ == "__main__":
+    test_vehicle_longitudinal_dynamics()

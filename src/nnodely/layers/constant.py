@@ -4,6 +4,7 @@ import keras
 from nnodely.core.stream import Stream
 
 
+@keras.saving.register_keras_serializable(package="nnodely")
 class _ConstantLayer(keras.layers.Layer):
     def __init__(self, constant, **kwargs):
         super().__init__(dtype=constant.dtype, **kwargs)

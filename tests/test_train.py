@@ -21,6 +21,14 @@ def test_train_basic():
     )
     model1.build()
 
+    dummy = {
+        "x": np.ones((1, 1, 5), dtype=np.float32),
+        "y": np.ones((1, 1, 5), dtype=np.float32),
+        "x_target": np.ones((1, 1, 1), dtype=np.float32),
+    }
+    result = model1(dummy)
+    assert result["fir_pred"].shape == (1, 1, 1)  # Check if the output shape is correct
+
     # ------ Load dataset -------
     data_train = DataLoader(
         model1,
@@ -30,6 +38,21 @@ def test_train_basic():
 
     # ------ Train the model -------
     model1.train(train_data=data_train, epochs=60, batch_size=4)
+
+    dummy = {
+        "x": np.ones((1, 1, 5), dtype=np.float32),
+        "y": np.ones((1, 1, 5), dtype=np.float32),
+        "x_target": np.ones((1, 1, 1), dtype=np.float32),
+    }
+    result_trained = model1(dummy)
+    assert result_trained["fir_pred"].shape == (
+        1,
+        1,
+        1,
+    )  # Check if the output shape is correct after training
+    assert (
+        result["fir_pred"] != result_trained["fir_pred"]
+    )  # Check if the model output has changed after training, indicating that training had an effect
 
     # ------ Remove minimizer and retrain with multi loss -------
     model1.remove_minimizer("error")
@@ -88,7 +111,12 @@ def test_train_with_parameters():
     assert np.isclose(const.value_numpy, 1.0, atol=0.01)
 
     # ------ Inference after training -------
-    result_after_training = model({"x": dummy_input_x})
+    result_after_training = model(
+        {
+            "x": dummy_input_x,
+            "x_target": np.ones((1, 1, 1), dtype=np.float32) * true_param,
+        }
+    )
     assert np.isclose(
         result_after_training["x_out"].cpu().detach().numpy(), true_param, atol=0.01
     )

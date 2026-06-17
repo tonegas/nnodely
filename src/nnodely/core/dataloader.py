@@ -62,7 +62,7 @@ class DataLoader:
         self.csv_glob = csv_glob
         self.dtype = dtype
 
-        if model._train_model is None:
+        if model.model is None:
             raise ValueError(
                 f"Model {model.name} is not built. Make sure to call {model.name}.build() first."
             )
@@ -354,7 +354,7 @@ class DataLoader:
         # Handle the sequences
         if self.max_sequence_length > 1:
             new_raw_data = {}
-            for i, (name, windows) in enumerate(dataset.items()):
+            for name, windows in dataset.items():
                 window = np.lib.stride_tricks.sliding_window_view(
                     windows, window_shape=self.max_sequence_length, axis=0
                 )

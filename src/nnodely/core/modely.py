@@ -4,7 +4,7 @@ import copy
 
 from typing import Any
 
-from nnodely.core.dag import toposort, flatten, toposort_outputs
+from nnodely.core.dag import toposort, flatten, _flatten_graph
 from nnodely.core.stream import Stream, Node
 from nnodely.layers.constant import Constant
 from nnodely.layers.parameter import Parameter
@@ -35,11 +35,9 @@ class Modely:
         self.inputs = inputs
         self.outputs = outputs
         self.order = toposort(self)
-        self.calls = 0
         self.model = None  # Keras model build from this DAG
-        self._train_model = None  # Keras model used for training (includes extra outputs for minimizers)
         self.train_inputs = []  # List of Input nodes that are required for training (derived from minimizers)
-        self._training_params = []  # List of trainable parameters (Keras variables) collected from the DAG
+        self.train_outputs = []  # List of Output nodes that are required for training (derived from minimizers)
         self.minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
 
     def __repr__(self) -> str:
@@ -75,9 +73,7 @@ class Modely:
     def build(self):
         from nnodely.core.layer import Identity
 
-        self.model, flat_model = self._build_keras_graph(name=self.name)
-
-        extra_outputs, extra_inputs = [], []
+        extra_outputs = []
         for minimizer in self.minimizers:
             if not isinstance(minimizer["source"], Output):
                 if isinstance(minimizer["source"], Input):
@@ -89,67 +85,41 @@ class Modely:
                     extra_outputs.append(Identity()(minimizer["target"]))
                 else:
                     extra_outputs.append(minimizer["target"])
+        self.train_outputs = self.outputs + extra_outputs
 
-        if extra_outputs:
-            train_outputs = list(self.outputs) + extra_outputs
-            extra_inputs = [
-                node
-                for node in toposort_outputs(extra_outputs)
-                if isinstance(node, Input) and node not in self.inputs
-            ]
-            train_inputs = list(self.inputs) + extra_inputs
-            tmp = Modely(
-                name=self.name + "_tmp",
-                inputs=train_inputs,
-                outputs=train_outputs,
-            )
-            self._train_model, flat_train_model = self._build_keras_graph(
-                name=self.name + "_train", model=tmp
-            )
-            self.train_inputs = flat_train_model.inputs
-        else:
-            self._train_model = self.model
-            self.train_inputs = flat_model.inputs
-        return self
+        flat = _flatten_graph(self.name, self.inputs, self.train_outputs)
 
-    def _build_keras_graph(self, name, model=None):
-        """
-        Build one fresh Keras graph from roots.
-        Never mix tensors from another build.
-        """
-        flat = flatten(self) if model is None else flatten(model)
-        for node in flat.order:
-            if isinstance(node, Layer):
-                node._layer = None  # reset layer instance to ensure fresh build and avoid mixing tensors from previous builds
+        self.train_inputs = [node for node in flat.order if isinstance(node, Input)]
 
-        ## Build the tensor map starting with the inputs
-        tensor_map = {}
-        for node in flat.inputs:
-            tensor_map[node] = node.input
-
-        ## Resolve the rest of the relations in topological order
-        for node in [node for node in flat.order if not isinstance(node, Input)]:
-            if isinstance(node, Layer):
-                tensor_map[node] = node.call([tensor_map[pred] for pred in node.preds])
-
-            elif isinstance(node, Output):
-                tensor_map[node] = tensor_map[node.preds[0]]
-
-            elif isinstance(node, (Constant, Parameter)):
-                anchor = next(iter(tensor_map.values()), None)
-                tensor_map[node] = node.as_tensor(anchor)
-            else:
-                raise ValueError(f"Unknown node type '{type(node)}' in DAG.")
-
-        ## Build the Keras model with the resolved tensors
-        keras_inputs = {node.name: node.input for node in flat.inputs}
-        keras_outputs = {node.name: tensor_map[node] for node in flat.outputs}
-        keras_model = keras.Model(
-            name=name,
+        keras_inputs, keras_outputs = self.resolve_graph(flat.order)
+        self.model = keras.Model(
+            name=self.name + "_train",
             inputs=keras_inputs,
             outputs=keras_outputs,
         )
-        return keras_model, flat
+        return self
+
+    def resolve_graph(self, order):
+        tensor_map = {}
+        for node in [n for n in order if isinstance(n, Input)]:
+            tensor_map[node.name] = node.input
+
+        for node in [n for n in order if not isinstance(n, Input)]:
+            if isinstance(node, Layer):
+                tensor_map[node.name] = node.call(
+                    [tensor_map[pred.name] for pred in node.preds]
+                )
+            elif isinstance(node, (Constant, Parameter)):
+                anchor = next(iter(tensor_map.values()), None)
+                tensor_map[node.name] = node.as_tensor(anchor)
+            else:  ## Output or other non-Layer node
+                tensor_map[node.name] = tensor_map[node.preds[0].name]
+
+        keras_inputs = {node.name: tensor_map[node.name] for node in self.train_inputs}
+        keras_outputs = {
+            node.name: tensor_map[node.name] for node in self.train_outputs
+        }
+        return keras_inputs, keras_outputs
 
     # -------------------------------------------------------------------------
     # Train API
@@ -188,7 +158,7 @@ class Modely:
         out_dir: str | None = "validation",
         show: bool = False,
     ):
-        if self._train_model is None:
+        if self.model is None:
             raise ValueError("Model is not built. Call build() before validate().")
 
         if not self.minimizers:
@@ -204,7 +174,6 @@ class Modely:
         n_samples = len(val_data)
         if n_samples == 0:
             raise ValueError("Validation dataset is empty.")
-
         input_names = [node.name for node in self.train_inputs]
 
         # ------------------------------------------------------------------
@@ -212,7 +181,7 @@ class Modely:
         # ------------------------------------------------------------------
         pred_chunks = {}
         if keras.backend.backend() == "torch":
-            self._train_model.eval()  # Set the model to evaluation mode (important for layers like dropout or batchnorm)
+            self.model.eval()  # Set the model to evaluation mode (important for layers like dropout or batchnorm)
 
         for start in range(0, n_samples, batch_size):
             end = min(start + batch_size, n_samples)
@@ -223,9 +192,12 @@ class Modely:
                 if name in x_data
             }
 
-            preds = self._train_model(batch_inputs, training=False)
+            preds = self.model(batch_inputs, training=False)
             for name, value in preds.items():
-                pred_chunks.setdefault(name, []).append(value.detach().cpu())
+                if keras.backend.backend() == "torch":
+                    pred_chunks.setdefault(name, []).append(value.detach().cpu())
+                else:
+                    pred_chunks.setdefault(name, []).append(value.numpy())
 
         predictions = {
             name: np.concatenate(chunks, axis=0) for name, chunks in pred_chunks.items()
@@ -325,9 +297,9 @@ class Modely:
             raise ValueError("train_data is empty.")
 
         # Ensure model is built
-        if not self._train_model:
+        if not self.model:
             raise ValueError("Model is not built. Call build() before training.")
-        km = self._train_model
+        km = self.model
 
         # Default optimizer ## TODO: change with a user defined optimizer
         if optimizer is None:
@@ -393,7 +365,7 @@ class Modely:
                 unique_vars: list[tf.Variable] = []
                 seen = set()
 
-                for v in list(km.trainable_weights) + self._training_params:
+                for v in list(km.trainable_weights):  # + self._training_params:
                     vid = id(v)
                     if vid not in seen:
                         seen.add(vid)
@@ -452,7 +424,7 @@ class Modely:
 
             unique_params = []
             seen = set()
-            for v in list(km.parameters()) + self._training_params:
+            for v in list(km.parameters()):  # + self._training_params:
                 vid = id(v)
                 if vid not in seen:
                     seen.add(vid)
@@ -655,17 +627,16 @@ class Modely:
             os.makedirs(dirname, exist_ok=True)
 
         # Save weights from current built model before clearing runtime state
-        if self._train_model is None:
+        if self.model is None:
             raise ValueError(
                 "Model is not built. Call build() before saving the model and weights."
             )
-        self._train_model.save_weights(filename + ".weights.h5")
+        self.model.save_weights(filename + ".weights.h5")
 
         model_copy = copy.deepcopy(self)
 
         # Clear built Keras models
         model_copy.model = None
-        model_copy._train_model = None
 
         # Clear runtime Keras state from symbolic nodes
         for node in getattr(model_copy, "order", []):
@@ -689,7 +660,7 @@ class Modely:
 
         weights_path = filename + ".weights.h5"
         if os.path.exists(weights_path):
-            keras_model = model._train_model
+            keras_model = model.model
             keras_model.load_weights(weights_path)
 
         return model
@@ -701,7 +672,7 @@ class Modely:
         if not isinstance(self.model, keras.Model):
             raise TypeError(f"Expected keras.Model, got {type(self.model)}.")
 
-        self.model.save(filename + ".keras")
+        self.model.save(filename)
 
     @staticmethod
     def import_keras(filename: str, safe_mode: bool = True):
