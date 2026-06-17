@@ -1,6 +1,6 @@
 import os
 
-os.environ.setdefault("KERAS_BACKEND", "tensorflow")
+os.environ.setdefault("KERAS_BACKEND", "jax")
 
 import pytest
 from nnodely import Input, Output, Modely, Loop, Parameter, Constant, DataLoader
@@ -27,17 +27,17 @@ def test_inv_pend(tmp_path):
     force = Input(name="action", dim=1)
 
     # Define constants
-    g = Constant(name="g", value=9.81)  # acceleration due to gravity
-    dt = Constant(name="dt", value=0.02)  # time step
+    g = Constant(name="g", value=9.81)      # acceleration due to gravity
+    dt = Constant(name="dt", value=0.02)    # time step
 
     # Define parameters
-    gear = Parameter(name="gear", dim=1)  # gear ratio for the motor
-    m1 = Parameter(name="m1", dim=1)  # mass of the cart
-    m2 = Parameter(name="m2", dim=1)  # mass of the pendulum
-    l = Parameter(name="l", dim=1)  # length of the
-    b = Parameter(name="b", dim=1)  # damping coefficient for the cart
-    d = Parameter(name="d", dim=1)  # damping coefficient for the pendulum
-    I = Parameter(name="I", dim=1)  # moment of inertia of the pendulum
+    gear = Parameter(name="gear", dim=1)    # gear ratio for the motor
+    m1 = Parameter(name="m1", dim=1)        # mass of the cart
+    m2 = Parameter(name="m2", dim=1)        # mass of the pendulum
+    l = Parameter(name="l", dim=1)          # length of the
+    b = Parameter(name="b", dim=1)          # damping coefficient for the cart
+    d = Parameter(name="d", dim=1)          # damping coefficient for the pendulum
+    I = Parameter(name="I", dim=1)          # moment of inertia of the pendulum
 
     # Define the equations of motion
     def inv_pend(p, v, alpha, omega, u):
@@ -71,8 +71,8 @@ def test_inv_pend(tmp_path):
             + F * I_eff
         ) / denom
 
-#         p_dot = v
-#         alpha_dot = omega
+        p_dot = v
+        alpha_dot = omega
 
         return [p_dot, v_dot, alpha_dot, omega_dot]
 
@@ -106,11 +106,11 @@ def test_inv_pend(tmp_path):
     angle_next = angle + (dt / 6) * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2])
     ang_vel_next = ang_vel + (dt / 6) * (k1[3] + 2 * k2[3] + 2 * k3[3] + k4[3])
 
-#     # Define outputs
-#     out_pos = Output(name="Ypos_pred", stream=pos_next)
-#     out_vel = Output(name="Yvelocity_pred", stream=vel_next)
-#     out_angle = Output(name="Yangle_pred", stream=angle_next)
-#     out_ang_vel = Output(name="Yangular_velocity_pred", stream=ang_vel_next)
+    # Define outputs
+    out_pos = Output(name="Ypos_pred", stream=pos_next)
+    out_vel = Output(name="Yvelocity_pred", stream=vel_next)
+    out_angle = Output(name="Yangle_pred", stream=angle_next)
+    out_ang_vel = Output(name="Yangular_velocity_pred", stream=ang_vel_next)
 
     # Create model
     model = Modely(
@@ -119,10 +119,10 @@ def test_inv_pend(tmp_path):
         outputs=[out_pos, out_vel, out_angle, out_ang_vel],
     )
 
-    model.minimize("error_pos", source=out_pos, target=Input(name="Ypos", dim=1), loss="mse")
-    model.minimize("error_vel", source=out_vel, target=Input(name="Yvelocity", dim=1), loss="mse")
-    model.minimize("error_angle", source=out_angle, target=Input(name="Yangle", dim=1), loss="mse")
-    model.minimize("error_ang_vel", source=out_ang_vel, target=Input(name="Yangular_velocity", dim=1), loss="mse")
+    model.minimize("error_pos", source=out_pos, target=Input(name="Ypos", dim=1).sw(1), loss="mse")
+    model.minimize("error_vel", source=out_vel, target=Input(name="Yvelocity", dim=1).sw(1), loss="mse")
+    model.minimize("error_angle", source=out_angle, target=Input(name="Yangle", dim=1).sw(1), loss="mse")
+    model.minimize("error_ang_vel", source=out_ang_vel, target=Input(name="Yangular_velocity", dim=1).sw(1), loss="mse")
     model.build()
 
     # Load data
@@ -144,14 +144,15 @@ def test_inv_pend(tmp_path):
     )
 
     # Train the model
-    print("\nDataset size:", len(data_train))
-    print("Starting training...")
-    model.train(train_data=data_train, epochs=1, batch_size=64, lr=1e-3)
+    history = model.train(train_data=data_train, epochs=50, batch_size=64, lr=1e-3)
 
     test_data = data_train[0]  # Use the first batch of training data for testing
-    predictions = model(data_train.get_prediction(0))
+    print("Test data:", {k: v for k, v in test_data.items() if k in ["Ypos", "Yvelocity", "Yangle", "Yangular_velocity"]})
+    import tensorflow as tf 
+    predictions = model._train_model({k: tf.expand_dims(tf.expand_dims(tf.convert_to_tensor(v), axis=0), axis=-1) for k, v in data_train[0].items()})
 
-    print([f"{key}: model pred {pred.squeeze().squeeze()}, target {test_data[key.replace('_pred', '')].squeeze().squeeze()}" for key, pred in predictions.items()])
+    # print([f"{key}: model pred {pred}, target {test_data[key.replace('_pred', '')]}" for key, pred in predictions.items()])
+    print("Model predictions:", [f"{key}: model pred {pred}" for key, pred in predictions.items() if "Y" in key])
 
 @pytest.mark.slow
 def test_inv_pend_loop(tmp_path):
@@ -282,7 +283,8 @@ def test_inv_pend_loop(tmp_path):
         },
         name="loop_inv_pend",
     )
-    sequence_length = 5
+
+    sequence_length = 1
     pos = Input(name="Xpos", dim=1, seq=sequence_length)
     vel = Input(name="Xvelocity", dim=1, seq=sequence_length)
     angle = Input(name="Xangle", dim=1, seq=sequence_length)
@@ -310,27 +312,10 @@ def test_inv_pend_loop(tmp_path):
         outputs=[loop_out_pos, loop_out_vel, loop_out_angle, loop_out_ang_vel],
     )
 
-    model.minimize(
-        "error_pos", source=loop_out_pos, target=Input(name="Ypos", dim=1, seq=sequence_length), loss="mse"
-    )
-    model.minimize(
-        "error_vel",
-        source=loop_out_vel,
-        target=Input(name="Yvelocity", dim=1, seq=sequence_length),
-        loss="mse",
-    )
-    model.minimize(
-        "error_angle",
-        source=loop_out_angle,
-        target=Input(name="Yangle", dim=1, seq=sequence_length),
-        loss="mse",
-    )
-    model.minimize(
-        "error_ang_vel",
-        source=loop_out_ang_vel,
-        target=Input(name="Yangular_velocity", dim=1, seq=sequence_length),
-        loss="mse",
-    )
+    model.minimize("error_pos", source=loop_out_pos, target=Input(name="Ypos", dim=1, seq=sequence_length), loss="mse")
+    model.minimize("error_vel", source=loop_out_vel, target=Input(name="Yvelocity", dim=1, seq=sequence_length), loss="mse")
+    model.minimize("error_angle", source=loop_out_angle, target=Input(name="Yangle", dim=1, seq=sequence_length), loss="mse")
+    model.minimize("error_ang_vel", source=loop_out_ang_vel, target=Input(name="Yangular_velocity", dim=1, seq=sequence_length), loss="mse")
     model.build()
     model.plot(to_file=os.path.join(tmp_path, "model_inv_pend.png"))
 
@@ -355,26 +340,20 @@ def test_inv_pend_loop(tmp_path):
     # Train the model
     print("\nDataset size:", len(data_train))
     print("Starting training...")
-    #model.train(train_data=data_train, epochs=1, batch_size=64, lr=1e-4)
-
-#     # # Export the trained model
-#     # model.save(os.path.join(tmp_path, "model_inv_pend_exported"))
-#     # model.export_keras(os.path.join(tmp_path, "model_inv_pend_keras.h5"))
+    model.train(train_data=data_train, epochs=500, batch_size=64, lr=1e-3)
+    # # Export the trained model
+    # model.save(os.path.join(tmp_path, "model_inv_pend_exported"))
+    # model.export_keras(os.path.join(tmp_path, "model_inv_pend_keras.h5"))
 
     # # Load the exported model and test it
     # loaded_model = Modely.load(os.path.join(tmp_path, "model_inv_pend_exported"))
     test_data = data_train[0]  # Use the first batch of training data for testing
-    inputs = {
-        "Xpos": dummy_input((1, 1, sequence_length), method="zeros"),
-        "Xvelocity": dummy_input((1, 1, sequence_length), method="zeros"),
-        "Xangle": dummy_input((1, 1, sequence_length), method="zeros"),
-        "Xangular_velocity": dummy_input((1, 1, sequence_length), method="zeros"),
-        "action": dummy_input((1, 1, sequence_length), method="zeros"),
-    }
-    predictions = model(data_train[0])
+
+    import tensorflow as tf
+    predictions = model._train_model({k: tf.expand_dims(tf.expand_dims(tf.convert_to_tensor(v), axis=0), axis=-1) for k, v in data_train[0].items()})
     print("Outputs:", predictions)
-    print("Target:", {k: v for k, v in test_data.items()})
-    print("Predictions shapes:", {k: v.shape for k, v in predictions.items()})
+    print("Target:", {k: v for k, v in test_data.items() if k in ["Ypos", "Yvelocity", "Yangle", "Yangular_velocity"]})
+    print("Predictions shapes:", {k: v.shape for k, v in predictions.items() if "Y" in k})
     exit()
     # The Loop adds a sequence dimension, so we need to handle shape differences
     # Loop outputs have shape (batch, seq, features, ...) while test data has shape (batch, features, ...)
@@ -418,4 +397,4 @@ def test_inv_pend_loop(tmp_path):
 
 
 if __name__ == "__main__":
-    test_inv_pend(os.path.join("html", "model_inv_pend.png"))
+    test_inv_pend_loop(os.path.join("html", "model_inv_pend.png"))

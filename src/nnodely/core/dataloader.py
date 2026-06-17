@@ -314,30 +314,28 @@ class DataLoader:
 
         # Common aligned sample end indices
         # If max_window = 5, valid end indices are 4,5,6,...
-        t_start = max_past_window - 1
+        t_start = max_past_window - 1 if max_past_window > 0 else 0
         t_end = n_rows - max_future_window - 1
 
         raw_data: Dict[str, List[np.ndarray]] = {name: [] for name in self.input_specs}
-
         for t in range(t_start, t_end + 1):
             for name, (past, future) in self.input_specs.items():
                 start = t - past + 1
                 end = t + future + 1
-
                 col = (
                     self.format[name] if (self.format and name in self.format) else name
                 )
                 if isinstance(col, int):
                     try:
-                        values = df.iloc[start:end, col].to_numpy(dtype=self.dtype)
+                        values = df.iloc[start:end, col].to_numpy(dtype=self.dtype) if past + future > 0 else np.array([df.iloc[t, col]], dtype=self.dtype)
                     except IndexError:
                         raise ValueError(
                             f"Column index {col} out of range for input '{name}'"
                         )
                 else:
-                    values = df[col].iloc[start:end].to_numpy(dtype=self.dtype)
+                    values = df[col].iloc[start:end].to_numpy(dtype=self.dtype) if past + future > 0 else np.array([df[col].iloc[t]], dtype=self.dtype)
 
-                if values.shape[0] != past + future:
+                if past + future > 0 and values.shape[0] != past + future:
                     raise RuntimeError(
                         f"Internal error while building window for '{name}': "
                         f"expected {past + future}, got {values.shape[0]}"
@@ -348,9 +346,9 @@ class DataLoader:
             name: np.stack(windows, axis=0) for name, windows in raw_data.items()
         }
         # Handle the sequences
-        if self.max_sequence_length > 1:
+        if self.max_sequence_length > 0:
             new_raw_data = {}
-            for i, (name, windows) in enumerate(dataset.items()):
+            for name, windows in dataset.items():
                 window = np.lib.stride_tricks.sliding_window_view(windows, window_shape = self.max_sequence_length, axis=0)
                 new_raw_data[name] = window
             dataset = {

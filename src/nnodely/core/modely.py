@@ -221,7 +221,6 @@ class Modely:
         for minimizer in self.minimizers:
             source_name = minimizer["source"].name
             target = minimizer["target"]
-            target_name = target.name
 
             label_name = _resolve_label_name(target)
             if label_name is not None:
@@ -231,7 +230,7 @@ class Modely:
             target_value = getattr(target, "value_numpy", None)
             if target_value is None:
                 raise ValueError(
-                    f"Training target '{target_name}' must be present in the dataset or be a constant value."
+                    f"Training target '{target.name}' must be present in the dataset or be a constant value."
                 )
 
             target_value = np.asarray(target_value, dtype=np.float32)
@@ -242,13 +241,13 @@ class Modely:
 
         backend = keras.backend.backend()
 
-        if backend == "tensorflow":
-
+        # Not used for now, but could be useful for future extensions
+        if backend == "tensorfloww":
+            
             @tf.function
-            def train_step(model, batch_inputs, batch_targets, optimizer, losses):
+            def train_step(model, batch_inputs, batch_targets, optimizer, losses, unique_vars):
                 with tf.GradientTape() as tape:
                     preds = model(batch_inputs, training=True)
-
                     total = keras.ops.zeros(())
                     for m in self.minimizers:
                         name = m["name"]
@@ -256,18 +255,8 @@ class Modely:
 
                         y_pred = preds[source_name]
                         y_true = batch_targets[source_name]
-
                         loss_obj = losses[name]
                         total = total + keras.ops.mean(loss_obj(y_true, y_pred))
-
-                unique_vars: list[tf.Variable] = []
-                seen = set()
-
-                for v in list(km.trainable_weights) + self._training_params:
-                    vid = id(v)
-                    if vid not in seen:
-                        seen.add(vid)
-                        unique_vars.append(cast(tf.Variable, v))
 
                 gradients = tape.gradient(total, unique_vars)  # type:ignore
                 grads_and_vars = [
@@ -281,11 +270,20 @@ class Modely:
                     print("Warning: No gradients to apply in this step.")
                 return total
 
+            unique_vars: list[tf.Variable] = []
+            seen = set()
+
+            for v in list(km.trainable_weights) + self._training_params:
+                vid = id(v)
+                if vid not in seen:
+                    seen.add(vid)
+                    unique_vars.append(cast(tf.Variable, v))
+
             losses = {m["name"]: keras.losses.get(m["loss"]) for m in self.minimizers}
 
             history = {"loss": []}
             idxs = np.arange(n_samples)
-            epoch_bar = tqdm(range(epochs), desc=f"Training {self.name}", unit="epoch")
+            epoch_bar = tqdm(range(epochs), desc=f"Training {self.name} in tensorflow", unit="epoch")
             for _ in epoch_bar:
                 np.random.shuffle(idxs)
                 epoch_losses = []
@@ -297,7 +295,6 @@ class Modely:
                         batch_inputs[k] = tf.convert_to_tensor(
                             np.stack([sample[k] for sample in batch_samples], axis=0)
                         )
-
                     batch_targets = {}
                     for minimizer in self.minimizers:
                         source_name = minimizer["source"].name
@@ -308,7 +305,7 @@ class Modely:
                         )
 
                     total = train_step(
-                        km, batch_inputs, batch_targets, optimizer, losses
+                        km, batch_inputs, batch_targets, optimizer, losses, unique_vars
                     )
                     if isinstance(total, tf.Tensor):
                         epoch_losses.append(float(total.numpy()))
@@ -319,7 +316,8 @@ class Modely:
 
             return history
 
-        if backend == "torch":
+        # Not used for now, but could be useful for future extensions
+        if backend == "torchh":
             import torch
 
             unique_params = []
@@ -333,7 +331,7 @@ class Modely:
             if optimizer is None or not (
                 hasattr(optimizer, "zero_grad") and hasattr(optimizer, "step")
             ):
-                optimizer = torch.optim.SGD(unique_params, lr=lr)
+                optimizer = torch.optim.Adam(unique_params, lr=lr)
 
             criterion = torch.nn.MSELoss()
             device = unique_params[0].device if unique_params else torch.device("cpu")
@@ -369,24 +367,13 @@ class Modely:
 
                     optimizer.zero_grad()
                     preds = km(batch_inputs, training=True)
-                    print(f"Predictions: {preds}")
-                    print(f"Batch targets: {batch_targets}")
 
                     total = torch.zeros((), dtype=torch.float32, device=device)
                     for minimizer in self.minimizers:
                         source_name = minimizer["source"].name
                         total = total + criterion(
-                            preds[source_name], batch_targets[source_name]
+                            preds[source_name], batch_targets[source_name].unsqueeze(-1)
                         )
-                    print(f"Total loss: {total.item()}")
-
-                    # Print gradients for debugging
-                    print("Gradients before backward pass:")
-                    for name, param in km.named_parameters():
-                        if param.grad is not None:
-                            print(f"{name}: {param.grad}")
-                        else:
-                            print(f"{name}: None")
                     total.backward()
                     optimizer.step()
 
@@ -406,16 +393,23 @@ class Modely:
             compile_losses[minimizer["source"].name] = keras.losses.get(
                 minimizer["loss"]
             )
+        
+        class LossPrinter(tf.keras.callbacks.Callback):
+            def on_epoch_end(self, epoch, logs=None):
+                if logs is not None:
+                    loss = logs.get("loss")
+                    print(f"loss = {loss:.3e}")
 
         km.compile(optimizer=optimizer, loss=compile_losses)
-
+        print(f"Training {self.name} in {backend}, with DataLoader of size {n_samples}, batch_size={batch_size}, optimizer={optimizer.__class__.__name__}, lr={lr:.2e}, training parameters: {len(km.trainable_weights)}")
         history = km.fit(
             x=x_data,
             y=y_data,
             epochs=epochs,
             batch_size=batch_size,
             shuffle=True,
-            verbose="1",
+            verbose="0",
+            callbacks=[LossPrinter()]
         )  # type: ignore[arg-type]
 
         return history.history
