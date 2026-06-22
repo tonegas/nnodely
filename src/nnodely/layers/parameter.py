@@ -37,6 +37,11 @@ class _ParameterLayer(keras.layers.Layer):
 
         super().build(input_shape)
 
+    def get_config(self):
+        config = super().get_config()
+        config.update({"parameter": self.parameter})
+        return config
+
     def call(self, anchor):
         value = keras.ops.expand_dims(self.parameter.param, axis=0)
         zero = keras.ops.sum(anchor, axis=tuple(range(1, len(anchor.shape)))) * 0.0

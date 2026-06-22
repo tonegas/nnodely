@@ -34,6 +34,11 @@ class _ConstantLayer(keras.layers.Layer):
 
         super().build(input_shape)
 
+    def get_config(self):
+        config = super().get_config()
+        config.update({"constant": self.constant_node})
+        return config
+
     def call(self, anchor):
         value = keras.ops.expand_dims(self.constant_node.constant, axis=0)
         zero = keras.ops.sum(anchor, axis=tuple(range(1, len(anchor.shape)))) * 0.0

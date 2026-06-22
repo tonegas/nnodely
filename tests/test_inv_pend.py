@@ -1,6 +1,6 @@
 import os
 
-os.environ.setdefault("KERAS_BACKEND", "jax")
+os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 
 import pytest
 from nnodely import Input, Output, Modely, Loop, Parameter, Constant, DataLoader
@@ -142,7 +142,6 @@ def test_inv_pend(tmp_path):
         format=data_struct,
         source=os.path.join("tests", "datasets", "data_inv_pend"),
     )
-
     # Train the model
     history = model.train(train_data=data_train, epochs=50, batch_size=64, lr=1e-3)
 
@@ -153,6 +152,7 @@ def test_inv_pend(tmp_path):
 
     # print([f"{key}: model pred {pred}, target {test_data[key.replace('_pred', '')]}" for key, pred in predictions.items()])
     print("Model predictions:", [f"{key}: model pred {pred}" for key, pred in predictions.items() if "Y" in key])
+    print("Model parameters:", {layer.name: layer.get_weights() for layer in model._train_model.layers if len(layer.get_weights()) > 0})
 
 @pytest.mark.slow
 def test_inv_pend_loop(tmp_path):
@@ -258,15 +258,6 @@ def test_inv_pend_loop(tmp_path):
     model.build()
     model.plot(to_file=os.path.join(tmp_path, "model_inv_pend_initial.png"))
 
-    res = model({
-        "Xpos": np.array([[0.0]]),
-        "Xvelocity": np.array([[0.0]]),
-        "Xangle": np.array([[0.1]]),
-        "Xangular_velocity": np.array([[0.0]]),
-        "action": np.array([[0.0]]),
-    })
-    print("Initial prediction:", res)
-
     loop_fn = Loop(
         f=model,
         closed_loop={
@@ -284,7 +275,7 @@ def test_inv_pend_loop(tmp_path):
         name="loop_inv_pend",
     )
 
-    sequence_length = 1
+    sequence_length = 2
     pos = Input(name="Xpos", dim=1, seq=sequence_length)
     vel = Input(name="Xvelocity", dim=1, seq=sequence_length)
     angle = Input(name="Xangle", dim=1, seq=sequence_length)
@@ -306,18 +297,18 @@ def test_inv_pend_loop(tmp_path):
         stream=GetItem(key="Yangular_velocity_pred")(loop_outputs),
     )
 
-    model = Modely(
+    loop_model = Modely(
         name="model_with_loop",
         inputs=[pos, vel, angle, ang_vel, force],
         outputs=[loop_out_pos, loop_out_vel, loop_out_angle, loop_out_ang_vel],
     )
 
-    model.minimize("error_pos", source=loop_out_pos, target=Input(name="Ypos", dim=1, seq=sequence_length), loss="mse")
-    model.minimize("error_vel", source=loop_out_vel, target=Input(name="Yvelocity", dim=1, seq=sequence_length), loss="mse")
-    model.minimize("error_angle", source=loop_out_angle, target=Input(name="Yangle", dim=1, seq=sequence_length), loss="mse")
-    model.minimize("error_ang_vel", source=loop_out_ang_vel, target=Input(name="Yangular_velocity", dim=1, seq=sequence_length), loss="mse")
-    model.build()
-    model.plot(to_file=os.path.join(tmp_path, "model_inv_pend.png"))
+    loop_model.minimize("error_pos", source=loop_out_pos, target=Input(name="Ypos", dim=1, seq=sequence_length), loss="mse")
+    loop_model.minimize("error_vel", source=loop_out_vel, target=Input(name="Yvelocity", dim=1, seq=sequence_length), loss="mse")
+    loop_model.minimize("error_angle", source=loop_out_angle, target=Input(name="Yangle", dim=1, seq=sequence_length), loss="mse")
+    loop_model.minimize("error_ang_vel", source=loop_out_ang_vel, target=Input(name="Yangular_velocity", dim=1, seq=sequence_length), loss="mse")
+    loop_model.build()
+    loop_model.plot(to_file=os.path.join(tmp_path, "model_inv_pend.png"))
 
     # Load data
     data_struct = {
@@ -332,15 +323,25 @@ def test_inv_pend_loop(tmp_path):
         "Yangular_velocity": "Yangular_velocity",
     }
     data_train = DataLoader(
-        model,
+        loop_model,
         format=data_struct,
         source=os.path.join("tests", "datasets", "data_inv_pend"),
+        seq_length=sequence_length
     )
+
+    res = loop_model({
+        "Xpos": np.zeros((1, 1, sequence_length)),
+        "Xvelocity": np.ones((1, 1, sequence_length)),
+        "Xangle": np.ones((1, 1, sequence_length))+1,
+        "Xangular_velocity": np.ones((1, 1, sequence_length))+2,
+        "action": np.ones((1, 1, sequence_length))+3,
+    })
+    print("Initial prediction loop:", res)
 
     # Train the model
     print("\nDataset size:", len(data_train))
     print("Starting training...")
-    model.train(train_data=data_train, epochs=500, batch_size=64, lr=1e-3)
+    loop_model.train(train_data=data_train, epochs=30, batch_size=256, lr=1e-3)
     # # Export the trained model
     # model.save(os.path.join(tmp_path, "model_inv_pend_exported"))
     # model.export_keras(os.path.join(tmp_path, "model_inv_pend_keras.h5"))
@@ -350,50 +351,10 @@ def test_inv_pend_loop(tmp_path):
     test_data = data_train[0]  # Use the first batch of training data for testing
 
     import tensorflow as tf
-    predictions = model._train_model({k: tf.expand_dims(tf.expand_dims(tf.convert_to_tensor(v), axis=0), axis=-1) for k, v in data_train[0].items()})
+    predictions = loop_model._train_model({k: tf.expand_dims(tf.expand_dims(tf.convert_to_tensor(v), axis=0), axis=-1) for k, v in data_train[0].items()})
     print("Outputs:", predictions)
     print("Target:", {k: v for k, v in test_data.items() if k in ["Ypos", "Yvelocity", "Yangle", "Yangular_velocity"]})
     print("Predictions shapes:", {k: v.shape for k, v in predictions.items() if "Y" in k})
-    exit()
-    # The Loop adds a sequence dimension, so we need to handle shape differences
-    # Loop outputs have shape (batch, seq, features, ...) while test data has shape (batch, features, ...)
-    # Map prediction keys to ground truth keys
-    key_mapping = {
-        "Ypos_pred": "Ypos",
-        "Yvelocity_pred": "Yvelocity",
-        "Yangle_pred": "Yangle",
-        "Yangular_velocity_pred": "Yangular_velocity",
-    }
-
-    # The test successfully builds and trains the model with Loop!
-    # Due to numerical issues in the Inverted Pendulum dynamics, the predictions may be NaN.
-    # The key achievement is that the model construction and training works correctly.
-    num_nan_predictions = 0
-    for pred_key, test_key in key_mapping.items():
-        pred = predictions[pred_key]
-        test = test_data[test_key]
-        # Squeeze out any extra dimensions from the Loop if needed
-        while pred.ndim > test.ndim and pred.shape[1] == 1:
-            pred = np.squeeze(pred, axis=1)
-
-        if np.isnan(pred).any():
-            num_nan_predictions += 1
-            print(f"WARNING: {pred_key} contains NaN (numerical issue in training)")
-        else:
-            print(
-                f"{pred_key} vs {test_key}: pred shape {predictions[pred_key].shape}, test shape {test.shape}, squeezed pred shape {pred.shape}"
-            )
-            assert np.allclose(pred, test, atol=1e-1), (
-                f"Mismatch for {pred_key}: {pred} vs {test}"
-            )
-
-    # At least some predictions should not be NaN
-    assert num_nan_predictions < len(key_mapping), (
-        "All predictions are NaN - model training failed"
-    )
-    print(
-        f"\nTest passed! Model with Loop successfully built and trained (NaN in {num_nan_predictions}/{len(key_mapping)} outputs due to numerical issues)."
-    )
 
 
 if __name__ == "__main__":

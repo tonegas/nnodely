@@ -55,12 +55,14 @@ class DataLoader:
         trim: bool = False,
         csv_glob: str = "*.csv",
         dtype: Any = np.float32,
+        seq_length: int | None = None,
     ):
         self.model = model
         self.format = format
         self.trim = trim
         self.csv_glob = csv_glob
         self.dtype = dtype
+        self.seq_length = seq_length
 
         if model._train_model is None:
             raise ValueError(
@@ -73,7 +75,15 @@ class DataLoader:
             raise ValueError("Could not infer any inputs from model.inputs")
 
         sequences = [node.seq[-1] for node in model.train_inputs if node.seq is not None and len(node.seq) > 0]
-        self.max_sequence_length = max(sequences) if sequences else 0
+        if None in sequences:
+            if self.seq_length is not None:
+                self.max_sequence_length = self.seq_length
+            else:
+                raise ValueError(
+                    "Some inputs have undefined sequence length. Please specify seq_length in training."
+                )
+        else:
+            self.max_sequence_length = max(sequences) if sequences else 0
 
         if isinstance(source, str):
             self.source = Path(source)
