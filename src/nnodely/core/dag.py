@@ -55,20 +55,27 @@ def flatten_node(node: Node, memo: dict[Node, Node]) -> Any:
     else:
         new_preds = [flatten_node(pred, memo) for pred in node.preds]
 
-    new_node = copy(node)
-    new_node.preds = new_preds
-    memo[node] = new_node
-    return new_node
+    # new_node = copy(node)
+    # new_node.preds = new_preds
+    # memo[node] = new_node
+    # return new_node
+    node.preds = new_preds
+    memo[node] = node
+    return node
 
 
 def flatten(model):
+    return _flatten_graph(model.name, model.inputs, model.outputs)
+
+
+def _flatten_graph(name, inputs: list[Any], outputs: list[Output]) -> Any:
     from nnodely.core.modely import Modely
 
     memo: dict[Node, Any] = {}
-    outputs: list[Output] = [flatten_node(output, memo) for output in model.outputs]
-    inputs: list[Any] = [memo[input] for input in model.inputs]
+    flat_outputs: list[Output] = [flatten_node(output, memo) for output in outputs]
+    flat_inputs: list[Any] = [memo[input] for input in inputs if input in memo]
 
-    return Modely(f"{model.name}_flat", inputs, outputs)
+    return Modely(f"{name}_flat", flat_inputs, flat_outputs)
 
 
 # ------------------------------------------------------------------

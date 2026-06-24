@@ -1,5 +1,7 @@
 import os
-os.environ["KERAS_BACKEND"] = "jax"
+
+os.environ.setdefault("KERAS_BACKEND", "torch")
+
 import numpy as np
 import pytest
 

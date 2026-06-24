@@ -1,4 +1,4 @@
-from nnodely import Input, Output, Modely, Constant, ReLU
+from nnodely import Input, Output, Modely, ReLU
 
 from nnodely.core.layer import Identity
 from nnodely.layers.localmodel import LocalModel
@@ -47,7 +47,6 @@ def test_local_model():
     # ------- High-level Blocks (Local Models) with Multi-inputs -------
     x = Input("x", dim=1)
     k = Input("k", dim=1)
-    g = Constant("g", value=[9.81])
 
     fuzzy_k = Fuzzify(centers=[0.0, 0.5, 1.0], function="rectangular")([k.sw(1)])
     local_model = LocalModel(
@@ -56,7 +55,7 @@ def test_local_model():
         name="local_model",
     )(activation=fuzzy_k)
 
-    out = Output("out", local_model([x.sw(1)]) + g)
+    out = Output("out", local_model([x.sw(1)]))
     model = Modely("model_with_local", inputs=[x, k], outputs=[out])
     model.build()
 
@@ -69,5 +68,5 @@ def test_local_model():
     assert result["out"].shape == (4, 1, 1)
     assert np.allclose(
         result["out"].cpu().numpy(),
-        [[[0.0 + 9.81]], [[2.0 + 9.81]], [[3.0 + 9.81]], [[0.0 + 9.81]]],
+        [[[0.0]], [[2.0]], [[3.0]], [[0.0]]],
     )

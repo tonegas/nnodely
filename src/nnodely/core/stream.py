@@ -30,6 +30,12 @@ class Node:
     def __hash__(self) -> int:
         return id(self)
 
+    def get_config(self) -> dict:
+        return {
+            "name": self.name,
+            "preds": [pred.get_config() for pred in self.preds],
+        }
+
 
 class Stream(Node):
     _literal_constant_cache = {}
@@ -177,3 +183,15 @@ class Stream(Node):
             f"predecessors={pred_names}"
             f")"
         )
+
+    def get_config(self) -> dict:
+        config = super().get_config()
+        config.update(
+            {
+                "type": self.__class__.__name__,
+                "dim": self.dim,
+                "time": self.time,
+                "seq": self.seq,
+            }
+        )
+        return config

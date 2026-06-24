@@ -88,11 +88,14 @@ class Layer(Stream):
 class BinaryOp(Layer):
     keras_op = None
 
+    def output_shape(self, *inputs):
+        ref = inputs[0].dimensions
+        return ref
+
     def build_layer(self):
-        if self.keras_op is not None:
-            return self.keras_op(name=self.name)
-        else:
+        if self.keras_op is None:
             return super().build_layer()
+        return self.keras_op(name=self.name)
 
 
 class Add(BinaryOp):
@@ -107,20 +110,34 @@ class Multiply(BinaryOp):
     keras_op = keras.layers.Multiply
 
 
-class Divide(BinaryOp):
-    keras_op = keras.layers.Lambda
+@keras.saving.register_keras_serializable(package="nnodely")
+class DivideImpl(keras.layers.Layer):
+    def call(self, xs):
+        return xs[0] / xs[1]
 
+    def get_config(self):
+        return super().get_config()
+
+
+class Divide(BinaryOp):
     def build_layer(self):
-        return keras.layers.Lambda(lambda xs: xs[0] / xs[1], name=self.name)
+        return DivideImpl(name=self.name)
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class PowerImpl(keras.layers.Layer):
+    def call(self, xs):
+        return keras.ops.power(xs[0], xs[1])
+
+    def get_config(self):
+        return super().get_config()
 
 
 class Power(BinaryOp):
-    keras_op = keras.layers.Lambda
-
     def build_layer(self):
-        return keras.layers.Lambda(lambda xs: xs[0] ** xs[1], name=self.name)
+        return PowerImpl(name=self.name)
 
 
 class Identity(Layer):
     def build_layer(self):
-        return keras.layers.Lambda(lambda x: x, name=self.name)
+        return keras.layers.Identity(name=self.name)
