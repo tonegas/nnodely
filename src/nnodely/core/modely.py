@@ -117,10 +117,10 @@ class Modely:
                     tensor_map[node.name] = node.call(
                         [tensor_map[pred.name] for pred in node.preds]
                     )
-                    if isinstance(tensor_map[node], tuple) and len(tensor_map[node]) > 1:
+                    if isinstance(tensor_map[node.name], tuple) and len(tensor_map[node.name]) > 1:
                         idx = node.name.rfind("_")
                         if idx != -1 and node.name[idx + 1 :].isdigit():
-                            tensor_map[node] = tensor_map[node][int(node.name[idx + 1 :])]
+                            tensor_map[node.name] = tensor_map[node.name][int(node.name[idx + 1 :])]
             else:  ## Output or other non-Layer node
                 tensor_map[node.name] = tensor_map[node.preds[0].name]
 
@@ -353,7 +353,7 @@ class Modely:
         backend = keras.backend.backend()
 
         # Not used for now, but could be useful for future extensions
-        if backend == "tensorflow":
+        if backend == "tensorfloww":
             
             @tf.function
             def train_step(model, batch_inputs, batch_targets, optimizer, losses, unique_vars):
@@ -534,7 +534,6 @@ class Modely:
                 print(sep)
         
         km.compile(optimizer=optimizer, loss=compile_losses)
-
         history = km.fit(
             x=x_data,
             y=y_data,

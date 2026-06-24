@@ -1,29 +1,29 @@
-# import os
+import os
 
-# os.environ.setdefault("KERAS_BACKEND", "tensorflow")
+os.environ.setdefault("KERAS_BACKEND", "jax")
 
 import pytest
 from nnodely import Input, Output, Modely, Loop, Parameter, Constant, DataLoader
 import numpy as np
 from nnodely.layers.trigonometric import Cos, Sin
 
-# def dummy_input(shape, method="random"):
-#     if method == "random":
-#         return np.random.rand(*shape).astype(np.float32)
-#     elif method == "zeros":
-#         return np.zeros(shape, dtype=np.float32)
-#     elif method == "ones":
-#         return np.ones(shape, dtype=np.float32)
-#     elif method == "sequential":
-#         return np.arange(np.prod(shape), dtype=np.float32).reshape(shape) + 1
+def dummy_input(shape, method="random"):
+    if method == "random":
+        return np.random.rand(*shape).astype(np.float32)
+    elif method == "zeros":
+        return np.zeros(shape, dtype=np.float32)
+    elif method == "ones":
+        return np.ones(shape, dtype=np.float32)
+    elif method == "sequential":
+        return np.arange(np.prod(shape), dtype=np.float32).reshape(shape) + 1
 
-# def test_inv_pend(tmp_path):
-#     # Define inputs
-#     pos = Input(name="Xpos", dim=1)
-#     vel = Input(name="Xvelocity", dim=1)
-#     angle = Input(name="Xangle", dim=1)
-#     ang_vel = Input(name="Xangular_velocity", dim=1)
-#     force = Input(name="action", dim=1)
+def test_inv_pend(tmp_path):
+    # Define inputs
+    pos = Input(name="Xpos", dim=1)
+    vel = Input(name="Xvelocity", dim=1)
+    angle = Input(name="Xangle", dim=1)
+    ang_vel = Input(name="Xangular_velocity", dim=1)
+    force = Input(name="action", dim=1)
 
     # Define constants
     g = Constant(name="g", value=9.81)      # acceleration due to gravity
@@ -38,28 +38,28 @@ from nnodely.layers.trigonometric import Cos, Sin
     d = Parameter(name="d", dim=1)          # damping coefficient for the pendulum
     I = Parameter(name="I", dim=1)          # moment of inertia of the pendulum
 
-#     # Define the equations of motion
-#     def inv_pend(p, v, alpha, omega, u):
-#         sin_theta = Sin()(alpha)
-#         cos_theta = Cos()(alpha)
-#         I_eff = I + m2 * l**2
-#         denom = (m1 + m2) * I_eff - (m2 * l * cos_theta) ** 2
+    # Define the equations of motion
+    def inv_pend(p, v, alpha, omega, u):
+        sin_theta = Sin()(alpha)
+        cos_theta = Cos()(alpha)
+        I_eff = I + m2 * l**2
+        denom = (m1 + m2) * I_eff - (m2 * l * cos_theta) ** 2
 
-#         # Input force
-#         F = gear * u
+        # Input force
+        F = gear * u
 
-#         # Friction
-#         friction_cart = I_eff * b * v
-#         friction_pend = (m1 + m2) * d * omega
+        # Friction
+        friction_cart = I_eff * b * v
+        friction_pend = (m1 + m2) * d * omega
 
-#         # Angular acceleration (omega_dot)
-#         omega_dot = (
-#             (m1 + m2) * m2 * g * l * sin_theta
-#             - m2**2 * l**2 * omega**2 * sin_theta * cos_theta
-#             - friction_pend
-#             + m2 * l * b * v * cos_theta
-#             - m2 * l * cos_theta * F
-#         ) / denom
+        # Angular acceleration (omega_dot)
+        omega_dot = (
+            (m1 + m2) * m2 * g * l * sin_theta
+            - m2**2 * l**2 * omega**2 * sin_theta * cos_theta
+            - friction_pend
+            + m2 * l * b * v * cos_theta
+            - m2 * l * cos_theta * F
+        ) / denom
 
         # Linear acceleration of the cart (v_dot)
         v_dot = (
@@ -73,37 +73,37 @@ from nnodely.layers.trigonometric import Cos, Sin
         p_dot = v
         alpha_dot = omega
 
-#         return [p_dot, v_dot, alpha_dot, omega_dot]
+        return [p_dot, v_dot, alpha_dot, omega_dot]
 
-#     # Runge-Kutta 4th order method
-#     k1 = inv_pend(pos, vel, angle, ang_vel, force)
-#     k2 = inv_pend(
-#         pos + k1[0] * dt / 2,
-#         vel + k1[1] * dt / 2,
-#         angle + k1[2] * dt / 2,
-#         ang_vel + k1[3] * dt / 2,
-#         force,
-#     )
-#     k3 = inv_pend(
-#         pos + k2[0] * dt / 2,
-#         vel + k2[1] * dt / 2,
-#         angle + k2[2] * dt / 2,
-#         ang_vel + k2[3] * dt / 2,
-#         force,
-#     )
-#     k4 = inv_pend(
-#         pos + k3[0] * dt,
-#         vel + k3[1] * dt,
-#         angle + k3[2] * dt,
-#         ang_vel + k3[3] * dt,
-#         force,
-#     )
+    # Runge-Kutta 4th order method
+    k1 = inv_pend(pos, vel, angle, ang_vel, force)
+    k2 = inv_pend(
+        pos + k1[0] * dt / 2,
+        vel + k1[1] * dt / 2,
+        angle + k1[2] * dt / 2,
+        ang_vel + k1[3] * dt / 2,
+        force,
+    )
+    k3 = inv_pend(
+        pos + k2[0] * dt / 2,
+        vel + k2[1] * dt / 2,
+        angle + k2[2] * dt / 2,
+        ang_vel + k2[3] * dt / 2,
+        force,
+    )
+    k4 = inv_pend(
+        pos + k3[0] * dt,
+        vel + k3[1] * dt,
+        angle + k3[2] * dt,
+        ang_vel + k3[3] * dt,
+        force,
+    )
 
-#     # Update state variables
-#     pos_next = pos + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0])
-#     vel_next = vel + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])
-#     angle_next = angle + (dt / 6) * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2])
-#     ang_vel_next = ang_vel + (dt / 6) * (k1[3] + 2 * k2[3] + 2 * k3[3] + k4[3])
+    # Update state variables
+    pos_next = pos + (dt / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0])
+    vel_next = vel + (dt / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])
+    angle_next = angle + (dt / 6) * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2])
+    ang_vel_next = ang_vel + (dt / 6) * (k1[3] + 2 * k2[3] + 2 * k3[3] + k4[3])
 
     # Define outputs
     out_pos = Output(name="Ypos_pred", stream=pos_next)
@@ -142,16 +142,15 @@ from nnodely.layers.trigonometric import Cos, Sin
         source=os.path.join("tests", "datasets", "data_inv_pend"),
     )
     # Train the model
-    history = model.train(train_data=data_train, epochs=50, batch_size=64, lr=1e-3)
+    history = model.train(train_data=data_train, epochs=30, batch_size=128, lr=1e-3)
 
     test_data = data_train[0]  # Use the first batch of training data for testing
     print("Test data:", {k: v for k, v in test_data.items() if k in ["Ypos", "Yvelocity", "Yangle", "Yangular_velocity"]})
-    import tensorflow as tf 
-    predictions = model._train_model({k: tf.expand_dims(tf.expand_dims(tf.convert_to_tensor(v), axis=0), axis=-1) for k, v in data_train[0].items()})
+    predictions = model(test_data)
 
     # print([f"{key}: model pred {pred}, target {test_data[key.replace('_pred', '')]}" for key, pred in predictions.items()])
     print("Model predictions:", [f"{key}: model pred {pred}" for key, pred in predictions.items() if "Y" in key])
-    print("Model parameters:", {layer.name: layer.get_weights() for layer in model._train_model.layers if len(layer.get_weights()) > 0})
+    print("Model parameters:", {layer.name: layer.get_weights() for layer in model.model.layers if len(layer.get_weights()) > 0})
 
 @pytest.mark.slow
 def test_inv_pend_loop(tmp_path):
@@ -328,13 +327,17 @@ def test_inv_pend_loop(tmp_path):
         "Xangle": np.ones((batch, 1, sequence_length))+1,
         "Xangular_velocity": np.ones((batch, 1, sequence_length))+2,
         "action": np.ones((batch, 1, sequence_length))+3,
+        "Ypos": np.zeros((batch, 1, sequence_length)),
+        "Yvelocity": np.zeros((batch, 1, sequence_length)),
+        "Yangle": np.zeros((batch, 1, sequence_length)),
+        "Yangular_velocity": np.zeros((batch, 1, sequence_length)),
     })
     print("Initial prediction loop:", res)
 
     # Train the model
     print("\nDataset size:", len(data_train))
     print("Starting training...")
-    loop_model.train(train_data=data_train, epochs=200, batch_size=128, lr=1e-3)
+    loop_model.train(train_data=data_train, epochs=300, batch_size=128, lr=3e-3)
     # # Export the trained model
     # model.save(os.path.join(tmp_path, "model_inv_pend_exported"))
     # model.export_keras(os.path.join(tmp_path, "model_inv_pend_keras.h5"))
@@ -343,8 +346,7 @@ def test_inv_pend_loop(tmp_path):
     # loaded_model = Modely.load(os.path.join(tmp_path, "model_inv_pend_exported"))
     test_data = data_train[0]  # Use the first batch of training data for testing
 
-    import tensorflow as tf
-    predictions = loop_model._train_model({k: tf.expand_dims(tf.expand_dims(tf.convert_to_tensor(v), axis=0), axis=-1) for k, v in data_train[0].items()})
+    predictions = loop_model(test_data)
     print("Outputs:", predictions)
     print("Target:", {k: v for k, v in test_data.items() if k in ["Ypos", "Yvelocity", "Yangle", "Yangular_velocity"]})
     print("Predictions shapes:", {k: v.shape for k, v in predictions.items() if "Y" in k})

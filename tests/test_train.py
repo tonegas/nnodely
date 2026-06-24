@@ -138,7 +138,7 @@ def test_training_values_linear():
     data_train = DataLoader(model, source=dataset)
     print("Parameters before training:", model.model.layers[2].proj.get_weights())
     model.train(train_data=data_train, epochs=1, batch_size=1, lr=1.0)
-    print("Parameters after training:", model._train_model.layers[4].proj.get_weights())
+    print("Parameters after training:", model.model.layers[4].proj.get_weights())
     print("Model output after training:", model(np.array([[1.0]]))['out'].cpu().detach().numpy())
     #self.assertListEqual([[3.0]], test.parameters['W'])
     # self.assertListEqual([3.0], test.parameters['b'])
