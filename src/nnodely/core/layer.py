@@ -63,18 +63,26 @@ class Layer(Stream):
         if not isinstance(inputs, (list, tuple)):
             inputs = [inputs]
         # Symbolic mode: Layer(Stream, ...) -> new Stream node
+
+        ret = []
         if all(isinstance(x, Stream) for x in inputs):
-            out_dim, out_time, out_seq = self.output_shape(*inputs)
-            node = self.__class__(name=self.name, **self._properties)
-            node.inputs = inputs
-            node.seq = out_seq
-            node.time = out_time
-            node.dim = out_dim
-            node.preds = inputs  # type: ignore
-            return node
+            out_shapes = self.output_shape(*inputs)
+            if not isinstance(out_shapes, list):
+                out_shapes = [out_shapes]
+            for idx, (out_dim, out_time, out_seq) in enumerate(out_shapes):
+                node = self.__class__(name=f"{self.name}_{idx}", **self._properties)
+                node.inputs = inputs
+                node.seq = out_seq
+                node.time = out_time
+                node.dim = out_dim
+                node.preds = inputs  # type: ignore
+                ret.append(node)
+
+            return ret if len(ret) > 1 else ret[0]
 
         # Tensor mode: Layer(tensor, ...) -> KerasTensor / Tensor
-        return self.call(*inputs)
+        ret = self.call(*inputs)
+        return ret if len(ret) > 1 else ret[0]
 
 
 class BinaryOp(Layer):

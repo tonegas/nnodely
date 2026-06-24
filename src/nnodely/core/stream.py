@@ -16,7 +16,7 @@ class Node:
         self.name = name
         self.preds = preds or []
 
-    def __call__(self, inputs: Sequence[Node]) -> Node:
+    def __call__(self, inputs: Sequence[Node]) -> Node|list[Node]:
         node = copy(self)
         node.preds = list(inputs)
 

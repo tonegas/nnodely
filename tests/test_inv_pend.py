@@ -6,7 +6,6 @@ import pytest
 from nnodely import Input, Output, Modely, Loop, Parameter, Constant, DataLoader
 import numpy as np
 from nnodely.layers.trigonometric import Cos, Sin
-from nnodely.layers.getitem import GetItem
 
 def dummy_input(shape, method="random"):
     if method == "random":
@@ -167,14 +166,15 @@ def test_inv_pend_loop(tmp_path):
     g = Constant(name="g", value=9.81)  # acceleration due to gravity
     dt = Constant(name="dt", value=0.02)  # time step
 
+    init_value = 0.1
     # Define parameters
-    gear = Parameter(name="gear", dim=1)  # gear ratio for the motor
-    m1 = Parameter(name="m1", dim=1)  # mass of the cart
-    m2 = Parameter(name="m2", dim=1)  # mass of the pendulum
-    l = Parameter(name="l", dim=1)  # length of the
-    b = Parameter(name="b", dim=1)  # damping coefficient for the cart
-    d = Parameter(name="d", dim=1)  # damping coefficient for the pendulum
-    I = Parameter(name="I", dim=1)  # moment of inertia of the pendulum
+    gear = Parameter(name="gear", dim=1, value=100)  # gear ratio for the motor
+    m1 = Parameter(name="m1", dim=1, value=10)  # mass of the cart
+    m2 = Parameter(name="m2", dim=1, value=5)  # mass of the pendulum
+    l = Parameter(name="l", dim=1, value=0.3)  # length of the
+    b = Parameter(name="b", dim=1, value=1.0)  # damping coefficient for the cart
+    d = Parameter(name="d", dim=1, value=1.0)  # damping coefficient for the pendulum
+    I = Parameter(name="I", dim=1, value=0.19)  # moment of inertia of the pendulum
 
     # Define the equations of motion
     def inv_pend(p, v, alpha, omega, u):
@@ -255,8 +255,8 @@ def test_inv_pend_loop(tmp_path):
         inputs=[pos, vel, angle, ang_vel, force],
         outputs=[out_pos, out_vel, out_angle, out_ang_vel],
     )
-    model.build()
     model.plot(to_file=os.path.join(tmp_path, "model_inv_pend_initial.png"))
+    model.export_html(os.path.join("html", "model_inv_pend_initial.html"))
 
     loop_fn = Loop(
         f=model,
@@ -275,27 +275,18 @@ def test_inv_pend_loop(tmp_path):
         name="loop_inv_pend",
     )
 
-    sequence_length = 2
+    sequence_length = 3#(None,) #-1
     pos = Input(name="Xpos", dim=1, seq=sequence_length)
     vel = Input(name="Xvelocity", dim=1, seq=sequence_length)
     angle = Input(name="Xangle", dim=1, seq=sequence_length)
     ang_vel = Input(name="Xangular_velocity", dim=1, seq=sequence_length)
     force = Input(name="action", dim=1, seq=sequence_length)
 
-    loop_outputs = loop_fn([pos, vel, angle, ang_vel, force])
-    loop_out_pos = Output(
-        name="Ypos_pred", stream=GetItem(key="Ypos_pred")(loop_outputs)
-    )
-    loop_out_vel = Output(
-        name="Yvelocity_pred", stream=GetItem(key="Yvelocity_pred")(loop_outputs)
-    )
-    loop_out_angle = Output(
-        name="Yangle_pred", stream=GetItem(key="Yangle_pred")(loop_outputs)
-    )
-    loop_out_ang_vel = Output(
-        name="Yangular_velocity_pred",
-        stream=GetItem(key="Yangular_velocity_pred")(loop_outputs),
-    )
+    pos_pred, vel_pred, angle_pred, ang_vel_pred = loop_fn([pos, vel, angle, ang_vel, force])
+    loop_out_pos = Output(name="Ypos_pred", stream=pos_pred)
+    loop_out_vel = Output(name="Yvel_pred", stream=vel_pred)
+    loop_out_angle = Output(name="Yang_pred", stream=angle_pred)
+    loop_out_ang_vel = Output(name="Yang_vel", stream=ang_vel_pred)
 
     loop_model = Modely(
         name="model_with_loop",
@@ -309,6 +300,7 @@ def test_inv_pend_loop(tmp_path):
     loop_model.minimize("error_ang_vel", source=loop_out_ang_vel, target=Input(name="Yangular_velocity", dim=1, seq=sequence_length), loss="mse")
     loop_model.build()
     loop_model.plot(to_file=os.path.join(tmp_path, "model_inv_pend.png"))
+    loop_model.export_html(os.path.join("html", "model_inv_pend.html"))
 
     # Load data
     data_struct = {
@@ -329,19 +321,20 @@ def test_inv_pend_loop(tmp_path):
         seq_length=sequence_length
     )
 
+    batch = 1
     res = loop_model({
-        "Xpos": np.zeros((1, 1, sequence_length)),
-        "Xvelocity": np.ones((1, 1, sequence_length)),
-        "Xangle": np.ones((1, 1, sequence_length))+1,
-        "Xangular_velocity": np.ones((1, 1, sequence_length))+2,
-        "action": np.ones((1, 1, sequence_length))+3,
+        "Xpos": np.zeros((batch, 1, sequence_length)),
+        "Xvelocity": np.ones((batch, 1, sequence_length)),
+        "Xangle": np.ones((batch, 1, sequence_length))+1,
+        "Xangular_velocity": np.ones((batch, 1, sequence_length))+2,
+        "action": np.ones((batch, 1, sequence_length))+3,
     })
     print("Initial prediction loop:", res)
 
     # Train the model
     print("\nDataset size:", len(data_train))
     print("Starting training...")
-    loop_model.train(train_data=data_train, epochs=30, batch_size=256, lr=1e-3)
+    loop_model.train(train_data=data_train, epochs=200, batch_size=128, lr=1e-3)
     # # Export the trained model
     # model.save(os.path.join(tmp_path, "model_inv_pend_exported"))
     # model.export_keras(os.path.join(tmp_path, "model_inv_pend_keras.h5"))

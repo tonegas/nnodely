@@ -243,7 +243,7 @@ class LoopImpl(keras.layers.Layer):
         init_carry = []
         for idx in closed_loop_order:
             # Use the first xs step (t=0) as the initial carry value.
-            init_carry.append(xs[idx][0])        # shape: [*spatial_dims]
+            init_carry.append(xs[idx][0])
 
         # ------------------------------------------------------------------ #
         # 4.  Define the scan step function                                  #
@@ -286,25 +286,16 @@ class LoopImpl(keras.layers.Layer):
                 else:
                     step_inputs[submodel_name] = x_step[idx]
 
-            print("LoopCall - step_inputs:", step_inputs)
             y = self.submodel(step_inputs)
-            print("LoopCall - y:", y)
+            y = [v for v in (y.values() if isinstance(y, dict) else [y])]
 
             # Build new carry from the model outputs.
-            new_carry = []
-            for idx in closed_loop_order:
-                inp_meta = self.inputs[idx]
-                out_name = self.closed_loop[inp_meta.name]
-                if isinstance(y, dict):
-                    new_val = y[out_name]
-                else:
-                    new_val = y
-                new_carry.append(new_val)
+            new_carry = [y[idx] for idx in closed_loop_order]
 
             return new_carry, y
 
         # ------------------------------------------------------------------ #
-        # 5.  Run keras.ops.scan                                               #
+        # 5.  Run keras.ops.scan                                             #
         # ------------------------------------------------------------------ #
         # xs for scan must be a structure where the leading axis is the loop
         # axis; we pass a list of [horizon, ...] tensors.
@@ -314,17 +305,17 @@ class LoopImpl(keras.layers.Layer):
             xs=xs,
             length=horizon,
         )
-        print("LoopCAll - ys_correct:", ys)
-        # ------------------------------------------------------------------ #
-        # 6.  Post-process outputs                                             #
-        #                                                                      #
+
+        # ------------------------------------------------------------------- #
+        # 6.  Post-process outputs                                            #
+        #                                                                     #
         #  scan stacks outputs along axis 0 → shape [horizon, batch, *dims].  #
-        #  We need to move the horizon axis to the last position to match the  #
-        #  for-loop version: [batch, *dims, horizon].                          #
-        # ------------------------------------------------------------------ #
+        #  We need to move the horizon axis to the last position to match the #
+        #  for-loop version: [batch, *dims, horizon].                         #
+        # ------------------------------------------------------------------- #
         def _horizon_to_last(tensor):
             """Move axis 0 (horizon) to the last position."""
-            rank = len(keras.ops.shape(tensor))
+            rank = len(keras.ops.shape(tensor)) if not isinstance(tensor, (list, tuple)) else len(tensor)
             perm = list(range(1, rank)) + [0]
             return keras.ops.transpose(tensor, perm)
 
@@ -332,16 +323,14 @@ class LoopImpl(keras.layers.Layer):
             if len(ys) == 1:
                 key = next(iter(ys))
                 return _horizon_to_last(ys[key])
-            ret = {k: _horizon_to_last(v) for k, v in ys.items()}
-            print("Ret:", ret)
-            return ret
+            return {k: _horizon_to_last(v) for k, v in ys.items()}
         else:
             # Single output tensor from scan: shape [horizon, batch, *dims].
             if len(ys) == 1:
                 # Only one output key – unwrap list if scan returned a list.
                 out = ys[0] if isinstance(ys, (list, tuple)) else ys
                 return _horizon_to_last(out)
-            return _horizon_to_last(ys)
+            return tuple(_horizon_to_last(v) for v in ys)
 
 def _solve_dict_names(d: dict[str | Input, str | Node]) -> dict[str, str]:
     result = {}
@@ -386,7 +375,6 @@ class Loop(Layer):
         # check that closed_loop and initial_values keys are valid inputs to f
         # check that closed_loop and initial_values keys are valid inputs to f
         f_input_names = [node.name for node in self.f.inputs]
-        print("initLoop:", f_input_names)
         for key in self.closed_loop.keys():
             if key not in f_input_names:
                 raise ValueError(
@@ -401,7 +389,6 @@ class Loop(Layer):
 
         # check outputs in closed_loop values are valid outputs of f
         f_output_names = [node.name for node in self.f.outputs]
-        print("initLoop - f outputs:", f_output_names)
         for out in self.closed_loop.values():
             if out not in f_output_names:
                 raise ValueError(
@@ -437,9 +424,12 @@ class Loop(Layer):
 
         out_node = self.f.outputs[0]
         out_seq = tuple(out_node.seq) + (horizon,)
-        return out_node.dim, out_node.time, out_seq
+        return [(out_node.dim, out_node.time, out_seq) for out_node in self.f.outputs]
 
     def build_layer(self):
+        if not self.f.built:
+            self.f.build()
+        
         # save the index of the longest sequence input for use during call.
         sequences = [
             inp.seq[-1] if len(inp.seq) > 0 else inp.seq

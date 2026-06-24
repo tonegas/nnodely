@@ -43,7 +43,6 @@ class Modely:
         return f"Model {self.name}:\n - {items}"
 
     def __call__(self, inputs: list[Node] | Any) -> Any:
-        print(f"Calling model '{self.name}' with inputs: {inputs}")
         if all(isinstance(v, Node) for v in inputs):
             mc = ModelCall(f"{self.name}_call", self)
             mc.preds = inputs
@@ -62,6 +61,7 @@ class Modely:
             else:
                 if len(inputs[idx].shape) == inp.rank:
                     inputs[idx] = tf.expand_dims(inputs[idx], axis=0)
+                
         return self.model(inputs)
 
     @property
@@ -128,6 +128,10 @@ class Modely:
         for node in [node for node in flat.order if not isinstance(node, Input)]:
             if isinstance(node, Layer):
                 tensor_map[node] = node.call([tensor_map[pred] for pred in node.preds])
+                if isinstance(tensor_map[node], tuple) and len(tensor_map[node]) > 1:
+                    idx = node.name.rfind("_")
+                    if idx != -1 and node.name[idx + 1 :].isdigit():
+                        tensor_map[node] = tensor_map[node][int(node.name[idx + 1 :])]
 
             elif isinstance(node, Output):
                 tensor_map[node] = tensor_map[node.preds[0]]
@@ -242,7 +246,7 @@ class Modely:
         backend = keras.backend.backend()
 
         # Not used for now, but could be useful for future extensions
-        if backend == "tensorfloww":
+        if backend == "tensorflow":
             
             @tf.function
             def train_step(model, batch_inputs, batch_targets, optimizer, losses, unique_vars):
@@ -257,7 +261,7 @@ class Modely:
                         y_true = batch_targets[source_name]
                         loss_obj = losses[name]
                         total = total + keras.ops.mean(loss_obj(y_true, y_pred))
-
+                print(f"Unique trainable variables: {[v for v in unique_vars]}")
                 gradients = tape.gradient(total, unique_vars)  # type:ignore
                 grads_and_vars = [
                     (g, v)
@@ -394,11 +398,31 @@ class Modely:
                 minimizer["loss"]
             )
         
-        class LossPrinter(tf.keras.callbacks.Callback):
+        import time
+        import sys
+        class FancyLossPrinter(tf.keras.callbacks.Callback):
+            def on_train_begin(self, logs=None):
+                self.start_time = time.time()
+
             def on_epoch_end(self, epoch, logs=None):
-                if logs is not None:
-                    loss = logs.get("loss")
-                    print(f"loss = {loss:.3e}")
+                logs = logs or {}
+
+                # Clear terminal
+                sys.stdout.write("\033[H\033[J")
+                sys.stdout.flush()
+
+                elapsed = time.time() - self.start_time
+
+                sep = "─" * 70
+
+                print(sep)
+                print(f"Epoch {epoch+1}/{self.params['epochs']}   Elapsed: {elapsed:.1f}s")
+                print(sep)
+
+                for k, v in sorted(logs.items()):
+                    print(f"{k:<30} {v:>12.3e}")
+
+                print(sep)
 
         km.compile(optimizer=optimizer, loss=compile_losses)
         print(f"Training {self.name} in {backend}, with DataLoader of size {n_samples}, batch_size={batch_size}, optimizer={optimizer.__class__.__name__}, lr={lr:.2e}, training parameters: {len(km.trainable_weights)}")
@@ -409,7 +433,7 @@ class Modely:
             batch_size=batch_size,
             shuffle=True,
             verbose="0",
-            callbacks=[LossPrinter()]
+            callbacks=[FancyLossPrinter()]
         )  # type: ignore[arg-type]
 
         return history.history
