@@ -41,6 +41,7 @@ dev = [
   "pyright>=1.1.408",
   "pytest-cov>=7.1.0",
   "ruff>=0.15.10",
+  "tf2onnx>=1.17.0",
 ]
 
 [tool.pyright]

@@ -7,7 +7,6 @@ from typing import Any
 from nnodely.core.dag import toposort, flatten, _flatten_graph
 from nnodely.core.stream import Stream, Node
 from nnodely.layers.constant import Constant
-from nnodely.layers.parameter import Parameter
 from nnodely.core.dataloader import DataLoader
 import tensorflow as tf
 
@@ -56,13 +55,19 @@ class Modely:
         # tensor execution mode
         if self.model is None:
             raise ValueError("Model build failed, model is still None.")
-        for idx, inp in enumerate(self.inputs):
+        for idx, inp in enumerate(self.train_inputs):
             if isinstance(inputs, dict):
                 if len(inputs[inp.name].shape) == inp.rank:
-                    inputs[inp.name] = tf.expand_dims(inputs[inp.name], axis=0)
+                    if type(inputs[inp.name]) is np.ndarray:
+                        inputs[inp.name] = np.expand_dims(inputs[inp.name], axis=0)
+                    else:
+                        inputs[inp.name] = tf.expand_dims(inputs[inp.name], axis=0)
             else:
                 if len(inputs[idx].shape) == inp.rank:
-                    inputs[idx] = tf.expand_dims(inputs[idx], axis=0)
+                    if type(inputs[idx]) is np.ndarray:
+                        inputs[idx] = np.expand_dims(inputs[idx], axis=0)
+                    else:
+                        inputs[idx] = tf.expand_dims(inputs[idx], axis=0)
         return self.model(inputs)
 
     @property
@@ -85,10 +90,9 @@ class Modely:
                     extra_outputs.append(Identity()(minimizer["target"]))
                 else:
                     extra_outputs.append(minimizer["target"])
+
         self.train_outputs = self.outputs + extra_outputs
-
         flat = _flatten_graph(self.name, self.inputs, self.train_outputs)
-
         self.train_inputs = [node for node in flat.order if isinstance(node, Input)]
 
         keras_inputs, keras_outputs = self.resolve_graph(flat.order)
@@ -106,12 +110,13 @@ class Modely:
 
         for node in [n for n in order if not isinstance(n, Input)]:
             if isinstance(node, Layer):
-                tensor_map[node.name] = node.call(
-                    [tensor_map[pred.name] for pred in node.preds]
-                )
-            elif isinstance(node, (Constant, Parameter)):
-                anchor = next(iter(tensor_map.values()), None)
-                tensor_map[node.name] = node.as_tensor(anchor)
+                if len(node.preds) == 0:  ## Parameters and Constants
+                    anchor = next(iter(tensor_map.values()), None)
+                    tensor_map[node.name] = node.call([anchor])
+                else:
+                    tensor_map[node.name] = node.call(
+                        [tensor_map[pred.name] for pred in node.preds]
+                    )
             else:  ## Output or other non-Layer node
                 tensor_map[node.name] = tensor_map[node.preds[0].name]
 
@@ -139,9 +144,9 @@ class Modely:
         loss: loss identifier accepted by `keras.losses.get`
         """
         if target is None:  ## Transform it into a Constant with value zero
-            target = Constant(name=None, value=0.0, dtype="float32")
+            target = Constant(name=None, value=0.0)
         if isinstance(target, float):
-            target = Constant(name=None, value=[target], dtype="float32")
+            target = Constant(name=None, value=[target])
         self.minimizers.append(
             {"name": name, "source": source, "target": target, "loss": loss}
         )
@@ -685,16 +690,7 @@ class Modely:
         if self.model is None:
             raise ValueError("Model is not built. Call build() before export_onnx().")
 
-        try:
-            self.model.export(
-                filename + ".onnx",
-                format="onnx",
-            )
-        except Exception as e:
-            raise RuntimeError(
-                "ONNX export failed. "
-                "Make sure Keras >= 3.0 and the ONNX dependencies are installed."
-            ) from e
+        self.model.export(filename + ".onnx", format="onnx")
 
     @staticmethod
     def validate_onnx(filename: str, inputs: dict):

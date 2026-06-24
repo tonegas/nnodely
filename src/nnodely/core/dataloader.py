@@ -106,8 +106,6 @@ class DataLoader:
         return self.dataset[name]
 
     def get_step(self, idx: int) -> Dict[str, Any]:
-        if idx < 0:
-            idx = self._num_steps + idx
         if idx < 0 or idx >= self._num_steps:
             raise IndexError(f"idx out of range: {idx} (len={self._num_steps})")
         return {k: v[idx] for k, v in self.dataset.items()}
@@ -271,23 +269,8 @@ class DataLoader:
         dataset = {}
 
         for name, arr_list in chunks.items():
-            time_size = sum(self.input_specs[name])
-            if not arr_list:
-                dataset[name] = np.empty(
-                    (0, 1, time_size) if time_size > 1 else (0, 1),
-                    dtype=self.dtype,
-                )
-            else:
-                arr = np.concatenate(arr_list, axis=0).astype(self.dtype)
-                # Old shape:
-                #   (N, time)
-                #
-                # New shape:
-                #   (N, 1, time)
-                if arr.ndim == 2 and time_size > 1:
-                    arr = arr[:, None, :]
-
-                dataset[name] = arr
+            arr = np.concatenate(arr_list, axis=0).astype(self.dtype)
+            dataset[name] = arr
         return dataset
 
     def _build_from_dataframe(self, df: pd.DataFrame) -> Dict[str, np.ndarray]:
@@ -346,7 +329,9 @@ class DataLoader:
                         f"Internal error while building window for '{name}': "
                         f"expected {past + future}, got {values.shape[0]}"
                     )
-                raw_data[name].append(values)
+                raw_data[name].append(
+                    np.expand_dims(values, axis=0)
+                )  ## TODO: expand dims to account for the dim=1, future version manage multi dimensionality
 
         dataset = {
             name: np.stack(windows, axis=0) for name, windows in raw_data.items()

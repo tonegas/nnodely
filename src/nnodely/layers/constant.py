@@ -1,55 +1,73 @@
 import numpy as np
 import keras
 
-from nnodely.core.stream import Stream
+from nnodely.core.layer import Layer
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
-class _ConstantLayer(keras.layers.Layer):
-    def __init__(self, constant, **kwargs):
-        super().__init__(dtype=constant.dtype, **kwargs)
-        self.constant_node = constant
+class ConstantImpl(keras.layers.Layer):
+    def __init__(self, value, constant_shape, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+
+        self.value = np.asarray(value, dtype=np.float32)
+        self.constant_shape = tuple(constant_shape)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "value": self.value.tolist(),
+                "constant_shape": self.constant_shape,
+            }
+        )
+        return config
 
     def build(self, input_shape=None):
-        shape = self.constant_node.shape
+        value = np.asarray(self.value, dtype=np.float32)
 
-        value = np.asarray(self.constant_node.value, dtype=np.float32)
-        if value.shape != shape:
+        if value.shape != self.constant_shape:
             try:
-                value = np.reshape(value, shape)
+                value = np.reshape(value, self.constant_shape)
             except Exception as e:
                 raise ValueError(
-                    f"Constant '{self.constant_node.name}' value shape {value.shape} "
-                    f"is incompatible with expected shape {shape}"
+                    f"Constant value shape {value.shape} is incompatible "
+                    f"with expected shape {self.constant_shape}"
                 ) from e
 
-        initializer = keras.initializers.Constant(value=value.tolist())
-
-        self.constant_node.constant = self.add_weight(
+        self.constant = self.add_weight(
             name="value",
-            shape=shape,
-            initializer=initializer,
+            shape=self.constant_shape,
+            initializer=keras.initializers.Constant(value=value.tolist()),
             trainable=False,
-            dtype=self.constant_node.dtype,
+            dtype="float32",
         )
-
         super().build(input_shape)
 
     def call(self, anchor):
-        value = keras.ops.expand_dims(self.constant_node.constant, axis=0)
-        zero = keras.ops.sum(anchor, axis=tuple(range(1, len(anchor.shape)))) * 0.0
-        zero = keras.ops.reshape(zero, (-1,) + (1,) * len(self.constant_node.shape))
+        value = keras.ops.expand_dims(self.constant, axis=0)
+
+        zero = (
+            keras.ops.sum(
+                anchor,
+                axis=tuple(range(1, len(anchor.shape))),
+            )
+            * 0.0
+        )
+
+        zero = keras.ops.reshape(
+            zero,
+            (-1,) + (1,) * len(self.constant_shape),
+        )
+
         return value + zero
 
 
-class Constant(Stream):
+class Constant(Layer):
     """
-    Non-trainable symbolic source node.
-
-    Value is mandatory.
+    Non-trainable symbolic constant layer.
 
     Shape without batch:
-        dim + (time,) + seq
+        dim + time + seq
     """
 
     def __init__(
@@ -57,88 +75,52 @@ class Constant(Stream):
         name: str | None = None,
         *,
         value,
-        dtype="float32",
     ):
         if value is None:
             raise ValueError("Constant requires a value.")
 
         arr = np.asarray(value, dtype=np.float32)
 
-        # Convention: dim + (time,) + seq
         if arr.ndim == 0:
             arr = arr.reshape(1)
             dim = (1,)
             time = ()
             seq = None
         elif arr.ndim == 1:
-            # [D]
             arr = arr.reshape(arr.shape[0], 1)
             dim = (arr.shape[0],)
             time = ()
             seq = None
         else:
-            # assume [dim..., time]
             dim = tuple(arr.shape[:-1])
             time = tuple(arr.shape[-1:])
             seq = None
 
+        self.value = arr
         super().__init__(
             name=name,
             seq=seq,
             time=time,
             dim=dim,
-            preds=[],
+            value=arr.tolist(),
         )
 
-        self.value = arr
-        self.dtype = dtype
+    def output_shape(self, *inputs):
+        return self.dim, self.time, self.seq
 
-        self._state = {
-            "constant": None,
-            "layer": None,
-        }
-
-    def __copy__(self):
-        new = self.__class__(
-            name=self.name,
+    def build_layer(self):
+        return ConstantImpl(
             value=self.value,
-            dtype=self.dtype,
+            constant_shape=self.shape,
+            name=self.name,
         )
-        new.preds = list(self.preds)
-
-        # Important when flatten() copies the graph.
-        new._state = self._state
-        return new
-
-    def as_tensor(self, anchor):
-        if anchor is None:
-            raise ValueError(
-                f"Constant '{self.name}' needs an anchor tensor to enter the Keras graph."
-            )
-
-        if self._layer is None:
-            self._layer = _ConstantLayer(self, name=f"{self.name}_tensor")
-
-        return self._layer(anchor)
 
     @property
     def constant(self):
-        return self._state["constant"]
-
-    @constant.setter
-    def constant(self, value):
-        self._state["constant"] = value
-
-    @property
-    def _layer(self):
-        return self._state["layer"]
-
-    @_layer.setter
-    def _layer(self, value):
-        self._state["layer"] = value
+        if self._layer is not None and hasattr(self._layer, "constant"):
+            return self._layer.constant
+        return None
 
     @property
     def value_numpy(self):
-        if self.constant is None:
-            return np.asarray(self.value, dtype=np.float32)
         return keras.ops.convert_to_numpy(self.constant)
