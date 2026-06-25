@@ -275,17 +275,17 @@ def test_inv_pend_loop(tmp_path):
     )
 
     sequence_length = 3#(None,) #-1
-    pos = Input(name="Xpos", dim=1, seq=sequence_length)
-    vel = Input(name="Xvelocity", dim=1, seq=sequence_length)
-    angle = Input(name="Xangle", dim=1, seq=sequence_length)
-    ang_vel = Input(name="Xangular_velocity", dim=1, seq=sequence_length)
-    force = Input(name="action", dim=1, seq=sequence_length)
+    pos = Input(name="Xpos_s", dim=1, seq=sequence_length)
+    vel = Input(name="Xvelocity_s", dim=1, seq=sequence_length)
+    angle = Input(name="Xangle_s", dim=1, seq=sequence_length)
+    ang_vel = Input(name="Xangular_velocity_s", dim=1, seq=sequence_length)
+    force = Input(name="action_s", dim=1, seq=sequence_length)
 
     pos_pred, vel_pred, angle_pred, ang_vel_pred = loop_fn([pos, vel, angle, ang_vel, force])
-    loop_out_pos = Output(name="Ypos_pred", stream=pos_pred)
-    loop_out_vel = Output(name="Yvel_pred", stream=vel_pred)
-    loop_out_angle = Output(name="Yang_pred", stream=angle_pred)
-    loop_out_ang_vel = Output(name="Yang_vel", stream=ang_vel_pred)
+    loop_out_pos = Output(name="Ypos_pred_s", stream=pos_pred)
+    loop_out_vel = Output(name="Yvel_pred_s", stream=vel_pred)
+    loop_out_angle = Output(name="Yang_pred_s", stream=angle_pred)
+    loop_out_ang_vel = Output(name="Yang_vel_s", stream=ang_vel_pred)
 
     loop_model = Modely(
         name="model_with_loop",
@@ -293,25 +293,25 @@ def test_inv_pend_loop(tmp_path):
         outputs=[loop_out_pos, loop_out_vel, loop_out_angle, loop_out_ang_vel],
     )
 
-    loop_model.minimize("error_pos", source=loop_out_pos, target=Input(name="Ypos", dim=1, seq=sequence_length), loss="mse")
-    loop_model.minimize("error_vel", source=loop_out_vel, target=Input(name="Yvelocity", dim=1, seq=sequence_length), loss="mse")
-    loop_model.minimize("error_angle", source=loop_out_angle, target=Input(name="Yangle", dim=1, seq=sequence_length), loss="mse")
-    loop_model.minimize("error_ang_vel", source=loop_out_ang_vel, target=Input(name="Yangular_velocity", dim=1, seq=sequence_length), loss="mse")
+    loop_model.minimize("error_pos", source=loop_out_pos, target=Input(name="Ypos_s", dim=1, seq=sequence_length), loss="mse")
+    loop_model.minimize("error_vel", source=loop_out_vel, target=Input(name="Yvelocity_s", dim=1, seq=sequence_length), loss="mse")
+    loop_model.minimize("error_angle", source=loop_out_angle, target=Input(name="Yangle_s", dim=1, seq=sequence_length), loss="mse")
+    loop_model.minimize("error_ang_vel", source=loop_out_ang_vel, target=Input(name="Yangular_velocity_s", dim=1, seq=sequence_length), loss="mse")
     loop_model.build()
     loop_model.plot(to_file=os.path.join(tmp_path, "model_inv_pend.png"))
     loop_model.export_html(os.path.join("html", "model_inv_pend.html"))
 
     # Load data
     data_struct = {
-        "action": "action",
-        "Xpos": "Xpos",
-        "Xangle": "Xangle",
-        "Xvelocity": "Xvelocity",
-        "Xangular_velocity": "Xangular_velocity",
-        "Ypos": "Ypos",
-        "Yangle": "Yangle",
-        "Yvelocity": "Yvelocity",
-        "Yangular_velocity": "Yangular_velocity",
+        "action_s": "action",
+        "Xpos_s": "Xpos",
+        "Xangle_s": "Xangle",
+        "Xvelocity_s": "Xvelocity",
+        "Xangular_velocity_s": "Xangular_velocity",
+        "Ypos_s": "Ypos",
+        "Yangle_s": "Yangle",
+        "Yvelocity_s": "Yvelocity",
+        "Yangular_velocity_s": "Yangular_velocity",
     }
     data_train = DataLoader(
         loop_model,
@@ -321,18 +321,18 @@ def test_inv_pend_loop(tmp_path):
     )
 
     batch = 1
-    res = loop_model({
-        "Xpos": np.zeros((batch, 1, sequence_length)),
-        "Xvelocity": np.ones((batch, 1, sequence_length)),
-        "Xangle": np.ones((batch, 1, sequence_length))+1,
-        "Xangular_velocity": np.ones((batch, 1, sequence_length))+2,
-        "action": np.ones((batch, 1, sequence_length))+3,
-        "Ypos": np.zeros((batch, 1, sequence_length)),
-        "Yvelocity": np.zeros((batch, 1, sequence_length)),
-        "Yangle": np.zeros((batch, 1, sequence_length)),
-        "Yangular_velocity": np.zeros((batch, 1, sequence_length)),
-    })
-    print("Initial prediction loop:", res)
+    # res = loop_model({
+    #     "Xpos": np.zeros((batch, 1, sequence_length)),
+    #     "Xvelocity": np.ones((batch, 1, sequence_length)),
+    #     "Xangle": np.ones((batch, 1, sequence_length))+1,
+    #     "Xangular_velocity": np.ones((batch, 1, sequence_length))+2,
+    #     "action": np.ones((batch, 1, sequence_length))+3,
+    #     "Ypos": np.zeros((batch, 1, sequence_length)),
+    #     "Yvelocity": np.zeros((batch, 1, sequence_length)),
+    #     "Yangle": np.zeros((batch, 1, sequence_length)),
+    #     "Yangular_velocity": np.zeros((batch, 1, sequence_length)),
+    # })
+    #print("Initial prediction loop:", res)
 
     # Train the model
     print("\nDataset size:", len(data_train))

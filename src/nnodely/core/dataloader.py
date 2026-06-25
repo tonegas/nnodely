@@ -226,9 +226,9 @@ class DataLoader:
                 start = t - past + 1
                 end = t + future + 1
 
-                values = arrays[name][start:end]
+                values = arrays[name][start:end] if past + future > 0 else np.array(arrays[name][t], dtype=self.dtype)
 
-                if values.shape[0] != past + future:
+                if values.shape[0] != past + future and past + future > 0:
                     raise RuntimeError(
                         f"Internal error while building window for '{name}': "
                         f"expected {past + future}, got {values.shape[0]}"
