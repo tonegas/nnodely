@@ -74,6 +74,7 @@ def test_partitioning_windows():
     assert data_train.dataset is not None
     assert data_train.inputs == ["x", "y", "z"]
     assert data_train.input_specs == {"x": [5, 0], "y": [2, 3], "z": [4, 3]}
+    print("Data train dataset:", {k: v.shape for k, v in data_train.dataset.items()})
     assert data_train.dataset["x"].shape == (6, 1, 5)
     assert data_train.dataset["y"].shape == (6, 1, 5)
     assert data_train.dataset["z"].shape == (6, 1, 7)

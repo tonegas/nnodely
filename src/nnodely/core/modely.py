@@ -117,10 +117,11 @@ class Modely:
                     tensor_map[node.name] = node.call(
                         [tensor_map[pred.name] for pred in node.preds]
                     )
+                    ##TODO: remove this code in the future
                     if (
                         isinstance(tensor_map[node.name], tuple)
                         and len(tensor_map[node.name]) > 1
-                    ):  ##TODO: remove this code in the future
+                    ):
                         idx = node.name.rfind("_")
                         if idx != -1 and node.name[idx + 1 :].isdigit():
                             tensor_map[node.name] = tensor_map[node.name][
@@ -551,7 +552,6 @@ class Modely:
                 print(sep)
 
         km.compile(optimizer=optimizer, loss=compile_losses)
-
         history = km.fit(
             x=x_data,
             y=y_data,

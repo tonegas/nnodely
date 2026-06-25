@@ -4,10 +4,11 @@ os.environ.setdefault("KERAS_BACKEND", "torch")
 
 from nnodely import Input, Output, Fir, Modely, DataLoader, Parameter, Constant, Linear
 
+import pytest
 import numpy as np
 
 
-# @pytest.mark.slow
+@pytest.mark.slow
 def test_train_basic():
     # ------- Model definition and training -------
     x = Input("x", dim=1)
@@ -81,7 +82,7 @@ def test_train_basic():
     model1.train(train_data=data_train, epochs=60, batch_size=4)
 
 
-# @pytest.mark.slow
+@pytest.mark.slow
 def test_train_with_parameters():
     # ------- Model definition with Parameters and Constants -------
     x = Input("x", dim=1)
@@ -125,6 +126,7 @@ def test_train_with_parameters():
     )
 
 
+@pytest.mark.slow
 def test_training_values_linear():
     input1 = Input("in1")
     target = Input("out1").last()
@@ -144,7 +146,3 @@ def test_training_values_linear():
     # test.trainModel(optimizer='SGD', splits=[100, 0, 0], lr=1, num_of_epochs=1)
     # self.assertListEqual([[-3.0]], test.parameters['W'])
     # self.assertListEqual([-3.0], test.parameters['b'])
-
-
-if __name__ == "__main__":
-    test_training_values_linear()

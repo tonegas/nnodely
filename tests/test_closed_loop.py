@@ -1,4 +1,5 @@
 # import os
+
 # os.environ.setdefault("KERAS_BACKEND", "jax")
 
 # from nnodely import Input, Output, Modely, Loop, Parameter
@@ -66,7 +67,6 @@
 #     )
 
 #     model_out.build()
-#     print(model_out)
 #     model_in.plot(to_file=os.path.join(tmp_path, "model_with_loop.png"))
 #     model_out.plot(to_file=os.path.join(tmp_path, "model_with_loop_w.png"))
 #     model_out.export_html(os.path.join("html", "model_with_loop_w.html"))
@@ -76,15 +76,17 @@
 #     dummy_input_x = dummy_input((batch_size, 1), method="ones")
 #     dummy_input_y = dummy_input((batch_size, 1, 4), method="sequential")
 
-# result_in = model_in({"x": dummy_input_x, "y": dummy_input_y})
-# assert "out" in result_in
-# assert result_in["out"].shape == (batch_size, 1, 4)
-# #assert result_in["out"] == dummy_input_x * 1.0 + dummy_input_y * 1.0
-# dummy_input_w = dummy_input((batch_size, 1), method="ones")
-# dummy_input_z = dummy_input((batch_size, 1, 4, 2), method="sequential")
-# result_out = model_out({"z": dummy_input_z, "w": dummy_input_w})
-# assert "out_w" in result_out
-# assert result_out["out_w"].shape == (batch_size, 1, 4, 2)
+#     result_in = model_in({"x": dummy_input_x, "y": dummy_input_y})
+#     assert "out" in result_in
+#     assert result_in["out"].shape == (batch_size, 1, 4)
+#     # assert result_in["out"] == dummy_input_x * 1.0 + dummy_input_y * 1.0
+#     dummy_input_w = dummy_input((batch_size, 1), method="ones")
+#     dummy_input_z = dummy_input((batch_size, 1, 4, 2), method="sequential")
+#     result_out = model_out(
+#         {"z": dummy_input_z, "w": dummy_input_w, "w_target": dummy_input_z}
+#     )
+#     assert "out_w" in result_out
+#     assert result_out["out_w"].shape == (batch_size, 1, 4, 2)
 
 
 # def test_sw_closed_loop():
@@ -198,7 +200,10 @@
 
 #     dummy_input_w = dummy_input((batch_size, 1, 2), method="ones")
 #     dummy_input_z = dummy_input((batch_size, 1, 2, 4, 2), method="sequential")
-#     result_out = model_out({"z": dummy_input_z, "w": dummy_input_w})
+#     dummy_input_w_target = dummy_input((batch_size, 1, 2, 4, 2), method="sequential")
+#     result_out = model_out(
+#         {"z": dummy_input_z, "w": dummy_input_w, "w_target": dummy_input_w_target}
+#     )
 
 #     assert "out" in result_in
 #     assert result_in["out"].shape == (batch_size, 1, 2, 4)
