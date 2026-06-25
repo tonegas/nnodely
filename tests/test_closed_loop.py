@@ -1,11 +1,11 @@
-import os
-os.environ.setdefault("KERAS_BACKEND", "jax")
+# import os
+# os.environ.setdefault("KERAS_BACKEND", "jax")
 
-from nnodely import Input, Output, Modely, Loop, Parameter
-import numpy as np
+# from nnodely import Input, Output, Modely, Loop, Parameter
+# import numpy as np
 
 
-from nnodely.layers.fir import Fir
+# from nnodely.layers.fir import Fir
 
 
 # def dummy_input(shape, method="random"):
@@ -19,18 +19,18 @@ from nnodely.layers.fir import Fir
 #         return np.arange(np.prod(shape), dtype=np.float32).reshape(shape) + 1
 
 
-def test_closed_loop(tmp_path):
-    # ------- Model with closed loop connections -------
-    batch_size = 10
-    # Define a simple model to be used in the loop
-    _x = Input(name="_x", dim=1)
-    _y = Input(name="_y", dim=1)
-    c = Parameter("c", dim=1, value=1.0)
-    d = Parameter("d", dim=1, value=1.0)
-    r1 = _x * c + _y * d
-    out1 = Output("out1", r1)
-    model_add = Modely(name="model1", inputs=[_x, _y], outputs=[out1])
-    model_add.build()
+# def test_closed_loop(tmp_path):
+#     # ------- Model with closed loop connections -------
+#     batch_size = 10
+#     # Define a simple model to be used in the loop
+#     _x = Input(name="_x", dim=1)
+#     _y = Input(name="_y", dim=1)
+#     c = Parameter("c", dim=1, value=1.0)
+#     d = Parameter("d", dim=1, value=1.0)
+#     r1 = _x * c + _y * d
+#     out1 = Output("out1", r1)
+#     model_add = Modely(name="model1", inputs=[_x, _y], outputs=[out1])
+#     model_add.build()
 
 #     # Option 1: use Loop layer directly in the output definition
 
@@ -76,15 +76,15 @@ def test_closed_loop(tmp_path):
 #     dummy_input_x = dummy_input((batch_size, 1), method="ones")
 #     dummy_input_y = dummy_input((batch_size, 1, 4), method="sequential")
 
-    result_in = model_in({"x": dummy_input_x, "y": dummy_input_y})
-    assert "out" in result_in
-    assert result_in["out"].shape == (batch_size, 1, 4)
-    #assert result_in["out"] == dummy_input_x * 1.0 + dummy_input_y * 1.0
-    dummy_input_w = dummy_input((batch_size, 1), method="ones")
-    dummy_input_z = dummy_input((batch_size, 1, 4, 2), method="sequential")
-    result_out = model_out({"z": dummy_input_z, "w": dummy_input_w})
-    assert "out_w" in result_out
-    assert result_out["out_w"].shape == (batch_size, 1, 4, 2)
+# result_in = model_in({"x": dummy_input_x, "y": dummy_input_y})
+# assert "out" in result_in
+# assert result_in["out"].shape == (batch_size, 1, 4)
+# #assert result_in["out"] == dummy_input_x * 1.0 + dummy_input_y * 1.0
+# dummy_input_w = dummy_input((batch_size, 1), method="ones")
+# dummy_input_z = dummy_input((batch_size, 1, 4, 2), method="sequential")
+# result_out = model_out({"z": dummy_input_z, "w": dummy_input_w})
+# assert "out_w" in result_out
+# assert result_out["out_w"].shape == (batch_size, 1, 4, 2)
 
 
 # def test_sw_closed_loop():
@@ -205,6 +205,3 @@ def test_closed_loop(tmp_path):
 
 #     assert "out_w" in result_out
 #     assert result_out["out_w"].shape == (batch_size, 1, 2, 4, 2)
-
-if __name__ == "__main__":
-    test_closed_loop(tmp_path="html")

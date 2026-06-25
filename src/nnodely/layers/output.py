@@ -3,10 +3,6 @@ Output - nomina uno stream come output del modello.
 """
 
 from nnodely.core.stream import Stream
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
 
 
 class Output(Stream):

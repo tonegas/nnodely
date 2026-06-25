@@ -5,7 +5,7 @@ Stream - nodo del DAG con predecessors.
 from __future__ import annotations
 
 from copy import copy
-from typing import Sequence
+from typing import Any, Sequence
 
 
 class Node:
@@ -16,7 +16,7 @@ class Node:
         self.name = name
         self.preds = preds or []
 
-    def __call__(self, inputs: Sequence[Node]) -> Node|list[Node]:
+    def __call__(self, inputs: Sequence[Node]) -> Any:
         node = copy(self)
         node.preds = list(inputs)
 

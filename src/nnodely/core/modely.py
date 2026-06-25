@@ -43,7 +43,7 @@ class Modely:
         items = " \n- ".join(map(str, self.order))
         return f"Model {self.name}:\n - {items}"
 
-    def __call__(self, inputs: list[Node] | Any) -> Any:
+    def __call__(self, inputs) -> Any:
         if all(isinstance(v, Node) for v in inputs):
             mc = ModelCall(f"{self.name}_call", self)
             mc.preds = inputs
@@ -117,10 +117,15 @@ class Modely:
                     tensor_map[node.name] = node.call(
                         [tensor_map[pred.name] for pred in node.preds]
                     )
-                    if isinstance(tensor_map[node], tuple) and len(tensor_map[node]) > 1:
+                    if (
+                        isinstance(tensor_map[node.name], tuple)
+                        and len(tensor_map[node.name]) > 1
+                    ):  ##TODO: remove this code in the future
                         idx = node.name.rfind("_")
                         if idx != -1 and node.name[idx + 1 :].isdigit():
-                            tensor_map[node] = tensor_map[node][int(node.name[idx + 1 :])]
+                            tensor_map[node.name] = tensor_map[node.name][
+                                int(node.name[idx + 1 :])
+                            ]
             else:  ## Output or other non-Layer node
                 tensor_map[node.name] = tensor_map[node.preds[0].name]
 
@@ -291,12 +296,10 @@ class Modely:
     def train(
         self,
         train_data: DataLoader,
-        val_data: DataLoader | None = None,
         epochs: int = 1,
         batch_size: int = 1,
         optimizer=None,
         lr: float = 1e-3,
-        out_dir: str | None = "validation",
     ):
         if not self.minimizers:
             raise ValueError("No minimizers defined. Call minimize() before train().")
@@ -354,9 +357,16 @@ class Modely:
 
         # Not used for now, but could be useful for future extensions
         if backend == "tensorflow":
-            
+
             @tf.function
-            def train_step(model, batch_inputs, batch_targets, optimizer, losses, unique_vars):
+            def train_step(
+                model,
+                batch_inputs,
+                batch_targets,
+                optimizer,
+                losses,
+                unique_vars,  # type: ignore
+            ):
                 with tf.GradientTape() as tape:
                     preds = model(batch_inputs, training=True)
                     total = keras.ops.zeros(())
@@ -397,7 +407,9 @@ class Modely:
 
             train_history = {"loss": []}
             idxs = np.arange(n_samples)
-            epoch_bar = tqdm(range(epochs), desc=f"Training {self.name} in tensorflow", unit="epoch")
+            epoch_bar = tqdm(
+                range(epochs), desc=f"Training {self.name} in tensorflow", unit="epoch"
+            )
             for _ in epoch_bar:
                 np.random.shuffle(idxs)
                 epoch_losses = []
@@ -458,7 +470,9 @@ class Modely:
             }
             train_history = {"loss": []}
             idxs = np.arange(n_samples)
-            epoch_bar = tqdm(range(epochs), desc=f"Training {self.name} in torch", unit="epoch")
+            epoch_bar = tqdm(
+                range(epochs), desc=f"Training {self.name} in torch", unit="epoch"
+            )
 
             km.train()
             for _ in epoch_bar:
@@ -509,6 +523,7 @@ class Modely:
 
         import time
         import sys
+
         class FancyLossPrinter(tf.keras.callbacks.Callback):
             def on_train_begin(self, logs=None):
                 self.start_time = time.time()
@@ -525,14 +540,16 @@ class Modely:
                 sep = "─" * 70
 
                 print(sep)
-                print(f"Epoch {epoch+1}/{self.params['epochs']}   Elapsed: {elapsed:.1f}s")
+                print(
+                    f"Epoch {epoch + 1}/{self.params['epochs']}   Elapsed: {elapsed:.1f}s"
+                )
                 print(sep)
 
                 for k, v in sorted(logs.items()):
                     print(f"{k:<30} {v:>12.3e}")
 
                 print(sep)
-        
+
         km.compile(optimizer=optimizer, loss=compile_losses)
 
         history = km.fit(
@@ -542,7 +559,7 @@ class Modely:
             batch_size=batch_size,
             shuffle=True,
             verbose="0",
-            callbacks=[FancyLossPrinter()]
+            callbacks=[FancyLossPrinter()],
         )  # type: ignore[arg-type]
 
         return history.history

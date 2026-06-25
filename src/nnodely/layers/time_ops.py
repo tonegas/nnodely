@@ -111,7 +111,7 @@ class SampleWindow(Layer):
         return SampleWindowImpl(
             start=start,
             window_size=self.window_size,
-            output_shape_no_batch=tuple(self.shape),
+            output_shape_no_batch=self.shape,
             name=self.name,
         )
 

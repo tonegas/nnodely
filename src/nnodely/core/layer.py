@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import keras
+from typing import Any
 
 from nnodely.core.stream import Stream
 from nnodely.core.dag import next_name
@@ -59,7 +60,7 @@ class Layer(Stream):
     # Symbolic graph logic
     # ------------------------------------------------------------------
 
-    def __call__(self, inputs):
+    def __call__(self, inputs) -> Any:
         if not isinstance(inputs, (list, tuple)):
             inputs = [inputs]
         # Symbolic mode: Layer(Stream, ...) -> new Stream node

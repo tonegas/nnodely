@@ -21,6 +21,7 @@ import pytest
 
 #     os.environ["KERAS_BACKEND"] = backend
 
+
 @pytest.fixture(autouse=True)
 def seed():
     np.random.seed(42)

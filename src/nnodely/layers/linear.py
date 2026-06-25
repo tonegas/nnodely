@@ -17,7 +17,15 @@ class LinearImpl(keras.layers.Layer):
         [batch, out_dim, time, *seq]
     """
 
-    def __init__(self, out_features: int = 1, use_bias: bool = True, name=None, initializer="glorot_uniform", bias_initializer="glorot_uniform"):
+    def __init__(
+        self,
+        out_features: int = 1,
+        use_bias: bool = True,
+        name=None,
+        initializer="glorot_uniform",
+        bias_initializer="glorot_uniform",
+        **kwargs,
+    ):
         super().__init__(name=name)
         self.out_features = int(out_features)
         self.use_bias = bool(use_bias)
@@ -69,7 +77,15 @@ class Linear(Layer):
         [batch, out_features, time, *seq]
     """
 
-    def __init__(self, out_features: int = 1, use_bias: bool = True, name=None, initializer="glorot_uniform", bias_initializer="glorot_uniform", **kwargs):
+    def __init__(
+        self,
+        out_features: int = 1,
+        use_bias: bool = True,
+        name=None,
+        initializer="glorot_uniform",
+        bias_initializer="glorot_uniform",
+        **kwargs,
+    ):
         self.out_features = int(out_features)
         self.use_bias = bool(use_bias)
         self.initializer = initializer
@@ -80,7 +96,7 @@ class Linear(Layer):
             use_bias=self.use_bias,
             initializer=initializer,
             bias_initializer=bias_initializer,
-            **kwargs
+            **kwargs,
         )
 
     def output_shape(self, *inputs):
@@ -99,5 +115,5 @@ class Linear(Layer):
             use_bias=self.use_bias,
             name=self.name,
             initializer=self.initializer,
-            bias_initializer=self.bias_initializer
+            bias_initializer=self.bias_initializer,
         )

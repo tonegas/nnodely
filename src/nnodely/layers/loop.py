@@ -95,8 +95,9 @@ class LoopImpl(keras.layers.Layer):
         # Determine horizon from the known sequence metadata stored during build.
         horizon = (
             keras.ops.shape(inputs[self.longest_seq_idx])[-1]
-            if self.longest_seq_idx is not None and inputs[self.longest_seq_idx].shape[-1] is not None
-            else 1 # TODO: handle dynamic horizon from dataset or a special parameter in training
+            if self.longest_seq_idx is not None
+            and inputs[self.longest_seq_idx].shape[-1] is not None
+            else 1  # TODO: handle dynamic horizon from dataset or a special parameter in training
         )
 
         # Prepare initial step inputs by taking the first time step from each input sequence.
@@ -201,7 +202,11 @@ class LoopImpl(keras.layers.Layer):
         ):
             horizon = inputs[self.longest_seq_idx].shape[-1]
         else:
-            horizon = keras.ops.shape(inputs[self.longest_seq_idx])[-1] if self.longest_seq_idx is not None else 1
+            horizon = (
+                keras.ops.shape(inputs[self.longest_seq_idx])[-1]
+                if self.longest_seq_idx is not None
+                else 1
+            )
 
         # ------------------------------------------------------------------ #
         # 2.  Build xs: [horizon, ...] tensors for every input slot           #
@@ -215,28 +220,30 @@ class LoopImpl(keras.layers.Layer):
             if inp_meta.seq == ():
                 # Non-sequence input: repeat the same value for every step.
                 # Result shape: [horizon, *tensor.shape]
-                expanded = keras.ops.expand_dims(tensor, axis=0)           # [1, ...]
+                expanded = keras.ops.expand_dims(tensor, axis=0)  # [1, ...]
                 multiples = [horizon] + [1] * len(tensor.shape)
-                return keras.ops.tile(expanded, multiples)                 # [horizon, ...]
+                return keras.ops.tile(expanded, multiples)  # [horizon, ...]
 
             # Sequence input: last axis is time.
             # Move it to the front so scan can iterate over it.
             rank = len(tensor.shape)
-            perm = [rank - 1] + list(range(rank - 1))                     # time first
-            t_first = keras.ops.transpose(tensor, perm)                    # [T, ...]
+            perm = [rank - 1] + list(range(rank - 1))  # time first
+            t_first = keras.ops.transpose(tensor, perm)  # [T, ...]
 
             seq_len = tensor.shape[-1]
             if seq_len is not None and seq_len >= horizon:
                 # Enough steps – just slice.
                 slices = [slice(None)] * (rank)
                 slices[0] = slice(0, horizon)
-                return t_first[tuple(slices)]                              # [horizon, ...]
+                return t_first[tuple(slices)]  # [horizon, ...]
 
             # Sequence shorter than horizon: repeat last element to pad.
-            last = t_first[-1:]                                            # [1, ...]
-            pad_len = horizon - (seq_len if seq_len is not None else keras.ops.shape(t_first)[0])
+            last = t_first[-1:]  # [1, ...]
+            pad_len = horizon - (
+                seq_len if seq_len is not None else keras.ops.shape(t_first)[0]
+            )
             pad = keras.ops.tile(last, [pad_len] + [1] * (rank - 1))
-            return keras.ops.concatenate([t_first, pad], axis=0)           # [horizon, ...]
+            return keras.ops.concatenate([t_first, pad], axis=0)  # [horizon, ...]
 
         xs = [_prepare_xs(inp, self.inputs[idx]) for idx, inp in enumerate(inputs)]
 
@@ -249,9 +256,7 @@ class LoopImpl(keras.layers.Layer):
         # ------------------------------------------------------------------ #
         # Ordered list of (carry_position, inp_idx) for closed-loop inputs.
         closed_loop_order = [
-            idx
-            for idx, inp in enumerate(self.inputs)
-            if inp.name in self.closed_loop
+            idx for idx, inp in enumerate(self.inputs) if inp.name in self.closed_loop
         ]
 
         # initial_values dict maps input-name → initial tensor (first xs step).
@@ -294,7 +299,7 @@ class LoopImpl(keras.layers.Layer):
                     else:
                         # Time window – shift: drop oldest, append newest output.
                         step_inputs[submodel_name] = self._shift_time_window(
-                            x_step[idx],    # current window (already updated in xs)
+                            x_step[idx],  # current window (already updated in xs)
                             prev_out,
                             idx,
                         )
@@ -330,7 +335,11 @@ class LoopImpl(keras.layers.Layer):
         # ------------------------------------------------------------------- #
         def _horizon_to_last(tensor):
             """Move axis 0 (horizon) to the last position."""
-            rank = len(keras.ops.shape(tensor)) if not isinstance(tensor, (list, tuple)) else len(tensor)
+            rank = (
+                len(keras.ops.shape(tensor))
+                if not isinstance(tensor, (list, tuple))
+                else len(tensor)
+            )
             perm = list(range(1, rank)) + [0]
             return keras.ops.transpose(tensor, perm)
 
@@ -346,6 +355,7 @@ class LoopImpl(keras.layers.Layer):
                 out = ys[0] if isinstance(ys, (list, tuple)) else ys
                 return _horizon_to_last(out)
             return tuple(_horizon_to_last(v) for v in ys)
+
 
 def _solve_dict_names(d: dict[str | Input, str | Node]) -> dict[str, str]:
     result = {}
@@ -442,11 +452,11 @@ class Loop(Layer):
     def build_layer(self):
         if not self.f.built:
             self.f.build()
-        
+
         # save the index of the longest sequence input for use during call.
         sequences = [
             inp.seq[-1] if len(inp.seq) > 0 else inp.seq
-            for inp in self.inputs
+            for inp in self.inputs  # type: ignore
         ]
         tmp_max = -1
         self.longest_seq_idx = None
