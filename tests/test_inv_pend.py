@@ -1,6 +1,6 @@
 import os
 
-os.environ.setdefault("KERAS_BACKEND", "jax")
+os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 
 import pytest
 from nnodely import Input, Output, Modely, Loop, Parameter, Constant, DataLoader
@@ -257,6 +257,13 @@ def test_inv_pend_loop(tmp_path):
     model.plot(to_file=os.path.join(tmp_path, "model_inv_pend_initial.png"))
     model.export_html(os.path.join("html", "model_inv_pend_initial.html"))
 
+    sequence_length = 3#(None,) #-1
+    pos = Input(name="Xpos_s", dim=1, seq=sequence_length)
+    vel = Input(name="Xvelocity_s", dim=1, seq=sequence_length)
+    angle = Input(name="Xangle_s", dim=1, seq=sequence_length)
+    ang_vel = Input(name="Xangular_velocity_s", dim=1, seq=sequence_length)
+    force = Input(name="action_s", dim=1, seq=sequence_length)
+
     loop_fn = Loop(
         f=model,
         closed_loop={
@@ -273,13 +280,6 @@ def test_inv_pend_loop(tmp_path):
         },
         name="loop_inv_pend",
     )
-
-    sequence_length = 3#(None,) #-1
-    pos = Input(name="Xpos_s", dim=1, seq=sequence_length)
-    vel = Input(name="Xvelocity_s", dim=1, seq=sequence_length)
-    angle = Input(name="Xangle_s", dim=1, seq=sequence_length)
-    ang_vel = Input(name="Xangular_velocity_s", dim=1, seq=sequence_length)
-    force = Input(name="action_s", dim=1, seq=sequence_length)
 
     pos_pred, vel_pred, angle_pred, ang_vel_pred = loop_fn([pos, vel, angle, ang_vel, force])
     loop_out_pos = Output(name="Ypos_pred_s", stream=pos_pred)

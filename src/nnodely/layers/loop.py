@@ -251,9 +251,7 @@ class LoopImpl(keras.layers.Layer):
         out_name_to_idx = {out: idx for idx, out in enumerate(self.submodel_output_names)}
 
         # initial_values dict maps input-name → initial tensor (first xs step).
-        print("Loop initial_values:", self.initial_values)
-        init_carry = [xs[inp_name_to_idx[name]] for name in self.initial_values.values()]
-        print("Loop init_carry:", init_carry)
+        init_carry = [xs[inp_name_to_idx[name]][0] for name in self.initial_values.values()]
 
         # ------------------------------------------------------------------ #
         # 4.  Define the scan step function                                  #
@@ -268,9 +266,9 @@ class LoopImpl(keras.layers.Layer):
             step_inputs = {}
             for idx, inp_meta in enumerate(self.inputs):
                 submodel_name = self.submodel.inputs[idx].name
-                if inp_meta.name in self.closed_loop:
+                if submodel_name in self.closed_loop:
                     # Closed-loop slot: use carry (previous output).
-                    prev_out = carry[sub_inp_name_to_idx[inp_meta.name]]
+                    prev_out = carry[sub_inp_name_to_idx[submodel_name]]
 
                     if inp_meta.time == 1 or inp_meta.time == ():
                         # No time window – direct feedback.
@@ -288,14 +286,11 @@ class LoopImpl(keras.layers.Layer):
                 else:
                     step_inputs[submodel_name] = x_step[idx]
 
-            print("scan_fn step_inputs:", {k: v.shape for k, v in step_inputs.items()})
             y = self.submodel(step_inputs)
-            print("scan_fn submodel output:", {k: v.shape for k, v in (y.items() if isinstance(y, dict) else {"output": y}.items())})
             y = [v for v in (y.values() if isinstance(y, dict) else [y])]
 
             # Build new carry from the model outputs.
             new_carry = [y[out_name_to_idx[name]] for name in self.closed_loop.values()]
-            print("scan_fn:", new_carry, y)
             return new_carry, y
 
         # ------------------------------------------------------------------ #
@@ -303,7 +298,6 @@ class LoopImpl(keras.layers.Layer):
         # ------------------------------------------------------------------ #
         # xs for scan must be a structure where the leading axis is the loop
         # axis; we pass a list of [horizon, ...] tensors.
-        print("Loop xs:", [x.shape for x in xs])
         _, ys = keras.ops.scan(
             step_fn,
             init_carry,

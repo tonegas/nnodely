@@ -2,7 +2,7 @@ import os
 
 import pytest
 from torch.nn import Linear
-os.environ.setdefault("KERAS_BACKEND", "tensorflow")
+os.environ.setdefault("KERAS_BACKEND", "jax")
 
 from nnodely import Input, Output, Modely, Loop, Parameter, DataLoader
 import numpy as np
@@ -209,12 +209,12 @@ def test_sw_2_closed_loop():
     assert "out_w" in result_out
     assert result_out["out_w"].shape == (batch_size, 1, 2, 4, 2)
 
-
+@pytest.mark.skipif(os.environ.get("KERAS_BACKEND") == "torch", reason="torch is too slow")
 def test_simple_model(tmp_path):
     # Define a simple model to be used in the loop
     _x = Input(name="_x", dim=1)
     _z = Input(name="_z", dim=1)
-    w = Parameter("w", dim=1)
+    w = Parameter("w", dim=1, value=3.5)
     out1 = Output("y", _x + w + _z)
     model_add = Modely(name="model1", inputs=[_x, _z], outputs=[out1])
 
@@ -259,8 +259,8 @@ def test_simple_model(tmp_path):
     res = model_in({"x": dummy_input((1, 1, 4), method="ones")+7, "z": dummy_input((1, 1), method="ones"), "x_target": dummy_input((1, 1, 4), method="sequential")})
     print("Result of simple model:", res["out"])
     data_train = DataLoader(model_in, source=dataset)
-
-    model_in.train(train_data=data_train, epochs=30, batch_size=64, lr=5e-2)
+    model_in.train(train_data=data_train, epochs=100, batch_size=64, lr=5e-3)
+    print("Weights of simple model:", model_in.model.get_weights())
 
     res = model_in({"x": dummy_input((1, 1, 4), method="ones")+7, "z": dummy_input((1, 1), method="ones"), "x_target": dummy_input((1, 1, 4), method="sequential")})
     print("Result of simple model:", res["out"])
@@ -268,12 +268,13 @@ def test_simple_model(tmp_path):
     assert model_in.model.get_weights()[0] == pytest.approx(4.0, rel=1e-2)
 
 
+@pytest.mark.skipif(os.environ.get("KERAS_BACKEND") == "torch", reason="torch is too slow")
 def test_simple_model2(tmp_path):
     # Define a simple model to be used in the loop
     _x = Input(name="_x", dim=1)
     _z = Input(name="_z", dim=1)
-    w = Parameter("w", dim=1, value=4.0)
-    k = Parameter("k", dim=1, value=2.0)
+    w = Parameter("w", dim=1)
+    k = Parameter("k", dim=1)
     out1 = Output("y", _x + w)
     out2 = Output("y2", _z - k)
     model_add = Modely(name="model1", inputs=[_x, _z], outputs=[out1, out2])
@@ -284,7 +285,7 @@ def test_simple_model2(tmp_path):
     loop_fn = Loop(
         f=model_add,
         closed_loop={"_x": "y", "_z": "y"},
-        initial_values={"_x": _x, "_z": _z},
+        initial_values={"_x": x, "_z": z},
         name="loop_model_add",
     )
     loop_out1, loop_out2 = loop_fn([x, z])
@@ -333,7 +334,7 @@ def test_simple_model2(tmp_path):
     data_train = DataLoader(model_in, source=dataset)
 
     print("Weights of simple model:", model_in.model.get_weights())
-    #model_in.train(train_data=data_train, epochs=50, batch_size=1, lr=1e-3)
+    model_in.train(train_data=data_train, epochs=100, batch_size=64, lr=5e-3)
 
     res = model_in({"x": dummy_input((1, 1, 4), method="ones")+7, "z": dummy_input((1, 1, 4), method="ones"),
                     "x_target": dummy_input((1, 1, 4), method="sequential"),
@@ -342,6 +343,8 @@ def test_simple_model2(tmp_path):
 
     print("Weights of simple model:", model_in.model.get_weights())
     assert model_in.model.get_weights()[0] == pytest.approx(4.0, rel=1e-2)
+    assert model_in.model.get_weights()[1] == pytest.approx(2.0, rel=1e-2)
 
 if __name__ == "__main__":
     test_simple_model(tmp_path="html")
+    test_simple_model2(tmp_path="html")
