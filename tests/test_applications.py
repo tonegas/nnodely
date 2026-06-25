@@ -346,6 +346,15 @@ def test_vehicle_longitudinal_dynamics():
 # assert np.allclose(result["accelleration"], onnx_result[1], atol=1e-4)
 
 
+# import os
+
+# os.environ.setdefault("KERAS_BACKEND", "tensorflow")
+
+# import pytest
+# from nnodely import Input, Output, Modely, Loop, Parameter, Constant, DataLoader
+# import numpy as np
+# from nnodely.layers.trigonometric import Cos, Sin
+
 # def dummy_input(shape, method="random"):
 #     if method == "random":
 #         return np.random.rand(*shape).astype(np.float32)
@@ -356,10 +365,6 @@ def test_vehicle_longitudinal_dynamics():
 #     elif method == "sequential":
 #         return np.arange(np.prod(shape), dtype=np.float32).reshape(shape) + 1
 
-
-# @pytest.mark.ignore(
-#     reason="This test is currently ignored due to potential issues with the inverted pendulum model."
-# )
 # def test_inv_pend(tmp_path):
 #     # Define inputs
 #     pos = Input(name="Xpos", dim=1)
@@ -369,18 +374,17 @@ def test_vehicle_longitudinal_dynamics():
 #     force = Input(name="action", dim=1)
 
 #     # Define constants
-#     g = Constant(name="g", value=9.81)  # acceleration due to gravity
-#     dt = Constant(name="dt", value=0.02)  # time step
+#     g = Constant(name="g", value=9.81)      # acceleration due to gravity
+#     dt = Constant(name="dt", value=0.02)    # time step
 
-#     # init_value = 0.1
 #     # Define parameters
-#     gear = Parameter(name="gear", dim=1, value=100)  # gear ratio for the motor
-#     m1 = Parameter(name="m1", dim=1, value=10)  # mass of the cart
-#     m2 = Parameter(name="m2", dim=1, value=5)  # mass of the pendulum
-#     l = Parameter(name="l", dim=1, value=0.3)  # length of the
-#     b = Parameter(name="b", dim=1, value=1.0)  # damping coefficient for the cart
-#     d = Parameter(name="d", dim=1, value=1.0)  # damping coefficient for the pendulum
-#     I = Parameter(name="I", dim=1, value=0.19)  # moment of inertia of the pendulum
+#     gear = Parameter(name="gear", dim=1)    # gear ratio for the motor
+#     m1 = Parameter(name="m1", dim=1)        # mass of the cart
+#     m2 = Parameter(name="m2", dim=1)        # mass of the pendulum
+#     l = Parameter(name="l", dim=1)          # length of the
+#     b = Parameter(name="b", dim=1)          # damping coefficient for the cart
+#     d = Parameter(name="d", dim=1)          # damping coefficient for the pendulum
+#     I = Parameter(name="I", dim=1)          # moment of inertia of the pendulum
 
 #     # Define the equations of motion
 #     def inv_pend(p, v, alpha, omega, u):
@@ -462,27 +466,10 @@ def test_vehicle_longitudinal_dynamics():
 #         outputs=[out_pos, out_vel, out_angle, out_ang_vel],
 #     )
 
-#     model.minimize(
-#         "error_pos", source=out_pos, target=Input(name="Ypos", dim=1).sw(1), loss="mse"
-#     )
-#     model.minimize(
-#         "error_vel",
-#         source=out_vel,
-#         target=Input(name="Yvelocity", dim=1).sw(1),
-#         loss="mse",
-#     )
-#     model.minimize(
-#         "error_angle",
-#         source=out_angle,
-#         target=Input(name="Yangle", dim=1).sw(1),
-#         loss="mse",
-#     )
-#     model.minimize(
-#         "error_ang_vel",
-#         source=out_ang_vel,
-#         target=Input(name="Yangular_velocity", dim=1).sw(1),
-#         loss="mse",
-#     )
+#     model.minimize("error_pos", source=out_pos, target=Input(name="Ypos", dim=1).sw(1), loss="mse")
+#     model.minimize("error_vel", source=out_vel, target=Input(name="Yvelocity", dim=1).sw(1), loss="mse")
+#     model.minimize("error_angle", source=out_angle, target=Input(name="Yangle", dim=1).sw(1), loss="mse")
+#     model.minimize("error_ang_vel", source=out_ang_vel, target=Input(name="Yangular_velocity", dim=1).sw(1), loss="mse")
 #     model.build()
 
 #     # Load data
@@ -499,24 +486,21 @@ def test_vehicle_longitudinal_dynamics():
 #     }
 #     data_train = DataLoader(
 #         model,
-#         format=data_struct,  # type: ignore
+#         format=data_struct,
 #         source=os.path.join("tests", "datasets", "data_inv_pend"),
 #     )
 #     # Train the model
-#     model.train(train_data=data_train, epochs=30, batch_size=128, lr=1e-3)
+#     history = model.train(train_data=data_train, epochs=30, batch_size=128, lr=1e-3)
 
-#     # test_data = data_train[0]  # Use the first batch of training data for testing
-#     # print("Test data:", {k: v for k, v in test_data.items() if k in ["Ypos", "Yvelocity", "Yangle", "Yangular_velocity"]})
-#     # predictions = model(test_data)
+#     test_data = data_train[0]  # Use the first batch of training data for testing
+#     print("Test data:", {k: v for k, v in test_data.items() if k in ["Ypos", "Yvelocity", "Yangle", "Yangular_velocity"]})
+#     predictions = model(test_data)
 
 #     # print([f"{key}: model pred {pred}, target {test_data[key.replace('_pred', '')]}" for key, pred in predictions.items()])
-#     # print("Model predictions:", [f"{key}: model pred {pred}" for key, pred in predictions.items() if "Y" in key])
-#     # print("Model parameters:", {layer.name: layer.get_weights() for layer in model.model.layers if len(layer.get_weights()) > 0})
+#     print("Model predictions:", [f"{key}: model pred {pred}" for key, pred in predictions.items() if "Y" in key])
+#     print("Model parameters:", {layer.name: layer.get_weights() for layer in model.model.layers if len(layer.get_weights()) > 0})
 
-
-# @pytest.mark.ignore(
-#     reason="This test is currently ignored due to potential issues with the inverted pendulum model."
-# )
+# @pytest.mark.slow
 # def test_inv_pend_loop(tmp_path):
 #     # Define inputs
 #     pos = Input(name="Xpos", dim=1)
@@ -529,7 +513,7 @@ def test_vehicle_longitudinal_dynamics():
 #     g = Constant(name="g", value=9.81)  # acceleration due to gravity
 #     dt = Constant(name="dt", value=0.02)  # time step
 
-#     # init_value = 0.1
+#     init_value = 0.1
 #     # Define parameters
 #     gear = Parameter(name="gear", dim=1, value=100)  # gear ratio for the motor
 #     m1 = Parameter(name="m1", dim=1, value=10)  # mass of the cart
@@ -621,6 +605,13 @@ def test_vehicle_longitudinal_dynamics():
 #     model.plot(to_file=os.path.join(tmp_path, "model_inv_pend_initial.png"))
 #     model.export_html(os.path.join("html", "model_inv_pend_initial.html"))
 
+#     sequence_length = 3#(None,) #-1
+#     pos = Input(name="Xpos_s", dim=1, seq=sequence_length)
+#     vel = Input(name="Xvelocity_s", dim=1, seq=sequence_length)
+#     angle = Input(name="Xangle_s", dim=1, seq=sequence_length)
+#     ang_vel = Input(name="Xangular_velocity_s", dim=1, seq=sequence_length)
+#     force = Input(name="action_s", dim=1, seq=sequence_length)
+
 #     loop_fn = Loop(
 #         f=model,
 #         closed_loop={
@@ -638,20 +629,11 @@ def test_vehicle_longitudinal_dynamics():
 #         name="loop_inv_pend",
 #     )
 
-#     sequence_length = 3  # (None,) #-1
-#     pos = Input(name="Xpos", dim=1, seq=sequence_length)
-#     vel = Input(name="Xvelocity", dim=1, seq=sequence_length)
-#     angle = Input(name="Xangle", dim=1, seq=sequence_length)
-#     ang_vel = Input(name="Xangular_velocity", dim=1, seq=sequence_length)
-#     force = Input(name="action", dim=1, seq=sequence_length)
-
-#     pos_pred, vel_pred, angle_pred, ang_vel_pred = loop_fn(
-#         [pos, vel, angle, ang_vel, force]
-#     )
-#     loop_out_pos = Output(name="Ypos_pred", stream=pos_pred)
-#     loop_out_vel = Output(name="Yvel_pred", stream=vel_pred)
-#     loop_out_angle = Output(name="Yang_pred", stream=angle_pred)
-#     loop_out_ang_vel = Output(name="Yang_vel", stream=ang_vel_pred)
+#     pos_pred, vel_pred, angle_pred, ang_vel_pred = loop_fn([pos, vel, angle, ang_vel, force])
+#     loop_out_pos = Output(name="Ypos_pred_s", stream=pos_pred)
+#     loop_out_vel = Output(name="Yvel_pred_s", stream=vel_pred)
+#     loop_out_angle = Output(name="Yang_pred_s", stream=angle_pred)
+#     loop_out_ang_vel = Output(name="Yang_vel_s", stream=ang_vel_pred)
 
 #     loop_model = Modely(
 #         name="model_with_loop",
@@ -659,75 +641,60 @@ def test_vehicle_longitudinal_dynamics():
 #         outputs=[loop_out_pos, loop_out_vel, loop_out_angle, loop_out_ang_vel],
 #     )
 
-#     loop_model.minimize(
-#         "error_pos",
-#         source=loop_out_pos,
-#         target=Input(name="Ypos", dim=1, seq=sequence_length),
-#         loss="mse",
-#     )
-#     loop_model.minimize(
-#         "error_vel",
-#         source=loop_out_vel,
-#         target=Input(name="Yvelocity", dim=1, seq=sequence_length),
-#         loss="mse",
-#     )
-#     loop_model.minimize(
-#         "error_angle",
-#         source=loop_out_angle,
-#         target=Input(name="Yangle", dim=1, seq=sequence_length),
-#         loss="mse",
-#     )
-#     loop_model.minimize(
-#         "error_ang_vel",
-#         source=loop_out_ang_vel,
-#         target=Input(name="Yangular_velocity", dim=1, seq=sequence_length),
-#         loss="mse",
-#     )
+#     loop_model.minimize("error_pos", source=loop_out_pos, target=Input(name="Ypos_s", dim=1, seq=sequence_length), loss="mse")
+#     loop_model.minimize("error_vel", source=loop_out_vel, target=Input(name="Yvelocity_s", dim=1, seq=sequence_length), loss="mse")
+#     loop_model.minimize("error_angle", source=loop_out_angle, target=Input(name="Yangle_s", dim=1, seq=sequence_length), loss="mse")
+#     loop_model.minimize("error_ang_vel", source=loop_out_ang_vel, target=Input(name="Yangular_velocity_s", dim=1, seq=sequence_length), loss="mse")
 #     loop_model.build()
 #     loop_model.plot(to_file=os.path.join(tmp_path, "model_inv_pend.png"))
 #     loop_model.export_html(os.path.join("html", "model_inv_pend.html"))
 
 #     # Load data
 #     data_struct = {
-#         "action": "action",
-#         "Xpos": "Xpos",
-#         "Xangle": "Xangle",
-#         "Xvelocity": "Xvelocity",
-#         "Xangular_velocity": "Xangular_velocity",
-#         "Ypos": "Ypos",
-#         "Yangle": "Yangle",
-#         "Yvelocity": "Yvelocity",
-#         "Yangular_velocity": "Yangular_velocity",
+#         "action_s": "action",
+#         "Xpos_s": "Xpos",
+#         "Xangle_s": "Xangle",
+#         "Xvelocity_s": "Xvelocity",
+#         "Xangular_velocity_s": "Xangular_velocity",
+#         "Ypos_s": "Ypos",
+#         "Yangle_s": "Yangle",
+#         "Yvelocity_s": "Yvelocity",
+#         "Yangular_velocity_s": "Yangular_velocity",
 #     }
 #     data_train = DataLoader(
 #         loop_model,
-#         format=data_struct,  # type: ignore
+#         format=data_struct,
 #         source=os.path.join("tests", "datasets", "data_inv_pend"),
-#         seq_length=sequence_length,
+#         seq_length=sequence_length
 #     )
 
 #     batch = 1
-#     res = loop_model(
-#         {
-#             "Xpos": np.zeros((batch, 1, sequence_length)),
-#             "Xvelocity": np.ones((batch, 1, sequence_length)),
-#             "Xangle": np.ones((batch, 1, sequence_length)) + 1,
-#             "Xangular_velocity": np.ones((batch, 1, sequence_length)) + 2,
-#             "action": np.ones((batch, 1, sequence_length)) + 3,
-#             "Ypos": np.zeros((batch, 1, sequence_length)),
-#             "Yvelocity": np.zeros((batch, 1, sequence_length)),
-#             "Yangle": np.zeros((batch, 1, sequence_length)),
-#             "Yangular_velocity": np.zeros((batch, 1, sequence_length)),
-#         }
-#     )
-#     print("Initial prediction loop:", res)
+#     # res = loop_model({
+#     #     "Xpos": np.zeros((batch, 1, sequence_length)),
+#     #     "Xvelocity": np.ones((batch, 1, sequence_length)),
+#     #     "Xangle": np.ones((batch, 1, sequence_length))+1,
+#     #     "Xangular_velocity": np.ones((batch, 1, sequence_length))+2,
+#     #     "action": np.ones((batch, 1, sequence_length))+3,
+#     #     "Ypos": np.zeros((batch, 1, sequence_length)),
+#     #     "Yvelocity": np.zeros((batch, 1, sequence_length)),
+#     #     "Yangle": np.zeros((batch, 1, sequence_length)),
+#     #     "Yangular_velocity": np.zeros((batch, 1, sequence_length)),
+#     # })
+#     #print("Initial prediction loop:", res)
 
 #     # Train the model
 #     print("\nDataset size:", len(data_train))
 #     print("Starting training...")
 #     loop_model.train(train_data=data_train, epochs=300, batch_size=128, lr=3e-3)
+#     # # Export the trained model
+#     # model.save(os.path.join(tmp_path, "model_inv_pend_exported"))
+#     # model.export_keras(os.path.join(tmp_path, "model_inv_pend_keras.h5"))
 
-#     # predictions = loop_model(test_data)
-#     # print("Outputs:", predictions)
-#     # print("Target:", {k: v for k, v in test_data.items() if k in ["Ypos", "Yvelocity", "Yangle", "Yangular_velocity"]})
-#     # print("Predictions shapes:", {k: v.shape for k, v in predictions.items() if "Y" in k})
+#     # # Load the exported model and test it
+#     # loaded_model = Modely.load(os.path.join(tmp_path, "model_inv_pend_exported"))
+#     test_data = data_train[0]  # Use the first batch of training data for testing
+
+#     predictions = loop_model(test_data)
+#     print("Outputs:", predictions)
+#     print("Target:", {k: v for k, v in test_data.items() if k in ["Ypos", "Yvelocity", "Yangle", "Yangular_velocity"]})
+#     print("Predictions shapes:", {k: v.shape for k, v in predictions.items() if "Y" in k})

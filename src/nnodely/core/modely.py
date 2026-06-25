@@ -113,6 +113,15 @@ class Modely:
                 if len(node.preds) == 0:  ## Parameters and Constants
                     anchor = next(iter(tensor_map.values()), None)
                     tensor_map[node.name] = node.call([anchor])
+                    if (
+                        isinstance(tensor_map[node.name], tuple)
+                        and len(tensor_map[node.name]) > 1
+                    ):
+                        idx = node.name.rfind("_")
+                        if idx != -1 and node.name[idx + 1 :].isdigit():
+                            tensor_map[node.name] = tensor_map[node.name][
+                                int(node.name[idx + 1 :])
+                            ]
                 else:
                     tensor_map[node.name] = node.call(
                         [tensor_map[pred.name] for pred in node.preds]
@@ -357,7 +366,7 @@ class Modely:
         backend = keras.backend.backend()
 
         # Not used for now, but could be useful for future extensions
-        if backend == "tensorflow":
+        if backend == "tensorfloww":
 
             @tf.function
             def train_step(

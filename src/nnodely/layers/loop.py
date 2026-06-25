@@ -13,8 +13,9 @@ class LoopImpl(keras.layers.Layer):
         closed_loop: dict[str, str],
         initial_values: dict[str, str],
         inputs,
-        name=None,
-        longest_seq_idx=None,
+        submodel_output_names,
+        name,
+        longest_seq_idx,
         **kwargs,
     ):
         super().__init__(name=name, **kwargs)
@@ -22,6 +23,7 @@ class LoopImpl(keras.layers.Layer):
         self.closed_loop = closed_loop
         self.initial_values = initial_values
         self.inputs = inputs
+        self.submodel_output_names = submodel_output_names
         self.longest_seq_idx = longest_seq_idx
 
         # Validate input sequence dimensions to be the same for all inputs, except the zero default (non-sequence) value.
@@ -43,6 +45,7 @@ class LoopImpl(keras.layers.Layer):
                 "initial_values": self.initial_values,
                 "inputs": self.inputs,
                 "longest_seq_idx": self.longest_seq_idx,
+                "submodel_output_names": self.submodel_output_names,
             }
         )
         return config
@@ -95,9 +98,8 @@ class LoopImpl(keras.layers.Layer):
         # Determine horizon from the known sequence metadata stored during build.
         horizon = (
             keras.ops.shape(inputs[self.longest_seq_idx])[-1]
-            if self.longest_seq_idx is not None
-            and inputs[self.longest_seq_idx].shape[-1] is not None
-            else 1  # TODO: handle dynamic horizon from dataset or a special parameter in training
+            if self.longest_seq_idx is not None and inputs[self.longest_seq_idx].shape[-1] is not None
+            else 1 # TODO: handle dynamic horizon from dataset or a special parameter in training
         )
 
         # Prepare initial step inputs by taking the first time step from each input sequence.
@@ -177,9 +179,9 @@ class LoopImpl(keras.layers.Layer):
         """
         Roll out the submodel over the horizon using keras.ops.scan.
 
-        Carry  – a flat list of tensors, one per closed-loop input, holding the
+        Carry  - a flat list of tensors, one per closed-loop input, holding the
                 "previous output" that will be fed back at the next step.
-        xs     – a list of tensors shaped [horizon, ...] (loop axis moved to
+        xs     - a list of tensors shaped [horizon, ...] (loop axis moved to
                 front), one per input, containing the pre-sliced per-step
                 values.  For non-sequence inputs (seq == ()) we still create a
                 repeated slice so scan sees a uniform xs structure.
@@ -202,11 +204,7 @@ class LoopImpl(keras.layers.Layer):
         ):
             horizon = inputs[self.longest_seq_idx].shape[-1]
         else:
-            horizon = (
-                keras.ops.shape(inputs[self.longest_seq_idx])[-1]
-                if self.longest_seq_idx is not None
-                else 1
-            )
+            horizon = keras.ops.shape(inputs[self.longest_seq_idx])[-1] if self.longest_seq_idx is not None else 1
 
         # ------------------------------------------------------------------ #
         # 2.  Build xs: [horizon, ...] tensors for every input slot           #
@@ -220,62 +218,44 @@ class LoopImpl(keras.layers.Layer):
             if inp_meta.seq == ():
                 # Non-sequence input: repeat the same value for every step.
                 # Result shape: [horizon, *tensor.shape]
-                expanded = keras.ops.expand_dims(tensor, axis=0)  # [1, ...]
+                expanded = keras.ops.expand_dims(tensor, axis=0)           # [1, ...]
                 multiples = [horizon] + [1] * len(tensor.shape)
-                return keras.ops.tile(expanded, multiples)  # [horizon, ...]
+                return keras.ops.tile(expanded, multiples)                 # [horizon, ...]
 
             # Sequence input: last axis is time.
             # Move it to the front so scan can iterate over it.
             rank = len(tensor.shape)
-            perm = [rank - 1] + list(range(rank - 1))  # time first
-            t_first = keras.ops.transpose(tensor, perm)  # [T, ...]
+            perm = [rank - 1] + list(range(rank - 1))                     # time first
+            t_first = keras.ops.transpose(tensor, perm)                    # [T, ...]
 
             seq_len = tensor.shape[-1]
             if seq_len is not None and seq_len >= horizon:
                 # Enough steps – just slice.
                 slices = [slice(None)] * (rank)
                 slices[0] = slice(0, horizon)
-                return t_first[tuple(slices)]  # [horizon, ...]
+                return t_first[tuple(slices)]                              # [horizon, ...]
 
             # Sequence shorter than horizon: repeat last element to pad.
-            last = t_first[-1:]  # [1, ...]
-            pad_len = horizon - (
-                seq_len if seq_len is not None else keras.ops.shape(t_first)[0]
-            )
+            last = t_first[-1:]                                            # [1, ...]
+            pad_len = horizon - (seq_len if seq_len is not None else keras.ops.shape(t_first)[0])
             pad = keras.ops.tile(last, [pad_len] + [1] * (rank - 1))
-            return keras.ops.concatenate([t_first, pad], axis=0)  # [horizon, ...]
+            return keras.ops.concatenate([t_first, pad], axis=0)           # [horizon, ...]
 
         xs = [_prepare_xs(inp, self.inputs[idx]) for idx, inp in enumerate(inputs)]
 
         # ------------------------------------------------------------------ #
-        # 3.  Build initial carry                                              #
-        #                                                                      #
-        #  The carry is a flat list indexed by `closed_loop_order`, which     #
-        #  records the mapping  carry_index → (inp_idx, inp_meta).            #
-        #  We only need to carry closed-loop inputs; all others come from xs. #
+        # 3.  Build initial carry                                            #
         # ------------------------------------------------------------------ #
-        # Ordered list of (carry_position, inp_idx) for closed-loop inputs.
-        closed_loop_order = [
-            idx for idx, inp in enumerate(self.inputs) if inp.name in self.closed_loop
-        ]
+        sub_inp_name_to_carry_idx = {inp: idx for idx, inp in enumerate(self.closed_loop)}
+        inp_name_to_idx = {inp.name: idx for idx, inp in enumerate(self.inputs)}
+        out_name_to_idx = {out: idx for idx, out in enumerate(self.submodel_output_names)}
 
         # initial_values dict maps input-name → initial tensor (first xs step).
-        init_carry = []
-        for idx in closed_loop_order:
-            # Use the first xs step (t=0) as the initial carry value.
-            init_carry.append(xs[idx][0])
+        init_carry = [xs[inp_name_to_idx[name]][0] for name in self.initial_values.values()]
 
         # ------------------------------------------------------------------ #
         # 4.  Define the scan step function                                  #
         # ------------------------------------------------------------------ #
-        # Build a lookup: input_name → carry position for quick access inside
-        # the step function (closures capture Python objects cleanly).
-        inp_name_to_carry_pos = {
-            self.inputs[idx].name: carry_pos
-            for carry_pos, idx in enumerate(closed_loop_order)
-        }
-        # Submodel input name list (in order).
-        submodel_input_names = [inp.name for inp in self.submodel.inputs]
 
         def step_fn(carry, x_step):
             """
@@ -285,10 +265,10 @@ class LoopImpl(keras.layers.Layer):
             """
             step_inputs = {}
             for idx, inp_meta in enumerate(self.inputs):
-                submodel_name = submodel_input_names[idx]
-                if inp_meta.name in inp_name_to_carry_pos:
+                submodel_name = self.submodel.inputs[idx].name
+                if submodel_name in self.closed_loop:
                     # Closed-loop slot: use carry (previous output).
-                    prev_out = carry[inp_name_to_carry_pos[inp_meta.name]]
+                    prev_out = carry[sub_inp_name_to_carry_idx[submodel_name]]
 
                     if inp_meta.time == 1 or inp_meta.time == ():
                         # No time window – direct feedback.
@@ -299,7 +279,7 @@ class LoopImpl(keras.layers.Layer):
                     else:
                         # Time window – shift: drop oldest, append newest output.
                         step_inputs[submodel_name] = self._shift_time_window(
-                            x_step[idx],  # current window (already updated in xs)
+                            x_step[idx],    # current window (already updated in xs)
                             prev_out,
                             idx,
                         )
@@ -310,8 +290,7 @@ class LoopImpl(keras.layers.Layer):
             y = [v for v in (y.values() if isinstance(y, dict) else [y])]
 
             # Build new carry from the model outputs.
-            new_carry = [y[idx] for idx in closed_loop_order]
-
+            new_carry = [y[out_name_to_idx[name]] for name in self.closed_loop.values()]
             return new_carry, y
 
         # ------------------------------------------------------------------ #
@@ -335,11 +314,7 @@ class LoopImpl(keras.layers.Layer):
         # ------------------------------------------------------------------- #
         def _horizon_to_last(tensor):
             """Move axis 0 (horizon) to the last position."""
-            rank = (
-                len(keras.ops.shape(tensor))
-                if not isinstance(tensor, (list, tuple))
-                else len(tensor)
-            )
+            rank = len(keras.ops.shape(tensor)) if not isinstance(tensor, (list, tuple)) else len(tensor)
             perm = list(range(1, rank)) + [0]
             return keras.ops.transpose(tensor, perm)
 
@@ -355,7 +330,6 @@ class LoopImpl(keras.layers.Layer):
                 out = ys[0] if isinstance(ys, (list, tuple)) else ys
                 return _horizon_to_last(out)
             return tuple(_horizon_to_last(v) for v in ys)
-
 
 def _solve_dict_names(d: dict[str | Input, str | Node]) -> dict[str, str]:
     result = {}
@@ -377,6 +351,8 @@ def _solve_dict_names(d: dict[str | Input, str | Node]) -> dict[str, str]:
         result[key_name] = value_name
     return result
 
+def _sort_dict_by_keys(d: dict[str, str], keys: list[str]) -> dict[str, str]:
+    return {k: d[k] for k in keys if k in d}
 
 class Loop(Layer):
     """
@@ -396,7 +372,6 @@ class Loop(Layer):
         self.initial_values = _solve_dict_names(initial_values)
 
         # check that closed_loop and initial_values keys are valid inputs to f
-        # check that closed_loop and initial_values keys are valid inputs to f
         f_input_names = [node.name for node in self.f.inputs]
         for key in self.closed_loop.keys():
             if key not in f_input_names:
@@ -411,11 +386,11 @@ class Loop(Layer):
                 )
 
         # check outputs in closed_loop values are valid outputs of f
-        f_output_names = [node.name for node in self.f.outputs]
+        self.f_output_names = [node.name for node in self.f.outputs]
         for out in self.closed_loop.values():
-            if out not in f_output_names:
+            if out not in self.f_output_names:
                 raise ValueError(
-                    f"Loop: closed_loop output '{out}' not in f.outputs={f_output_names}"
+                    f"Loop: closed_loop output '{out}' not in f.outputs={self.f_output_names}"
                 )
 
         # check if closed_loop and initial_values keys are valid inputs to f
@@ -428,6 +403,9 @@ class Loop(Layer):
                 raise ValueError(
                     f"Loop: initial_values key '{f_inp}' must also be in closed_loop."
                 )
+
+        self.closed_loop = _sort_dict_by_keys(self.closed_loop, f_input_names)
+        self.initial_values = _sort_dict_by_keys(self.initial_values, f_input_names)
 
         super().__init__(
             name=name,
@@ -452,11 +430,19 @@ class Loop(Layer):
     def build_layer(self):
         if not self.f.built:
             self.f.build()
+        
+        # check inputs in initial_values values are valid outputs of the outer model
+        input_names = [node.name for node in self.inputs]
+        for inp in self.initial_values.values():
+            if inp not in input_names:
+                raise ValueError(
+                    f"Loop: initial_values input '{inp}' not in outer model inputs={input_names}"
+                )
 
         # save the index of the longest sequence input for use during call.
         sequences = [
             inp.seq[-1] if len(inp.seq) > 0 else inp.seq
-            for inp in self.inputs  # type: ignore
+            for inp in self.inputs
         ]
         tmp_max = -1
         self.longest_seq_idx = None
@@ -481,4 +467,5 @@ class Loop(Layer):
             inputs=self.inputs,
             name=self.name,
             longest_seq_idx=self.longest_seq_idx,
+            submodel_output_names=self.f_output_names
         )
