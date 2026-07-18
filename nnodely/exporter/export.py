@@ -1,4 +1,10 @@
-import sys, os, torch, importlib, json
+import ast
+import importlib
+import json
+import os
+import sys
+
+import torch
 
 from torch.fx import symbolic_trace
 
@@ -37,6 +43,40 @@ def load_model(model_path):
         model_def = json.load(file)
     return model_def
 
+def _format_torchscript_dict(dict_node):
+    if not isinstance(dict_node, ast.Dict):
+        return None
+    items = []
+    for key, value in zip(dict_node.keys, dict_node.values):
+        if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+            return None
+        items.append(f"{key.value!r}: {ast.unparse(value)}")
+    return "{" + ", ".join(items) + "}"
+
+def _format_torchscript_return(line):
+    stripped = line.strip()
+    if not stripped.startswith("return "):
+        return None
+    try:
+        return_node = ast.parse(stripped, mode='exec').body[0]
+    except SyntaxError:
+        return None
+    if not isinstance(return_node, ast.Return) or not isinstance(return_node.value, ast.Tuple):
+        return None
+    if len(return_node.value.elts) != 4:
+        return None
+
+    dicts = [_format_torchscript_dict(dict_node) for dict_node in return_node.value.elts]
+    if any(dict_str is None for dict_str in dicts):
+        return None
+
+    names = ["output_dict", "minimize_dict", "closed_loop_update_dict", "connect_update_dict"]
+    formatted = []
+    for name, dict_str in zip(names, dicts):
+        formatted.append(f"        {name} = torch.jit.annotate(Dict[str, torch.Tensor], {dict_str})")
+    formatted.append(f"        return {', '.join(names)}")
+    return "\n".join(formatted)
+
 def export_python_model(model_def, model, model_path):
     package_name = __package__.split('.')[0]
 
@@ -51,6 +91,7 @@ def export_python_model(model_def, model, model_path):
     saved_functions = []
 
     with open(model_path, 'w') as file:
+        file.write("from typing import Dict, Tuple\n\n")
         file.write("import torch\n\n")
 
         ## write the connect wrap function
@@ -155,11 +196,16 @@ def export_python_model(model_def, model, model_path):
 
         file.write("        self.all_parameters = torch.nn.ParameterDict(self.all_parameters)\n")
         file.write("        self.all_constants = torch.nn.ParameterDict(self.all_constants)\n\n")
-        file.write("    def update(self, closed_loop={}, connect={}, disconnect=False):\n")
+        file.write("    @torch.jit.ignore\n")
+        file.write("    def update(self, closed_loop=None, connect=None, disconnect=False):\n")
         file.write("        pass\n")
 
         for line in trace.code.split("\n")[len(saved_functions) + 2:]:
-            if 'self.relation_forward' in line:
+            if line.strip() == "def forward(self, kwargs):":
+                file.write("    def forward(self, kwargs: Dict[str, torch.Tensor]) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:\n")
+            elif formatted_return := _format_torchscript_return(line):
+                file.write(f"{formatted_return}\n")
+            elif 'self.relation_forward' in line:
                 if 'Part' in line or 'Select' in line:
                     attribute = [x for x in line.split() if 'self.relation_forward' in x][0].split('.')[2]
                     old_line = f"self.relation_forward.{attribute}.W"
@@ -261,14 +307,14 @@ def export_pythononnx_model(model_def, model_path, model_onnx_path, input_order=
     file_content = []
     with open(model_path, 'r') as file:
         for line in file:
-            if 'return ({' in line:
-                file_content.append(line)
-                break
             file_content.append(line)
+            if 'return ({' in line or 'return output_dict, minimize_dict, closed_loop_update_dict, connect_update_dict' in line:
+                break
     file_content = ''.join(file_content)
     
     # Replace the forward header
     file_content = file_content.replace('def forward(self, kwargs):', forward)
+    file_content = file_content.replace('def forward(self, kwargs: Dict[str, torch.Tensor]) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:', forward)
     # Perform the substitution
     for key, value in trace_mapping_input.items():
         file_content = file_content.replace(key, value)
