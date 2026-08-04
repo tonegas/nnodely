@@ -74,7 +74,11 @@ class DataLoader:
         if not self.input_specs:
             raise ValueError("Could not infer any inputs from model.inputs")
 
-        sequences = [node.seq[-1] for node in model.train_inputs if node.seq is not None and len(node.seq) > 0]
+        sequences = [
+            node.seq[-1]
+            for node in model.train_inputs
+            if node.seq is not None and len(node.seq) > 0
+        ]
         if None in sequences:
             if self.seq_length is not None:
                 self.max_sequence_length = self.seq_length
@@ -226,7 +230,11 @@ class DataLoader:
                 start = t - past + 1
                 end = t + future + 1
 
-                values = arrays[name][start:end] if past + future > 0 else np.array(arrays[name][t], dtype=self.dtype)
+                values = (
+                    arrays[name][start:end]
+                    if past + future > 0
+                    else np.array(arrays[name][t], dtype=self.dtype)
+                )
 
                 if values.shape[0] != past + future and past + future > 0:
                     raise RuntimeError(
@@ -320,13 +328,21 @@ class DataLoader:
                 )
                 if isinstance(col, int):
                     try:
-                        values = df.iloc[start:end, col].to_numpy(dtype=self.dtype) if past + future > 0 else np.array([df.iloc[t, col]], dtype=self.dtype)
+                        values = (
+                            df.iloc[start:end, col].to_numpy(dtype=self.dtype)
+                            if past + future > 0
+                            else np.array([df.iloc[t, col]], dtype=self.dtype)
+                        )
                     except IndexError:
                         raise ValueError(
                             f"Column index {col} out of range for input '{name}'"
                         )
                 else:
-                    values = df[col].iloc[start:end].to_numpy(dtype=self.dtype) if past + future > 0 else np.array([df[col].iloc[t]], dtype=self.dtype)
+                    values = (
+                        df[col].iloc[start:end].to_numpy(dtype=self.dtype)
+                        if past + future > 0
+                        else np.array([df[col].iloc[t]], dtype=self.dtype)
+                    )
 
                 if past + future > 0 and values.shape[0] != past + future:
                     raise RuntimeError(
@@ -344,7 +360,9 @@ class DataLoader:
         if self.max_sequence_length > 0:
             new_raw_data = {}
             for name, windows in dataset.items():
-                window = np.lib.stride_tricks.sliding_window_view(windows, window_shape = self.max_sequence_length, axis=0)
+                window = np.lib.stride_tricks.sliding_window_view(
+                    windows, window_shape=self.max_sequence_length, axis=0
+                )
                 new_raw_data[name] = window
             dataset = {
                 name: np.stack(windows, axis=0)

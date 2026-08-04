@@ -37,63 +37,138 @@ class Node:
         }
 
 
+class Shape:
+    dim: tuple[int]
+    time: int
+    seq: tuple[int] | tuple[()]
+
+    def __init__(self, dim=None, time=None, seq=None):
+        self.dim = (1,) if dim is None else (dim,) if isinstance(dim, int) else dim
+        self.time = 1 if time is None else time
+        self.seq = () if seq is None else (seq,) if isinstance(seq, int) else seq
+
+    @property
+    def tuple(self) -> tuple:
+        return self.dim + (self.time,) + self.seq
+
+    @property
+    def dimensions(self) -> tuple:
+        return self.dim, self.time, self.seq
+
+    @property
+    def rank(self) -> int:
+        return len(self.tuple)
+
+    @property
+    def dim_rank(self) -> int:
+        return len(self.dim)
+
+    @property
+    def seq_rank(self) -> int:
+        return len(self.seq)
+
+    def with_dim(self, dim) -> "Shape":
+        return Shape(dim=dim, time=self.time, seq=self.seq)
+
+    def with_time(self, time) -> "Shape":
+        return Shape(dim=self.dim, time=time, seq=self.seq)
+
+    def with_seq(self, seq) -> "Shape":
+        return Shape(dim=self.dim, time=self.time, seq=seq)
+
+    def get_config(self) -> dict:
+        return {
+            "dim": self.dim,
+            "time": self.time,
+            "seq": self.seq,
+        }
+
+    @classmethod
+    def from_config(cls, config: dict) -> "Shape":
+        return cls(
+            dim=config.get("dim"),
+            time=config.get("time"),
+            seq=config.get("seq"),
+        )
+
+    def __iter__(self):
+        return iter(self.tuple)
+
+    def __len__(self):
+        return len(self.tuple)
+
+    def __getitem__(self, item):
+        return self.tuple[item]
+
+    def __repr__(self):
+        return f"Shape(dim={self.dim}, time={self.time}, seq={self.seq})"
+
+
 class Stream(Node):
     _literal_constant_cache = {}
-    seq: tuple[int | None, ...]
-    time: int | tuple[()]
-    dim: tuple[int, ...]
+    shape: Shape
 
     def __init__(
         self,
         name: str | None = None,
-        dim: int | tuple[int, ...] | None = None,
-        time: int | tuple[()] | None = None,
-        seq: int | tuple[int | None, ...] | None = None,
+        dim=None,
+        time=None,
+        seq=None,
         preds: list[Node] | None = None,
     ):
         super().__init__(
             name if name is not None else f"{self.__class__.__name__}_{id(self)}", preds
         )
-        self.dim = (1,) if dim is None else (dim,) if isinstance(dim, int) else dim
-        self.time = () if time is None else time
-        self.seq = () if seq is None else (seq,) if isinstance(seq, int) else seq
+        self.shape = Shape(dim=dim, time=time, seq=seq)
 
     @property
-    def shape(self) -> tuple:
-        """
-        Shape without batch dimension.
-        """
-        time = (self.time,) if isinstance(self.time, int) else self.time
-        return self.dim + time + self.seq
+    def dim(self) -> tuple[int]:
+        return self.shape.dim
+
+    @property
+    def time(self) -> int:
+        return self.shape.time
+
+    @property
+    def seq(self) -> tuple[int] | tuple[()]:
+        return self.shape.seq
+
+    # @property
+    # def shape(self) -> tuple:
+    #     """
+    #     Shape without batch dimension.
+    #     """
+    #     time = (self.time,) if isinstance(self.time, int) else self.time
+    #     return self.dim + time + self.seq
 
     @property
     def dimensions(self):
         """
         Return seq, time, dim separately
         """
-        return self.dim, self.time, self.seq
+        return self.shape.dimensions
 
-    @property
-    def shape_len(self):
-        """
-        Return seq, time, dim separately
-        """
-        time = (self.time,) if isinstance(self.time, int) else self.time
-        return len(self.dim), len(time), len(self.seq)
+    # @property
+    # def shape_len(self):
+    #     """
+    #     Return seq, time, dim separately
+    #     """
+    #     time = (self.time,) if isinstance(self.time, int) else self.time
+    #     return len(self.dim), len(time), len(self.seq)
 
     @property
     def rank(self) -> int:
         """
         Rank without batch dimension.
         """
-        return len(self.shape)
+        return self.shape.rank
 
-    @property
-    def time_index(self) -> int | None:
-        """
-        Return the index of the time dimension in the shape, or None if no time dimension.
-        """
-        return len(self.dim) + 1 if isinstance(self.time, int) else None
+    # @property
+    # def time_index(self) -> int | None:
+    #     """
+    #     Return the index of the time dimension in the shape, or None if no time dimension.
+    #     """
+    #     return len(self.dim) + 1 if isinstance(self.time, int) else None
 
     def __add__(self, other):
         from nnodely.core.layer import Add
@@ -189,9 +264,7 @@ class Stream(Node):
         config.update(
             {
                 "type": self.__class__.__name__,
-                "dim": self.dim,
-                "time": self.time,
-                "seq": self.seq,
             }
         )
+        config.update(self.shape.get_config())
         return config

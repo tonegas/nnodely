@@ -1,9 +1,10 @@
 from __future__ import annotations
+from abc import abstractmethod
 
 import keras
 from typing import Any
 
-from nnodely.core.stream import Stream
+from nnodely.core.stream import Stream, Shape
 from nnodely.core.dag import next_name
 
 
@@ -31,23 +32,32 @@ class Layer(Stream):
     # ------------------------------------------------------------------
     # Shape logic
     # ------------------------------------------------------------------
-
+    @abstractmethod
     def output_shape(self, *inputs):
         """
-        Default: propagate shape of the first predecessor.
-        By default all inputs must have the same shape, but this can be overridden in subclasses.
+        Return the output shape or output shapes produced by this layer.
+
+        Expected single-output format:
+            (dim, time, seq)
+
+        Expected multi-output format:
+            [
+                (dim_1, time_1, seq_1),
+                (dim_2, time_2, seq_2),
+                ...
+            ]
         """
-        return inputs[0].dimensions
+        raise NotImplementedError
 
     # ------------------------------------------------------------------
     # Keras layer logic
     # ------------------------------------------------------------------
-
+    @abstractmethod
     def build_layer(self):
         """
-        Override in subclasses.
+        Return the concrete Keras layer used during model construction.
         """
-        return keras.layers.Identity(name=self.name)
+        raise NotImplementedError
 
     def call(self, xs):
         if self._layer is None:
@@ -63,8 +73,8 @@ class Layer(Stream):
     def __call__(self, inputs) -> Any:
         if not isinstance(inputs, (list, tuple)):
             inputs = [inputs]
-        # Symbolic mode: Layer(Stream, ...) -> new Stream node
 
+        # Symbolic mode: Layer(Stream, ...) -> new Stream node
         ret = []
         if all(isinstance(x, Stream) for x in inputs):
             out_shapes = self.output_shape(*inputs)
@@ -73,12 +83,9 @@ class Layer(Stream):
             for idx, (out_dim, out_time, out_seq) in enumerate(out_shapes):
                 node = self.__class__(name=f"{self.name}_{idx}", **self._properties)
                 node.inputs = inputs
-                node.seq = out_seq
-                node.time = out_time
-                node.dim = out_dim
+                node.shape = Shape(dim=out_dim, time=out_time, seq=out_seq)
                 node.preds = inputs  # type: ignore
                 ret.append(node)
-
             return ret if len(ret) > 1 else ret[0]
 
         # Tensor mode: Layer(tensor, ...) -> KerasTensor / Tensor
@@ -93,9 +100,11 @@ class BinaryOp(Layer):
         ref = inputs[0].dimensions
         return ref
 
-    def build_layer(self):
+    def build_layer(self) -> keras.layers.Layer:
         if self.keras_op is None:
-            return super().build_layer()
+            raise NotImplementedError(
+                "Subclasses must define a keras_op class attribute."
+            )
         return self.keras_op(name=self.name)
 
 
@@ -142,3 +151,6 @@ class Power(BinaryOp):
 class Identity(Layer):
     def build_layer(self):
         return keras.layers.Identity(name=self.name)
+
+    def output_shape(self, *inputs):
+        return inputs[0].dimensions

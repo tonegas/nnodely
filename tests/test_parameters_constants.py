@@ -7,8 +7,8 @@ def test_parameter_constant_shapes():
     p = Parameter("param1", value=[1.0])
     c = Constant("const1", value=[1.0])
 
-    assert p.shape == (1,)
-    assert c.shape == (1,)
+    assert p.shape.dim == (1,)
+    assert c.shape.dim == (1,)
 
 
 def test_parameter_constant_model_inference():

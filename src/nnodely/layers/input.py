@@ -43,7 +43,7 @@ class Input(Stream):
             max(self.past, local_past),
             max(self.future, local_future),
         )
-        self.time = self.past + self.future
+        self.shape.time = self.past + self.future
         self.input = keras.Input(shape=self.shape, name=self.name)
         return SampleWindow(past=local_past, future=local_future)([self])
 

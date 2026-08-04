@@ -96,16 +96,16 @@ class Parameter(Layer):
             if arr.ndim == 0:
                 arr = arr.reshape(1)
                 dim = (1,)
-                time = ()
+                time = None
                 seq = None
             elif arr.ndim == 1:
                 arr = arr.reshape(arr.shape[0], 1)
                 dim = (arr.shape[0],)
-                time = ()
+                time = None
                 seq = None
             else:
                 dim = tuple(arr.shape[:-1])
-                time = tuple(arr.shape[-1:])
+                time = arr.shape[-1]
                 seq = None
 
             value = arr
@@ -125,7 +125,7 @@ class Parameter(Layer):
         )
 
     def output_shape(self, *inputs):
-        return self.dim, self.time, self.seq
+        return self.dimensions
 
     def build_layer(self):
         return ParameterImpl(

@@ -2,15 +2,15 @@ import numpy as np
 import keras
 
 from nnodely.core.layer import Layer
+# from nnodely.core.stream import Shape
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class ConstantImpl(keras.layers.Layer):
-    def __init__(self, value, constant_shape, name=None, **kwargs):
+    def __init__(self, value, constant_shape, name: str | None = None, **kwargs):
         super().__init__(name=name, **kwargs)
-
         self.value = np.asarray(value, dtype=np.float32)
-        self.constant_shape = tuple(constant_shape)
+        self.constant_shape = constant_shape
 
     def get_config(self):
         config = super().get_config()
@@ -84,16 +84,16 @@ class Constant(Layer):
         if arr.ndim == 0:
             arr = arr.reshape(1)
             dim = (1,)
-            time = ()
+            time = None
             seq = None
         elif arr.ndim == 1:
             arr = arr.reshape(arr.shape[0], 1)
             dim = (arr.shape[0],)
-            time = ()
+            time = None
             seq = None
         else:
             dim = tuple(arr.shape[:-1])
-            time = tuple(arr.shape[-1:])
+            time = arr.shape[-1]
             seq = None
 
         self.value = arr
@@ -106,12 +106,12 @@ class Constant(Layer):
         )
 
     def output_shape(self, *inputs):
-        return self.dim, self.time, self.seq
+        return self.dimensions
 
     def build_layer(self):
         return ConstantImpl(
             value=self.value,
-            constant_shape=self.shape,
+            constant_shape=self.shape.tuple,
             name=self.name,
         )
 

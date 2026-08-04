@@ -13,6 +13,9 @@ class Sin(Layer):
     def __init__(self, name=None):
         super().__init__(name=name)
 
+    def output_shape(self, *inputs):
+        return inputs[0].dimensions
+
     def build_layer(self):
         self._layer = keras.layers.Lambda(lambda x: keras.ops.sin(x), name=self.name)
         return self._layer
@@ -23,6 +26,9 @@ class Cos(Layer):
 
     def __init__(self, name=None):
         super().__init__(name=name)
+
+    def output_shape(self, *inputs):
+        return inputs[0].dimensions
 
     def build_layer(self):
         self._layer = keras.layers.Lambda(lambda x: keras.ops.cos(x), name=self.name)
@@ -35,6 +41,9 @@ class Tan(Layer):
     def __init__(self, name=None):
         super().__init__(name=name)
 
+    def output_shape(self, *inputs):
+        return inputs[0].dimensions
+
     def build_layer(self):
         self._layer = keras.layers.Lambda(lambda x: keras.ops.tan(x), name=self.name)
         return self._layer
@@ -45,6 +54,9 @@ class Asin(Layer):
 
     def __init__(self, name=None):
         super().__init__(name=name)
+
+    def output_shape(self, *inputs):
+        return inputs[0].dimensions
 
     def build_layer(self):
         self._layer = keras.layers.Lambda(lambda x: keras.ops.arcsin(x), name=self.name)
@@ -57,6 +69,9 @@ class Acos(Layer):
     def __init__(self, name=None):
         super().__init__(name=name)
 
+    def output_shape(self, *inputs):
+        return inputs[0].dimensions
+
     def build_layer(self):
         self._layer = keras.layers.Lambda(lambda x: keras.ops.arccos(x), name=self.name)
         return self._layer
@@ -67,6 +82,9 @@ class Atan(Layer):
 
     def __init__(self, name=None):
         super().__init__(name=name)
+
+    def output_shape(self, *inputs):
+        return inputs[0].dimensions
 
     def build_layer(self):
         self._layer = keras.layers.Lambda(lambda x: keras.ops.arctan(x), name=self.name)

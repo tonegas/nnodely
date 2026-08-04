@@ -57,13 +57,13 @@ class Modely:
             raise ValueError("Model build failed, model is still None.")
         for idx, inp in enumerate(self.train_inputs):
             if isinstance(inputs, dict):
-                if len(inputs[inp.name].shape) == inp.rank:
+                if len(inputs[inp.name].shape) == inp.shape.rank:
                     if type(inputs[inp.name]) is np.ndarray:
                         inputs[inp.name] = np.expand_dims(inputs[inp.name], axis=0)
                     else:
                         inputs[inp.name] = tf.expand_dims(inputs[inp.name], axis=0)
             else:
-                if len(inputs[idx].shape) == inp.rank:
+                if len(inputs[idx].shape) == inp.shape.rank:
                     if type(inputs[idx]) is np.ndarray:
                         inputs[idx] = np.expand_dims(inputs[idx], axis=0)
                     else:
@@ -113,29 +113,30 @@ class Modely:
                 if len(node.preds) == 0:  ## Parameters and Constants
                     anchor = next(iter(tensor_map.values()), None)
                     tensor_map[node.name] = node.call([anchor])
-                    if (
-                        isinstance(tensor_map[node.name], tuple)
-                        and len(tensor_map[node.name]) > 1
-                    ):
-                        idx = node.name.rfind("_")
-                        if idx != -1 and node.name[idx + 1 :].isdigit():
-                            tensor_map[node.name] = tensor_map[node.name][
-                                int(node.name[idx + 1 :])
-                            ]
+                    ##TODO: remove this code in the future
+                    # if (
+                    #     isinstance(tensor_map[node.name], tuple)
+                    #     and len(tensor_map[node.name]) > 1
+                    # ):
+                    #     idx = node.name.rfind("_")
+                    #     if idx != -1 and node.name[idx + 1 :].isdigit():
+                    #         tensor_map[node.name] = tensor_map[node.name][
+                    #             int(node.name[idx + 1 :])
+                    #         ]
                 else:
                     tensor_map[node.name] = node.call(
                         [tensor_map[pred.name] for pred in node.preds]
                     )
                     ##TODO: remove this code in the future
-                    if (
-                        isinstance(tensor_map[node.name], tuple)
-                        and len(tensor_map[node.name]) > 1
-                    ):
-                        idx = node.name.rfind("_")
-                        if idx != -1 and node.name[idx + 1 :].isdigit():
-                            tensor_map[node.name] = tensor_map[node.name][
-                                int(node.name[idx + 1 :])
-                            ]
+                    # if (
+                    #     isinstance(tensor_map[node.name], tuple)
+                    #     and len(tensor_map[node.name]) > 1
+                    # ):
+                    #     idx = node.name.rfind("_")
+                    #     if idx != -1 and node.name[idx + 1 :].isdigit():
+                    #         tensor_map[node.name] = tensor_map[node.name][
+                    #             int(node.name[idx + 1 :])
+                    #         ]
             else:  ## Output or other non-Layer node
                 tensor_map[node.name] = tensor_map[node.preds[0].name]
 
@@ -675,7 +676,6 @@ class Modely:
                     inputs[idx] = Input(
                         name=inp.name,
                         dim=inp.dim,
-                        # time=inp.time,
                         seq=(None,),
                     )
         else:
