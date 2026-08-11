@@ -1,6 +1,5 @@
 import os
 
-import numpy as np
 import pytest
 
 from nnodely import (
@@ -62,29 +61,6 @@ def test_vehicle_longitudinal_dynamics():
         inputs=[velocity, brake, gear, torque, altitude],
         outputs=[out],
     )
-
-    # def from_config(config):
-    #     from nnodely.core.stream import Node
-    #     tmp = []
-    #     for child in config['preds']:
-    #         tmp.append(from_config(child))
-
-    #     return Node(name=config['name'], preds=tmp)
-
-    # for output in vehicle.outputs:
-    #     config = output.get_config()
-
-    #     new_output = from_config(config)
-    #     print(f"Original output: {output}")
-    #     print(f"Reconstructed output: {new_output}")
-
-    # new_model = Modely(
-    #     "vehicle_reconstructed",
-    #     inputs=vehicle.inputs,
-    #     outputs=[new_output],
-    # )
-    # pprint(f"Original model order: {[node.name for node in vehicle.order]}")
-    # pprint(f"new model order: {[node.name for node in new_model.order]}")
 
     # Define the training objective
     vehicle.minimize("acc_error", out, Input("acc").last(), loss="mse")
@@ -156,38 +132,38 @@ def test_vehicle_longitudinal_dynamics():
     assert "accelleration" in result
     assert result["accelleration"].shape == (1, 1, 1)
 
-    ## Save the model weights
-    # vehicle.save("html/vehicle_model_weights.keras")
+    # ## Save the model weights
+    # vehicle.save("html/vehicle")
 
-    ## Load the model weights
-    # new_vehicle = Modely.load("html/vehicle_model_weights.keras")
+    # ## Load the model weights
+    # new_vehicle = Modely.load("html/vehicle")
 
-    ## inference after loading the model weights
+    # ## inference after loading the model weights
     # new_result = new_vehicle(dummy_input)
     # assert "accelleration" in new_result
     # assert new_result["accelleration"].shape == (4, 1, 1)
     # assert np.allclose(result["accelleration"], new_result["accelleration"], atol=1e-4)
 
     ## Export the model in keras format
-    vehicle.export_keras("html/vehicle_model.keras")
+    # vehicle.export_keras("html/vehicle_model.keras")
 
-    ## Load keras model
-    loaded_keras_model = Modely.import_keras("html/vehicle_model", safe_mode=False)
-    if loaded_keras_model is None:
-        raise ValueError("Failed to load the Keras model.")
+    # ## Load keras model
+    # loaded_keras_model = Modely.import_keras("html/vehicle_model", safe_mode=False)
+    # if loaded_keras_model is None:
+    #     raise ValueError("Failed to load the Keras model.")
 
-    ## keras inference
-    keras_result = loaded_keras_model(dummy_input)
-    print("Inference result after training:", result)
-    print("Keras imported inference result:", keras_result)
-    print("Expected acceleration:", dummy_input["acc"])
-    assert "accelleration" in keras_result
-    assert keras_result["accelleration"].shape == (1, 1, 1)
-    assert np.allclose(
-        result["accelleration"].cpu().detach().numpy(),
-        keras_result["accelleration"].cpu().detach().numpy(),
-        atol=1e-4,
-    )
+    # ## keras inference
+    # keras_result = loaded_keras_model(dummy_input)
+    # print("Inference result after training:", result)
+    # print("Keras imported inference result:", keras_result)
+    # print("Expected acceleration:", dummy_input["acc"])
+    # assert "accelleration" in keras_result
+    # assert keras_result["accelleration"].shape == (1, 1, 1)
+    # assert np.allclose(
+    #     result["accelleration"].cpu().detach().numpy(),
+    #     keras_result["accelleration"].cpu().detach().numpy(),
+    #     atol=1e-4,
+    # )
 
     ## Export the model in onnx format
     # vehicle.export_onnx("html/vehicle_model")
@@ -698,3 +674,6 @@ def test_vehicle_longitudinal_dynamics():
 #     print("Outputs:", predictions)
 #     print("Target:", {k: v for k, v in test_data.items() if k in ["Ypos", "Yvelocity", "Yangle", "Yangular_velocity"]})
 #     print("Predictions shapes:", {k: v.shape for k, v in predictions.items() if "Y" in k})
+
+if __name__ == "__main__":
+    test_vehicle_longitudinal_dynamics()

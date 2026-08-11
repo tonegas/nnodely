@@ -1,4 +1,5 @@
 from nnodely.core.layer import Layer
+from nnodely.core.registry import register_node
 
 import keras
 
@@ -81,6 +82,7 @@ class SampleWindowImpl(keras.layers.Layer):
         return config
 
 
+@register_node
 class SampleWindow(Layer):
     """
     Layer che estrae finestra temporale. Se window_size < input.time, applica slice.
@@ -91,7 +93,9 @@ class SampleWindow(Layer):
         self.past = int(past)
         self.future = int(future)
         self.window_size = self.past + self.future
-        super().__init__(name=name, past=self.past, future=self.future)
+        super().__init__(
+            name=name, time=self.window_size, past=self.past, future=self.future
+        )
 
     def output_shape(self, *inputs):
         inp = inputs[0]
@@ -114,6 +118,13 @@ class SampleWindow(Layer):
             output_shape_no_batch=self.shape,
             name=self.name,
         )
+
+    def get_config(self):
+        return {
+            "name": self.name,
+            "past": self.past,
+            "future": self.future,
+        }
 
 
 @keras.saving.register_keras_serializable(package="nnodely")

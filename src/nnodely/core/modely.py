@@ -1,10 +1,9 @@
 import os
-import cloudpickle
-import copy
 
 from typing import Any
 
 from nnodely.core.dag import toposort, flatten, _flatten_graph
+from nnodely.core.registry import ModelSerializer
 from nnodely.core.stream import Stream, Node
 from nnodely.layers.constant import Constant
 from nnodely.core.dataloader import DataLoader
@@ -704,48 +703,34 @@ class Modely:
     # -------------------------------------------------------------------------
     # Save and load
     # -------------------------------------------------------------------------
-    def save(self, filename: str):
-        dirname = os.path.dirname(filename)
-        if dirname:
-            os.makedirs(dirname, exist_ok=True)
 
-        # Save weights from current built model before clearing runtime state
-        if self.model is None:
-            raise ValueError(
-                "Model is not built. Call build() before saving the model and weights."
-            )
-        self.model.save_weights(filename + ".weights.h5")
+    def save(self, path):
+        import json
 
-        model_copy = copy.deepcopy(self)
+        os.makedirs(path, exist_ok=True)
 
-        # Clear built Keras models
-        model_copy.model = None
+        config = ModelSerializer.serialize(self)
 
-        # Clear runtime Keras state from symbolic nodes
-        for node in getattr(model_copy, "order", []):
-            if hasattr(node, "_layer"):
-                node._layer = None
+        with open(os.path.join(path, "model.json"), "w") as f:
+            json.dump(config, f, indent=2)
 
-            if hasattr(node, "_state"):
-                for key in ("layer", "param", "constant"):
-                    if key in node._state:
-                        node._state[key] = None
+        if self.model is not None:
+            # Also save the keras weights if the model has been built
+            self.model.save_weights(os.path.join(path, "model.weights.h5"))
 
-        with open(filename + ".pkl", "wb") as out:
-            cloudpickle.dump(model_copy, out)
+    @classmethod
+    def load(cls, path):
+        import json
 
-    @staticmethod
-    def load(filename: str):
-        with open(filename + ".pkl", "rb") as inp:
-            model = cloudpickle.load(inp)
+        config_path = os.path.join(path, "model.json")
+        weights_path = os.path.join(path, "model.weights.h5")
 
+        with open(config_path) as f:
+            config = json.load(f)
+
+        model = ModelSerializer.deserialize(config)
         model.build()
-
-        weights_path = filename + ".weights.h5"
-        if os.path.exists(weights_path):
-            keras_model = model.model
-            keras_model.load_weights(weights_path)
-
+        model.model.load_weights(weights_path)  # type: ignore
         return model
 
     def export_keras(self, filename: str):

@@ -5,10 +5,12 @@ SampleWindow - Layer che applica finestra temporale (slice se necessario).
 
 from nnodely.layers.time_ops import SampleWindow
 from nnodely.core.stream import Stream
+from nnodely.core.registry import register_node
 
 import keras
 
 
+@register_node
 class Input(Stream):
     """
     Input di rete. Come Layer ha seq, time, dim.
@@ -72,3 +74,11 @@ class Input(Stream):
     def next(self):
         """Shortcut per sw([0, 1])."""
         return self.sw([0, 1])
+
+    # def get_config(self):
+    #     return {
+    #         "name": self.name,
+    #         "dim": self.dim,
+    #         "time": self.time,
+    #         "seq": self.seq,
+    #     }

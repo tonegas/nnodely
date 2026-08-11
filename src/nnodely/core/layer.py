@@ -6,6 +6,7 @@ from typing import Any
 
 from nnodely.core.stream import Stream, Shape
 from nnodely.core.dag import next_name
+from nnodely.core.registry import register_node
 
 
 class Layer(Stream):
@@ -108,6 +109,7 @@ class BinaryOp(Layer):
         return self.keras_op(name=self.name)
 
 
+@register_node
 class Add(BinaryOp):
     keras_op = keras.layers.Add
 

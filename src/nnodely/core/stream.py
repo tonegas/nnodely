@@ -33,8 +33,11 @@ class Node:
     def get_config(self) -> dict:
         return {
             "name": self.name,
-            "preds": [pred.get_config() for pred in self.preds],
         }
+
+    @classmethod
+    def from_config(cls, config, preds=None):
+        return cls(**config)
 
 
 class Shape:
@@ -49,7 +52,7 @@ class Shape:
 
     @property
     def tuple(self) -> tuple:
-        return self.dim + (self.time,) + self.seq
+        return tuple(self.dim) + (self.time,) + tuple(self.seq)
 
     @property
     def dimensions(self) -> tuple:
@@ -76,13 +79,20 @@ class Shape:
     def with_seq(self, seq) -> "Shape":
         return Shape(dim=self.dim, time=self.time, seq=seq)
 
-    def get_config(self) -> dict:
+    def get_config(self):
         return {
             "dim": self.dim,
             "time": self.time,
             "seq": self.seq,
         }
 
+    # @classmethod
+    # def from_config(cls, config):
+    #     return cls(
+    #         dim=config["dim"],
+    #         time=config["time"],
+    #         seq=config["seq"],
+    #     )
     @classmethod
     def from_config(cls, config: dict) -> "Shape":
         return cls(
@@ -261,10 +271,10 @@ class Stream(Node):
 
     def get_config(self) -> dict:
         config = super().get_config()
-        config.update(
-            {
-                "type": self.__class__.__name__,
-            }
-        )
+        # config.update(
+        #     {
+        #         "type": self.__class__.__name__,
+        #     }
+        # )
         config.update(self.shape.get_config())
         return config

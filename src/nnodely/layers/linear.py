@@ -117,3 +117,10 @@ class Linear(Layer):
             initializer=self.initializer,
             bias_initializer=self.bias_initializer,
         )
+
+    def get_config(self):
+        return {
+            "name": self.name,
+            "out_features": self.out_features,
+            "use_bias": self.use_bias,
+        }
