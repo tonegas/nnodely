@@ -1,5 +1,4 @@
 from nnodely.core.layer import Layer
-from nnodely.core.registry import register_node
 
 import keras
 
@@ -82,7 +81,6 @@ class SampleWindowImpl(keras.layers.Layer):
         return config
 
 
-@register_node
 class SampleWindow(Layer):
     """
     Layer che estrae finestra temporale. Se window_size < input.time, applica slice.

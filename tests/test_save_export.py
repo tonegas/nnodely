@@ -1,3 +1,43 @@
+from nnodely import (
+    Modely,
+    Input,
+    Output,
+    Fir,
+)
+
+
+def test_save_load_simple_model(tmp_path):
+    ## simple model
+    x = Input(name="x")
+    y = Input(name="y")
+    x_fir = Fir(out_features=1, use_bias=True, name="fir_x")([x.sw(5)])
+    y_fir = Fir(out_features=1, use_bias=True, name="fir_y")([y.sw(5)])
+    out = Output("accelleration", x_fir + y_fir)
+    model = Modely(name="vehicle", inputs=[x, y], outputs=[out])
+    model.build()
+
+    ## dummy input
+    import numpy as np
+
+    x_data = np.random.randn(1, 5)
+    y_data = np.random.randn(1, 5)
+
+    pred = model({"x": x_data, "y": y_data})
+    assert pred["accelleration"].shape == (1, 1, 1)
+
+    model.save("html/simple_save")
+
+    new_model = Modely.load("html/simple_save")
+
+    new_pred = new_model({"x": x_data, "y": y_data})
+    assert new_pred["accelleration"].shape == (1, 1, 1)
+    assert np.allclose(
+        pred["accelleration"].cpu().detach().numpy(),
+        new_pred["accelleration"].cpu().detach().numpy(),
+        atol=1e-4,
+    )
+
+
 # def test_save_model(tmp_path):
 #     ## ------- Model definition and building -------
 #     x = Input("x", dim=1)

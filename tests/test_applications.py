@@ -19,6 +19,7 @@ os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 
 @pytest.mark.slow
 def test_vehicle_longitudinal_dynamics():
+
     # ------- Test Model Longitudinal Vehicle Dynamics -------
     n = 25
     na = 1  # na = 21
@@ -132,7 +133,7 @@ def test_vehicle_longitudinal_dynamics():
     assert "accelleration" in result
     assert result["accelleration"].shape == (1, 1, 1)
 
-    # ## Save the model weights
+    ## Save the model weights
     # vehicle.save("html/vehicle")
 
     # ## Load the model weights
@@ -674,6 +675,3 @@ def test_vehicle_longitudinal_dynamics():
 #     print("Outputs:", predictions)
 #     print("Target:", {k: v for k, v in test_data.items() if k in ["Ypos", "Yvelocity", "Yangle", "Yangular_velocity"]})
 #     print("Predictions shapes:", {k: v.shape for k, v in predictions.items() if "Y" in k})
-
-if __name__ == "__main__":
-    test_vehicle_longitudinal_dynamics()

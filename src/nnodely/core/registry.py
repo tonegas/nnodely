@@ -1,9 +1,10 @@
-NODE_REGISTRY = {}
+# NODE_REGISTRY = {}
 
 
-def register_node(cls):
-    NODE_REGISTRY[cls.__name__] = cls
-    return cls
+# def register_node(cls):
+#     NODE_REGISTRY[cls.__name__] = cls
+#     return cls
+from nnodely.core.stream import NODE_REGISTRY
 
 
 class ModelSerializer:
@@ -46,17 +47,10 @@ class ModelSerializer:
             cls = NODE_REGISTRY[node_data["class_name"]]
 
             preds = [node_map[pred_id] for pred_id in node_data["preds"]]
-            # time = 1
-            # if node_data["class_name"] == "Input":
-            #     # remove time from node_data["config"] if it exists
-            #     time = node_data["config"]["time"]
-            #     del node_data["config"]["time"]
             node = cls.from_config(
                 node_data["config"],
                 preds=preds,
             )
-            # if node_data["class_name"] == "Input":
-            #     node.shape.time = time
             node.preds = preds
             node_map[node_data["id"]] = node
 

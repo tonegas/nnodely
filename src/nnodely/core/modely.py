@@ -618,6 +618,10 @@ class Modely:
             physics=physics,
         )
 
+    def summary(self):
+        if self.model is not None:
+            self.model.summary()
+
     def plot(
         self, to_file: str, include_minimizers: bool = True, flatten: bool = False
     ):
@@ -730,6 +734,10 @@ class Modely:
 
         model = ModelSerializer.deserialize(config)
         model.build()
+        from pprint import pprint
+
+        print("model loaded order:")
+        pprint(model.order)
         model.model.load_weights(weights_path)  # type: ignore
         return model
 

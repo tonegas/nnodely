@@ -3,10 +3,8 @@ Output - nomina uno stream come output del modello.
 """
 
 from nnodely.core.stream import Stream
-from nnodely.core.registry import register_node
 
 
-@register_node
 class Output(Stream):
     def __init__(self, name: str, stream: Stream) -> None:
         super().__init__(

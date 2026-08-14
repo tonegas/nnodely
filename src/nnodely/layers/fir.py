@@ -5,7 +5,6 @@ from __future__ import annotations
 import keras
 
 from nnodely.core.layer import Layer
-from nnodely.core.registry import register_node
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -41,7 +40,6 @@ class FirImpl(keras.layers.Layer):
         return self.reshape(x)
 
 
-@register_node
 class Fir(Layer):
     """
     Linear temporal mixing over the time axis followed by a dense projection.

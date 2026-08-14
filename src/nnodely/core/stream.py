@@ -3,14 +3,23 @@ Stream - nodo del DAG con predecessors.
 """
 
 from __future__ import annotations
+import inspect
 
 from copy import copy
 from typing import Any, Sequence
+
+NODE_REGISTRY: dict[str, type["Node"]] = {}
 
 
 class Node:
     name: str
     preds: list[Node]
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+
+        if not inspect.isabstract(cls):
+            NODE_REGISTRY[cls.__name__] = cls
 
     def __init__(self, name: str, preds: list[Node] | None = None) -> None:
         self.name = name
