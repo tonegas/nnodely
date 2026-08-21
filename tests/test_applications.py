@@ -1,6 +1,7 @@
 import os
 
 import pytest
+import numpy as np
 
 from nnodely import (
     Modely,
@@ -19,7 +20,6 @@ os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 
 @pytest.mark.slow
 def test_vehicle_longitudinal_dynamics():
-
     # ------- Test Model Longitudinal Vehicle Dynamics -------
     n = 25
     na = 1  # na = 21
@@ -103,6 +103,9 @@ def test_vehicle_longitudinal_dynamics():
     # Make inference before training
     dummy_input = data_val[0]
     result = vehicle(dummy_input)
+    print("dummy input: ", dummy_input)
+    print("Inference result before training:", result)
+    print("Expected acceleration:", dummy_input["acc"])
     assert "accelleration" in result
     assert result["accelleration"].shape == (1, 1, 1)
 
@@ -134,45 +137,46 @@ def test_vehicle_longitudinal_dynamics():
     assert result["accelleration"].shape == (1, 1, 1)
 
     ## Save the model weights
-    # vehicle.save("html/vehicle")
+    vehicle.save("html/vehicle")
 
-    # ## Load the model weights
-    # new_vehicle = Modely.load("html/vehicle")
+    ## Load the model weights
+    loaded_vehicle = Modely.load("html/vehicle")
 
-    # ## inference after loading the model weights
-    # new_result = new_vehicle(dummy_input)
-    # assert "accelleration" in new_result
-    # assert new_result["accelleration"].shape == (4, 1, 1)
-    # assert np.allclose(result["accelleration"], new_result["accelleration"], atol=1e-4)
+    ## inference after loading the model weights
+    new_result = loaded_vehicle(dummy_input)
+    print("Inference result with loaded model:", new_result)
+    assert "accelleration" in new_result
+    assert new_result["accelleration"].shape == (1, 1, 1)
+    assert np.allclose(
+        result["accelleration"].cpu().detach().numpy(),
+        new_result["accelleration"].cpu().detach().numpy(),
+        atol=1e-4,
+    )
 
     ## Export the model in keras format
-    # vehicle.export_keras("html/vehicle_model.keras")
+    vehicle.export_keras("html/vehicle_model.keras")
 
-    # ## Load keras model
-    # loaded_keras_model = Modely.import_keras("html/vehicle_model", safe_mode=False)
-    # if loaded_keras_model is None:
-    #     raise ValueError("Failed to load the Keras model.")
+    ## Load keras model
+    loaded_keras_model = Modely.import_keras("html/vehicle_model", safe_mode=False)
 
-    # ## keras inference
-    # keras_result = loaded_keras_model(dummy_input)
-    # print("Inference result after training:", result)
-    # print("Keras imported inference result:", keras_result)
-    # print("Expected acceleration:", dummy_input["acc"])
-    # assert "accelleration" in keras_result
-    # assert keras_result["accelleration"].shape == (1, 1, 1)
-    # assert np.allclose(
-    #     result["accelleration"].cpu().detach().numpy(),
-    #     keras_result["accelleration"].cpu().detach().numpy(),
-    #     atol=1e-4,
-    # )
+    ## keras inference
+    keras_result = loaded_keras_model(dummy_input)  # type: ignore
+    print("Keras imported inference result:", keras_result)
+    assert "accelleration" in keras_result
+    assert keras_result["accelleration"].shape == (1, 1, 1)
+    assert np.allclose(
+        result["accelleration"].cpu().detach().numpy(),
+        keras_result["accelleration"].cpu().detach().numpy(),
+        atol=1e-4,
+    )
 
     ## Export the model in onnx format
     # vehicle.export_onnx("html/vehicle_model")
 
-    ## onnx validation
-    # onnx_result = Modely.validate_onnx("html/vehicle_model.onnx", dummy_input)
+    # ## onnx validation
+    # onnx_result = Modely.validate_onnx("html/vehicle_model", dummy_input)
     # print("ONNX validation result:", onnx_result)
-    # assert np.allclose(result["accelleration"], onnx_result[1], atol=1e-4)
+    # assert np.allclose(result["accelleration"], onnx_result[1], atol=1e-4)  # type: ignore
 
 
 # def test_vehicle_longitudinal_dynamics_recurrent():

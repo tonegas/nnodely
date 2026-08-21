@@ -81,7 +81,7 @@ class Layer(Stream):
             if not isinstance(out_shapes, list):
                 out_shapes = [out_shapes]
             for idx, (out_dim, out_time, out_seq) in enumerate(out_shapes):
-                node = self.__class__(name=f"{self.name}_{idx}", **self._properties)
+                node = self.__class__(name=self.name, **self._properties)
                 node.inputs = inputs
                 node.shape = Shape(dim=out_dim, time=out_time, seq=out_seq)
                 node.preds = inputs  # type: ignore
@@ -91,6 +91,19 @@ class Layer(Stream):
         # Tensor mode: Layer(tensor, ...) -> KerasTensor / Tensor
         ret = self.call(*inputs)
         return ret if len(ret) > 1 else ret[0]
+
+    @classmethod
+    def from_config(
+        cls,
+        config: dict,
+        preds=None,
+    ):
+        layer = cls(**config)
+
+        if preds is None or len(preds) == 0:
+            return layer
+
+        return layer(preds)
 
 
 class BinaryOp(Layer):

@@ -54,6 +54,15 @@ class Modely:
         # tensor execution mode
         if self.model is None:
             raise ValueError("Model build failed, model is still None.")
+        if isinstance(inputs, dict):
+            # Drop keys that are not model inputs (e.g. targets like 'acc').
+            # Keras flattens dicts in sorted-key order and zips them
+            # positionally with the model inputs, so extra keys silently
+            # misalign every input.
+            expected = {inp.name for inp in self.train_inputs}
+            extra = set(inputs) - expected
+            if extra:
+                inputs = {k: v for k, v in inputs.items() if k in expected}
         for idx, inp in enumerate(self.train_inputs):
             if isinstance(inputs, dict):
                 if len(inputs[inp.name].shape) == inp.shape.rank:
@@ -709,37 +718,11 @@ class Modely:
     # -------------------------------------------------------------------------
 
     def save(self, path):
-        import json
-
-        os.makedirs(path, exist_ok=True)
-
-        config = ModelSerializer.serialize(self)
-
-        with open(os.path.join(path, "model.json"), "w") as f:
-            json.dump(config, f, indent=2)
-
-        if self.model is not None:
-            # Also save the keras weights if the model has been built
-            self.model.save_weights(os.path.join(path, "model.weights.h5"))
+        ModelSerializer.serialize(self, path)
 
     @classmethod
     def load(cls, path):
-        import json
-
-        config_path = os.path.join(path, "model.json")
-        weights_path = os.path.join(path, "model.weights.h5")
-
-        with open(config_path) as f:
-            config = json.load(f)
-
-        model = ModelSerializer.deserialize(config)
-        model.build()
-        from pprint import pprint
-
-        print("model loaded order:")
-        pprint(model.order)
-        model.model.load_weights(weights_path)  # type: ignore
-        return model
+        return ModelSerializer.load(path)
 
     def export_keras(self, filename: str):
         if self.model is None:
@@ -786,6 +769,33 @@ class ModelCall(Node):
         self.inputs_map = {}
         self.outputs_map = {}
 
+    # def get_config(self):
+    #     return {
+    #         "name": self.name,
+    #         "model_ref": self.model.name,
+    #     }
+
+    # @classmethod
+    # def from_config(
+    #     cls,
+    #     config: dict,
+    #     preds=None,
+    #     model=None,
+    # ) -> "ModelCall":
+    #     if model is None:
+    #         raise ValueError(
+    #             f"Cannot deserialize ModelCall '{config['name']}': "
+    #             "without a reference model."
+    #         )
+
+    #     node = cls(
+    #         name=config["name"],
+    #         model=model,
+    #     )
+
+    #     node.preds = list(preds or [])
+    #     return node
+
 
 class IntermediateOutput(Output):
     pred: ModelCall
@@ -793,4 +803,15 @@ class IntermediateOutput(Output):
     def __init__(self, out: Stream, model_call: ModelCall) -> None:
         super().__init__(name=out.name, stream=out)
         self.pred = model_call
-        self.preds = [self.pred]
+        self.preds = [model_call]
+
+    # @classmethod
+    # def from_config(cls, config: dict, preds=None) -> "Output":
+    #     if preds is None:
+    #         raise ValueError(
+    #             "IntermediateOutput.from_config requires exactly one pred (the ModelCall)."
+    #         )
+    #     return Output(
+    #         name=config["name"],
+    #         stream=preds[0],
+    #     )

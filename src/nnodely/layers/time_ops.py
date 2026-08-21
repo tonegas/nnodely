@@ -63,7 +63,6 @@ class SampleWindowImpl(keras.layers.Layer):
             + [slice(self.start, self.start + self.window_size)]
             + [slice(None)] * (len(x.shape) - time_axis - 1)
         )
-
         return x[tuple(slices)]
 
     def compute_output_shape(self, input_shape):
@@ -100,15 +99,21 @@ class SampleWindow(Layer):
         return inp.dim, self.past + self.future, inp.seq
 
     def build_layer(self):
-        from nnodely.layers.input import Input
+        # from nnodely.layers.input import Input
+        from nnodely.core.stream import Stream
 
         if self.window_size <= 0:
             raise ValueError(
                 f"{self.name}: past + future must be positive, got {self.window_size}."
             )
 
-        pred_past = self.preds[0].past if isinstance(self.preds[0], Input) else 0
-        start = pred_past - self.past
+        # pred_past = self.preds[0].past if isinstance(self.preds[0], Input) else 0
+        # start = pred_past - self.past
+        if isinstance(self.preds[0], Stream):
+            pred_time = self.preds[0].shape.time
+            start = pred_time - self.past
+        else:
+            start = 0
 
         return SampleWindowImpl(
             start=start,
@@ -242,3 +247,9 @@ class Select(Layer):
             output_shape_no_batch=tuple(self.shape),
             name=self.name,
         )
+
+    def get_config(self):
+        return {
+            "idx": self.idx,
+            "axis": self.axis,
+        }

@@ -26,13 +26,13 @@ def next_name(prefix: str) -> str:
 # ------------------------------------------------------------------
 
 
-def get_preds(node: Node) -> list[Node]:
-    from nnodely.core.modely import IntermediateOutput
+# def get_preds(node: Node) -> list[Node]:
+#     from nnodely.core.modely import IntermediateOutput
 
-    if type(node) is IntermediateOutput:
-        return [node]
+#     if type(node) is IntermediateOutput:
+#         return [node]
 
-    return node.preds
+#     return node.preds
 
 
 def flatten_node(node: Node, memo: dict[Node, Node]) -> Any:
@@ -42,26 +42,34 @@ def flatten_node(node: Node, memo: dict[Node, Node]) -> Any:
         return memo[node]
 
     if type(node) is IntermediateOutput:
-        inputs_map = node.pred.inputs_map
-        outputs_map = node.pred.outputs_map
-        for old, new in inputs_map.items():
-            if new not in memo:
-                new_node = copy(new)
-                new_node.preds = [flatten_node(pred, memo) for pred in get_preds(new)]
-                memo[new] = new_node
-            memo[old] = memo[new]
+        # inputs_map = node.pred.inputs_map
+        # outputs_map = node.pred.outputs_map
+        # for old, new in inputs_map.items():
+        #     if new not in memo:
+        #         new_node = copy(new)
+        #         new_node.preds = [flatten_node(pred, memo) for pred in get_preds(new)]
+        #         memo[new] = new_node
+        #     memo[old] = memo[new]
+        # new_preds = [flatten_node(pred, memo) for pred in get_preds(outputs_map[node])]
+        model_call = node.pred
 
-        new_preds = [flatten_node(pred, memo) for pred in get_preds(outputs_map[node])]
-    else:
-        new_preds = [flatten_node(pred, memo) for pred in node.preds]
+        for internal_input, external_input in model_call.inputs_map.items():
+            memo[internal_input] = flatten_node(external_input, memo)
 
-    # new_node = copy(node)
-    # new_node.preds = new_preds
-    # memo[node] = new_node
-    # return new_node
-    node.preds = new_preds
-    memo[node] = node
-    return node
+        internal_output = model_call.outputs_map[node]
+        flat_output = flatten_node(internal_output, memo)
+
+        memo[node] = flat_output
+        return flat_output
+
+    new_preds = [flatten_node(pred, memo) for pred in node.preds]
+    new_node = copy(node)
+    new_node.preds = new_preds
+    memo[node] = new_node
+    return new_node
+    # node.preds = new_preds
+    # memo[node] = node
+    # return node
 
 
 def flatten(model):

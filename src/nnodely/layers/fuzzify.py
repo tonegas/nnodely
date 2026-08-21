@@ -179,3 +179,9 @@ class Fuzzify(Layer):
             function_name=self.function,
             name=self.name,
         )
+
+    def get_config(self):
+        return {
+            "centers": self.centers,
+            "function": self.function,
+        }

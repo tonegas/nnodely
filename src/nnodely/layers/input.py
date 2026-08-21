@@ -74,14 +74,14 @@ class Input(Stream):
         return self.sw([0, 1])
 
     def get_config(self):
-        return {
-            "name": self.name,
-            "dim": self.dim,
-            # "time": self.time,
-            "seq": self.seq,
-            "past": self.past,
-            "future": self.future,
-        }
+        config = super().get_config()
+        config.update(
+            {
+                "past": self.past,
+                "future": self.future,
+            }
+        )
+        return config
 
     @classmethod
     def from_config(cls, config: dict, preds=None):
@@ -96,5 +96,5 @@ class Input(Stream):
         node.past = config["past"]
         node.future = config["future"]
         node.shape.time = node.past + node.future
-
+        node.input = keras.Input(shape=node.shape, name=node.name)
         return node

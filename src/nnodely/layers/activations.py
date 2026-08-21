@@ -39,6 +39,13 @@ class ReLU(Layer):
         )
         return self._layer
 
+    def get_config(self):
+        return {
+            "max_value": self.max_value,
+            "negative_slope": self.negative_slope,
+            "threshold": self.threshold,
+        }
+
 
 class LeakyReLU(Layer):
     """Wrapper for keras.layers.LeakyReLU."""
@@ -57,6 +64,11 @@ class LeakyReLU(Layer):
         )
         return self._layer
 
+    def get_config(self):
+        return {
+            "negative_slope": self.negative_slope,
+        }
+
 
 class ELU(Layer):
     """Wrapper for keras.layers.ELU."""
@@ -71,6 +83,11 @@ class ELU(Layer):
     def build_layer(self):
         self._layer = keras.layers.ELU(alpha=self.alpha, name=self.name)
         return self._layer
+
+    def get_config(self):
+        return {
+            "alpha": self.alpha,
+        }
 
 
 class PReLU(Layer):
@@ -87,6 +104,11 @@ class PReLU(Layer):
         self._layer = keras.layers.PReLU(shared_axes=self.shared_axes, name=self.name)
         return self._layer
 
+    def get_config(self):
+        return {
+            "shared_axes": self.shared_axes,
+        }
+
 
 class Softmax(Layer):
     """Wrapper for keras.layers.Softmax."""
@@ -101,6 +123,11 @@ class Softmax(Layer):
     def build_layer(self):
         self._layer = keras.layers.Softmax(axis=self.axis, name=self.name)
         return self._layer
+
+    def get_config(self):
+        return {
+            "axis": self.axis,
+        }
 
 
 class Sigmoid(Layer):

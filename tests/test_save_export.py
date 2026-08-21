@@ -6,6 +6,21 @@ from nnodely import (
 )
 
 
+def graph_signature(model):
+    flat = model.flatten()
+
+    return [
+        {
+            "name": node.name,
+            "type": type(node).__name__,
+            "shape": repr(node.shape),
+            "preds": [(p.name, repr(p.shape)) for p in node.preds],
+            "config": node.get_config(),
+        }
+        for node in flat.order
+    ]
+
+
 def test_save_load_simple_model(tmp_path):
     ## simple model
     x = Input(name="x")

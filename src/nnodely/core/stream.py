@@ -90,9 +90,9 @@ class Shape:
 
     def get_config(self):
         return {
-            "dim": self.dim,
+            "dim": tuple(self.dim),
             "time": self.time,
-            "seq": self.seq,
+            "seq": tuple(self.seq),
         }
 
     # @classmethod
@@ -129,15 +129,16 @@ class Stream(Node):
 
     def __init__(
         self,
-        name: str | None = None,
+        name: str,
         dim=None,
         time=None,
         seq=None,
         preds: list[Node] | None = None,
     ):
-        super().__init__(
-            name if name is not None else f"{self.__class__.__name__}_{id(self)}", preds
-        )
+        # super().__init__(
+        #     name if name is not None else f"{self.__class__.__name__}_{id(self)}", preds
+        # )
+        super().__init__(name, preds)
         self.shape = Shape(dim=dim, time=time, seq=seq)
 
     @property

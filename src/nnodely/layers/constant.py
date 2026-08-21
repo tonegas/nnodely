@@ -124,3 +124,20 @@ class Constant(Layer):
     @property
     def value_numpy(self):
         return keras.ops.convert_to_numpy(self.constant)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "value": self.value.tolist(),
+            }
+        )
+        return config
+
+    @classmethod
+    def from_config(cls, config: dict, preds=None):
+        node = cls(
+            name=config["name"],
+            value=config["value"],
+        )
+        return node
