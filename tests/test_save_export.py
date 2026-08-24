@@ -4,6 +4,8 @@ from nnodely import (
     Output,
     Fir,
 )
+from conftest import to_numpy
+import numpy as np
 
 
 def graph_signature(model):
@@ -32,8 +34,6 @@ def test_save_load_simple_model(tmp_path):
     model.build()
 
     ## dummy input
-    import numpy as np
-
     x_data = np.random.randn(1, 5)
     y_data = np.random.randn(1, 5)
 
@@ -46,10 +46,11 @@ def test_save_load_simple_model(tmp_path):
 
     new_pred = new_model({"x": x_data, "y": y_data})
     assert new_pred["accelleration"].shape == (1, 1, 1)
-    assert np.allclose(
-        pred["accelleration"].cpu().detach().numpy(),
-        new_pred["accelleration"].cpu().detach().numpy(),
-        atol=1e-4,
+    np.testing.assert_allclose(
+        to_numpy(pred["accelleration"]),
+        to_numpy(new_pred["accelleration"]),
+        rtol=1e-5,
+        atol=1e-5,
     )
 
 

@@ -15,6 +15,7 @@ from nnodely.layers.activations import (
     Softplus,
 )
 import numpy as np
+from conftest import to_numpy
 
 
 def test_trigonometric():
@@ -43,33 +44,51 @@ def test_trigonometric():
     result = model({"x": dummy_input_x})
     assert "out_sin" in result
     assert result["out_sin"].shape == (batch_size, 1, 1)
-    assert np.allclose(
-        result["out_sin"].detach().cpu().numpy(), np.sin(dummy_input_x[:, :, -1:])
+    np.testing.assert_allclose(
+        to_numpy(result["out_sin"]),
+        np.sin(dummy_input_x[:, :, -1:]),
+        rtol=1e-5,
+        atol=1e-5,
     )
     assert "out_cos" in result
     assert result["out_cos"].shape == (batch_size, 1, 3)
-    assert np.allclose(
-        result["out_cos"].detach().cpu().numpy(), np.cos(dummy_input_x[:, :, -3:])
+    np.testing.assert_allclose(
+        to_numpy(result["out_cos"]),
+        np.cos(dummy_input_x[:, :, -3:]),
+        rtol=1e-5,
+        atol=1e-5,
     )
     assert "out_tan" in result
     assert result["out_tan"].shape == (batch_size, 1, 1)
-    assert np.allclose(
-        result["out_tan"].detach().cpu().numpy(), np.tan(dummy_input_x[:, :, -1:])
+    np.testing.assert_allclose(
+        to_numpy(result["out_tan"]),
+        np.tan(dummy_input_x[:, :, -1:]),
+        rtol=1e-5,
+        atol=1e-5,
     )
     assert "out_asin" in result
     assert result["out_asin"].shape == (batch_size, 1, 4)
-    assert np.allclose(
-        result["out_asin"].detach().cpu().numpy(), np.arcsin(dummy_input_x[:, :, -4:])
+    np.testing.assert_allclose(
+        to_numpy(result["out_asin"]),
+        np.arcsin(dummy_input_x[:, :, -4:]),
+        rtol=1e-5,
+        atol=1e-5,
     )
     assert "out_acos" in result
     assert result["out_acos"].shape == (batch_size, 1, 1)
-    assert np.allclose(
-        result["out_acos"].detach().cpu().numpy(), np.arccos(dummy_input_x[:, :, -1:])
+    np.testing.assert_allclose(
+        to_numpy(result["out_acos"]),
+        np.arccos(dummy_input_x[:, :, -1:]),
+        rtol=1e-5,
+        atol=1e-5,
     )
     assert "out_atan" in result
     assert result["out_atan"].shape == (batch_size, 1, 2)
-    assert np.allclose(
-        result["out_atan"].detach().cpu().numpy(), np.arctan(dummy_input_x[:, :, -2:])
+    np.testing.assert_allclose(
+        to_numpy(result["out_atan"]),
+        np.arctan(dummy_input_x[:, :, -2:]),
+        rtol=1e-5,
+        atol=1e-5,
     )
 
 

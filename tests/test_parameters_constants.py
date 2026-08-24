@@ -1,4 +1,5 @@
 import numpy as np
+from conftest import to_numpy
 
 from nnodely import Input, Output, Modely, Parameter, Constant
 
@@ -32,17 +33,30 @@ def test_parameter_constant_model_inference():
 
     assert "x_out" in result
     assert result["x_out"].shape == (4, 1, 1)
-    assert np.allclose(
-        result["x_out"].cpu().detach().numpy(), [[[2.0]], [[2.0]], [[2.0]], [[2.0]]]
+    np.testing.assert_allclose(
+        to_numpy(result["x_out"]),
+        np.ones((4, 1, 1), dtype=np.float32) * (1.0 * 1.0 + 1.0),
+        rtol=1e-5,
+        atol=1e-5,
     )
+    # assert np.allclose(
+    #     keras.ops.convert_to_numpy(result["x_out"]),
+    #     [[[2.0]], [[2.0]], [[2.0]], [[2.0]]],
+    # )
     # assert np.allclose(result["x_out"], [[[2.0]], [[2.0]], [[2.0]], [[2.0]]])
     assert constant.constant is not None
     assert constant.constant.shape == (1, 1)
-    assert np.allclose(constant.constant.numpy(), [[1.0]])
+    np.testing.assert_allclose(
+        to_numpy(constant.constant),
+        np.array([[1.0]]),
+        rtol=1e-5,
+        atol=1e-5,
+    )
     assert parameter.param is not None
     assert parameter.param.shape == (1, 1)
-    assert np.allclose(parameter.param.numpy(), [[1.0]])
-
-
-if __name__ == "__main__":
-    test_parameter_constant_model_inference()
+    np.testing.assert_allclose(
+        to_numpy(parameter.param),
+        np.array([[1.0]]),
+        rtol=1e-5,
+        atol=1e-5,
+    )

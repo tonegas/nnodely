@@ -1,11 +1,10 @@
 import os
 
-os.environ.setdefault("KERAS_BACKEND", "torch")
-
 from nnodely import Input, Output, Fir, Modely, DataLoader, Parameter, Constant, Linear
 
 import pytest
 import numpy as np
+from conftest import to_numpy
 
 
 @pytest.mark.slow
@@ -121,9 +120,17 @@ def test_train_with_parameters():
             "x_target": np.ones((1, 1, 1), dtype=np.float32) * true_param,
         }
     )
-    assert np.isclose(
-        result_after_training["x_out"].cpu().detach().numpy(), true_param, atol=0.01
+    np.testing.assert_allclose(
+        to_numpy(result_after_training["x_out"]),
+        np.ones((1, 1, 1), dtype=np.float32) * true_param,
+        rtol=1e-5,
+        atol=1e-5,
     )
+    # assert np.isclose(
+    #     keras.ops.convert_to_numpy(result_after_training["x_out"]),
+    #     true_param,
+    #     atol=0.01,
+    # )
 
 
 @pytest.mark.slow
@@ -141,8 +148,10 @@ def test_training_values_linear():
     dataset = {"in1": [1], "out1": [3]}
     data_train = DataLoader(model, source=dataset)
     model.train(train_data=data_train, epochs=1, batch_size=1, lr=1.0)
-    # self.assertListEqual([[3.0]], test.parameters['W'])
-    # self.assertListEqual([3.0], test.parameters['b'])
-    # test.trainModel(optimizer='SGD', splits=[100, 0, 0], lr=1, num_of_epochs=1)
-    # self.assertListEqual([[-3.0]], test.parameters['W'])
-    # self.assertListEqual([-3.0], test.parameters['b'])
+    assert linear_out.kernel is not None
+    assert linear_out.bias is not None
+
+    np.testing.assert_allclose(
+        to_numpy(linear_out.kernel), [[2.0]], rtol=1e-5, atol=1e-5
+    )
+    np.testing.assert_allclose(to_numpy(linear_out.bias), [2.0], rtol=1e-5, atol=1e-5)

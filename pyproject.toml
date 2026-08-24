@@ -62,3 +62,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-ra"
+markers = [
+  "slow: marks tests that perform longer-running training or application workflows",
+]

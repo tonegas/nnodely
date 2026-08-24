@@ -4,6 +4,7 @@ from nnodely.core.layer import Identity
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.fuzzify import Fuzzify
 import numpy as np
+from conftest import to_numpy
 
 
 def test_fuzzify():
@@ -21,25 +22,33 @@ def test_fuzzify():
 
     assert "x_pred_rectangular" in result1
     assert result1["x_pred_rectangular"].shape == (4, 3, 1)
-    assert np.allclose(
-        result1["x_pred_rectangular"].cpu().numpy(),
-        [
-            [[0.0], [0.0], [0.0]],
-            [[0.0], [1.0], [0.0]],
-            [[0.0], [0.0], [1.0]],
-            [[0.0], [0.0], [0.0]],
-        ],
+    np.testing.assert_allclose(
+        to_numpy(result1["x_pred_rectangular"]),
+        np.array(
+            [
+                [[0.0], [0.0], [0.0]],
+                [[0.0], [1.0], [0.0]],
+                [[0.0], [0.0], [1.0]],
+                [[0.0], [0.0], [0.0]],
+            ]
+        ),
+        rtol=1e-5,
+        atol=1e-5,
     )
     assert "x_pred_triangular" in result1
     assert result1["x_pred_triangular"].shape == (4, 3, 1)
-    assert np.allclose(
-        result1["x_pred_triangular"].cpu().numpy(),
-        [
-            [[0.0], [0.0], [0.0]],
-            [[0.0], [1.0], [0.0]],
-            [[0.0], [0.4], [0.6]],
-            [[0.0], [0.0], [0.0]],
-        ],
+    np.testing.assert_allclose(
+        to_numpy(result1["x_pred_triangular"]),
+        np.array(
+            [
+                [[0.0], [0.0], [0.0]],
+                [[0.0], [1.0], [0.0]],
+                [[0.0], [0.4], [0.6]],
+                [[0.0], [0.0], [0.0]],
+            ]
+        ),
+        rtol=1e-5,
+        atol=1e-5,
     )
 
 
@@ -66,7 +75,10 @@ def test_local_model():
     result = model({"x": dummy_input_x, "k": dummy_input_k})
     assert "out" in result
     assert result["out"].shape == (4, 1, 1)
-    assert np.allclose(
-        result["out"].cpu().numpy(),
-        [[[0.0]], [[2.0]], [[3.0]], [[0.0]]],
+
+    np.testing.assert_allclose(
+        to_numpy(result["out"]),
+        np.array([[[0.0]], [[2.0]], [[3.0]], [[0.0]]]),
+        rtol=1e-5,
+        atol=1e-5,
     )
