@@ -2,7 +2,7 @@ import os
 
 os.environ.setdefault("KERAS_BACKEND", "torch")
 
-from nnodely import Input, Output, Fir, Modely, DataLoader, Linear
+from nnodely import Input, Output, Fir, Modely, DataLoader, Parameter, Constant, Linear
 
 import pytest
 import numpy as np
@@ -82,48 +82,48 @@ def test_train_basic():
     model1.train(train_data=data_train, epochs=60, batch_size=4)
 
 
-# @pytest.mark.slow
-# def test_train_with_parameters():
-#     # ------- Model definition with Parameters and Constants -------
-#     x = Input("x", dim=1)
-#     param = Parameter("param1", value=[1.0])
-#     const = Constant("const1", value=[1.0])
-#     x_param = x.sw(1) * param + const
-#     x_out = Output("x_out", x_param)
-#     model = Modely("model", inputs=[x], outputs=[x_out])
-#     model.minimize(
-#         "error", source=x_out, target=Input("x_target", dim=1).sw(1), loss="mse"
-#     )
-#     model.build()
+@pytest.mark.slow
+def test_train_with_parameters():
+    # ------- Model definition with Parameters and Constants -------
+    x = Input("x", dim=1)
+    param = Parameter("param1", value=[1.0])
+    const = Constant("const1", value=[1.0])
+    x_param = x.sw(1) * param + const
+    x_out = Output("x_out", x_param)
+    model = Modely("model", inputs=[x], outputs=[x_out])
+    model.minimize(
+        "error", source=x_out, target=Input("x_target", dim=1).sw(1), loss="mse"
+    )
+    model.build()
 
-#     dummy_input_x = np.ones((1, 1, 1), dtype=np.float32)
+    dummy_input_x = np.ones((1, 1, 1), dtype=np.float32)
 
-#     # ------ Create a simple dataset and train the model -------
-#     true_param = np.array([3.5])  # The true parameter value we want to learn
-#     dataframe = {
-#         "x": np.ones((100, 1, 1), dtype=np.float32),
-#         "x_target": np.ones((100, 1, 1), dtype=np.float32) * true_param,
-#     }
-#     data_train = DataLoader(model, source=dataframe)
+    # ------ Create a simple dataset and train the model -------
+    true_param = np.array([3.5])  # The true parameter value we want to learn
+    dataframe = {
+        "x": np.ones((100, 1, 1), dtype=np.float32),
+        "x_target": np.ones((100, 1, 1), dtype=np.float32) * true_param,
+    }
+    data_train = DataLoader(model, source=dataframe)
 
-#     model.train(train_data=data_train, epochs=100, batch_size=16, lr=0.01)
-#     assert np.isclose(
-#         a=np.array(param.value_numpy),
-#         b=np.array(true_param - const.value_numpy),
-#         atol=0.01,
-#     )
-#     assert np.isclose(const.value_numpy, 1.0, atol=0.01)
+    model.train(train_data=data_train, epochs=100, batch_size=16, lr=0.01)
+    assert np.isclose(
+        a=np.array(param.value_numpy),
+        b=np.array(true_param - const.value_numpy),
+        atol=0.01,
+    )
+    assert np.isclose(const.value_numpy, np.array([1.0]), atol=0.01)  # type: ignore
 
-#     # ------ Inference after training -------
-#     result_after_training = model(
-#         {
-#             "x": dummy_input_x,
-#             "x_target": np.ones((1, 1, 1), dtype=np.float32) * true_param,
-#         }
-#     )
-#     assert np.isclose(
-#         result_after_training["x_out"].cpu().detach().numpy(), true_param, atol=0.01
-#     )
+    # ------ Inference after training -------
+    result_after_training = model(
+        {
+            "x": dummy_input_x,
+            "x_target": np.ones((1, 1, 1), dtype=np.float32) * true_param,
+        }
+    )
+    assert np.isclose(
+        result_after_training["x_out"].cpu().detach().numpy(), true_param, atol=0.01
+    )
 
 
 @pytest.mark.slow

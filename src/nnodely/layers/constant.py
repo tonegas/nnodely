@@ -2,7 +2,6 @@ import numpy as np
 import keras
 
 from nnodely.core.layer import Layer
-# from nnodely.core.stream import Shape
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -141,3 +140,125 @@ class Constant(Layer):
             value=config["value"],
         )
         return node
+
+
+# @keras.saving.register_keras_serializable(package="nnodely")
+# class ConstantImpl(keras.layers.Layer):
+#     def __init__(self, value, name=None, **kwargs):
+#         super().__init__(name=name, **kwargs)
+
+#         self.value = np.asarray(
+#             value,
+#             dtype=np.float32,
+#         )
+
+#     def build(self, input_shape=None):
+#         self.constant = self.add_weight(
+#             name="value",
+#             shape=self.value.shape,
+#             initializer=keras.initializers.Constant(
+#                 self.value.tolist(),
+#             ),
+#             trainable=False,
+#             dtype="float32",
+#         )
+
+#         super().build(input_shape)
+
+#     def call(self, inputs=None):
+#         return self.constant
+
+#     def get_config(self):
+#         config = super().get_config()
+
+#         config.update(
+#             {
+#                 "value": self.value.tolist(),
+#             }
+#         )
+
+#         return config
+
+
+# class Constant(Layer):
+#     def __init__(
+#         self,
+#         name: str | None = None,
+#         *,
+#         value,
+#         dim=None,
+#         time=None,
+#         seq=None,
+#     ):
+#         self.value = np.asarray(
+#             value,
+#             dtype=np.float32,
+#         )
+
+#         super().__init__(
+#             name=name,
+#             dim=dim if dim is not None else self.value.shape[0],
+#             time=time
+#             if time is not None
+#             else self.value.shape[1]
+#             if self.value.ndim > 1
+#             else 1,
+#             seq=seq
+#             if seq is not None
+#             else self.value.shape[2:]
+#             if self.value.ndim > 2
+#             else (),
+#             value=self.value.tolist(),
+#         )
+
+#     def output_shape(self, *inputs):
+#         return self.dimensions
+
+#     def build_layer(self):
+#         return ConstantImpl(
+#             value=self.value,
+#             name=self.name,
+#         )
+
+#     @property
+#     def constant(self):
+#         if self._layer is None:
+#             return None
+
+#         return self._layer.constant
+
+#     @property
+#     def value_numpy(self):
+#         if self.constant is None:
+#             return None
+
+#         return keras.ops.convert_to_numpy(
+#             self.constant,
+#         )
+
+#     def get_config(self):
+#         config = super().get_config()
+
+#         config.update(
+#             {
+#                 "value": self.value.tolist(),
+#                 "dim": self.shape.dim,
+#                 "time": self.shape.time,
+#                 "seq": self.shape.seq,
+#             }
+#         )
+#         return config
+
+#     @classmethod
+#     def from_config(
+#         cls,
+#         config,
+#         preds=None,
+#     ):
+#         return cls(
+#             name=config["name"],
+#             value=config["value"],
+#             dim=config["dim"],
+#             time=config["time"],
+#             seq=config["seq"],
+#         )

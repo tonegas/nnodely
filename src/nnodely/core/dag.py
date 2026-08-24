@@ -26,15 +26,6 @@ def next_name(prefix: str) -> str:
 # ------------------------------------------------------------------
 
 
-# def get_preds(node: Node) -> list[Node]:
-#     from nnodely.core.modely import IntermediateOutput
-
-#     if type(node) is IntermediateOutput:
-#         return [node]
-
-#     return node.preds
-
-
 def flatten_node(node: Node, memo: dict[Node, Node]) -> Any:
     from nnodely.core.modely import IntermediateOutput
 
@@ -42,15 +33,6 @@ def flatten_node(node: Node, memo: dict[Node, Node]) -> Any:
         return memo[node]
 
     if type(node) is IntermediateOutput:
-        # inputs_map = node.pred.inputs_map
-        # outputs_map = node.pred.outputs_map
-        # for old, new in inputs_map.items():
-        #     if new not in memo:
-        #         new_node = copy(new)
-        #         new_node.preds = [flatten_node(pred, memo) for pred in get_preds(new)]
-        #         memo[new] = new_node
-        #     memo[old] = memo[new]
-        # new_preds = [flatten_node(pred, memo) for pred in get_preds(outputs_map[node])]
         model_call = node.pred
 
         for internal_input, external_input in model_call.inputs_map.items():
@@ -67,23 +49,29 @@ def flatten_node(node: Node, memo: dict[Node, Node]) -> Any:
     new_node.preds = new_preds
     memo[node] = new_node
     return new_node
-    # node.preds = new_preds
-    # memo[node] = node
-    # return node
 
 
 def flatten(model):
     return _flatten_graph(model.name, model.inputs, model.outputs)
 
 
-def _flatten_graph(name, inputs: list[Any], outputs: list[Output]) -> Any:
+def _flatten_graph(
+    name,
+    inputs: list[Any],
+    outputs: list[Output],
+    *,
+    return_memo: bool = False,
+) -> Any:
     from nnodely.core.modely import Modely
 
     memo: dict[Node, Any] = {}
     flat_outputs: list[Output] = [flatten_node(output, memo) for output in outputs]
     flat_inputs: list[Any] = [memo[input] for input in inputs if input in memo]
 
-    return Modely(f"{name}_flat", flat_inputs, flat_outputs)
+    flat_model = Modely(f"{name}_flat", flat_inputs, flat_outputs)
+    if return_memo:
+        return flat_model, memo
+    return flat_model
 
 
 # ------------------------------------------------------------------

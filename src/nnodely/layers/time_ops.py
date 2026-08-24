@@ -3,43 +3,6 @@ from nnodely.core.layer import Layer
 import keras
 
 
-# class SampleWindow(Layer):
-#     """
-#     Layer che estrae finestra temporale. Se window_size < input.time, applica slice.
-#     Simmetrico agli altri layer: usa build_layer e call.
-#     """
-
-#     def __init__(self, past: int, future: int, name=None):
-#         self.past = int(past)
-#         self.future = int(future)
-#         self.window_size = self.past + self.future
-#         super().__init__(name=name, past=self.past, future=self.future)
-
-#     def output_shape(self, *inputs):
-#         inp = inputs[0]
-#         return inp.dim, self.past + self.future, inp.seq
-
-#     def build_layer(self):
-#         from nnodely.layers.input import Input
-
-#         if self.window_size <= 0:
-#             raise ValueError(
-#                 f"{self.name}: past + future must be positive, got {self.window_size}."
-#             )
-
-#         pred_past = self.preds[0].past if isinstance(self.preds[0], Input) else 0
-#         slices = (
-#             [slice(None)] * (1 + len(self.dim))
-#             + [slice(pred_past - self.past, (pred_past - self.past) + self.window_size)]
-#             + [slice(None)] * len(self.seq)
-#         )
-#         return keras.layers.Lambda(
-#             lambda x: x[tuple(slices)],
-#             output_shape=self.shape,
-#             name=self.name,
-#         )
-
-
 @keras.saving.register_keras_serializable(package="nnodely")
 class SampleWindowImpl(keras.layers.Layer):
     def __init__(
@@ -99,21 +62,19 @@ class SampleWindow(Layer):
         return inp.dim, self.past + self.future, inp.seq
 
     def build_layer(self):
-        # from nnodely.layers.input import Input
-        from nnodely.core.stream import Stream
+        from nnodely.layers.input import Input
 
         if self.window_size <= 0:
             raise ValueError(
                 f"{self.name}: past + future must be positive, got {self.window_size}."
             )
 
-        # pred_past = self.preds[0].past if isinstance(self.preds[0], Input) else 0
-        # start = pred_past - self.past
-        if isinstance(self.preds[0], Stream):
-            pred_time = self.preds[0].shape.time
-            start = pred_time - self.past
-        else:
-            start = 0
+        pred_past = (
+            self.preds[0].past
+            if isinstance(self.preds[0], (Input, SampleWindow))
+            else 0
+        )
+        start = pred_past - self.past
 
         return SampleWindowImpl(
             start=start,

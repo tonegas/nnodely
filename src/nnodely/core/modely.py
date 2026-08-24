@@ -55,10 +55,6 @@ class Modely:
         if self.model is None:
             raise ValueError("Model build failed, model is still None.")
         if isinstance(inputs, dict):
-            # Drop keys that are not model inputs (e.g. targets like 'acc').
-            # Keras flattens dicts in sorted-key order and zips them
-            # positionally with the model inputs, so extra keys silently
-            # misalign every input.
             expected = {inp.name for inp in self.train_inputs}
             extra = set(inputs) - expected
             if extra:
@@ -100,10 +96,21 @@ class Modely:
                     extra_outputs.append(minimizer["target"])
 
         self.train_outputs = self.outputs + extra_outputs
-        flat = _flatten_graph(self.name, self.inputs, self.train_outputs)
+        flat, flatten_memo = _flatten_graph(
+            self.name,
+            self.inputs,
+            self.train_outputs,
+            return_memo=True,
+        )
         self.train_inputs = [node for node in flat.order if isinstance(node, Input)]
 
         keras_inputs, keras_outputs = self.resolve_graph(flat.order)
+        # Graph flattening builds shallow copies. Keep the public symbolic nodes
+        # connected to the concrete Keras layers created from those copies.
+        for source_node, flat_node in flatten_memo.items():
+            if isinstance(source_node, Layer) and isinstance(flat_node, Layer):
+                source_node._layer = flat_node._layer
+
         self.model = keras.Model(
             name=self.name + "_train",
             inputs=keras_inputs,
@@ -769,33 +776,6 @@ class ModelCall(Node):
         self.inputs_map = {}
         self.outputs_map = {}
 
-    # def get_config(self):
-    #     return {
-    #         "name": self.name,
-    #         "model_ref": self.model.name,
-    #     }
-
-    # @classmethod
-    # def from_config(
-    #     cls,
-    #     config: dict,
-    #     preds=None,
-    #     model=None,
-    # ) -> "ModelCall":
-    #     if model is None:
-    #         raise ValueError(
-    #             f"Cannot deserialize ModelCall '{config['name']}': "
-    #             "without a reference model."
-    #         )
-
-    #     node = cls(
-    #         name=config["name"],
-    #         model=model,
-    #     )
-
-    #     node.preds = list(preds or [])
-    #     return node
-
 
 class IntermediateOutput(Output):
     pred: ModelCall
@@ -804,14 +784,3 @@ class IntermediateOutput(Output):
         super().__init__(name=out.name, stream=out)
         self.pred = model_call
         self.preds = [model_call]
-
-    # @classmethod
-    # def from_config(cls, config: dict, preds=None) -> "Output":
-    #     if preds is None:
-    #         raise ValueError(
-    #             "IntermediateOutput.from_config requires exactly one pred (the ModelCall)."
-    #         )
-    #     return Output(
-    #         name=config["name"],
-    #         stream=preds[0],
-    #     )
