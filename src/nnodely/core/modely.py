@@ -21,6 +21,21 @@ from nnodely.core.layer import Layer
 import keras
 
 
+SUPPORTED_OPTIMIZERS = {
+    "sgd",
+    "rmsprop",
+    "adam",
+    "adamw",
+    "adagrad",
+    "adadelta",
+    "adamax",
+    "adafactor",
+    "nadam",
+    "ftrl",
+    "lion",
+}
+
+
 class Modely:
     name: str
     inputs: list[Input]
@@ -329,16 +344,15 @@ class Modely:
             optimizer = "adam"
 
         if isinstance(optimizer, str):
-            try:
-                config = keras.optimizers.serialize(keras.optimizers.get(optimizer))
-                if type(config) is dict and "config" in config:
-                    config["config"].update(optimizer_kwargs or {})
-                    config["config"]["learning_rate"] = learning_rate
-                return keras.optimizers.deserialize(config)
-            except Exception as exc:
+            if optimizer.lower() not in SUPPORTED_OPTIMIZERS:
                 raise ValueError(
-                    f"Unknown or invalid Keras optimizer {optimizer!r}."
-                ) from exc
+                    f"Unknown or invalid Keras optimizer {optimizer!r}. the following optimizers are supported: [{', '.join(SUPPORTED_OPTIMIZERS)}]"
+                )
+            config = keras.optimizers.serialize(keras.optimizers.get(optimizer))
+            if type(config) is dict and "config" in config:
+                config["config"].update(optimizer_kwargs or {})
+                config["config"]["learning_rate"] = learning_rate
+            return keras.optimizers.deserialize(config)
 
         if optimizer_kwargs:
             raise ValueError(

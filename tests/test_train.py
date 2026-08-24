@@ -8,6 +8,19 @@ import keras
 from conftest import to_numpy
 
 
+@keras.saving.register_keras_serializable(package="nnodely_test")
+class SimpleCustomOptimizer(keras.optimizers.Optimizer):
+    """Minimal SGD-like optimizer used to verify custom optimizer support."""
+
+    def update_step(self, gradient, variable, learning_rate):
+        gradient = keras.ops.cast(gradient, variable.dtype)
+        learning_rate = keras.ops.cast(learning_rate, variable.dtype)
+        self.assign_sub(variable, learning_rate * gradient)
+
+    def get_config(self):
+        return super().get_config()
+
+
 @pytest.mark.slow
 def test_train_basic():
     # ------- Model definition and training -------
@@ -220,3 +233,38 @@ def test_resolve_optimizer_instance_and_config():
     assert isinstance(optimizer_from_config, keras.optimizers.SGD)
     np.testing.assert_allclose(to_numpy(optimizer_from_config.learning_rate), 0.25)
     assert optimizer_from_config.momentum == 0.5
+
+
+def test_train_with_custom_optimizer():
+    input_node = Input("custom_optimizer_input")
+    target = Input("custom_optimizer_target").last()
+    linear = Linear(initializer="ones", bias_initializer="ones")(input_node.last())
+
+    model = Modely(
+        "custom_optimizer_model",
+        inputs=[input_node],
+        outputs=[Output("custom_optimizer_output", linear)],
+    )
+    model.minimize("error", source=linear, target=target, loss="mse")
+    model.build()
+
+    data = DataLoader(
+        model,
+        source={"custom_optimizer_input": [1], "custom_optimizer_target": [3]},
+    )
+    optimizer = SimpleCustomOptimizer(learning_rate=0.25)
+    model.train(
+        train_data=data,
+        epochs=1,
+        batch_size=1,
+        optimizer=optimizer,
+    )
+
+    assert model.model is not None
+    assert model.model.optimizer is optimizer
+    assert linear.kernel is not None
+    assert linear.bias is not None
+    # Initial prediction is 1 * 1 + 1 = 2. MSE gives a gradient of -2 for
+    # both variables, so one custom update adds 0.25 * 2 = 0.5.
+    np.testing.assert_allclose(to_numpy(linear.kernel), [[1.5]], atol=1e-5)
+    np.testing.assert_allclose(to_numpy(linear.bias), [1.5], atol=1e-5)
