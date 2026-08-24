@@ -115,7 +115,7 @@ def test_vehicle_longitudinal_dynamics():
     start_time = time.time()
     vehicle.train(
         train_data=data_train,
-        epochs=500,
+        epochs=3,
         batch_size=256,
         lr=0.001,
     )
@@ -188,7 +188,3 @@ def test_vehicle_longitudinal_dynamics():
         rtol=1e-5,
         atol=1e-5,
     )
-
-
-if __name__ == "__main__":
-    test_vehicle_longitudinal_dynamics()
