@@ -319,14 +319,64 @@ class Modely:
             "predictions": predictions,
         }
 
+    @staticmethod
+    def _resolve_optimizer(
+        optimizer: str | dict[str, Any] | keras.optimizers.Optimizer | None,
+        learning_rate: float,
+        optimizer_kwargs: dict[str, Any] | None,
+    ) -> keras.optimizers.Optimizer:
+        if optimizer is None:
+            optimizer = "adam"
+
+        if isinstance(optimizer, str):
+            try:
+                config = keras.optimizers.serialize(keras.optimizers.get(optimizer))
+                if type(config) is dict and "config" in config:
+                    config["config"].update(optimizer_kwargs or {})
+                    config["config"]["learning_rate"] = learning_rate
+                return keras.optimizers.deserialize(config)
+            except Exception as exc:
+                raise ValueError(
+                    f"Unknown or invalid Keras optimizer {optimizer!r}."
+                ) from exc
+
+        if optimizer_kwargs:
+            raise ValueError(
+                "optimizer_kwargs can only be used when optimizer is a name. "
+                "Configure optimizer instances or serialized configurations "
+                "before passing them to train()."
+            )
+
+        try:
+            resolved = keras.optimizers.get(optimizer)
+        except Exception as exc:
+            raise ValueError(
+                "Invalid Keras optimizer configuration or instance."
+            ) from exc
+
+        if not isinstance(resolved, keras.optimizers.Optimizer):
+            raise TypeError(
+                "optimizer must resolve to an instance of keras.optimizers.Optimizer."
+            )
+        return resolved
+
     def train(
         self,
         train_data: DataLoader,
         epochs: int = 1,
         batch_size: int = 1,
-        optimizer=None,
+        optimizer: str | dict[str, Any] | keras.optimizers.Optimizer | None = None,
         lr: float = 1e-3,
+        optimizer_kwargs: dict[str, Any] | None = None,
     ):
+        """Train the model with any Keras optimizer.
+
+        ``optimizer`` may be a Keras optimizer name, a serialized Keras
+        optimizer configuration, or an optimizer instance. When a name (or
+        ``None``) is provided, ``lr`` and ``optimizer_kwargs`` are used to
+        construct it. Optimizer instances and serialized configurations retain
+        their own learning-rate configuration.
+        """
         if not self.minimizers:
             raise ValueError("No minimizers defined. Call minimize() before train().")
 
@@ -339,9 +389,7 @@ class Modely:
             raise ValueError("Model is not built. Call build() before training.")
         km = self.model
 
-        # Default optimizer ## TODO: change with a user defined optimizer
-        if optimizer is None:
-            optimizer = keras.optimizers.Adam(learning_rate=lr)
+        resolved_optimizer = self._resolve_optimizer(optimizer, lr, optimizer_kwargs)
 
         x_data = {
             name: np.asarray(values) for name, values in train_data.as_dict().items()
@@ -457,7 +505,12 @@ class Modely:
                         )
 
                     total = train_step(
-                        km, batch_inputs, batch_targets, optimizer, losses, unique_vars
+                        km,
+                        batch_inputs,
+                        batch_targets,
+                        resolved_optimizer,
+                        losses,
+                        unique_vars,
                     )
                     if isinstance(total, tf.Tensor):
                         epoch_losses.append(float(total.numpy()))
@@ -479,10 +532,12 @@ class Modely:
                     seen.add(vid)
                     unique_params.append(v)
 
-            if optimizer is None or not (
-                hasattr(optimizer, "zero_grad") and hasattr(optimizer, "step")
+            native_optimizer: Any = resolved_optimizer
+            if not (
+                hasattr(native_optimizer, "zero_grad")
+                and hasattr(native_optimizer, "step")
             ):
-                optimizer = torch.optim.Adam(unique_params, lr=lr)
+                native_optimizer = torch.optim.Adam(unique_params, lr=lr)
 
             criterion = torch.nn.MSELoss()
             device = unique_params[0].device if unique_params else torch.device("cpu")
@@ -518,7 +573,7 @@ class Modely:
                         for minimizer in self.minimizers
                     }
 
-                    optimizer.zero_grad()
+                    native_optimizer.zero_grad()
                     preds = km(batch_inputs, training=True)
 
                     total = torch.zeros((), dtype=torch.float32, device=device)
@@ -528,7 +583,7 @@ class Modely:
                             preds[source_name], batch_targets[source_name].unsqueeze(-1)
                         )
                     total.backward()
-                    optimizer.step()
+                    native_optimizer.step()
 
                     epoch_losses.append(float(total.detach().cpu().item()))
 
@@ -576,7 +631,7 @@ class Modely:
 
                 print(sep)
 
-        km.compile(optimizer=optimizer, loss=compile_losses)
+        km.compile(optimizer=resolved_optimizer, loss=compile_losses)
         history = km.fit(
             x=x_data,
             y=y_data,

@@ -4,6 +4,7 @@ from nnodely import Input, Output, Fir, Modely, DataLoader, Parameter, Constant,
 
 import pytest
 import numpy as np
+import keras
 from conftest import to_numpy
 
 
@@ -126,11 +127,6 @@ def test_train_with_parameters():
         rtol=1e-5,
         atol=1e-5,
     )
-    # assert np.isclose(
-    #     keras.ops.convert_to_numpy(result_after_training["x_out"]),
-    #     true_param,
-    #     atol=0.01,
-    # )
 
 
 @pytest.mark.slow
@@ -143,15 +139,84 @@ def test_training_values_linear():
     model = Modely("test_model", inputs=[input1], outputs=[output1])
     model.minimize("error", source=output1, target=target, loss="mse")
     model.build()
-    model.plot(os.path.join("html", "model_test_train.png"))
 
     dataset = {"in1": [1], "out1": [3]}
     data_train = DataLoader(model, source=dataset)
-    model.train(train_data=data_train, epochs=1, batch_size=1, lr=1.0)
+    model.train(
+        train_data=data_train,
+        epochs=1,
+        batch_size=1,
+        optimizer="sgd",
+        lr=1.0,
+    )
     assert linear_out.kernel is not None
     assert linear_out.bias is not None
+
+    np.testing.assert_allclose(
+        to_numpy(linear_out.kernel), [[3.0]], rtol=1e-5, atol=1e-5
+    )
+    np.testing.assert_allclose(to_numpy(linear_out.bias), [3.0], rtol=1e-5, atol=1e-5)
+
+    model.build()
+    model.train(
+        train_data=data_train,
+        epochs=1,
+        batch_size=1,
+        optimizer="adam",
+        lr=1.0,
+    )
 
     np.testing.assert_allclose(
         to_numpy(linear_out.kernel), [[2.0]], rtol=1e-5, atol=1e-5
     )
     np.testing.assert_allclose(to_numpy(linear_out.bias), [2.0], rtol=1e-5, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "optimizer_name",
+    [
+        "sgd",
+        "rmsprop",
+        "adam",
+        "adamw",
+        "adadelta",
+        "adagrad",
+        "adamax",
+        "adafactor",
+        "nadam",
+        "ftrl",
+        "lion",
+    ],
+)
+def test_resolve_builtin_optimizer(optimizer_name):
+    optimizer = Modely._resolve_optimizer(
+        optimizer_name,
+        learning_rate=0.123,
+        optimizer_kwargs=None,
+    )
+
+    assert isinstance(optimizer, keras.optimizers.Optimizer)
+    np.testing.assert_allclose(to_numpy(optimizer.learning_rate), 0.123)
+
+
+def test_resolve_optimizer_instance_and_config():
+    optimizer_with_kwargs = Modely._resolve_optimizer(
+        "sgd",
+        learning_rate=0.1,
+        optimizer_kwargs={"momentum": 0.9, "nesterov": True},
+    )
+    assert isinstance(optimizer_with_kwargs, keras.optimizers.SGD)
+    assert optimizer_with_kwargs.momentum == 0.9
+    assert optimizer_with_kwargs.nesterov is True
+
+    optimizer_instance = keras.optimizers.SGD(learning_rate=0.25, momentum=0.5)
+    assert (
+        Modely._resolve_optimizer(optimizer_instance, 1.0, None) is optimizer_instance
+    )
+
+    config = keras.optimizers.serialize(optimizer_instance)
+    assert type(config) is dict
+    optimizer_from_config = Modely._resolve_optimizer(config, 1.0, None)
+    assert isinstance(optimizer_from_config, keras.optimizers.SGD)
+    np.testing.assert_allclose(to_numpy(optimizer_from_config.learning_rate), 0.25)
+    assert optimizer_from_config.momentum == 0.5
