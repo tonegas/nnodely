@@ -70,6 +70,27 @@ class LeakyReLU(Layer):
         }
 
 
+@keras.saving.register_keras_serializable(package="nnodely")
+class ELUImpl(keras.layers.Layer):
+    def __init__(self, alpha: float = 1.0, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.alpha = float(alpha)
+
+    def call(self, inputs):
+        zero = keras.ops.cast(0.0, inputs.dtype)
+        alpha = keras.ops.cast(self.alpha, inputs.dtype)
+        return keras.ops.where(
+            inputs > zero,
+            inputs,
+            alpha * (keras.ops.exp(inputs) - 1.0),
+        )
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"alpha": self.alpha})
+        return config
+
+
 class ELU(Layer):
     """Wrapper for keras.layers.ELU."""
 
@@ -81,7 +102,7 @@ class ELU(Layer):
         return inputs[0].dimensions
 
     def build_layer(self):
-        self._layer = keras.layers.ELU(alpha=self.alpha, name=self.name)
+        self._layer = ELUImpl(alpha=self.alpha, name=self.name)
         return self._layer
 
     def get_config(self):
@@ -172,18 +193,49 @@ class Swish(Layer):
         return self._layer
 
 
+@keras.saving.register_keras_serializable(package="nnodely")
+class GELUImpl(keras.layers.Layer):
+    def __init__(self, approximate: bool = True, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.approximate = bool(approximate)
+
+    def call(self, inputs):
+        return keras.activations.gelu(inputs, approximate=self.approximate)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"approximate": self.approximate})
+        return config
+
+
 class GELU(Layer):
     """Wrapper for keras.layers.Activation('gelu')."""
 
-    def __init__(self, name=None):
-        super().__init__(name=name)
+    def __init__(self, approximate: bool = True, name=None):
+        self.approximate = bool(approximate)
+        super().__init__(name=name, approximate=self.approximate)
 
     def output_shape(self, *inputs):
         return inputs[0].dimensions
 
     def build_layer(self):
-        self._layer = keras.layers.Activation("gelu", name=self.name)
+        self._layer = GELUImpl(approximate=self.approximate, name=self.name)
         return self._layer
+
+    def get_config(self):
+        return {"approximate": self.approximate}
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class SoftplusImpl(keras.layers.Layer):
+    def call(self, inputs):
+        zero = keras.ops.cast(0.0, inputs.dtype)
+        return keras.ops.log(
+            1.0 + keras.ops.exp(-keras.ops.abs(inputs))
+        ) + keras.ops.maximum(inputs, zero)
+
+    def get_config(self):
+        return super().get_config()
 
 
 class Softplus(Layer):
@@ -196,5 +248,5 @@ class Softplus(Layer):
         return inputs[0].dimensions
 
     def build_layer(self):
-        self._layer = keras.layers.Activation("softplus", name=self.name)
+        self._layer = SoftplusImpl(name=self.name)
         return self._layer

@@ -115,7 +115,7 @@ def test_vehicle_longitudinal_dynamics():
     start_time = time.time()
     vehicle.train(
         train_data=data_train,
-        epochs=3,
+        epochs=500,
         batch_size=256,
         lr=0.001,
     )
@@ -153,11 +153,10 @@ def test_vehicle_longitudinal_dynamics():
         rtol=1e-5,
         atol=1e-5,
     )
-    # assert np.allclose(
-    #     keras.ops.convert_to_numpy(result["accelleration"]),
-    #     keras.ops.convert_to_numpy(new_result["accelleration"]),
-    #     atol=1e-4,
-    # )
+
+    ## plot htlm with the loaded model
+    loaded_vehicle.plot(to_file="html/vehicle_model_loaded.png")
+    loaded_vehicle.export_html("html/vehicle_model_loaded.html")
 
     ## Export the model in keras format
     vehicle.export_keras("html/vehicle_model.keras")
@@ -176,16 +175,20 @@ def test_vehicle_longitudinal_dynamics():
         rtol=1e-5,
         atol=1e-5,
     )
-    # assert np.allclose(
-    #     keras.ops.convert_to_numpy(result["accelleration"]),
-    #     keras.ops.convert_to_numpy(keras_result["accelleration"]),
-    #     atol=1e-4,
-    # )
 
     ## Export the model in onnx format
-    # vehicle.export_onnx("html/vehicle_model")
+    vehicle.export_onnx("html/vehicle_model")
 
-    # ## onnx validation
-    # onnx_result = Modely.validate_onnx("html/vehicle_model", dummy_input)
-    # print("ONNX validation result:", onnx_result)
-    # assert np.allclose(result["accelleration"], onnx_result[1], atol=1e-4)  # type: ignore
+    ## onnx validation
+    onnx_result = Modely.validate_onnx("html/vehicle_model", dummy_input)
+    print("ONNX validation result:", onnx_result)
+    np.testing.assert_allclose(
+        to_numpy(result["accelleration"]),
+        to_numpy(onnx_result[1]),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+
+if __name__ == "__main__":
+    test_vehicle_longitudinal_dynamics()

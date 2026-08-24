@@ -95,13 +95,6 @@ class Shape:
             "seq": tuple(self.seq),
         }
 
-    # @classmethod
-    # def from_config(cls, config):
-    #     return cls(
-    #         dim=config["dim"],
-    #         time=config["time"],
-    #         seq=config["seq"],
-    #     )
     @classmethod
     def from_config(cls, config: dict) -> "Shape":
         return cls(
@@ -135,9 +128,6 @@ class Stream(Node):
         seq=None,
         preds: list[Node] | None = None,
     ):
-        # super().__init__(
-        #     name if name is not None else f"{self.__class__.__name__}_{id(self)}", preds
-        # )
         super().__init__(name, preds)
         self.shape = Shape(dim=dim, time=time, seq=seq)
 
@@ -153,28 +143,12 @@ class Stream(Node):
     def seq(self) -> tuple[int] | tuple[()]:
         return self.shape.seq
 
-    # @property
-    # def shape(self) -> tuple:
-    #     """
-    #     Shape without batch dimension.
-    #     """
-    #     time = (self.time,) if isinstance(self.time, int) else self.time
-    #     return self.dim + time + self.seq
-
     @property
     def dimensions(self):
         """
         Return seq, time, dim separately
         """
         return self.shape.dimensions
-
-    # @property
-    # def shape_len(self):
-    #     """
-    #     Return seq, time, dim separately
-    #     """
-    #     time = (self.time,) if isinstance(self.time, int) else self.time
-    #     return len(self.dim), len(time), len(self.seq)
 
     @property
     def rank(self) -> int:
@@ -281,10 +255,5 @@ class Stream(Node):
 
     def get_config(self) -> dict:
         config = super().get_config()
-        # config.update(
-        #     {
-        #         "type": self.__class__.__name__,
-        #     }
-        # )
         config.update(self.shape.get_config())
         return config

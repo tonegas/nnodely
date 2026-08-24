@@ -7,85 +7,65 @@ import keras
 from nnodely.core.layer import Layer
 
 
-class Sin(Layer):
+@keras.saving.register_keras_serializable(package="nnodely")
+class TrigonometricImpl(keras.layers.Layer):
+    def __init__(self, operation: str, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.operation = operation
+
+    def call(self, inputs):
+        return getattr(keras.ops, self.operation)(inputs)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"operation": self.operation})
+        return config
+
+
+class Trigonometric(Layer):
+    operation = ""
+
+    def __init__(self, name=None):
+        super().__init__(name=name)
+
+    def output_shape(self, *inputs):
+        return inputs[0].dimensions
+
+    def build_layer(self):
+        return TrigonometricImpl(operation=self.operation, name=self.name)
+
+
+class Sin(Trigonometric):
     """Wrapper for sine transform."""
 
-    def __init__(self, name=None):
-        super().__init__(name=name)
-
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
-
-    def build_layer(self):
-        self._layer = keras.layers.Lambda(lambda x: keras.ops.sin(x), name=self.name)
-        return self._layer
+    operation = "sin"
 
 
-class Cos(Layer):
+class Cos(Trigonometric):
     """Wrapper for cosine transform."""
 
-    def __init__(self, name=None):
-        super().__init__(name=name)
-
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
-
-    def build_layer(self):
-        self._layer = keras.layers.Lambda(lambda x: keras.ops.cos(x), name=self.name)
-        return self._layer
+    operation = "cos"
 
 
-class Tan(Layer):
+class Tan(Trigonometric):
     """Wrapper for tangent transform."""
 
-    def __init__(self, name=None):
-        super().__init__(name=name)
-
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
-
-    def build_layer(self):
-        self._layer = keras.layers.Lambda(lambda x: keras.ops.tan(x), name=self.name)
-        return self._layer
+    operation = "tan"
 
 
-class Asin(Layer):
+class Asin(Trigonometric):
     """Wrapper for inverse sine transform."""
 
-    def __init__(self, name=None):
-        super().__init__(name=name)
-
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
-
-    def build_layer(self):
-        self._layer = keras.layers.Lambda(lambda x: keras.ops.arcsin(x), name=self.name)
-        return self._layer
+    operation = "arcsin"
 
 
-class Acos(Layer):
+class Acos(Trigonometric):
     """Wrapper for inverse cosine transform."""
 
-    def __init__(self, name=None):
-        super().__init__(name=name)
-
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
-
-    def build_layer(self):
-        self._layer = keras.layers.Lambda(lambda x: keras.ops.arccos(x), name=self.name)
-        return self._layer
+    operation = "arccos"
 
 
-class Atan(Layer):
+class Atan(Trigonometric):
     """Wrapper for inverse tangent transform."""
 
-    def __init__(self, name=None):
-        super().__init__(name=name)
-
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
-
-    def build_layer(self):
-        self._layer = keras.layers.Lambda(lambda x: keras.ops.arctan(x), name=self.name)
-        return self._layer
+    operation = "arctan"

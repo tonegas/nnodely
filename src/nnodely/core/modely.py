@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from typing import Any
 
@@ -816,22 +817,157 @@ class Modely:
             safe_mode=safe_mode,
         )
 
-    def export_onnx(self, filename: str):
+    def export_onnx(
+        self,
+        filename: str | os.PathLike,
+        *,
+        input_signature=None,
+        opset_version: int | None = None,
+        verbose: bool = False,
+    ) -> Path:
+        """Export the built inference graph to ONNX.
+
+        ONNX export traces the built Keras graph; it does not deserialize
+        nnodely layer configurations. An explicit ``input_signature`` is
+        recommended when dynamic dimensions must remain fixed at export time.
+        """
         if self.model is None:
             raise ValueError("Model is not built. Call build() before export_onnx().")
 
-        self.model.export(filename + ".onnx", format="onnx")
+        path = Path(filename)
+        if path.suffix.lower() != ".onnx":
+            path = path.with_suffix(".onnx")
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        export_model = self.model
+        if keras.backend.backend() == "torch" and isinstance(self.model.input, dict):
+            # Keras' Torch ONNX exporter does not currently accept dictionary
+            # signatures. Trace an equivalent positional wrapper instead.
+            export_inputs = [
+                keras.Input(
+                    shape=tuple(tensor.shape[1:]),
+                    dtype=tensor.dtype,
+                    name=tensor.name,
+                )
+                for tensor in self.model.inputs
+            ]
+            input_map = {
+                tensor.name: export_input
+                for tensor, export_input in zip(self.model.inputs, export_inputs)
+            }
+            export_model = keras.Model(
+                export_inputs,
+                self.model(input_map, training=False),
+                name=f"{self.model.name}_onnx",
+            )
+
+        # Keras requires a model to have been called before export. Modely.build
+        # creates a Functional model, but does not necessarily execute it.
+        if not getattr(export_model, "_called", False):
+            warmup_inputs = {}
+            for tensor in export_model.inputs:
+                shape = tuple(1 if dim is None else int(dim) for dim in tensor.shape)
+                warmup_inputs[tensor.name] = np.zeros(shape, dtype=np.float32)
+            export_model(warmup_inputs, training=False)
+
+        export_kwargs = {"verbose": verbose}
+        if input_signature is not None:
+            export_kwargs["input_signature"] = input_signature
+        if opset_version is not None:
+            export_kwargs["opset_version"] = opset_version  # type: ignore
+
+        export_model.export(path, format="onnx", **export_kwargs)
+        self._set_onnx_io_names(path)
+        return path
+
+    def _set_onnx_io_names(self, path: Path) -> None:
+        """Restore Modely input/output names if an exporter replaced them."""
+        try:
+            import onnx
+        except ImportError:
+            return
+
+        if self.model is None or not self.built:
+            raise ValueError("Model is not built. Call build() before export_onnx().")
+        onnx_model = onnx.load(str(path))
+        graph = onnx_model.graph
+        expected_inputs = [tensor.name for tensor in self.model.inputs]
+        expected_outputs = [node.name for node in self.train_outputs]
+        rename = {}
+
+        if len(graph.input) == len(expected_inputs):
+            rename.update(
+                {
+                    value.name: expected
+                    for value, expected in zip(graph.input, expected_inputs)
+                    if value.name != expected
+                }
+            )
+        if len(graph.output) == len(expected_outputs):
+            rename.update(
+                {
+                    value.name: expected
+                    for value, expected in zip(graph.output, expected_outputs)
+                    if value.name != expected
+                }
+            )
+        if not rename:
+            return
+
+        for collection in (
+            graph.input,
+            graph.output,
+            graph.value_info,
+            graph.initializer,
+        ):
+            for value in collection:
+                value.name = rename.get(value.name, value.name)
+        for node in graph.node:
+            for idx, name in enumerate(node.input):
+                node.input[idx] = rename.get(name, name)
+            for idx, name in enumerate(node.output):
+                node.output[idx] = rename.get(name, name)
+
+        onnx.checker.check_model(onnx_model)
+        onnx.save(onnx_model, str(path))
 
     @staticmethod
-    def validate_onnx(filename: str, inputs: dict):
-        import onnxruntime as ort
+    def validate_onnx(
+        filename: str | os.PathLike,
+        inputs: dict,
+        *,
+        return_dict: bool = False,
+        providers: list[str] | None = None,
+    ):
+        """Run an exported ONNX model and return its outputs."""
+        try:
+            import onnxruntime as ort
+        except ImportError as exc:
+            raise ImportError(
+                "validate_onnx() requires the optional 'onnxruntime' package."
+            ) from exc
 
-        session = ort.InferenceSession(filename + ".onnx")
+        path = Path(filename)
+        if path.suffix.lower() != ".onnx":
+            path = path.with_suffix(".onnx")
+        if not path.is_file():
+            raise FileNotFoundError(f"ONNX model not found: {path}")
 
-        outputs = session.run(
-            None,
-            {k: np.asarray(v, dtype=np.float32) for k, v in inputs.items()},
-        )
+        session_kwargs = {} if providers is None else {"providers": providers}
+        session = ort.InferenceSession(str(path), **session_kwargs)  # type: ignore
+        input_names = [item.name for item in session.get_inputs()]
+        missing = [name for name in input_names if name not in inputs]
+        if missing:
+            raise ValueError(f"Missing ONNX inputs: {missing}")
+
+        feed = {
+            name: np.asarray(inputs[name], dtype=np.float32) for name in input_names
+        }
+        outputs = session.run(None, feed)
+        if return_dict:
+            return {
+                item.name: value for item, value in zip(session.get_outputs(), outputs)
+            }
         return outputs
 
 

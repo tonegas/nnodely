@@ -7,6 +7,8 @@ import keras
 from nnodely.core.layer import Layer
 
 
+# TODO: Consider removing the following layer in the upcoming version.
+@keras.saving.register_keras_serializable(package="nnodely")
 class GetItemImpl(keras.layers.Layer):
     """Keras layer that extracts a value from a dictionary."""
 

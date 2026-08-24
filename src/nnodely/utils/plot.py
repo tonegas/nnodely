@@ -118,7 +118,7 @@ def plot_graphviz(
     for node in model.order:
         for pred in getattr(node, "preds", []) or []:
             _add_node(pred)
-            shape_label = str(pred.shape) if hasattr(pred, "shape") else ""
+            shape_label = str(pred.shape.tuple) if hasattr(pred, "shape") else ""
             _add_edge(pred.name, node.name, label=shape_label)
 
     # Add minimizers
