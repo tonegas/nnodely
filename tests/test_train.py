@@ -21,6 +21,13 @@ class SimpleCustomOptimizer(keras.optimizers.Optimizer):
         return super().get_config()
 
 
+@keras.saving.register_keras_serializable(package="nnodely_test")
+def custom_quartic_loss(y_true, y_pred):
+    """Fourth-power error used to verify custom callable loss support."""
+    error = y_pred - y_true
+    return keras.ops.mean(keras.ops.square(keras.ops.square(error)), axis=-1)
+
+
 @pytest.mark.slow
 def test_train_basic():
     # ------- Model definition and training -------
@@ -268,3 +275,146 @@ def test_train_with_custom_optimizer():
     # both variables, so one custom update adds 0.25 * 2 = 0.5.
     np.testing.assert_allclose(to_numpy(linear.kernel), [[1.5]], atol=1e-5)
     np.testing.assert_allclose(to_numpy(linear.bias), [1.5], atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "loss_name",
+    [
+        "binary_crossentropy",
+        "binary_focal_crossentropy",
+        "categorical_crossentropy",
+        "categorical_focal_crossentropy",
+        "sparse_categorical_crossentropy",
+        "poisson",
+        "ctc",
+        "kl_divergence",
+        "mean_squared_error",
+        "mean_absolute_error",
+        "mean_absolute_percentage_error",
+        "mean_squared_logarithmic_error",
+        "cosine_similarity",
+        "huber",
+        "log_cosh",
+        "tversky",
+        "dice",
+        "hinge",
+        "squared_hinge",
+        "categorical_hinge",
+        "circle",
+    ],
+)
+def test_resolve_builtin_loss(loss_name):
+    assert callable(Modely._resolve_loss(loss_name))
+
+
+def test_resolve_loss_instance_and_config():
+    loss_instance = keras.losses.MeanSquaredError(reduction="sum")
+    assert Modely._resolve_loss(loss_instance) is loss_instance
+
+    config = keras.losses.serialize(loss_instance)
+    assert type(config) is dict
+    loss_from_config = Modely._resolve_loss(config)
+
+    assert isinstance(loss_from_config, keras.losses.MeanSquaredError)
+    np.testing.assert_allclose(
+        to_numpy(
+            loss_from_config(
+                keras.ops.array([[0.0], [0.0]]),
+                keras.ops.array([[1.0], [1.0]]),
+            )
+        ),
+        2.0,
+    )
+
+
+@pytest.mark.parametrize("loss_name", ["mse", "mae", "huber", "log_cosh"])
+def test_train_with_named_loss(loss_name):
+    input_node = Input(f"{loss_name}_input")
+    target = Input(f"{loss_name}_target").last()
+    linear = Linear(initializer="ones", bias_initializer="zeros")(input_node.last())
+    output = Output(f"{loss_name}_output", linear)
+    model = Modely(f"{loss_name}_model", inputs=[input_node], outputs=[output])
+    model.minimize(f"{loss_name}_error", output, target, loss=loss_name)
+    model.build()
+
+    data = DataLoader(
+        model,
+        source={f"{loss_name}_input": [1], f"{loss_name}_target": [3]},
+    )
+    history = model.train(
+        train_data=data,
+        epochs=1,
+        batch_size=1,
+        optimizer="sgd",
+        lr=0.1,
+    )
+
+    assert np.isfinite(history["loss"][-1])
+    assert linear.kernel is not None
+    assert not np.allclose(to_numpy(linear.kernel), [[1.0]])
+
+
+def test_train_with_multiple_minimizer_losses():
+    input_node = Input("multi_loss_input")
+    mse_target = Input("mse_target").last()
+    mae_target = Input("mae_target").last()
+    mse_linear = Linear(initializer="ones", bias_initializer="zeros")(input_node.last())
+    mae_linear = Linear(initializer="ones", bias_initializer="zeros")(input_node.last())
+    mse_output = Output("mse_output", mse_linear)
+    mae_output = Output("mae_output", mae_linear)
+
+    model = Modely(
+        "multiple_loss_model",
+        inputs=[input_node],
+        outputs=[mse_output, mae_output],
+    )
+    model.minimize("mse_error", mse_output, mse_target, loss="mse")
+    model.minimize("mae_error", mae_output, mae_target, loss="mae")
+    model.build()
+
+    data = DataLoader(
+        model,
+        source={"multi_loss_input": [1], "mse_target": [3], "mae_target": [2]},
+    )
+    history = model.train(
+        train_data=data,
+        epochs=1,
+        batch_size=1,
+        optimizer="sgd",
+        lr=0.1,
+    )
+
+    assert np.isfinite(history["loss"][-1])
+    assert mse_linear.kernel is not None
+    assert mae_linear.kernel is not None
+    assert not np.allclose(to_numpy(mse_linear.kernel), [[1.0]])
+    assert not np.allclose(to_numpy(mae_linear.kernel), [[1.0]])
+
+
+def test_train_with_custom_loss_function():
+    input_node = Input("custom_loss_input")
+    target = Input("custom_loss_target").last()
+    linear = Linear(initializer="ones", bias_initializer="ones")(input_node.last())
+    output = Output("custom_loss_output", linear)
+    model = Modely("custom_loss_model", inputs=[input_node], outputs=[output])
+    model.minimize("custom_error", output, target, loss=custom_quartic_loss)
+    model.build()
+
+    data = DataLoader(
+        model,
+        source={"custom_loss_input": [1], "custom_loss_target": [3]},
+    )
+    model.train(
+        train_data=data,
+        epochs=1,
+        batch_size=1,
+        optimizer="sgd",
+        lr=0.1,
+    )
+
+    assert linear.kernel is not None
+    assert linear.bias is not None
+    # Initial prediction is 2 and d((prediction - 3)^4)/d prediction is -4.
+    # With x=1 and SGD(lr=0.1), both variables increase by 0.4.
+    np.testing.assert_allclose(to_numpy(linear.kernel), [[1.4]], atol=1e-5)
+    np.testing.assert_allclose(to_numpy(linear.bias), [1.4], atol=1e-5)

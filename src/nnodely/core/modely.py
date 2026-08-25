@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from typing import Any
+from typing import Any, Callable
 
 from nnodely.core.dag import toposort, flatten, _flatten_graph
 from nnodely.core.registry import ModelSerializer
@@ -186,20 +186,27 @@ class Modely:
         name: str,
         source: Output | Stream,
         target: Output | Stream | float | None = None,
-        loss="mse",
+        loss: str | dict[str, Any] | keras.losses.Loss | Callable = "mse",
     ):
-        """Register a loss to minimize during training.
+        """Register a Keras loss to minimize during training.
+
         name: identifier for this loss (used as an output name in the training model)
         source: node/stream producing predictions (e.g., an Output node)
         target: node/stream providing target values (usually derived from an Input)
-        loss: loss identifier accepted by `keras.losses.get`
+        loss: Keras loss name, serialized config, Loss instance, or callable
         """
+        resolved_loss = self._resolve_loss(loss)
         if target is None:  ## Transform it into a Constant with value zero
             target = Constant(name=None, value=0.0)
         if isinstance(target, float):
             target = Constant(name=None, value=[target])
         self.minimizers.append(
-            {"name": name, "source": source, "target": target, "loss": loss}
+            {
+                "name": name,
+                "source": source,
+                "target": target,
+                "loss": resolved_loss,
+            }
         )
         return self
 
@@ -336,6 +343,20 @@ class Modely:
         }
 
     @staticmethod
+    def _resolve_loss(
+        loss: str | dict[str, Any] | keras.losses.Loss | Callable,
+    ) -> keras.losses.Loss | Callable:
+        """Resolve any loss supported by the installed Keras version."""
+        try:
+            resolved = keras.losses.get(loss)
+        except Exception as exc:
+            raise ValueError(f"Unknown or invalid Keras loss {loss!r}.") from exc
+
+        if not callable(resolved):
+            raise TypeError("loss must resolve to a callable Keras loss.")
+        return resolved
+
+    @staticmethod
     def _resolve_optimizer(
         optimizer: str | dict[str, Any] | keras.optimizers.Optimizer | None,
         learning_rate: float,
@@ -405,6 +426,10 @@ class Modely:
         km = self.model
 
         resolved_optimizer = self._resolve_optimizer(optimizer, lr, optimizer_kwargs)
+        resolved_losses = {
+            minimizer["name"]: self._resolve_loss(minimizer["loss"])
+            for minimizer in self.minimizers
+        }
 
         x_data = {
             name: np.asarray(values) for name, values in train_data.as_dict().items()
@@ -492,7 +517,7 @@ class Modely:
             unique_vars: list[tf.Variable] = []
             seen = set()
 
-            losses = {m["name"]: keras.losses.get(m["loss"]) for m in self.minimizers}
+            losses = resolved_losses
 
             train_history = {"loss": []}
             idxs = np.arange(n_samples)
@@ -613,9 +638,9 @@ class Modely:
             name: None for name in getattr(km, "output_names", [])
         }
         for minimizer in self.minimizers:
-            compile_losses[minimizer["source"].name] = keras.losses.get(
-                minimizer["loss"]
-            )
+            compile_losses[minimizer["source"].name] = resolved_losses[
+                minimizer["name"]
+            ]
 
         import time
         import sys
