@@ -115,63 +115,14 @@ class Fuzzify(Layer):
         function: str = "Triangular",
         name=None,
     ):
-        # if centers is not None:
-        #     resolved_centers = [float(value) for value in centers]
-        # else:
-        #     if output_dimension is None or range is None:
-        #         raise ValueError(
-        #             "Fuzzify requires either 'centers' or both 'output_dimension' and 'range'."
-        #         )
-
-        #     if len(range) != 2:
-        #         raise ValueError("Fuzzify range must contain exactly two values.")
-
-        #     resolved_centers = np.linspace(
-        #         float(range[0]),
-        #         float(range[1]),
-        #         int(output_dimension),
-        #     ).tolist()
-
-        # if output_dimension is None:
-        #     output_dimension = len(resolved_centers)
-
-        # if len(resolved_centers) != int(output_dimension):
-        #     raise ValueError(
-        #         "Fuzzify output_dimension must match the number of centers."
-        #     )
-
-        # self.output_dimension = int(output_dimension)
-        # self.range = (
-        #     tuple(float(value) for value in range) if range is not None else None
-        # )
-        # self.centers = tuple(resolved_centers)
-        # self.function = str(function)
-
         self.output_dimension = len(centers)
         self.centers = centers
         self.function = function
         super().__init__(
             name=name,
-            # output_dimension=self.output_dimension,
-            # range=self.range,
             centers=self.centers,
             function=self.function,
         )
-
-    def output_shape(self, *inputs):
-        inp = inputs[0]
-
-        if len(inp.dim) != 1:
-            raise ValueError(
-                f"Fuzzify currently expects a single input feature axis, got dim={inp.dim}"
-            )
-
-        if inp.dim[0] != 1:
-            raise ValueError(
-                f"Fuzzify expects scalar input dim=(1,), got dim={inp.dim}"
-            )
-
-        return (self.output_dimension,), inp.time, inp.seq
 
     def build_layer(self):
         return FuzzifyImpl(

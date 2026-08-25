@@ -6,20 +6,29 @@ import keras
 @keras.saving.register_keras_serializable(package="nnodely")
 class SampleWindowImpl(keras.layers.Layer):
     def __init__(
-        self, start: int, window_size: int, output_shape_no_batch, name=None, **kwargs
+        self,
+        start: int,
+        window_size: int,
+        dim_rank: int | None = None,
+        output_shape_no_batch=None,
+        name=None,
+        **kwargs,
     ):
         super().__init__(name=name, **kwargs)
         self.start = int(start)
         self.window_size = int(window_size)
-        self.output_shape_no_batch = tuple(output_shape_no_batch)
+
+        if dim_rank is None:
+            if output_shape_no_batch is None:
+                raise ValueError("SampleWindowImpl requires dim_rank.")
+            dim_rank = len(tuple(output_shape_no_batch)) - 1
+        self.dim_rank = int(dim_rank)
 
     def call(self, x):
         # Convention:
         # [batch, dim1, dim2, ..., time, seq1, seq2, ...]
-        dim_rank = len(self.output_shape_no_batch) - 1
-
         # This is valid because time axis is after batch + dim axes.
-        time_axis = 1 + dim_rank
+        time_axis = 1 + self.dim_rank
 
         slices = (
             [slice(None)] * time_axis
@@ -29,7 +38,9 @@ class SampleWindowImpl(keras.layers.Layer):
         return x[tuple(slices)]
 
     def compute_output_shape(self, input_shape):
-        return (input_shape[0],) + self.output_shape_no_batch
+        output_shape = list(input_shape)
+        output_shape[1 + self.dim_rank] = self.window_size
+        return tuple(output_shape)
 
     def get_config(self):
         config = super().get_config()
@@ -37,7 +48,7 @@ class SampleWindowImpl(keras.layers.Layer):
             {
                 "start": self.start,
                 "window_size": self.window_size,
-                "output_shape_no_batch": self.output_shape_no_batch,
+                "dim_rank": self.dim_rank,
             }
         )
         return config
@@ -57,10 +68,6 @@ class SampleWindow(Layer):
             name=name, time=self.window_size, past=self.past, future=self.future
         )
 
-    def output_shape(self, *inputs):
-        inp = inputs[0]
-        return inp.dim, self.past + self.future, inp.seq
-
     def build_layer(self):
         from nnodely.layers.input import Input
 
@@ -79,7 +86,7 @@ class SampleWindow(Layer):
         return SampleWindowImpl(
             start=start,
             window_size=self.window_size,
-            output_shape_no_batch=self.shape,
+            dim_rank=len(self.dim),
             name=self.name,
         )
 
@@ -104,14 +111,13 @@ class SelectImpl(keras.layers.Layer):
         self,
         idx: int,
         axis: int,
-        output_shape_no_batch,
+        output_shape_no_batch=None,
         name=None,
         **kwargs,
     ):
         super().__init__(name=name, **kwargs)
         self.idx = int(idx)
         self.axis = int(axis)
-        self.output_shape_no_batch = tuple(output_shape_no_batch)
 
     def call(self, x):
         # Dim axes start immediately after batch.
@@ -126,7 +132,9 @@ class SelectImpl(keras.layers.Layer):
         return x[tuple(slices)]
 
     def compute_output_shape(self, input_shape):
-        return (input_shape[0],) + self.output_shape_no_batch
+        output_shape = list(input_shape)
+        output_shape[1 + self.axis] = 1
+        return tuple(output_shape)
 
     def get_config(self):
         config = super().get_config()
@@ -134,7 +142,6 @@ class SelectImpl(keras.layers.Layer):
             {
                 "idx": self.idx,
                 "axis": self.axis,
-                "output_shape_no_batch": self.output_shape_no_batch,
             }
         )
         return config
@@ -172,29 +179,6 @@ class Select(Layer):
 
         return axis
 
-    def output_shape(self, *inputs):
-        inp = inputs[0]
-
-        if len(inp.dim) < 1:
-            raise ValueError(f"{self.name}: Select requires at least one dim axis.")
-
-        dim = list(inp.dim)
-        axis = self._resolve_dim_axis(len(dim))
-
-        idx = self.idx
-        if idx < 0:
-            idx += dim[axis]
-
-        if idx < 0 or idx >= dim[axis]:
-            raise ValueError(
-                f"{self.name}: idx {self.idx} out of bounds for dim axis {axis} "
-                f"of size {dim[axis]}."
-            )
-
-        dim[axis] = 1
-
-        return tuple(dim), inp.time, inp.seq
-
     def build_layer(self):
         axis = self._resolve_dim_axis(len(self.dim))
 
@@ -205,7 +189,6 @@ class Select(Layer):
         return SelectImpl(
             idx=idx,
             axis=axis,
-            output_shape_no_batch=tuple(self.shape),
             name=self.name,
         )
 

@@ -28,6 +28,7 @@ def next_name(prefix: str) -> str:
 
 def flatten_node(node: Node, memo: dict[Node, Node]) -> Any:
     from nnodely.core.modely import IntermediateOutput
+    from nnodely.core.layer import Layer
 
     if node in memo:
         return memo[node]
@@ -47,6 +48,8 @@ def flatten_node(node: Node, memo: dict[Node, Node]) -> Any:
     new_preds = [flatten_node(pred, memo) for pred in node.preds]
     new_node = copy(node)
     new_node.preds = new_preds
+    if isinstance(new_node, Layer):
+        new_node._layer = None
     memo[node] = new_node
     return new_node
 

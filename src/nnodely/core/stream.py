@@ -157,13 +157,6 @@ class Stream(Node):
         """
         return self.shape.rank
 
-    # @property
-    # def time_index(self) -> int | None:
-    #     """
-    #     Return the index of the time dimension in the shape, or None if no time dimension.
-    #     """
-    #     return len(self.dim) + 1 if isinstance(self.time, int) else None
-
     def __add__(self, other):
         from nnodely.core.layer import Add
 

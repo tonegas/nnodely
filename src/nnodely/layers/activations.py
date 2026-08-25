@@ -27,9 +27,6 @@ class ReLU(Layer):
             threshold=self.threshold,
         )
 
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
-
     def build_layer(self):
         self._layer = keras.layers.ReLU(
             max_value=self.max_value,
@@ -53,9 +50,6 @@ class LeakyReLU(Layer):
     def __init__(self, negative_slope: float = 0.3, name=None):
         self.negative_slope = float(negative_slope)
         super().__init__(name=name, negative_slope=self.negative_slope)
-
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
 
     def build_layer(self):
         self._layer = keras.layers.LeakyReLU(
@@ -98,9 +92,6 @@ class ELU(Layer):
         self.alpha = float(alpha)
         super().__init__(name=name, alpha=self.alpha)
 
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
-
     def build_layer(self):
         self._layer = ELUImpl(alpha=self.alpha, name=self.name)
         return self._layer
@@ -117,9 +108,6 @@ class PReLU(Layer):
     def __init__(self, shared_axes=None, name=None):
         self.shared_axes = shared_axes
         super().__init__(name=name, shared_axes=self.shared_axes)
-
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
 
     def build_layer(self):
         self._layer = keras.layers.PReLU(shared_axes=self.shared_axes, name=self.name)
@@ -138,9 +126,6 @@ class Softmax(Layer):
         self.axis = int(axis)
         super().__init__(name=name, axis=self.axis)
 
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
-
     def build_layer(self):
         self._layer = keras.layers.Softmax(axis=self.axis, name=self.name)
         return self._layer
@@ -157,9 +142,6 @@ class Sigmoid(Layer):
     def __init__(self, name=None):
         super().__init__(name=name)
 
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
-
     def build_layer(self):
         self._layer = keras.layers.Activation("sigmoid", name=self.name)
         return self._layer
@@ -171,9 +153,6 @@ class Tanh(Layer):
     def __init__(self, name=None):
         super().__init__(name=name)
 
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
-
     def build_layer(self):
         self._layer = keras.layers.Activation("tanh", name=self.name)
         return self._layer
@@ -184,9 +163,6 @@ class Swish(Layer):
 
     def __init__(self, name=None):
         super().__init__(name=name)
-
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
 
     def build_layer(self):
         self._layer = keras.layers.Activation("swish", name=self.name)
@@ -215,9 +191,6 @@ class GELU(Layer):
         self.approximate = bool(approximate)
         super().__init__(name=name, approximate=self.approximate)
 
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
-
     def build_layer(self):
         self._layer = GELUImpl(approximate=self.approximate, name=self.name)
         return self._layer
@@ -243,9 +216,6 @@ class Softplus(Layer):
 
     def __init__(self, name=None):
         super().__init__(name=name)
-
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
 
     def build_layer(self):
         self._layer = SoftplusImpl(name=self.name)

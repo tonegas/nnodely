@@ -26,7 +26,7 @@ class Input(Stream):
         self.past, self.future = (
             0,
             0,
-        )  # default window sizes, can be updated by sw() or by build() with sampling
+        )
 
     def sw(self, window_size: int | list[int]):
         """Crea SampleWindow (Layer) con finestra temporale. Aggiorna self.time (max finestra)."""
@@ -46,24 +46,6 @@ class Input(Stream):
         self.shape.time = self.past + self.future
         self.input = keras.Input(shape=self.shape, name=self.name)
         return SampleWindow(past=local_past, future=local_future)([self])
-
-    # def tw(self, window_size: float | list[float]):
-    #     """Crea SampleWindow (Layer) con finestra temporale basata su tempo reale. Aggiorna self.time (max finestra)."""
-    #     if self.sampling is None:
-    #         raise ValueError(f"{self.name}: cannot use tw() without sampling defined.")
-    #     if isinstance(window_size, list):
-    #         if len(window_size) != 2:
-    #             raise ValueError(f"{self.name}: window_size list must have length 2, got {len(window_size)}.")
-    #         self.past, self.future = int(window_size[0] / self.sampling), int(window_size[1] / self.sampling)
-    #         window_size = self.past + self.future
-    #         self.time = max(self.time, window_size)
-    #     else:
-    #         window_size = int(window_size / self.sampling)
-    #         self.time = max(self.time, window_size)
-    #         self.past, self.future = window_size, 0
-
-    #     self.input = keras.Input(shape=self.shape, name=self.name)
-    #     return SampleWindow(window_size)([self])
 
     def last(self):
         """Shortcut per sw(1)."""
@@ -85,8 +67,6 @@ class Input(Stream):
 
     @classmethod
     def from_config(cls, config: dict, preds=None):
-        # shape = Shape.from_config(config["shape"])
-
         node = cls(
             name=config["name"],
             dim=config["dim"],

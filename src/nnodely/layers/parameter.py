@@ -124,9 +124,6 @@ class Parameter(Layer):
             initializer=initializer,
         )
 
-    def output_shape(self, *inputs):
-        return self.dimensions
-
     def build_layer(self):
         return ParameterImpl(
             parameter_shape=self.shape,

@@ -45,7 +45,3 @@ class GetItem(Layer):
 
     def build_layer(self):
         return GetItemImpl(self.key, name=self.name)
-
-    def output_shape(self, *inputs):
-        # Keep the same shape as the input
-        return inputs[0].dimensions

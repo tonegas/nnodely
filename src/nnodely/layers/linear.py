@@ -99,16 +99,6 @@ class Linear(Layer):
             **kwargs,
         )
 
-    def output_shape(self, *inputs):
-        x = inputs[0]
-
-        if len(x.dim) != 1:
-            raise ValueError(
-                f"Linear currently expects a single dim axis, got dim={x.dim}"
-            )
-
-        return (self.out_features,), x.time, x.seq
-
     def build_layer(self):
         return LinearImpl(
             out_features=self.out_features,

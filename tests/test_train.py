@@ -6,6 +6,7 @@ import pytest
 import numpy as np
 import keras
 from conftest import to_numpy
+from nnodely.utils.utils import _resolve_loss, _resolve_optimizer
 
 
 @keras.saving.register_keras_serializable(package="nnodely_test")
@@ -209,7 +210,7 @@ def test_training_values_linear():
     ],
 )
 def test_resolve_builtin_optimizer(optimizer_name):
-    optimizer = Modely._resolve_optimizer(
+    optimizer = _resolve_optimizer(
         optimizer_name,
         learning_rate=0.123,
         optimizer_kwargs=None,
@@ -220,7 +221,7 @@ def test_resolve_builtin_optimizer(optimizer_name):
 
 
 def test_resolve_optimizer_instance_and_config():
-    optimizer_with_kwargs = Modely._resolve_optimizer(
+    optimizer_with_kwargs = _resolve_optimizer(
         "sgd",
         learning_rate=0.1,
         optimizer_kwargs={"momentum": 0.9, "nesterov": True},
@@ -230,13 +231,11 @@ def test_resolve_optimizer_instance_and_config():
     assert optimizer_with_kwargs.nesterov is True
 
     optimizer_instance = keras.optimizers.SGD(learning_rate=0.25, momentum=0.5)
-    assert (
-        Modely._resolve_optimizer(optimizer_instance, 1.0, None) is optimizer_instance
-    )
+    assert _resolve_optimizer(optimizer_instance, 1.0, None) is optimizer_instance
 
     config = keras.optimizers.serialize(optimizer_instance)
     assert type(config) is dict
-    optimizer_from_config = Modely._resolve_optimizer(config, 1.0, None)
+    optimizer_from_config = _resolve_optimizer(config, 1.0, None)
     assert isinstance(optimizer_from_config, keras.optimizers.SGD)
     np.testing.assert_allclose(to_numpy(optimizer_from_config.learning_rate), 0.25)
     assert optimizer_from_config.momentum == 0.5
@@ -304,16 +303,16 @@ def test_train_with_custom_optimizer():
     ],
 )
 def test_resolve_builtin_loss(loss_name):
-    assert callable(Modely._resolve_loss(loss_name))
+    assert callable(_resolve_loss(loss_name))
 
 
 def test_resolve_loss_instance_and_config():
     loss_instance = keras.losses.MeanSquaredError(reduction="sum")
-    assert Modely._resolve_loss(loss_instance) is loss_instance
+    assert _resolve_loss(loss_instance) is loss_instance
 
     config = keras.losses.serialize(loss_instance)
     assert type(config) is dict
-    loss_from_config = Modely._resolve_loss(config)
+    loss_from_config = _resolve_loss(config)
 
     assert isinstance(loss_from_config, keras.losses.MeanSquaredError)
     np.testing.assert_allclose(

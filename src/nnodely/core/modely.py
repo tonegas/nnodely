@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from nnodely.core.dag import toposort, flatten, _flatten_graph
+from nnodely.utils.utils import _resolve_loss, _resolve_optimizer
 from nnodely.core.registry import ModelSerializer
 from nnodely.core.stream import Stream, Node
 from nnodely.layers.constant import Constant
@@ -20,21 +21,6 @@ from nnodely.layers.input import Input
 from nnodely.core.layer import Layer
 
 import keras
-
-
-SUPPORTED_OPTIMIZERS = {
-    "sgd",
-    "rmsprop",
-    "adam",
-    "adamw",
-    "adagrad",
-    "adadelta",
-    "adamax",
-    "adafactor",
-    "nadam",
-    "ftrl",
-    "lion",
-}
 
 
 class Modely:
@@ -144,30 +130,10 @@ class Modely:
                 if len(node.preds) == 0:  ## Parameters and Constants
                     anchor = next(iter(tensor_map.values()), None)
                     tensor_map[node.name] = node.call([anchor])
-                    ##TODO: remove this code in the future
-                    # if (
-                    #     isinstance(tensor_map[node.name], tuple)
-                    #     and len(tensor_map[node.name]) > 1
-                    # ):
-                    #     idx = node.name.rfind("_")
-                    #     if idx != -1 and node.name[idx + 1 :].isdigit():
-                    #         tensor_map[node.name] = tensor_map[node.name][
-                    #             int(node.name[idx + 1 :])
-                    #         ]
                 else:
                     tensor_map[node.name] = node.call(
                         [tensor_map[pred.name] for pred in node.preds]
                     )
-                    ##TODO: remove this code in the future
-                    # if (
-                    #     isinstance(tensor_map[node.name], tuple)
-                    #     and len(tensor_map[node.name]) > 1
-                    # ):
-                    #     idx = node.name.rfind("_")
-                    #     if idx != -1 and node.name[idx + 1 :].isdigit():
-                    #         tensor_map[node.name] = tensor_map[node.name][
-                    #             int(node.name[idx + 1 :])
-                    #         ]
             else:  ## Output or other non-Layer node
                 tensor_map[node.name] = tensor_map[node.preds[0].name]
 
@@ -195,7 +161,7 @@ class Modely:
         target: node/stream providing target values (usually derived from an Input)
         loss: Keras loss name, serialized config, Loss instance, or callable
         """
-        resolved_loss = self._resolve_loss(loss)
+        resolved_loss = _resolve_loss(loss)
         if target is None:  ## Transform it into a Constant with value zero
             target = Constant(name=None, value=0.0)
         if isinstance(target, float):
@@ -342,60 +308,6 @@ class Modely:
             "predictions": predictions,
         }
 
-    @staticmethod
-    def _resolve_loss(
-        loss: str | dict[str, Any] | keras.losses.Loss | Callable,
-    ) -> keras.losses.Loss | Callable:
-        """Resolve any loss supported by the installed Keras version."""
-        try:
-            resolved = keras.losses.get(loss)
-        except Exception as exc:
-            raise ValueError(f"Unknown or invalid Keras loss {loss!r}.") from exc
-
-        if not callable(resolved):
-            raise TypeError("loss must resolve to a callable Keras loss.")
-        return resolved
-
-    @staticmethod
-    def _resolve_optimizer(
-        optimizer: str | dict[str, Any] | keras.optimizers.Optimizer | None,
-        learning_rate: float,
-        optimizer_kwargs: dict[str, Any] | None,
-    ) -> keras.optimizers.Optimizer:
-        if optimizer is None:
-            optimizer = "adam"
-
-        if isinstance(optimizer, str):
-            if optimizer.lower() not in SUPPORTED_OPTIMIZERS:
-                raise ValueError(
-                    f"Unknown or invalid Keras optimizer {optimizer!r}. the following optimizers are supported: [{', '.join(SUPPORTED_OPTIMIZERS)}]"
-                )
-            config = keras.optimizers.serialize(keras.optimizers.get(optimizer))
-            if type(config) is dict and "config" in config:
-                config["config"].update(optimizer_kwargs or {})
-                config["config"]["learning_rate"] = learning_rate
-            return keras.optimizers.deserialize(config)
-
-        if optimizer_kwargs:
-            raise ValueError(
-                "optimizer_kwargs can only be used when optimizer is a name. "
-                "Configure optimizer instances or serialized configurations "
-                "before passing them to train()."
-            )
-
-        try:
-            resolved = keras.optimizers.get(optimizer)
-        except Exception as exc:
-            raise ValueError(
-                "Invalid Keras optimizer configuration or instance."
-            ) from exc
-
-        if not isinstance(resolved, keras.optimizers.Optimizer):
-            raise TypeError(
-                "optimizer must resolve to an instance of keras.optimizers.Optimizer."
-            )
-        return resolved
-
     def train(
         self,
         train_data: DataLoader,
@@ -425,9 +337,9 @@ class Modely:
             raise ValueError("Model is not built. Call build() before training.")
         km = self.model
 
-        resolved_optimizer = self._resolve_optimizer(optimizer, lr, optimizer_kwargs)
+        resolved_optimizer = _resolve_optimizer(optimizer, lr, optimizer_kwargs)
         resolved_losses = {
-            minimizer["name"]: self._resolve_loss(minimizer["loss"])
+            minimizer["name"]: _resolve_loss(minimizer["loss"])
             for minimizer in self.minimizers
         }
 

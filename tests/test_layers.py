@@ -2,6 +2,8 @@ from nnodely import Input, Output, Modely, Parameter, Constant
 from nnodely.layers.concatenate import Concatenate, TimeConcatenate
 from nnodely.layers.trigonometric import Sin, Cos, Tan, Asin, Acos, Atan
 from nnodely.layers.fir import Fir
+from nnodely.core.layer import Layer
+import keras
 from nnodely.layers.activations import (
     ReLU,
     Sigmoid,
@@ -16,6 +18,41 @@ from nnodely.layers.activations import (
 )
 import numpy as np
 from conftest import to_numpy
+
+
+class DoubleFeaturesImpl(keras.layers.Layer):
+    def call(self, x):
+        return keras.ops.concatenate([x, x], axis=1)
+
+
+class DoubleFeatures(Layer):
+    """Test layer relying entirely on Layer.output_shape()."""
+
+    def build_layer(self):
+        return DoubleFeaturesImpl(name=self.name)
+
+
+def test_automatic_layer_output_shape():
+    x = Input("automatic_shape_input", dim=2)
+    doubled = DoubleFeatures(name="double_features")(x.sw(3))
+
+    assert doubled.dim == (4,)
+    assert doubled.time == 3
+    assert doubled.seq == ()
+
+    model = Modely(
+        "automatic_shape_model",
+        inputs=[x],
+        outputs=[Output("automatic_shape_output", doubled)],
+    ).build()
+    values = np.arange(6, dtype=np.float32).reshape(1, 2, 3)
+    result = to_numpy(
+        model({"automatic_shape_input": values})["automatic_shape_output"]
+    )
+
+    assert result.shape == (1, 4, 3)
+    np.testing.assert_allclose(result[:, :2], values)
+    np.testing.assert_allclose(result[:, 2:], values)
 
 
 def test_trigonometric():

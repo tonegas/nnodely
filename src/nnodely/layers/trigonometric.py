@@ -28,9 +28,6 @@ class Trigonometric(Layer):
     def __init__(self, name=None):
         super().__init__(name=name)
 
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions
-
     def build_layer(self):
         return TrigonometricImpl(operation=self.operation, name=self.name)
 
