@@ -1,7 +1,8 @@
 __pycache__
 .venv
-.idea/
-.vscode
+.idea/*
+.cursor/*
+.vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
 

@@ -25,6 +25,7 @@ dependencies = [
   "pandas>=2.3.3",
   "tensorflow>=2.21.0",
   "tqdm>=4.67.3",
+  "cloudpickle>=3.0.0"
 ]
 
 [project.optional-dependencies]
