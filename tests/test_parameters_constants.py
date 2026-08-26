@@ -12,6 +12,18 @@ def test_parameter_constant_shapes():
     assert c.shape.dim == (1,)
 
 
+def test_parameter_shape_is_inferred_like_constant():
+    parameter = Parameter(
+        "parameter_sequence", value=np.ones((2, 3, 4), dtype=np.float32)
+    )
+    parameter_with_dim = Parameter(
+        "parameter_with_dim", value=np.ones((1, 3, 4), dtype=np.float32), dim=1
+    )
+
+    assert parameter.shape.dimensions == ((2,), 3, (4,))
+    assert parameter_with_dim.shape.dimensions == ((1,), 3, (4,))
+
+
 def test_parameter_constant_model_inference():
     x = Input("x", dim=1)
     parameter = Parameter("param1", value=[[1.0]])

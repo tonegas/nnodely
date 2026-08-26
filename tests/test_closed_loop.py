@@ -1,10 +1,6 @@
 # import os
 
-# import pytest
-
-# os.environ.setdefault("KERAS_BACKEND", "jax")
-
-# from nnodely import Input, Output, Modely, Loop, Parameter, DataLoader
+# from nnodely import Input, Output, Modely, Loop, Parameter
 # import numpy as np
 
 
@@ -358,8 +354,3 @@
 #     print("Weights of simple model:", model_in.model.get_weights())
 #     assert model_in.model.get_weights()[0] == pytest.approx(4.0, rel=1e-2)
 #     assert model_in.model.get_weights()[1] == pytest.approx(2.0, rel=1e-2)
-
-
-# if __name__ == "__main__":
-#     test_simple_model(tmp_path="html")
-#     test_simple_model2(tmp_path="html")

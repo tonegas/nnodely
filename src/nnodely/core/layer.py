@@ -44,8 +44,17 @@ class Layer(Stream):
                 "Layers without inputs must implement output_shape()."
             )
 
+        zero_input_layers = [
+            isinstance(input_node, Layer) and len(input_node.preds) == 0
+            for input_node in inputs
+        ]
         dummy_inputs = [
-            keras.ops.zeros((1, *input_node.shape.tuple)) for input_node in inputs
+            keras.ops.zeros(
+                input_node.shape.tuple
+                if is_zero_input_layer
+                else (1, *input_node.shape.tuple)
+            )
+            for input_node, is_zero_input_layer in zip(inputs, zero_input_layers)
         ]
 
         # Some build_layer() implementations need the symbolic input context to
@@ -73,13 +82,19 @@ class Layer(Stream):
         multiple_outputs = isinstance(outputs, (list, tuple))
         output_values = list(outputs) if multiple_outputs else [outputs]
         inferred = [
-            self._shape_from_tensor(output, inputs[0].shape.seq_rank)
+            self._shape_from_tensor(
+                output,
+                inputs[0].shape.seq_rank,
+                has_batch=not all(zero_input_layers),
+            )
             for output in output_values
         ]
         return inferred if multiple_outputs else inferred[0]
 
-    def _shape_from_tensor(self, tensor, seq_rank: int):
-        shape = tuple(tensor.shape)[1:]  # Remove the dummy batch dimension.
+    def _shape_from_tensor(self, tensor, seq_rank: int, *, has_batch: bool):
+        shape = tuple(tensor.shape)
+        if has_batch:
+            shape = shape[1:]
         minimum_rank = seq_rank + 2  # At least one dim axis and one time axis.
         if len(shape) < minimum_rank:
             raise ValueError(
@@ -157,26 +172,57 @@ class Layer(Stream):
 
 
 class BinaryOp(Layer):
-    keras_op = None
+    operation = None
 
     def build_layer(self) -> keras.layers.Layer:
-        if self.keras_op is None:
+        if self.operation is None:
             raise NotImplementedError(
-                "Subclasses must define a keras_op class attribute."
+                "Subclasses must define an operation class attribute."
             )
-        return self.keras_op(name=self.name)
+        return BinaryOpImpl(operation=self.operation, name=self.name)
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class BinaryOpImpl(keras.layers.Layer):
+    def __init__(self, operation: str, **kwargs):
+        super().__init__(**kwargs)
+        self.operation = operation
+
+    def call(self, xs):
+        target_rank = max(len(value.shape) for value in xs)
+        values = list(xs)
+        for index, value in enumerate(values):
+            while len(value.shape) < target_rank:
+                value = keras.ops.expand_dims(value, axis=0)
+            values[index] = value
+
+        operations = {
+            "add": keras.ops.add,
+            "subtract": keras.ops.subtract,
+            "multiply": keras.ops.multiply,
+        }
+        operation = operations[self.operation]
+        result = values[0]
+        for value in values[1:]:
+            result = operation(result, value)
+        return result
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"operation": self.operation})
+        return config
 
 
 class Add(BinaryOp):
-    keras_op = keras.layers.Add
+    operation = "add"
 
 
 class Subtract(BinaryOp):
-    keras_op = keras.layers.Subtract
+    operation = "subtract"
 
 
 class Multiply(BinaryOp):
-    keras_op = keras.layers.Multiply
+    operation = "multiply"
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -210,6 +256,3 @@ class Power(BinaryOp):
 class Identity(Layer):
     def build_layer(self):
         return keras.layers.Identity(name=self.name)
-
-    def output_shape(self, *inputs):
-        return inputs[0].dimensions

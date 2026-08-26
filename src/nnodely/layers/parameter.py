@@ -32,20 +32,11 @@ class ParameterImpl(keras.layers.Layer):
         return config
 
     def build(self, input_shape=None):
-        if self.value is not None:
-            value = np.asarray(self.value, dtype=np.float32)
-            if value.shape != self.parameter_shape:
-                try:
-                    value = np.reshape(value, self.parameter_shape)
-                except Exception as e:
-                    raise ValueError(
-                        f"Parameter value shape {value.shape} is incompatible "
-                        f"with expected shape {self.parameter_shape}"
-                    ) from e
-
-            initializer = keras.initializers.Constant(value=value.tolist())
-        else:
-            initializer = keras.initializers.get(self.initializer)
+        initializer = (
+            keras.initializers.get(self.initializer)
+            if self.value is None
+            else keras.initializers.Constant(value=self.value.tolist())
+        )
 
         self.param = self.add_weight(
             name="value",
@@ -57,19 +48,7 @@ class ParameterImpl(keras.layers.Layer):
         super().build(input_shape)
 
     def call(self, anchor):
-        value = keras.ops.expand_dims(self.param, axis=0)
-        zero = (
-            keras.ops.sum(
-                anchor,
-                axis=tuple(range(1, len(anchor.shape))),
-            )
-            * 0.0
-        )
-        zero = keras.ops.reshape(
-            zero,
-            (-1,) + (1,) * len(self.parameter_shape),
-        )
-        return value + zero
+        return self.param
 
 
 class Parameter(Layer):
@@ -90,27 +69,22 @@ class Parameter(Layer):
         time=None,
         dim=None,
     ):
-        if value is not None:
-            arr = np.asarray(value, dtype=np.float32)
+        arr = (
+            None
+            if value is None
+            else np.atleast_1d(np.asarray(value, dtype=np.float32))
+        )
 
-            if arr.ndim == 0:
-                arr = arr.reshape(1)
-                dim = (1,)
-                time = None
-                seq = None
-            elif arr.ndim == 1:
-                arr = arr.reshape(arr.shape[0], 1)
-                dim = (arr.shape[0],)
-                time = None
-                seq = None
+        if arr is not None:
+            if dim is None:
+                dim = arr.shape[0]
+                time = arr.shape[1] if arr.ndim > 1 else None
+                seq = arr.shape[2:] if arr.ndim > 2 else None
             else:
-                dim = tuple(arr.shape[:-1])
-                time = arr.shape[-1]
-                seq = None
+                time = arr.shape[dim] if arr.ndim > dim else None
+                seq = arr.shape[dim + 1 :] if arr.ndim > dim + 1 else None
 
-            value = arr
-
-        self.value = value
+        self.value = arr
         self.initializer = initializer
 
         super().__init__(
@@ -118,9 +92,7 @@ class Parameter(Layer):
             seq=seq,
             time=time,
             dim=dim,
-            value=None
-            if value is None
-            else np.asarray(value, dtype=np.float32).tolist(),
+            value=None if arr is None else arr.tolist(),
             initializer=initializer,
         )
 

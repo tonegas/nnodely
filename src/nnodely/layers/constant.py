@@ -22,43 +22,17 @@ class ConstantImpl(keras.layers.Layer):
         return config
 
     def build(self, input_shape=None):
-        value = np.asarray(self.value, dtype=np.float32)
-
-        if value.shape != self.constant_shape:
-            try:
-                value = np.reshape(value, self.constant_shape)
-            except Exception as e:
-                raise ValueError(
-                    f"Constant value shape {value.shape} is incompatible "
-                    f"with expected shape {self.constant_shape}"
-                ) from e
-
         self.constant = self.add_weight(
             name="value",
             shape=self.constant_shape,
-            initializer=keras.initializers.Constant(value=value.tolist()),
+            initializer=keras.initializers.Constant(value=self.value.tolist()),
             trainable=False,
             dtype="float32",
         )
         super().build(input_shape)
 
     def call(self, anchor):
-        value = keras.ops.expand_dims(self.constant, axis=0)
-
-        zero = (
-            keras.ops.sum(
-                anchor,
-                axis=tuple(range(1, len(anchor.shape))),
-            )
-            * 0.0
-        )
-
-        zero = keras.ops.reshape(
-            zero,
-            (-1,) + (1,) * len(self.constant_shape),
-        )
-
-        return value + zero
+        return self.constant
 
 
 class Constant(Layer):
@@ -74,26 +48,20 @@ class Constant(Layer):
         name: str | None = None,
         *,
         value,
+        dim=None,
     ):
         if value is None:
             raise ValueError("Constant requires a value.")
 
-        arr = np.asarray(value, dtype=np.float32)
+        arr = np.atleast_1d(np.asarray(value, dtype=np.float32))
 
-        if arr.ndim == 0:
-            arr = arr.reshape(1)
-            dim = (1,)
-            time = None
-            seq = None
-        elif arr.ndim == 1:
-            arr = arr.reshape(arr.shape[0], 1)
-            dim = (arr.shape[0],)
-            time = None
-            seq = None
+        if dim is None:
+            dim = arr.shape[0]
+            time = arr.shape[1] if arr.ndim > 1 else None
+            seq = arr.shape[2:] if arr.ndim > 2 else None
         else:
-            dim = tuple(arr.shape[:-1])
-            time = arr.shape[-1]
-            seq = None
+            time = arr.shape[dim] if arr.ndim > dim else None
+            seq = arr.shape[dim + 1 :] if arr.ndim > dim + 1 else None
 
         self.value = arr
         super().__init__(
