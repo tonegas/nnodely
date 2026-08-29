@@ -2,11 +2,13 @@ import keras
 
 from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
+from nnodely.core.stream import Stream
+from nnodely.layers.input import Input
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
-class LoopImpl(keras.layers.Layer):
-    """Unroll a model while shifting its feedback into a temporal window."""
+class ScanImpl(keras.layers.Layer):
+    """Apply a Keras model recurrently and return the final feedback value."""
 
     def __init__(
         self,
@@ -14,8 +16,8 @@ class LoopImpl(keras.layers.Layer):
         callback_input_name: str,
         callback_output_name: str,
         static_input_names: tuple[str, ...],
-        steps: int,
-        time_axis: int,
+        horizon: int,
+        sequence_axis: int,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -23,29 +25,32 @@ class LoopImpl(keras.layers.Layer):
         self.callback_input_name = callback_input_name
         self.callback_output_name = callback_output_name
         self.static_input_names = tuple(static_input_names)
-        self.steps = int(steps)
-        self.time_axis = int(time_axis)
+        self.horizon = int(horizon)
+        self.sequence_axis = int(sequence_axis)
 
     def call(self, inputs):
-        if not isinstance(inputs, (list, tuple)):
-            inputs = [inputs]
-        state, *static_inputs = inputs
+        initial, sequence_anchor, *static_inputs = inputs
 
-        for _ in range(self.steps):
-            model_inputs = {self.callback_input_name: state}
+        state = initial
+        while len(state.shape) < len(sequence_anchor.shape):
+            state = keras.ops.expand_dims(state, axis=0)
+        state = state + keras.ops.zeros_like(sequence_anchor)
+
+        def step(carry, _):
+            model_inputs = {self.callback_input_name: carry}
             model_inputs.update(zip(self.static_input_names, static_inputs))
-            feedback = self.model(model_inputs)
-            if isinstance(feedback, dict):
-                feedback = feedback[self.callback_output_name]
+            outputs = self.model(model_inputs)
+            if isinstance(outputs, dict):
+                outputs = outputs[self.callback_output_name]
+            return outputs, outputs
 
-            slices = [slice(None)] * len(state.shape)
-            slices[self.time_axis] = slice(1, None)
-            state = keras.ops.concatenate(
-                [state[tuple(slices)], feedback],
-                axis=self.time_axis,
-            )
-
-        return state
+        final_state, _ = keras.ops.scan(
+            step,
+            init=state,
+            xs=None,
+            length=self.horizon,
+        )
+        return keras.ops.take(final_state, -1, axis=self.sequence_axis)
 
     def get_config(self):
         config = super().get_config()
@@ -55,8 +60,8 @@ class LoopImpl(keras.layers.Layer):
                 "callback_input_name": self.callback_input_name,
                 "callback_output_name": self.callback_output_name,
                 "static_input_names": self.static_input_names,
-                "steps": self.steps,
-                "time_axis": self.time_axis,
+                "horizon": self.horizon,
+                "sequence_axis": self.sequence_axis,
             }
         )
         return config
@@ -68,54 +73,68 @@ class LoopImpl(keras.layers.Layer):
         return cls(**config)
 
 
-class Loop(Layer):
-    """Unroll a built Modely over a temporal feedback window."""
+class Scan(Layer):
+    """Close one output of a built Modely onto one of its sequenced inputs."""
 
     def __init__(
         self,
         f: Modely,
         callback: dict,
-        steps: int | None = None,
+        initial: Stream | Input | float | int = 0.0,
         name=None,
     ):
         if not f.built:
             raise ValueError("Loop Modely body must be built before creating Loop.")
-        if not isinstance(callback, dict) or len(callback) != 1:
+        if (
+            not isinstance(callback, dict) or len(callback) != 1
+        ):  # TODO: in future support multiple feedbacks
             raise ValueError(
-                "Loop callback must contain exactly one input: output pair."
+                "Scan callback must contain exactly one input: output pair."
             )
 
         callback_input, callback_output = next(iter(callback.items()))
         callback_input = self._find_node(f.inputs, callback_input, "input")
         callback_output = self._find_node(f.outputs, callback_output, "output")
 
-        expected_output_shape = (
-            tuple(callback_input.dim) + (1,) + tuple(callback_input.seq)
-        )
-        if callback_output.shape.tuple != expected_output_shape:
+        if not callback_input.seq or callback_input.seq[0] is None:
             raise ValueError(
-                "Loop callback output must produce one temporal sample with shape "
-                f"{expected_output_shape}, got {callback_output.shape.tuple}."
+                "Scan callback input must have a fixed first sequence dimension, "
+                f"got seq={callback_input.seq}."
+            )
+        # if callback_output.shape.tuple != callback_input.shape.tuple:
+        #     raise ValueError(
+        #         "Scan callback output shape must match its input shape, got "
+        #         f"{callback_output.shape.tuple} and {callback_input.shape.tuple}."
+        #     )
+
+        static_inputs = [node for node in f.inputs if node is not callback_input]
+        sequenced_static = [node.name for node in static_inputs if node.seq]
+        if sequenced_static:
+            raise ValueError(
+                "Scan currently supports non-feedback inputs without seq only; "
+                f"got {sequenced_static}."
             )
 
-        if steps is None:
-            steps = callback_input.time
-        if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
-            raise ValueError("Loop steps must be a positive integer.")
+        if not isinstance(initial, Stream):
+            from nnodely.layers.constant import Constant
+
+            initial = Constant(name=None, value=initial)
 
         self.f = f
         self.callback = {callback_input: callback_output}
         self.callback_input = callback_input
         self.callback_output = callback_output
-        self.static_inputs = [node for node in f.inputs if node is not callback_input]
-        self.steps = steps
+        self.static_inputs = static_inputs
+        self.initial = initial
+        self.horizon = int(callback_input.seq[0])
+        self.remaining_seq = tuple(callback_input.seq[1:])
 
         super().__init__(
             name=name,
-            preds=[callback_input, *self.static_inputs],
+            preds=[initial, callback_input, *static_inputs],
             dim=callback_input.dim,
             time=callback_input.time,
-            seq=callback_input.seq,
+            seq=self.remaining_seq,
         )
 
     @staticmethod
@@ -133,18 +152,18 @@ class Loop(Layer):
         return value
 
     def build_layer(self):
-        return LoopImpl(
+        return ScanImpl(
             model=self.f.model,
             callback_input_name=self.callback_input.name,
             callback_output_name=self.callback_output.name,
             static_input_names=tuple(node.name for node in self.static_inputs),
-            steps=self.steps,
-            time_axis=self.callback_input.shape.dim_rank + 1,
+            horizon=self.horizon,
+            sequence_axis=self.callback_input.shape.dim_rank + 2,
             name=self.name,
         )
 
     def get_config(self):
         return {
             "name": self.name,
-            "steps": self.steps,
+            "horizon": self.horizon,
         }

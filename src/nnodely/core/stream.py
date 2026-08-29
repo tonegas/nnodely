@@ -113,7 +113,7 @@ class Shape:
         return self.tuple[item]
 
     def __repr__(self):
-        return f"Shape(dim={self.dim}, time={self.time}, seq={self.seq})"
+        return str(self.tuple)
 
 
 class Stream(Node):

@@ -83,13 +83,16 @@ def test_visualize_loop(tmp_path):
     model1 = Modely(name="model1", inputs=[x, y], outputs=[out1])
     model1.build()
 
-    z = Input(name="z", dim=1, seq=5)
-    const = Constant("const", value=2.0)
-    r2 = z.sw(1) * const
+    z = Input(name="z", dim=1)
+    r2 = Fir(out_features=1, use_bias=False)(z.sw(5))
+    loop_body_output = Output("loop_body_output", r2)
+    loop_body = Modely(name="loop_body", inputs=[z], outputs=[loop_body_output]).build()
     loop_fn = Loop(
-        f=model1, closed_loop={"x": "out1"}, initial_values={"x": z}, name="loop_fn"
+        f=loop_body,
+        callback={z: loop_body_output},
+        name="loop_fn",
     )
-    out = Output("out", loop_fn([z, r2]))
+    out = Output("out", loop_fn)
     model = Modely(name="model", inputs=[z], outputs=[out])
     model.build()
 
@@ -100,6 +103,10 @@ def test_visualize_loop(tmp_path):
     # ------- Model export to HTML -------
     model1.export_html(out_dir=tmp_path, filename="model1")
     model.export_html(out_dir=tmp_path, filename="model2")
+
+    html = (tmp_path / "model2.html").read_text()
+    assert '"nested_model": "loop_body"' in html
+    assert len(list(tmp_path.glob("*loop_fn.html"))) == 1
 
 
 def test_visualize_high_level_blocks(tmp_path):

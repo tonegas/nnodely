@@ -282,6 +282,22 @@ def export_html(
 
         return attrs
 
+    def _nested_model(node):
+        """Return the first Modely stored by a graph node, regardless of layer type."""
+        for attr_name, value in vars(node).items():
+            if isinstance(value, Modely):
+                return attr_name, value
+            if isinstance(value, dict):
+                nested_values = (*value.keys(), *value.values())
+            elif isinstance(value, (list, tuple, set)):
+                nested_values = value
+            else:
+                continue
+            for nested_value in nested_values:
+                if isinstance(nested_value, Modely):
+                    return attr_name, nested_value
+        return None
+
     def _collect_graph(model_obj):
         nodes = []
         edges = []
@@ -331,12 +347,12 @@ def export_html(
         url_map: dict[str, str] = {}
         if not flattened:
             for node, nid, kind, attrs in graph_nodes:
-                if kind != "ModelCall":
+                nested = _nested_model(node)
+                if nested is None:
                     continue
-
-                submodel = getattr(node, "model", None)
-                if submodel is None:
-                    continue
+                nested_attr, submodel = nested
+                attrs["nested_model"] = submodel.name
+                attrs["nested_model_attribute"] = nested_attr
 
                 sub_name = f"{_slug(page_title)}__{_slug(nid)}.html"
                 sub_title = f"{page_title} :: {nid}"
@@ -373,9 +389,10 @@ def export_html(
                 "font": {"color": "#111111"},
             }
 
-            if kind == "ModelCall":
+            if nid in url_map:
                 rec["shape"] = "diamond"
                 rec["size"] = 18
+                rec["color"]["background"] = "#3498db"
             # elif kind in ("Parameter", "Constant", "Input", "Output"):
             #     rec["shape"] = "ellipse"
             #     rec["size"] = 16
@@ -606,7 +623,7 @@ def export_html(
 <body>
 <header>
     <div class="header-left">
-        <img src="../../imgs/logo_info.png" alt="nnodely logo" width="120" height="40"/>
+        <img src="./imgs/logo_info.png" alt="nnodely logo" width="120" height="40"/>
         <h1>{page_title}{" [flattened]" if flattened else ""}</h1>
         {back_html}
     </div>

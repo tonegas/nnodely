@@ -10,6 +10,7 @@ from nnodely.layers.linear import Linear
 from nnodely.layers.parameter import Parameter
 from nnodely.layers.constant import Constant
 from nnodely.layers.loop import Loop
+from nnodely.layers.scan import Scan
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.fuzzify import Fuzzify
 from nnodely.layers.concatenate import Concatenate
@@ -38,6 +39,7 @@ __all__ = [
     "Parameter",
     "Constant",
     "Loop",
+    "Scan",
     "LocalModel",
     "Fuzzify",
     "Concatenate",

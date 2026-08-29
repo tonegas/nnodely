@@ -61,6 +61,15 @@ class Modely:
             extra = set(inputs) - expected
             if extra:
                 inputs = {k: v for k, v in inputs.items() if k in expected}
+            for inp in self.train_inputs:
+                value = inputs[inp.name]
+                if not hasattr(value, "shape"):
+                    value = np.asarray(value)
+                if len(value.shape) < inp.shape.rank and value.size == int(
+                    np.prod(inp.shape.tuple)
+                ):
+                    value = np.reshape(value, inp.shape.tuple)
+                inputs[inp.name] = value
         for idx, inp in enumerate(self.train_inputs):
             if isinstance(inputs, dict):
                 if len(inputs[inp.name].shape) == inp.shape.rank:
@@ -672,60 +681,60 @@ class Modely:
     # -------------------------------------------------------------------------
     # Closed-loop
     # -------------------------------------------------------------------------
-    def closed_loop(
-        self,
-        closed_loop: dict[str | Input, str | Node],
-        initial_values: dict[str | Input, str | Node],
-        inputs: list[Input] | None = None,
-        name: str | None = None,
-    ) -> Layer:
-        """
-        Create a new Modely that rolls out over the rightmost sequence axis.
+    # def closed_loop(
+    #     self,
+    #     closed_loop: dict[str | Input, str | Node],
+    #     initial_values: dict[str | Input, str | Node],
+    #     inputs: list[Input] | None = None,
+    #     name: str | None = None,
+    # ) -> Layer:
+    #     """
+    #     Create a new Modely that rolls out over the rightmost sequence axis.
 
-        Semantics:
-        - The layer unrolls over the rightmost sequence axis of its inputs (axis=-1).
-        - Inputs without a sequence axis are broadcast across the horizon.
-        - If inputs have multiple seq dimensions (nested loops), only the rightmost is
-          iterated by this Loop. Remaining seq dims are passed through to the inner model.
-        - The closed-loop mapped input is updated each step with the submodel output.
-        """
-        from nnodely.layers.loop import Loop
+    #     Semantics:
+    #     - The layer unrolls over the rightmost sequence axis of its inputs (axis=-1).
+    #     - Inputs without a sequence axis are broadcast across the horizon.
+    #     - If inputs have multiple seq dimensions (nested loops), only the rightmost is
+    #       iterated by this Loop. Remaining seq dims are passed through to the inner model.
+    #     - The closed-loop mapped input is updated each step with the submodel output.
+    #     """
+    #     from nnodely.layers.loop import Loop
 
-        # Validate closed_loop keys and values
-        if len(closed_loop) == 0:
-            raise ValueError("closed_loop cannot be empty.")
+    #     # Validate closed_loop keys and values
+    #     if len(closed_loop) == 0:
+    #         raise ValueError("closed_loop cannot be empty.")
 
-        if inputs is None:
-            inputs = self.inputs
-            for idx, inp in enumerate(inputs):
-                if inp.name not in closed_loop:
-                    inputs[idx] = Input(
-                        name=inp.name,
-                        dim=inp.dim,
-                        seq=(None,),
-                    )
-        else:
-            for inp, out in closed_loop.items():
-                inp_name = inp.name if isinstance(inp, Input) else str(inp)
-                out_name = out.name if isinstance(out, Output) else str(out)
-                if inp_name not in [node.name for node in inputs]:
-                    raise ValueError(
-                        f"Closed-loop input '{inp_name}' not found among model inputs."
-                    )
-                if out_name not in [node.name for node in self.outputs]:
-                    raise ValueError(
-                        f"Closed-loop output '{out_name}' not found among model outputs."
-                    )
-        print(
-            f"Creating closed-loop model '{name}' with loop mapping: {closed_loop}, anad inputs: {inputs}"
-        )
-        if not self.built:
-            self.build()
+    #     if inputs is None:
+    #         inputs = self.inputs
+    #         for idx, inp in enumerate(inputs):
+    #             if inp.name not in closed_loop:
+    #                 inputs[idx] = Input(
+    #                     name=inp.name,
+    #                     dim=inp.dim,
+    #                     seq=(None,),
+    #                 )
+    #     else:
+    #         for inp, out in closed_loop.items():
+    #             inp_name = inp.name if isinstance(inp, Input) else str(inp)
+    #             out_name = out.name if isinstance(out, Output) else str(out)
+    #             if inp_name not in [node.name for node in inputs]:
+    #                 raise ValueError(
+    #                     f"Closed-loop input '{inp_name}' not found among model inputs."
+    #                 )
+    #             if out_name not in [node.name for node in self.outputs]:
+    #                 raise ValueError(
+    #                     f"Closed-loop output '{out_name}' not found among model outputs."
+    #                 )
+    #     print(
+    #         f"Creating closed-loop model '{name}' with loop mapping: {closed_loop}, anad inputs: {inputs}"
+    #     )
+    #     if not self.built:
+    #         self.build()
 
-        loop_fn = Loop(
-            f=self, closed_loop=closed_loop, initial_values=initial_values, name=name
-        )
-        return loop_fn
+    #     loop_fn = Loop(
+    #         f=self, closed_loop=closed_loop, initial_values=initial_values, name=name
+    #     )
+    #     return loop_fn
 
     # -------------------------------------------------------------------------
     # Save and load

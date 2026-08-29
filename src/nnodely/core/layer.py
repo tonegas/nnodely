@@ -95,6 +95,9 @@ class Layer(Stream):
         shape = tuple(tensor.shape)
         if has_batch:
             shape = shape[1:]
+        # A layer may consume sequence axes (for example a recurrent body
+        # relation reduced to one step), so preserve only those still present.
+        seq_rank = min(seq_rank, max(0, len(shape) - 2))
         minimum_rank = seq_rank + 2  # At least one dim axis and one time axis.
         if len(shape) < minimum_rank:
             raise ValueError(
