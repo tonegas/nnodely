@@ -1,6 +1,7 @@
 from nnodely import Input, Output, Modely, DataLoader
 
 import os
+import numpy as np
 
 
 def test_dataset_creation_and_iteration():
@@ -78,3 +79,41 @@ def test_dataset_creation_and_iteration():
         assert batch["x"].shape[1] == 5  # Check if x has the correct dimension
         assert batch["y"].shape[1] == 5  # Check if y has the correct dimension
         assert batch["z"].shape[1] == 7  # Check if z has the correct dimension
+
+
+def test_sequence_windows_are_created_on_temporal_windows():
+    x = Input("x", dim=1, seq=3)
+    target = Input("target", dim=1)
+    x_window = x.sw(5)
+    output = Output("out", x_window)
+    model = Modely("sequence_dataset", inputs=[x], outputs=[output])
+    model.minimize("error", source=output, target=target.last(), loss="mse")
+    model.build()
+
+    loader = DataLoader(
+        model,
+        source={
+            "x": np.arange(9, dtype=np.float32),
+            "target": np.arange(9, dtype=np.float32),
+        },
+    )
+
+    assert loader.dataset["x"].shape == (3, 1, 5, 3)
+    assert loader.dataset["target"].shape == (3, 1, 1)
+    np.testing.assert_array_equal(
+        loader.dataset["x"][0, 0],
+        np.array(
+            [
+                [0, 1, 2],
+                [1, 2, 3],
+                [2, 3, 4],
+                [3, 4, 5],
+                [4, 5, 6],
+            ],
+            dtype=np.float32,
+        ),
+    )
+    np.testing.assert_array_equal(
+        loader.dataset["target"][:, 0, 0],
+        np.array([6, 7, 8], dtype=np.float32),
+    )

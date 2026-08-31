@@ -1,6 +1,17 @@
 import os
 
-from nnodely import Input, Output, Fir, Modely, DataLoader, Parameter, Constant, Linear
+from nnodely import (
+    Input,
+    Output,
+    Fir,
+    Modely,
+    DataLoader,
+    Parameter,
+    Constant,
+    Linear,
+    Scan,
+    Loop,
+)
 
 import pytest
 import numpy as np
@@ -417,3 +428,146 @@ def test_train_with_custom_loss_function():
     # With x=1 and SGD(lr=0.1), both variables increase by 0.4.
     np.testing.assert_allclose(to_numpy(linear.kernel), [[1.4]], atol=1e-5)
     np.testing.assert_allclose(to_numpy(linear.bias), [1.4], atol=1e-5)
+
+
+def test_train_with_scan():
+    x = Input("x", seq=5)
+    target = Input("target")
+    relation = Linear(
+        out_features=1,
+        use_bias=True,
+        initializer="ones",
+        bias_initializer="zeros",
+    )(x.last())
+    output = Output("out", relation)
+    body = Modely("body", inputs=[x], outputs=[output])
+    body.build()
+    scan = Scan(f=body, callback={x: output}, initial=1.0, name="scan")
+    out_scan = Output("out_scan", scan)
+    model = Modely("model", inputs=[x], outputs=[out_scan])
+    model.minimize("error", source=out_scan, target=target.last(), loss="mse")
+    model.build()
+
+    dataset = {
+        "x": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+        "target": [
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+        ],
+    }
+    data = DataLoader(model, source=dataset)
+
+    assert data.dataset["x"].shape == (16, 1, 1, 5)
+    assert data.dataset["target"].shape == (16, 1, 1)
+    np.testing.assert_array_equal(data.dataset["x"][0, 0, 0], [1, 2, 3, 4, 5])
+    np.testing.assert_array_equal(data.dataset["x"][-1, 0, 0], [16, 17, 18, 19, 20])
+    np.testing.assert_array_equal(data.dataset["target"][:, 0, 0], np.arange(25, 41))
+
+    initial_prediction = model(data.as_dict())
+    initial_error = np.mean(
+        np.square(to_numpy(initial_prediction["out_scan"]) - data.dataset["target"])
+    )
+    history = model.train(
+        train_data=data,
+        epochs=10,
+        batch_size=4,
+        optimizer="adam",
+        lr=0.01,
+    )
+    final_prediction = model(data.as_dict())
+    final_error = np.mean(
+        np.square(to_numpy(final_prediction["out_scan"]) - data.dataset["target"])
+    )
+
+    assert np.isfinite(final_error)
+    assert final_error < initial_error
+    assert history["loss"][-1] < history["loss"][0]
+
+
+def test_train_with_loop():
+    x = Input("x")
+    target = Input("target")
+    relation = Linear(
+        out_features=1,
+        use_bias=True,
+        initializer="ones",
+        bias_initializer="zeros",
+    )(x.last())
+    output = Output("out", relation)
+    body = Modely("body", inputs=[x], outputs=[output])
+    body.build()
+    loop = Loop(f=body, callback={x: output}, steps=3, name="loop")
+    out_scan = Output("out_scan", loop)
+    model = Modely("model", inputs=[x], outputs=[out_scan])
+    model.minimize("error", source=out_scan, target=target.last(), loss="mse")
+    model.build()
+
+    dataset = {
+        "x": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+        "target": [
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+        ],
+    }
+    data = DataLoader(model, source=dataset)
+
+    assert data.dataset["x"].shape == (20, 1, 1)
+    assert data.dataset["target"].shape == (20, 1, 1)
+    np.testing.assert_array_equal(data.dataset["x"][:, 0, 0], np.arange(1, 21))
+    np.testing.assert_array_equal(data.dataset["target"][:, 0, 0], np.arange(21, 41))
+
+    initial_prediction = model(data.as_dict())
+    initial_error = np.mean(
+        np.square(to_numpy(initial_prediction["out_scan"]) - data.dataset["target"])
+    )
+    history = model.train(
+        train_data=data,
+        epochs=10,
+        batch_size=4,
+        optimizer="adam",
+        lr=0.01,
+    )
+    final_prediction = model(data.as_dict())
+    final_error = np.mean(
+        np.square(to_numpy(final_prediction["out_scan"]) - data.dataset["target"])
+    )
+
+    assert np.isfinite(final_error)
+    assert final_error < initial_error
+    assert history["loss"][-1] < history["loss"][0]

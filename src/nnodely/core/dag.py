@@ -7,7 +7,7 @@ Default: seq=(), time=1, dim=(1,)
 """
 
 from copy import copy
-from nnodely.core.stream import Node
+from nnodely.core.stream import Node, Stream
 from nnodely.layers.output import Output
 from typing import Any
 
@@ -61,7 +61,7 @@ def flatten(model):
 def _flatten_graph(
     name,
     inputs: list[Any],
-    outputs: list[Output],
+    outputs: list[Stream],
     *,
     return_memo: bool = False,
 ) -> Any:

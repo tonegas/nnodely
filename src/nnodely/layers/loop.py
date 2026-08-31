@@ -5,6 +5,78 @@ from nnodely.core.modely import Modely
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
+class ModelClosedLoopImpl(keras.layers.Layer):
+    """Repeatedly evaluate a model and feed selected streams back to its inputs."""
+
+    def __init__(
+        self,
+        model,
+        callbacks: dict[str, str],
+        output_names: tuple[str, ...],
+        input_time_axes: dict[str, int],
+        output_time_axes: dict[str, int],
+        steps: int,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.model = model
+        self.callbacks = dict(callbacks)
+        self.output_names = tuple(output_names)
+        self.input_time_axes = dict(input_time_axes)
+        self.output_time_axes = dict(output_time_axes)
+        self.steps = int(steps)
+
+    def call(self, inputs):
+        states = dict(inputs)
+        collected = {name: [] for name in self.output_names}
+
+        for _ in range(self.steps):
+            values = self.model(states)
+            if not isinstance(values, dict):
+                values = dict(zip(self.model.output_names, values))
+
+            for name in self.output_names:
+                collected[name].append(values[name])
+
+            next_states = dict(states)
+            for input_name, stream_name in self.callbacks.items():
+                state = states[input_name]
+                feedback = values[stream_name]
+                time_axis = self.input_time_axes[input_name]
+                slices = [slice(None)] * len(state.shape)
+                slices[time_axis] = slice(1, None)
+                next_states[input_name] = keras.ops.concatenate(
+                    [state[tuple(slices)], feedback], axis=time_axis
+                )
+            states = next_states
+
+        return {
+            name: keras.ops.concatenate(values, axis=self.output_time_axes[name])
+            for name, values in collected.items()
+        }
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "model": keras.saving.serialize_keras_object(self.model),
+                "callbacks": self.callbacks,
+                "output_names": self.output_names,
+                "input_time_axes": self.input_time_axes,
+                "output_time_axes": self.output_time_axes,
+                "steps": self.steps,
+            }
+        )
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        config = dict(config)
+        config["model"] = keras.saving.deserialize_keras_object(config["model"])
+        return cls(**config)
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
 class LoopImpl(keras.layers.Layer):
     """Unroll a model while shifting its feedback into a temporal window."""
 

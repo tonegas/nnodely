@@ -39,6 +39,18 @@ class ModelSerializer:
             "version": ModelSerializer.VERSION,
             "model": {
                 "name": model.name,
+                "closed_loop": (
+                    {
+                        "callbacks": {
+                            input_node.name: stream.name
+                            for input_node, stream in model._closed_loop_callbacks.items()
+                        },
+                        "steps": model._closed_loop_steps,
+                        "name": model._closed_loop_name,
+                    }
+                    if model._closed_loop_callbacks
+                    else None
+                ),
             },
             "nodes": nodes,
             "inputs": [node_ids[x] for x in flat.inputs],
@@ -70,11 +82,19 @@ class ModelSerializer:
 
         inputs = [node_map[node_id] for node_id in data["inputs"]]
         outputs = [node_map[node_id] for node_id in data["outputs"]]
-        return Modely(
+        model = Modely(
             name=data["model"]["name"],
             inputs=inputs,
             outputs=outputs,
         )
+        closed_loop = data["model"].get("closed_loop")
+        if closed_loop is not None:
+            model.closed_loop(
+                closed_loop["callbacks"],
+                steps=closed_loop["steps"],
+                name=closed_loop.get("name"),
+            )
+        return model
 
     @staticmethod
     def load(path):

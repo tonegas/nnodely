@@ -173,6 +173,46 @@ def test_model_loop():
     )
 
 
+def test_model_closed_loop():
+    x = Input("x")
+    fir = Fir(out_features=1, use_bias=False, name="fir")(x.sw(5))
+    out = Output("out", fir + x.last())
+    test = Modely("body", inputs=[x], outputs=[out])
+    test.closed_loop({"x": "fir"}, steps=3)
+    test.build()
+    fir.kernel.assign(np.full((5, 1), 1.0, dtype=np.float32))
+
+    result = test(inputs={"x": [1, 2, 3, 4, 5]})
+    assert result["out"].shape == (1, 1, 3)
+    np.testing.assert_allclose(
+        to_numpy(result["out"]),
+        np.array([20.0, 44.0, 85.0]).reshape((1, 1, 3)),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+
+def test_model_multi_closed_loop():
+    x = Input("x")
+    y = Input("y")
+    fir = Fir(out_features=1, use_bias=False, name="fir")(x.sw(5))
+    out = Output("out", fir + y.last())
+    test = Modely("body", inputs=[x, y], outputs=[out])
+    test.closed_loop({"x": "fir", "y": "out"}, steps=3)
+    test.build()
+    fir.kernel.assign(np.full((5, 1), 1.0, dtype=np.float32))
+
+    result = test(inputs={"x": [1, 2, 3, 4, 5], "y": [10]})
+    assert result["out"].shape == (1, 1, 3)
+    np.testing.assert_allclose(
+        to_numpy(result["out"]),
+        np.array([25.0, 54.0, 110.0]).reshape((1, 1, 3)),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    test.export_html(out_dir="html", filename="test_model_multi_closed_loop")
+
+
 # def dummy_input(shape, method="random"):
 #     if method == "random":
 #         return np.random.rand(*shape).astype(np.float32)

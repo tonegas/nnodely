@@ -239,6 +239,68 @@ def test_validate_onnx_rejects_missing_input(tmp_path):
         Modely.validate_onnx(path, {})
 
 
+def _closed_loop_model():
+    x = Input("closed_loop_x")
+    fir = Fir(out_features=1, use_bias=False, name="closed_loop_fir")(x.sw(5))
+    output = Output("closed_loop_out", fir + x.last())
+    model = Modely("closed_loop_model", inputs=[x], outputs=[output])
+    model.closed_loop({x: fir}, steps=3, name="closed_loop_rollout")
+    model.build()
+    fir.kernel.assign(np.ones((5, 1), dtype=np.float32))
+    return model
+
+
+def _assert_closed_loop_result(result):
+    assert result["closed_loop_out"].shape == (1, 1, 3)
+    np.testing.assert_allclose(
+        to_numpy(result["closed_loop_out"]),
+        np.array([20.0, 44.0, 85.0], dtype=np.float32).reshape((1, 1, 3)),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+
+def test_save_load_closed_loop_model(tmp_path):
+    model = _closed_loop_model()
+    inputs = {"closed_loop_x": np.arange(1, 6, dtype=np.float32)}
+    _assert_closed_loop_result(model(inputs))
+
+    path = tmp_path / "closed_loop.nnodely"
+    model.save(path)
+    restored = Modely.load(path)
+
+    assert restored._closed_loop_steps == 3
+    assert {
+        input_node.name: stream.name
+        for input_node, stream in restored._closed_loop_callbacks.items()
+    } == {"closed_loop_x": "closed_loop_fir"}
+    _assert_closed_loop_result(restored(inputs))
+
+
+def test_export_keras_closed_loop_model(tmp_path):
+    model = _closed_loop_model()
+    inputs = {"closed_loop_x": np.arange(1, 6, dtype=np.float32).reshape((1, 1, 5))}
+    path = tmp_path / "closed_loop.keras"
+
+    model.export_keras(path)
+    restored = Modely.import_keras(str(path.with_suffix("")))
+
+    assert path.is_file()
+    _assert_closed_loop_result(restored(inputs))  # type: ignore
+
+
+def test_export_onnx_closed_loop_model(tmp_path):
+    pytest.importorskip("onnxruntime")
+    model = _closed_loop_model()
+    inputs = {"closed_loop_x": np.arange(1, 6, dtype=np.float32).reshape((1, 1, 5))}
+
+    path = model.export_onnx(tmp_path / "closed_loop.onnx")
+    result = Modely.validate_onnx(path, inputs, return_dict=True)
+
+    assert path.is_file()
+    _assert_closed_loop_result(result)
+
+
 # def test_save_model(tmp_path):
 #     ## ------- Model definition and building -------
 #     x = Input("x", dim=1)

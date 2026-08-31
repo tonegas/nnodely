@@ -39,6 +39,9 @@ class Modely:
         self.train_inputs = []  # List of Input nodes that are required for training (derived from minimizers)
         self.train_outputs = []  # List of Output nodes that are required for training (derived from minimizers)
         self.minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
+        self._closed_loop_callbacks: dict[Input, Stream] = {}
+        self._closed_loop_steps: int | None = None
+        self._closed_loop_name: str | None = None
 
     def __repr__(self) -> str:
         items = " \n- ".join(map(str, self.order))
@@ -107,29 +110,65 @@ class Modely:
                     extra_outputs.append(minimizer["target"])
 
         self.train_outputs = self.outputs + extra_outputs
+        feedback_streams = list(dict.fromkeys(self._closed_loop_callbacks.values()))
+        graph_outputs = self.train_outputs + [
+            stream for stream in feedback_streams if stream not in self.train_outputs
+        ]
         flat, flatten_memo = _flatten_graph(
             self.name,
             self.inputs,
-            self.train_outputs,
+            graph_outputs,
             return_memo=True,
         )
         self.train_inputs = [node for node in flat.order if isinstance(node, Input)]
 
-        keras_inputs, keras_outputs = self.resolve_graph(flat.order)
+        flat_graph_outputs = [flatten_memo[node] for node in graph_outputs]
+        keras_inputs, keras_outputs = self.resolve_graph(
+            flat.order, output_nodes=flat_graph_outputs
+        )
         # Graph flattening builds shallow copies. Keep the public symbolic nodes
         # connected to the concrete Keras layers created from those copies.
         for source_node, flat_node in flatten_memo.items():
             if isinstance(source_node, Layer) and isinstance(flat_node, Layer):
                 source_node._layer = flat_node._layer
 
-        self.model = keras.Model(
+        body_model = keras.Model(
             name=self.name + "_train",
             inputs=keras_inputs,
             outputs=keras_outputs,
         )
+        if self._closed_loop_callbacks:
+            from nnodely.layers.loop import ModelClosedLoopImpl
+
+            callbacks = {
+                input_node.name: feedback.name
+                for input_node, feedback in self._closed_loop_callbacks.items()
+            }
+            closed_loop_layer = ModelClosedLoopImpl(
+                model=body_model,
+                callbacks=callbacks,
+                output_names=tuple(node.name for node in self.train_outputs),
+                input_time_axes={
+                    node.name: node.shape.dim_rank + 1
+                    for node in self._closed_loop_callbacks
+                },
+                output_time_axes={
+                    node.name: node.shape.dim_rank + 1 for node in self.train_outputs
+                },
+                steps=cast(int, self._closed_loop_steps),
+                name=self._closed_loop_name or f"{self.name}_closed_loop",
+            )
+            final_outputs = closed_loop_layer(keras_inputs)
+            self.model = keras.Model(
+                name=self.name + "_train",
+                inputs=keras_inputs,
+                outputs=final_outputs,
+            )
+        else:
+            self.model = body_model
         return self
 
-    def resolve_graph(self, order):
+    def resolve_graph(self, order, output_nodes=None):
         tensor_map = {}
         for node in [n for n in order if isinstance(n, Input)]:
             tensor_map[node.name] = node.input
@@ -147,9 +186,8 @@ class Modely:
                 tensor_map[node.name] = tensor_map[node.preds[0].name]
 
         keras_inputs = {node.name: tensor_map[node.name] for node in self.train_inputs}
-        keras_outputs = {
-            node.name: tensor_map[node.name] for node in self.train_outputs
-        }
+        output_nodes = self.train_outputs if output_nodes is None else output_nodes
+        keras_outputs = {node.name: tensor_map[node.name] for node in output_nodes}
         return keras_inputs, keras_outputs
 
     # -------------------------------------------------------------------------
@@ -681,60 +719,58 @@ class Modely:
     # -------------------------------------------------------------------------
     # Closed-loop
     # -------------------------------------------------------------------------
-    # def closed_loop(
-    #     self,
-    #     closed_loop: dict[str | Input, str | Node],
-    #     initial_values: dict[str | Input, str | Node],
-    #     inputs: list[Input] | None = None,
-    #     name: str | None = None,
-    # ) -> Layer:
-    #     """
-    #     Create a new Modely that rolls out over the rightmost sequence axis.
+    def closed_loop(
+        self,
+        closed_loop: dict[str | Input, str | Stream],
+        steps: int,
+        name: str | None = None,
+    ) -> "Modely":
+        """Configure temporal feedback directly on this model.
 
-    #     Semantics:
-    #     - The layer unrolls over the rightmost sequence axis of its inputs (axis=-1).
-    #     - Inputs without a sequence axis are broadcast across the horizon.
-    #     - If inputs have multiple seq dimensions (nested loops), only the rightmost is
-    #       iterated by this Loop. Remaining seq dims are passed through to the inner model.
-    #     - The closed-loop mapped input is updated each step with the submodel output.
-    #     """
-    #     from nnodely.layers.loop import Loop
+        Each mapping is ``input: stream``. After every model evaluation, the
+        stream's one-step result is appended to the input's temporal window.
+        Public outputs contain the values produced at every prediction step.
+        """
+        if self.built:
+            raise ValueError("closed_loop() must be called before build().")
+        if not isinstance(closed_loop, dict) or not closed_loop:
+            raise ValueError("closed_loop must be a non-empty input: stream mapping.")
+        if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
+            raise ValueError("closed_loop steps must be a positive integer.")
 
-    #     # Validate closed_loop keys and values
-    #     if len(closed_loop) == 0:
-    #         raise ValueError("closed_loop cannot be empty.")
+        graph_streams = [node for node in self.order if isinstance(node, Stream)]
 
-    #     if inputs is None:
-    #         inputs = self.inputs
-    #         for idx, inp in enumerate(inputs):
-    #             if inp.name not in closed_loop:
-    #                 inputs[idx] = Input(
-    #                     name=inp.name,
-    #                     dim=inp.dim,
-    #                     seq=(None,),
-    #                 )
-    #     else:
-    #         for inp, out in closed_loop.items():
-    #             inp_name = inp.name if isinstance(inp, Input) else str(inp)
-    #             out_name = out.name if isinstance(out, Output) else str(out)
-    #             if inp_name not in [node.name for node in inputs]:
-    #                 raise ValueError(
-    #                     f"Closed-loop input '{inp_name}' not found among model inputs."
-    #                 )
-    #             if out_name not in [node.name for node in self.outputs]:
-    #                 raise ValueError(
-    #                     f"Closed-loop output '{out_name}' not found among model outputs."
-    #                 )
-    #     print(
-    #         f"Creating closed-loop model '{name}' with loop mapping: {closed_loop}, anad inputs: {inputs}"
-    #     )
-    #     if not self.built:
-    #         self.build()
+        def resolve(nodes, value, kind):
+            if isinstance(value, str):
+                matches = [node for node in nodes if node.name == value]
+                if len(matches) != 1:
+                    raise ValueError(
+                        f"closed_loop {kind} {value!r} was not found uniquely."
+                    )
+                return matches[0]
+            if value not in nodes:
+                raise ValueError(
+                    f"closed_loop {kind} {getattr(value, 'name', value)!r} "
+                    "does not belong to this Modely."
+                )
+            return value
 
-    #     loop_fn = Loop(
-    #         f=self, closed_loop=closed_loop, initial_values=initial_values, name=name
-    #     )
-    #     return loop_fn
+        callbacks = {}
+        for input_ref, stream_ref in closed_loop.items():
+            input_node = resolve(self.inputs, input_ref, "input")
+            stream = resolve(graph_streams, stream_ref, "stream")
+            expected = tuple(input_node.dim) + (1,) + tuple(input_node.seq)
+            if stream.shape.tuple != expected:
+                raise ValueError(
+                    f"closed_loop stream {stream.name!r} must produce one temporal "
+                    f"sample with shape {expected}, got {stream.shape.tuple}."
+                )
+            callbacks[input_node] = stream
+
+        self._closed_loop_callbacks = callbacks
+        self._closed_loop_steps = steps
+        self._closed_loop_name = name
+        return self
 
     # -------------------------------------------------------------------------
     # Save and load
