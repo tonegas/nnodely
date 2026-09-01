@@ -14,6 +14,7 @@ from nnodely.layers.scan import Scan
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.fuzzify import Fuzzify
 from nnodely.layers.concatenate import Concatenate
+from nnodely.layers.time_ops import TimeSelect, Select
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -43,6 +44,8 @@ __all__ = [
     "LocalModel",
     "Fuzzify",
     "Concatenate",
+    "TimeSelect",
+    "Select",
     "ReLU",
     "LeakyReLU",
     "ELU",

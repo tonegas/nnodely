@@ -109,6 +109,25 @@ def test_visualize_loop(tmp_path):
     assert len(list(tmp_path.glob("*loop_fn.html"))) == 1
 
 
+def test_visualize_model_closed_loop(tmp_path):
+    x = Input("closed_x")
+    feedback = Fir(out_features=1, use_bias=False, name="closed_fir")(x.sw(5))
+    output = Output("closed_out", feedback + x.last())
+    model = Modely("closed_model", inputs=[x], outputs=[output])
+    model.closed_loop({x: feedback}, steps=3)
+    model.build()
+
+    model.export_html(out_dir=tmp_path, filename="closed_model")
+    html = (tmp_path / "closed_model.html").read_text()
+    flattened_html = (tmp_path / "closed_model__flattened.html").read_text()
+
+    for page in (html, flattened_html):
+        assert '"from": "closed_fir", "to": "closed_x"' in page
+        assert '"label": "loop"' in page
+        assert '\\"kind\\": \\"closed_loop\\"' in page
+        assert '"color": "#e74c3c"' in page
+
+
 def test_visualize_high_level_blocks(tmp_path):
     class Tangent:
         def __init__(self, name: str | None = "Tangent"):

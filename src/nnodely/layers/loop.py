@@ -14,7 +14,6 @@ class ModelClosedLoopImpl(keras.layers.Layer):
         callbacks: dict[str, str],
         output_names: tuple[str, ...],
         input_time_axes: dict[str, int],
-        output_time_axes: dict[str, int],
         steps: int,
         **kwargs,
     ):
@@ -23,20 +22,14 @@ class ModelClosedLoopImpl(keras.layers.Layer):
         self.callbacks = dict(callbacks)
         self.output_names = tuple(output_names)
         self.input_time_axes = dict(input_time_axes)
-        self.output_time_axes = dict(output_time_axes)
         self.steps = int(steps)
 
-    def call(self, inputs):
+    def call(self, inputs, training=None):
         states = dict(inputs)
-        collected = {name: [] for name in self.output_names}
-
         for _ in range(self.steps):
-            values = self.model(states)
+            values = self.model(states, training=training)
             if not isinstance(values, dict):
                 values = dict(zip(self.model.output_names, values))
-
-            for name in self.output_names:
-                collected[name].append(values[name])
 
             next_states = dict(states)
             for input_name, stream_name in self.callbacks.items():
@@ -50,10 +43,7 @@ class ModelClosedLoopImpl(keras.layers.Layer):
                 )
             states = next_states
 
-        return {
-            name: keras.ops.concatenate(values, axis=self.output_time_axes[name])
-            for name, values in collected.items()
-        }
+        return {name: values[name] for name in self.output_names}  # type: ignore
 
     def get_config(self):
         config = super().get_config()
@@ -63,7 +53,6 @@ class ModelClosedLoopImpl(keras.layers.Layer):
                 "callbacks": self.callbacks,
                 "output_names": self.output_names,
                 "input_time_axes": self.input_time_axes,
-                "output_time_axes": self.output_time_axes,
                 "steps": self.steps,
             }
         )

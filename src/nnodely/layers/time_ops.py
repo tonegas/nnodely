@@ -111,7 +111,6 @@ class SelectImpl(keras.layers.Layer):
         self,
         idx: int,
         axis: int,
-        output_shape_no_batch=None,
         name=None,
         **kwargs,
     ):
@@ -196,4 +195,68 @@ class Select(Layer):
         return {
             "idx": self.idx,
             "axis": self.axis,
+        }
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class TimeSelectImpl(keras.layers.Layer):
+    """Serializable implementation of selection along the time axis."""
+
+    def __init__(self, idx: int, dim_rank: int, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.idx = int(idx)
+        self.dim_rank = int(dim_rank)
+
+    def call(self, x):
+        # Runtime shape: [batch, dim1, ..., time, seq1, ...]
+        time_axis = 1 + self.dim_rank
+        slices = (
+            [slice(None)] * time_axis
+            + [slice(self.idx, self.idx + 1)]
+            + [slice(None)] * (len(x.shape) - time_axis - 1)
+        )
+        return x[tuple(slices)]
+
+    def compute_output_shape(self, input_shape):
+        output_shape = list(input_shape)
+        output_shape[1 + self.dim_rank] = 1
+        return tuple(output_shape)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"idx": self.idx, "dim_rank": self.dim_rank})
+        return config
+
+
+class TimeSelect(Layer):
+    """Select one value along the time axis, keeping the axis with length 1."""
+
+    def __init__(self, idx: int, name=None):
+        self.idx = int(idx)
+        super().__init__(name=name, idx=self.idx)
+
+    def build_layer(self):
+        input_time = getattr(self.preds[0], "time", None)
+        if input_time is None:
+            raise ValueError(
+                f"{self.name}: Input layer does not have a 'time' attribute."
+            )
+        idx = self.idx
+        if idx < 0:
+            idx += input_time
+        if idx < 0 or idx >= input_time:
+            raise ValueError(
+                f"{self.name}: idx {self.idx} out of bounds for time length "
+                f"{input_time}."
+            )
+        return TimeSelectImpl(
+            idx=idx,
+            dim_rank=len(self.dim),
+            name=self.name,
+        )
+
+    def get_config(self):
+        return {
+            "name": self.name,
+            "idx": self.idx,
         }

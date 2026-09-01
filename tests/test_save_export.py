@@ -251,10 +251,10 @@ def _closed_loop_model():
 
 
 def _assert_closed_loop_result(result):
-    assert result["closed_loop_out"].shape == (1, 1, 3)
+    assert result["closed_loop_out"].shape == (1, 1, 1)
     np.testing.assert_allclose(
         to_numpy(result["closed_loop_out"]),
-        np.array([20.0, 44.0, 85.0], dtype=np.float32).reshape((1, 1, 3)),
+        np.array([[[85.0]]], dtype=np.float32),
         rtol=1e-5,
         atol=1e-5,
     )

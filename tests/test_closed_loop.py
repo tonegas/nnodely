@@ -183,10 +183,10 @@ def test_model_closed_loop():
     fir.kernel.assign(np.full((5, 1), 1.0, dtype=np.float32))
 
     result = test(inputs={"x": [1, 2, 3, 4, 5]})
-    assert result["out"].shape == (1, 1, 3)
+    assert result["out"].shape == (1, 1, 1)
     np.testing.assert_allclose(
         to_numpy(result["out"]),
-        np.array([20.0, 44.0, 85.0]).reshape((1, 1, 3)),
+        np.array([[[85.0]]]),
         rtol=1e-5,
         atol=1e-5,
     )
@@ -203,10 +203,10 @@ def test_model_multi_closed_loop():
     fir.kernel.assign(np.full((5, 1), 1.0, dtype=np.float32))
 
     result = test(inputs={"x": [1, 2, 3, 4, 5], "y": [10]})
-    assert result["out"].shape == (1, 1, 3)
+    assert result["out"].shape == (1, 1, 1)
     np.testing.assert_allclose(
         to_numpy(result["out"]),
-        np.array([25.0, 54.0, 110.0]).reshape((1, 1, 3)),
+        np.array([[[110.0]]]),
         rtol=1e-5,
         atol=1e-5,
     )

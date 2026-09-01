@@ -428,6 +428,49 @@ def export_html(
                 }
             )
 
+        visible_node_ids = {record["id"] for record in vis_nodes}
+        for input_node, stream in getattr(
+            model_obj, "_closed_loop_callbacks", {}
+        ).items():
+            src = stream.name
+            dst = input_node.name
+            if src not in visible_node_ids or dst not in visible_node_ids:
+                continue
+            edge_attrs = {
+                "kind": "closed_loop",
+                "feedback_stream": src,
+                "feedback_input": dst,
+                "steps": getattr(model_obj, "_closed_loop_steps", None),
+            }
+            vis_edges.append(
+                {
+                    "from": src,
+                    "to": dst,
+                    "arrows": {"to": {"enabled": True, "scaleFactor": 1.2}},
+                    "label": "loop",
+                    "width": 3,
+                    "color": {
+                        "color": "#e74c3c",
+                        "highlight": "#c0392b",
+                        "hover": "#c0392b",
+                    },
+                    "font": {
+                        "align": "middle",
+                        "size": 12,
+                        "color": "#c0392b",
+                        "background": "#ffffff",
+                    },
+                    "smooth": {
+                        "enabled": True,
+                        "type": "curvedCW",
+                        "roundness": 0.35,
+                    },
+                    "title": json.dumps(
+                        edge_attrs, ensure_ascii=False, indent=2, default=str
+                    ),
+                }
+            )
+
         target = "_blank" if open_subgraph_in_new_tab else "_self"
 
         back_html = ""
@@ -504,6 +547,15 @@ def export_html(
         display: inline-block;
         border: 1px solid #2c3e50;
         margin-right: 6px;
+    }}
+    .loop-arrow {{
+        color: #e74c3c;
+        display: inline-block;
+        font-size: 17px;
+        font-weight: 700;
+        line-height: 10px;
+        margin-right: 5px;
+        vertical-align: -1px;
     }}
     .main {{
         display: flex;
@@ -634,6 +686,7 @@ def export_html(
         <span><span class="swatch" style="background:#ff9900"></span>Parameter</span>
         <span><span class="swatch" style="background:#00e5ff"></span>Constant</span>
         <span><span class="swatch" style="background:#95a5a6"></span>Relation</span>
+        <span><span class="loop-arrow">→</span>Closed loop</span>
     </div>
     <div class="header-right">
         <div class="bottom-bar">

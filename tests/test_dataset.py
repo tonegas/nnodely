@@ -1,5 +1,5 @@
 from nnodely import Input, Output, Modely, DataLoader
-
+from conftest import to_numpy
 import os
 import numpy as np
 
@@ -117,3 +117,90 @@ def test_sequence_windows_are_created_on_temporal_windows():
         loader.dataset["target"][:, 0, 0],
         np.array([6, 7, 8], dtype=np.float32),
     )
+
+
+def test_explicit_dataloader_normalization_and_denormalization():
+    x = Input("normalization_x", dim=2)
+    target = Input("normalization_target")
+    relation = x.sw(2)
+    output = Output("normalization_output", relation)
+    model = Modely("normalization_model", inputs=[x], outputs=[output])
+    model.minimize("error", output, target.last(), loss="mse")
+    model.build()
+
+    loader = DataLoader(
+        model,
+        source={
+            "normalization_x": np.array(
+                [[0.0, 100.0], [2.0, 200.0], [4.0, 300.0], [6.0, 400.0]],
+                dtype=np.float32,
+            ),
+            "normalization_target": np.array(
+                [10.0, 20.0, 30.0, 40.0], dtype=np.float32
+            ),
+        },
+    )
+    original = {
+        name: np.array(values, copy=True) for name, values in loader.as_dict().items()
+    }
+
+    loader.normalize(method="minmax")
+
+    normalized_x = loader.dataset["normalization_x"]
+    np.testing.assert_array_equal(np.min(normalized_x, axis=(0, 2)), [-1.0, -1.0])
+    np.testing.assert_array_equal(np.max(normalized_x, axis=(0, 2)), [1.0, 1.0])
+    assert np.min(loader.dataset["normalization_target"]) == -1.0
+    assert np.max(loader.dataset["normalization_target"]) == 1.0
+
+    restored = loader.denormalize(loader.as_dict())
+    for name in original:
+        if isinstance(restored, dict):
+            np.testing.assert_allclose(
+                to_numpy(restored[name]), to_numpy(original[name]), atol=1e-6
+            )
+        else:
+            np.testing.assert_allclose(
+                to_numpy(restored), to_numpy(original[name]), atol=1e-6
+            )
+
+    normalized_prediction = loader.dataset["normalization_target"][:1]
+    restored_prediction = loader.denormalize(
+        {"normalization_output": normalized_prediction}
+    )
+    if isinstance(restored_prediction, dict):
+        np.testing.assert_allclose(
+            to_numpy(restored_prediction["normalization_output"]),
+            to_numpy(original["normalization_target"][:1]),
+            atol=1e-6,
+        )
+    else:
+        np.testing.assert_allclose(
+            to_numpy(restored_prediction),
+            to_numpy(original["normalization_target"][:1]),
+            atol=1e-6,
+        )
+
+    loader.denormalize()
+    for name in original:
+        np.testing.assert_array_equal(loader.dataset[name], original[name])
+
+
+def test_standard_normalization_handles_constant_inputs():
+    x = Input("constant_normalization_x")
+    model = Modely(
+        "constant_normalization_model",
+        inputs=[x],
+        outputs=[Output("constant_normalization_output", x.last())],
+    ).build()
+    loader = DataLoader(
+        model,
+        source={"constant_normalization_x": np.full(4, 5.0, dtype=np.float32)},
+    )
+
+    loader.normalize(method="standard")
+    np.testing.assert_array_equal(loader.dataset["constant_normalization_x"], 0.0)
+    restored = loader.denormalize(
+        loader.dataset["constant_normalization_x"],
+        name="constant_normalization_x",
+    )
+    np.testing.assert_array_equal(restored, 5.0)

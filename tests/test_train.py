@@ -571,3 +571,43 @@ def test_train_with_loop():
     assert np.isfinite(final_error)
     assert final_error < initial_error
     assert history["loss"][-1] < history["loss"][0]
+
+
+def test_train_with_model_closed_loop_uses_final_value_only():
+    x = Input("closed_train_x")
+    target = Input("closed_train_target")
+    relation = Linear(
+        out_features=1,
+        use_bias=False,
+        initializer="ones",
+        name="closed_train_linear",
+    )(x.last())
+    output = Output("closed_train_output", relation)
+    model = Modely("closed_train_model", inputs=[x], outputs=[output])
+    model.closed_loop({x: output}, steps=3)
+    model.minimize("closed_train_error", output, target.last(), loss="mse")
+    model.build()
+
+    data = DataLoader(
+        model,
+        source={"closed_train_x": [2.0], "closed_train_target": [4.0]},
+    )
+    optimizer = keras.optimizers.SGD(learning_rate=0.01)
+
+    before = model(data.as_dict())
+    assert before["closed_train_output"].shape == (1, 1, 1)
+    np.testing.assert_allclose(to_numpy(before["closed_train_output"]), [[[2.0]]])
+
+    history = model.train(
+        train_data=data,
+        epochs=1,
+        batch_size=1,
+        optimizer=optimizer,
+    )
+
+    # The final rollout value is x * w**3. At w=1, MSE(2, 4)=4 and
+    # d(loss)/dw=-24, therefore one SGD update gives w=1.24.
+    assert relation.kernel is not None
+    np.testing.assert_allclose(history["loss"], [4.0], atol=1e-5)
+    np.testing.assert_allclose(to_numpy(relation.kernel), [[1.24]], atol=1e-5)
+    assert int(to_numpy(optimizer.iterations)) == 1

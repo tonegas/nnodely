@@ -152,9 +152,6 @@ class Modely:
                     node.name: node.shape.dim_rank + 1
                     for node in self._closed_loop_callbacks
                 },
-                output_time_axes={
-                    node.name: node.shape.dim_rank + 1 for node in self.train_outputs
-                },
                 steps=cast(int, self._closed_loop_steps),
                 name=self._closed_loop_name or f"{self.name}_closed_loop",
             )
@@ -270,10 +267,9 @@ class Modely:
 
             preds = self.model(batch_inputs, training=False)
             for name, value in preds.items():
-                if keras.backend.backend() == "torch":
-                    pred_chunks.setdefault(name, []).append(value.detach().cpu())
-                else:
-                    pred_chunks.setdefault(name, []).append(value.numpy())
+                pred_chunks.setdefault(name, []).append(
+                    keras.ops.convert_to_numpy(value)
+                )
 
         predictions = {
             name: np.concatenate(chunks, axis=0) for name, chunks in pred_chunks.items()
@@ -729,7 +725,9 @@ class Modely:
 
         Each mapping is ``input: stream``. After every model evaluation, the
         stream's one-step result is appended to the input's temporal window.
-        Public outputs contain the values produced at every prediction step.
+        The model is unrolled for ``steps`` evaluations and exposes only the
+        outputs produced by the final evaluation, preserving their original
+        symbolic shapes.
         """
         if self.built:
             raise ValueError("closed_loop() must be called before build().")
@@ -794,8 +792,11 @@ class Modely:
 
     @staticmethod
     def import_keras(filename: str, safe_mode: bool = True):
+        path = Path(filename)
+        if path.suffix.lower() != ".keras":
+            path = path.with_suffix(".keras")
         return keras.models.load_model(
-            filename + ".keras",
+            path,
             safe_mode=safe_mode,
         )
 

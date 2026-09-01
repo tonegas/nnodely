@@ -112,6 +112,9 @@ class DataLoader:
         elif isinstance(source, dict):
             self.dataset = self._build_from_dict(source)
 
+        self.normalization_stats: Dict[str, Dict[str, Any]] = {}
+        self._original_dataset: Dict[str, np.ndarray] | None = None
+        self._normalization_aliases = self._build_normalization_aliases()
         self._num_steps = self._infer_num_steps()
 
     @property
@@ -143,6 +146,171 @@ class DataLoader:
 
     def as_dict(self) -> Dict[str, np.ndarray]:
         return self.dataset
+
+    # ------------------------------------------------------------------
+    # Explicit normalization
+    # ------------------------------------------------------------------
+
+    def normalize(
+        self,
+        method: Literal["minmax", "standard"] = "minmax",
+        names: list[str] | tuple[str, ...] | None = None,
+        feature_range: tuple[float, float] = (-1.0, 1.0),
+    ) -> "DataLoader":
+        """Fit normalization statistics and transform this loader in place.
+
+        Normalization is explicit and local to this DataLoader. It does not
+        modify Modely inference or any other loader created from the same data.
+        Statistics are fitted independently for every input feature while
+        reducing over samples, time, and sequence axes.
+        """
+        if method not in ("minmax", "standard"):
+            raise ValueError("method must be either 'minmax' or 'standard'.")
+        if not np.issubdtype(np.dtype(self.dtype), np.floating):
+            raise TypeError("DataLoader normalization requires a floating-point dtype.")
+        low, high = (float(feature_range[0]), float(feature_range[1]))
+        if method == "minmax" and not low < high:
+            raise ValueError("feature_range must satisfy low < high.")
+
+        selected = list(self.dataset) if names is None else list(names)
+        unknown = [name for name in selected if name not in self.dataset]
+        if unknown:
+            raise ValueError(f"Unknown dataset inputs for normalization: {unknown}.")
+
+        if self._original_dataset is None:
+            self._original_dataset = {
+                name: np.array(values, copy=True)
+                for name, values in self.dataset.items()
+            }
+        source = self._original_dataset
+
+        # Reapplying normalization always starts from the original prepared
+        # windows, so transformations never compound.
+        self.dataset = {
+            name: np.array(values, copy=True) for name, values in source.items()
+        }
+        self.normalization_stats = {}
+
+        for name in selected:
+            values = source[name].astype(np.float64, copy=False)
+            dim_rank = self.input_nodes[name].shape.dim_rank
+            reduce_axes = (0, *range(1 + dim_rank, values.ndim))
+
+            if method == "standard":
+                offset = np.mean(values, axis=reduce_axes, keepdims=True)
+                scale = np.std(values, axis=reduce_axes, keepdims=True)
+                constant = scale <= np.finfo(np.float32).eps
+                safe_scale = np.where(constant, 1.0, scale)
+                normalized = (values - offset) / safe_scale
+            else:
+                minimum = np.min(values, axis=reduce_axes, keepdims=True)
+                maximum = np.max(values, axis=reduce_axes, keepdims=True)
+                span = maximum - minimum
+                constant = span <= np.finfo(np.float32).eps
+                safe_scale = np.where(constant, 1.0, span)
+                offset = minimum
+                scale = safe_scale
+                normalized = (values - offset) / scale
+                normalized = normalized * (high - low) + low
+                normalized = np.where(constant, (low + high) / 2.0, normalized)
+
+            self.normalization_stats[name] = {
+                "method": method,
+                "offset": offset,
+                "scale": scale,
+                "constant": constant,
+                "feature_range": (low, high),
+            }
+            self.dataset[name] = normalized.astype(self.dtype)
+
+        return self
+
+    def denormalize(
+        self,
+        data: Dict[str, Any] | np.ndarray | None = None,
+        *,
+        name: str | None = None,
+    ):
+        """Undo this loader's fitted normalization.
+
+        With no data, restore the loader's original prepared dataset in place
+        and return ``self``. A dictionary or array is inverse-transformed and
+        returned without modifying the loader. For an array, ``name`` selects
+        the statistics to use.
+        """
+        if self._original_dataset is None:
+            if data is None:
+                return self
+            raise ValueError("normalize() must be called before denormalize().")
+
+        if data is None:
+            self.dataset = {
+                key: np.array(values, copy=True)
+                for key, values in self._original_dataset.items()
+            }
+            return self
+
+        if isinstance(data, dict):
+            return {
+                key: self._denormalize_values(key, values)
+                if self._normalization_name(key) is not None
+                else np.asarray(values)
+                for key, values in data.items()
+            }
+
+        if name is None:
+            raise ValueError("name is required when denormalizing an array.")
+        return self._denormalize_values(name, data)
+
+    def _denormalize_values(self, name: str, values: Any) -> np.ndarray:
+        stats_name = self._normalization_name(name)
+        if stats_name is None:
+            raise ValueError(f"No normalization statistics are available for {name!r}.")
+        stats = self.normalization_stats[stats_name]
+        values = np.asarray(values, dtype=np.float64)
+        offset = self._match_stat_rank(stats["offset"], values.ndim)
+        scale = self._match_stat_rank(stats["scale"], values.ndim)
+        constant = self._match_stat_rank(stats["constant"], values.ndim)
+
+        if stats["method"] == "minmax":
+            low, high = stats["feature_range"]
+            values = (values - low) / (high - low)
+        restored = values * scale + offset
+        restored = np.where(constant, offset, restored)
+        return restored.astype(self.dtype)
+
+    @staticmethod
+    def _match_stat_rank(stat: np.ndarray, rank: int) -> np.ndarray:
+        while stat.ndim > rank and stat.shape[0] == 1:
+            stat = stat[0]
+        if stat.ndim != rank:
+            raise ValueError(
+                f"Data rank {rank} is incompatible with normalization rank {stat.ndim}."
+            )
+        return stat
+
+    def _normalization_name(self, name: str) -> str | None:
+        if name in self.normalization_stats:
+            return name
+        alias = self._normalization_aliases.get(name)
+        return alias if alias in self.normalization_stats else None
+
+    def _build_normalization_aliases(self) -> Dict[str, str]:
+        aliases = {}
+
+        def find_input_name(node):
+            if node.name in self.input_nodes:
+                return node.name
+            preds = getattr(node, "preds", [])
+            if len(preds) == 1:
+                return find_input_name(preds[0])
+            return None
+
+        for minimizer in self.model.minimizers:
+            target_name = find_input_name(minimizer["target"])
+            if target_name is not None:
+                aliases[minimizer["source"].name] = target_name
+        return aliases
 
     # ------------------------------------------------------------------
     # Build dataset
