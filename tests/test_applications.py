@@ -19,7 +19,7 @@ from nnodely import (
 
 
 @pytest.mark.slow
-def test_vehicle_longitudinal_dynamics():
+def test_vehicle_longitudinal_dynamics(tmp_path):
     # ------- Test Model Longitudinal Vehicle Dynamics -------
     n = 25
     na = 1  # na = 21
@@ -70,11 +70,7 @@ def test_vehicle_longitudinal_dynamics():
     vehicle.build()
 
     # Plot the model
-    vehicle.plot(to_file="html/vehicle_model.png")
-    vehicle.plot(
-        to_file="html/vehicle_model_flatten.png", include_minimizers=False, flatten=True
-    )
-    vehicle.export_html("html/vehicle_model.html")
+    vehicle.export_html(tmp_path / "vehicle_model.html")
 
     # Load the training and the validation dataset
     data_folder = os.path.join(
@@ -124,7 +120,7 @@ def test_vehicle_longitudinal_dynamics():
 
     start_time = time.time()
     vehicle.validate(
-        val_data=data_val, batch_size=32, out_dir="html/vehicle_validation"
+        val_data=data_val, batch_size=32, out_dir=tmp_path / "vehicle_validation"
     )
     end_time = time.time()
     print(f"validation completed in {end_time - start_time:.2f} seconds.")
@@ -137,10 +133,10 @@ def test_vehicle_longitudinal_dynamics():
     assert result["accelleration"].shape == (1, 1, 1)
 
     ## Save the model weights
-    vehicle.save("html/vehicle")
+    vehicle.save(tmp_path / "vehicle")
 
     ## Load the model weights
-    loaded_vehicle = Modely.load("html/vehicle")
+    loaded_vehicle = Modely.load(tmp_path / "vehicle")
 
     ## inference after loading the model weights
     new_result = loaded_vehicle(dummy_input)
@@ -155,14 +151,15 @@ def test_vehicle_longitudinal_dynamics():
     )
 
     ## plot htlm with the loaded model
-    loaded_vehicle.plot(to_file="html/vehicle_model_loaded.png")
-    loaded_vehicle.export_html("html/vehicle_model_loaded.html")
+    loaded_vehicle.export_html(tmp_path / "vehicle_model_loaded.html")
 
     ## Export the model in keras format
-    vehicle.export_keras("html/vehicle_model.keras")
+    vehicle.export_keras(tmp_path / "vehicle_model.keras")
 
     ## Load keras model
-    loaded_keras_model = Modely.import_keras("html/vehicle_model", safe_mode=False)
+    loaded_keras_model = Modely.import_keras(
+        tmp_path / "vehicle_model", safe_mode=False
+    )
 
     ## keras inference
     keras_result = loaded_keras_model(dummy_input)  # type: ignore
@@ -177,10 +174,10 @@ def test_vehicle_longitudinal_dynamics():
     )
 
     ## Export the model in onnx format
-    vehicle.export_onnx("html/vehicle_model")
+    vehicle.export_onnx(tmp_path / "vehicle_model")
 
     ## onnx validation
-    onnx_result = Modely.validate_onnx("html/vehicle_model", dummy_input)
+    onnx_result = Modely.validate_onnx(tmp_path / "vehicle_model", dummy_input)
     print("ONNX validation result:", onnx_result)
     np.testing.assert_allclose(
         to_numpy(result["accelleration"]),
@@ -190,7 +187,7 @@ def test_vehicle_longitudinal_dynamics():
     )
 
 
-def test_recurrent_vehicle_longitudinal_dynamics():
+def test_recurrent_vehicle_longitudinal_dynamics(tmp_path):
     # ------- Test Model Longitudinal Vehicle Dynamics -------
     n = 25
     na = 1  # na = 21
@@ -249,13 +246,7 @@ def test_recurrent_vehicle_longitudinal_dynamics():
     air_drag_force.kernel.assign(np.full((1, 1), -1e-3, dtype=np.float32))
 
     # Plot the model
-    vehicle.plot(to_file="html/recurrent_vehicle_model.png")
-    vehicle.plot(
-        to_file="html/recurrent_vehicle_model_flatten.png",
-        include_minimizers=False,
-        flatten=True,
-    )
-    vehicle.export_html("html/recurrent_vehicle_model.html")
+    vehicle.export_html(tmp_path / "recurrent_vehicle_model.html")
 
     # Load the training and the validation dataset
     data_folder = os.path.join(
@@ -315,10 +306,10 @@ def test_recurrent_vehicle_longitudinal_dynamics():
     assert np.all(np.isfinite(to_numpy(result["accelleration"])))
 
     ## Save the model weights
-    vehicle.save("html/recurrent_vehicle")
+    vehicle.save(tmp_path / "recurrent_vehicle")
 
     ## Load the model weights
-    loaded_vehicle = Modely.load("html/recurrent_vehicle")
+    loaded_vehicle = Modely.load(tmp_path / "recurrent_vehicle")
 
     ## inference after loading the model weights
     new_result = loaded_vehicle(dummy_input)
@@ -333,15 +324,14 @@ def test_recurrent_vehicle_longitudinal_dynamics():
     )
 
     ## plot htlm with the loaded model
-    loaded_vehicle.plot(to_file="html/recurrent_vehicle_model_loaded.png")
-    loaded_vehicle.export_html("html/recurrent_vehicle_model_loaded.html")
+    loaded_vehicle.export_html(tmp_path / "recurrent_vehicle_model_loaded.html")
 
     ## Export the model in keras format
-    vehicle.export_keras("html/recurrent_vehicle_model.keras")
+    vehicle.export_keras(tmp_path / "recurrent_vehicle_model.keras")
 
     ## Load keras model
     loaded_keras_model = Modely.import_keras(
-        "html/recurrent_vehicle_model.keras", safe_mode=False
+        tmp_path / "recurrent_vehicle_model.keras", safe_mode=False
     )
 
     ## keras inference
@@ -357,10 +347,12 @@ def test_recurrent_vehicle_longitudinal_dynamics():
     )
 
     ## Export the model in onnx format
-    vehicle.export_onnx("html/recurrent_vehicle_model")
+    vehicle.export_onnx(tmp_path / "recurrent_vehicle_model.onnx")
 
     ## onnx validation
-    onnx_result = Modely.validate_onnx("html/recurrent_vehicle_model", dummy_input)
+    onnx_result = Modely.validate_onnx(
+        tmp_path / "recurrent_vehicle_model.onnx", dummy_input
+    )
     print("ONNX validation result:", onnx_result)
     np.testing.assert_allclose(
         to_numpy(result["accelleration"]),

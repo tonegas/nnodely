@@ -66,9 +66,9 @@ def test_save_load_simple_model(tmp_path):
     pred = model({"x": x_data, "y": y_data})
     assert pred["accelleration"].shape == (1, 1, 1)
 
-    model.save("html/simple_save")
+    model.save(tmp_path / "simple_save")
 
-    new_model = Modely.load("html/simple_save")
+    new_model = Modely.load(tmp_path / "simple_save")
 
     new_pred = new_model({"x": x_data, "y": y_data})
     assert new_pred["accelleration"].shape == (1, 1, 1)
