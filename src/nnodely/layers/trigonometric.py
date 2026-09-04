@@ -7,6 +7,24 @@ import keras
 from nnodely.core.layer import Layer
 
 
+@keras.saving.register_keras_serializable(package="nnodely")
+class TrigImpl(keras.layers.Layer):
+    """Elementwise keras.ops trig call. A named op instead of a Lambda closure,
+    so the layer survives save/load."""
+
+    def __init__(self, op, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.op = op
+
+    def call(self, x):
+        return getattr(keras.ops, self.op)(x)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"op": self.op})
+        return config
+
+
 class Sin(Layer):
     """Wrapper for sine transform."""
 
@@ -14,8 +32,7 @@ class Sin(Layer):
         super().__init__(name=name)
 
     def build_layer(self):
-        self._layer = keras.layers.Lambda(lambda x: keras.ops.sin(x), name=self.name)
-        return self._layer
+        return TrigImpl("sin", name=self.name)
 
 
 class Cos(Layer):
@@ -25,8 +42,7 @@ class Cos(Layer):
         super().__init__(name=name)
 
     def build_layer(self):
-        self._layer = keras.layers.Lambda(lambda x: keras.ops.cos(x), name=self.name)
-        return self._layer
+        return TrigImpl("cos", name=self.name)
 
 
 class Tan(Layer):
@@ -36,8 +52,7 @@ class Tan(Layer):
         super().__init__(name=name)
 
     def build_layer(self):
-        self._layer = keras.layers.Lambda(lambda x: keras.ops.tan(x), name=self.name)
-        return self._layer
+        return TrigImpl("tan", name=self.name)
 
 
 class Asin(Layer):
@@ -47,8 +62,7 @@ class Asin(Layer):
         super().__init__(name=name)
 
     def build_layer(self):
-        self._layer = keras.layers.Lambda(lambda x: keras.ops.arcsin(x), name=self.name)
-        return self._layer
+        return TrigImpl("arcsin", name=self.name)
 
 
 class Acos(Layer):
@@ -58,8 +72,7 @@ class Acos(Layer):
         super().__init__(name=name)
 
     def build_layer(self):
-        self._layer = keras.layers.Lambda(lambda x: keras.ops.arccos(x), name=self.name)
-        return self._layer
+        return TrigImpl("arccos", name=self.name)
 
 
 class Atan(Layer):
@@ -69,5 +82,4 @@ class Atan(Layer):
         super().__init__(name=name)
 
     def build_layer(self):
-        self._layer = keras.layers.Lambda(lambda x: keras.ops.arctan(x), name=self.name)
-        return self._layer
+        return TrigImpl("arctan", name=self.name)

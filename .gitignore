@@ -15,3 +15,5 @@ html
 .DS_Store
 .coverage
 coverage.xml
+
+Claude.md

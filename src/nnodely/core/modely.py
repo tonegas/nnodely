@@ -105,6 +105,30 @@ class Modely:
 
     def resolve_graph(self, order):
         tensor_map = {}
+        group_cache = {}
+
+        def call_layer(node, args):
+            """
+            A multi-output layer appears in the graph once per output, as clone
+            nodes sharing one group. Call the group's keras layer a single time
+            and index its result, so the computation and its weights exist once
+            rather than once per output.
+            """
+            group = node._clone_group or node
+            key = (group, tuple(pred.name for pred in node.preds))
+            if key not in group_cache:
+                # Build once per group, then let the clone invoke that same
+                # layer. The clone stays authoritative for preds/inputs, so a
+                # reused layer instance still shares weights across call sites.
+                if group._layer is None:
+                    group._layer = node.build_layer()
+                node._layer = group._layer
+                group_cache[key] = node.call(args)
+            result = group_cache[key]
+            if node._n_clone_outputs > 1 and isinstance(result, (list, tuple)):
+                return result[node._clone_index]
+            return result
+
         for node in [n for n in order if isinstance(n, Input)]:
             tensor_map[node.name] = node.input
 
@@ -112,30 +136,11 @@ class Modely:
             if isinstance(node, Layer):
                 if len(node.preds) == 0:  ## Parameters and Constants
                     anchor = next(iter(tensor_map.values()), None)
-                    tensor_map[node.name] = node.call([anchor])
-                    if (
-                        isinstance(tensor_map[node.name], tuple)
-                        and len(tensor_map[node.name]) > 1
-                    ):
-                        idx = node.name.rfind("_")
-                        if idx != -1 and node.name[idx + 1 :].isdigit():
-                            tensor_map[node.name] = tensor_map[node.name][
-                                int(node.name[idx + 1 :])
-                            ]
+                    tensor_map[node.name] = call_layer(node, [anchor])
                 else:
-                    tensor_map[node.name] = node.call(
-                        [tensor_map[pred.name] for pred in node.preds]
+                    tensor_map[node.name] = call_layer(
+                        node, [tensor_map[pred.name] for pred in node.preds]
                     )
-                    ##TODO: remove this code in the future
-                    if (
-                        isinstance(tensor_map[node.name], tuple)
-                        and len(tensor_map[node.name]) > 1
-                    ):
-                        idx = node.name.rfind("_")
-                        if idx != -1 and node.name[idx + 1 :].isdigit():
-                            tensor_map[node.name] = tensor_map[node.name][
-                                int(node.name[idx + 1 :])
-                            ]
             else:  ## Output or other non-Layer node
                 tensor_map[node.name] = tensor_map[node.preds[0].name]
 
@@ -308,8 +313,9 @@ class Modely:
         train_data: DataLoader,
         epochs: int = 1,
         batch_size: int = 1,
-        optimizer=None,
+        optimizer = None,
         lr: float = 1e-3,
+        jit_compile = "auto",
     ):
         if not self.minimizers:
             raise ValueError("No minimizers defined. Call minimize() before train().")
@@ -560,7 +566,9 @@ class Modely:
 
                 print(sep)
 
-        km.compile(optimizer=optimizer, loss=compile_losses)
+        # "auto" gives XLA on jax but skips it on the tensorflow backend, whose
+        # tf2xla pass cannot convert the gradient through the scan's while_loop.
+        km.compile(optimizer=optimizer, loss=compile_losses, jit_compile=jit_compile)
         history = km.fit(
             x=x_data,
             y=y_data,
@@ -725,6 +733,12 @@ class Modely:
         for node in getattr(model_copy, "order", []):
             if hasattr(node, "_layer"):
                 node._layer = None
+
+            # The built layer of a multi-output node lives on its clone group,
+            # which is not itself part of `order`.
+            group = getattr(node, "_clone_group", None)
+            if group is not None:
+                group._layer = None
 
             if hasattr(node, "_state"):
                 for key in ("layer", "param", "constant"):

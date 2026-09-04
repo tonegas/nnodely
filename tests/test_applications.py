@@ -496,7 +496,7 @@ def test_inv_pend(tmp_path):
         source=os.path.join("tests", "datasets", "data_inv_pend"),
     )
     # Train the model
-    history = model.train(train_data=data_train, epochs=30, batch_size=128, lr=1e-3)
+    history = model.train(train_data=data_train, epochs=600, batch_size=128, lr=1e-4, optimizer="adam")
 
     test_data = data_train[0]  # Use the first batch of training data for testing
     print("Test data:", {k: v for k, v in test_data.items() if k in ["Ypos", "Yvelocity", "Yangle", "Yangular_velocity"]})
@@ -618,13 +618,14 @@ def test_inv_pend_loop(tmp_path):
     model.plot(to_file=os.path.join(tmp_path, "model_inv_pend_initial.png"))
     model.export_html(os.path.join("html", "model_inv_pend_initial.html"))
 
-    sequence_length = 50#(None,) #-1
+    sequence_length = (None,)  # dynamic loop axis; horizon is pinned by Loop(length=...)
     pos = Input(name="Xpos_s", dim=1, seq=sequence_length)
     vel = Input(name="Xvelocity_s", dim=1, seq=sequence_length)
     angle = Input(name="Xangle_s", dim=1, seq=sequence_length)
     ang_vel = Input(name="Xangular_velocity_s", dim=1, seq=sequence_length)
     force = Input(name="action_s", dim=1, seq=sequence_length)
 
+    train_seq_length = 3
     loop_fn = Loop(
         f=model,
         closed_loop={
@@ -640,6 +641,7 @@ def test_inv_pend_loop(tmp_path):
             "Xangular_velocity": ang_vel,
         },
         name="loop_inv_pend",
+        length=train_seq_length,
     )
 
     pos_pred, vel_pred, angle_pred, ang_vel_pred = loop_fn([pos, vel, angle, ang_vel, force])
@@ -678,36 +680,44 @@ def test_inv_pend_loop(tmp_path):
         loop_model,
         format=data_struct,
         source=os.path.join("tests", "datasets", "data_inv_pend"),
-        seq_length=sequence_length
+        seq_length=train_seq_length,
     )
-
-    batch = 1
-    # res = loop_model({
-    #     "Xpos": np.zeros((batch, 1, sequence_length)),
-    #     "Xvelocity": np.ones((batch, 1, sequence_length)),
-    #     "Xangle": np.ones((batch, 1, sequence_length))+1,
-    #     "Xangular_velocity": np.ones((batch, 1, sequence_length))+2,
-    #     "action": np.ones((batch, 1, sequence_length))+3,
-    #     "Ypos": np.zeros((batch, 1, sequence_length)),
-    #     "Yvelocity": np.zeros((batch, 1, sequence_length)),
-    #     "Yangle": np.zeros((batch, 1, sequence_length)),
-    #     "Yangular_velocity": np.zeros((batch, 1, sequence_length)),
-    # })
-    #print("Initial prediction loop:", res)
 
     # Train the model
     print("\nDataset size:", len(data_train))
     print("Starting training...")
-    loop_model.train(train_data=data_train, epochs=30, batch_size=128, lr=1e-3)
-    # # Export the trained model
-    # model.save(os.path.join(tmp_path, "model_inv_pend_exported"))
-    # model.export_keras(os.path.join(tmp_path, "model_inv_pend_keras.h5"))
+    loop_model.train(train_data=data_train, epochs=50, batch_size=128, lr=1e-4)
 
-    # # Load the exported model and test it
-    # loaded_model = Modely.load(os.path.join(tmp_path, "model_inv_pend_exported"))
+    # Export the trained model and check the reloaded one still rolls out identically
+    export_path = os.path.join(tmp_path, "model_inv_pend_keras")
+    loop_model.export_keras(export_path + ".keras")
+    loaded_model = Modely.import_keras(export_path, safe_mode=False)
+    # Load data
+    data_struct = {
+        "action_s": "action",
+        "Xpos_s": "Xpos",
+        "Xangle_s": "Xangle",
+        "Xvelocity_s": "Xvelocity",
+        "Xangular_velocity_s": "Xangular_velocity",
+        "Ypos_s": "Ypos",
+        "Yangle_s": "Yangle",
+        "Yvelocity_s": "Yvelocity",
+        "Yangular_velocity_s": "Yangular_velocity",
+    }
+    data_train = DataLoader(
+        loop_model,
+        format=data_struct,
+        source=os.path.join("tests", "datasets", "data_inv_pend"),
+        seq_length=150
+    )
     test_data = data_train[0]  # Use the first batch of training data for testing
 
     predictions = loop_model(test_data)
+    reloaded_predictions = loaded_model(test_data)
+    for key in ["Ypos_pred_s", "Yvel_pred_s", "Yang_pred_s", "Yang_vel_s"]:
+        assert np.allclose(
+            np.asarray(predictions[key]), np.asarray(reloaded_predictions[key]), atol=1e-5
+        ), f"reloaded model diverged on {key}"
     print("Outputs:", predictions)
     print("Target:", {k: v for k, v in test_data.items() if k in ["Ypos_s", "Yvelocity_s", "Yangle_s", "Yangular_velocity_s"]})
     print("Predictions shapes:", {k: v.shape for k, v in predictions.items() if "Y" in k})
@@ -717,7 +727,7 @@ def test_inv_pend_loop(tmp_path):
     for key_t, key_p in zip(["Ypos_s", "Yvelocity_s", "Yangle_s", "Yangular_velocity_s"], ["Ypos_pred_s", "Yvel_pred_s", "Yang_pred_s", "Yang_vel_s"]):
         plt.figure()
         plt.plot(test_data[key_t][0, 0, :], label="Target")
-        plt.plot(predictions[key_p][0, 0, :], label="Prediction")
+        plt.plot(predictions[key_p][0, 0, :], label="Prediction", linestyle=":")
         plt.title(key_t)
         plt.xlabel("Time step")
         plt.ylabel(key_t)

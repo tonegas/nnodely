@@ -19,6 +19,10 @@ class Layer(Stream):
         self._properties = dict(kwargs)
         self.inputs = None
         self._layer = None
+        # Set on the per-output clone nodes produced by __call__.
+        self._clone_group = None
+        self._clone_index = 0
+        self._n_clone_outputs = 1
 
         super().__init__(
             name=next_name(self.__class__.__name__) if name is None else name,
@@ -77,6 +81,11 @@ class Layer(Stream):
                 node.time = out_time
                 node.dim = out_dim
                 node.preds = inputs  # type: ignore
+                # All clones resolve through this one group, so the underlying
+                # keras layer is built and invoked exactly once.
+                node._clone_group = self
+                node._clone_index = idx
+                node._n_clone_outputs = len(out_shapes)
                 ret.append(node)
 
             return ret if len(ret) > 1 else ret[0]
@@ -128,7 +137,12 @@ class Divide(BinaryOp):
 @keras.saving.register_keras_serializable(package="nnodely")
 class PowerImpl(keras.layers.Layer):
     def call(self, xs):
-        return keras.ops.power(xs[0], xs[1])
+        # The exponent is a Constant, but ConstantImpl ties its value to an anchor
+        # tensor, which inside a Loop depends on trainable parameters. That makes
+        # d/dy power(x, y) = power(x, y) * log(x) reachable, and it is nan for the
+        # negative bases this graph produces. The exponent is never trained, so cut
+        # the gradient there.
+        return keras.ops.power(xs[0], keras.ops.stop_gradient(xs[1]))
 
     def get_config(self):
         return super().get_config()
