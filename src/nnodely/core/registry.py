@@ -39,16 +39,16 @@ class ModelSerializer:
             "version": ModelSerializer.VERSION,
             "model": {
                 "name": model.name,
-                "closed_loop": (
+                "roll": (
                     {
                         "callbacks": {
                             input_node.name: stream.name
-                            for input_node, stream in model._closed_loop_callbacks.items()
+                            for input_node, stream in model._roll_callbacks.items()
                         },
-                        "steps": model._closed_loop_steps,
-                        "name": model._closed_loop_name,
+                        "steps": model._roll_steps,
+                        "name": model._roll_name,
                     }
-                    if model._closed_loop_callbacks
+                    if model._roll_callbacks
                     else None
                 ),
             },
@@ -87,12 +87,12 @@ class ModelSerializer:
             inputs=inputs,
             outputs=outputs,
         )
-        closed_loop = data["model"].get("closed_loop")
-        if closed_loop is not None:
-            model.closed_loop(
-                closed_loop["callbacks"],
-                steps=closed_loop["steps"],
-                name=closed_loop.get("name"),
+        roll = data["model"].get("roll")
+        if roll is not None:
+            model.rollback(
+                roll["callbacks"],
+                steps=roll["steps"],
+                name=roll.get("name"),
             )
         return model
 

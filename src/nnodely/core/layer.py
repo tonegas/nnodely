@@ -84,7 +84,7 @@ class Layer(Stream):
         inferred = [
             self._shape_from_tensor(
                 output,
-                inputs[0].shape.seq_rank,
+                max(input_node.shape.seq_rank for input_node in inputs),
                 has_batch=not all(zero_input_layers),
             )
             for output in output_values
@@ -182,21 +182,42 @@ class BinaryOp(Layer):
             raise NotImplementedError(
                 "Subclasses must define an operation class attribute."
             )
-        return BinaryOpImpl(operation=self.operation, name=self.name)
+        input_has_batch = tuple(
+            not (isinstance(node, Layer) and len(node.preds) == 0)
+            for node in (self.inputs or self.preds)
+        )
+        return BinaryOpImpl(
+            operation=self.operation,
+            input_has_batch=input_has_batch,
+            name=self.name,
+        )
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class BinaryOpImpl(keras.layers.Layer):
-    def __init__(self, operation: str, **kwargs):
+    def __init__(
+        self,
+        operation: str,
+        input_has_batch: tuple[bool, ...] | None = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.operation = operation
+        self.input_has_batch = input_has_batch
 
     def call(self, xs):
-        target_rank = max(len(value.shape) for value in xs)
+        has_batch = self.input_has_batch or tuple(True for _ in xs)
+        graph_has_batch = any(has_batch)
+        target_rank = max(
+            len(value.shape) + int(graph_has_batch and not value_has_batch)
+            for value, value_has_batch in zip(xs, has_batch)
+        )
         values = list(xs)
-        for index, value in enumerate(values):
-            while len(value.shape) < target_rank:
+        for index, (value, value_has_batch) in enumerate(zip(values, has_batch)):
+            if graph_has_batch and not value_has_batch:
                 value = keras.ops.expand_dims(value, axis=0)
+            while len(value.shape) < target_rank:
+                value = keras.ops.expand_dims(value, axis=-1)
             values[index] = value
 
         operations = {
@@ -212,7 +233,12 @@ class BinaryOpImpl(keras.layers.Layer):
 
     def get_config(self):
         config = super().get_config()
-        config.update({"operation": self.operation})
+        config.update(
+            {
+                "operation": self.operation,
+                "input_has_batch": self.input_has_batch,
+            }
+        )
         return config
 
 

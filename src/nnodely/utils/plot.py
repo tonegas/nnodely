@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from nnodely.core.modely import Modely
 
-from nnodely.layers.loop import Loop
+from nnodely.layers.roll import Roll
 
 ## nnodely pallette
 # :root {
@@ -253,12 +253,12 @@ def export_html(
             except Exception:
                 pass
 
-        if isinstance(node, Loop):
+        if isinstance(node, Roll):
             try:
                 attrs["properties"]["f"] = attrs["properties"]["f"].name
-                attrs["properties"]["closed_loop"] = {
+                attrs["properties"]["callback"] = {
                     out.name: inp.name
-                    for out, inp in attrs["properties"]["closed_loop"].items()
+                    for out, inp in attrs["properties"]["callback"].items()
                 }
             except Exception:
                 pass
@@ -429,25 +429,23 @@ def export_html(
             )
 
         visible_node_ids = {record["id"] for record in vis_nodes}
-        for input_node, stream in getattr(
-            model_obj, "_closed_loop_callbacks", {}
-        ).items():
+        for input_node, stream in getattr(model_obj, "_roll_callbacks", {}).items():
             src = stream.name
             dst = input_node.name
             if src not in visible_node_ids or dst not in visible_node_ids:
                 continue
             edge_attrs = {
-                "kind": "closed_loop",
+                "kind": "roll",
                 "feedback_stream": src,
                 "feedback_input": dst,
-                "steps": getattr(model_obj, "_closed_loop_steps", None),
+                "steps": getattr(model_obj, "_roll_steps", None),
             }
             vis_edges.append(
                 {
                     "from": src,
                     "to": dst,
                     "arrows": {"to": {"enabled": True, "scaleFactor": 1.2}},
-                    "label": "loop",
+                    "label": f"roll ({edge_attrs['steps']} steps)",
                     "width": 3,
                     "color": {
                         "color": "#e74c3c",
@@ -548,7 +546,7 @@ def export_html(
         border: 1px solid #2c3e50;
         margin-right: 6px;
     }}
-    .loop-arrow {{
+    .roll-arrow {{
         color: #e74c3c;
         display: inline-block;
         font-size: 17px;
@@ -686,7 +684,7 @@ def export_html(
         <span><span class="swatch" style="background:#ff9900"></span>Parameter</span>
         <span><span class="swatch" style="background:#00e5ff"></span>Constant</span>
         <span><span class="swatch" style="background:#95a5a6"></span>Relation</span>
-        <span><span class="loop-arrow">→</span>Closed loop</span>
+        <span><span class="roll-arrow">→</span>Roll</span>
     </div>
     <div class="header-right">
         <div class="bottom-bar">

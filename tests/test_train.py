@@ -10,7 +10,7 @@ from nnodely import (
     Constant,
     Linear,
     Scan,
-    Loop,
+    Roll,
 )
 
 import pytest
@@ -102,7 +102,7 @@ def test_train_basic():
         "error_fir_y", source=y_fir, target=None, loss="mse"
     )  ## with target=None, the loss will be minimized to zero
 
-    model1.build()  # Rebuild the model after removing the minimizer otherwise the training loop will still try to compute the loss and update the model based on it, even if it's not used for training anymore
+    model1.build()  # Rebuild the model after removing the minimizer otherwise the training Roll will still try to compute the loss and update the model based on it, even if it's not used for training anymore
     model1.train(train_data=data_train, epochs=60, batch_size=4)
 
     # ------ Remove one minimizer and retrain with a constant value -------
@@ -502,7 +502,7 @@ def test_train_with_scan():
     assert history["loss"][-1] < history["loss"][0]
 
 
-def test_train_with_loop():
+def test_train_with_roll():
     x = Input("x")
     target = Input("target")
     relation = Linear(
@@ -514,8 +514,8 @@ def test_train_with_loop():
     output = Output("out", relation)
     body = Modely("body", inputs=[x], outputs=[output])
     body.build()
-    loop = Loop(f=body, callback={x: output}, steps=3, name="loop")
-    out_scan = Output("out_scan", loop)
+    roll = Roll(f=body, callback={x: output}, steps=3, name="roll")
+    out_scan = Output("out_scan", roll)
     model = Modely("model", inputs=[x], outputs=[out_scan])
     model.minimize("error", source=out_scan, target=target.last(), loss="mse")
     model.build()
@@ -573,7 +573,7 @@ def test_train_with_loop():
     assert history["loss"][-1] < history["loss"][0]
 
 
-def test_train_with_model_closed_loop_uses_final_value_only():
+def test_train_with_model_rollback_uses_final_value_only():
     x = Input("closed_train_x")
     target = Input("closed_train_target")
     relation = Linear(
@@ -584,7 +584,7 @@ def test_train_with_model_closed_loop_uses_final_value_only():
     )(x.last())
     output = Output("closed_train_output", relation)
     model = Modely("closed_train_model", inputs=[x], outputs=[output])
-    model.closed_loop({x: output}, steps=3)
+    model.rollback({x: output}, steps=3)
     model.minimize("closed_train_error", output, target.last(), loss="mse")
     model.build()
 

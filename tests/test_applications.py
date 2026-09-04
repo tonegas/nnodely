@@ -235,7 +235,7 @@ def test_recurrent_vehicle_longitudinal_dynamics(tmp_path):
         inputs=[velocity, brake, gear, torque, altitude],
         outputs=[out],
     )
-    vehicle.closed_loop({"vel": "accelleration"}, steps=10, name="vehicle_closed_loop")
+    vehicle.rollback({"vel": "accelleration"}, steps=10, name="vehicle_roll")
 
     # Define the training objective
     vehicle.minimize("acc_error", out, Input("acc").last(), loss="mse")

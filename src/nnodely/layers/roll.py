@@ -5,7 +5,7 @@ from nnodely.core.modely import Modely
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
-class ModelClosedLoopImpl(keras.layers.Layer):
+class ModelRollImpl(keras.layers.Layer):
     """Repeatedly evaluate a model and feed selected streams back to its inputs."""
 
     def __init__(
@@ -66,7 +66,7 @@ class ModelClosedLoopImpl(keras.layers.Layer):
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
-class LoopImpl(keras.layers.Layer):
+class RollImpl(keras.layers.Layer):
     """Unroll a model while shifting its feedback into a temporal window."""
 
     def __init__(
@@ -129,7 +129,7 @@ class LoopImpl(keras.layers.Layer):
         return cls(**config)
 
 
-class Loop(Layer):
+class Roll(Layer):
     """Unroll a built Modely over a temporal feedback window."""
 
     def __init__(
@@ -140,11 +140,9 @@ class Loop(Layer):
         name=None,
     ):
         if not f.built:
-            raise ValueError("Loop Modely body must be built before creating Loop.")
+            raise ValueError("Modely body must be built before creating Roll.")
         if not isinstance(callback, dict) or len(callback) != 1:
-            raise ValueError(
-                "Loop callback must contain exactly one input: output pair."
-            )
+            raise ValueError("callback must contain exactly one input: output pair.")
 
         callback_input, callback_output = next(iter(callback.items()))
         callback_input = self._find_node(f.inputs, callback_input, "input")
@@ -155,14 +153,14 @@ class Loop(Layer):
         )
         if callback_output.shape.tuple != expected_output_shape:
             raise ValueError(
-                "Loop callback output must produce one temporal sample with shape "
+                "callback output must produce one temporal sample with shape "
                 f"{expected_output_shape}, got {callback_output.shape.tuple}."
             )
 
         if steps is None:
             steps = callback_input.time
         if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
-            raise ValueError("Loop steps must be a positive integer.")
+            raise ValueError("steps must be a positive integer.")
 
         self.f = f
         self.callback = {callback_input: callback_output}
@@ -184,17 +182,17 @@ class Loop(Layer):
         if isinstance(value, str):
             matches = [node for node in nodes if node.name == value]
             if len(matches) != 1:
-                raise ValueError(f"Loop callback {kind} {value!r} was not found.")
+                raise ValueError(f"Roll callback {kind} {value!r} was not found.")
             return matches[0]
         if value not in nodes:
             raise ValueError(
-                f"Loop callback {kind} {getattr(value, 'name', value)!r} "
+                f"Roll callback {kind} {getattr(value, 'name', value)!r} "
                 "does not belong to the provided Modely."
             )
         return value
 
     def build_layer(self):
-        return LoopImpl(
+        return RollImpl(
             model=self.f.model,
             callback_input_name=self.callback_input.name,
             callback_output_name=self.callback_output.name,
