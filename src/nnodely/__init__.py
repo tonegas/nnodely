@@ -13,8 +13,9 @@ from nnodely.layers.roll import Roll
 from nnodely.layers.scan import Scan
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.fuzzify import Fuzzify
-from nnodely.layers.concatenate import Concatenate
-from nnodely.layers.time_ops import TimeSelect, Select
+from nnodely.layers.interpolation import Interpolation
+from nnodely.layers.equationlearner import EquationLearner
+from nnodely.layers.time_ops import Concatenate, Select, TimeConcatenate, TimeSelect
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -43,7 +44,10 @@ __all__ = [
     "Scan",
     "LocalModel",
     "Fuzzify",
+    "Interpolation",
+    "EquationLearner",
     "Concatenate",
+    "TimeConcatenate",
     "TimeSelect",
     "Select",
     "ReLU",

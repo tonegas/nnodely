@@ -1,5 +1,16 @@
-from nnodely import Input, Output, Modely, Parameter, Constant, TimeSelect
-from nnodely.layers.concatenate import Concatenate, TimeConcatenate
+from nnodely import (
+    Constant,
+    Concatenate,
+    EquationLearner,
+    Input,
+    Interpolation,
+    Linear,
+    Modely,
+    Output,
+    Parameter,
+    TimeConcatenate,
+    TimeSelect,
+)
 from nnodely.layers.trigonometric import Sin, Cos, Tan, Asin, Acos, Atan
 from nnodely.layers.fir import Fir
 from nnodely.core.layer import Layer
@@ -17,6 +28,7 @@ from nnodely.layers.activations import (
     Softplus,
 )
 import numpy as np
+import pytest
 from conftest import to_numpy
 
 
@@ -76,6 +88,76 @@ def test_time_select():
         to_numpy(result["time_select_output"]),
         np.array([[[3.0]]], dtype=np.float32),
     )
+
+
+def test_linear_interpolation():
+    x = Input("interpolation_input")
+    interpolated = Interpolation(
+        x_points=[2.0, 0.0, 1.0],
+        y_points=[4.0, 0.0, 1.0],
+        mode="linear",
+        name="linear_interpolation",
+    )(x.sw(5))
+
+    assert interpolated.dimensions == ((1,), 5, ())
+    model = Modely(
+        "linear_interpolation_model",
+        inputs=[x],
+        outputs=[Output("interpolated", interpolated)],
+    ).build()
+
+    values = np.array([[[-1.0, 0.5, 1.0, 1.5, 3.0]]], dtype=np.float32)
+    result = to_numpy(model({"interpolation_input": values})["interpolated"])
+    expected = np.array([[[0.0, 0.5, 1.0, 2.5, 4.0]]], dtype=np.float32)
+
+    assert result.shape == values.shape
+    np.testing.assert_allclose(result, expected, rtol=1e-6, atol=1e-6)
+
+
+def test_polynomial_interpolation(tmp_path):
+    x = Input("polynomial_input")
+    x_points = [-2.0, -1.0, 0.0, 1.0, 2.0]
+    y_points = [value**2 + 2.0 * value + 3.0 for value in x_points]
+    interpolated = Interpolation(
+        x_points=x_points,
+        y_points=y_points,
+        mode="polynomial",
+        name="polynomial_interpolation",
+    )(x.sw(7))
+    model = Modely(
+        "polynomial_interpolation_model",
+        inputs=[x],
+        outputs=[Output("interpolated", interpolated)],
+    ).build()
+
+    values = np.array([[[-3.0, -1.5, -0.5, 0.0, 0.5, 1.5, 3.0]]], dtype=np.float32)
+    clipped = np.clip(values, x_points[0], x_points[-1])
+    expected = clipped**2 + 2.0 * clipped + 3.0
+    result = to_numpy(model({"polynomial_input": values})["interpolated"])
+    np.testing.assert_allclose(result, expected, rtol=1e-5, atol=1e-5)
+
+    export_path = tmp_path / "polynomial_interpolation.keras"
+    model.export_keras(export_path)
+    restored = Modely.import_keras(export_path)
+    restored_result = to_numpy(
+        restored({"polynomial_input": values})["interpolated"]  # type: ignore
+    )
+    np.testing.assert_allclose(restored_result, expected, rtol=1e-5, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    ("x_points", "y_points", "mode"),
+    [
+        ([0.0], [1.0], "linear"),
+        ([0.0, 1.0], [1.0], "linear"),
+        ([[0.0, 1.0]], [[1.0, 2.0]], "linear"),
+        ([0.0, 0.0], [1.0, 2.0], "linear"),
+        ([0.0, 1.0], [1.0, 2.0], "cubic"),
+    ],
+)
+def test_interpolation_validation(x_points, y_points, mode):
+    with pytest.raises(ValueError):
+        Interpolation(x_points=x_points, y_points=y_points, mode=mode)
 
 
 def test_trigonometric():
@@ -231,6 +313,187 @@ def test_layers():
         ],
     )
     model.build()
+
+
+def test_concatenate_multiple_tensors_on_multidimensional_axis():
+    x = Input("concat_x", dim=(2, 2))
+    y = Input("concat_y", dim=(1, 2))
+    z = Input("concat_z", dim=(3, 2))
+    concatenated = Concatenate(axis=0, name="dim_concat")([x.sw(2), y.sw(2), z.sw(2)])
+    model = Modely(
+        "dim_concatenate_model",
+        inputs=[x, y, z],
+        outputs=[Output("result", concatenated)],
+    ).build()
+
+    x_data = np.arange(8, dtype=np.float32).reshape((1, 2, 2, 2))
+    y_data = (10 + np.arange(4, dtype=np.float32)).reshape((1, 1, 2, 2))
+    z_data = (20 + np.arange(12, dtype=np.float32)).reshape((1, 3, 2, 2))
+    result = to_numpy(
+        model({"concat_x": x_data, "concat_y": y_data, "concat_z": z_data})["result"]
+    )
+
+    assert concatenated.dim == (6, 2)
+    assert concatenated.time == 2
+    assert result.shape == (1, 6, 2, 2)
+    np.testing.assert_array_equal(
+        result, np.concatenate([x_data, y_data, z_data], axis=1)
+    )
+
+
+def test_concatenate_supports_second_and_negative_dim_axes():
+    x = Input("axis_x", dim=(2, 1))
+    y = Input("axis_y", dim=(2, 2))
+    z = Input("axis_z", dim=(2, 3))
+    positive = Concatenate(axis=1)([x.last(), y.last(), z.last()])
+    negative = Concatenate(axis=-1)([x.last(), y.last(), z.last()])
+    model = Modely(
+        "axis_concatenate_model",
+        inputs=[x, y, z],
+        outputs=[Output("positive", positive), Output("negative", negative)],
+    ).build()
+
+    x_data = np.arange(2, dtype=np.float32).reshape((1, 2, 1, 1))
+    y_data = (10 + np.arange(4, dtype=np.float32)).reshape((1, 2, 2, 1))
+    z_data = (20 + np.arange(6, dtype=np.float32)).reshape((1, 2, 3, 1))
+    result = model({"axis_x": x_data, "axis_y": y_data, "axis_z": z_data})
+    expected = np.concatenate([x_data, y_data, z_data], axis=2)
+
+    assert positive.dim == negative.dim == (2, 6)
+    np.testing.assert_array_equal(to_numpy(result["positive"]), expected)
+    np.testing.assert_array_equal(to_numpy(result["negative"]), expected)
+
+
+def test_time_concatenate_multiple_tensors():
+    x = Input("time_x", dim=2)
+    y = Input("time_y", dim=2)
+    z = Input("time_z", dim=2)
+    concatenated = TimeConcatenate(name="time_concat")([x.sw(2), y.sw(1), z.sw(3)])
+    model = Modely(
+        "time_concatenate_model",
+        inputs=[x, y, z],
+        outputs=[Output("result", concatenated)],
+    ).build()
+
+    x_data = np.arange(4, dtype=np.float32).reshape((1, 2, 2))
+    y_data = (10 + np.arange(2, dtype=np.float32)).reshape((1, 2, 1))
+    z_data = (20 + np.arange(6, dtype=np.float32)).reshape((1, 2, 3))
+    result = to_numpy(
+        model({"time_x": x_data, "time_y": y_data, "time_z": z_data})["result"]
+    )
+
+    assert concatenated.dim == (2,)
+    assert concatenated.time == 6
+    assert result.shape == (1, 2, 6)
+    np.testing.assert_array_equal(
+        result, np.concatenate([x_data, y_data, z_data], axis=2)
+    )
+
+
+def test_concatenate_rejects_incompatible_shapes():
+    x = Input("invalid_concat_x", dim=(2, 2))
+    y = Input("invalid_concat_y", dim=(1, 3))
+
+    with pytest.raises(ValueError, match="matching dimensions"):
+        Concatenate(axis=0)([x.last(), y.last()])
+
+    with pytest.raises(ValueError, match="matching dim and seq"):
+        TimeConcatenate()([x.last(), y.last()])
+
+    with pytest.raises(ValueError, match="at least two inputs"):
+        Concatenate()([x.last()])
+
+
+def test_equation_learner_composes_symbolic_functions_and_multiple_inputs():
+    x = Input("equation_x")
+    y = Input("equation_y")
+    equation = EquationLearner(
+        functions=["identity", (lambda left, right: left * right, 2), Sin],
+        linear_in=Linear(
+            out_features=4,
+            use_bias=False,
+            initializer="zeros",
+            name="equation_linear_in",
+        ),
+        linear_out=Linear(
+            out_features=1,
+            use_bias=False,
+            initializer="zeros",
+            name="equation_linear_out",
+        ),
+        name="equation",
+    )
+    learned = equation([x.last(), y.last()])
+    model = Modely(
+        "equation_model",
+        inputs=[x, y],
+        outputs=[Output("result", learned)],
+    ).build()
+
+    assert equation.linear_in is not None
+    assert equation.linear_out is not None
+    assert equation.linear_in.kernel is not None
+    assert equation.linear_out.kernel is not None
+    equation.linear_in.kernel.assign(
+        np.array([[1.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 1.0]], dtype=np.float32)
+    )
+    equation.linear_out.kernel.assign(np.array([[2.0], [3.0], [4.0]], dtype=np.float32))
+
+    inputs = {
+        "equation_x": np.array([[[2.0]]], dtype=np.float32),
+        "equation_y": np.array([[[0.5]]], dtype=np.float32),
+    }
+    result = to_numpy(model(inputs)["result"])
+    expected = 2.0 * 2.0 + 3.0 * 2.0 * 0.5 + 4.0 * np.sin(0.5)
+
+    assert result.shape == (1, 1, 1)
+    np.testing.assert_allclose(result, expected, rtol=1e-5, atol=1e-5)
+    assert equation.model is not None
+    internal_types = {type(node).__name__ for node in equation.model.order}
+    assert {"Linear", "Select", "Multiply", "Sin", "Concatenate"} <= internal_types
+
+
+def test_equation_learner_supports_layer_classes_and_basis_output():
+    x = Input("basis_x")
+    equation = EquationLearner(
+        functions=[Sin, Cos, "add"],
+        linear_in=Linear(
+            out_features=4,
+            use_bias=False,
+            initializer="ones",
+        ),
+        name="basis_equation",
+    )
+    basis = equation(x.last())
+    model = Modely(
+        "basis_model",
+        inputs=[x],
+        outputs=[Output("basis", basis)],
+    ).build()
+
+    value = np.array([[[0.25]]], dtype=np.float32)
+    result = to_numpy(model({"basis_x": value})["basis"])
+    expected = np.array(
+        [[[np.sin(0.25)], [np.cos(0.25)], [0.5]]],
+        dtype=np.float32,
+    ).reshape((1, 3, 1))
+
+    assert basis.dim == (3,)
+    np.testing.assert_allclose(result, expected, rtol=1e-5, atol=1e-5)
+
+
+def test_equation_learner_rejects_invalid_configuration():
+    with pytest.raises(ValueError, match="at least one function"):
+        EquationLearner([])
+
+    with pytest.raises(ValueError, match="total number of function arguments"):
+        EquationLearner(
+            [Sin, "add"],
+            linear_in=Linear(out_features=2),
+        )
+
+    with pytest.raises(ValueError, match="Unknown EquationLearner function"):
+        EquationLearner(["not_a_function"])
 
 
 def test_fir_simple():
