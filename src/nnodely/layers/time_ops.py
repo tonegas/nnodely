@@ -66,7 +66,10 @@ class SampleWindow(Layer):
         self.future = int(future)
         self.window_size = self.past + self.future
         super().__init__(
-            name=name, time=self.window_size, past=self.past, future=self.future
+            name=name,
+            time=self.window_size,
+            past=self.past,
+            future=self.future,
         )
 
     def build_layer(self):

@@ -15,6 +15,8 @@ from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.fuzzify import Fuzzify
 from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.equationlearner import EquationLearner
+from nnodely.layers.derivative import Derivative
+from nnodely.layers.integrate import Integrate
 from nnodely.layers.time_ops import Concatenate, Select, TimeConcatenate, TimeSelect
 from nnodely.layers.activations import (
     ELU,
@@ -46,6 +48,8 @@ __all__ = [
     "Fuzzify",
     "Interpolation",
     "EquationLearner",
+    "Derivative",
+    "Integrate",
     "Concatenate",
     "TimeConcatenate",
     "TimeSelect",

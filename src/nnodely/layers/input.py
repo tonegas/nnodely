@@ -20,13 +20,19 @@ class Input(Stream):
         *,
         dim: int | tuple | None = None,
         seq: int | tuple[int | None, ...] | None = None,
+        sample_time: float | None = None,
     ):
+        if sample_time is not None and sample_time <= 0:
+            raise ValueError(
+                f"{name}: sample_time must be positive, got {sample_time}."
+            )
         super().__init__(name=name, seq=seq, time=None, dim=dim, preds=None)
         self.input = keras.Input(shape=self.shape, name=self.name)
         self.past, self.future = (
             0,
             0,
         )
+        self.sample_time = sample_time
 
     def sw(self, window_size: int | list[int]):
         """Crea SampleWindow (Layer) con finestra temporale. Aggiorna self.time (max finestra)."""
@@ -61,6 +67,7 @@ class Input(Stream):
             {
                 "past": self.past,
                 "future": self.future,
+                "sample_time": self.sample_time,
             }
         )
         return config
@@ -71,6 +78,7 @@ class Input(Stream):
             name=config["name"],
             dim=config["dim"],
             seq=config["seq"],
+            sample_time=config.get("sample_time"),
         )
 
         node.past = config["past"]

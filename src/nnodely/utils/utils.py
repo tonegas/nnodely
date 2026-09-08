@@ -83,3 +83,27 @@ def _resolve_optimizer(
             "optimizer must resolve to an instance of keras.optimizers.Optimizer."
         )
     return resolved
+
+
+def find_sample_time(node) -> float | None:
+    """Shared helpers for time-aware layers (Derivative, Integrate).
+    Walk the ancestor chain looking for the first exposed `sample_time`.
+
+    An Input (and the SampleWindow built from it) carries a `sample_time`
+    attribute. Walking the whole ancestor chain - not just the immediate
+    predecessor - lets Derivative/Integrate resolve `dt` automatically even
+    when applied to an arbitrary Layer's output deeper in the architecture,
+    as long as some ancestor traces back to an Input with `sample_time` set.
+    """
+    seen = set()
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        sample_time = getattr(current, "sample_time", None)
+        if sample_time is not None:
+            return sample_time
+        stack.extend(getattr(current, "preds", None) or [])
+    return None
