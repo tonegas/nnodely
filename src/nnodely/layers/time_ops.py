@@ -1,4 +1,5 @@
 from nnodely.core.layer import Layer
+from nnodely.core.stream import Stream
 
 import keras
 
@@ -260,3 +261,191 @@ class TimeSelect(Layer):
             "name": self.name,
             "idx": self.idx,
         }
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class TimeConcatenateImpl(keras.layers.Layer):
+    """Serializable concatenation along the single time axis."""
+
+    def __init__(self, dim_rank: int, input_rank: int, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.dim_rank = int(dim_rank)
+        self.input_rank = int(input_rank)
+
+    def call(self, xs):
+        values, rank_offset = _align_concatenate_inputs(xs, self.input_rank)
+        return keras.ops.concatenate(
+            values,
+            axis=rank_offset + self.dim_rank,
+        )
+
+    def compute_output_shape(self, input_shape):
+        return _concatenated_output_shape(
+            input_shape,
+            semantic_axis=self.dim_rank,
+            input_rank=self.input_rank,
+        )
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "dim_rank": self.dim_rank,
+                "input_rank": self.input_rank,
+            }
+        )
+        return config
+
+
+class TimeConcatenate(Layer):
+    """Concatenate two or more streams along the time axis."""
+
+    def __init__(self, name=None):
+        super().__init__(name=name)
+
+    def build_layer(self):
+        inputs = _concatenation_inputs(self)
+        reference = inputs[0].shape
+        for input_node in inputs[1:]:
+            if input_node.dim != reference.dim or input_node.seq != reference.seq:
+                raise ValueError(
+                    f"{self.name}: all inputs must have matching dim and seq "
+                    "shapes when concatenating time."
+                )
+
+        return TimeConcatenateImpl(
+            dim_rank=reference.dim_rank,
+            input_rank=reference.rank,
+            name=self.name,
+        )
+
+    def get_config(self):
+        return {}
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class ConcatenateImpl(keras.layers.Layer):
+    """Serializable concatenation along one semantic dim axis."""
+
+    def __init__(self, axis: int, input_rank: int, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.axis = int(axis)
+        self.input_rank = int(input_rank)
+
+    def call(self, xs):
+        values, rank_offset = _align_concatenate_inputs(xs, self.input_rank)
+        return keras.ops.concatenate(values, axis=rank_offset + self.axis)
+
+    def compute_output_shape(self, input_shape):
+        return _concatenated_output_shape(
+            input_shape,
+            semantic_axis=self.axis,
+            input_rank=self.input_rank,
+        )
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "axis": self.axis,
+                "input_rank": self.input_rank,
+            }
+        )
+        return config
+
+
+class Concatenate(Layer):
+    """Concatenate two or more streams along a selected dim axis."""
+
+    def __init__(self, axis: int = 0, name=None):
+        self.axis = int(axis)
+        super().__init__(name=name, axis=self.axis)
+
+    def _resolve_dim_axis(self, dim_rank: int) -> int:
+        axis = self.axis
+        if axis < 0:
+            axis += dim_rank
+        if axis < 0 or axis >= dim_rank:
+            raise ValueError(
+                f"{self.name}: axis {self.axis} out of bounds for dim rank {dim_rank}."
+            )
+        return axis
+
+    def build_layer(self):
+        inputs = _concatenation_inputs(self)
+        reference = inputs[0].shape
+        axis = self._resolve_dim_axis(reference.dim_rank)
+
+        for input_node in inputs[1:]:
+            shape = input_node.shape
+            compatible_dim = shape.dim_rank == reference.dim_rank and all(
+                size == reference.dim[index]
+                for index, size in enumerate(shape.dim)
+                if index != axis
+            )
+            if (
+                not compatible_dim
+                or shape.time != reference.time
+                or shape.seq != reference.seq
+            ):
+                raise ValueError(
+                    f"{self.name}: all inputs must have matching dimensions "
+                    f"except dim axis {self.axis}, and matching time and seq shapes."
+                )
+
+        return ConcatenateImpl(
+            axis=axis,
+            input_rank=reference.rank,
+            name=self.name,
+        )
+
+    def get_config(self):
+        return {"axis": self.axis}
+
+
+def _concatenation_inputs(layer: Layer) -> list[Stream]:
+    inputs = list(layer.inputs or layer.preds)
+    if len(inputs) < 2:
+        raise ValueError(f"{layer.name}: concatenate requires at least two inputs.")
+    if not all(isinstance(input_node, Stream) for input_node in inputs):
+        raise TypeError(f"{layer.name}: concatenate inputs must be Stream objects.")
+    return [input_node for input_node in inputs if isinstance(input_node, Stream)]
+
+
+def _align_concatenate_inputs(xs, input_rank):
+    if not isinstance(xs, (list, tuple)) or len(xs) < 2:
+        raise ValueError("Concatenate implementations require at least two tensors.")
+
+    target_rank = max(len(value.shape) for value in xs)
+    if target_rank not in (input_rank, input_rank + 1):
+        raise ValueError(
+            f"Unexpected tensor rank {target_rank}; expected {input_rank} "
+            f"or {input_rank + 1}."
+        )
+
+    values = []
+    for value in xs:
+        if len(value.shape) not in (input_rank, target_rank):
+            raise ValueError("All tensors must share the same semantic rank.")
+        while len(value.shape) < target_rank:
+            value = keras.ops.expand_dims(value, axis=0)
+        values.append(value)
+    return values, target_rank - input_rank
+
+
+def _concatenated_output_shape(input_shapes, semantic_axis, input_rank):
+    shapes: list[list[int | None]] = [list(shape) for shape in input_shapes]
+    if len(shapes) < 2:
+        raise ValueError("Concatenate implementations require at least two tensors.")
+
+    target_rank = max(len(shape) for shape in shapes)
+    shapes = [[1] * (target_rank - len(shape)) + shape for shape in shapes]
+    axis = target_rank - input_rank + semantic_axis
+    output_shape: list[int | None] = list(shapes[0])
+    axis_sizes = [shape[axis] for shape in shapes]
+    output_shape[axis] = (
+        None
+        if any(size is None for size in axis_sizes)
+        else sum(int(size) for size in axis_sizes)
+    )
+    return tuple(output_shape)

@@ -6,8 +6,10 @@ from nnodely import (
     Concatenate,
     Cos,
     ELU,
+    EquationLearner,
     Fuzzify,
     GELU,
+    Interpolation,
     Modely,
     Input,
     Output,
@@ -25,12 +27,13 @@ from nnodely import (
     Swish,
     Tan,
     Tanh,
+    TimeConcatenate,
 )
 from nnodely.core.layer import Identity
-from nnodely.layers.concatenate import TimeConcatenate
 from nnodely.layers.time_ops import Select
 from conftest import to_numpy
 import numpy as np
+from pathlib import Path
 import pytest
 
 
@@ -124,11 +127,58 @@ def _trigonometric_model():
     )
 
 
+def _interpolation_model(mode):
+    return _single_input_model(
+        f"export_interpolation_{mode}",
+        lambda stream: Interpolation(
+            x_points=[-2.0, -1.0, 0.0, 1.0, 2.0],
+            y_points=[3.0, 2.0, 3.0, 6.0, 11.0],
+            mode=mode,
+            name=f"{mode}_interpolation",
+        )(stream),
+        time=5,
+    )
+
+
+def _equation_learner_model():
+    x = Input("equation_export_input")
+    equation = EquationLearner(
+        functions=["identity", Sin, Cos],
+        linear_in=Linear(
+            out_features=3,
+            use_bias=False,
+            initializer="ones",
+            name="equation_export_linear_in",
+        ),
+        linear_out=Linear(
+            out_features=1,
+            use_bias=False,
+            initializer="zeros",
+            name="equation_export_linear_out",
+        ),
+        name="equation_export",
+    )
+    relation = equation(x.last())
+    model = Modely(
+        "onnx_equation_learner",
+        inputs=[x],
+        outputs=[Output("equation_export_output", relation)],
+    ).build()
+    assert equation.linear_out is not None
+    assert equation.linear_out.kernel is not None
+    equation.linear_out.kernel.assign(np.array([[2.0], [3.0], [4.0]], dtype=np.float32))
+    return model
+
+
 def _concatenate_model():
     x = Input("onnx_concat_x", dim=1)
     y = Input("onnx_concat_y", dim=1)
-    concatenated = Concatenate(axis=0)([x.sw(2), y.sw(2)])
-    concatenated = TimeConcatenate()([concatenated, concatenated])
+    concatenated = Concatenate(axis=0, name="export_dim_concatenate")(
+        [x.sw(2), y.sw(2)]
+    )
+    concatenated = TimeConcatenate(name="export_time_concatenate")(
+        [concatenated, concatenated]
+    )
     return Modely(
         "onnx_concatenate",
         inputs=[x, y],
@@ -174,6 +224,14 @@ def _local_model():
         (_activation_model, {"onnx_activations_input": [[[-0.5, 0.0, 0.5]]]}),
         (_trigonometric_model, {"onnx_trigonometric_input": [[[0.25]]]}),
         (
+            lambda: _interpolation_model("linear"),
+            {"export_interpolation_linear_input": [[[-3.0, -0.5, 0.0, 1.5, 3.0]]]},
+        ),
+        (
+            lambda: _interpolation_model("polynomial"),
+            {"export_interpolation_polynomial_input": [[[-3.0, -0.5, 0.0, 1.5, 3.0]]]},
+        ),
+        (
             lambda: _single_input_model(
                 "onnx_fuzzify",
                 lambda stream: Fuzzify(centers=[-1.0, 0.0, 1.0], function="Gaussian")(
@@ -198,6 +256,10 @@ def _local_model():
                 "onnx_concat_x": [[[1.0, 2.0]]],
                 "onnx_concat_y": [[[3.0, 4.0]]],
             },
+        ),
+        (
+            _equation_learner_model,
+            {"equation_export_input": [[[0.25]]]},
         ),
         (
             _local_model,
@@ -237,6 +299,146 @@ def test_validate_onnx_rejects_missing_input(tmp_path):
 
     with pytest.raises(ValueError, match="Missing ONNX inputs"):
         Modely.validate_onnx(path, {})
+
+
+@pytest.mark.parametrize("mode", ["linear", "polynomial"])
+def test_interpolation_save_keras_and_html(tmp_path, mode):
+    model = _interpolation_model(mode)
+    input_name = f"export_interpolation_{mode}_input"
+    output_name = f"export_interpolation_{mode}_output"
+    inputs = {input_name: np.array([[[-3.0, -0.5, 0.0, 1.5, 3.0]]], dtype=np.float32)}
+    expected = model(inputs)[output_name]
+
+    nnodely_path = tmp_path / f"interpolation_{mode}.nnodely"
+    model.save(nnodely_path)
+    restored = Modely.load(nnodely_path)
+    np.testing.assert_allclose(
+        to_numpy(restored(inputs)[output_name]),
+        to_numpy(expected),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    restored_layer = next(
+        node for node in restored.flatten().order if isinstance(node, Interpolation)
+    )
+    assert restored_layer.get_config() == {
+        "x_points": [-2.0, -1.0, 0.0, 1.0, 2.0],
+        "y_points": [3.0, 2.0, 3.0, 6.0, 11.0],
+        "mode": mode,
+    }
+
+    keras_path = tmp_path / f"interpolation_{mode}.keras"
+    model.export_keras(keras_path)
+    keras_model = Modely.import_keras(keras_path)
+    keras_result = keras_model(inputs, training=False)  # type: ignore
+    np.testing.assert_allclose(
+        to_numpy(keras_result[output_name]),
+        to_numpy(expected),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+    html_path = model.export_html(
+        tmp_path,
+        filename=f"interpolation_{mode}.html",
+        physics=False,
+    )
+    html = Path(html_path).read_text(encoding="utf-8")
+    assert f"{mode}_interpolation" in html
+    assert '"class": "Interpolation"' in html
+    assert '"x_points"' in html
+    assert f'"mode": "{mode}"' in html
+
+
+def test_concatenate_save_keras_and_html(tmp_path):
+    model = _concatenate_model()
+    inputs = {
+        "onnx_concat_x": np.array([[[1.0, 2.0]]], dtype=np.float32),
+        "onnx_concat_y": np.array([[[3.0, 4.0]]], dtype=np.float32),
+    }
+    expected = model(inputs)["onnx_concatenate_output"]
+
+    nnodely_path = tmp_path / "concatenate.nnodely"
+    model.save(nnodely_path)
+    restored = Modely.load(nnodely_path)
+    np.testing.assert_allclose(
+        to_numpy(restored(inputs)["onnx_concatenate_output"]),
+        to_numpy(expected),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+    keras_path = tmp_path / "concatenate.keras"
+    model.export_keras(keras_path)
+    keras_model = Modely.import_keras(keras_path)
+    keras_result = keras_model(inputs, training=False)  # type: ignore
+    np.testing.assert_allclose(
+        to_numpy(keras_result["onnx_concatenate_output"]),
+        to_numpy(expected),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+    html_path = model.export_html(
+        tmp_path,
+        filename="concatenate.html",
+        physics=False,
+    )
+    html = Path(html_path).read_text(encoding="utf-8")
+    assert "export_dim_concatenate" in html
+    assert '"class": "Concatenate"' in html
+    assert '"axis": 0' in html
+    assert "export_time_concatenate" in html
+    assert '"class": "TimeConcatenate"' in html
+
+
+def test_equation_learner_save_keras_and_html(tmp_path):
+    model = _equation_learner_model()
+    inputs = {
+        "equation_export_input": np.array([[[0.25]]], dtype=np.float32),
+    }
+    expected = model(inputs)["equation_export_output"]
+
+    nnodely_path = tmp_path / "equation_learner.nnodely"
+    model.save(nnodely_path)
+    restored = Modely.load(nnodely_path)
+    np.testing.assert_allclose(
+        to_numpy(restored(inputs)["equation_export_output"]),
+        to_numpy(expected),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+    keras_path = tmp_path / "equation_learner.keras"
+    model.export_keras(keras_path)
+    keras_model = Modely.import_keras(keras_path)
+    keras_result = keras_model(inputs, training=False)  # type: ignore
+    np.testing.assert_allclose(
+        to_numpy(keras_result["equation_export_output"]),
+        to_numpy(expected),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+    html_path = model.export_html(
+        tmp_path,
+        filename="equation_learner",
+        physics=False,
+    )
+    html = Path(html_path).read_text(encoding="utf-8")
+    assert "equation_export_call" in html
+    assert '"nested_model": "equation_export"' in html
+
+    nested_pages = list(
+        tmp_path.glob("onnx_equation_learner__equation_export_call.html")
+    )
+    assert len(nested_pages) == 1
+    nested_html = nested_pages[0].read_text(encoding="utf-8")
+    assert "equation_export_linear_in" in nested_html
+    assert "equation_export_identity_0" in nested_html
+    assert "equation_export_sin_1" in nested_html
+    assert "equation_export_cos_2" in nested_html
+    assert "equation_export_linear_out" in nested_html
 
 
 def _roll_model():

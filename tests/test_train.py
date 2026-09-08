@@ -8,6 +8,7 @@ from nnodely import (
     DataLoader,
     Parameter,
     Constant,
+    EquationLearner,
     Linear,
     Loop,
     Roll,
@@ -285,6 +286,54 @@ def test_train_with_custom_optimizer():
     # both variables, so one custom update adds 0.25 * 2 = 0.5.
     np.testing.assert_allclose(to_numpy(linear.kernel), [[1.5]], atol=1e-5)
     np.testing.assert_allclose(to_numpy(linear.bias), [1.5], atol=1e-5)
+
+
+def test_train_equation_learner_updates_symbolic_coefficients():
+    input_node = Input("equation_train_input")
+    target = Input("equation_train_target").last()
+    equation = EquationLearner(
+        functions=["identity"],
+        linear_in=Linear(
+            out_features=1,
+            use_bias=False,
+            initializer="ones",
+        ),
+        linear_out=Linear(
+            out_features=1,
+            use_bias=False,
+            initializer="ones",
+        ),
+        name="train_equation",
+    )
+    prediction = equation(input_node.last())
+    output = Output("equation_train_output", prediction)
+    model = Modely("equation_train_model", inputs=[input_node], outputs=[output])
+    model.minimize("error", source=output, target=target, loss="mse")
+    model.build()
+
+    data = DataLoader(
+        model,
+        source={"equation_train_input": [1.0], "equation_train_target": [3.0]},
+    )
+    history = model.train(
+        train_data=data,
+        epochs=1,
+        batch_size=1,
+        optimizer="sgd",
+        lr=0.1,
+    )
+
+    assert equation.linear_in is not None
+    assert equation.linear_out is not None
+    assert equation.linear_in.kernel is not None
+    assert equation.linear_out.kernel is not None
+    assert np.isfinite(history["loss"][-1])
+    np.testing.assert_allclose(
+        to_numpy(equation.linear_in.kernel), [[1.4]], rtol=1e-5, atol=1e-5
+    )
+    np.testing.assert_allclose(
+        to_numpy(equation.linear_out.kernel), [[1.4]], rtol=1e-5, atol=1e-5
+    )
 
 
 @pytest.mark.parametrize(
