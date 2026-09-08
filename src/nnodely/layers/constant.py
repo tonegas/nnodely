@@ -32,7 +32,7 @@ class ConstantImpl(keras.layers.Layer):
         super().build(input_shape)
 
     def call(self, anchor):
-        return self.constant
+        return self.constant.value
 
 
 class Constant(Layer):
