@@ -13,12 +13,23 @@ from nnodely.core.layer import Layer
 from nnodely.core.stream import Stream
 from nnodely.utils.utils import find_sample_time
 
-# Quadrature weights (unscaled by dt), ordered oldest -> newest sample.
+# Quadrature weights (unscaled by dt), ordered oldest -> newest sample. Used
+# by step mode (reduce the window to one increment) and, via _CUMULATIVE_RULE
+# below, by cumulative mode (keep the window, scan it) - "euler" and
+# "rectangular" are the same 1-sample rule, "trapezoidal" and "heun" the
+# same 2-sample rule; only the two underlying rules differ, not the names.
 _SOLVER_WEIGHTS = {
     "euler": (1.0,),
     "rectangular": (1.0,),
     "trapezoidal": (0.5, 0.5),
     "heun": (0.5, 0.5),
+}
+
+_CUMULATIVE_RULE = {
+    "euler": "rectangular",
+    "rectangular": "rectangular",
+    "trapezoidal": "trapezoidal",
+    "heun": "trapezoidal",
 }
 
 
@@ -29,11 +40,11 @@ class IntegrateCumulativeImpl(keras.layers.Layer):
     The first sample of the window is the integration reference (value 0).
     """
 
-    def __init__(self, dt, dim_rank, method, name=None, **kwargs):
+    def __init__(self, dt, dim_rank, rule, name=None, **kwargs):
         super().__init__(name=name, **kwargs)
         self.dt = float(dt)
         self.dim_rank = int(dim_rank)
-        self.method = method
+        self.rule = rule
 
     def _time_slice(self, x, start, stop):
         rank = len(x.shape)
@@ -43,7 +54,7 @@ class IntegrateCumulativeImpl(keras.layers.Layer):
 
     def call(self, x):
         time_axis = 1 + self.dim_rank
-        if self.method == "trapezoidal":
+        if self.rule == "trapezoidal":
             left = self._time_slice(x, 0, -1)
             right = self._time_slice(x, 1, None)
             segment_area = (left + right) * (self.dt / 2.0)
@@ -60,7 +71,7 @@ class IntegrateCumulativeImpl(keras.layers.Layer):
             {
                 "dt": self.dt,
                 "dim_rank": self.dim_rank,
-                "method": self.method,
+                "rule": self.rule,
             }
         )
         return config
@@ -108,12 +119,14 @@ class IntegrateStepImpl(keras.layers.Layer):
 
 class Integrate(Layer):
     """
-    Time integration of a signal, in one of two forms:
+    Time integration of a signal, in one of two forms - both configured by
+    the same ``solver`` vocabulary (``"euler"``/``"rectangular"``: 1-sample
+    rule, ``"trapezoidal"``/``"heun"``: 2-sample rule):
 
     1. A single integration increment, read directly off ``f``'s own time
        axis - a block of the same model, not a separate Modely::
 
-           Integrate(f, solver="euler"|"trapezoidal"|"heun", dt=None)
+           Integrate(f, solver="euler"|"trapezoidal", dt=None)
 
        ``f`` is any Stream (the rate signal); its time window must match
        the chosen solver: ``"euler"``/``"rectangular"`` reads 1 sample
@@ -136,7 +149,7 @@ class Integrate(Layer):
        first sample is the reference value 0), for offline signal
        preprocessing::
 
-           Integrate(method="trapezoidal"|"rectangular", dt=None)(window_stream)
+           Integrate(solver="trapezoidal"|"rectangular", dt=None)(window_stream)
 
        Works on any Stream with the right window length, not only a raw
        Input window.
@@ -149,7 +162,6 @@ class Integrate(Layer):
         self,
         f: Stream | None = None,
         solver: str = "euler",
-        method: str = "trapezoidal",
         dt: float | None = None,
         name=None,
     ):
@@ -157,14 +169,14 @@ class Integrate(Layer):
             self._build_step(f=f, solver=solver, dt=dt, name=name)
             return
 
-        if method not in ("trapezoidal", "rectangular"):
+        if solver not in _CUMULATIVE_RULE:
             raise ValueError(
-                f"Integrate method must be 'trapezoidal' or 'rectangular', got {method!r}."
+                f"Integrate solver must be one of {sorted(_CUMULATIVE_RULE)}, got {solver!r}."
             )
         self.step_mode = False
-        self.method = method
+        self.solver = solver
         self.dt = None if dt is None else float(dt)
-        super().__init__(name=name, method=self.method, dt=self.dt)
+        super().__init__(name=name, solver=self.solver, dt=self.dt)
 
     def _build_step(self, f, solver, dt, name):
         if not isinstance(f, Stream):
@@ -192,16 +204,18 @@ class Integrate(Layer):
         super().__init__(name=name, preds=[f], dim=f.dim, time=1, seq=f.seq)
 
     def build_layer(self):
+        dt = self._resolve_dt()
         if self.step_mode:
-            dt = self._resolve_dt()
             coefficients = [w * dt for w in _SOLVER_WEIGHTS[self.solver]]
             return IntegrateStepImpl(
                 coefficients=coefficients, dim_rank=len(self.dim), name=self.name
             )
 
-        dt = self._resolve_dt()
         return IntegrateCumulativeImpl(
-            dt=dt, dim_rank=len(self.dim), method=self.method, name=self.name
+            dt=dt,
+            dim_rank=len(self.dim),
+            rule=_CUMULATIVE_RULE[self.solver],
+            name=self.name,
         )
 
     def _resolve_dt(self) -> float:
@@ -216,19 +230,8 @@ class Integrate(Layer):
         return float(sample_time)
 
     def get_config(self):
-        if self.step_mode:
-            return {
-                "name": self.name,
-                "mode": "step",
-                "solver": self.solver,
-                "dt": self.dt,
-            }
-        return {
-            "name": self.name,
-            "mode": "cumulative",
-            "method": self.method,
-            "dt": self.dt,
-        }
+        mode = "step" if self.step_mode else "cumulative"
+        return {"name": self.name, "mode": mode, "solver": self.solver, "dt": self.dt}
 
     @classmethod
     def from_config(cls, config: dict, preds=None):
@@ -240,7 +243,7 @@ class Integrate(Layer):
                 preds[0], config["solver"], config.get("dt"), config["name"]
             )
             return instance
-        layer = cls(method=config["method"], dt=config.get("dt"), name=config["name"])
+        layer = cls(solver=config["solver"], dt=config.get("dt"), name=config["name"])
         if preds:
             return layer(preds)
         return layer

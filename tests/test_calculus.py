@@ -339,7 +339,7 @@ def test_integrate_step_export_keras_and_onnx(tmp_path):
 def test_integrate_cumulative():
     dt = 0.1
     v = Input("v", dim=1, sample_time=dt)
-    cum = Integrate(method="trapezoidal")(v.sw(4))
+    cum = Integrate(solver="trapezoidal")(v.sw(4))
     model = Modely(
         "integrate_cum_model", inputs=[v], outputs=[Output("cum", cum)]
     ).build()
@@ -353,6 +353,37 @@ def test_integrate_cumulative():
         expected[i] = expected[i - 1] + dt / 2.0 * (samples[i - 1] + samples[i])
     expected = expected.reshape(1, 1, 4)
     np.testing.assert_allclose(result, expected, rtol=1e-5, atol=1e-5)
+
+
+def test_integrate_cumulative_solver_aliases():
+    """ "euler"/"heun" are valid cumulative-mode solvers too, aliasing the
+    same "rectangular"/"trapezoidal" rules - one solver vocabulary for both
+    forms of Integrate."""
+    dt = 0.1
+    v = Input("v", dim=1, sample_time=dt)
+    cum_euler = Integrate(solver="euler")(v.sw(4))
+    cum_rectangular = Integrate(solver="rectangular")(v.sw(4))
+    cum_heun = Integrate(solver="heun")(v.sw(4))
+    cum_trapezoidal = Integrate(solver="trapezoidal")(v.sw(4))
+    model = Modely(
+        "integrate_cum_alias_model",
+        inputs=[v],
+        outputs=[
+            Output("euler", cum_euler),
+            Output("rectangular", cum_rectangular),
+            Output("heun", cum_heun),
+            Output("trapezoidal", cum_trapezoidal),
+        ],
+    ).build()
+
+    values = np.array([[[1.0, 2.0, 3.0, 5.0]]], dtype=np.float32)
+    result = model({"v": values})
+    np.testing.assert_allclose(
+        to_numpy(result["euler"]), to_numpy(result["rectangular"]), rtol=1e-6, atol=1e-6
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["heun"]), to_numpy(result["trapezoidal"]), rtol=1e-6, atol=1e-6
+    )
 
 
 def test_derivative_save_load_round_trip(tmp_path):
