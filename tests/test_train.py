@@ -10,7 +10,7 @@ from nnodely import (
     Constant,
     EquationLearner,
     Linear,
-    Scan,
+    Loop,
     Roll,
 )
 
@@ -479,7 +479,8 @@ def test_train_with_custom_loss_function():
     np.testing.assert_allclose(to_numpy(linear.bias), [1.4], atol=1e-5)
 
 
-def test_train_with_scan():
+def test_train_with_loop():
+    state = Input("state")
     x = Input("x", seq=5)
     target = Input("target")
     relation = Linear(
@@ -487,14 +488,21 @@ def test_train_with_scan():
         use_bias=True,
         initializer="ones",
         bias_initializer="zeros",
-    )(x.last())
+    )(state.last())
     output = Output("out", relation)
-    body = Modely("body", inputs=[x], outputs=[output])
+    body = Modely("body", inputs=[state], outputs=[output])
     body.build()
-    scan = Scan(f=body, callback={x: output}, initial=1.0, name="scan")
-    out_scan = Output("out_scan", scan)
-    model = Modely("model", inputs=[x], outputs=[out_scan])
-    model.minimize("error", source=out_scan, target=target.last(), loss="mse")
+    # x carries the five rollout steps and seeds the state with x[0]
+    loop = Loop(
+        f=body,
+        callback={state: output},
+        initial={state: x},
+        name="loop",
+        collect=False,
+    )
+    out_loop = Output("out_loop", loop)
+    model = Modely("model", inputs=[x], outputs=[out_loop])
+    model.minimize("error", source=out_loop, target=target.last(), loss="mse")
     model.build()
 
     dataset = {
@@ -532,7 +540,7 @@ def test_train_with_scan():
 
     initial_prediction = model(data.as_dict())
     initial_error = np.mean(
-        np.square(to_numpy(initial_prediction["out_scan"]) - data.dataset["target"])
+        np.square(to_numpy(initial_prediction["out_loop"]) - data.dataset["target"])
     )
     history = model.train(
         train_data=data,
@@ -543,7 +551,7 @@ def test_train_with_scan():
     )
     final_prediction = model(data.as_dict())
     final_error = np.mean(
-        np.square(to_numpy(final_prediction["out_scan"]) - data.dataset["target"])
+        np.square(to_numpy(final_prediction["out_loop"]) - data.dataset["target"])
     )
 
     assert np.isfinite(final_error)

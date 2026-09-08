@@ -48,7 +48,7 @@ class ParameterImpl(keras.layers.Layer):
         super().build(input_shape)
 
     def call(self, anchor):
-        return self.param
+        return self.param.value
 
 
 class Parameter(Layer):

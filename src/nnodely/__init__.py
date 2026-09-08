@@ -10,7 +10,7 @@ from nnodely.layers.linear import Linear
 from nnodely.layers.parameter import Parameter
 from nnodely.layers.constant import Constant
 from nnodely.layers.roll import Roll
-from nnodely.layers.scan import Scan
+from nnodely.layers.loop import Loop
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.fuzzify import Fuzzify
 from nnodely.layers.interpolation import Interpolation
@@ -43,7 +43,7 @@ __all__ = [
     "Parameter",
     "Constant",
     "Roll",
-    "Scan",
+    "Loop",
     "LocalModel",
     "Fuzzify",
     "Interpolation",
