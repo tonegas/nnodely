@@ -6,11 +6,10 @@ from nnodely.core.layer import Layer
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class ConstantImpl(keras.layers.Layer):
-    def __init__(self, value, constant_shape, name=None, **kwargs):
+    def __init__(self, value, constant_shape, name: str | None = None, **kwargs):
         super().__init__(name=name, **kwargs)
-
         self.value = np.asarray(value, dtype=np.float32)
-        self.constant_shape = tuple(constant_shape)
+        self.constant_shape = constant_shape
 
     def get_config(self):
         config = super().get_config()
@@ -23,43 +22,17 @@ class ConstantImpl(keras.layers.Layer):
         return config
 
     def build(self, input_shape=None):
-        value = np.asarray(self.value, dtype=np.float32)
-
-        if value.shape != self.constant_shape:
-            try:
-                value = np.reshape(value, self.constant_shape)
-            except Exception as e:
-                raise ValueError(
-                    f"Constant value shape {value.shape} is incompatible "
-                    f"with expected shape {self.constant_shape}"
-                ) from e
-
         self.constant = self.add_weight(
             name="value",
             shape=self.constant_shape,
-            initializer=keras.initializers.Constant(value=value.tolist()),
+            initializer=keras.initializers.Constant(value=self.value.tolist()),
             trainable=False,
             dtype="float32",
         )
         super().build(input_shape)
 
     def call(self, anchor):
-        value = keras.ops.expand_dims(self.constant, axis=0)
-
-        zero = (
-            keras.ops.sum(
-                anchor,
-                axis=tuple(range(1, len(anchor.shape))),
-            )
-            * 0.0
-        )
-
-        zero = keras.ops.reshape(
-            zero,
-            (-1,) + (1,) * len(self.constant_shape),
-        )
-
-        return value + zero
+        return self.constant.value
 
 
 class Constant(Layer):
@@ -75,26 +48,20 @@ class Constant(Layer):
         name: str | None = None,
         *,
         value,
+        dim=None,
     ):
         if value is None:
             raise ValueError("Constant requires a value.")
 
-        arr = np.asarray(value, dtype=np.float32)
+        arr = np.atleast_1d(np.asarray(value, dtype=np.float32))
 
-        if arr.ndim == 0:
-            arr = arr.reshape(1)
-            dim = (1,)
-            time = ()
-            seq = None
-        elif arr.ndim == 1:
-            arr = arr.reshape(arr.shape[0], 1)
-            dim = (arr.shape[0],)
-            time = ()
-            seq = None
+        if dim is None:
+            dim = arr.shape[0]
+            time = arr.shape[1] if arr.ndim > 1 else None
+            seq = arr.shape[2:] if arr.ndim > 2 else None
         else:
-            dim = tuple(arr.shape[:-1])
-            time = tuple(arr.shape[-1:])
-            seq = None
+            time = arr.shape[dim] if arr.ndim > dim else None
+            seq = arr.shape[dim + 1 :] if arr.ndim > dim + 1 else None
 
         self.value = arr
         super().__init__(
@@ -105,13 +72,10 @@ class Constant(Layer):
             value=arr.tolist(),
         )
 
-    def output_shape(self, *inputs):
-        return self.dim, self.time, self.seq
-
     def build_layer(self):
         return ConstantImpl(
             value=self.value,
-            constant_shape=self.shape,
+            constant_shape=self.shape.tuple,
             name=self.name,
         )
 
@@ -124,3 +88,20 @@ class Constant(Layer):
     @property
     def value_numpy(self):
         return keras.ops.convert_to_numpy(self.constant)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "value": self.value.tolist(),
+            }
+        )
+        return config
+
+    @classmethod
+    def from_config(cls, config: dict, preds=None):
+        node = cls(
+            name=config["name"],
+            value=config["value"],
+        )
+        return node

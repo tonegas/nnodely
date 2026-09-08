@@ -17,7 +17,7 @@ def test_flatten_1():
     model2.build()
 
     z = Input("z", dim=1)
-    const_z = Constant("const_z", value=[1.0, 2.0, 3.0, 4.0, 5.0])
+    const_z = Constant("const_z", value=[[1.0, 2.0, 3.0, 4.0, 5.0]])
     z_fir = Fir(out_features=1)([model2([z.sw(5) + const_z])])
     z_out = Output("z_out", z_fir)
     model3 = Modely("model3", inputs=[z], outputs=[z_out])

@@ -1,6 +1,6 @@
 import os
 
-from nnodely import Input, Output, Fir, Modely, Parameter, Constant, Cos, Sin, Loop
+from nnodely import Input, Output, Fir, Modely, Parameter, Constant, Cos, Sin, Roll
 
 
 def test_plot_and_export_html(tmp_path):
@@ -74,8 +74,8 @@ def test_multiple_model_composed_visualization(tmp_path):
     model3.plot(to_file=os.path.join(tmp_path, "model3_flattened.png"), flatten=True)
 
 
-def test_visualize_loop(tmp_path):
-    # ------- Model with closed loop connections -------
+def test_visualize_roll(tmp_path):
+    # ------- Model with roll connections -------
     x = Input(name="x", dim=1)
     y = Input(name="y", dim=1)
     r1 = x.sw(1) + y.sw(1)
@@ -83,13 +83,16 @@ def test_visualize_loop(tmp_path):
     model1 = Modely(name="model1", inputs=[x, y], outputs=[out1])
     model1.build()
 
-    z = Input(name="z", dim=1, seq=5)
-    const = Constant("const", value=2.0)
-    r2 = z.sw(1) * const
-    loop_fn = Loop(
-        f=model1, closed_loop={"x": "out1"}, initial_values={"x": z}, name="loop_fn"
+    z = Input(name="z", dim=1)
+    r2 = Fir(out_features=1, use_bias=False)(z.sw(5))
+    roll_body_output = Output("roll_body_output", r2)
+    roll_body = Modely(name="roll_body", inputs=[z], outputs=[roll_body_output]).build()
+    roll_fn = Roll(
+        f=roll_body,
+        callback={z: roll_body_output},
+        name="roll_fn",
     )
-    out = Output("out", loop_fn([z, r2]))
+    out = Output("out", roll_fn)
     model = Modely(name="model", inputs=[z], outputs=[out])
     model.build()
 
@@ -100,6 +103,29 @@ def test_visualize_loop(tmp_path):
     # ------- Model export to HTML -------
     model1.export_html(out_dir=tmp_path, filename="model1")
     model.export_html(out_dir=tmp_path, filename="model2")
+
+    html = (tmp_path / "model2.html").read_text()
+    assert '"nested_model": "roll_body"' in html
+    assert len(list(tmp_path.glob("*roll_fn.html"))) == 1
+
+
+def test_visualize_model_roll(tmp_path):
+    x = Input("closed_x")
+    feedback = Fir(out_features=1, use_bias=False, name="closed_fir")(x.sw(5))
+    output = Output("closed_out", feedback + x.last())
+    model = Modely("closed_model", inputs=[x], outputs=[output])
+    model.rollback({x: feedback}, steps=3)
+    model.build()
+
+    model.export_html(out_dir=tmp_path, filename="closed_model")
+    html = (tmp_path / "closed_model.html").read_text()
+    flattened_html = (tmp_path / "closed_model__flattened.html").read_text()
+
+    for page in (html, flattened_html):
+        assert '"from": "closed_fir", "to": "closed_x"' in page
+        assert '"label": "roll (3 steps)"' in page
+        assert '\\"kind\\": \\"roll\\"' in page
+        assert '"color": "#e74c3c"' in page
 
 
 def test_visualize_high_level_blocks(tmp_path):

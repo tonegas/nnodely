@@ -99,16 +99,6 @@ class Linear(Layer):
             **kwargs,
         )
 
-    def output_shape(self, *inputs):
-        x = inputs[0]
-
-        if len(x.dim) != 1:
-            raise ValueError(
-                f"Linear currently expects a single dim axis, got dim={x.dim}"
-            )
-
-        return (self.out_features,), x.time, x.seq
-
     def build_layer(self):
         return LinearImpl(
             out_features=self.out_features,
@@ -117,3 +107,22 @@ class Linear(Layer):
             initializer=self.initializer,
             bias_initializer=self.bias_initializer,
         )
+
+    def get_config(self):
+        return {
+            "name": self.name,
+            "out_features": self.out_features,
+            "use_bias": self.use_bias,
+        }
+
+    @property
+    def kernel(self):
+        if self._layer is not None:
+            return self._layer.proj.kernel
+        return None
+
+    @property
+    def bias(self):
+        if self._layer is not None and self._layer.use_bias:
+            return self._layer.proj.bias
+        return None

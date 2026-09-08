@@ -9,10 +9,15 @@ from nnodely.layers.fir import Fir
 from nnodely.layers.linear import Linear
 from nnodely.layers.parameter import Parameter
 from nnodely.layers.constant import Constant
+from nnodely.layers.roll import Roll
 from nnodely.layers.loop import Loop
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.fuzzify import Fuzzify
-from nnodely.layers.concatenate import Concatenate
+from nnodely.layers.interpolation import Interpolation
+from nnodely.layers.equationlearner import EquationLearner
+from nnodely.layers.derivative import Derivative
+from nnodely.layers.integrate import Integrate
+from nnodely.layers.time_ops import Concatenate, Select, TimeConcatenate, TimeSelect
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -37,10 +42,18 @@ __all__ = [
     "Linear",
     "Parameter",
     "Constant",
+    "Roll",
     "Loop",
     "LocalModel",
     "Fuzzify",
+    "Interpolation",
+    "EquationLearner",
+    "Derivative",
+    "Integrate",
     "Concatenate",
+    "TimeConcatenate",
+    "TimeSelect",
+    "Select",
     "ReLU",
     "LeakyReLU",
     "ELU",

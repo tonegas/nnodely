@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from nnodely.core.modely import Modely
 
-from nnodely.layers.loop import Loop
+from nnodely.layers.roll import Roll
 
 ## nnodely pallette
 # :root {
@@ -118,7 +118,7 @@ def plot_graphviz(
     for node in model.order:
         for pred in getattr(node, "preds", []) or []:
             _add_node(pred)
-            shape_label = str(pred.shape) if hasattr(pred, "shape") else ""
+            shape_label = str(pred.shape.tuple) if hasattr(pred, "shape") else ""
             _add_edge(pred.name, node.name, label=shape_label)
 
     # Add minimizers
@@ -253,12 +253,12 @@ def export_html(
             except Exception:
                 pass
 
-        if isinstance(node, Loop):
+        if isinstance(node, Roll):
             try:
                 attrs["properties"]["f"] = attrs["properties"]["f"].name
-                attrs["properties"]["closed_loop"] = {
+                attrs["properties"]["callback"] = {
                     out.name: inp.name
-                    for out, inp in attrs["properties"]["closed_loop"].items()
+                    for out, inp in attrs["properties"]["callback"].items()
                 }
             except Exception:
                 pass
@@ -281,6 +281,22 @@ def export_html(
         #             attrs["input_map"] = str(input_map)
 
         return attrs
+
+    def _nested_model(node):
+        """Return the first Modely stored by a graph node, regardless of layer type."""
+        for attr_name, value in vars(node).items():
+            if isinstance(value, Modely):
+                return attr_name, value
+            if isinstance(value, dict):
+                nested_values = (*value.keys(), *value.values())
+            elif isinstance(value, (list, tuple, set)):
+                nested_values = value
+            else:
+                continue
+            for nested_value in nested_values:
+                if isinstance(nested_value, Modely):
+                    return attr_name, nested_value
+        return None
 
     def _collect_graph(model_obj):
         nodes = []
@@ -331,12 +347,12 @@ def export_html(
         url_map: dict[str, str] = {}
         if not flattened:
             for node, nid, kind, attrs in graph_nodes:
-                if kind != "ModelCall":
+                nested = _nested_model(node)
+                if nested is None:
                     continue
-
-                submodel = getattr(node, "model", None)
-                if submodel is None:
-                    continue
+                nested_attr, submodel = nested
+                attrs["nested_model"] = submodel.name
+                attrs["nested_model_attribute"] = nested_attr
 
                 sub_name = f"{_slug(page_title)}__{_slug(nid)}.html"
                 sub_title = f"{page_title} :: {nid}"
@@ -373,9 +389,10 @@ def export_html(
                 "font": {"color": "#111111"},
             }
 
-            if kind == "ModelCall":
+            if nid in url_map:
                 rec["shape"] = "diamond"
                 rec["size"] = 18
+                rec["color"]["background"] = "#3498db"
             # elif kind in ("Parameter", "Constant", "Input", "Output"):
             #     rec["shape"] = "ellipse"
             #     rec["size"] = 16
@@ -408,6 +425,47 @@ def export_html(
                         edge_attrs, ensure_ascii=False, indent=2, default=str
                     ),
                     "color": {"color": "#7f8c8d"},
+                }
+            )
+
+        visible_node_ids = {record["id"] for record in vis_nodes}
+        for input_node, stream in getattr(model_obj, "_roll_callbacks", {}).items():
+            src = stream.name
+            dst = input_node.name
+            if src not in visible_node_ids or dst not in visible_node_ids:
+                continue
+            edge_attrs = {
+                "kind": "roll",
+                "feedback_stream": src,
+                "feedback_input": dst,
+                "steps": getattr(model_obj, "_roll_steps", None),
+            }
+            vis_edges.append(
+                {
+                    "from": src,
+                    "to": dst,
+                    "arrows": {"to": {"enabled": True, "scaleFactor": 1.2}},
+                    "label": f"roll ({edge_attrs['steps']} steps)",
+                    "width": 3,
+                    "color": {
+                        "color": "#e74c3c",
+                        "highlight": "#c0392b",
+                        "hover": "#c0392b",
+                    },
+                    "font": {
+                        "align": "middle",
+                        "size": 12,
+                        "color": "#c0392b",
+                        "background": "#ffffff",
+                    },
+                    "smooth": {
+                        "enabled": True,
+                        "type": "curvedCW",
+                        "roundness": 0.35,
+                    },
+                    "title": json.dumps(
+                        edge_attrs, ensure_ascii=False, indent=2, default=str
+                    ),
                 }
             )
 
@@ -487,6 +545,15 @@ def export_html(
         display: inline-block;
         border: 1px solid #2c3e50;
         margin-right: 6px;
+    }}
+    .roll-arrow {{
+        color: #e74c3c;
+        display: inline-block;
+        font-size: 17px;
+        font-weight: 700;
+        line-height: 10px;
+        margin-right: 5px;
+        vertical-align: -1px;
     }}
     .main {{
         display: flex;
@@ -606,7 +673,7 @@ def export_html(
 <body>
 <header>
     <div class="header-left">
-        <img src="../../imgs/logo_info.png" alt="nnodely logo" width="120" height="40"/>
+        <img src="./imgs/logo_info.png" alt="nnodely logo" width="120" height="40"/>
         <h1>{page_title}{" [flattened]" if flattened else ""}</h1>
         {back_html}
     </div>
@@ -617,6 +684,7 @@ def export_html(
         <span><span class="swatch" style="background:#ff9900"></span>Parameter</span>
         <span><span class="swatch" style="background:#00e5ff"></span>Constant</span>
         <span><span class="swatch" style="background:#95a5a6"></span>Relation</span>
+        <span><span class="roll-arrow">→</span>Roll</span>
     </div>
     <div class="header-right">
         <div class="bottom-bar">

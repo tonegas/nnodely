@@ -31,6 +31,11 @@ dependencies = [
 [project.optional-dependencies]
 torch = ["torch>=2.2.2"]
 jax = ["jax>=0.6.2"]
+onnx = [
+  "onnx>=1.16.0",
+  "onnxruntime>=1.18.0",
+  "onnxscript>=0.1.0",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/tonegas/nnodely"
@@ -63,3 +68,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-ra"
+markers = [
+  "slow: marks tests that perform longer-running training or application workflows",
+]

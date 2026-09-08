@@ -1,11 +1,44 @@
 import os
 
-os.environ.setdefault("KERAS_BACKEND", "torch")
-
-from nnodely import Input, Output, Fir, Modely, DataLoader, Parameter, Constant, Linear
+from nnodely import (
+    Input,
+    Output,
+    Fir,
+    Modely,
+    DataLoader,
+    Parameter,
+    Constant,
+    EquationLearner,
+    Linear,
+    Loop,
+    Roll,
+)
 
 import pytest
 import numpy as np
+import keras
+from conftest import to_numpy
+from nnodely.utils.utils import _resolve_loss, _resolve_optimizer
+
+
+@keras.saving.register_keras_serializable(package="nnodely_test")
+class SimpleCustomOptimizer(keras.optimizers.Optimizer):
+    """Minimal SGD-like optimizer used to verify custom optimizer support."""
+
+    def update_step(self, gradient, variable, learning_rate):
+        gradient = keras.ops.cast(gradient, variable.dtype)
+        learning_rate = keras.ops.cast(learning_rate, variable.dtype)
+        self.assign_sub(variable, learning_rate * gradient)
+
+    def get_config(self):
+        return super().get_config()
+
+
+@keras.saving.register_keras_serializable(package="nnodely_test")
+def custom_quartic_loss(y_true, y_pred):
+    """Fourth-power error used to verify custom callable loss support."""
+    error = y_pred - y_true
+    return keras.ops.mean(keras.ops.square(keras.ops.square(error)), axis=-1)
 
 
 @pytest.mark.slow
@@ -70,7 +103,7 @@ def test_train_basic():
         "error_fir_y", source=y_fir, target=None, loss="mse"
     )  ## with target=None, the loss will be minimized to zero
 
-    model1.build()  # Rebuild the model after removing the minimizer otherwise the training loop will still try to compute the loss and update the model based on it, even if it's not used for training anymore
+    model1.build()  # Rebuild the model after removing the minimizer otherwise the training Roll will still try to compute the loss and update the model based on it, even if it's not used for training anymore
     model1.train(train_data=data_train, epochs=60, batch_size=4)
 
     # ------ Remove one minimizer and retrain with a constant value -------
@@ -112,7 +145,7 @@ def test_train_with_parameters():
         b=np.array(true_param - const.value_numpy),
         atol=0.01,
     )
-    assert np.isclose(const.value_numpy, 1.0, atol=0.01)
+    assert np.isclose(const.value_numpy, np.array([1.0]), atol=0.01)  # type: ignore
 
     # ------ Inference after training -------
     result_after_training = model(
@@ -121,8 +154,11 @@ def test_train_with_parameters():
             "x_target": np.ones((1, 1, 1), dtype=np.float32) * true_param,
         }
     )
-    assert np.isclose(
-        result_after_training["x_out"].cpu().detach().numpy(), true_param, atol=0.01
+    np.testing.assert_allclose(
+        to_numpy(result_after_training["x_out"]),
+        np.ones((1, 1, 1), dtype=np.float32) * true_param,
+        rtol=1e-5,
+        atol=1e-5,
     )
 
 
@@ -136,13 +172,499 @@ def test_training_values_linear():
     model = Modely("test_model", inputs=[input1], outputs=[output1])
     model.minimize("error", source=output1, target=target, loss="mse")
     model.build()
-    model.plot(os.path.join("html", "model_test_train.png"))
 
     dataset = {"in1": [1], "out1": [3]}
     data_train = DataLoader(model, source=dataset)
-    model.train(train_data=data_train, epochs=1, batch_size=1, lr=1.0)
-    # self.assertListEqual([[3.0]], test.parameters['W'])
-    # self.assertListEqual([3.0], test.parameters['b'])
-    # test.trainModel(optimizer='SGD', splits=[100, 0, 0], lr=1, num_of_epochs=1)
-    # self.assertListEqual([[-3.0]], test.parameters['W'])
-    # self.assertListEqual([-3.0], test.parameters['b'])
+    model.train(
+        train_data=data_train,
+        epochs=1,
+        batch_size=1,
+        optimizer="sgd",
+        lr=1.0,
+    )
+    assert linear_out.kernel is not None
+    assert linear_out.bias is not None
+
+    np.testing.assert_allclose(
+        to_numpy(linear_out.kernel), [[3.0]], rtol=1e-5, atol=1e-5
+    )
+    np.testing.assert_allclose(to_numpy(linear_out.bias), [3.0], rtol=1e-5, atol=1e-5)
+
+    model.build()
+    model.train(
+        train_data=data_train,
+        epochs=1,
+        batch_size=1,
+        optimizer="adam",
+        lr=1.0,
+    )
+
+    np.testing.assert_allclose(
+        to_numpy(linear_out.kernel), [[2.0]], rtol=1e-5, atol=1e-5
+    )
+    np.testing.assert_allclose(to_numpy(linear_out.bias), [2.0], rtol=1e-5, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "optimizer_name",
+    [
+        "sgd",
+        "rmsprop",
+        "adam",
+        "adamw",
+        "adadelta",
+        "adagrad",
+        "adamax",
+        "adafactor",
+        "nadam",
+        "ftrl",
+        "lion",
+    ],
+)
+def test_resolve_builtin_optimizer(optimizer_name):
+    optimizer = _resolve_optimizer(
+        optimizer_name,
+        learning_rate=0.123,
+        optimizer_kwargs=None,
+    )
+
+    assert isinstance(optimizer, keras.optimizers.Optimizer)
+    np.testing.assert_allclose(to_numpy(optimizer.learning_rate), 0.123)
+
+
+def test_resolve_optimizer_instance_and_config():
+    optimizer_with_kwargs = _resolve_optimizer(
+        "sgd",
+        learning_rate=0.1,
+        optimizer_kwargs={"momentum": 0.9, "nesterov": True},
+    )
+    assert isinstance(optimizer_with_kwargs, keras.optimizers.SGD)
+    assert optimizer_with_kwargs.momentum == 0.9
+    assert optimizer_with_kwargs.nesterov is True
+
+    optimizer_instance = keras.optimizers.SGD(learning_rate=0.25, momentum=0.5)
+    assert _resolve_optimizer(optimizer_instance, 1.0, None) is optimizer_instance
+
+    config = keras.optimizers.serialize(optimizer_instance)
+    assert type(config) is dict
+    optimizer_from_config = _resolve_optimizer(config, 1.0, None)
+    assert isinstance(optimizer_from_config, keras.optimizers.SGD)
+    np.testing.assert_allclose(to_numpy(optimizer_from_config.learning_rate), 0.25)
+    assert optimizer_from_config.momentum == 0.5
+
+
+def test_train_with_custom_optimizer():
+    input_node = Input("custom_optimizer_input")
+    target = Input("custom_optimizer_target").last()
+    linear = Linear(initializer="ones", bias_initializer="ones")(input_node.last())
+
+    model = Modely(
+        "custom_optimizer_model",
+        inputs=[input_node],
+        outputs=[Output("custom_optimizer_output", linear)],
+    )
+    model.minimize("error", source=linear, target=target, loss="mse")
+    model.build()
+
+    data = DataLoader(
+        model,
+        source={"custom_optimizer_input": [1], "custom_optimizer_target": [3]},
+    )
+    optimizer = SimpleCustomOptimizer(learning_rate=0.25)
+    model.train(
+        train_data=data,
+        epochs=1,
+        batch_size=1,
+        optimizer=optimizer,
+    )
+
+    assert model.model is not None
+    assert model.model.optimizer is optimizer
+    assert linear.kernel is not None
+    assert linear.bias is not None
+    # Initial prediction is 1 * 1 + 1 = 2. MSE gives a gradient of -2 for
+    # both variables, so one custom update adds 0.25 * 2 = 0.5.
+    np.testing.assert_allclose(to_numpy(linear.kernel), [[1.5]], atol=1e-5)
+    np.testing.assert_allclose(to_numpy(linear.bias), [1.5], atol=1e-5)
+
+
+def test_train_equation_learner_updates_symbolic_coefficients():
+    input_node = Input("equation_train_input")
+    target = Input("equation_train_target").last()
+    equation = EquationLearner(
+        functions=["identity"],
+        linear_in=Linear(
+            out_features=1,
+            use_bias=False,
+            initializer="ones",
+        ),
+        linear_out=Linear(
+            out_features=1,
+            use_bias=False,
+            initializer="ones",
+        ),
+        name="train_equation",
+    )
+    prediction = equation(input_node.last())
+    output = Output("equation_train_output", prediction)
+    model = Modely("equation_train_model", inputs=[input_node], outputs=[output])
+    model.minimize("error", source=output, target=target, loss="mse")
+    model.build()
+
+    data = DataLoader(
+        model,
+        source={"equation_train_input": [1.0], "equation_train_target": [3.0]},
+    )
+    history = model.train(
+        train_data=data,
+        epochs=1,
+        batch_size=1,
+        optimizer="sgd",
+        lr=0.1,
+    )
+
+    assert equation.linear_in is not None
+    assert equation.linear_out is not None
+    assert equation.linear_in.kernel is not None
+    assert equation.linear_out.kernel is not None
+    assert np.isfinite(history["loss"][-1])
+    np.testing.assert_allclose(
+        to_numpy(equation.linear_in.kernel), [[1.4]], rtol=1e-5, atol=1e-5
+    )
+    np.testing.assert_allclose(
+        to_numpy(equation.linear_out.kernel), [[1.4]], rtol=1e-5, atol=1e-5
+    )
+
+
+@pytest.mark.parametrize(
+    "loss_name",
+    [
+        "binary_crossentropy",
+        "binary_focal_crossentropy",
+        "categorical_crossentropy",
+        "categorical_focal_crossentropy",
+        "sparse_categorical_crossentropy",
+        "poisson",
+        "ctc",
+        "kl_divergence",
+        "mean_squared_error",
+        "mean_absolute_error",
+        "mean_absolute_percentage_error",
+        "mean_squared_logarithmic_error",
+        "cosine_similarity",
+        "huber",
+        "log_cosh",
+        "tversky",
+        "dice",
+        "hinge",
+        "squared_hinge",
+        "categorical_hinge",
+        "circle",
+    ],
+)
+def test_resolve_builtin_loss(loss_name):
+    assert callable(_resolve_loss(loss_name))
+
+
+def test_resolve_loss_instance_and_config():
+    loss_instance = keras.losses.MeanSquaredError(reduction="sum")
+    assert _resolve_loss(loss_instance) is loss_instance
+
+    config = keras.losses.serialize(loss_instance)
+    assert type(config) is dict
+    loss_from_config = _resolve_loss(config)
+
+    assert isinstance(loss_from_config, keras.losses.MeanSquaredError)
+    np.testing.assert_allclose(
+        to_numpy(
+            loss_from_config(
+                keras.ops.array([[0.0], [0.0]]),
+                keras.ops.array([[1.0], [1.0]]),
+            )
+        ),
+        2.0,
+    )
+
+
+@pytest.mark.parametrize("loss_name", ["mse", "mae", "huber", "log_cosh"])
+def test_train_with_named_loss(loss_name):
+    input_node = Input(f"{loss_name}_input")
+    target = Input(f"{loss_name}_target").last()
+    linear = Linear(initializer="ones", bias_initializer="zeros")(input_node.last())
+    output = Output(f"{loss_name}_output", linear)
+    model = Modely(f"{loss_name}_model", inputs=[input_node], outputs=[output])
+    model.minimize(f"{loss_name}_error", output, target, loss=loss_name)
+    model.build()
+
+    data = DataLoader(
+        model,
+        source={f"{loss_name}_input": [1], f"{loss_name}_target": [3]},
+    )
+    history = model.train(
+        train_data=data,
+        epochs=1,
+        batch_size=1,
+        optimizer="sgd",
+        lr=0.1,
+    )
+
+    assert np.isfinite(history["loss"][-1])
+    assert linear.kernel is not None
+    assert not np.allclose(to_numpy(linear.kernel), [[1.0]])
+
+
+def test_train_with_multiple_minimizer_losses():
+    input_node = Input("multi_loss_input")
+    mse_target = Input("mse_target").last()
+    mae_target = Input("mae_target").last()
+    mse_linear = Linear(initializer="ones", bias_initializer="zeros")(input_node.last())
+    mae_linear = Linear(initializer="ones", bias_initializer="zeros")(input_node.last())
+    mse_output = Output("mse_output", mse_linear)
+    mae_output = Output("mae_output", mae_linear)
+
+    model = Modely(
+        "multiple_loss_model",
+        inputs=[input_node],
+        outputs=[mse_output, mae_output],
+    )
+    model.minimize("mse_error", mse_output, mse_target, loss="mse")
+    model.minimize("mae_error", mae_output, mae_target, loss="mae")
+    model.build()
+
+    data = DataLoader(
+        model,
+        source={"multi_loss_input": [1], "mse_target": [3], "mae_target": [2]},
+    )
+    history = model.train(
+        train_data=data,
+        epochs=1,
+        batch_size=1,
+        optimizer="sgd",
+        lr=0.1,
+    )
+
+    assert np.isfinite(history["loss"][-1])
+    assert mse_linear.kernel is not None
+    assert mae_linear.kernel is not None
+    assert not np.allclose(to_numpy(mse_linear.kernel), [[1.0]])
+    assert not np.allclose(to_numpy(mae_linear.kernel), [[1.0]])
+
+
+def test_train_with_custom_loss_function():
+    input_node = Input("custom_loss_input")
+    target = Input("custom_loss_target").last()
+    linear = Linear(initializer="ones", bias_initializer="ones")(input_node.last())
+    output = Output("custom_loss_output", linear)
+    model = Modely("custom_loss_model", inputs=[input_node], outputs=[output])
+    model.minimize("custom_error", output, target, loss=custom_quartic_loss)
+    model.build()
+
+    data = DataLoader(
+        model,
+        source={"custom_loss_input": [1], "custom_loss_target": [3]},
+    )
+    model.train(
+        train_data=data,
+        epochs=1,
+        batch_size=1,
+        optimizer="sgd",
+        lr=0.1,
+    )
+
+    assert linear.kernel is not None
+    assert linear.bias is not None
+    # Initial prediction is 2 and d((prediction - 3)^4)/d prediction is -4.
+    # With x=1 and SGD(lr=0.1), both variables increase by 0.4.
+    np.testing.assert_allclose(to_numpy(linear.kernel), [[1.4]], atol=1e-5)
+    np.testing.assert_allclose(to_numpy(linear.bias), [1.4], atol=1e-5)
+
+
+def test_train_with_loop():
+    state = Input("state")
+    x = Input("x", seq=5)
+    target = Input("target")
+    relation = Linear(
+        out_features=1,
+        use_bias=True,
+        initializer="ones",
+        bias_initializer="zeros",
+    )(state.last())
+    output = Output("out", relation)
+    body = Modely("body", inputs=[state], outputs=[output])
+    body.build()
+    # x carries the five rollout steps and seeds the state with x[0]
+    loop = Loop(
+        f=body,
+        callback={state: output},
+        initial={state: x},
+        name="loop",
+        collect=False,
+    )
+    out_loop = Output("out_loop", loop)
+    model = Modely("model", inputs=[x], outputs=[out_loop])
+    model.minimize("error", source=out_loop, target=target.last(), loss="mse")
+    model.build()
+
+    dataset = {
+        "x": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+        "target": [
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+        ],
+    }
+    data = DataLoader(model, source=dataset)
+
+    assert data.dataset["x"].shape == (16, 1, 1, 5)
+    assert data.dataset["target"].shape == (16, 1, 1)
+    np.testing.assert_array_equal(data.dataset["x"][0, 0, 0], [1, 2, 3, 4, 5])
+    np.testing.assert_array_equal(data.dataset["x"][-1, 0, 0], [16, 17, 18, 19, 20])
+    np.testing.assert_array_equal(data.dataset["target"][:, 0, 0], np.arange(25, 41))
+
+    initial_prediction = model(data.as_dict())
+    initial_error = np.mean(
+        np.square(to_numpy(initial_prediction["out_loop"]) - data.dataset["target"])
+    )
+    history = model.train(
+        train_data=data,
+        epochs=10,
+        batch_size=4,
+        optimizer="adam",
+        lr=0.01,
+    )
+    final_prediction = model(data.as_dict())
+    final_error = np.mean(
+        np.square(to_numpy(final_prediction["out_loop"]) - data.dataset["target"])
+    )
+
+    assert np.isfinite(final_error)
+    assert final_error < initial_error
+    assert history["loss"][-1] < history["loss"][0]
+
+
+def test_train_with_roll():
+    x = Input("x")
+    target = Input("target")
+    relation = Linear(
+        out_features=1,
+        use_bias=True,
+        initializer="ones",
+        bias_initializer="zeros",
+    )(x.last())
+    output = Output("out", relation)
+    body = Modely("body", inputs=[x], outputs=[output])
+    body.build()
+    roll = Roll(f=body, callback={x: output}, steps=3, name="roll")
+    out_scan = Output("out_scan", roll)
+    model = Modely("model", inputs=[x], outputs=[out_scan])
+    model.minimize("error", source=out_scan, target=target.last(), loss="mse")
+    model.build()
+
+    dataset = {
+        "x": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+        "target": [
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+        ],
+    }
+    data = DataLoader(model, source=dataset)
+
+    assert data.dataset["x"].shape == (20, 1, 1)
+    assert data.dataset["target"].shape == (20, 1, 1)
+    np.testing.assert_array_equal(data.dataset["x"][:, 0, 0], np.arange(1, 21))
+    np.testing.assert_array_equal(data.dataset["target"][:, 0, 0], np.arange(21, 41))
+
+    initial_prediction = model(data.as_dict())
+    initial_error = np.mean(
+        np.square(to_numpy(initial_prediction["out_scan"]) - data.dataset["target"])
+    )
+    history = model.train(
+        train_data=data,
+        epochs=10,
+        batch_size=4,
+        optimizer="adam",
+        lr=0.01,
+    )
+    final_prediction = model(data.as_dict())
+    final_error = np.mean(
+        np.square(to_numpy(final_prediction["out_scan"]) - data.dataset["target"])
+    )
+
+    assert np.isfinite(final_error)
+    assert final_error < initial_error
+    assert history["loss"][-1] < history["loss"][0]
+
+
+def test_train_with_model_rollback_uses_final_value_only():
+    x = Input("closed_train_x")
+    target = Input("closed_train_target")
+    relation = Linear(
+        out_features=1,
+        use_bias=False,
+        initializer="ones",
+        name="closed_train_linear",
+    )(x.last())
+    output = Output("closed_train_output", relation)
+    model = Modely("closed_train_model", inputs=[x], outputs=[output])
+    model.rollback({x: output}, steps=3)
+    model.minimize("closed_train_error", output, target.last(), loss="mse")
+    model.build()
+
+    data = DataLoader(
+        model,
+        source={"closed_train_x": [2.0], "closed_train_target": [4.0]},
+    )
+    optimizer = keras.optimizers.SGD(learning_rate=0.01)
+
+    before = model(data.as_dict())
+    assert before["closed_train_output"].shape == (1, 1, 1)
+    np.testing.assert_allclose(to_numpy(before["closed_train_output"]), [[[2.0]]])
+
+    history = model.train(
+        train_data=data,
+        epochs=1,
+        batch_size=1,
+        optimizer=optimizer,
+    )
+
+    # The final rollout value is x * w**3. At w=1, MSE(2, 4)=4 and
+    # d(loss)/dw=-24, therefore one SGD update gives w=1.24.
+    assert relation.kernel is not None
+    np.testing.assert_allclose(history["loss"], [4.0], atol=1e-5)
+    np.testing.assert_allclose(to_numpy(relation.kernel), [[1.24]], atol=1e-5)
+    assert int(to_numpy(optimizer.iterations)) == 1

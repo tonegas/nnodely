@@ -6,8 +6,14 @@ on:
 
 jobs:
   coverage:
-    name: Compute coverage
+    name: Compute coverage (${{ matrix.keras-backend }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        keras-backend: [tensorflow, torch, jax]
+    env:
+      KERAS_BACKEND: ${{ matrix.keras-backend }}
 
     steps:
       - uses: actions/checkout@v6
@@ -21,9 +27,12 @@ jobs:
         run: uv sync --locked --all-extras --dev
 
       - name: Tests with coverage
-        run: uv run pytest --cov=nnodely --cov-branch --cov-report=xml tests
+        run: uv run pytest --cov=nnodely --cov-branch --cov-report=xml:coverage-${{ matrix.keras-backend }}.xml tests
 
       - name: Upload results to Codecov
         uses: codecov/codecov-action@v6
+        with:
+          files: coverage-${{ matrix.keras-backend }}.xml
+          flags: ${{ matrix.keras-backend }}
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

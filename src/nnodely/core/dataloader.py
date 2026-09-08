@@ -75,23 +75,32 @@ class DataLoader:
         self.input_specs = {
             node.name: [node.past, node.future] for node in model.train_inputs
         }
+        self.input_nodes = {node.name: node for node in model.train_inputs}
         if not self.input_specs:
             raise ValueError("Could not infer any inputs from model.inputs")
 
-        sequences = [
-            node.seq[-1]
-            for node in model.train_inputs
-            if node.seq is not None and len(node.seq) > 0
+        self.sequence_specs = {}
+        for node in model.train_inputs:
+            sequence = []
+            for length in node.seq:
+                if length is None:
+                    if self.seq_length is None:
+                        raise ValueError(
+                            "Some inputs have undefined sequence length. "
+                            "Please specify seq_length in training."
+                        )
+                    length = self.seq_length
+                if length < 1:
+                    raise ValueError(
+                        f"Input '{node.name}' has invalid sequence length {length}."
+                    )
+                sequence.append(int(length))
+            self.sequence_specs[node.name] = tuple(sequence)
+
+        sequence_lengths = [
+            length for sequence in self.sequence_specs.values() for length in sequence
         ]
-        if None in sequences:
-            if self.seq_length is not None:
-                self.max_sequence_length = self.seq_length
-            else:
-                raise ValueError(
-                    "Some inputs have undefined sequence length. Please specify seq_length in training."
-                )
-        else:
-            self.max_sequence_length = max(sequences) if sequences else 0
+        self.max_sequence_length = max(sequence_lengths, default=0)
 
         if isinstance(source, str):
             self.source = Path(source)
@@ -107,6 +116,9 @@ class DataLoader:
         elif isinstance(source, dict):
             self.dataset = self._build_from_dict(source)
 
+        self.normalization_stats: Dict[str, Dict[str, Any]] = {}
+        self._original_dataset: Dict[str, np.ndarray] | None = None
+        self._normalization_aliases = self._build_normalization_aliases()
         self._num_steps = self._infer_num_steps()
 
     @property
@@ -138,6 +150,171 @@ class DataLoader:
 
     def as_dict(self) -> Dict[str, np.ndarray]:
         return self.dataset
+
+    # ------------------------------------------------------------------
+    # Explicit normalization
+    # ------------------------------------------------------------------
+
+    def normalize(
+        self,
+        method: Literal["minmax", "standard"] = "minmax",
+        names: list[str] | tuple[str, ...] | None = None,
+        feature_range: tuple[float, float] = (-1.0, 1.0),
+    ) -> "DataLoader":
+        """Fit normalization statistics and transform this loader in place.
+
+        Normalization is explicit and local to this DataLoader. It does not
+        modify Modely inference or any other loader created from the same data.
+        Statistics are fitted independently for every input feature while
+        reducing over samples, time, and sequence axes.
+        """
+        if method not in ("minmax", "standard"):
+            raise ValueError("method must be either 'minmax' or 'standard'.")
+        if not np.issubdtype(np.dtype(self.dtype), np.floating):
+            raise TypeError("DataLoader normalization requires a floating-point dtype.")
+        low, high = (float(feature_range[0]), float(feature_range[1]))
+        if method == "minmax" and not low < high:
+            raise ValueError("feature_range must satisfy low < high.")
+
+        selected = list(self.dataset) if names is None else list(names)
+        unknown = [name for name in selected if name not in self.dataset]
+        if unknown:
+            raise ValueError(f"Unknown dataset inputs for normalization: {unknown}.")
+
+        if self._original_dataset is None:
+            self._original_dataset = {
+                name: np.array(values, copy=True)
+                for name, values in self.dataset.items()
+            }
+        source = self._original_dataset
+
+        # Reapplying normalization always starts from the original prepared
+        # windows, so transformations never compound.
+        self.dataset = {
+            name: np.array(values, copy=True) for name, values in source.items()
+        }
+        self.normalization_stats = {}
+
+        for name in selected:
+            values = source[name].astype(np.float64, copy=False)
+            dim_rank = self.input_nodes[name].shape.dim_rank
+            reduce_axes = (0, *range(1 + dim_rank, values.ndim))
+
+            if method == "standard":
+                offset = np.mean(values, axis=reduce_axes, keepdims=True)
+                scale = np.std(values, axis=reduce_axes, keepdims=True)
+                constant = scale <= np.finfo(np.float32).eps
+                safe_scale = np.where(constant, 1.0, scale)
+                normalized = (values - offset) / safe_scale
+            else:
+                minimum = np.min(values, axis=reduce_axes, keepdims=True)
+                maximum = np.max(values, axis=reduce_axes, keepdims=True)
+                span = maximum - minimum
+                constant = span <= np.finfo(np.float32).eps
+                safe_scale = np.where(constant, 1.0, span)
+                offset = minimum
+                scale = safe_scale
+                normalized = (values - offset) / scale
+                normalized = normalized * (high - low) + low
+                normalized = np.where(constant, (low + high) / 2.0, normalized)
+
+            self.normalization_stats[name] = {
+                "method": method,
+                "offset": offset,
+                "scale": scale,
+                "constant": constant,
+                "feature_range": (low, high),
+            }
+            self.dataset[name] = normalized.astype(self.dtype)
+
+        return self
+
+    def denormalize(
+        self,
+        data: Dict[str, Any] | np.ndarray | None = None,
+        *,
+        name: str | None = None,
+    ):
+        """Undo this loader's fitted normalization.
+
+        With no data, restore the loader's original prepared dataset in place
+        and return ``self``. A dictionary or array is inverse-transformed and
+        returned without modifying the loader. For an array, ``name`` selects
+        the statistics to use.
+        """
+        if self._original_dataset is None:
+            if data is None:
+                return self
+            raise ValueError("normalize() must be called before denormalize().")
+
+        if data is None:
+            self.dataset = {
+                key: np.array(values, copy=True)
+                for key, values in self._original_dataset.items()
+            }
+            return self
+
+        if isinstance(data, dict):
+            return {
+                key: self._denormalize_values(key, values)
+                if self._normalization_name(key) is not None
+                else np.asarray(values)
+                for key, values in data.items()
+            }
+
+        if name is None:
+            raise ValueError("name is required when denormalizing an array.")
+        return self._denormalize_values(name, data)
+
+    def _denormalize_values(self, name: str, values: Any) -> np.ndarray:
+        stats_name = self._normalization_name(name)
+        if stats_name is None:
+            raise ValueError(f"No normalization statistics are available for {name!r}.")
+        stats = self.normalization_stats[stats_name]
+        values = np.asarray(values, dtype=np.float64)
+        offset = self._match_stat_rank(stats["offset"], values.ndim)
+        scale = self._match_stat_rank(stats["scale"], values.ndim)
+        constant = self._match_stat_rank(stats["constant"], values.ndim)
+
+        if stats["method"] == "minmax":
+            low, high = stats["feature_range"]
+            values = (values - low) / (high - low)
+        restored = values * scale + offset
+        restored = np.where(constant, offset, restored)
+        return restored.astype(self.dtype)
+
+    @staticmethod
+    def _match_stat_rank(stat: np.ndarray, rank: int) -> np.ndarray:
+        while stat.ndim > rank and stat.shape[0] == 1:
+            stat = stat[0]
+        if stat.ndim != rank:
+            raise ValueError(
+                f"Data rank {rank} is incompatible with normalization rank {stat.ndim}."
+            )
+        return stat
+
+    def _normalization_name(self, name: str) -> str | None:
+        if name in self.normalization_stats:
+            return name
+        alias = self._normalization_aliases.get(name)
+        return alias if alias in self.normalization_stats else None
+
+    def _build_normalization_aliases(self) -> Dict[str, str]:
+        aliases = {}
+
+        def find_input_name(node):
+            if node.name in self.input_nodes:
+                return node.name
+            preds = getattr(node, "preds", [])
+            if len(preds) == 1:
+                return find_input_name(preds[0])
+            return None
+
+        for minimizer in self.model.minimizers:
+            target_name = find_input_name(minimizer["target"])
+            if target_name is not None:
+                aliases[minimizer["source"].name] = target_name
+        return aliases
 
     # ------------------------------------------------------------------
     # Build dataset
@@ -224,8 +401,8 @@ class DataLoader:
                 f"Input arrays have only {n_rows} rows, but the largest required window is {max_window}."
             )
 
-        t_start = max_window - 1
-        t_end = n_rows - 1
+        t_start = max_past_window - 1 if max_past_window > 0 else 0
+        t_end = n_rows - max_future_window - 1
 
         raw_data: Dict[str, List[np.ndarray]] = {name: [] for name in self.input_specs}
 
@@ -237,7 +414,7 @@ class DataLoader:
                 values = (
                     arrays[name][start:end]
                     if past + future > 0
-                    else np.array(arrays[name][t], dtype=self.dtype)
+                    else arrays[name][t : t + 1]
                 )
 
                 if values.shape[0] != past + future and past + future > 0:
@@ -246,12 +423,13 @@ class DataLoader:
                         f"expected {past + future}, got {values.shape[0]}"
                     )
 
-                raw_data[name].append(values)
+                raw_data[name].append(self._format_temporal_window(name, values))
 
         dataset = {
             name: np.stack(windows, axis=0).astype(self.dtype)
             for name, windows in raw_data.items()
         }
+        dataset = self._apply_sequence_windows(dataset)
         self._check_alignment(dataset)
         return dataset
 
@@ -263,7 +441,7 @@ class DataLoader:
             )
         chunks: Dict[str, List[np.ndarray]] = {name: [] for name in self.input_specs}
         for csv_path in csv_files:
-            df = pd.read_csv(csv_path, sep=self.delimiter, header=self.header)
+            df = pd.read_csv(csv_path, sep=self.delimiter, header=self.header)  # type: ignore
             missing = []
             for name in self.input_specs:
                 col = (
@@ -353,27 +531,68 @@ class DataLoader:
                         f"Internal error while building window for '{name}': "
                         f"expected {past + future}, got {values.shape[0]}"
                     )
-                raw_data[name].append(
-                    np.expand_dims(values, axis=0) if past + future > 0 else values
-                )  ## TODO: expand dims to account for the dim=1, future version manage multi dimensionality
+                raw_data[name].append(self._format_temporal_window(name, values))
 
         dataset = {
             name: np.stack(windows, axis=0) for name, windows in raw_data.items()
         }
-        # Handle the sequences
-        if self.max_sequence_length > 0:
-            new_raw_data = {}
-            for name, windows in dataset.items():
-                window = np.lib.stride_tricks.sliding_window_view(
-                    windows, window_shape=self.max_sequence_length, axis=0
-                )
-                new_raw_data[name] = window
-            dataset = {
-                name: np.stack(windows, axis=0)
-                for name, windows in new_raw_data.items()
-            }
+        dataset = self._apply_sequence_windows(dataset)
         self._check_alignment(dataset)
         return dataset
+
+    def _format_temporal_window(self, name: str, values: np.ndarray) -> np.ndarray:
+        """Convert raw [time, features...] data to nnodely [dim..., time]."""
+        values = np.asarray(values, dtype=self.dtype)
+        window_length = values.shape[0]
+        dim = tuple(self.input_nodes[name].dim)
+        feature_size = int(np.prod(values.shape[1:], dtype=int))
+        expected_size = int(np.prod(dim, dtype=int))
+
+        if feature_size != expected_size:
+            raise ValueError(
+                f"Input '{name}' provides {feature_size} values per timestep, "
+                f"but its dim={dim} requires {expected_size}."
+            )
+
+        values = np.reshape(values, (window_length, *dim))
+        return np.moveaxis(values, 0, -1)
+
+    def _apply_sequence_windows(
+        self, dataset: Dict[str, np.ndarray]
+    ) -> Dict[str, np.ndarray]:
+        """Build every seq axis on top of the already-created time windows."""
+        spans = {
+            name: sum(length - 1 for length in sequence)
+            for name, sequence in self.sequence_specs.items()
+        }
+        max_span = max(spans.values(), default=0)
+        result = {}
+
+        for name, values in dataset.items():
+            required = spans[name] + 1
+            if len(values) < required:
+                raise ValueError(
+                    f"Input '{name}' has only {len(values)} temporal windows, "
+                    f"but seq={self.sequence_specs[name]} requires at least {required}."
+                )
+
+            windows = values
+            for length in self.sequence_specs[name]:
+                windows = np.lib.stride_tricks.sliding_window_view(
+                    windows,
+                    window_shape=length,
+                    axis=0,
+                )
+
+            # A sequence window is aligned to its final temporal sample. Inputs
+            # with shorter/no seq dimensions therefore skip earlier samples so
+            # every model input refers to the same endpoint.
+            offset = max_span - spans[name]
+            if offset:
+                windows = windows[offset:]
+            result[name] = np.ascontiguousarray(windows, dtype=self.dtype)
+
+        return result
 
     def _check_alignment(self, dataset: Dict[str, np.ndarray]) -> None:
         lengths = {k: len(v) for k, v in dataset.items()}
