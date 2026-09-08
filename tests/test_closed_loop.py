@@ -718,6 +718,10 @@ def test_loop_constant_initial_batched():
     ).build()
 
     values = np.tile(np.array([[[[1.0, 2.0, 3.0]]]], dtype=np.float32), (2, 1, 1, 1))
+    if model.model is None:
+        raise ValueError(
+            "Model weights are not available. call model.build() before inference."
+        )
     result = model.model({"cst_u_seq": values})
     # x starts at the default 0.0: 0*2 + 1 = 1 -> 2*1 + 2 = 4 -> 2*4 + 3 = 11
     np.testing.assert_allclose(

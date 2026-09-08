@@ -280,7 +280,9 @@ class LoopImpl(keras.layers.Layer):
             else compute(states, windows, self._first_step(scan_values))
         )
         init_carry = tuple(
-            states[callback_slots[index]] if index in callback_slots else seeds[index]
+            states[callback_slots[index]]
+            if index in callback_slots
+            else (seeds[index] if seeds is not None else None)
             for index in range(output_count)
         ) + tuple(windows[index] for index in shifted)
 
@@ -317,7 +319,9 @@ class LoopImpl(keras.layers.Layer):
         if self.collect:
             results = tuple(
                 self._move_scan_axis(value, axis)
-                for value, axis in zip(scanned[:output_count], self.output_sequence_axes)
+                for value, axis in zip(
+                    scanned[:output_count], self.output_sequence_axes
+                )
             )
         else:
             results = tuple(final[:output_count])
