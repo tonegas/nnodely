@@ -204,3 +204,150 @@ def test_standard_normalization_handles_constant_inputs():
         name="constant_normalization_x",
     )
     np.testing.assert_array_equal(restored, 5.0)
+
+
+def test_step_subsamples_sample_windows():
+    x = Input("step_x", dim=1)
+    model = Modely(
+        "step_windows_model",
+        inputs=[x],
+        outputs=[Output("step_out", x.sw(3))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source={"step_x": np.array([1, 2, 3, 4, 5], dtype=np.float32)},
+        step=2,
+    )
+
+    ## [1, 2, 3, 4, 5] with sw=3 and step=2 -> [[1, 2, 3], [3, 4, 5]]
+    assert loader.dataset["step_x"].shape == (2, 1, 3)
+    np.testing.assert_array_equal(
+        loader.dataset["step_x"][:, 0],
+        np.array([[1, 2, 3], [3, 4, 5]], dtype=np.float32),
+    )
+
+
+def test_step_keeps_multiple_inputs_aligned():
+    x = Input("step_align_x", dim=1)
+    y = Input("step_align_y", dim=1)
+    model = Modely(
+        "step_align_model",
+        inputs=[x, y],
+        outputs=[Output("step_align_out", x.sw(3) + y.last())],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source={
+            "step_align_x": np.array([1, 2, 3, 4, 5], dtype=np.float32),
+            "step_align_y": np.array([1, 2, 3, 4, 5], dtype=np.float32),
+        },
+        step=2,
+    )
+
+    np.testing.assert_array_equal(
+        loader.dataset["step_align_x"][:, 0],
+        np.array([[1, 2, 3], [3, 4, 5]], dtype=np.float32),
+    )
+    ## Every window is aligned to its last temporal sample
+    np.testing.assert_array_equal(
+        loader.dataset["step_align_y"][:, 0],
+        np.array([[3], [5]], dtype=np.float32),
+    )
+
+
+def test_step_subsamples_sequences():
+    x = Input("step_seq_x", dim=1, seq=3)
+    model = Modely(
+        "step_sequence_model",
+        inputs=[x],
+        outputs=[Output("step_seq_out", x.sw(2))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source={"step_seq_x": np.array([1, 2, 3, 4, 5, 6], dtype=np.float32)},
+        step=2,
+    )
+
+    ## [1, ..., 6] with sw=2, seq=3 and step=2 ->
+    ## [[[1, 2], [2, 3], [3, 4]], [[3, 4], [4, 5], [5, 6]]]
+    assert loader.dataset["step_seq_x"].shape == (2, 1, 2, 3)
+    np.testing.assert_array_equal(
+        loader.dataset["step_seq_x"][0, 0].T,
+        np.array([[1, 2], [2, 3], [3, 4]], dtype=np.float32),
+    )
+    np.testing.assert_array_equal(
+        loader.dataset["step_seq_x"][1, 0].T,
+        np.array([[3, 4], [4, 5], [5, 6]], dtype=np.float32),
+    )
+
+
+def test_step_subsamples_sequences_with_seq_length():
+    x = Input("step_seq_length_x", dim=1, seq=(None,))
+    model = Modely(
+        "step_seq_length_model",
+        inputs=[x],
+        outputs=[Output("step_seq_length_out", x.sw(2))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source={"step_seq_length_x": np.array([1, 2, 3, 4, 5, 6], dtype=np.float32)},
+        seq_length=3,
+        step=2,
+    )
+
+    assert loader.dataset["step_seq_length_x"].shape == (2, 1, 2, 3)
+    np.testing.assert_array_equal(
+        loader.dataset["step_seq_length_x"][0, 0].T,
+        np.array([[1, 2], [2, 3], [3, 4]], dtype=np.float32),
+    )
+    np.testing.assert_array_equal(
+        loader.dataset["step_seq_length_x"][1, 0].T,
+        np.array([[3, 4], [4, 5], [5, 6]], dtype=np.float32),
+    )
+
+
+def test_step_does_not_mix_csv_files():
+    x = Input("step_csv_x", dim=1)
+    model = Modely(
+        "step_csv_model",
+        inputs=[x],
+        outputs=[Output("step_csv_out", x.sw(2))],
+    ).build()
+
+    stepped = DataLoader(
+        model,
+        format={"step_csv_x": "data_1"},
+        source=os.path.join("tests", "datasets"),
+        step=3,
+    )
+
+    ## Each file is windowed independently, so the step restarts on every file
+    expected = np.concatenate(
+        [
+            DataLoader(
+                model,
+                format={"step_csv_x": "data_1"},
+                source=os.path.join("tests", "datasets"),
+                csv_glob=csv_name,
+                step=3,
+            ).dataset["step_csv_x"]
+            for csv_name in ("test.csv", "test2.csv")
+        ]
+    )
+    np.testing.assert_array_equal(stepped.dataset["step_csv_x"], expected)
+
+
+def test_invalid_step_raises():
+    x = Input("step_invalid_x", dim=1)
+    model = Modely(
+        "step_invalid_model",
+        inputs=[x],
+        outputs=[Output("step_invalid_out", x.last())],
+    ).build()
+
+    with np.testing.assert_raises(ValueError):
+        DataLoader(model, source={"step_invalid_x": np.arange(4, dtype=np.float32)}, step=0)
