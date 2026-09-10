@@ -25,7 +25,9 @@ class ConstantImpl(keras.layers.Layer):
         self.constant = self.add_weight(
             name="value",
             shape=self.constant_shape,
-            initializer=keras.initializers.Constant(value=self.value.tolist()),
+            initializer=keras.initializers.Constant(
+                value=self.value.reshape(self.constant_shape).tolist()
+            ),
             trainable=False,
             dtype="float32",
         )

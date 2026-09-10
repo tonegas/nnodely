@@ -1,0 +1,345 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>cheetah_rollout :: cheetah_roll</title>
+<style>
+    body {
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        margin: 0;
+        padding: 0;
+        background: #ffffff;
+        color: #111;
+    }
+    header {
+        padding: 12px 16px;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .header-left {
+        justify-self: start;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .header-right {
+        justify-self: end;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    header h1 {
+        font-size: 16px;
+        margin: 0;
+        font-weight: 600;
+    }
+    .legend {
+        margin-left: auto;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        font-size: 12px;
+        color: #444;
+        flex-wrap: wrap;
+    }
+    .swatch {
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        display: inline-block;
+        border: 1px solid #2c3e50;
+        margin-right: 6px;
+    }
+    .roll-arrow {
+        color: #e74c3c;
+        display: inline-block;
+        font-size: 17px;
+        font-weight: 700;
+        line-height: 10px;
+        margin-right: 5px;
+        vertical-align: -1px;
+    }
+    .main {
+        display: flex;
+        width: 100%;
+        height: 90vh;
+    }
+    #network {
+        flex: 1 1 auto;
+        min-width: 0;
+        height: 100%;
+    }
+    #inspector {
+        width: 340px;
+        min-width: 340px;
+        max-width: 340px;
+        border-left: 1px solid #eee;
+        background: #fafafa;
+        overflow: auto;
+        padding: 14px;
+        box-sizing: border-box;
+    }
+    #inspector h2 {
+        font-size: 14px;
+        margin: 0 0 10px 0;
+        font-weight: 600;
+    }
+    #inspector .empty {
+        font-size: 12px;
+        color: #666;
+        line-height: 1.5;
+    }
+    .attr-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+        table-layout: fixed;
+    }
+    .attr-table th,
+    .attr-table td {
+        border: 1px solid #e5e7eb;
+        padding: 6px 8px;
+        text-align: left;
+        vertical-align: top;
+        word-break: break-word;
+    }
+    .attr-table th {
+        width: 34%;
+        background: #f3f4f6;
+        font-weight: 600;
+    }
+    <!--
+    .hint {
+        padding: 8px 16px;
+        font-size: 16px;
+        color: #555;
+        border-top: 1px solid #eee;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    -->
+    .btn {
+        border: 1px solid #ddd;
+        background: #fafafa;
+        padding: 6px 10px;
+        border-radius: 10px;
+        cursor: pointer;
+        font-size: 12px;
+    }
+    .btn:hover {
+        background: #f2f2f2;
+    }
+    .crumb {
+        font-size: 12px;
+        color: #444;
+        text-decoration: none;
+        border-bottom: 1px dashed #bbb;
+    }
+    .crumb:hover {
+        color: #111;
+        border-bottom-color: #111;
+    }
+    .open-link {
+        display: inline-block;
+        margin-top: 10px;
+        font-size: 12px;
+        color: #2563eb;
+        text-decoration: none;
+    }
+    .open-link:hover {
+        text-decoration: underline;
+    }
+    .bottom-bar {
+        height: 4vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: #fff;
+    }
+    .toggle-btn {
+        border: 1px solid #ddd;
+        background: #3498db;
+        padding: 8px 14px 8px 14px;
+        border-radius: 12px;
+        cursor: pointer;
+        font-size: 16px;
+        color: #fafafa;
+        text-decoration: none;
+    }
+    .toggle-btn:hover {
+        background: #2563eb;
+    }
+</style>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+</head>
+<body>
+<header>
+    <div class="header-left">
+        <img src="./imgs/logo_info.png" alt="nnodely logo" width="120" height="40"/>
+        <h1>cheetah_rollout :: cheetah_roll</h1>
+
+            <button id="backBtn" class="btn" title="Go back to parent graph">← Back</button>
+            <a class="crumb" href="cheetah_rollout.html">Parent</a>
+
+    </div>
+    <div class="legend">
+        <span><span class="swatch" style="background:#2ecc71"></span>Input</span>
+        <span><span class="swatch" style="background:#e74c3c"></span>Output</span>
+        <span><span class="swatch" style="background:#3498db"></span>Submodel</span>
+        <span><span class="swatch" style="background:#ff9900"></span>Parameter</span>
+        <span><span class="swatch" style="background:#00e5ff"></span>Constant</span>
+        <span><span class="swatch" style="background:#95a5a6"></span>Relation</span>
+        <span><span class="roll-arrow">→</span>Roll</span>
+    </div>
+    <div class="header-right">
+        <div class="bottom-bar">
+
+        </div>
+    </div>
+</header>
+
+<div class="main">
+    <div id="network"></div>
+    <aside id="inspector">
+        <h2>Node details</h2>
+        <div id="inspectorContent" class="empty">
+            Click a node to inspect its attributes.
+        </div>
+    </aside>
+</div>
+
+<!--
+<div class="hint">
+    <span>Powered by </span>
+    <img src="../imgs/logo_info.png" alt="nnodely logo" width="120" height="40"/>
+</div>
+-->
+
+<script>
+    const nodes = new vis.DataSet([{"id": "state", "label": "state", "shape": "dot", "size": 14, "color": {"background": "#2ecc71", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "SampleWindow19", "label": "SampleWindow19", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "tau", "label": "tau", "shape": "dot", "size": 14, "color": {"background": "#2ecc71", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "SampleWindow20", "label": "SampleWindow20", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "state_mean", "label": "state_mean", "shape": "dot", "size": 14, "color": {"background": "#ff9900", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "Subtract21", "label": "Subtract21", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "state_std", "label": "state_std", "shape": "dot", "size": 14, "color": {"background": "#ff9900", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "Divide22", "label": "Divide22", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "tau_mean", "label": "tau_mean", "shape": "dot", "size": 14, "color": {"background": "#ff9900", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "Subtract23", "label": "Subtract23", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "tau_std", "label": "tau_std", "shape": "dot", "size": 14, "color": {"background": "#ff9900", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "Divide24", "label": "Divide24", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "features", "label": "features", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "force_head_lin0", "label": "force_head_lin0", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "force_head_act0", "label": "force_head_act0", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "force_head_lin1", "label": "force_head_lin1", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "force_head_act1", "label": "force_head_act1", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "force_head_out", "label": "force_head_out", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "lam_std", "label": "lam_std", "shape": "dot", "size": 14, "color": {"background": "#ff9900", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "Multiply25", "label": "Multiply25", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "lam_mean", "label": "lam_mean", "shape": "dot", "size": 14, "color": {"background": "#ff9900", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "Add26", "label": "Add26", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "mass", "label": "mass", "shape": "dot", "size": 14, "color": {"background": "#2ecc71", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "SampleWindow27", "label": "SampleWindow27", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "bias", "label": "bias", "shape": "dot", "size": 14, "color": {"background": "#2ecc71", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "SampleWindow28", "label": "SampleWindow28", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "passive", "label": "passive", "shape": "dot", "size": 14, "color": {"background": "#2ecc71", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "SampleWindow29", "label": "SampleWindow29", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "dynamics_step", "label": "dynamics_step", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "state_next", "label": "state_next", "shape": "dot", "size": 14, "color": {"background": "#e74c3c", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "lam_n", "label": "lam_n", "shape": "dot", "size": 14, "color": {"background": "#e74c3c", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "Subtract30", "label": "Subtract30", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "Divide31", "label": "Divide31", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "pos_pred_n", "label": "pos_pred_n", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "vel_pred_n", "label": "vel_pred_n", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "Constant15", "label": "Constant15", "shape": "dot", "size": 14, "color": {"background": "#00e5ff", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "Multiply32", "label": "Multiply32", "shape": "dot", "size": 14, "color": {"background": "#95a5a6", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}]);
+    const edges = new vis.DataSet([{"from": "state", "to": "SampleWindow19", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Input\",\n  \"to class\": \"SampleWindow\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "tau", "to": "SampleWindow20", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Input\",\n  \"to class\": \"SampleWindow\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "SampleWindow19", "to": "Subtract21", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"SampleWindow\",\n  \"to class\": \"Subtract\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "state_mean", "to": "Subtract21", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Parameter\",\n  \"to class\": \"Subtract\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "Subtract21", "to": "Divide22", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Subtract\",\n  \"to class\": \"Divide\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "state_std", "to": "Divide22", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Parameter\",\n  \"to class\": \"Divide\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "SampleWindow20", "to": "Subtract23", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"SampleWindow\",\n  \"to class\": \"Subtract\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "tau_mean", "to": "Subtract23", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Parameter\",\n  \"to class\": \"Subtract\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "Subtract23", "to": "Divide24", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Subtract\",\n  \"to class\": \"Divide\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "tau_std", "to": "Divide24", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Parameter\",\n  \"to class\": \"Divide\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "Divide22", "to": "features", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Divide\",\n  \"to class\": \"Concatenate\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "Divide24", "to": "features", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Divide\",\n  \"to class\": \"Concatenate\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "features", "to": "force_head_lin0", "arrows": "to", "label": "(27, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Concatenate\",\n  \"to class\": \"Linear\",\n  \"shape\": \"(27, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "force_head_lin0", "to": "force_head_act0", "arrows": "to", "label": "(64, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Linear\",\n  \"to class\": \"Swish\",\n  \"shape\": \"(64, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "force_head_act0", "to": "force_head_lin1", "arrows": "to", "label": "(64, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Swish\",\n  \"to class\": \"Linear\",\n  \"shape\": \"(64, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "force_head_lin1", "to": "force_head_act1", "arrows": "to", "label": "(64, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Linear\",\n  \"to class\": \"Swish\",\n  \"shape\": \"(64, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "force_head_act1", "to": "force_head_out", "arrows": "to", "label": "(64, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Swish\",\n  \"to class\": \"Linear\",\n  \"shape\": \"(64, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "force_head_out", "to": "Multiply25", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Linear\",\n  \"to class\": \"Multiply\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "lam_std", "to": "Multiply25", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Parameter\",\n  \"to class\": \"Multiply\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "Multiply25", "to": "Add26", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Multiply\",\n  \"to class\": \"Add\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "lam_mean", "to": "Add26", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Parameter\",\n  \"to class\": \"Add\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "mass", "to": "SampleWindow27", "arrows": "to", "label": "(9, 9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Input\",\n  \"to class\": \"SampleWindow\",\n  \"shape\": \"(9, 9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "bias", "to": "SampleWindow28", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Input\",\n  \"to class\": \"SampleWindow\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "passive", "to": "SampleWindow29", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Input\",\n  \"to class\": \"SampleWindow\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "SampleWindow19", "to": "dynamics_step", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"SampleWindow\",\n  \"to class\": \"DynamicsStep\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "SampleWindow20", "to": "dynamics_step", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"SampleWindow\",\n  \"to class\": \"DynamicsStep\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "Add26", "to": "dynamics_step", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Add\",\n  \"to class\": \"DynamicsStep\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "SampleWindow27", "to": "dynamics_step", "arrows": "to", "label": "(9, 9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"SampleWindow\",\n  \"to class\": \"DynamicsStep\",\n  \"shape\": \"(9, 9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "SampleWindow28", "to": "dynamics_step", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"SampleWindow\",\n  \"to class\": \"DynamicsStep\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "SampleWindow29", "to": "dynamics_step", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"SampleWindow\",\n  \"to class\": \"DynamicsStep\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "dynamics_step", "to": "state_next", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"DynamicsStep\",\n  \"to class\": \"Output\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "force_head_out", "to": "lam_n", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Linear\",\n  \"to class\": \"Output\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "dynamics_step", "to": "Subtract30", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"DynamicsStep\",\n  \"to class\": \"Subtract\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "state_mean", "to": "Subtract30", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Parameter\",\n  \"to class\": \"Subtract\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "Subtract30", "to": "Divide31", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Subtract\",\n  \"to class\": \"Divide\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "state_std", "to": "Divide31", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Parameter\",\n  \"to class\": \"Divide\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "Divide31", "to": "pos_pred_n", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Divide\",\n  \"to class\": \"Range\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "pos_pred_n", "to": "pos_pred_n", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Range\",\n  \"to class\": \"Output\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "Divide31", "to": "vel_pred_n", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Divide\",\n  \"to class\": \"Range\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "vel_pred_n", "to": "Multiply32", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Range\",\n  \"to class\": \"Multiply\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "Constant15", "to": "Multiply32", "arrows": "to", "label": "(1, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Constant\",\n  \"to class\": \"Multiply\",\n  \"shape\": \"(1, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "Multiply32", "to": "vel_pred_n", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Multiply\",\n  \"to class\": \"Output\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}]);
+    const nodeDetails = {"state": {"class": "Input", "name": "state", "seq": "()", "time": "1", "dim": "(18,)", "shape": "(18, 1)"}, "SampleWindow19": {"class": "SampleWindow", "name": "SampleWindow19", "seq": "()", "time": "1", "dim": "(18,)", "shape": "(18, 1)", "properties": {"past": 1, "future": 0}}, "tau": {"class": "Input", "name": "tau", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)"}, "SampleWindow20": {"class": "SampleWindow", "name": "SampleWindow20", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)", "properties": {"past": 1, "future": 0}}, "state_mean": {"class": "Parameter", "name": "state_mean", "seq": "()", "time": "1", "dim": "(18,)", "shape": "(18, 1)", "properties": {"value": [-0.007156865671277046, -0.04151789844036102, -0.011050344444811344, 0.01192905381321907, 0.012259253300726414, 1.6674511432647705, -0.023686721920967102, -0.005752603057771921, 1.6196982860565186, -0.007571963593363762, -0.15717878937721252, 0.0016009319806471467, -0.0005751143908128142, 0.011195534840226173, 2.4080331325531006, -0.013940145261585712, -0.030106954276561737, 2.3825254440307617], "initializer": "random_normal"}}, "Subtract21": {"class": "Subtract", "name": "Subtract21", "seq": "()", "time": "1", "dim": "(18,)", "shape": "(18, 1)", "properties": {}}, "state_std": {"class": "Parameter", "name": "state_std", "seq": "()", "time": "1", "dim": "(18,)", "shape": "(18, 1)", "properties": {"value": [0.14304888248443604, 0.08170165121555328, 0.12231627851724625, 0.16158482432365417, 0.18292896449565887, 1.1480932235717773, 0.15746814012527466, 0.16575202345848083, 1.1712307929992676, 0.06141706928610802, 0.7192028164863586, 0.06693242490291595, 0.6034403443336487, 0.641542375087738, 1.7270704507827759, 0.5981719493865967, 0.6408532857894897, 1.7502721548080444], "initializer": "random_normal"}}, "Divide22": {"class": "Divide", "name": "Divide22", "seq": "()", "time": "1", "dim": "(18,)", "shape": "(18, 1)", "properties": {}}, "tau_mean": {"class": "Parameter", "name": "tau_mean", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)", "properties": {"value": [0.0, 0.0, 0.0, -0.0038999938406050205, 0.03243788331747055, -0.006453482434153557, -0.05459979921579361, -0.13503551483154297, -0.07998933643102646], "initializer": "random_normal"}}, "Subtract23": {"class": "Subtract", "name": "Subtract23", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)", "properties": {}}, "tau_std": {"class": "Parameter", "name": "tau_std", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)", "properties": {"value": [9.999999974752427e-07, 9.999999974752427e-07, 9.999999974752427e-07, 2.636958599090576, 2.6149473190307617, 2.62447190284729, 2.620990514755249, 2.6085987091064453, 2.6548635959625244], "initializer": "random_normal"}}, "Divide24": {"class": "Divide", "name": "Divide24", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)", "properties": {}}, "features": {"class": "Concatenate", "name": "features", "seq": "()", "time": "1", "dim": "(27,)", "shape": "(27, 1)", "properties": {"axis": 0}}, "force_head_lin0": {"class": "Linear", "name": "force_head_lin0", "seq": "()", "time": "1", "dim": "(64,)", "shape": "(64, 1)", "properties": {"out_features": 64, "use_bias": true, "initializer": "glorot_uniform", "bias_initializer": "glorot_uniform"}}, "force_head_act0": {"class": "Swish", "name": "force_head_act0", "seq": "()", "time": "1", "dim": "(64,)", "shape": "(64, 1)", "properties": {}}, "force_head_lin1": {"class": "Linear", "name": "force_head_lin1", "seq": "()", "time": "1", "dim": "(64,)", "shape": "(64, 1)", "properties": {"out_features": 64, "use_bias": true, "initializer": "glorot_uniform", "bias_initializer": "glorot_uniform"}}, "force_head_act1": {"class": "Swish", "name": "force_head_act1", "seq": "()", "time": "1", "dim": "(64,)", "shape": "(64, 1)", "properties": {}}, "force_head_out": {"class": "Linear", "name": "force_head_out", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)", "properties": {"out_features": 9, "use_bias": true, "initializer": "glorot_uniform", "bias_initializer": "glorot_uniform"}}, "lam_std": {"class": "Parameter", "name": "lam_std", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)", "properties": {"value": [9.999999974752427e-07, 20.046070098876953, 9.999999974752427e-07, 9.999999974752427e-07, 9.999999974752427e-07, 9.791984558105469, 9.999999974752427e-07, 9.999999974752427e-07, 9.791984558105469], "initializer": "random_normal"}}, "Multiply25": {"class": "Multiply", "name": "Multiply25", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)", "properties": {}}, "lam_mean": {"class": "Parameter", "name": "lam_mean", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)", "properties": {"value": [0.0, 24.7465877532959, 0.0, 0.0, 0.0, 11.762801170349121, 0.0, 0.0, 11.762801170349121], "initializer": "random_normal"}}, "Add26": {"class": "Add", "name": "Add26", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)", "properties": {}}, "mass": {"class": "Input", "name": "mass", "seq": "()", "time": "1", "dim": "(9, 9)", "shape": "(9, 9, 1)"}, "SampleWindow27": {"class": "SampleWindow", "name": "SampleWindow27", "seq": "()", "time": "1", "dim": "(9, 9)", "shape": "(9, 9, 1)", "properties": {"past": 1, "future": 0}}, "bias": {"class": "Input", "name": "bias", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)"}, "SampleWindow28": {"class": "SampleWindow", "name": "SampleWindow28", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)", "properties": {"past": 1, "future": 0}}, "passive": {"class": "Input", "name": "passive", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)"}, "SampleWindow29": {"class": "SampleWindow", "name": "SampleWindow29", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)", "properties": {"past": 1, "future": 0}}, "dynamics_step": {"class": "DynamicsStep", "name": "dynamics_step", "seq": "()", "time": "1", "dim": "(18,)", "shape": "(18, 1)", "properties": {"dt": 0.01, "damping": [0.2, 0.2, 0.1, 0.3, 0.3, 0.2, 0.3, 0.3, 0.2]}}, "state_next": {"class": "Output", "name": "state_next", "seq": "()", "time": "1", "dim": "(18,)", "shape": "(18, 1)"}, "lam_n": {"class": "Output", "name": "lam_n", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)"}, "Subtract30": {"class": "Subtract", "name": "Subtract30", "seq": "()", "time": "1", "dim": "(18,)", "shape": "(18, 1)", "properties": {}}, "Divide31": {"class": "Divide", "name": "Divide31", "seq": "()", "time": "1", "dim": "(18,)", "shape": "(18, 1)", "properties": {}}, "pos_pred_n": {"class": "Range", "name": "pos_pred_n", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)", "properties": {"start": 0, "end": 9, "axis": 0}}, "vel_pred_n": {"class": "Range", "name": "vel_pred_n", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)", "properties": {"start": 9, "end": 18, "axis": 0}}, "Constant15": {"class": "Constant", "name": "Constant15", "seq": "()", "time": "1", "dim": "(1,)", "shape": "(1, 1)", "properties": {"value": [0.3162277638912201]}}, "Multiply32": {"class": "Multiply", "name": "Multiply32", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)", "properties": {}}};
+
+    const container = document.getElementById('network');
+    const inspectorContent = document.getElementById('inspectorContent');
+    const data = { nodes, edges };
+
+    const options = {
+        autoResize: true,
+        interaction: {
+            hover: true,
+            tooltipDelay: 80,
+            multiselect: true,
+            navigationButtons: true,
+            keyboard: true
+        },
+        physics: true,
+        layout: {
+            improvedLayout: true
+        },
+        nodes: {
+            borderWidth: 1,
+            shadow: true
+        },
+        edges: {
+            smooth: true,
+            shadow: true,
+            font: {
+                size: 10,
+                align: "middle"
+            }
+        }
+    };
+
+    const network = new vis.Network(container, data, options);
+
+    function escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function formatValue(value) {
+        if (value === null || value === undefined) return "";
+        if (typeof value === "object") {
+            return `<pre style="margin:0; white-space:pre-wrap;">${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+        }
+        return escapeHtml(String(value));
+    }
+
+    function renderInspector(nodeId) {
+        const details = nodeDetails[nodeId];
+        const n = nodes.get(nodeId);
+
+        if (!details) {
+            inspectorContent.innerHTML = '<div class="empty">No details available for this node.</div>';
+            return;
+        }
+
+        const rows = Object.entries(details).map(([key, value]) => {
+            return `
+            <tr>
+                <th>${escapeHtml(key)}</th>
+                <td>${formatValue(value)}</td>
+            </tr>
+            `;
+        }).join("");
+
+        let extra = "";
+        if (n && n.url) {
+            extra = `<a class="open-link" href="${escapeHtml(n.url)}" target="_self">Open nested model</a>`;
+        }
+
+        inspectorContent.innerHTML = `
+            <table class="attr-table">
+                <tbody>${rows}</tbody>
+            </table>
+            ${extra}
+        `;
+    }
+
+    network.on("click", function(params) {
+        if (!params.nodes || params.nodes.length === 0) return;
+        const nodeId = params.nodes[0];
+        renderInspector(nodeId);
+    });
+
+    network.on("doubleClick", function(params) {
+        if (!params.nodes || params.nodes.length === 0) return;
+        const nodeId = params.nodes[0];
+        const n = nodes.get(nodeId);
+        if (n && n.url) {
+            const target = "_self";
+            if (target === "_blank") {
+                window.open(n.url, "_blank");
+            } else {
+                window.location.href = n.url;
+            }
+        }
+    });
+
+    const backBtn = document.getElementById("backBtn");
+    if (backBtn) {
+        backBtn.addEventListener("click", () => {
+            const parentUrl = "cheetah_rollout.html";
+            if (window.history.length > 1) {
+                window.history.back();
+            } else {
+                window.location.href = parentUrl;
+            }
+        });
+    }
+</script>
+</body>
+</html>

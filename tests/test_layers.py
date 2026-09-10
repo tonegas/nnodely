@@ -6,7 +6,9 @@ from nnodely import (
     Modely,
     Output,
     Parameter,
+    Range,
     TimeConcatenate,
+    TimeRange,
     TimeSelect,
 )
 from nnodely.layers.trigonometric import Sin, Cos, Tan, Asin, Acos, Atan
@@ -85,6 +87,52 @@ def test_time_select():
     np.testing.assert_allclose(
         to_numpy(result["time_select_output"]),
         np.array([[[3.0]]], dtype=np.float32),
+    )
+
+
+def test_time_range():
+    x = Input("time_range_input")
+    selected = TimeRange(start=1, end=4, name="time_range")(x.sw(5))
+
+    assert selected.dim == (1,)
+    assert selected.time == 3
+    assert selected.seq == ()
+
+    model = Modely(
+        "time_range_model",
+        inputs=[x],
+        outputs=[Output("time_range_output", selected)],
+    ).build()
+    values = np.arange(5, dtype=np.float32).reshape((1, 1, 5))
+    result = model({"time_range_input": values})
+
+    assert result["time_range_output"].shape == (1, 1, 3)
+    np.testing.assert_allclose(
+        to_numpy(result["time_range_output"]),
+        np.array([[[1.0, 2.0, 3.0]]], dtype=np.float32),
+    )
+
+
+def test_range():
+    x = Input("range_input", dim=4)
+    selected = Range(start=1, end=3, axis=0, name="range")(x.last())
+
+    assert selected.dim == (2,)
+    assert selected.time == 1
+    assert selected.seq == ()
+
+    model = Modely(
+        "range_model",
+        inputs=[x],
+        outputs=[Output("range_output", selected)],
+    ).build()
+    values = np.arange(4, dtype=np.float32).reshape((1, 4, 1))
+    result = model({"range_input": values})
+
+    assert result["range_output"].shape == (1, 2, 1)
+    np.testing.assert_allclose(
+        to_numpy(result["range_output"]),
+        np.array([[[1.0], [2.0]]], dtype=np.float32),
     )
 
 

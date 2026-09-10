@@ -1,0 +1,344 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>cheetah_rollout</title>
+<style>
+    body {
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        margin: 0;
+        padding: 0;
+        background: #ffffff;
+        color: #111;
+    }
+    header {
+        padding: 12px 16px;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .header-left {
+        justify-self: start;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .header-right {
+        justify-self: end;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    header h1 {
+        font-size: 16px;
+        margin: 0;
+        font-weight: 600;
+    }
+    .legend {
+        margin-left: auto;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        font-size: 12px;
+        color: #444;
+        flex-wrap: wrap;
+    }
+    .swatch {
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        display: inline-block;
+        border: 1px solid #2c3e50;
+        margin-right: 6px;
+    }
+    .roll-arrow {
+        color: #e74c3c;
+        display: inline-block;
+        font-size: 17px;
+        font-weight: 700;
+        line-height: 10px;
+        margin-right: 5px;
+        vertical-align: -1px;
+    }
+    .main {
+        display: flex;
+        width: 100%;
+        height: 90vh;
+    }
+    #network {
+        flex: 1 1 auto;
+        min-width: 0;
+        height: 100%;
+    }
+    #inspector {
+        width: 340px;
+        min-width: 340px;
+        max-width: 340px;
+        border-left: 1px solid #eee;
+        background: #fafafa;
+        overflow: auto;
+        padding: 14px;
+        box-sizing: border-box;
+    }
+    #inspector h2 {
+        font-size: 14px;
+        margin: 0 0 10px 0;
+        font-weight: 600;
+    }
+    #inspector .empty {
+        font-size: 12px;
+        color: #666;
+        line-height: 1.5;
+    }
+    .attr-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+        table-layout: fixed;
+    }
+    .attr-table th,
+    .attr-table td {
+        border: 1px solid #e5e7eb;
+        padding: 6px 8px;
+        text-align: left;
+        vertical-align: top;
+        word-break: break-word;
+    }
+    .attr-table th {
+        width: 34%;
+        background: #f3f4f6;
+        font-weight: 600;
+    }
+    <!--
+    .hint {
+        padding: 8px 16px;
+        font-size: 16px;
+        color: #555;
+        border-top: 1px solid #eee;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    -->
+    .btn {
+        border: 1px solid #ddd;
+        background: #fafafa;
+        padding: 6px 10px;
+        border-radius: 10px;
+        cursor: pointer;
+        font-size: 12px;
+    }
+    .btn:hover {
+        background: #f2f2f2;
+    }
+    .crumb {
+        font-size: 12px;
+        color: #444;
+        text-decoration: none;
+        border-bottom: 1px dashed #bbb;
+    }
+    .crumb:hover {
+        color: #111;
+        border-bottom-color: #111;
+    }
+    .open-link {
+        display: inline-block;
+        margin-top: 10px;
+        font-size: 12px;
+        color: #2563eb;
+        text-decoration: none;
+    }
+    .open-link:hover {
+        text-decoration: underline;
+    }
+    .bottom-bar {
+        height: 4vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: #fff;
+    }
+    .toggle-btn {
+        border: 1px solid #ddd;
+        background: #3498db;
+        padding: 8px 14px 8px 14px;
+        border-radius: 12px;
+        cursor: pointer;
+        font-size: 16px;
+        color: #fafafa;
+        text-decoration: none;
+    }
+    .toggle-btn:hover {
+        background: #2563eb;
+    }
+</style>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+</head>
+<body>
+<header>
+    <div class="header-left">
+        <img src="./imgs/logo_info.png" alt="nnodely logo" width="120" height="40"/>
+        <h1>cheetah_rollout</h1>
+
+    </div>
+    <div class="legend">
+        <span><span class="swatch" style="background:#2ecc71"></span>Input</span>
+        <span><span class="swatch" style="background:#e74c3c"></span>Output</span>
+        <span><span class="swatch" style="background:#3498db"></span>Submodel</span>
+        <span><span class="swatch" style="background:#ff9900"></span>Parameter</span>
+        <span><span class="swatch" style="background:#00e5ff"></span>Constant</span>
+        <span><span class="swatch" style="background:#95a5a6"></span>Relation</span>
+        <span><span class="roll-arrow">→</span>Roll</span>
+    </div>
+    <div class="header-right">
+        <div class="bottom-bar">
+
+            <a class="toggle-btn" href="cheetah_rollout__flattened.html">Flatten</a>
+
+        </div>
+    </div>
+</header>
+
+<div class="main">
+    <div id="network"></div>
+    <aside id="inspector">
+        <h2>Node details</h2>
+        <div id="inspectorContent" class="empty">
+            Click a node to inspect its attributes.
+        </div>
+    </aside>
+</div>
+
+<!--
+<div class="hint">
+    <span>Powered by </span>
+    <img src="../imgs/logo_info.png" alt="nnodely logo" width="120" height="40"/>
+</div>
+-->
+
+<script>
+    const nodes = new vis.DataSet([{"id": "state", "label": "state", "shape": "dot", "size": 14, "color": {"background": "#2ecc71", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "tau", "label": "tau", "shape": "dot", "size": 14, "color": {"background": "#2ecc71", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "mass", "label": "mass", "shape": "dot", "size": 14, "color": {"background": "#2ecc71", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "bias", "label": "bias", "shape": "dot", "size": 14, "color": {"background": "#2ecc71", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "passive", "label": "passive", "shape": "dot", "size": 14, "color": {"background": "#2ecc71", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}, {"id": "cheetah_roll", "label": "cheetah_roll", "shape": "diamond", "size": 18, "color": {"background": "#3498db", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}, "url": "cheetah_rollout__cheetah_roll.html"}, {"id": "rolled_state", "label": "rolled_state", "shape": "dot", "size": 14, "color": {"background": "#e74c3c", "border": "#2c3e50", "highlight": {"background": "#f1c40f", "border": "#2c3e50"}}, "font": {"color": "#111111"}}]);
+    const edges = new vis.DataSet([{"from": "state", "to": "cheetah_roll", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Input\",\n  \"to class\": \"Roll\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "tau", "to": "cheetah_roll", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Input\",\n  \"to class\": \"Roll\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "mass", "to": "cheetah_roll", "arrows": "to", "label": "(9, 9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Input\",\n  \"to class\": \"Roll\",\n  \"shape\": \"(9, 9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "bias", "to": "cheetah_roll", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Input\",\n  \"to class\": \"Roll\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "passive", "to": "cheetah_roll", "arrows": "to", "label": "(9, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Input\",\n  \"to class\": \"Roll\",\n  \"shape\": \"(9, 1)\"\n}", "color": {"color": "#7f8c8d"}}, {"from": "cheetah_roll", "to": "rolled_state", "arrows": "to", "label": "(18, 1)", "font": {"align": "middle", "size": 10}, "title": "{\n  \"from class\": \"Roll\",\n  \"to class\": \"Output\",\n  \"shape\": \"(18, 1)\"\n}", "color": {"color": "#7f8c8d"}}]);
+    const nodeDetails = {"state": {"class": "Input", "name": "state", "seq": "()", "time": "1", "dim": "(18,)", "shape": "(18, 1)"}, "tau": {"class": "Input", "name": "tau", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)"}, "mass": {"class": "Input", "name": "mass", "seq": "()", "time": "1", "dim": "(9, 9)", "shape": "(9, 9, 1)"}, "bias": {"class": "Input", "name": "bias", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)"}, "passive": {"class": "Input", "name": "passive", "seq": "()", "time": "1", "dim": "(9,)", "shape": "(9, 1)"}, "cheetah_roll": {"class": "Roll", "name": "cheetah_roll", "seq": "()", "time": "1", "dim": "(18,)", "shape": "(18, 1)", "properties": {}, "nested_model": "cheetah_step", "nested_model_attribute": "f"}, "rolled_state": {"class": "Output", "name": "rolled_state", "seq": "()", "time": "1", "dim": "(18,)", "shape": "(18, 1)"}};
+
+    const container = document.getElementById('network');
+    const inspectorContent = document.getElementById('inspectorContent');
+    const data = { nodes, edges };
+
+    const options = {
+        autoResize: true,
+        interaction: {
+            hover: true,
+            tooltipDelay: 80,
+            multiselect: true,
+            navigationButtons: true,
+            keyboard: true
+        },
+        physics: true,
+        layout: {
+            improvedLayout: true
+        },
+        nodes: {
+            borderWidth: 1,
+            shadow: true
+        },
+        edges: {
+            smooth: true,
+            shadow: true,
+            font: {
+                size: 10,
+                align: "middle"
+            }
+        }
+    };
+
+    const network = new vis.Network(container, data, options);
+
+    function escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function formatValue(value) {
+        if (value === null || value === undefined) return "";
+        if (typeof value === "object") {
+            return `<pre style="margin:0; white-space:pre-wrap;">${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+        }
+        return escapeHtml(String(value));
+    }
+
+    function renderInspector(nodeId) {
+        const details = nodeDetails[nodeId];
+        const n = nodes.get(nodeId);
+
+        if (!details) {
+            inspectorContent.innerHTML = '<div class="empty">No details available for this node.</div>';
+            return;
+        }
+
+        const rows = Object.entries(details).map(([key, value]) => {
+            return `
+            <tr>
+                <th>${escapeHtml(key)}</th>
+                <td>${formatValue(value)}</td>
+            </tr>
+            `;
+        }).join("");
+
+        let extra = "";
+        if (n && n.url) {
+            extra = `<a class="open-link" href="${escapeHtml(n.url)}" target="_self">Open nested model</a>`;
+        }
+
+        inspectorContent.innerHTML = `
+            <table class="attr-table">
+                <tbody>${rows}</tbody>
+            </table>
+            ${extra}
+        `;
+    }
+
+    network.on("click", function(params) {
+        if (!params.nodes || params.nodes.length === 0) return;
+        const nodeId = params.nodes[0];
+        renderInspector(nodeId);
+    });
+
+    network.on("doubleClick", function(params) {
+        if (!params.nodes || params.nodes.length === 0) return;
+        const nodeId = params.nodes[0];
+        const n = nodes.get(nodeId);
+        if (n && n.url) {
+            const target = "_self";
+            if (target === "_blank") {
+                window.open(n.url, "_blank");
+            } else {
+                window.location.href = n.url;
+            }
+        }
+    });
+
+    const backBtn = document.getElementById("backBtn");
+    if (backBtn) {
+        backBtn.addEventListener("click", () => {
+            const parentUrl = null;
+            if (window.history.length > 1) {
+                window.history.back();
+            } else {
+                window.location.href = parentUrl;
+            }
+        });
+    }
+</script>
+</body>
+</html>

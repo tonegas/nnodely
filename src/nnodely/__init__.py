@@ -17,7 +17,14 @@ from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.equationlearner import EquationLearner
 from nnodely.layers.derivative import Derivative
 from nnodely.layers.integrate import Integrate
-from nnodely.layers.time_ops import Concatenate, Select, TimeConcatenate, TimeSelect
+from nnodely.layers.time_ops import (
+    Concatenate,
+    Range,
+    Select,
+    TimeConcatenate,
+    TimeRange,
+    TimeSelect,
+)
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -54,6 +61,8 @@ __all__ = [
     "TimeConcatenate",
     "TimeSelect",
     "Select",
+    "TimeRange",
+    "Range",
     "ReLU",
     "LeakyReLU",
     "ELU",

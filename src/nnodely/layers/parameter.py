@@ -35,7 +35,9 @@ class ParameterImpl(keras.layers.Layer):
         initializer = (
             keras.initializers.get(self.initializer)
             if self.value is None
-            else keras.initializers.Constant(value=self.value.tolist())
+            else keras.initializers.Constant(
+                value=self.value.reshape(self.parameter_shape).tolist()
+            )
         )
 
         self.param = self.add_weight(

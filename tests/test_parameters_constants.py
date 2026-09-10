@@ -72,3 +72,46 @@ def test_parameter_constant_model_inference():
         rtol=1e-5,
         atol=1e-5,
     )
+
+
+def test_multidim_parameter_constant_hold_distinct_values():
+    # Regression test: keras.initializers.Constant broadcasts a flat value
+    # against the target weight shape with plain numpy rules instead of an
+    # exact match, so a (3,) value against a (3, 1) weight shape used to
+    # silently broadcast into a (3, 3) tensor (each row a copy of the value)
+    # instead of raising or reshaping to (3, 1). This only ever showed up for
+    # dim > 1 Parameters/Constants, since a (1,) vs (1, 1) broadcast is
+    # indistinguishable from the correct elementwise result.
+    parameter = Parameter("param_multidim", value=[1.0, 2.0, 3.0])
+    constant = Constant("const_multidim", value=[4.0, 5.0, 6.0])
+
+    x = Input("x", dim=3)
+    y = x.last() - parameter - constant
+    out = Output("y_out", y)
+
+    model = Modely("model_multidim", inputs=[x], outputs=[out])
+    model.build()
+
+    if parameter.param is None:
+        raise AssertionError("Parameter value is None")
+    assert parameter.param.shape == (3, 1)
+    np.testing.assert_allclose(
+        to_numpy(parameter.param).squeeze(), [1.0, 2.0, 3.0], rtol=1e-5, atol=1e-5
+    )
+    if constant.constant is None:
+        raise AssertionError("Constant value is None")
+    assert constant.constant.shape == (3, 1)
+    np.testing.assert_allclose(
+        to_numpy(constant.constant).squeeze(), [4.0, 5.0, 6.0], rtol=1e-5, atol=1e-5
+    )
+
+    dummy_x = np.array([10.0, 20.0, 30.0], dtype=np.float32).reshape(1, 3, 1)
+    result = model({"x": dummy_x})
+
+    assert result["y_out"].shape == (1, 3, 1)
+    np.testing.assert_allclose(
+        to_numpy(result["y_out"]).squeeze(),
+        [10.0 - 1.0 - 4.0, 20.0 - 2.0 - 5.0, 30.0 - 3.0 - 6.0],
+        rtol=1e-5,
+        atol=1e-5,
+    )

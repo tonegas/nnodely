@@ -203,6 +203,125 @@ class Select(Layer):
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
+class RangeImpl(keras.layers.Layer):
+    """
+    Serializable implementation of Range.
+
+    Runtime tensor shape:
+        [batch, dim1, dim2, ..., time, seq1, seq2, ...]
+    """
+
+    def __init__(
+        self,
+        start: int,
+        end: int,
+        axis: int,
+        name=None,
+        **kwargs,
+    ):
+        super().__init__(name=name, **kwargs)
+        self.start = int(start)
+        self.end = int(end)
+        self.axis = int(axis)
+
+    def call(self, x):
+        # Dim axes start immediately after batch.
+        keras_axis = 1 + self.axis
+
+        slices = (
+            [slice(None)] * keras_axis
+            + [slice(self.start, self.end)]
+            + [slice(None)] * (len(x.shape) - keras_axis - 1)
+        )
+
+        return x[tuple(slices)]
+
+    def compute_output_shape(self, input_shape):
+        output_shape = list(input_shape)
+        output_shape[1 + self.axis] = self.end - self.start
+        return tuple(output_shape)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "start": self.start,
+                "end": self.end,
+                "axis": self.axis,
+            }
+        )
+        return config
+
+
+class Range(Layer):
+    """
+    Select a contiguous range [start, end) along a chosen dim axis.
+
+    Runtime tensor shape:
+        [batch, dim1, dim2, ..., time, seq1, seq2, ...]
+
+    The selected dim axis is resized to end - start.
+
+    Examples
+    --------
+    dim=(9, 3), axis=0, start=0, end=4 -> dim=(4, 3)
+    dim=(9, 3), axis=1, start=1, end=3 -> dim=(9, 2)
+    """
+
+    def __init__(self, start: int, end: int, axis: int = 0, name=None):
+        self.start = int(start)
+        self.end = int(end)
+        self.axis = int(axis)
+        super().__init__(name=name, start=self.start, end=self.end, axis=self.axis)
+
+    def _resolve_dim_axis(self, dim_rank: int) -> int:
+        axis = self.axis
+        if axis < 0:
+            axis += dim_rank
+
+        if axis < 0 or axis >= dim_rank:
+            raise ValueError(
+                f"{self.name}: axis {self.axis} out of bounds for dim rank {dim_rank}."
+            )
+
+        return axis
+
+    def build_layer(self):
+        if self.preds is None or len(self.preds) == 0:
+            raise ValueError(f"{self.name}: no input layer to select range from.")
+        input_dim = self.preds[0].dim  # type: ignore
+        axis = self._resolve_dim_axis(len(input_dim))
+
+        dim_size = input_dim[axis]
+        start = self.start
+        end = self.end
+        if start < 0:
+            start += dim_size
+        if end < 0:
+            end += dim_size
+
+        if start < 0 or end > dim_size or start >= end:
+            raise ValueError(
+                f"{self.name}: invalid range [{self.start}, {self.end}) for "
+                f"dim size {dim_size}."
+            )
+
+        return RangeImpl(
+            start=start,
+            end=end,
+            axis=axis,
+            name=self.name,
+        )
+
+    def get_config(self):
+        return {
+            "start": self.start,
+            "end": self.end,
+            "axis": self.axis,
+        }
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
 class TimeSelectImpl(keras.layers.Layer):
     """Serializable implementation of selection along the time axis."""
 
@@ -263,6 +382,77 @@ class TimeSelect(Layer):
         return {
             "name": self.name,
             "idx": self.idx,
+        }
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class TimeRangeImpl(keras.layers.Layer):
+    """Serializable implementation of a contiguous range along the time axis."""
+
+    def __init__(self, start: int, end: int, dim_rank: int, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.start = int(start)
+        self.end = int(end)
+        self.dim_rank = int(dim_rank)
+
+    def call(self, x):
+        # Runtime shape: [batch, dim1, ..., time, seq1, ...]
+        time_axis = 1 + self.dim_rank
+        slices = (
+            [slice(None)] * time_axis
+            + [slice(self.start, self.end)]
+            + [slice(None)] * (len(x.shape) - time_axis - 1)
+        )
+        return x[tuple(slices)]
+
+    def compute_output_shape(self, input_shape):
+        output_shape = list(input_shape)
+        output_shape[1 + self.dim_rank] = self.end - self.start
+        return tuple(output_shape)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"start": self.start, "end": self.end, "dim_rank": self.dim_rank})
+        return config
+
+
+class TimeRange(Layer):
+    """Select a contiguous range [start, end) along the time axis."""
+
+    def __init__(self, start: int, end: int, name=None):
+        self.start = int(start)
+        self.end = int(end)
+        super().__init__(name=name, start=self.start, end=self.end)
+
+    def build_layer(self):
+        input_time = getattr(self.preds[0], "time", None)
+        if input_time is None:
+            raise ValueError(
+                f"{self.name}: Input layer does not have a 'time' attribute."
+            )
+        start = self.start
+        end = self.end
+        if start < 0:
+            start += input_time
+        if end < 0:
+            end += input_time
+        if start < 0 or end > input_time or start >= end:
+            raise ValueError(
+                f"{self.name}: invalid range [{self.start}, {self.end}) for "
+                f"time length {input_time}."
+            )
+        return TimeRangeImpl(
+            start=start,
+            end=end,
+            dim_rank=len(self.dim),
+            name=self.name,
+        )
+
+    def get_config(self):
+        return {
+            "name": self.name,
+            "start": self.start,
+            "end": self.end,
         }
 
 
