@@ -69,6 +69,18 @@ class SampleWindow(Layer):
             name=name, time=self.window_size, past=self.past, future=self.future
         )
 
+    def output_shape(self, *inputs):
+        """Declare the shape instead of probing with a dummy tensor.
+
+        A time window only ever resizes the time axis, so the result is known
+        from the input's own shape. Probing would materialise
+        ``keras.ops.zeros(input.shape)``, which fails for an input carrying a
+        dynamic sequence axis (``seq=(None,)``) - exactly the declaration a
+        Loop needs for a rollout whose length is decided at call time.
+        """
+        shape = inputs[0].shape
+        return shape.dim, self.window_size, shape.seq
+
     def build_layer(self):
         from nnodely.layers.input import Input
 
