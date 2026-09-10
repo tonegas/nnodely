@@ -17,6 +17,7 @@ from nnodely import (
     DataLoader,
 )
 import pytest
+os.environ.setdefault("KERAS_BACKEND", "jax")
 
 
 def test_loop(tmp_path):
@@ -193,6 +194,16 @@ def test_model_roll():
         atol=1e-5,
     )
 
+def dummy_input(shape, method="random"):
+    if method == "random":
+        return np.random.rand(*shape).astype(np.float32)
+    elif method == "ones":
+        return np.ones(shape, dtype=np.float32)
+    elif method == "sequential":
+        return np.arange(np.prod(shape), dtype=np.float32).reshape(shape) + 1
+    else:
+        return np.zeros(shape, dtype=np.float32)
+
 
 def test_model_rollback():
     x = Input("x")
@@ -232,17 +243,6 @@ def test_model_multi_rollback(tmp_path):
         atol=1e-5,
     )
     test.export_html(out_dir=tmp_path, filename="test_model_multi_rollback")
-
-
-def dummy_input(shape, method="random"):
-    if method == "random":
-        return np.random.rand(*shape).astype(np.float32)
-    elif method == "ones":
-        return np.ones(shape, dtype=np.float32)
-    elif method == "sequential":
-        return np.arange(np.prod(shape), dtype=np.float32).reshape(shape) + 1
-    else:
-        return np.zeros(shape, dtype=np.float32)
 
 
 def test_nested_closed_loop(tmp_path):
@@ -391,6 +391,19 @@ def test_simple_model_loop(tmp_path):
             "Model weights are not available. call model_in.build() before training."
         )
     assert model_in.model.get_weights()[0] == pytest.approx(4.0, rel=1e-2)
+
+    ## Test onnx export and import
+    # inputs = {
+    #     "x_seq": dummy_input((1, 1, 4), method="ones") + 7,
+    #     "z": dummy_input((1, 1), method="ones"),
+    #     "x_target": dummy_input((1, 1, 4), method="sequential"),
+    # }
+    # onnx_path = tmp_path / "simple_loop_model.onnx"
+    # model_in.export_onnx(onnx_path)
+    # result = Modely.validate_onnx(onnx_path, inputs, return_dict=True)
+
+    # assert onnx_path.is_file()
+    # assert "out" in result
 
 
 @pytest.mark.slow

@@ -49,10 +49,10 @@ class LoopImpl(keras.layers.Layer):
     an input is one sequence rank deeper than the body input it feeds, so every
     step consumes a single slice and the body is evaluated exactly once per step.
 
-    On the TensorFlow backend ``keras.ops.scan`` requires the per-step output of
-    the step function to match the carry in structure, shape and dtype, so the
-    carry holds every body output followed by one window per shifted feedback
-    state, and the step function returns it unchanged as its per-step output.
+    The rollout length is static, so the body is unrolled step by step instead
+    of run through a backend loop primitive: the traced graph then holds only
+    ordinary ops, which is what makes it exportable to ONNX. The carry holds
+    every body output followed by one window per shifted feedback state.
     """
 
     def __init__(
@@ -133,12 +133,6 @@ class LoopImpl(keras.layers.Layer):
         return keras.ops.concatenate([window[tuple(slices)], value], axis=axis)
 
     @staticmethod
-    def _first_step(scan_values):
-        if isinstance(scan_values, list):
-            return [value[0] for value in scan_values]
-        return scan_values[0]
-
-    @staticmethod
     def _align_to_shape(state, shape, reference):
         """Broadcast an initial value up to ``(batch, *shape)``."""
         while len(state.shape) < len(shape) + 1:
@@ -164,10 +158,10 @@ class LoopImpl(keras.layers.Layer):
     def _resolve_horizon(self, inputs):
         """Number of rollout steps, always a Python int.
 
-        ``keras.ops.scan`` needs a static trip count, so the horizon is never
-        read symbolically. A rollout axis declared as ``None`` follows the
-        sequence it is actually given, which is what makes a longer input roll
-        out further; a declared width always wins over the tensor.
+        The rollout is unrolled, so the horizon is never read symbolically. A
+        rollout axis declared as ``None`` follows the sequence it is actually
+        given, which is what makes a longer input roll out further; a declared
+        width always wins over the tensor.
         """
         if self.horizon_index is not None:
             width = inputs[self.horizon_index].shape[self.horizon_axis]
@@ -178,10 +172,9 @@ class LoopImpl(keras.layers.Layer):
     def compute_output_spec(self, inputs):
         """Declare the outputs instead of letting Keras trace `call`.
 
-        The JAX backend infers shapes by tracing with a symbolic dimension, which
-        `keras.ops.scan` rejects because its trip count has to be static. The
-        shapes are known from the graph anyway, and a dynamic rollout keeps its
-        declared length here: the tensor it is given decides the real one.
+        The shapes are known from the graph, so the whole rollout does not have
+        to be traced once more just to infer them, and a dynamic rollout keeps
+        its declared length here: the tensor it is given decides the real one.
         """
         if not isinstance(inputs, (list, tuple)):
             inputs = [inputs]
@@ -221,7 +214,6 @@ class LoopImpl(keras.layers.Layer):
                 continue
             xs_positions[index] = len(xs)
             xs.append(self._move_axis_front(value, axis)[:horizon])
-        scan_values = xs if xs else keras.ops.zeros((horizon,))
 
         states = []
         windows = []
@@ -277,7 +269,7 @@ class LoopImpl(keras.layers.Layer):
         seeds = (
             None
             if len(callback_slots) == output_count
-            else compute(states, windows, self._first_step(scan_values))
+            else compute(states, windows, [value[0] for value in xs])
         )
         init_carry = tuple(
             states[callback_slots[index]] if index in callback_slots else seeds[index]
@@ -295,7 +287,7 @@ class LoopImpl(keras.layers.Layer):
                 step_windows[index] = carry[output_count + slot]
 
             step_outputs = compute(step_states, step_windows, x_step)
-            new_carry = step_outputs + tuple(
+            return step_outputs + tuple(
                 self._shift_window(
                     step_windows[index],
                     step_outputs[
@@ -305,22 +297,22 @@ class LoopImpl(keras.layers.Layer):
                 )
                 for index in shifted
             )
-            return new_carry, new_carry
 
-        final, scanned = keras.ops.scan(
-            step,
-            init=init_carry,
-            xs=scan_values,
-            length=horizon,
-        )
+        carry = init_carry
+        trajectory = []
+        for index in range(horizon):
+            carry = step(carry, [value[index] for value in xs])
+            trajectory.append(carry[:output_count])
 
         if self.collect:
             results = tuple(
-                self._move_scan_axis(value, axis)
-                for value, axis in zip(scanned[:output_count], self.output_sequence_axes)
+                self._move_scan_axis(
+                    keras.ops.stack([outputs[position] for outputs in trajectory]), axis
+                )
+                for position, axis in enumerate(self.output_sequence_axes)
             )
         else:
-            results = tuple(final[:output_count])
+            results = tuple(carry[:output_count])
 
         if self.return_all_outputs:
             return results
@@ -476,7 +468,7 @@ class Loop(Layer):
         ]
         self.horizon = self._resolve_length(loop_sources)
 
-        # `keras.ops.scan` needs a static trip count, so a dynamic rollout axis
+        # The rollout needs a static number of steps, so a dynamic rollout axis
         # is only read from the tensor that carries it, at call time.
         self.horizon_index, self.horizon_axis = next(
             (
@@ -522,7 +514,7 @@ class Loop(Layer):
                 "pass length= to pin the number of steps."
             )
         raise ValueError(
-            "Loop cannot determine the rollout length. `keras.ops.scan` needs a "
+            "Loop cannot determine the rollout length. The rollout needs a "
             "static number of steps, so either pass length= to Loop or give one of "
             "its rollout inputs a concrete seq=."
         )
@@ -599,13 +591,13 @@ class Loop(Layer):
         if inputs is None:
             return list(static_inputs)
         if not isinstance(inputs, dict):
-            raise ValueError("Loop inputs must be a dict of body input: outer stream.")
+            raise TypeError("Loop inputs must be a dict of body input: outer stream.")
 
         by_name = {}
         for key, value in inputs.items():
             key_name = key.name if isinstance(key, Stream) else key
             if not isinstance(value, Stream):
-                raise ValueError(
+                raise TypeError(
                     f"Loop input {key_name!r} must be bound to a Stream, got {value!r}."
                 )
             by_name[key_name] = value
