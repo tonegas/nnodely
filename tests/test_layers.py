@@ -1,4 +1,5 @@
 from nnodely import (
+    BatchNorm,
     Constant,
     Concatenate,
     EquationLearner,
@@ -550,3 +551,58 @@ def test_fir_tw3():
 
     test = Modely(name="test_model", inputs=[input1], outputs=[fun])
     test.build()
+
+
+def test_batchnorm_inference_and_training():
+    x = Input("batchnorm_input", dim=2)
+    normalized = BatchNorm(name="batchnorm")([x.sw(3)])
+
+    assert normalized.dim == (2,)
+    assert normalized.time == 3
+    assert normalized.seq == ()
+
+    model = Modely(
+        "batchnorm_model",
+        inputs=[x],
+        outputs=[Output("out_batchnorm", normalized)],
+    ).build()
+
+    values = np.random.rand(4, 2, 3).astype(np.float32) * 10.0
+
+    # Untrained moving statistics (mean 0, variance 1) leave the input untouched.
+    inference = to_numpy(
+        model.model({"batchnorm_input": values}, training=False)["out_batchnorm"]
+    )
+    assert inference.shape == (4, 2, 3)
+    np.testing.assert_allclose(inference, values, rtol=1e-3, atol=1e-3)
+
+    # In training mode each feature is normalized over the batch and time axes.
+    training = to_numpy(
+        model.model({"batchnorm_input": values}, training=True)["out_batchnorm"]
+    )
+    np.testing.assert_allclose(training.mean(axis=(0, 2)), np.zeros(2), atol=1e-5)
+    np.testing.assert_allclose(training.std(axis=(0, 2)), np.ones(2), atol=1e-3)
+
+
+def test_batchnorm_axis_and_moving_statistics():
+    x = Input("batchnorm_axis_input", dim=2)
+    normalized = BatchNorm(axis=-1, name="batchnorm_axis")([x.sw(3)])
+    model = Modely(
+        "batchnorm_axis_model",
+        inputs=[x],
+        outputs=[Output("out_batchnorm_axis", normalized)],
+    ).build()
+
+    values = np.random.rand(4, 2, 3).astype(np.float32) * 10.0
+    result = to_numpy(
+        model.model({"batchnorm_axis_input": values}, training=True)[
+            "out_batchnorm_axis"
+        ]
+    )
+
+    # Normalizing on the time axis gives one statistic per time step instead.
+    np.testing.assert_allclose(result.mean(axis=(0, 1)), np.zeros(3), atol=1e-5)
+
+    moving_mean = to_numpy(normalized._layer.moving_mean)
+    assert moving_mean.shape == (3,)
+    assert np.any(moving_mean != 0.0)

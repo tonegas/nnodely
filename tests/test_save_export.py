@@ -1,5 +1,6 @@
 from nnodely import (
     Acos,
+    BatchNorm,
     Asin,
     Atan,
     Constant,
@@ -501,3 +502,32 @@ def test_export_onnx_roll_model(tmp_path):
 
     assert path.is_file()
     _assert_roll_result(result)
+
+
+def test_save_load_batchnorm_model(tmp_path):
+    x = Input(name="batchnorm_save_input", dim=2)
+    normalized = BatchNorm(name="batchnorm_save")([x.sw(3)])
+    model = Modely(
+        name="batchnorm_save_model",
+        inputs=[x],
+        outputs=[Output("batchnorm_save_output", normalized)],
+    ).build()
+
+    # Move the moving statistics away from their initial values, so a wrong
+    # weight roundtrip changes the prediction.
+    values = np.random.rand(4, 2, 3).astype(np.float32) * 10.0
+    model.model({"batchnorm_save_input": values}, training=True)
+
+    pred = model({"batchnorm_save_input": values})
+    model.save(tmp_path / "batchnorm_save")
+
+    new_model = Modely.load(tmp_path / "batchnorm_save")
+    assert graph_signature(new_model) == graph_signature(model)
+
+    new_pred = new_model({"batchnorm_save_input": values})
+    np.testing.assert_allclose(
+        to_numpy(pred["batchnorm_save_output"]),
+        to_numpy(new_pred["batchnorm_save_output"]),
+        rtol=1e-5,
+        atol=1e-5,
+    )
