@@ -28,7 +28,6 @@ class Modely:
     inputs: list[Input]
     outputs: list[Output]
     order: list[Node]
-    calls: int
 
     def __init__(self, name: str, inputs: list[Input], outputs: list[Output]) -> None:
         self.name = name
@@ -165,25 +164,55 @@ class Modely:
         return self
 
     def resolve_graph(self, order, output_nodes=None):
-        tensor_map = {}
-        for node in [n for n in order if isinstance(n, Input)]:
-            tensor_map[node.name] = node.input
+        # Applying one layer several times yields several nodes that carry its
+        # name, so tensors are keyed by node identity: keying them by name made
+        # each application overwrite the previous one, and every consumer then
+        # read the same tensor. The concrete Keras layer is still keyed by name,
+        # so those applications share one layer and therefore its weights, the
+        # way repeated calls do in Keras.
+        input_tensors = {
+            node.name: node.input for node in order if isinstance(node, Input)
+        }
+        tensor_map: dict[Node, Any] = {
+            node: input_tensors[node.name] for node in order if isinstance(node, Input)
+        }
+        layers_by_name: dict[str, Any] = {}
 
         for node in [n for n in order if not isinstance(n, Input)]:
             if isinstance(node, Layer):
+                shared = layers_by_name.get(node.name)
+                if shared is not None:
+                    node._layer = shared
                 if len(node.preds) == 0:  ## Parameters and Constants
                     anchor = next(iter(tensor_map.values()), None)
-                    tensor_map[node.name] = node.call([anchor])
+                    tensor_map[node] = node.call([anchor])
                 else:
-                    tensor_map[node.name] = node.call(
-                        [tensor_map[pred.name] for pred in node.preds]
+                    tensor_map[node] = node.call(
+                        [tensor_map[pred] for pred in node.preds]
                     )
+                layers_by_name[node.name] = node._layer
             else:  ## Output or other non-Layer node
-                tensor_map[node.name] = tensor_map[node.preds[0].name]
+                tensor_map[node] = tensor_map[node.preds[0]]
 
-        keras_inputs = {node.name: tensor_map[node.name] for node in self.train_inputs}
+        keras_inputs = {node.name: tensor_map[node] for node in self.train_inputs}
         output_nodes = self.train_outputs if output_nodes is None else output_nodes
-        keras_outputs = {node.name: tensor_map[node.name] for node in output_nodes}
+
+        # Outputs are addressed by name, so two different nodes claiming one name
+        # would silently drop one of them. Calling a model several times produces
+        # exactly that: its outputs all carry the body's output names.
+        keras_outputs = {}
+        claimed: dict[str, Node] = {}
+        for node in output_nodes:
+            owner = claimed.get(node.name)
+            if owner is not None and owner is not node:
+                raise ValueError(
+                    f"Model {self.name!r} has two different outputs named "
+                    f"{node.name!r}. Calling one model several times returns outputs "
+                    "that share its output names, so wrap them in Output nodes with "
+                    "distinct names before exposing them."
+                )
+            claimed[node.name] = node
+            keras_outputs[node.name] = tensor_map[node]
         return keras_inputs, keras_outputs
 
     # -------------------------------------------------------------------------
@@ -660,13 +689,12 @@ class Modely:
         """
         Export this Modely DAG to interactive HTML using vis-network.
 
-        Supported node types in the new framework:
-        - input
-        - output
-        - ordinary Stream / Layer nodes
-        - model_call nodes for composed submodels
+        ``out_dir`` is the folder the pages are written to; a path ending in
+        ``.html`` names the root page instead and its parent becomes the folder.
 
-        Nested submodels are exported recursively as separate HTML pages.
+        Every block that wraps a model (``ModelCall``, ``Loop``, ``Roll``) is
+        exported recursively as its own page, linked from the block node and
+        annotated with the ports that bind the body to the graph above it.
 
         Returns
         -------

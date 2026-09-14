@@ -83,3 +83,8 @@ class Sign(Arithmetic):
     """Wrapper for sign transform."""
 
     operation = "sign"
+
+class Negative(Arithmetic):
+    """Wrapper for negation transform."""
+
+    operation = "negative"

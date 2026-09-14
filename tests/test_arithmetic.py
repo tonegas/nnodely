@@ -9,6 +9,7 @@ from nnodely.layers.arithmetic import (
     Log10,
     Sign,
     Sqrt,
+    Negative
 )
 from conftest import to_numpy
 import numpy as np
@@ -26,6 +27,7 @@ import pytest
         (Floor, np.floor, -3.0, 3.0),
         (Ceil, np.ceil, -3.0, 3.0),
         (Sign, np.sign, -3.0, 3.0),
+        (Negative, np.negative, -3.0, 3.0),
         (Deg2Rad, np.deg2rad, -180.0, 180.0)
     ],
 )
