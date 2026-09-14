@@ -21,6 +21,8 @@ class DataLoader:
         Input("data_2").sw(1)  -> windows of length 1
     - All windows are aligned in time.
     - Multiple CSV files are concatenated sample-wise.
+    - step keeps one sample every `step`: temporal windows when the inputs have
+      no seq dimension, sequences when they have one.
 
     Final dataset format:
         {
@@ -56,13 +58,18 @@ class DataLoader:
         csv_glob: str = "*.csv",
         dtype: Any = np.float32,
         seq_length: int | None = None,
+        step: int = 1,
     ):
+        if step < 1:
+            raise ValueError(f"step must be a positive integer, got {step}.")
+
         self.model = model
         self.format = format
         self.trim = trim
         self.csv_glob = csv_glob
         self.dtype = dtype
         self.seq_length = seq_length
+        self.step = step
 
         if model.model is None:
             raise ValueError(
@@ -586,6 +593,10 @@ class DataLoader:
             offset = max_span - spans[name]
             if offset:
                 windows = windows[offset:]
+            # step subsamples the outermost axis: temporal windows when there
+            # is no seq dimension, sequences when there is one.
+            if self.step > 1:
+                windows = windows[:: self.step]
             result[name] = np.ascontiguousarray(windows, dtype=self.dtype)
 
         return result

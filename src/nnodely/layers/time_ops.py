@@ -72,6 +72,10 @@ class SampleWindow(Layer):
             future=self.future,
         )
 
+    def output_shape(self, *inputs):
+        shape = inputs[0].shape
+        return shape.dim, self.window_size, shape.seq
+
     def build_layer(self):
         from nnodely.layers.input import Input
 

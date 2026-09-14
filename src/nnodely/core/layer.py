@@ -283,5 +283,10 @@ class Power(BinaryOp):
 
 
 class Identity(Layer):
+    def output_shape(self, *inputs):
+        # Every axis is preserved, including a dynamic sequence axis that cannot
+        # be probed with a dummy tensor.
+        return inputs[0].shape.dimensions
+
     def build_layer(self):
         return keras.layers.Identity(name=self.name)
