@@ -83,6 +83,6 @@ class Input(Stream):
 
         node.past = config["past"]
         node.future = config["future"]
-        node.shape.time = node.past + node.future
+        node.shape.time = node.past + node.future or 1
         node.input = keras.Input(shape=node.shape, name=node.name)
         return node
