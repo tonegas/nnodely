@@ -1,10 +1,16 @@
 import os
-import cloudpickle
-import copy
+from pathlib import Path
 
-from typing import Any
+from typing import Any, Callable
 
 from nnodely.core.dag import toposort, flatten, _flatten_graph
+from nnodely.utils.utils import (
+    MaskedLoss,
+    _mask_padded_targets,
+    _resolve_loss,
+    _resolve_optimizer,
+)
+from nnodely.core.registry import ModelSerializer
 from nnodely.core.stream import Stream, Node
 from nnodely.layers.constant import Constant
 from nnodely.core.dataloader import DataLoader
@@ -27,7 +33,6 @@ class Modely:
     inputs: list[Input]
     outputs: list[Output]
     order: list[Node]
-    calls: int
 
     def __init__(self, name: str, inputs: list[Input], outputs: list[Output]) -> None:
         self.name = name
@@ -38,6 +43,9 @@ class Modely:
         self.train_inputs = []  # List of Input nodes that are required for training (derived from minimizers)
         self.train_outputs = []  # List of Output nodes that are required for training (derived from minimizers)
         self.minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
+        self._roll_callbacks: dict[Input, Stream] = {}
+        self._roll_steps: int | None = None
+        self._roll_name: str | None = None
 
     def __repr__(self) -> str:
         items = " \n- ".join(map(str, self.order))
@@ -55,15 +63,29 @@ class Modely:
         # tensor execution mode
         if self.model is None:
             raise ValueError("Model build failed, model is still None.")
+        if isinstance(inputs, dict):
+            expected = {inp.name for inp in self.train_inputs}
+            extra = set(inputs) - expected
+            if extra:
+                inputs = {k: v for k, v in inputs.items() if k in expected}
+            for inp in self.train_inputs:
+                value = inputs[inp.name]
+                if not hasattr(value, "shape"):
+                    value = np.asarray(value)
+                if len(value.shape) < inp.shape.rank and value.size == int(
+                    np.prod(inp.shape.tuple)
+                ):
+                    value = np.reshape(value, inp.shape.tuple)
+                inputs[inp.name] = value
         for idx, inp in enumerate(self.train_inputs):
             if isinstance(inputs, dict):
-                if len(inputs[inp.name].shape) == inp.rank:
+                if len(inputs[inp.name].shape) == inp.shape.rank:
                     if type(inputs[inp.name]) is np.ndarray:
                         inputs[inp.name] = np.expand_dims(inputs[inp.name], axis=0)
                     else:
                         inputs[inp.name] = tf.expand_dims(inputs[inp.name], axis=0)
             else:
-                if len(inputs[idx].shape) == inp.rank:
+                if len(inputs[idx].shape) == inp.shape.rank:
                     if type(inputs[idx]) is np.ndarray:
                         inputs[idx] = np.expand_dims(inputs[idx], axis=0)
                     else:
@@ -92,57 +114,110 @@ class Modely:
                     extra_outputs.append(minimizer["target"])
 
         self.train_outputs = self.outputs + extra_outputs
-        flat = _flatten_graph(self.name, self.inputs, self.train_outputs)
+        feedback_streams = list(dict.fromkeys(self._roll_callbacks.values()))
+        graph_outputs = self.train_outputs + [
+            stream for stream in feedback_streams if stream not in self.train_outputs
+        ]
+        flat, flatten_memo = _flatten_graph(
+            self.name,
+            self.inputs,
+            graph_outputs,
+            return_memo=True,
+        )
         self.train_inputs = [node for node in flat.order if isinstance(node, Input)]
 
-        keras_inputs, keras_outputs = self.resolve_graph(flat.order)
-        self.model = keras.Model(
+        flat_graph_outputs = [flatten_memo[node] for node in graph_outputs]
+        keras_inputs, keras_outputs = self.resolve_graph(
+            flat.order, output_nodes=flat_graph_outputs
+        )
+        # Graph flattening builds shallow copies. Keep the public symbolic nodes
+        # connected to the concrete Keras layers created from those copies.
+        for source_node, flat_node in flatten_memo.items():
+            if isinstance(source_node, Layer) and isinstance(flat_node, Layer):
+                source_node._layer = flat_node._layer
+
+        body_model = keras.Model(
             name=self.name + "_train",
             inputs=keras_inputs,
             outputs=keras_outputs,
         )
+        if self._roll_callbacks:
+            from nnodely.layers.roll import ModelRollImpl
+
+            callbacks = {
+                input_node.name: feedback.name
+                for input_node, feedback in self._roll_callbacks.items()
+            }
+            roll_layer = ModelRollImpl(
+                model=body_model,
+                callbacks=callbacks,
+                output_names=tuple(node.name for node in self.train_outputs),
+                input_time_axes={
+                    node.name: node.shape.dim_rank + 1 for node in self._roll_callbacks
+                },
+                steps=cast(int, self._roll_steps),
+                name=self._roll_name or f"{self.name}_roll",
+            )
+            final_outputs = roll_layer(keras_inputs)
+            self.model = keras.Model(
+                name=self.name + "_train",
+                inputs=keras_inputs,
+                outputs=final_outputs,
+            )
+        else:
+            self.model = body_model
         return self
 
-    def resolve_graph(self, order):
-        tensor_map = {}
-        for node in [n for n in order if isinstance(n, Input)]:
-            tensor_map[node.name] = node.input
+    def resolve_graph(self, order, output_nodes=None):
+        # Applying one layer several times yields several nodes that carry its
+        # name, so tensors are keyed by node identity: keying them by name made
+        # each application overwrite the previous one, and every consumer then
+        # read the same tensor. The concrete Keras layer is still keyed by name,
+        # so those applications share one layer and therefore its weights, the
+        # way repeated calls do in Keras.
+        input_tensors = {
+            node.name: node.input for node in order if isinstance(node, Input)
+        }
+        tensor_map: dict[Node, Any] = {
+            node: input_tensors[node.name] for node in order if isinstance(node, Input)
+        }
+        layers_by_name: dict[str, Any] = {}
 
         for node in [n for n in order if not isinstance(n, Input)]:
             if isinstance(node, Layer):
+                shared = layers_by_name.get(node.name)
+                if shared is not None:
+                    node._layer = shared
                 if len(node.preds) == 0:  ## Parameters and Constants
                     anchor = next(iter(tensor_map.values()), None)
-                    tensor_map[node.name] = node.call([anchor])
-                    if (
-                        isinstance(tensor_map[node.name], tuple)
-                        and len(tensor_map[node.name]) > 1
-                    ):
-                        idx = node.name.rfind("_")
-                        if idx != -1 and node.name[idx + 1 :].isdigit():
-                            tensor_map[node.name] = tensor_map[node.name][
-                                int(node.name[idx + 1 :])
-                            ]
+                    tensor_map[node] = node.call([anchor])
                 else:
-                    tensor_map[node.name] = node.call(
-                        [tensor_map[pred.name] for pred in node.preds]
+                    tensor_map[node] = node.call(
+                        [tensor_map[pred] for pred in node.preds]
                     )
-                    ##TODO: remove this code in the future
-                    if (
-                        isinstance(tensor_map[node.name], tuple)
-                        and len(tensor_map[node.name]) > 1
-                    ):
-                        idx = node.name.rfind("_")
-                        if idx != -1 and node.name[idx + 1 :].isdigit():
-                            tensor_map[node.name] = tensor_map[node.name][
-                                int(node.name[idx + 1 :])
-                            ]
+                layers_by_name[node.name] = node._layer
             else:  ## Output or other non-Layer node
-                tensor_map[node.name] = tensor_map[node.preds[0].name]
+                tensor_map[node] = tensor_map[node.preds[0]]
 
-        keras_inputs = {node.name: tensor_map[node.name] for node in self.train_inputs}
-        keras_outputs = {
-            node.name: tensor_map[node.name] for node in self.train_outputs
-        }
+        keras_inputs = {node.name: tensor_map[node] for node in self.train_inputs}
+        output_nodes = self.train_outputs if output_nodes is None else output_nodes
+
+        # Outputs are addressed by name, so two different nodes claiming one name
+        # would silently drop one of them. Calling a model several times produces
+        # exactly that: its outputs all carry the body's output names.
+        keras_outputs = {}
+        claimed: dict[str, Node] = {}
+        for node in output_nodes:
+            owner = claimed.get(node.name)
+            if owner is not None and owner is not node:
+                raise ValueError(
+                    f"Model {self.name!r} has two different outputs named "
+                    f"{node.name!r}. Calling one model several times returns outputs "
+                    "that share its output names, so wrap them in Output nodes with "
+                    "distinct names before exposing them."
+                )
+            claimed[node.name] = node
+            keras_outputs[node.name] = tensor_map[node]
         return keras_inputs, keras_outputs
 
     # -------------------------------------------------------------------------
@@ -154,20 +229,27 @@ class Modely:
         name: str,
         source: Output | Stream,
         target: Output | Stream | float | None = None,
-        loss="mse",
+        loss: str | dict[str, Any] | keras.losses.Loss | Callable = "mse",
     ):
-        """Register a loss to minimize during training.
+        """Register a Keras loss to minimize during training.
+
         name: identifier for this loss (used as an output name in the training model)
         source: node/stream producing predictions (e.g., an Output node)
         target: node/stream providing target values (usually derived from an Input)
-        loss: loss identifier accepted by `keras.losses.get`
+        loss: Keras loss name, serialized config, Loss instance, or callable
         """
+        resolved_loss = _resolve_loss(loss)
         if target is None:  ## Transform it into a Constant with value zero
             target = Constant(name=None, value=0.0)
         if isinstance(target, float):
             target = Constant(name=None, value=[target])
         self.minimizers.append(
-            {"name": name, "source": source, "target": target, "loss": loss}
+            {
+                "name": name,
+                "source": source,
+                "target": target,
+                "loss": resolved_loss,
+            }
         )
         return self
 
@@ -194,6 +276,8 @@ class Modely:
         x_data = {
             name: np.asarray(values) for name, values in val_data.as_dict().items()
         }
+        mask = getattr(val_data, "mask", None)
+        padded_inputs = getattr(val_data, "padded_inputs", set())
 
         n_samples = len(val_data)
         if n_samples == 0:
@@ -218,10 +302,9 @@ class Modely:
 
             preds = self.model(batch_inputs, training=False)
             for name, value in preds.items():
-                if keras.backend.backend() == "torch":
-                    pred_chunks.setdefault(name, []).append(value.detach().cpu())
-                else:
-                    pred_chunks.setdefault(name, []).append(value.numpy())
+                pred_chunks.setdefault(name, []).append(
+                    keras.ops.convert_to_numpy(value)
+                )
 
         predictions = {
             name: np.concatenate(chunks, axis=0) for name, chunks in pred_chunks.items()
@@ -248,6 +331,15 @@ class Modely:
             y_true = y_true[:n]
 
             error = y_pred - y_true
+            if target_name in padded_inputs:
+                # Padded rollout steps are not observations: keep them out of
+                # the metrics the same way training keeps them out of the loss.
+                view = mask[:n].reshape(
+                    n, *([1] * (error.ndim - 2)), mask.shape[1]
+                )
+                valid = np.broadcast_to(view, error.shape)
+                error = error[valid]
+                y_true = y_true[valid]
 
             mse = float(np.mean(error**2))
             rmse = float(np.sqrt(mse))
@@ -308,9 +400,18 @@ class Modely:
         train_data: DataLoader,
         epochs: int = 1,
         batch_size: int = 1,
-        optimizer=None,
+        optimizer: str | dict[str, Any] | keras.optimizers.Optimizer | None = None,
         lr: float = 1e-3,
+        optimizer_kwargs: dict[str, Any] | None = None,
     ):
+        """Train the model with any Keras optimizer.
+
+        ``optimizer`` may be a Keras optimizer name, a serialized Keras
+        optimizer configuration, or an optimizer instance. When a name (or
+        ``None``) is provided, ``lr`` and ``optimizer_kwargs`` are used to
+        construct it. Optimizer instances and serialized configurations retain
+        their own learning-rate configuration.
+        """
         if not self.minimizers:
             raise ValueError("No minimizers defined. Call minimize() before train().")
 
@@ -323,13 +424,19 @@ class Modely:
             raise ValueError("Model is not built. Call build() before training.")
         km = self.model
 
-        # Default optimizer ## TODO: change with a user defined optimizer
-        if optimizer is None:
-            optimizer = keras.optimizers.Adam(learning_rate=lr)
+        resolved_optimizer = _resolve_optimizer(optimizer, lr, optimizer_kwargs)
+        resolved_losses = {
+            minimizer["name"]: _resolve_loss(minimizer["loss"])
+            for minimizer in self.minimizers
+        }
 
         x_data = {
             name: np.asarray(values) for name, values in train_data.as_dict().items()
         }
+        # Simulations padded to a common rollout length carry a mask; the padded
+        # steps are dropped from the loss, never from the forward pass.
+        mask = getattr(train_data, "mask", None)
+        padded_inputs = getattr(train_data, "padded_inputs", set())
 
         def _resolve_label_name(node):
             if node.name in x_data:
@@ -348,7 +455,10 @@ class Modely:
 
             label_name = _resolve_label_name(target)
             if label_name is not None:
-                y_data[source_name] = x_data[label_name]
+                values = x_data[label_name]
+                if label_name in padded_inputs:
+                    values = _mask_padded_targets(values, mask)
+                y_data[source_name] = values
                 continue
 
             target_value = getattr(target, "value_numpy", None)
@@ -359,9 +469,10 @@ class Modely:
 
             target_value = np.asarray(target_value, dtype=np.float32)
             y_shape = (n_samples,) + tuple(minimizer["source"].shape)
-            y_data[source_name] = np.broadcast_to(target_value, y_shape).astype(
-                np.float32
-            )
+            values = np.broadcast_to(target_value, y_shape).astype(np.float32)
+            if mask is not None and values.shape[-1] == mask.shape[1]:
+                values = _mask_padded_targets(values, mask)
+            y_data[source_name] = values
 
         backend = keras.backend.backend()
 
@@ -413,7 +524,7 @@ class Modely:
             unique_vars: list[tf.Variable] = []
             seen = set()
 
-            losses = {m["name"]: keras.losses.get(m["loss"]) for m in self.minimizers}
+            losses = resolved_losses
 
             train_history = {"loss": []}
             idxs = np.arange(n_samples)
@@ -441,7 +552,12 @@ class Modely:
                         )
 
                     total = train_step(
-                        km, batch_inputs, batch_targets, optimizer, losses, unique_vars
+                        km,
+                        batch_inputs,
+                        batch_targets,
+                        resolved_optimizer,
+                        losses,
+                        unique_vars,
                     )
                     if isinstance(total, tf.Tensor):
                         epoch_losses.append(float(total.numpy()))
@@ -463,10 +579,12 @@ class Modely:
                     seen.add(vid)
                     unique_params.append(v)
 
-            if optimizer is None or not (
-                hasattr(optimizer, "zero_grad") and hasattr(optimizer, "step")
+            native_optimizer: Any = resolved_optimizer
+            if not (
+                hasattr(native_optimizer, "zero_grad")
+                and hasattr(native_optimizer, "step")
             ):
-                optimizer = torch.optim.Adam(unique_params, lr=lr)
+                native_optimizer = torch.optim.Adam(unique_params, lr=lr)
 
             criterion = torch.nn.MSELoss()
             device = unique_params[0].device if unique_params else torch.device("cpu")
@@ -502,7 +620,7 @@ class Modely:
                         for minimizer in self.minimizers
                     }
 
-                    optimizer.zero_grad()
+                    native_optimizer.zero_grad()
                     preds = km(batch_inputs, training=True)
 
                     total = torch.zeros((), dtype=torch.float32, device=device)
@@ -512,7 +630,7 @@ class Modely:
                             preds[source_name], batch_targets[source_name].unsqueeze(-1)
                         )
                     total.backward()
-                    optimizer.step()
+                    native_optimizer.step()
 
                     epoch_losses.append(float(total.detach().cpu().item()))
 
@@ -527,8 +645,9 @@ class Modely:
             name: None for name in getattr(km, "output_names", [])
         }
         for minimizer in self.minimizers:
-            compile_losses[minimizer["source"].name] = keras.losses.get(
-                minimizer["loss"]
+            loss = resolved_losses[minimizer["name"]]
+            compile_losses[minimizer["source"].name] = (
+                MaskedLoss(loss) if mask is not None else loss
             )
 
         import time
@@ -560,7 +679,7 @@ class Modely:
 
                 print(sep)
 
-        km.compile(optimizer=optimizer, loss=compile_losses)
+        km.compile(optimizer=resolved_optimizer, loss=compile_losses)
         history = km.fit(
             x=x_data,
             y=y_data,
@@ -595,13 +714,12 @@ class Modely:
         """
         Export this Modely DAG to interactive HTML using vis-network.
 
-        Supported node types in the new framework:
-        - input
-        - output
-        - ordinary Stream / Layer nodes
-        - model_call nodes for composed submodels
+        ``out_dir`` is the folder the pages are written to; a path ending in
+        ``.html`` names the root page instead and its parent becomes the folder.
 
-        Nested submodels are exported recursively as separate HTML pages.
+        Every block that wraps a model (``ModelCall``, ``Loop``, ``Roll``) is
+        exported recursively as its own page, linked from the block node and
+        annotated with the ports that bind the body to the graph above it.
 
         Returns
         -------
@@ -617,6 +735,10 @@ class Modely:
             open_subgraph_in_new_tab=open_subgraph_in_new_tab,
             physics=physics,
         )
+
+    def summary(self):
+        if self.model is not None:
+            self.model.summary()
 
     def plot(
         self, to_file: str, include_minimizers: bool = True, flatten: bool = False
@@ -643,110 +765,130 @@ class Modely:
         )
 
     # -------------------------------------------------------------------------
+    # roll API
+    # -------------------------------------------------------------------------
+    def rollback(
+        self,
+        rollback: dict[str | Input, str | Stream],
+        steps: int,
+        name: str | None = None,
+    ) -> "Modely":
+        """Configure temporal feedback directly on this model.
+
+        Each mapping is ``input: stream``. After every model evaluation, the
+        stream's one-step result is appended to the input's temporal window.
+        The model is unrolled for ``steps`` evaluations and exposes only the
+        outputs produced by the final evaluation, preserving their original
+        symbolic shapes.
+        """
+        if self.built:
+            raise ValueError("roll() must be called before build().")
+        if not isinstance(rollback, dict) or not rollback:
+            raise ValueError("roll must be a non-empty input: stream mapping.")
+        if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
+            raise ValueError("roll steps must be a positive integer.")
+
+        graph_streams = [node for node in self.order if isinstance(node, Stream)]
+
+        def resolve(nodes, value, kind):
+            if isinstance(value, str):
+                matches = [node for node in nodes if node.name == value]
+                if len(matches) != 1:
+                    raise ValueError(f"roll {kind} {value!r} was not found uniquely.")
+                return matches[0]
+            if value not in nodes:
+                raise ValueError(
+                    f"roll {kind} {getattr(value, 'name', value)!r} "
+                    "does not belong to this Modely."
+                )
+            return value
+
+        callbacks = {}
+        for input_ref, stream_ref in rollback.items():
+            input_node = resolve(self.inputs, input_ref, "input")
+            stream = resolve(graph_streams, stream_ref, "stream")
+            expected = tuple(input_node.dim) + (1,) + tuple(input_node.seq)
+            if stream.shape.tuple != expected:
+                raise ValueError(
+                    f"roll stream {stream.name!r} must produce one temporal "
+                    f"sample with shape {expected}, got {stream.shape.tuple}."
+                )
+            callbacks[input_node] = stream
+
+        self._roll_callbacks = callbacks
+        self._roll_steps = steps
+        self._roll_name = name
+        return self
+
+    # -------------------------------------------------------------------------
     # Closed-loop
     # -------------------------------------------------------------------------
-    def closed_loop(
-        self,
-        closed_loop: dict[str | Input, str | Node],
-        initial_values: dict[str | Input, str | Node],
-        inputs: list[Input] | None = None,
-        name: str | None = None,
-    ) -> Layer:
-        """
-        Create a new Modely that rolls out over the rightmost sequence axis.
+    # def closed_loop(
+    #     self,
+    #     closed_loop: dict[str | Input, str | Node],
+    #     initial_values: dict[str | Input, str | Node],
+    #     inputs: list[Input] | None = None,
+    #     name: str | None = None,
+    # ) -> Layer:
+    #     """
+    #     Create a new Modely that rolls out over the rightmost sequence axis.
 
-        Semantics:
-        - The layer unrolls over the rightmost sequence axis of its inputs (axis=-1).
-        - Inputs without a sequence axis are broadcast across the horizon.
-        - If inputs have multiple seq dimensions (nested loops), only the rightmost is
-          iterated by this Loop. Remaining seq dims are passed through to the inner model.
-        - The closed-loop mapped input is updated each step with the submodel output.
-        """
-        from nnodely.layers.loop import Loop
+    #     Semantics:
+    #     - The layer unrolls over the rightmost sequence axis of its inputs (axis=-1).
+    #     - Inputs without a sequence axis are broadcast across the horizon.
+    #     - If inputs have multiple seq dimensions (nested loops), only the rightmost is
+    #       iterated by this Loop. Remaining seq dims are passed through to the inner model.
+    #     - The closed-loop mapped input is updated each step with the submodel output.
+    #     """
+    #     from nnodely.layers.loop import Loop
 
-        # Validate closed_loop keys and values
-        if len(closed_loop) == 0:
-            raise ValueError("closed_loop cannot be empty.")
+    #     # Validate closed_loop keys and values
+    #     if len(closed_loop) == 0:
+    #         raise ValueError("closed_loop cannot be empty.")
 
-        if inputs is None:
-            inputs = self.inputs
-            for idx, inp in enumerate(inputs):
-                if inp.name not in closed_loop:
-                    inputs[idx] = Input(
-                        name=inp.name,
-                        dim=inp.dim,
-                        # time=inp.time,
-                        seq=(None,),
-                    )
-        else:
-            for inp, out in closed_loop.items():
-                inp_name = inp.name if isinstance(inp, Input) else str(inp)
-                out_name = out.name if isinstance(out, Output) else str(out)
-                if inp_name not in [node.name for node in inputs]:
-                    raise ValueError(
-                        f"Closed-loop input '{inp_name}' not found among model inputs."
-                    )
-                if out_name not in [node.name for node in self.outputs]:
-                    raise ValueError(
-                        f"Closed-loop output '{out_name}' not found among model outputs."
-                    )
-        print(
-            f"Creating closed-loop model '{name}' with loop mapping: {closed_loop}, anad inputs: {inputs}"
-        )
-        if not self.built:
-            self.build()
+    #     if inputs is None:
+    #         inputs = self.inputs
+    #         for idx, inp in enumerate(inputs):
+    #             if inp.name not in closed_loop:
+    #                 inputs[idx] = Input(
+    #                     name=inp.name,
+    #                     dim=inp.dim,
+    #                     # time=inp.time,
+    #                     seq=(None,),
+    #                 )
+    #     else:
+    #         for inp, out in closed_loop.items():
+    #             inp_name = inp.name if isinstance(inp, Input) else str(inp)
+    #             out_name = out.name if isinstance(out, Output) else str(out)
+    #             if inp_name not in [node.name for node in inputs]:
+    #                 raise ValueError(
+    #                     f"Closed-loop input '{inp_name}' not found among model inputs."
+    #                 )
+    #             if out_name not in [node.name for node in self.outputs]:
+    #                 raise ValueError(
+    #                     f"Closed-loop output '{out_name}' not found among model outputs."
+    #                 )
+    #     print(
+    #         f"Creating closed-loop model '{name}' with loop mapping: {closed_loop}, anad inputs: {inputs}"
+    #     )
+    #     if not self.built:
+    #         self.build()
 
-        loop_fn = Loop(
-            f=self, closed_loop=closed_loop, initial_values=initial_values, name=name
-        )
-        return loop_fn
+    #     loop_fn = Loop(
+    #         f=self, closed_loop=closed_loop, initial_values=initial_values, name=name
+    #     )
+    #     return loop_fn
 
     # -------------------------------------------------------------------------
     # Save and load
     # -------------------------------------------------------------------------
-    def save(self, filename: str):
-        dirname = os.path.dirname(filename)
-        if dirname:
-            os.makedirs(dirname, exist_ok=True)
 
-        # Save weights from current built model before clearing runtime state
-        if self.model is None:
-            raise ValueError(
-                "Model is not built. Call build() before saving the model and weights."
-            )
-        self.model.save_weights(filename + ".weights.h5")
+    def save(self, path):
+        ModelSerializer.serialize(self, path)
 
-        model_copy = copy.deepcopy(self)
-
-        # Clear built Keras models
-        model_copy.model = None
-
-        # Clear runtime Keras state from symbolic nodes
-        for node in getattr(model_copy, "order", []):
-            if hasattr(node, "_layer"):
-                node._layer = None
-
-            if hasattr(node, "_state"):
-                for key in ("layer", "param", "constant"):
-                    if key in node._state:
-                        node._state[key] = None
-
-        with open(filename + ".pkl", "wb") as out:
-            cloudpickle.dump(model_copy, out)
-
-    @staticmethod
-    def load(filename: str):
-        with open(filename + ".pkl", "rb") as inp:
-            model = cloudpickle.load(inp)
-
-        model.build()
-
-        weights_path = filename + ".weights.h5"
-        if os.path.exists(weights_path):
-            keras_model = model.model
-            keras_model.load_weights(weights_path)
-
-        return model
+    @classmethod
+    def load(cls, path):
+        return ModelSerializer.load(path)
 
     def export_keras(self, filename: str):
         if self.model is None:
@@ -759,27 +901,165 @@ class Modely:
 
     @staticmethod
     def import_keras(filename: str, safe_mode: bool = True):
+        path = Path(filename)
+        if path.suffix.lower() != ".keras":
+            path = path.with_suffix(".keras")
         return keras.models.load_model(
-            filename + ".keras",
+            path,
             safe_mode=safe_mode,
         )
 
-    def export_onnx(self, filename: str):
+    def export_onnx(
+        self,
+        filename: str | os.PathLike,
+        *,
+        input_signature=None,
+        opset_version: int | None = None,
+        verbose: bool = False,
+    ) -> Path:
+        """Export the built inference graph to ONNX.
+
+        ONNX export traces the built Keras graph; it does not deserialize
+        nnodely layer configurations. An explicit ``input_signature`` is
+        recommended when dynamic dimensions must remain fixed at export time.
+        """
         if self.model is None:
             raise ValueError("Model is not built. Call build() before export_onnx().")
 
-        self.model.export(filename + ".onnx", format="onnx")
+        path = Path(filename)
+        if path.suffix.lower() != ".onnx":
+            path = path.with_suffix(".onnx")
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        export_model = self.model
+        if keras.backend.backend() == "torch" and isinstance(self.model.input, dict):
+            # Keras' Torch ONNX exporter does not currently accept dictionary
+            # signatures. Trace an equivalent positional wrapper instead.
+            export_inputs = [
+                keras.Input(
+                    shape=tuple(tensor.shape[1:]),
+                    dtype=tensor.dtype,
+                    name=tensor.name,
+                )
+                for tensor in self.model.inputs
+            ]
+            input_map = {
+                tensor.name: export_input
+                for tensor, export_input in zip(self.model.inputs, export_inputs)
+            }
+            export_model = keras.Model(
+                export_inputs,
+                self.model(input_map, training=False),
+                name=f"{self.model.name}_onnx",
+            )
+
+        # Keras requires a model to have been called before export. Modely.build
+        # creates a Functional model, but does not necessarily execute it.
+        if not getattr(export_model, "_called", False):
+            warmup_inputs = {}
+            for tensor in export_model.inputs:
+                shape = tuple(1 if dim is None else int(dim) for dim in tensor.shape)
+                warmup_inputs[tensor.name] = np.zeros(shape, dtype=np.float32)
+            export_model(warmup_inputs, training=False)
+
+        export_kwargs = {"verbose": verbose}
+        if input_signature is not None:
+            export_kwargs["input_signature"] = input_signature
+        if opset_version is not None:
+            export_kwargs["opset_version"] = opset_version  # type: ignore
+
+        export_model.export(path, format="onnx", **export_kwargs)
+        self._set_onnx_io_names(path)
+        return path
+
+    def _set_onnx_io_names(self, path: Path) -> None:
+        """Restore Modely input/output names if an exporter replaced them."""
+        try:
+            import onnx
+        except ImportError:
+            return
+
+        if self.model is None or not self.built:
+            raise ValueError("Model is not built. Call build() before export_onnx().")
+        onnx_model = onnx.load(str(path))
+        graph = onnx_model.graph
+        expected_inputs = [tensor.name for tensor in self.model.inputs]
+        expected_outputs = [node.name for node in self.train_outputs]
+        rename = {}
+
+        if len(graph.input) == len(expected_inputs):
+            rename.update(
+                {
+                    value.name: expected
+                    for value, expected in zip(graph.input, expected_inputs)
+                    if value.name != expected
+                }
+            )
+        if len(graph.output) == len(expected_outputs):
+            rename.update(
+                {
+                    value.name: expected
+                    for value, expected in zip(graph.output, expected_outputs)
+                    if value.name != expected
+                }
+            )
+        if not rename:
+            return
+
+        for collection in (
+            graph.input,
+            graph.output,
+            graph.value_info,
+            graph.initializer,
+        ):
+            for value in collection:
+                value.name = rename.get(value.name, value.name)
+        for node in graph.node:
+            for idx, name in enumerate(node.input):
+                node.input[idx] = rename.get(name, name)
+            for idx, name in enumerate(node.output):
+                node.output[idx] = rename.get(name, name)
+
+        onnx.checker.check_model(onnx_model)
+        onnx.save(onnx_model, str(path))
 
     @staticmethod
-    def validate_onnx(filename: str, inputs: dict):
-        import onnxruntime as ort
+    def validate_onnx(
+        filename: str | os.PathLike,
+        inputs: dict,
+        *,
+        return_dict: bool = False,
+        providers: list[str] | None = None,
+    ):
+        """Run an exported ONNX model and return its outputs."""
+        try:
+            import onnxruntime as ort
+        except ImportError as exc:
+            raise ImportError(
+                "validate_onnx() requires the optional 'onnxruntime' package."
+            ) from exc
 
-        session = ort.InferenceSession(filename + ".onnx")
+        path = Path(filename)
+        if path.suffix.lower() != ".onnx":
+            path = path.with_suffix(".onnx")
+        if not path.is_file():
+            raise FileNotFoundError(f"ONNX model not found: {path}")
 
-        outputs = session.run(
-            None,
-            {k: np.asarray(v, dtype=np.float32) for k, v in inputs.items()},
-        )
+        session_kwargs = {} if providers is None else {"providers": providers}
+        session = ort.InferenceSession(str(path), **session_kwargs)  # type: ignore
+        input_names = [item.name for item in session.get_inputs()]
+        missing = [name for name in input_names if name not in inputs]
+        if missing:
+            raise ValueError(f"Missing ONNX inputs: {missing}")
+
+        feed = {
+            name: np.asarray(inputs[name], dtype=np.float32) for name in input_names
+        }
+        outputs = session.run(None, feed)
+        if return_dict:
+            return {
+                item.name: value for item, value in zip(session.get_outputs(), outputs)
+            }
         return outputs
 
 
@@ -800,4 +1080,4 @@ class IntermediateOutput(Output):
     def __init__(self, out: Stream, model_call: ModelCall) -> None:
         super().__init__(name=out.name, stream=out)
         self.pred = model_call
-        self.preds = [self.pred]
+        self.preds = [model_call]

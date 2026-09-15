@@ -9,10 +9,14 @@ from nnodely.layers.fir import Fir
 from nnodely.layers.linear import Linear
 from nnodely.layers.parameter import Parameter
 from nnodely.layers.constant import Constant
+from nnodely.layers.roll import Roll
 from nnodely.layers.loop import Loop
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.fuzzify import Fuzzify
-from nnodely.layers.concatenate import Concatenate
+from nnodely.layers.interpolation import Interpolation
+from nnodely.layers.equationlearner import EquationLearner
+from nnodely.layers.time_ops import Concatenate, Select, TimeConcatenate, TimeSelect
+from nnodely.layers.batchnorm import BatchNorm
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -26,6 +30,18 @@ from nnodely.layers.activations import (
     Tanh,
 )
 from nnodely.layers.trigonometric import Acos, Asin, Atan, Cos, Sin, Tan
+from nnodely.layers.arithmetic import (
+    Abs,
+    Ceil,
+    Deg2Rad,
+    Exp,
+    Floor,
+    Log,
+    Log10,
+    Sign,
+    Sqrt,
+    Negative
+)
 
 # Public API
 __all__ = [
@@ -37,10 +53,17 @@ __all__ = [
     "Linear",
     "Parameter",
     "Constant",
+    "Roll",
     "Loop",
     "LocalModel",
     "Fuzzify",
+    "Interpolation",
+    "EquationLearner",
     "Concatenate",
+    "TimeConcatenate",
+    "TimeSelect",
+    "Select",
+    "BatchNorm",
     "ReLU",
     "LeakyReLU",
     "ELU",
@@ -57,4 +80,14 @@ __all__ = [
     "Asin",
     "Acos",
     "Atan",
+    "Abs",
+    "Ceil",
+    "Deg2Rad",
+    "Exp",
+    "Floor",
+    "Log",
+    "Log10",
+    "Sign",
+    "Sqrt",
+    "Negative"
 ]

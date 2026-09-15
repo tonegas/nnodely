@@ -1,6 +1,7 @@
 import os
 
 from nnodely import Input, Output, Modely, DataLoader
+from conftest import to_numpy
 
 
 def test_partitioning_windows():
@@ -104,29 +105,29 @@ def test_partitioning_windows():
     ]
 
     result = model(data_train[0])
-    assert result["out1"].cpu().numpy().tolist() == [[[33, 46, 61]]]
-    assert result["out2"].cpu().numpy().tolist() == [[[26]]]
-    assert result["out3"].cpu().numpy().tolist() == [[[30, 41, 54, 69]]]
-    assert result["out_x_stream1"].cpu().numpy().tolist() == [[[3, 4, 5]]]
-    assert result["out_x_stream2"].cpu().numpy().tolist() == [[[5]]]
-    assert result["out_x_stream3"].cpu().numpy().tolist() == [[[1, 2, 3, 4, 5]]]
-    assert result["out_y_stream1"].cpu().numpy().tolist() == [[[21, 28, 36]]]
-    assert result["out_y_stream2"].cpu().numpy().tolist() == [[[21]]]
-    assert result["out_y_stream3"].cpu().numpy().tolist() == [[[10, 15, 21, 28]]]
-    assert result["out_z_stream1"].cpu().numpy().tolist() == [[[5, 9, 14, 20, 26, 33]]]
-    assert result["out_z_stream2"].cpu().numpy().tolist() == [[[9, 14, 20]]]
-    assert result["out_z_stream3"].cpu().numpy().tolist() == [[[20, 26, 33, 41]]]
+    assert to_numpy(result["out1"]).tolist() == [[[33, 46, 61]]]
+    assert to_numpy(result["out2"]).tolist() == [[[26]]]
+    assert to_numpy(result["out3"]).tolist() == [[[30, 41, 54, 69]]]
+    assert to_numpy(result["out_x_stream1"]).tolist() == [[[3, 4, 5]]]
+    assert to_numpy(result["out_x_stream2"]).tolist() == [[[5]]]
+    assert to_numpy(result["out_x_stream3"]).tolist() == [[[1, 2, 3, 4, 5]]]
+    assert to_numpy(result["out_y_stream1"]).tolist() == [[[21, 28, 36]]]
+    assert to_numpy(result["out_y_stream2"]).tolist() == [[[21]]]
+    assert to_numpy(result["out_y_stream3"]).tolist() == [[[10, 15, 21, 28]]]
+    assert to_numpy(result["out_z_stream1"]).tolist() == [[[5, 9, 14, 20, 26, 33]]]
+    assert to_numpy(result["out_z_stream2"]).tolist() == [[[9, 14, 20]]]
+    assert to_numpy(result["out_z_stream3"]).tolist() == [[[20, 26, 33, 41]]]
 
     result = model(data_train[1])
-    assert result["out1"].cpu().numpy().tolist() == [[[46, 61, 77]]]
-    assert result["out2"].cpu().numpy().tolist() == [[[34]]]
-    assert result["out3"].cpu().numpy().tolist() == [[[41, 54, 69, 86]]]
-    assert result["out_x_stream1"].cpu().numpy().tolist() == [[[4, 5, 6]]]
-    assert result["out_x_stream2"].cpu().numpy().tolist() == [[[6]]]
-    assert result["out_x_stream3"].cpu().numpy().tolist() == [[[2, 3, 4, 5, 6]]]
-    assert result["out_y_stream1"].cpu().numpy().tolist() == [[[28, 36, 45]]]
-    assert result["out_y_stream2"].cpu().numpy().tolist() == [[[28]]]
-    assert result["out_y_stream3"].cpu().numpy().tolist() == [[[15, 21, 28, 36]]]
-    assert result["out_z_stream1"].cpu().numpy().tolist() == [[[9, 14, 20, 26, 33, 41]]]
-    assert result["out_z_stream2"].cpu().numpy().tolist() == [[[14, 20, 26]]]
-    assert result["out_z_stream3"].cpu().numpy().tolist() == [[[26, 33, 41, 50]]]
+    assert to_numpy(result["out1"]).tolist() == [[[46, 61, 77]]]
+    assert to_numpy(result["out2"]).tolist() == [[[34]]]
+    assert to_numpy(result["out3"]).tolist() == [[[41, 54, 69, 86]]]
+    assert to_numpy(result["out_x_stream1"]).tolist() == [[[4, 5, 6]]]
+    assert to_numpy(result["out_x_stream2"]).tolist() == [[[6]]]
+    assert to_numpy(result["out_x_stream3"]).tolist() == [[[2, 3, 4, 5, 6]]]
+    assert to_numpy(result["out_y_stream1"]).tolist() == [[[28, 36, 45]]]
+    assert to_numpy(result["out_y_stream2"]).tolist() == [[[28]]]
+    assert to_numpy(result["out_y_stream3"]).tolist() == [[[15, 21, 28, 36]]]
+    assert to_numpy(result["out_z_stream1"]).tolist() == [[[9, 14, 20, 26, 33, 41]]]
+    assert to_numpy(result["out_z_stream2"]).tolist() == [[[14, 20, 26]]]
+    assert to_numpy(result["out_z_stream3"]).tolist() == [[[26, 33, 41, 50]]]

@@ -1,25 +1,21 @@
 import os
 
-os.environ.setdefault("KERAS_BACKEND", "torch")
+os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 
 import numpy as np
 import pytest
 
-# def pytest_addoption(parser):
-#     parser.addoption(
-#         "--keras-backend",
-#         action="store",
-#         default="tensorflow",
-#     )
+from typing import Any, cast
 
-# def pytest_sessionstart(session):
-#     backend = (
-#             session.config.getoption("--keras-backend")
-#             or os.environ.get("KERAS_BACKEND")
-#             or "tensorflow"
-#     )
+import keras
+import numpy.typing as npt
 
-#     os.environ["KERAS_BACKEND"] = backend
+
+def to_numpy(value: Any) -> npt.NDArray[Any]:
+    return cast(
+        npt.NDArray[Any],
+        keras.ops.convert_to_numpy(value),
+    )
 
 
 @pytest.fixture(autouse=True)

@@ -2,12 +2,12 @@
 DAG - Lazy/DAG approach. No global graph.
 Each node has predecessors; Model traverses from output backwards.
 
-Dimensioni: seq, time, dim. Shape = seq + (time,) + dim.
-Default: seq=(), time=1, dim=(1,)
+Dimensioni: dim, time, seq. Shape = dim, time, seq.
+Default: dim=1
 """
 
 from copy import copy
-from nnodely.core.stream import Node
+from nnodely.core.stream import Node, Stream
 from nnodely.layers.output import Output
 from typing import Any
 
@@ -26,56 +26,97 @@ def next_name(prefix: str) -> str:
 # ------------------------------------------------------------------
 
 
-def get_preds(node: Node) -> list[Node]:
+class Scope:
+    """What one graph has already inlined, plus a scope per call it makes.
+
+    A model called several times has to be inlined once per call, so the nodes
+    inside a body belong to the call rather than to the graph: sharing a single
+    memo made the second call return the first call's subgraph. The scopes of
+    nested calls hang off the enclosing scope, because a call written inside a
+    body exists once in its definition but is evaluated once per enclosing call.
+    """
+
+    def __init__(self, memo: dict[Node, Any] | None = None) -> None:
+        self.memo: dict[Node, Any] = {} if memo is None else memo
+        self.calls: dict[Node, "Scope"] = {}
+
+    def merged_memo(self) -> dict[Node, Any]:
+        """Every node inlined anywhere, with the enclosing scope taking priority.
+
+        Callers use this to reconnect the public symbolic nodes to the concrete
+        layers built from their copies, and a node inside a body is public too:
+        a block that wraps a model still exposes the layers it holds. A body
+        inlined once per call has one copy per call here, but they share a name
+        and therefore a single concrete layer, so either copy answers for it.
+        """
+        merged: dict[Node, Any] = {}
+        for call_scope in self.calls.values():
+            merged.update(call_scope.merged_memo())
+        merged.update(self.memo)
+        return merged
+
+
+def flatten_node(node: Node, scope: Scope) -> Any:
     from nnodely.core.modely import IntermediateOutput
+    from nnodely.core.layer import Layer
+
+    if node in scope.memo:
+        return scope.memo[node]
 
     if type(node) is IntermediateOutput:
-        return [node]
+        model_call = node.pred
 
-    return node.preds
+        # One scope per call, not per output: a body with several outputs is
+        # still a single call, and its outputs must share the inlined body.
+        call_scope = scope.calls.get(model_call)
+        if call_scope is None:
+            # The arguments belong to the calling graph, so they are inlined in
+            # the enclosing scope and stay shared between calls; only the
+            # bindings they produce are local to this one.
+            bindings = {
+                internal_input: flatten_node(external_input, scope)
+                for internal_input, external_input in model_call.inputs_map.items()
+            }
+            call_scope = Scope({**scope.memo, **bindings})
+            scope.calls[model_call] = call_scope
 
+        internal_output = model_call.outputs_map[node]
+        flat_output = flatten_node(internal_output, call_scope)
 
-def flatten_node(node: Node, memo: dict[Node, Node]) -> Any:
-    from nnodely.core.modely import IntermediateOutput
+        scope.memo[node] = flat_output
+        return flat_output
 
-    if node in memo:
-        return memo[node]
-
-    if type(node) is IntermediateOutput:
-        inputs_map = node.pred.inputs_map
-        outputs_map = node.pred.outputs_map
-        for old, new in inputs_map.items():
-            if new not in memo:
-                new_node = copy(new)
-                new_node.preds = [flatten_node(pred, memo) for pred in get_preds(new)]
-                memo[new] = new_node
-            memo[old] = memo[new]
-
-        new_preds = [flatten_node(pred, memo) for pred in get_preds(outputs_map[node])]
-    else:
-        new_preds = [flatten_node(pred, memo) for pred in node.preds]
-
-    # new_node = copy(node)
-    # new_node.preds = new_preds
-    # memo[node] = new_node
-    # return new_node
-    node.preds = new_preds
-    memo[node] = node
-    return node
+    new_preds = [flatten_node(pred, scope) for pred in node.preds]
+    new_node = copy(node)
+    new_node.preds = new_preds
+    if isinstance(new_node, Layer):
+        new_node._layer = None
+    scope.memo[node] = new_node
+    return new_node
 
 
 def flatten(model):
     return _flatten_graph(model.name, model.inputs, model.outputs)
 
 
-def _flatten_graph(name, inputs: list[Any], outputs: list[Output]) -> Any:
+def _flatten_graph(
+    name,
+    inputs: list[Any],
+    outputs: list[Stream],
+    *,
+    return_memo: bool = False,
+) -> Any:
     from nnodely.core.modely import Modely
 
-    memo: dict[Node, Any] = {}
-    flat_outputs: list[Output] = [flatten_node(output, memo) for output in outputs]
+    scope = Scope()
+    flat_outputs: list[Output] = [flatten_node(output, scope) for output in outputs]
+    memo = scope.merged_memo()
     flat_inputs: list[Any] = [memo[input] for input in inputs if input in memo]
 
-    return Modely(f"{name}_flat", flat_inputs, flat_outputs)
+    flat_model = Modely(f"{name}_flat", flat_inputs, flat_outputs)
+    if return_memo:
+        return flat_model, memo
+    return flat_model
 
 
 # ------------------------------------------------------------------
