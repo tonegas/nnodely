@@ -1,6 +1,9 @@
-from nnodely import Modely, Input, Output, Fir
+import keras
 import numpy as np
 import pytest
+
+from conftest import to_numpy
+from nnodely import Modely, Input, Output, Fir
 
 
 @pytest.fixture
@@ -70,3 +73,18 @@ def test_model_inference_with_composed_model(batch_size, window_size):
     result2 = model2([dummy_input_z])
     assert "z_pred" in result2
     assert result2["z_pred"].shape == (batch_size, 1, 1)
+
+
+def test_inference_adds_batch_axis_to_backend_tensor():
+    x = Input("backend_tensor_x", dim=1)
+    output = Output("backend_tensor_out", x * 2.0)
+    model = Modely("backend_tensor_model", inputs=[x], outputs=[output]).build()
+
+    value = keras.ops.convert_to_tensor(np.array([[3.0]], dtype=np.float32))
+    result = model({"backend_tensor_x": value})
+
+    assert result["backend_tensor_out"].shape == (1, 1, 1)
+    np.testing.assert_allclose(
+        to_numpy(result["backend_tensor_out"]),
+        np.array([[[6.0]]], dtype=np.float32),
+    )

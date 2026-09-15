@@ -181,9 +181,7 @@ def main():
     )
 
     print("\nOne-step validation:")
-    val_result = training_body.validate(
-        val_data=val_data, batch_size=BATCH_SIZE, out_dir=VALIDATION_DIR
-    )
+    val_result = training_body.validate(val_data=val_data, out_dir=VALIDATION_DIR)
 
     # ------------------------------------------------------------------
     # Copy trained weights into the plain inference/rollout body - see
@@ -307,7 +305,7 @@ def main():
 
     print("\nSummary")
     print("=======")
-    for name, m in val_result["metrics"].items():
+    for name, m in val_result.metrics().items():
         print(f"  one-step {name:16s} MSE={m['mse']:.4e}  R2={m['r2']:.4f}")
     print(f"  {ROLLOUT_STEPS}-step rollout position RMSE: {rollout_pos_rmse:.4f}")
     print(f"  {ROLLOUT_STEPS}-step rollout velocity RMSE: {rollout_vel_rmse:.4f}")

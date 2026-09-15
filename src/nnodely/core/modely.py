@@ -4,16 +4,16 @@ from pathlib import Path
 from typing import Any, Callable
 
 from nnodely.core.dag import toposort, flatten, _flatten_graph
+from nnodely.core.validation import ValidationResult, score_signal
 from nnodely.utils.utils import _resolve_loss, _resolve_optimizer
+from nnodely.utils.printers import _resolve_printer
+from nnodely.utils import validation_plot
 from nnodely.core.registry import ModelSerializer
 from nnodely.core.stream import Stream, Node
 from nnodely.layers.constant import Constant
 from nnodely.core.dataloader import DataLoader
-import tensorflow as tf
 
 import numpy as np
-import matplotlib.pyplot as plt
-from tqdm import tqdm
 from typing import cast
 
 from nnodely.layers.output import Output
@@ -21,6 +21,11 @@ from nnodely.layers.input import Input
 from nnodely.core.layer import Layer
 
 import keras
+
+#: Samples evaluated per forward pass during validation. Validation is defined
+#: one sample at a time - nothing about the result depends on this number - so
+#: it is a memory bound rather than a parameter worth exposing.
+_INFERENCE_CHUNK = 256
 
 
 class Modely:
@@ -78,13 +83,15 @@ class Modely:
                     if type(inputs[inp.name]) is np.ndarray:
                         inputs[inp.name] = np.expand_dims(inputs[inp.name], axis=0)
                     else:
-                        inputs[inp.name] = tf.expand_dims(inputs[inp.name], axis=0)
+                        inputs[inp.name] = keras.ops.expand_dims(
+                            inputs[inp.name], axis=0
+                        )
             else:
                 if len(inputs[idx].shape) == inp.shape.rank:
                     if type(inputs[idx]) is np.ndarray:
                         inputs[idx] = np.expand_dims(inputs[idx], axis=0)
                     else:
-                        inputs[idx] = tf.expand_dims(inputs[idx], axis=0)
+                        inputs[idx] = keras.ops.expand_dims(inputs[idx], axis=0)
         return self.model(inputs)
 
     @property
@@ -252,141 +259,188 @@ class Modely:
         """Remove a registered minimizer by name."""
         self.minimizers = [m for m in self.minimizers if m["name"] != name]
 
+    # -------------------------------------------------------------------------
+    # Validation API
+    # -------------------------------------------------------------------------
+
+    def _predict(self, x_data: dict, n_samples: int) -> dict[str, np.ndarray]:
+        """Run the graph over the whole dataset with the training path disabled.
+
+        ``training=False`` is the backend-independent switch: it is what tells
+        every Keras layer to take its inference branch, so no per-backend module
+        mode has to be toggled here.
+        """
+        if self.model is None:
+            raise ValueError("Model is not built. Call build() before validate().")
+        input_names = [node.name for node in self.train_inputs]
+        missing = [name for name in input_names if name not in x_data]
+        if missing:
+            raise ValueError(f"Validation data is missing model inputs: {missing}.")
+
+        chunks: dict[str, list[np.ndarray]] = {}
+        for start in range(0, n_samples, _INFERENCE_CHUNK):
+            stop = min(start + _INFERENCE_CHUNK, n_samples)
+            batch = {name: x_data[name][start:stop, ...] for name in input_names}
+            for name, value in self.model(batch, training=False).items():
+                chunks.setdefault(name, []).append(keras.ops.convert_to_numpy(value))  # type: ignore
+
+        return {name: np.concatenate(values, axis=0) for name, values in chunks.items()}
+
+    def _dataset_name(self, node, x_data: dict) -> str | None:
+        """Name of the dataset column a node ultimately reads, if any."""
+        if node.name in x_data:
+            return node.name
+        preds = getattr(node, "preds", [])
+        if len(preds) == 1:
+            return self._dataset_name(preds[0], x_data)
+        return None
+
+    def _validation_target(
+        self, minimizer: dict, x_data: dict, predictions: dict, n_samples: int
+    ) -> tuple[np.ndarray, str]:
+        """Resolve the reference signal a minimizer is scored against.
+
+        The evaluated target stream wins over the dataset column it reads: a
+        target declared as ``y.sw(2)`` on an input that carries a wider window
+        elsewhere in the graph is two steps long, not as wide as the column.
+        The column still names the signal, which is what a reader recognizes.
+        """
+        source = minimizer["source"]
+        target = minimizer["target"]
+        label = self._dataset_name(target, x_data) or target.name
+
+        if target.name in predictions:
+            return np.asarray(predictions[target.name][:n_samples]), label
+
+        if label in x_data:
+            return np.asarray(x_data[label][:n_samples]), label
+
+        value = getattr(target, "value_numpy", None)
+        if value is None:
+            raise ValueError(
+                f"Validation target {target.name!r} of minimizer "
+                f"{minimizer['name']!r} is neither in the dataset nor a constant."
+            )
+        shape = (n_samples,) + tuple(source.shape)
+        return np.broadcast_to(np.asarray(value, dtype=np.float32), shape), target.name
+
     def validate(
         self,
         val_data,
-        batch_size: int = 256,
-        out_dir: str | None = "validation",
+        out_dir: str | os.PathLike | None = None,
         show: bool = False,
-    ):
+        history: dict[str, Any] | None = None,
+    ) -> ValidationResult:
+        """Score the built model on ``val_data`` and draw what it did.
+
+        Every minimizer is evaluated on the validation set and reported with
+        the loss it was trained on plus the indicators a mechanical
+        system-identification report is read for: RMSE, MAE, peak error, bias,
+        NRMSE, the FIT percentage, R2 and correlation.
+
+        Parameters
+        ----------
+        val_data:
+            A :class:`DataLoader`, or anything exposing ``as_dict()`` and
+            ``__len__``.
+        out_dir:
+            Folder the figures are written to as PNG. ``None`` saves nothing.
+        show:
+            Open the figures in an interactive window - zoom, pan and edit the
+            curves with the usual Matplotlib toolbar.
+        history:
+            The dictionary returned by :meth:`train`, drawn as loss curves.
+
+        The summary is printed and the whole result returned, so the numbers
+        can be asserted on or logged as well as read.
+        """
         if self.model is None:
             raise ValueError("Model is not built. Call build() before validate().")
-
         if not self.minimizers:
             raise ValueError("No minimizers defined. Cannot infer validation targets.")
-
-        if out_dir is not None:
-            os.makedirs(out_dir, exist_ok=True)
-
-        x_data = {
-            name: np.asarray(values) for name, values in val_data.as_dict().items()
-        }
 
         n_samples = len(val_data)
         if n_samples == 0:
             raise ValueError("Validation dataset is empty.")
-        input_names = [node.name for node in self.train_inputs]
 
-        # ------------------------------------------------------------------
-        # Run prediction
-        # ------------------------------------------------------------------
-        pred_chunks = {}
-        if keras.backend.backend() == "torch":
-            self.model.eval()  # Set the model to evaluation mode (important for layers like dropout or batchnorm)
-
-        for start in range(0, n_samples, batch_size):
-            end = min(start + batch_size, n_samples)
-
-            batch_inputs = {
-                name: x_data[name][start:end, ...]
-                for name in input_names
-                if name in x_data
-            }
-
-            preds = self.model(batch_inputs, training=False)
-            for name, value in preds.items():
-                pred_chunks.setdefault(name, []).append(
-                    keras.ops.convert_to_numpy(value)
-                )
-
-        predictions = {
-            name: np.concatenate(chunks, axis=0) for name, chunks in pred_chunks.items()
+        x_data = {
+            name: np.asarray(values) for name, values in val_data.as_dict().items()
         }
+        predictions = self._predict(x_data, n_samples)
 
-        metrics = {}
-
+        signals = {}
         for minimizer in self.minimizers:
+            name = minimizer["name"]
             source = minimizer["source"]
+            if source.name not in predictions:
+                raise ValueError(
+                    f"Minimizer {name!r} sources {source.name!r}, which the built "
+                    "model does not expose as an output."
+                )
+            y_true, target_name = self._validation_target(
+                minimizer, x_data, predictions, n_samples
+            )
+            signals[name] = score_signal(
+                name=name,
+                source=source.name,
+                target=target_name,
+                loss_fn=minimizer["loss"],
+                y_true=y_true,
+                y_pred=np.asarray(predictions[source.name][:n_samples]),
+            )
+
+        result = ValidationResult(
+            model=self.name,
+            samples=n_samples,
+            signals=signals,
+            figures=[],
+            history=history,
+        )
+        if out_dir is not None or show:
+            result.figures = validation_plot.render(result, out_dir=out_dir, show=show)
+        print(result.summary())
+        return result
+
+    def _supervised_arrays(self, data: DataLoader) -> tuple[dict, dict]:
+        """Split a dataset into the model's inputs and the minimizers' labels."""
+        n_samples = len(data)
+        x_data = {name: np.asarray(values) for name, values in data.as_dict().items()}
+
+        y_data = {}
+        for minimizer in self.minimizers:
+            source_name = minimizer["source"].name
             target = minimizer["target"]
 
-            source_name = source.name
-            target_name = target.name
+            label_name = self._dataset_name(target, x_data)
+            if label_name is not None:
+                y_data[source_name] = x_data[label_name]
+                continue
 
-            y_pred = predictions[source_name]
-            y_true = (
-                x_data[target_name]
-                if target_name in x_data
-                else predictions[target_name]
+            target_value = getattr(target, "value_numpy", None)
+            if target_value is None:
+                raise ValueError(
+                    f"Training target '{target.name}' must be present in the dataset or be a constant value."
+                )
+
+            target_value = np.asarray(target_value, dtype=np.float32)
+            y_shape = (n_samples,) + tuple(minimizer["source"].shape)
+            y_data[source_name] = np.broadcast_to(target_value, y_shape).astype(
+                np.float32
             )
 
-            n = min(len(y_pred), len(y_true))
-            y_pred = y_pred[:n]
-            y_true = y_true[:n]
-
-            error = y_pred - y_true
-
-            mse = float(np.mean(error**2))
-            rmse = float(np.sqrt(mse))
-            mae = float(np.mean(np.abs(error)))
-
-            denom = float(np.sum((y_true - np.mean(y_true)) ** 2))
-            r2 = (
-                float(1.0 - np.sum(error**2) / denom) if denom > 1e-12 else float("nan")
-            )
-
-            metrics[minimizer["name"]] = {
-                "source": source_name,
-                "target": target_name,
-                "mse": mse,
-                "rmse": rmse,
-                "mae": mae,
-                "r2": r2,
-            }
-
-            print(f"\nValidation - {minimizer['name']}")
-            print(f"  source : {source_name}")
-            print(f"  target : {target_name}")
-            print(f"  MSE    : {mse:.6e}")
-            print(f"  RMSE   : {rmse:.6e}")
-            print(f"  MAE    : {mae:.6e}")
-            print(f"  R2     : {r2:.6f}")
-
-            # Flatten for simple plotting
-            y_true_plot = y_true.reshape(n, -1)[:, 0]
-            y_pred_plot = y_pred.reshape(n, -1)[:, 0]
-
-            plt.figure(figsize=(10, 4))
-            plt.plot(y_true_plot, label="target")
-            plt.plot(y_pred_plot, label="prediction", alpha=0.8)
-            plt.title(f"Validation: {minimizer['name']}")
-            plt.xlabel("sample")
-            plt.ylabel(source_name)
-            plt.grid(True)
-            plt.legend()
-            plt.tight_layout()
-
-            if out_dir is not None:
-                filename = os.path.join(out_dir, f"{minimizer['name']}_prediction.png")
-                plt.savefig(filename, dpi=160)
-
-            if show:
-                plt.show()
-
-            plt.close()
-
-        return {
-            "metrics": metrics,
-            "predictions": predictions,
-        }
+        return x_data, y_data
 
     def train(
         self,
         train_data: DataLoader,
-        epochs: int = 1,
+        val_data: DataLoader | None = None,
+        epochs: int = 10,
         batch_size: int = 1,
         optimizer: str | dict[str, Any] | keras.optimizers.Optimizer | None = None,
         lr: float = 1e-3,
+        shuffle: bool = True,
         optimizer_kwargs: dict[str, Any] | None = None,
+        printer: str | keras.callbacks.Callback | None = "legacy",
     ):
         """Train the model with any Keras optimizer.
 
@@ -395,6 +449,18 @@ class Modely:
         ``None``) is provided, ``lr`` and ``optimizer_kwargs`` are used to
         construct it. Optimizer instances and serialized configurations retain
         their own learning-rate configuration.
+
+        ``val_data`` is evaluated at the end of every epoch and its losses are
+        returned alongside the training ones under ``val_`` keys. Only the two
+        curves together say whether a falling training loss is the model
+        learning the system or memorizing the training set, so pass it whenever
+        a held-out set exists - :meth:`validate` draws them on one axis.
+
+        ``printer`` selects how progress is rendered: ``"tiny"`` prints a compact
+        summary of the training progress, ``"legacy"`` prints the scrolling
+        per-minimizer loss table of the original nnodely trainer, ``"factory"``
+        drives the animated machine-room console, ``None`` prints nothing, and
+        any Keras callback is used as given.
         """
         if not self.minimizers:
             raise ValueError("No minimizers defined. Call minimize() before train().")
@@ -414,208 +480,13 @@ class Modely:
             for minimizer in self.minimizers
         }
 
-        x_data = {
-            name: np.asarray(values) for name, values in train_data.as_dict().items()
-        }
+        x_data, y_data = self._supervised_arrays(train_data)
 
-        def _resolve_label_name(node):
-            if node.name in x_data:
-                return node.name
-
-            preds = getattr(node, "preds", [])
-            if len(preds) == 1:
-                return _resolve_label_name(preds[0])
-
-            return None
-
-        y_data = {}
-        for minimizer in self.minimizers:
-            source_name = minimizer["source"].name
-            target = minimizer["target"]
-
-            label_name = _resolve_label_name(target)
-            if label_name is not None:
-                y_data[source_name] = x_data[label_name]
-                continue
-
-            target_value = getattr(target, "value_numpy", None)
-            if target_value is None:
-                raise ValueError(
-                    f"Training target '{target.name}' must be present in the dataset or be a constant value."
-                )
-
-            target_value = np.asarray(target_value, dtype=np.float32)
-            y_shape = (n_samples,) + tuple(minimizer["source"].shape)
-            y_data[source_name] = np.broadcast_to(target_value, y_shape).astype(
-                np.float32
-            )
-
-        backend = keras.backend.backend()
-
-        # Not used for now, but could be useful for future extensions
-        if backend == "tensorfloww":
-
-            @tf.function
-            def train_step(
-                model,
-                batch_inputs,
-                batch_targets,
-                optimizer,
-                losses,
-                unique_vars,  # type: ignore
-            ):
-                with tf.GradientTape() as tape:
-                    preds = model(batch_inputs, training=True)
-                    total = keras.ops.zeros(())
-                    for m in self.minimizers:
-                        name = m["name"]
-                        source_name = m["source"].name
-
-                        y_pred = preds[source_name]
-                        y_true = batch_targets[source_name]
-                        loss_obj = losses[name]
-                        total = total + keras.ops.mean(loss_obj(y_true, y_pred))
-
-                unique_vars: list[tf.Variable] = []
-                seen = set()
-
-                for v in list(km.trainable_weights):  # + self._training_params:
-                    vid = id(v)
-                    if vid not in seen:
-                        seen.add(vid)
-                        unique_vars.append(cast(tf.Variable, v))
-
-                gradients = tape.gradient(total, unique_vars)  # type:ignore
-                grads_and_vars = [
-                    (g, v)
-                    for g, v in zip(gradients or [], unique_vars)
-                    if g is not None
-                ]
-                if grads_and_vars:
-                    optimizer.apply_gradients(grads_and_vars)
-                else:
-                    print("Warning: No gradients to apply in this step.")
-                return total
-
-            unique_vars: list[tf.Variable] = []
-            seen = set()
-
-            losses = resolved_losses
-
-            train_history = {"loss": []}
-            idxs = np.arange(n_samples)
-            epoch_bar = tqdm(
-                range(epochs), desc=f"Training {self.name} in tensorflow", unit="epoch"
-            )
-            for _ in epoch_bar:
-                np.random.shuffle(idxs)
-                epoch_losses = []
-                for start in range(0, n_samples, batch_size):
-                    batch_idx = idxs[start : start + batch_size]
-                    batch_samples = [train_data[i] for i in batch_idx]
-                    batch_inputs = {}
-                    for k in train_data.inputs:
-                        batch_inputs[k] = tf.convert_to_tensor(
-                            np.stack([sample[k] for sample in batch_samples], axis=0)
-                        )
-                    batch_targets = {}
-                    for minimizer in self.minimizers:
-                        source_name = minimizer["source"].name
-                        batch_targets[source_name] = tf.convert_to_tensor(
-                            np.stack(
-                                [y_data[source_name][i] for i in batch_idx], axis=0
-                            )
-                        )
-
-                    total = train_step(
-                        km,
-                        batch_inputs,
-                        batch_targets,
-                        resolved_optimizer,
-                        losses,
-                        unique_vars,
-                    )
-                    if isinstance(total, tf.Tensor):
-                        epoch_losses.append(float(total.numpy()))
-
-                mean_epoch_loss = float(np.mean(epoch_losses))
-                train_history["loss"].append(mean_epoch_loss)
-                epoch_bar.set_postfix(epoch_loss=f"{mean_epoch_loss:.3e}")
-
-            return train_history
-
-        if backend == "torchh":
-            import torch
-
-            unique_params = []
-            seen = set()
-            for v in list(km.parameters()):  # + self._training_params:
-                vid = id(v)
-                if vid not in seen:
-                    seen.add(vid)
-                    unique_params.append(v)
-
-            native_optimizer: Any = resolved_optimizer
-            if not (
-                hasattr(native_optimizer, "zero_grad")
-                and hasattr(native_optimizer, "step")
-            ):
-                native_optimizer = torch.optim.Adam(unique_params, lr=lr)
-
-            criterion = torch.nn.MSELoss()
-            device = unique_params[0].device if unique_params else torch.device("cpu")
-            torch_x_data = {
-                name: torch.as_tensor(values, dtype=torch.float32, device=device)
-                for name, values in x_data.items()
-            }
-            torch_y_data = {
-                name: torch.as_tensor(values, dtype=torch.float32, device=device)
-                for name, values in y_data.items()
-            }
-            train_history = {"loss": []}
-            idxs = np.arange(n_samples)
-            epoch_bar = tqdm(
-                range(epochs), desc=f"Training {self.name} in torch", unit="epoch"
-            )
-
-            km.train()
-            for _ in epoch_bar:
-                np.random.shuffle(idxs)
-                epoch_losses = []
-
-                for start in range(0, n_samples, batch_size):
-                    batch_idx = idxs[start : start + batch_size]
-
-                    batch_inputs = {
-                        name: tensor[batch_idx] for name, tensor in torch_x_data.items()
-                    }
-                    batch_targets = {
-                        minimizer["source"].name: torch_y_data[
-                            minimizer["source"].name
-                        ][batch_idx]
-                        for minimizer in self.minimizers
-                    }
-
-                    native_optimizer.zero_grad()
-                    preds = km(batch_inputs, training=True)
-
-                    total = torch.zeros((), dtype=torch.float32, device=device)
-                    for minimizer in self.minimizers:
-                        source_name = minimizer["source"].name
-                        total = total + criterion(
-                            preds[source_name], batch_targets[source_name].unsqueeze(-1)
-                        )
-                    total.backward()
-                    native_optimizer.step()
-
-                    epoch_losses.append(float(total.detach().cpu().item()))
-
-                mean_epoch_loss = float(np.mean(epoch_losses))
-                train_history["loss"].append(mean_epoch_loss)
-                epoch_bar.set_postfix(epoch_loss=f"{mean_epoch_loss:.3e}")
-
-            km.eval()
-            return train_history
+        validation_data = None
+        if val_data is not None:
+            if len(val_data) == 0:
+                raise ValueError("val_data is empty.")
+            validation_data = self._supervised_arrays(val_data)
 
         compile_losses: dict[str, Any] = {
             name: None for name in getattr(km, "output_names", [])
@@ -625,45 +496,19 @@ class Modely:
                 minimizer["name"]
             ]
 
-        import time
-        import sys
-
-        class FancyLossPrinter(tf.keras.callbacks.Callback):
-            def on_train_begin(self, logs=None):
-                self.start_time = time.time()
-
-            def on_epoch_end(self, epoch, logs=None):
-                logs = logs or {}
-
-                # Clear terminal
-                sys.stdout.write("\033[H\033[J")
-                sys.stdout.flush()
-
-                elapsed = time.time() - self.start_time
-
-                sep = "─" * 70
-
-                print(sep)
-                print(
-                    f"Epoch {epoch + 1}/{self.params['epochs']}   Elapsed: {elapsed:.1f}s"
-                )
-                print(sep)
-
-                for k, v in sorted(logs.items()):
-                    print(f"{k:<30} {v:>12.3e}")
-
-                print(sep)
-
-        km.compile(optimizer=resolved_optimizer, loss=compile_losses)
+        km.compile(
+            optimizer=resolved_optimizer, loss=compile_losses, jit_compile="auto"
+        )
         history = km.fit(
             x=x_data,
             y=y_data,
             epochs=epochs,
             batch_size=batch_size,
-            shuffle=True,
-            verbose="0",
-            callbacks=[FancyLossPrinter()],
-        )  # type: ignore[arg-type]
+            shuffle=shuffle,
+            verbose=0,  # type: ignore
+            callbacks=[_resolve_printer(printer, epochs, self.minimizers, self.name)],
+            validation_data=validation_data,
+        )
 
         return history.history
 
@@ -794,65 +639,6 @@ class Modely:
         self._roll_steps = steps
         self._roll_name = name
         return self
-
-    # -------------------------------------------------------------------------
-    # Closed-loop
-    # -------------------------------------------------------------------------
-    # def closed_loop(
-    #     self,
-    #     closed_loop: dict[str | Input, str | Node],
-    #     initial_values: dict[str | Input, str | Node],
-    #     inputs: list[Input] | None = None,
-    #     name: str | None = None,
-    # ) -> Layer:
-    #     """
-    #     Create a new Modely that rolls out over the rightmost sequence axis.
-
-    #     Semantics:
-    #     - The layer unrolls over the rightmost sequence axis of its inputs (axis=-1).
-    #     - Inputs without a sequence axis are broadcast across the horizon.
-    #     - If inputs have multiple seq dimensions (nested loops), only the rightmost is
-    #       iterated by this Loop. Remaining seq dims are passed through to the inner model.
-    #     - The closed-loop mapped input is updated each step with the submodel output.
-    #     """
-    #     from nnodely.layers.loop import Loop
-
-    #     # Validate closed_loop keys and values
-    #     if len(closed_loop) == 0:
-    #         raise ValueError("closed_loop cannot be empty.")
-
-    #     if inputs is None:
-    #         inputs = self.inputs
-    #         for idx, inp in enumerate(inputs):
-    #             if inp.name not in closed_loop:
-    #                 inputs[idx] = Input(
-    #                     name=inp.name,
-    #                     dim=inp.dim,
-    #                     # time=inp.time,
-    #                     seq=(None,),
-    #                 )
-    #     else:
-    #         for inp, out in closed_loop.items():
-    #             inp_name = inp.name if isinstance(inp, Input) else str(inp)
-    #             out_name = out.name if isinstance(out, Output) else str(out)
-    #             if inp_name not in [node.name for node in inputs]:
-    #                 raise ValueError(
-    #                     f"Closed-loop input '{inp_name}' not found among model inputs."
-    #                 )
-    #             if out_name not in [node.name for node in self.outputs]:
-    #                 raise ValueError(
-    #                     f"Closed-loop output '{out_name}' not found among model outputs."
-    #                 )
-    #     print(
-    #         f"Creating closed-loop model '{name}' with loop mapping: {closed_loop}, anad inputs: {inputs}"
-    #     )
-    #     if not self.built:
-    #         self.build()
-
-    #     loop_fn = Loop(
-    #         f=self, closed_loop=closed_loop, initial_values=initial_values, name=name
-    #     )
-    #     return loop_fn
 
     # -------------------------------------------------------------------------
     # Save and load

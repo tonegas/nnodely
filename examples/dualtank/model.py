@@ -179,12 +179,11 @@ end = time.time()
 print(f"Training completed in {end - start:.2f} seconds.")
 print("Final training loss:", history["loss"][-1])
 
-metrics = dual_tank.validate(
+report = dual_tank.validate(
     val_data=dev_data,
-    batch_size=BATCH_SIZE,
     out_dir=os.path.join(SCRIPT_DIR, "validation"),
+    history=history,
 )
-print("Validation metrics:", metrics["metrics"])
 
 # ---------------------------------------------------------------------------
 # Inference after training

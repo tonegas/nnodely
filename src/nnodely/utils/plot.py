@@ -1083,7 +1083,6 @@ def export_html(
     <input id="search" type="search" placeholder="Find node by name…" autocomplete="off"/>
     <span id="searchInfo"></span>
     <button id="layoutBtn" class="btn"></button>
-    <button id="fitBtn" class="btn">Fit</button>
     <span id="graphInfo"></span>
 </div>
 
@@ -1326,10 +1325,6 @@ def export_html(
         const next = layoutOptions();
         next.edges.font = {{ size: 10, align: "middle" }};
         network.setOptions(next);
-        network.fit({{ animation: true }});
-    }});
-
-    document.getElementById("fitBtn").addEventListener("click", () => {{
         network.fit({{ animation: true }});
     }});
 

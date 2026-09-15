@@ -109,6 +109,15 @@ class DataLoader:
         ]
         self.max_sequence_length = max(sequence_lengths, default=0)
 
+        # Every source trajectory contributes a contiguous block of samples.
+        # Analyses that read the dataset as a signal (spectra, drift) must not
+        # run across a join between two unrelated recordings.
+        self._segment_lengths: list[int] = []
+
+        # Number of CSV files the dataset was assembled from; None when the
+        # samples came from an in-memory dict and no file is involved.
+        self.num_files: int | None = None
+
         if isinstance(source, str):
             self.source = Path(source)
             if not self.source.exists():
@@ -131,6 +140,55 @@ class DataLoader:
     @property
     def inputs(self) -> List[str]:
         return list(self.dataset.keys())
+
+    @property
+    def segments(self) -> List[tuple]:
+        """Half-open sample ranges, one per source trajectory.
+
+        A folder of CSV files is concatenated sample-wise, so the dataset is a
+        sequence of independent experiments rather than one continuous run.
+        Anything that treats the samples as a timeline - a spectrum, a drift
+        estimate - has to stop at these boundaries to stay meaningful.
+        """
+        total = len(self)
+        bounds: List[tuple] = []
+        start = 0
+        for length in self._segment_lengths:
+            stop = min(start + int(length), total)
+            if stop > start:
+                bounds.append((start, stop))
+            start += int(length)
+            if start >= total:
+                break
+        return bounds or ([(0, total)] if total else [])
+
+    def __repr__(self) -> str:
+        """Table of what the loader actually built, for `print(loader)`."""
+        width = 80
+        label = 30
+        lines = [" nnodely Model Dataset ".center(width, "=")]
+
+        def row(name: str, value: Any) -> None:
+            lines.append(f"{name + ':':<{label}}{value}")
+
+        row("Dataset Name", self.model.name)
+        if self.num_files is None:
+            row("Source", "in-memory dict")
+        else:
+            row("Number of files", self.num_files)
+        row("Total number of samples", len(self))
+        for name, values in self.dataset.items():
+            row(f"Shape of {name}", tuple(values.shape))
+        if self.normalization_stats:
+            methods = {stats["method"] for stats in self.normalization_stats.values()}
+            row(
+                "Normalization",
+                f"{'/'.join(sorted(methods))} "
+                f"({len(self.normalization_stats)}/{len(self.dataset)} inputs)",
+            )
+
+        lines.append("=" * width)
+        return "\n".join(lines)
 
     def __len__(self) -> int:
         return self._num_steps
@@ -438,6 +496,7 @@ class DataLoader:
         }
         dataset = self._apply_sequence_windows(dataset)
         self._check_alignment(dataset)
+        self._segment_lengths = [min((len(arr) for arr in dataset.values()), default=0)]
         return dataset
 
     def _build_from_folder(self) -> Dict[str, np.ndarray]:
@@ -446,6 +505,7 @@ class DataLoader:
             raise FileNotFoundError(
                 f"No CSV files matching '{self.csv_glob}' found in {self.source}"
             )
+        self.num_files = len(csv_files)
         chunks: Dict[str, List[np.ndarray]] = {name: [] for name in self.input_specs}
         for csv_path in csv_files:
             df = pd.read_csv(csv_path, sep=self.delimiter, header=self.header)  # type: ignore
@@ -466,6 +526,9 @@ class DataLoader:
                 )
 
             file_dataset = self._build_from_dataframe(df)
+            self._segment_lengths.append(
+                min((len(arr) for arr in file_dataset.values()), default=0)
+            )
             for name, arr in file_dataset.items():
                 chunks[name].append(arr)
 

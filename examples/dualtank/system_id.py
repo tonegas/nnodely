@@ -213,12 +213,11 @@ if __name__ == "__main__":
     )
     print("Final training loss:", history["loss"][-1])
 
-    metrics = dual_tank_roll_id.validate(
+    report = dual_tank_roll_id.validate(
         val_data=dev_data,
-        batch_size=BATCH_SIZE,
         out_dir=os.path.join(SCRIPT_DIR, "roll_id_validation"),
+        history=history,
     )
-    print("Validation metrics:", metrics["metrics"])
 
     print(
         f"After training:  c1={c1.value_numpy} (true {TRUE_C1}), "

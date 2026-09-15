@@ -1122,7 +1122,6 @@ dependencies = [
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas", version = "3.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "tensorflow" },
     { name = "tqdm" },
 ]
 
@@ -1134,6 +1133,9 @@ onnx = [
     { name = "onnx" },
     { name = "onnxruntime" },
     { name = "onnxscript" },
+]
+tensorflow = [
+    { name = "tensorflow" },
 ]
 torch = [
     { name = "torch" },
@@ -1160,11 +1162,11 @@ requires-dist = [
     { name = "onnxruntime", marker = "extra == 'onnx'", specifier = ">=1.18.0" },
     { name = "onnxscript", marker = "extra == 'onnx'", specifier = ">=0.1.0" },
     { name = "pandas", specifier = ">=2.3.3" },
-    { name = "tensorflow", specifier = ">=2.21.0" },
+    { name = "tensorflow", marker = "extra == 'tensorflow'", specifier = ">=2.21.0" },
     { name = "torch", marker = "extra == 'torch'", specifier = ">=2.2.2" },
     { name = "tqdm", specifier = ">=4.67.3" },
 ]
-provides-extras = ["torch", "jax", "onnx"]
+provides-extras = ["tensorflow", "torch", "jax", "onnx"]
 
 [package.metadata.requires-dev]
 dev = [

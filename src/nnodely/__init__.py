@@ -1,6 +1,11 @@
+# Randomness is configured before importing layers so an environment seed is
+# applied before any model objects or initializers are created.
+from nnodely.utils.random import get_seed, set_seed
+
 # Core
 from nnodely.core.modely import Modely
 from nnodely.core.dataloader import DataLoader
+from nnodely.utils.printers import TinyPrinter, LegacyPrinter, NNodelyPrinter
 
 # Layers
 from nnodely.layers.input import Input
@@ -41,8 +46,13 @@ from nnodely.layers.trigonometric import Acos, Asin, Atan, Cos, Sin, Tan
 
 # Public API
 __all__ = [
+    "set_seed",
+    "get_seed",
     "Modely",
     "DataLoader",
+    "TinyPrinter",
+    "NNodelyPrinter",
+    "LegacyPrinter",
     "Input",
     "Output",
     "Fir",

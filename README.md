@@ -55,19 +55,23 @@ nnodely is not a replacement for a general purpose deep learning frameworks — 
 <a name="installation"></a>
 ### Installation
 
-You can install nnodely from PyPI via:
+Install nnodely with the Keras backend you want to use:
 
 ```sh
-pip install nnodely
+pip install "nnodely[tensorflow]"
+# or: pip install "nnodely[torch]"
+# or: pip install "nnodely[jax]"
 ```
 
-Alternatively, you can build it from source by first cloning the repository and installing the requirements and the nnodely library:
+Set `KERAS_BACKEND` to the matching backend before importing nnodely. For
+example, use `KERAS_BACKEND=torch` when installing the Torch extra.
+
+Alternatively, clone the repository and install the desired backend extra:
 
 ```sh
 git clone https://github.com/tonegas/nnodely.git
 cd nnodely
-pip install -r requirements.txt
-pip install .
+pip install ".[tensorflow]"
 ```
 <a name="helloworld"></a>
 ### Hello, World!

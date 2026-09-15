@@ -353,3 +353,59 @@ def test_invalid_step_raises():
         DataLoader(
             model, source={"step_invalid_x": np.arange(4, dtype=np.float32)}, step=0
         )
+
+
+def test_dataset_print_summary_from_folder():
+    x = Input("summary_x", dim=1)
+    y = Input("summary_y", dim=1)
+    model = Modely(
+        "summary_model",
+        inputs=[x, y],
+        outputs=[Output("summary_out", x.sw(3)), Output("summary_out_y", y.last())],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        format={"summary_x": "data_1", "summary_y": "data_2"},
+        source=os.path.join("tests", "datasets"),
+    )
+
+    summary = str(loader)
+    lines = summary.splitlines()
+
+    ## The banner and the closing rule are both 80 columns wide
+    assert len(lines[0]) == 80 and len(lines[-1]) == 80
+    assert "nnodely Model Dataset" in lines[0]
+    assert set(lines[-1]) == {"="}
+
+    assert "Dataset Name:                 summary_model" in lines
+    assert f"Number of files:              {loader.num_files}" in lines
+    assert f"Total number of samples:      {len(loader)}" in lines
+    for name, values in loader.dataset.items():
+        assert f"Shape of {name}:" in summary
+        assert str(tuple(values.shape)) in summary
+
+    ## Without normalization there is nothing to report about it
+    assert "Normalization:" not in summary
+
+
+def test_dataset_print_summary_from_dict_and_normalization():
+    x = Input("summary_dict_x", dim=1)
+    model = Modely(
+        "summary_dict_model",
+        inputs=[x],
+        outputs=[Output("summary_dict_out", x.sw(2))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source={"summary_dict_x": np.array([1, 2, 3, 4, 5], dtype=np.float32)},
+    )
+
+    ## An in-memory dict has no files to count
+    assert loader.num_files is None
+    assert "Source:                       in-memory dict" in str(loader)
+    assert "Number of files:" not in str(loader)
+
+    loader.normalize(method="standard")
+    assert "Normalization:                standard (1/1 inputs)" in str(loader)
