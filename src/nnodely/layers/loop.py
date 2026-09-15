@@ -272,7 +272,7 @@ class LoopImpl(keras.layers.Layer):
             else compute(states, windows, [value[0] for value in xs])
         )
         init_carry = tuple(
-            states[callback_slots[index]] if index in callback_slots else seeds[index]
+            states[callback_slots[index]] if index in callback_slots else seeds[index] # type: ignore
             for index in range(output_count)
         ) + tuple(windows[index] for index in shifted)
 

@@ -1,7 +1,9 @@
-from nnodely import Input, Output, Modely, DataLoader
+from nnodely import Input, Output, Modely, DataLoader, Loop
 from conftest import to_numpy
 import os
+import warnings
 import numpy as np
+import pytest
 
 
 def test_dataset_creation_and_iteration():
@@ -17,7 +19,7 @@ def test_dataset_creation_and_iteration():
 
     x_stream2 = x.last()  ## 1 sample of x in the past
     y_stream2 = y.next()  ## 1 sample of y in the future
-    z_stream2 = z.sw(3)  ## 1 sample of z in the past (same as last())
+    z_stream2 = z.sw(3)  ## 3 samples of z in the past
 
     x_stream3 = x.sw(5)  ## 5 samples of x in the past
     y_stream3 = y.sw(
@@ -351,3 +353,301 @@ def test_invalid_step_raises():
 
     with np.testing.assert_raises(ValueError):
         DataLoader(model, source={"step_invalid_x": np.arange(4, dtype=np.float32)}, step=0)
+
+
+def test_format_maps_multiple_columns_to_one_input():
+    x = Input("multi_column_x", dim=3)
+    model = Modely(
+        "multi_column_model",
+        inputs=[x],
+        outputs=[Output("multi_column_out", x.sw(2))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        format={"multi_column_x": ["a", "b", "c"]},
+        source=os.path.join("tests", "datasets", "test.csv"),
+    )
+
+    ## One window per pair of consecutive rows, features in the declared order
+    assert loader.dataset["multi_column_x"].shape == (9, 3, 2)
+    np.testing.assert_array_equal(
+        loader.dataset["multi_column_x"][0],
+        np.array([[2, 6], [3, 7], [4, 8]], dtype=np.float32),
+    )
+
+    ## Positional indices select the same three columns
+    by_index = DataLoader(
+        model,
+        format={"multi_column_x": [3, 4, 5]},
+        source=os.path.join("tests", "datasets", "test.csv"),
+    )
+    np.testing.assert_array_equal(
+        by_index.dataset["multi_column_x"], loader.dataset["multi_column_x"]
+    )
+
+
+def test_format_rejects_a_column_count_that_does_not_match_dim():
+    x = Input("wrong_width_x", dim=3)
+    model = Modely(
+        "wrong_width_model",
+        inputs=[x],
+        outputs=[Output("wrong_width_out", x.sw(2))],
+    ).build()
+
+    with np.testing.assert_raises(ValueError):
+        DataLoader(
+            model,
+            format={"wrong_width_x": ["a", "b"]},
+            source=os.path.join("tests", "datasets", "test.csv"),
+        )
+
+
+def test_on_short_skips_simulations_that_are_too_short():
+    x = Input("short_x", dim=1)
+    model = Modely(
+        "short_model",
+        inputs=[x],
+        outputs=[Output("short_out", x.sw(4))],
+    ).build()
+
+    simulations = [
+        {"short_x": np.arange(1, 6, dtype=np.float32)},  ## 5 samples -> 2 windows
+        {"short_x": np.arange(10, 13, dtype=np.float32)},  ## 3 samples -> too short
+    ]
+
+    with np.testing.assert_raises(ValueError):
+        DataLoader(model, source=simulations)
+
+    loader = DataLoader(model, source=simulations, on_short="skip")
+    assert loader.dataset["short_x"].shape == (2, 1, 4)
+    np.testing.assert_array_equal(
+        loader.dataset["short_x"][:, 0],
+        np.array([[1, 2, 3, 4], [2, 3, 4, 5]], dtype=np.float32),
+    )
+
+    ## Skipping every simulation leaves nothing to train on
+    with np.testing.assert_raises(ValueError):
+        DataLoader(model, source=simulations[1:], on_short="skip")
+
+
+def test_simulations_are_windowed_independently():
+    x = Input("independent_x", dim=1)
+    model = Modely(
+        "independent_model",
+        inputs=[x],
+        outputs=[Output("independent_out", x.sw(2))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source=[
+            {"independent_x": np.array([1, 2, 3], dtype=np.float32)},
+            {"independent_x": np.array([10, 11], dtype=np.float32)},
+        ],
+    )
+
+    ## No window spans two simulations
+    np.testing.assert_array_equal(
+        loader.dataset["independent_x"][:, 0],
+        np.array([[1, 2], [2, 3], [10, 11]], dtype=np.float32),
+    )
+
+
+def test_multiple_dynamic_sequence_lengths_are_rejected():
+    x = Input("two_dynamic_x", dim=1, seq=(None, None))
+    model = Modely(
+        "two_dynamic_model",
+        inputs=[x],
+        outputs=[Output("two_dynamic_out", x.sw(2))],
+    ).build()
+
+    with np.testing.assert_raises(ValueError):
+        DataLoader(
+            model,
+            source={"two_dynamic_x": np.arange(20, dtype=np.float32)},
+            seq_length=3,
+        )
+
+
+def test_full_sequence_spans_each_simulation_and_pads():
+    x = Input("full_x", dim=1, seq=(None,))
+    model = Modely(
+        "full_model",
+        inputs=[x],
+        outputs=[Output("full_out", x.sw(1))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source=[
+            {"full_x": np.arange(1, 6, dtype=np.float32)},
+            {"full_x": np.arange(10, 13, dtype=np.float32)},
+        ],
+        seq_length="full",
+    )
+
+    ## One sample per simulation, padded on the rollout axis to the longest one
+    assert len(loader) == 2
+    assert loader.dataset["full_x"].shape == (2, 1, 1, 5)
+    np.testing.assert_array_equal(
+        loader.dataset["full_x"][:, 0, 0],
+        np.array([[1, 2, 3, 4, 5], [10, 11, 12, 12, 12]], dtype=np.float32),
+    )
+
+    ## The mask marks the real steps of every simulation
+    assert loader.padded_inputs == {"full_x"}
+    np.testing.assert_array_equal(
+        loader.mask,
+        np.array([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=bool),
+    )
+
+
+def test_full_sequence_leaves_the_inner_levels_alone():
+    x = Input("full_nested_x", dim=1, seq=(2, None))
+    model = Modely(
+        "full_nested_model",
+        inputs=[x],
+        outputs=[Output("full_nested_out", x.sw(1))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source=[
+            {"full_nested_x": np.arange(6, dtype=np.float32)},
+            {"full_nested_x": np.arange(4, dtype=np.float32)},
+        ],
+        seq_length="full",
+    )
+
+    ## The inner level still spans 2, so the outermost one covers what is left
+    assert loader.dataset["full_nested_x"].shape == (2, 1, 1, 2, 5)
+    np.testing.assert_array_equal(
+        loader.mask,
+        np.array([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=bool),
+    )
+
+
+def test_full_sequence_of_equal_simulations_needs_no_mask():
+    x = Input("uniform_x", dim=1, seq=(None,))
+    model = Modely(
+        "uniform_model",
+        inputs=[x],
+        outputs=[Output("uniform_out", x.sw(1))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source=[
+            {"uniform_x": np.arange(4, dtype=np.float32)},
+            {"uniform_x": np.arange(10, 14, dtype=np.float32)},
+        ],
+        seq_length="full",
+    )
+
+    assert loader.dataset["uniform_x"].shape == (2, 1, 1, 4)
+    assert loader.mask is None
+    assert loader.padded_inputs == set()
+
+
+def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
+    x = Input("full_step_x", dim=1, seq=(None,))
+    model = Modely(
+        "full_step_model",
+        inputs=[x],
+        outputs=[Output("full_step_out", x.sw(1))],
+    ).build()
+
+    ## The sequence already spans the simulation, so there is nothing to step over
+    with np.testing.assert_raises(ValueError):
+        DataLoader(
+            model,
+            source={"full_step_x": np.arange(6, dtype=np.float32)},
+            seq_length="full",
+            step=2,
+        )
+
+    inner = Input("full_inner_x", dim=1, seq=(None, 2))
+    inner_model = Modely(
+        "full_inner_model",
+        inputs=[inner],
+        outputs=[Output("full_inner_out", inner.sw(1))],
+    ).build()
+
+    ## 'full' resolves the outermost sequence only
+    with np.testing.assert_raises(ValueError):
+        DataLoader(
+            inner_model,
+            source={"full_inner_x": np.arange(6, dtype=np.float32)},
+            seq_length="full",
+        )
+
+
+def test_normalization_ignores_padded_steps():
+    x = Input("padded_norm_x", dim=1, seq=(None,))
+    model = Modely(
+        "padded_norm_model",
+        inputs=[x],
+        outputs=[Output("padded_norm_out", x.sw(1))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source=[
+            {"padded_norm_x": np.arange(1, 6, dtype=np.float32)},
+            {"padded_norm_x": np.array([10, 11], dtype=np.float32)},
+        ],
+        seq_length="full",
+    )
+    loader.normalize(method="standard")
+
+    ## The three repeated steps of the short simulation must not move the mean
+    observed = np.array([1, 2, 3, 4, 5, 10, 11], dtype=np.float64)
+    assert loader.normalization_stats["padded_norm_x"]["offset"].ravel()[
+        0
+    ] == pytest.approx(observed.mean())
+    assert loader.normalization_stats["padded_norm_x"]["scale"].ravel()[
+        0
+    ] == pytest.approx(observed.std())
+
+
+def test_uncollected_loop_warns_on_simulations_of_different_lengths():
+    body_x = Input("warn_body_x", dim=1)
+    body_out = Output("warn_body_out", body_x.last())
+    body = Modely("warn_body", inputs=[body_x], outputs=[body_out]).build()
+
+    seed = Input("warn_x", dim=1, seq=(None,))
+    loop = Loop(
+        f=body,
+        callback={body_x: body_out},
+        initial={body_x: seed},
+        length=4,
+        collect=False,
+        name="warn_loop",
+    )
+    model = Modely(
+        "warn_model", inputs=[seed], outputs=[Output("warn_out", loop)]
+    ).build()
+
+    ## The last rollout step of a short simulation lies past the end of its data
+    with pytest.warns(UserWarning, match="collect=False"):
+        DataLoader(
+            model,
+            source=[
+                {"warn_x": np.arange(4, dtype=np.float32)},
+                {"warn_x": np.arange(2, dtype=np.float32)},
+            ],
+            seq_length="full",
+        )
+
+    ## Equal lengths need no padding, so there is nothing to warn about
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        DataLoader(
+            model,
+            source=[
+                {"warn_x": np.arange(4, dtype=np.float32)},
+                {"warn_x": np.arange(10, 14, dtype=np.float32)},
+            ],
+            seq_length="full",
+        )

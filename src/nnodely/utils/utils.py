@@ -1,5 +1,6 @@
 # This file contains utility functions for the nnodely library.
 import keras
+import numpy as np
 from typing import Any, Callable
 
 SUPPORTED_OPTIMIZERS = {
@@ -47,6 +48,55 @@ def _resolve_loss(
     return resolved
 
 
+def _mask_padded_targets(values: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Mark the padded rollout steps of a target array with NaN.
+
+    The mask is one row per sample, one column per rollout step; the array it
+    marks is [samples, *dim, time, *seq], whose last axis is that same rollout.
+    """
+    view = mask.reshape(mask.shape[0], *([1] * (values.ndim - 2)), mask.shape[1])
+    return np.where(view, values, np.nan).astype(values.dtype)
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class MaskedLoss(keras.losses.Loss):
+    """Drop the padded target steps, marked with NaN, from a wrapped loss.
+
+    Both sides are zeroed on a padded step, so it contributes exactly zero
+    whatever the wrapped loss is. Zeroing the prediction too is what keeps the
+    loss finite: a rollout that runs past the end of its simulation is driven by
+    the model alone and can overflow, and copying that into the target would
+    make the loss ``inf - inf``. The reduction still divides by the padded
+    width, so every real step weighs the same across simulations of different
+    lengths.
+
+    It is a registered Loss rather than a closure because ``compile`` keeps it
+    in the model state, which has to survive an export/import round trip.
+    """
+
+    def __init__(self, loss, name="masked_loss", **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.loss = keras.losses.get(loss)
+
+    def call(self, y_true, y_pred):
+        valid = keras.ops.logical_not(keras.ops.isnan(y_true))
+        zero = keras.ops.zeros_like(y_pred)
+        y_true = keras.ops.where(valid, y_true, zero)
+        y_pred = keras.ops.where(valid, y_pred, zero)
+        return self.loss(y_true, y_pred)
+
+    def get_config(self):
+        config = super().get_config()
+        config["loss"] = keras.losses.serialize(self.loss)
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        config = dict(config)
+        config["loss"] = keras.losses.deserialize(config["loss"])
+        return cls(**config)
+
+
 def _resolve_optimizer(
     optimizer: str | dict[str, Any] | keras.optimizers.Optimizer | None,
     learning_rate: float,
@@ -83,3 +133,26 @@ def _resolve_optimizer(
             "optimizer must resolve to an instance of keras.optimizers.Optimizer."
         )
     return resolved
+
+def find_sample_time(node) -> float | None:
+    """Shared helpers for time-aware layers (Derivative, Integrate).
+    Walk the ancestor chain looking for the first exposed `sample_time`.
+
+    An Input (and the SampleWindow built from it) carries a `sample_time`
+    attribute. Walking the whole ancestor chain - not just the immediate
+    predecessor - lets Derivative/Integrate resolve `dt` automatically even
+    when applied to an arbitrary Layer's output deeper in the architecture,
+    as long as some ancestor traces back to an Input with `sample_time` set.
+    """
+    seen = set()
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        sample_time = getattr(current, "sample_time", None)
+        if sample_time is not None:
+            return sample_time
+        stack.extend(getattr(current, "preds", None) or [])
+    return None

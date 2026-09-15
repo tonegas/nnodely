@@ -4,7 +4,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from nnodely.core.dag import toposort, flatten, _flatten_graph
-from nnodely.utils.utils import _resolve_loss, _resolve_optimizer
+from nnodely.utils.utils import (
+    MaskedLoss,
+    _mask_padded_targets,
+    _resolve_loss,
+    _resolve_optimizer,
+)
 from nnodely.core.registry import ModelSerializer
 from nnodely.core.stream import Stream, Node
 from nnodely.layers.constant import Constant
@@ -271,6 +276,8 @@ class Modely:
         x_data = {
             name: np.asarray(values) for name, values in val_data.as_dict().items()
         }
+        mask = getattr(val_data, "mask", None)
+        padded_inputs = getattr(val_data, "padded_inputs", set())
 
         n_samples = len(val_data)
         if n_samples == 0:
@@ -324,6 +331,15 @@ class Modely:
             y_true = y_true[:n]
 
             error = y_pred - y_true
+            if target_name in padded_inputs:
+                # Padded rollout steps are not observations: keep them out of
+                # the metrics the same way training keeps them out of the loss.
+                view = mask[:n].reshape(
+                    n, *([1] * (error.ndim - 2)), mask.shape[1]
+                )
+                valid = np.broadcast_to(view, error.shape)
+                error = error[valid]
+                y_true = y_true[valid]
 
             mse = float(np.mean(error**2))
             rmse = float(np.sqrt(mse))
@@ -417,6 +433,10 @@ class Modely:
         x_data = {
             name: np.asarray(values) for name, values in train_data.as_dict().items()
         }
+        # Simulations padded to a common rollout length carry a mask; the padded
+        # steps are dropped from the loss, never from the forward pass.
+        mask = getattr(train_data, "mask", None)
+        padded_inputs = getattr(train_data, "padded_inputs", set())
 
         def _resolve_label_name(node):
             if node.name in x_data:
@@ -435,7 +455,10 @@ class Modely:
 
             label_name = _resolve_label_name(target)
             if label_name is not None:
-                y_data[source_name] = x_data[label_name]
+                values = x_data[label_name]
+                if label_name in padded_inputs:
+                    values = _mask_padded_targets(values, mask)
+                y_data[source_name] = values
                 continue
 
             target_value = getattr(target, "value_numpy", None)
@@ -446,9 +469,10 @@ class Modely:
 
             target_value = np.asarray(target_value, dtype=np.float32)
             y_shape = (n_samples,) + tuple(minimizer["source"].shape)
-            y_data[source_name] = np.broadcast_to(target_value, y_shape).astype(
-                np.float32
-            )
+            values = np.broadcast_to(target_value, y_shape).astype(np.float32)
+            if mask is not None and values.shape[-1] == mask.shape[1]:
+                values = _mask_padded_targets(values, mask)
+            y_data[source_name] = values
 
         backend = keras.backend.backend()
 
@@ -621,9 +645,10 @@ class Modely:
             name: None for name in getattr(km, "output_names", [])
         }
         for minimizer in self.minimizers:
-            compile_losses[minimizer["source"].name] = resolved_losses[
-                minimizer["name"]
-            ]
+            loss = resolved_losses[minimizer["name"]]
+            compile_losses[minimizer["source"].name] = (
+                MaskedLoss(loss) if mask is not None else loss
+            )
 
         import time
         import sys

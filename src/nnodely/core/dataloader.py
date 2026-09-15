@@ -1,35 +1,55 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import warnings
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Literal
 
 import numpy as np
 import pandas as pd
 
+sliding_window_view = np.lib.stride_tricks.sliding_window_view
 
-@dataclass
+
 class DataLoader:
     """
-    Build a dataset from CSV files using the inputs declared in the model.
+    Build a training dataset from simulation data.
 
-    Rules:
-    - Every model input is treated the same way.
-    - The input name must match a CSV column name.
-    - The input sample window is inferred from the input object:
-        Input("data_1").sw(5)  -> windows of length 5
-        Input("data_2").sw(1)  -> windows of length 1
-    - All windows are aligned in time.
-    - Multiple CSV files are concatenated sample-wise.
-    - step keeps one sample every `step`: temporal windows when the inputs have
-      no seq dimension, sequences when they have one.
+    A simulation is one contiguous recording. Every window is built inside a
+    single simulation, so no window ever spans two of them, and simulations may
+    have different lengths.
+
+    Sources:
+        dict / list[dict]            arrays keyed by input name
+        DataFrame / list[DataFrame]  columns keyed by input name
+        path to a .csv file          one simulation
+        path to a folder             one simulation per file matching csv_glob
+
+    ``format`` maps an input name to the column feeding it - a column name or a
+    positional index - or to a list of columns when the input carries more than
+    one feature:
+
+        format={"vel": "vel", "trq": 1, "alt": ["alt1", ..., "alt21"]}
+
+    Columns that no input maps to are ignored.
+
+    Windows:
+    - Temporal windows come from ``Input.sw()``. All inputs are aligned so that
+      every window ends on the same sample.
+    - Sequence windows come from ``Input(seq=...)``: one sliding window per
+      declared length, applied on top of the temporal windows, the outermost
+      sequence last. Only one length may be dynamic (``None``), and
+      ``seq_length`` resolves it.
+    - ``step`` is the jump between one dataset sample and the next; every
+      sequence level itself advances one sample at a time.
+    - ``seq_length="full"`` resolves the dynamic length to the whole simulation,
+      so every simulation yields exactly one sample. Simulations of different
+      lengths are padded on the rollout axis and ``mask`` marks the real steps;
+      ``step`` is meaningless there and is rejected.
+    - ``on_short`` decides what happens to a simulation with too few samples to
+      fill the windows: raise, or leave it out.
 
     Final dataset format:
-        {
-            "data_1": np.ndarray of shape (N, 5),
-            "data_2": np.ndarray of shape (N, 1),
-            ...
-        }
+        {name: np.ndarray of shape (N, *dim, time, *seq)}
 
     Example:
         data_1 = Input('data_1', dim=1)
@@ -46,83 +66,71 @@ class DataLoader:
         }
     """
 
-    dataset: Dict[str, np.ndarray] = field(default_factory=dict)
-    align: Literal["trim", "error"] = "trim"
-
     def __init__(
         self,
         model: Any,
-        source: str | dict,
-        format: dict[str, str | int] | None = None,
-        trim: bool = False,
+        source: str | Path | dict | pd.DataFrame | list,
+        format: dict[str, Any] | None = None,
         csv_glob: str = "*.csv",
         dtype: Any = np.float32,
-        seq_length: int | None = None,
+        seq_length: int | Literal["full"] | None = None,
         step: int = 1,
+        on_short: Literal["error", "skip"] = "error",
     ):
         if step < 1:
             raise ValueError(f"step must be a positive integer, got {step}.")
+        if seq_length == "full" and step > 1:
+            raise ValueError(
+                "step has no meaning with seq_length='full': the sequence already "
+                "spans the whole simulation, so there is a single starting point."
+            )
+        if on_short not in ("error", "skip"):
+            raise ValueError(
+                f"on_short must be either 'error' or 'skip', got {on_short!r}."
+            )
+        if format is not None and not isinstance(format, dict):
+            raise TypeError(
+                "format must be a dict mapping input name to column name(s) or index(es)"
+            )
 
         self.model = model
         self.format = format
-        self.trim = trim
         self.csv_glob = csv_glob
         self.dtype = dtype
         self.seq_length = seq_length
         self.step = step
+        self.on_short = on_short
 
         if model.model is None:
             raise ValueError(
                 f"Model {model.name} is not built. Make sure to call {model.name}.build() first."
             )
-        self.input_specs = {
-            node.name: [node.past, node.future] for node in model.train_inputs
-        }
+
         self.input_nodes = {node.name: node for node in model.train_inputs}
-        if not self.input_specs:
+        if not self.input_nodes:
             raise ValueError("Could not infer any inputs from model.inputs")
+        self.input_specs = {
+            name: [node.past, node.future] for name, node in self.input_nodes.items()
+        }
+        self.sequence_specs = {
+            name: self._resolve_sequence(node) for name, node in self.input_nodes.items()
+        }
 
-        self.sequence_specs = {}
-        for node in model.train_inputs:
-            sequence = []
-            for length in node.seq:
-                if length is None:
-                    if self.seq_length is None:
-                        raise ValueError(
-                            "Some inputs have undefined sequence length. "
-                            "Please specify seq_length in training."
-                        )
-                    length = self.seq_length
-                if length < 1:
-                    raise ValueError(
-                        f"Input '{node.name}' has invalid sequence length {length}."
-                    )
-                sequence.append(int(length))
-            self.sequence_specs[node.name] = tuple(sequence)
-
-        sequence_lengths = [
-            length for sequence in self.sequence_specs.values() for length in sequence
-        ]
-        self.max_sequence_length = max(sequence_lengths, default=0)
-
-        if isinstance(source, str):
-            self.source = Path(source)
-            if not self.source.exists():
-                raise FileNotFoundError(f"Source does not exist: {self.source}")
-            if not self.source.is_dir():
-                raise NotADirectoryError(f"Not a folder: {self.source}")
-            if self.format is not None and not isinstance(self.format, dict):
-                raise TypeError(
-                    "format must be a dict mapping input name to column name or index"
-                )
-            self.dataset = self._build_from_folder()
-        elif isinstance(source, dict):
-            self.dataset = self._build_from_dict(source)
+        self._dynamic_inputs = {
+            name
+            for name, sequence in self.sequence_specs.items()
+            if any(length is None for length in sequence)
+        }
+        self.mask: np.ndarray | None = None
+        self.padded_inputs: set[str] = set()
+        self.dataset = self._build(self._read(source))
+        if self.mask is not None:
+            self._warn_uncollected_loops()
 
         self.normalization_stats: Dict[str, Dict[str, Any]] = {}
         self._original_dataset: Dict[str, np.ndarray] | None = None
         self._normalization_aliases = self._build_normalization_aliases()
-        self._num_steps = self._infer_num_steps()
+        self._num_steps = min(len(values) for values in self.dataset.values())
 
     @property
     def inputs(self) -> List[str]:
@@ -146,13 +154,319 @@ class DataLoader:
         for i in range(self._num_steps):
             yield self.get_step(i)
 
-    def get_train_data(self, batch_size: int) -> Iterator[Dict[str, Any]]:
-        for i in range(0, self._num_steps, batch_size):
-            batch = {k: v[i : i + batch_size] for k, v in self.dataset.items()}
-            yield batch
-
     def as_dict(self) -> Dict[str, np.ndarray]:
         return self.dataset
+
+    # ------------------------------------------------------------------
+    # Model specs
+    # ------------------------------------------------------------------
+
+    def _resolve_sequence(self, node) -> tuple[int | None, ...]:
+        dynamic = [index for index, length in enumerate(node.seq) if length is None]
+        if len(dynamic) > 1:
+            raise ValueError(
+                f"Input '{node.name}' declares more than one dynamic sequence length. "
+                "Only a single dynamic sequence dimension is supported."
+            )
+        if dynamic and self.seq_length is None:
+            raise ValueError(
+                "Some inputs have undefined sequence length. "
+                "Please specify seq_length in training."
+            )
+        if dynamic and self.seq_length == "full" and dynamic[0] != len(node.seq) - 1:
+            raise ValueError(
+                f"Input '{node.name}' declares its dynamic sequence length at position "
+                f"{dynamic[0]}, but seq_length='full' only resolves the outermost one."
+            )
+
+        sequence = []
+        for length in node.seq:
+            if length is None:
+                if self.seq_length == "full":
+                    # Resolved per simulation, once its own length is known.
+                    sequence.append(None)
+                    continue
+                length = self.seq_length
+            if length < 1:
+                raise ValueError(
+                    f"Input '{node.name}' has invalid sequence length {length}."
+                )
+            sequence.append(int(length))
+        return tuple(sequence)
+
+    # ------------------------------------------------------------------
+    # Read: source -> one {name: (samples, *dim)} array set per simulation
+    # ------------------------------------------------------------------
+
+    def _read(self, source) -> List[tuple[str, Dict[str, np.ndarray]]]:
+        if isinstance(source, (str, Path)):
+            path = Path(source)
+            if not path.exists():
+                raise FileNotFoundError(f"Source does not exist: {path}")
+            if path.is_dir():
+                files = sorted(path.glob(self.csv_glob))
+                if not files:
+                    raise FileNotFoundError(
+                        f"No CSV files matching '{self.csv_glob}' found in {path}"
+                    )
+            else:
+                files = [path]
+            return [
+                (file.name, self._read_frame(pd.read_csv(file), file.name))
+                for file in files
+            ]
+
+        items = source if isinstance(source, (list, tuple)) else [source]
+        simulations = []
+        for index, item in enumerate(items):
+            label = f"simulation {index}"
+            if isinstance(item, pd.DataFrame):
+                simulations.append((label, self._read_frame(item, label)))
+            elif isinstance(item, dict):
+                simulations.append((label, self._read_mapping(item, label)))
+            else:
+                raise TypeError(
+                    f"Unsupported source {type(item).__name__}: "
+                    "expected a dict, a DataFrame or a path."
+                )
+        return simulations
+
+    def _columns(self, name: str) -> list:
+        """Columns feeding an input: one per feature, in declaration order."""
+        column = self.format.get(name, name) if self.format else name
+        if isinstance(column, (list, tuple, range)):
+            return list(column)
+        return [column]
+
+    def _read_frame(self, df: pd.DataFrame, label: str) -> Dict[str, np.ndarray]:
+        if len(df) == 0:
+            raise ValueError(f"'{label}' is empty.")
+
+        missing = []
+        for name in self.input_specs:
+            for column in self._columns(name):
+                if isinstance(column, (int, np.integer)):
+                    if not 0 <= column < df.shape[1]:
+                        missing.append(f"{name} -> index {column}")
+                elif column not in df.columns:
+                    missing.append(f"{name} -> '{column}'")
+        if missing:
+            raise ValueError(
+                f"'{label}' is missing required columns or indices: {missing}"
+            )
+
+        data = {}
+        for name in self.input_specs:
+            values = np.stack(
+                [
+                    (
+                        df.iloc[:, column]
+                        if isinstance(column, (int, np.integer))
+                        else df[column]
+                    ).to_numpy(dtype=self.dtype)
+                    for column in self._columns(name)
+                ],
+                axis=-1,
+            )
+            data[name] = self._as_samples(name, values, label)
+        return data
+
+    def _read_mapping(self, mapping: dict, label: str) -> Dict[str, np.ndarray]:
+        missing = [name for name in self.input_specs if name not in mapping]
+        if missing:
+            raise ValueError(f"'{label}' is missing required inputs: {missing}")
+
+        data = {}
+        for name in self.input_specs:
+            values = mapping[name]
+            if isinstance(values, (pd.Series, pd.DataFrame)):
+                values = values.to_numpy(dtype=self.dtype)
+            data[name] = self._as_samples(name, values, label)
+
+        lengths = {name: values.shape[0] for name, values in data.items()}
+        if len(set(lengths.values())) > 1:
+            raise ValueError(f"Input arrays are not aligned in length: {lengths}.")
+        if min(lengths.values()) == 0:
+            raise ValueError(f"'{label}' contains an empty input array.")
+        return data
+
+    def _as_samples(self, name: str, values: Any, label: str) -> np.ndarray:
+        """Check the feature count against dim and lay the input out as [samples, *dim]."""
+        values = np.asarray(values, dtype=self.dtype)
+        if values.ndim == 0:
+            raise ValueError(f"Input '{name}' must be at least 1D, got scalar")
+
+        dim = tuple(self.input_nodes[name].dim)
+        feature_size = int(np.prod(values.shape[1:], dtype=int))
+        expected_size = int(np.prod(dim, dtype=int))
+        if feature_size != expected_size:
+            raise ValueError(
+                f"Input '{name}' in '{label}' provides {feature_size} values per "
+                f"timestep, but its dim={dim} requires {expected_size}."
+            )
+        return np.reshape(values, (values.shape[0], *dim))
+
+    # ------------------------------------------------------------------
+    # Window: simulations -> {name: (N, *dim, time, *seq)}
+    # ------------------------------------------------------------------
+
+    def _build(
+        self, simulations: List[tuple[str, Dict[str, np.ndarray]]]
+    ) -> Dict[str, np.ndarray]:
+        max_past = max(spec[0] for spec in self.input_specs.values())
+        max_future = max(spec[1] for spec in self.input_specs.values())
+
+        # Every input is windowed over the same range of end samples: it opens
+        # once the deepest past window is covered and closes early enough to
+        # leave room for the deepest future one.
+        first = max(max_past - 1, 0)
+        # A dynamic sequence is resolved per simulation, so only the levels
+        # declared up front can be required of every simulation.
+        fixed_spans = {
+            name: sum(length - 1 for length in sequence if length is not None)
+            for name, sequence in self.sequence_specs.items()
+        }
+        required = first + max_future + max(fixed_spans.values()) + 1
+        # Every dynamic input shares one rollout axis, so its length is the one
+        # the deepest of them can fill.
+        dynamic_span = max(
+            (fixed_spans[name] for name in self._dynamic_inputs), default=0
+        )
+
+        chunks: Dict[str, List[np.ndarray]] = {name: [] for name in self.input_specs}
+        lengths: List[int] = []
+        skipped = []
+        for label, simulation in simulations:
+            samples = next(iter(simulation.values())).shape[0]
+            if samples < required:
+                if self.on_short == "skip":
+                    skipped.append(label)
+                    continue
+                raise ValueError(
+                    f"'{label}' has only {samples} samples, but the model requires at "
+                    f"least {required}. Pass on_short='skip' to leave short "
+                    "simulations out."
+                )
+
+            windows = samples - max_future - first
+            length = windows - dynamic_span
+            sequences = {
+                name: tuple(
+                    length if declared is None else declared for declared in sequence
+                )
+                for name, sequence in self.sequence_specs.items()
+            }
+            spans = {
+                name: sum(size - 1 for size in sequence)
+                for name, sequence in sequences.items()
+            }
+            max_span = max(spans.values())
+            for name, values in simulation.items():
+                chunks[name].append(
+                    self._windows(
+                        name,
+                        values,
+                        first,
+                        max_future,
+                        max_span - spans[name],
+                        sequences[name],
+                    )
+                )
+            lengths.append(length)
+
+        if len(skipped) == len(simulations):
+            raise ValueError(
+                f"Every simulation is shorter than the {required} samples the model "
+                "requires."
+            )
+
+        # A dynamic sequence spans its whole simulation, so simulations of
+        # different lengths only line up once the rollout axis is padded.
+        if self._dynamic_inputs and len(set(lengths)) > 1:
+            widest = max(lengths)
+            for name in self._dynamic_inputs:
+                chunks[name] = [self._pad(values, widest) for values in chunks[name]]
+            self.mask = np.arange(widest) < np.asarray(lengths)[:, np.newaxis]
+            self.padded_inputs = set(self._dynamic_inputs)
+
+        return {
+            name: np.concatenate(windows, axis=0) for name, windows in chunks.items()
+        }
+
+    def _warn_uncollected_loops(self) -> None:
+        """Warn about a Loop that returns only its last, padded, rollout step."""
+        uncollected = sorted(
+            node.name
+            for node in self.model.order
+            if getattr(node, "collect", None) is False
+        )
+        if not uncollected:
+            return
+        warnings.warn(
+            f"{uncollected} roll out with collect=False while the simulations have "
+            "different lengths. Such a Loop returns the state at the padded rollout "
+            "length, which for a shorter simulation lies past the end of its data, "
+            "and the mask cannot correct it: an uncollected output has no rollout "
+            "axis to mask. Use collect=True, or simulations of equal length.",
+            UserWarning,
+            stacklevel=3,
+        )
+
+    @staticmethod
+    def _pad(values: np.ndarray, width: int) -> np.ndarray:
+        """Extend the rollout axis to ``width`` by repeating its last step.
+
+        Repeating keeps the padded part of a rollout inside the range the model
+        was fitted on; the mask is what removes it from the loss.
+        """
+        missing = width - values.shape[-1]
+        if missing <= 0:
+            return values
+        return np.concatenate(
+            [values, np.repeat(values[..., -1:], missing, axis=-1)], axis=-1
+        )
+
+    def _mask_view(self, rank: int) -> np.ndarray:
+        """The rollout mask shaped to broadcast against a dataset array."""
+        assert self.mask is not None
+        return self.mask.reshape(
+            self.mask.shape[0], *([1] * (rank - 2)), self.mask.shape[1]
+        )
+
+    def _windows(
+        self,
+        name: str,
+        values: np.ndarray,
+        first: int,
+        max_future: int,
+        lead: int,
+        sequence: tuple[int, ...],
+    ) -> np.ndarray:
+        """Temporal windows of one input, then one sliding window per seq length."""
+        past, future = self.input_specs[name]
+        width = past + future
+        last = values.shape[0] - max_future  # one past the last aligned end sample
+
+        if width > 0:
+            # Window i covers values[i:i + width] and ends on sample i + past - 1,
+            # so the shared range of end samples selects the windows to keep.
+            windows = sliding_window_view(values, window_shape=width, axis=0)
+            windows = windows[first - past + 1 : last - past + 1]
+        else:
+            # No declared window: the input contributes a single sample.
+            windows = values[first:last][..., np.newaxis]
+
+        for length in sequence:
+            windows = sliding_window_view(windows, window_shape=length, axis=0)
+
+        # A sequence window is aligned to its final temporal sample. Inputs with
+        # shorter/no seq dimensions therefore skip earlier samples so every model
+        # input refers to the same endpoint.
+        if lead:
+            windows = windows[lead:]
+        if self.step > 1:
+            windows = windows[:: self.step]
+        return np.ascontiguousarray(windows, dtype=self.dtype)
 
     # ------------------------------------------------------------------
     # Explicit normalization
@@ -203,15 +517,26 @@ class DataLoader:
             dim_rank = self.input_nodes[name].shape.dim_rank
             reduce_axes = (0, *range(1 + dim_rank, values.ndim))
 
+            # Padded rollout steps are repeats, not observations, so they are
+            # left out of the statistics while still being transformed.
+            padded = name in self.padded_inputs
+            observed = (
+                np.where(self._mask_view(values.ndim), values, np.nan)
+                if padded
+                else values
+            )
+            mean, std = (np.nanmean, np.nanstd) if padded else (np.mean, np.std)
+            smallest, largest = (np.nanmin, np.nanmax) if padded else (np.min, np.max)
+
             if method == "standard":
-                offset = np.mean(values, axis=reduce_axes, keepdims=True)
-                scale = np.std(values, axis=reduce_axes, keepdims=True)
+                offset = mean(observed, axis=reduce_axes, keepdims=True)
+                scale = std(observed, axis=reduce_axes, keepdims=True)
                 constant = scale <= np.finfo(np.float32).eps
                 safe_scale = np.where(constant, 1.0, scale)
                 normalized = (values - offset) / safe_scale
             else:
-                minimum = np.min(values, axis=reduce_axes, keepdims=True)
-                maximum = np.max(values, axis=reduce_axes, keepdims=True)
+                minimum = smallest(observed, axis=reduce_axes, keepdims=True)
+                maximum = largest(observed, axis=reduce_axes, keepdims=True)
                 span = maximum - minimum
                 constant = span <= np.finfo(np.float32).eps
                 safe_scale = np.where(constant, 1.0, span)
@@ -318,302 +643,3 @@ class DataLoader:
             if target_name is not None:
                 aliases[minimizer["source"].name] = target_name
         return aliases
-
-    # ------------------------------------------------------------------
-    # Build dataset
-    # ------------------------------------------------------------------
-
-    def _build_from_dict(self, source: Dict[str, Any]) -> Dict[str, np.ndarray]:
-        """
-        Build dataset from an in-memory dict.
-
-        Expected input:
-            {
-                "x": np.ndarray,
-                "y": np.ndarray,
-                ...
-            }
-
-        Each value can be:
-        - list
-        - numpy array
-        - pandas Series
-        - pandas DataFrame (single column or multi-column)
-
-        Rolling windows are built exactly like in _build_from_dataframe(),
-        using self.input_specs[name] as the required window length.
-
-        Output format:
-            {
-                "x": np.ndarray of shape (N, W_x, ...),
-                "y": np.ndarray of shape (N, W_y, ...),
-                ...
-            }
-        """
-        missing = [name for name in self.input_specs if name not in source]
-        if missing:
-            raise ValueError(f"Source dict is missing required inputs: {missing}")
-
-        # Normalize all provided arrays
-        arrays: Dict[str, np.ndarray] = {}
-        for name in self.input_specs:
-            value = source[name]
-
-            if isinstance(value, pd.Series):
-                arr = value.to_numpy(dtype=self.dtype)
-            elif isinstance(value, pd.DataFrame):
-                arr = value.to_numpy(dtype=self.dtype)
-            else:
-                arr = np.asarray(value, dtype=self.dtype)
-
-            if arr.ndim == 0:
-                raise ValueError(f"Input '{name}' must be at least 1D, got scalar")
-
-            # Normalize shape:
-            #   (T,)       -> scalar feature over time
-            #   (T, D)     -> D features over time
-            #   (T, ...)   -> generic trailing feature dims
-            arrays[name] = arr
-
-        lengths = {name: arr.shape[0] for name, arr in arrays.items()}
-        if not lengths:
-            return {}
-
-        min_rows = min(lengths.values())
-
-        if min_rows == 0:
-            raise ValueError("At least one provided input array is empty.")
-
-        if len(set(lengths.values())) > 1:
-            if self.trim:
-                for name in arrays:
-                    arrays[name] = arrays[name][:min_rows]
-            else:
-                raise ValueError(
-                    f"Input arrays are not aligned in length: {lengths}. "
-                    f"Use trim=True to align automatically."
-                )
-
-        n_rows = next(iter(arrays.values())).shape[0]
-        max_past_window = max(spec[0] for spec in self.input_specs.values())
-        max_future_window = max(spec[1] for spec in self.input_specs.values())
-        max_window = max_past_window + max_future_window
-
-        if n_rows < max_window:
-            raise ValueError(
-                f"Input arrays have only {n_rows} rows, but the largest required window is {max_window}."
-            )
-
-        t_start = max_past_window - 1 if max_past_window > 0 else 0
-        t_end = n_rows - max_future_window - 1
-
-        raw_data: Dict[str, List[np.ndarray]] = {name: [] for name in self.input_specs}
-
-        for t in range(t_start, t_end + 1):
-            for name, (past, future) in self.input_specs.items():
-                start = t - past + 1
-                end = t + future + 1
-
-                values = (
-                    arrays[name][start:end]
-                    if past + future > 0
-                    else arrays[name][t : t + 1]
-                )
-
-                if values.shape[0] != past + future and past + future > 0:
-                    raise RuntimeError(
-                        f"Internal error while building window for '{name}': "
-                        f"expected {past + future}, got {values.shape[0]}"
-                    )
-
-                raw_data[name].append(self._format_temporal_window(name, values))
-
-        dataset = {
-            name: np.stack(windows, axis=0).astype(self.dtype)
-            for name, windows in raw_data.items()
-        }
-        dataset = self._apply_sequence_windows(dataset)
-        self._check_alignment(dataset)
-        return dataset
-
-    def _build_from_folder(self) -> Dict[str, np.ndarray]:
-        csv_files = sorted(self.source.glob(self.csv_glob))
-        if not csv_files:
-            raise FileNotFoundError(
-                f"No CSV files matching '{self.csv_glob}' found in {self.source}"
-            )
-        chunks: Dict[str, List[np.ndarray]] = {name: [] for name in self.input_specs}
-        for csv_path in csv_files:
-            df = pd.read_csv(csv_path)
-            missing = []
-            for name in self.input_specs:
-                col = (
-                    self.format[name] if (self.format and name in self.format) else name
-                )
-                if isinstance(col, int):
-                    if col < 0 or col >= df.shape[1]:
-                        missing.append(f"{name} -> index {col}")
-                else:
-                    if col not in df.columns:
-                        missing.append(f"{name} -> '{col}'")
-            if missing:
-                raise ValueError(
-                    f"File '{csv_path.name}' is missing required columns or indices: {missing}"
-                )
-
-            file_dataset = self._build_from_dataframe(df)
-            for name, arr in file_dataset.items():
-                chunks[name].append(arr)
-
-        dataset = {}
-
-        for name, arr_list in chunks.items():
-            arr = np.concatenate(arr_list, axis=0).astype(self.dtype)
-            dataset[name] = arr
-        return dataset
-
-    def _build_from_dataframe(self, df: pd.DataFrame) -> Dict[str, np.ndarray]:
-        """
-        For each input with window W, build rolling windows:
-
-            column = [1,2,3,4,5,6]
-            W = 3
-
-            -> [[1,2,3],
-                [2,3,4],
-                [3,4,5],
-                [4,5,6]]
-
-        All inputs are aligned by trimming to the common valid range.
-        """
-        n_rows = len(df)
-        if n_rows == 0:
-            raise ValueError("Encountered an empty CSV file.")
-
-        max_past_window = max(spec[0] for spec in self.input_specs.values())
-        max_future_window = max(spec[1] for spec in self.input_specs.values())
-        max_window = max_past_window + max_future_window
-        if n_rows < max_window:
-            raise ValueError(
-                f"CSV has only {n_rows} rows, but the largest required window is {max_window}."
-            )
-
-        # Common aligned sample end indices
-        # If max_window = 5, valid end indices are 4,5,6,...
-        t_start = max_past_window - 1 if max_past_window > 0 else 0
-        t_end = n_rows - max_future_window - 1
-
-        raw_data: Dict[str, List[np.ndarray]] = {name: [] for name in self.input_specs}
-        for t in range(t_start, t_end + 1):
-            for name, (past, future) in self.input_specs.items():
-                start = t - past + 1
-                end = t + future + 1
-                col = (
-                    self.format[name] if (self.format and name in self.format) else name
-                )
-                if isinstance(col, int):
-                    try:
-                        values = (
-                            df.iloc[start:end, col].to_numpy(dtype=self.dtype)
-                            if past + future > 0
-                            else np.array([df.iloc[t, col]], dtype=self.dtype)
-                        )
-                    except IndexError:
-                        raise ValueError(
-                            f"Column index {col} out of range for input '{name}'"
-                        )
-                else:
-                    values = (
-                        df[col].iloc[start:end].to_numpy(dtype=self.dtype)
-                        if past + future > 0
-                        else np.array([df[col].iloc[t]], dtype=self.dtype)
-                    )
-
-                if past + future > 0 and values.shape[0] != past + future:
-                    raise RuntimeError(
-                        f"Internal error while building window for '{name}': "
-                        f"expected {past + future}, got {values.shape[0]}"
-                    )
-                raw_data[name].append(self._format_temporal_window(name, values))
-
-        dataset = {
-            name: np.stack(windows, axis=0) for name, windows in raw_data.items()
-        }
-        dataset = self._apply_sequence_windows(dataset)
-        self._check_alignment(dataset)
-        return dataset
-
-    def _format_temporal_window(self, name: str, values: np.ndarray) -> np.ndarray:
-        """Convert raw [time, features...] data to nnodely [dim..., time]."""
-        values = np.asarray(values, dtype=self.dtype)
-        window_length = values.shape[0]
-        dim = tuple(self.input_nodes[name].dim)
-        feature_size = int(np.prod(values.shape[1:], dtype=int))
-        expected_size = int(np.prod(dim, dtype=int))
-
-        if feature_size != expected_size:
-            raise ValueError(
-                f"Input '{name}' provides {feature_size} values per timestep, "
-                f"but its dim={dim} requires {expected_size}."
-            )
-
-        values = np.reshape(values, (window_length, *dim))
-        return np.moveaxis(values, 0, -1)
-
-    def _apply_sequence_windows(
-        self, dataset: Dict[str, np.ndarray]
-    ) -> Dict[str, np.ndarray]:
-        """Build every seq axis on top of the already-created time windows."""
-        spans = {
-            name: sum(length - 1 for length in sequence)
-            for name, sequence in self.sequence_specs.items()
-        }
-        max_span = max(spans.values(), default=0)
-        result = {}
-
-        for name, values in dataset.items():
-            required = spans[name] + 1
-            if len(values) < required:
-                raise ValueError(
-                    f"Input '{name}' has only {len(values)} temporal windows, "
-                    f"but seq={self.sequence_specs[name]} requires at least {required}."
-                )
-
-            windows = values
-            for length in self.sequence_specs[name]:
-                windows = np.lib.stride_tricks.sliding_window_view(
-                    windows,
-                    window_shape=length,
-                    axis=0,
-                )
-
-            # A sequence window is aligned to its final temporal sample. Inputs
-            # with shorter/no seq dimensions therefore skip earlier samples so
-            # every model input refers to the same endpoint.
-            offset = max_span - spans[name]
-            if offset:
-                windows = windows[offset:]
-            # step subsamples the outermost axis: temporal windows when there
-            # is no seq dimension, sequences when there is one.
-            if self.step > 1:
-                windows = windows[:: self.step]
-            result[name] = np.ascontiguousarray(windows, dtype=self.dtype)
-
-        return result
-
-    def _check_alignment(self, dataset: Dict[str, np.ndarray]) -> None:
-        lengths = {k: len(v) for k, v in dataset.items()}
-        unique_lengths = set(lengths.values())
-
-        if len(unique_lengths) <= 1:
-            return
-
-        if self.trim:
-            min_len = min(lengths.values())
-            for k in dataset:
-                dataset[k] = dataset[k][:min_len]
-
-    def _infer_num_steps(self) -> int:
-        if not self.dataset:
-            return 0
-        return min(len(v) for v in self.dataset.values())

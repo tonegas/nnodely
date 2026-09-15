@@ -18,7 +18,7 @@ import pytest
 import numpy as np
 import keras
 from conftest import to_numpy
-from nnodely.utils.utils import _resolve_loss, _resolve_optimizer
+from nnodely.utils.utils import MaskedLoss, _resolve_loss, _resolve_optimizer
 
 
 @keras.saving.register_keras_serializable(package="nnodely_test")
@@ -668,3 +668,97 @@ def test_train_with_model_rollback_uses_final_value_only():
     np.testing.assert_allclose(history["loss"], [4.0], atol=1e-5)
     np.testing.assert_allclose(to_numpy(relation.kernel), [[1.24]], atol=1e-5)
     assert int(to_numpy(optimizer.iterations)) == 1
+
+
+def test_masked_loss_ignores_padded_target_steps():
+    loss = MaskedLoss(_resolve_loss("mse"))
+    y_true = np.array([[1.0, 2.0, np.nan, np.nan]], dtype=np.float32)
+    far = np.array([[1.5, 2.5, 100.0, -100.0]], dtype=np.float32)
+    near = np.array([[1.5, 2.5, 0.0, 7.0]], dtype=np.float32)
+
+    ## Whatever the model predicts on a padded step cannot change the loss
+    np.testing.assert_allclose(
+        to_numpy(loss(y_true, far)), to_numpy(loss(y_true, near)), rtol=1e-6
+    )
+    ## Only the two real steps contribute, averaged over the padded width
+    np.testing.assert_allclose(
+        to_numpy(loss(y_true, far)), [(0.25 + 0.25) / 4], rtol=1e-6
+    )
+
+
+def test_train_on_simulations_of_different_lengths(tmp_path):
+    ## x[t + 1] = w * x[t], rolled out over the whole simulation
+    ratio = 0.8
+    body_x = Input("pad_body_x", dim=1)
+    relation = Linear(
+        out_features=1,
+        use_bias=False,
+        initializer="ones",
+        name="pad_body_linear",
+    )(body_x.last())
+    body_out = Output("pad_body_out", relation)
+    body = Modely("pad_body", inputs=[body_x], outputs=[body_out]).build()
+
+    seed = Input("pad_x", dim=1, seq=(None,))
+    loop = Loop(
+        f=body,
+        callback={body_x: body_out},
+        initial={body_x: seed},
+        length=6,
+        name="pad_loop",
+    )
+    output = Output("pad_out", loop)
+    model = Modely("pad_loop_model", inputs=[seed], outputs=[output])
+    model.minimize(
+        "pad_error", output, Input("pad_target", dim=1, seq=(None,)), loss="mse"
+    )
+    model.build()
+
+    ## Three simulations of different lengths, the longest fixing the rollout
+    signals = [
+        start * ratio ** np.arange(length, dtype=np.float32)
+        for start, length in ((1.0, 6), (2.0, 3), (-1.5, 5))
+    ]
+    data = DataLoader(
+        model,
+        source=[
+            {"pad_x": signal, "pad_target": ratio * signal} for signal in signals
+        ],
+        seq_length="full",
+    )
+
+    assert data.dataset["pad_x"].shape == (3, 1, 1, 6)
+    assert data.mask is not None
+    np.testing.assert_array_equal(data.mask.sum(axis=1), [6, 3, 5])
+
+    history = model.train(
+        train_data=data, epochs=300, batch_size=3, lr=0.02, optimizer="adam"
+    )
+
+    assert np.isfinite(history["loss"][-1])
+    assert history["loss"][-1] < history["loss"][0]
+    assert relation.kernel is not None
+    np.testing.assert_allclose(to_numpy(relation.kernel), [[ratio]], atol=1e-2)
+
+    ## The masked loss is kept in the compiled model state, so it has to survive
+    ## an export/import round trip
+    export_path = os.path.join(tmp_path, "padded_loop_model.keras")
+    model.export_keras(export_path)
+    reloaded = Modely.import_keras(export_path, safe_mode=False)
+    np.testing.assert_allclose(
+        to_numpy(reloaded(data.as_dict())["pad_out"]),
+        to_numpy(model(data.as_dict())["pad_out"]),
+        atol=1e-5,
+    )
+
+
+def test_masked_loss_survives_a_diverging_padded_rollout():
+    ## Past the end of its simulation a rollout is driven by the model alone and
+    ## can overflow. Those steps must still cost nothing, not poison the loss.
+    loss = MaskedLoss(_resolve_loss("mse"))
+    y_true = np.array([[1.0, 2.0, np.nan, np.nan]], dtype=np.float32)
+    exploded = np.array([[1.5, 2.5, np.inf, -np.inf]], dtype=np.float32)
+
+    np.testing.assert_allclose(
+        to_numpy(loss(y_true, exploded)), [(0.25 + 0.25) / 4], rtol=1e-6
+    )
