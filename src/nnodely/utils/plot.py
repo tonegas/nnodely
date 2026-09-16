@@ -353,10 +353,13 @@ def export_html(
         seen_edges: set[tuple[str, str]] = set()
         alias = alias or {}
 
+        def outer_id(name: str) -> str:
+            """Display id of a node of this graph, by name."""
+            return alias.get(name, prefix + name)
+
         def ident(node) -> str:
             """Display id of a node of this graph."""
-            name = getattr(node, "name", str(node))
-            return alias.get(name, prefix + name)
+            return outer_id(getattr(node, "name", str(node)))
 
         def add_edge(pred, src: str, dst: str, role: str | None = None) -> None:
             if (src, dst) in seen_edges:
@@ -388,7 +391,7 @@ def export_html(
                 # A Roll wires the body's own inputs, so its ports name the very
                 # same node on both sides: alias those instead of duplicating them.
                 body_alias = {
-                    port["body"]: prefix + port["outer"]
+                    port["body"]: outer_id(port["outer"])
                     for port in port_map["inputs"]
                     if port["body"] == port["outer"]
                 }
@@ -411,7 +414,7 @@ def export_html(
 
                 # Bind the enclosing graph to the body it now contains.
                 for port in port_map["inputs"]:
-                    outer, body = prefix + port["outer"], body_id(port["body"])
+                    outer, body = outer_id(port["outer"]), body_id(port["body"])
                     if outer != body:
                         add_edge(None, outer, body, port["role"])
                 block_results[name] = {
@@ -423,7 +426,7 @@ def export_html(
                     # as a value: a single-output Loop, or any Roll.
                     if port["outer"] == name or port["outer"] not in present:
                         continue
-                    outer, body = prefix + port["outer"], body_id(port["body"])
+                    outer, body = outer_id(port["outer"]), body_id(port["body"])
                     if outer != body:
                         add_edge(None, body, outer, "output")
 

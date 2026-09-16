@@ -247,7 +247,6 @@ def test_model_multi_rollback(tmp_path):
 
 def test_nested_closed_loop(tmp_path):
     # ------- Model with closed loop connections -------
-    batch_size = 10
     # Define a simple model to be used in the loop
     x = Input(name="x", dim=1)
     y = Input(name="y", dim=1)
@@ -287,14 +286,13 @@ def test_nested_closed_loop(tmp_path):
     model_out.minimize(
         "error",
         source=out_w,
-        target=Input("w_target", dim=1, seq=(4, 2)).sw(1),
+        target=Input("w_target", dim=1, seq=(4, 2)),
         loss="mse",
     )
 
     model_out.build()
-    model_in.plot(to_file=os.path.join(tmp_path, "model_with_loop.png"))
-    model_out.plot(to_file=os.path.join(tmp_path, "model_with_loop_w.png"))
-    model_out.export_html(tmp_path / "model_with_loop_w.html")
+    model_in.export_html(os.path.join(tmp_path, "model_with_loop.html"))
+    model_out.export_html(os.path.join(tmp_path, "model_with_loop_w.html"))
 
     # ------- Model inference -------
     batch_size = 1
@@ -309,11 +307,12 @@ def test_nested_closed_loop(tmp_path):
         np.array([2.0, 4.0, 7.0, 11.0], dtype=np.float32).reshape(1, 1, 1, 4),
     )
     dummy_input_z = dummy_input((batch_size, 1, 1, 4, 2), method="sequential")
+    print("Dummy input z:", dummy_input_z[0, 0, 0, :, 0])
     result_out = model_out(
         {
             "x_seq": dummy_input_x,
             "z": dummy_input_z,
-            "w_target": dummy_input_z,
+            "w_target": dummy_input_z, # Not used in this test
         }
     )
     assert "out_w" in result_out
@@ -740,3 +739,7 @@ def test_loop_constant_initial_batched():
             (2, 1, 1, 1),
         ),
     )
+
+
+if __name__ == "__main__":
+    test_nested_closed_loop(tmp_path="html")
