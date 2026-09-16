@@ -307,7 +307,6 @@ def test_nested_closed_loop(tmp_path):
         np.array([2.0, 4.0, 7.0, 11.0], dtype=np.float32).reshape(1, 1, 1, 4),
     )
     dummy_input_z = dummy_input((batch_size, 1, 1, 4, 2), method="sequential")
-    print("Dummy input z:", dummy_input_z[0, 0, 0, :, 0])
     result_out = model_out(
         {
             "x_seq": dummy_input_x,

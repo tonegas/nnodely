@@ -20,9 +20,7 @@ from nnodely import (
     Sin,
     Cos,
     Loop,
-    Ode,
 )
-from nnodely.layers.time_ops import TimeSelect
 os.environ.setdefault("KERAS_BACKEND", "jax")
 
 
@@ -466,7 +464,7 @@ def test_inv_pend(tmp_path):
     data_train = DataLoader(
         model,
         format=data_struct,
-        source=os.path.join("tests", "datasets", "data_inv_pend"),
+        source=os.path.join("examples", "datasets", "data_inv_pend"),
     )
     # Train the model
     history = model.train(train_data=data_train, epochs=600, batch_size=128, lr=1e-4, optimizer="adam")
@@ -628,7 +626,7 @@ def test_inv_pend_loop(tmp_path):
     data_train = DataLoader(
         loop_model,
         format=data_struct,
-        source=os.path.join("tests", "datasets", "data_inv_pend"),
+        source=os.path.join("examples", "datasets", "data_inv_pend"),
         seq_length=train_seq_length,
     )
 
@@ -656,7 +654,7 @@ def test_inv_pend_loop(tmp_path):
     data_train = DataLoader(
         loop_model,
         format=data_struct,
-        source=os.path.join("tests", "datasets", "data_inv_pend"),
+        source=os.path.join("examples", "datasets", "data_inv_pend"),
         seq_length=150
     )
     test_data = data_train[0]  # Use the first batch of training data for testing
