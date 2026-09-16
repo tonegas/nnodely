@@ -162,7 +162,402 @@ def test_train_with_parameters():
     )
 
 
-@pytest.mark.slow
+def test_training_values_fir_linear():
+    input1 = Input("in1")
+    target = Input("target1").last()
+
+    fir_out = Fir(out_features=1, use_bias=False)(input1.last())
+    linear_out = Linear(out_features=1, initializer="ones", bias_initializer="ones")(
+        fir_out
+    )
+
+    output1 = Output("out1", fir_out)
+    output2 = Output("out2", linear_out)
+
+    model = Modely("test_model", inputs=[input1], outputs=[output1, output2])
+    model.minimize("error", source=output2, target=target, loss="mse")
+    model.build()
+
+    assert fir_out.kernel is not None
+    assert linear_out.kernel is not None
+    assert linear_out.bias is not None
+
+    def reset_weights():
+        fir_out.kernel.assign([[1.0]])
+        linear_out.kernel.assign([[1.0]])
+        linear_out.bias.assign([1.0])
+
+    def assert_weights(fir_kernel, kernel, bias):
+        np.testing.assert_allclose(
+            to_numpy(fir_out.kernel), fir_kernel, rtol=1e-5, atol=1e-5
+        )
+        np.testing.assert_allclose(
+            to_numpy(linear_out.kernel), kernel, rtol=1e-5, atol=1e-5
+        )
+        np.testing.assert_allclose(to_numpy(linear_out.bias), bias, rtol=1e-5, atol=1e-5)
+
+    reset_weights()
+    result = model(
+        {
+            "in1": np.ones((1, 1, 1), dtype=np.float32),
+            "target1": np.ones((1, 1, 1), dtype=np.float32) * 3,
+        }
+    )
+    np.testing.assert_allclose(to_numpy(result["out1"]), [[[1.0]]], rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(to_numpy(result["out2"]), [[[2.0]]], rtol=1e-5, atol=1e-5)
+
+    # ------- One sample, one epoch at a time -------
+    dataset = {"in1": [1], "target1": [3]}
+    data_train = DataLoader(model, source=dataset)
+
+    assert_weights([[1.0]], [[1.0]], [1.0])
+    model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
+    assert_weights([[3.0]], [[3.0]], [3.0])
+    model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
+    assert_weights([[-51.0]], [[-51.0]], [-15.0])
+
+    # ------- Same result training both epochs in a single call -------
+    reset_weights()
+    model.train(train_data=data_train, epochs=2, batch_size=1, optimizer="sgd", lr=1.0)
+    assert_weights([[-51.0]], [[-51.0]], [-15.0])
+
+    # ------- Two identical samples in one batch: the mean error gives the same step -------
+    data_train2 = DataLoader(model, source={"in1": [1, 1], "target1": [3, 3]})
+
+    reset_weights()
+    model.train(train_data=data_train2, epochs=1, batch_size=2, optimizer="sgd", lr=1.0)
+    assert_weights([[3.0]], [[3.0]], [3.0])
+
+    reset_weights()
+    model.train(train_data=data_train2, epochs=2, batch_size=2, optimizer="sgd", lr=1.0)
+    assert_weights([[-51.0]], [[-51.0]], [-15.0])
+
+
+def test_training_values_fir_linear_only_model():
+    ## The old test trained one sub-model at a time (`trainModel(models=...)`);
+    ## the new API has a single model, so the other block is frozen instead
+    input1 = Input("in1")
+    target = Input("target1").last()
+
+    fir_out = Fir(out_features=1, use_bias=False)(input1.last())
+    linear_out = Linear(out_features=1, initializer="ones", bias_initializer="ones")(
+        fir_out
+    )
+
+    output1 = Output("out1", fir_out)
+    output2 = Output("out2", linear_out)
+
+    model = Modely("test_model", inputs=[input1], outputs=[output1, output2])
+    model.minimize("error", source=output2, target=target, loss="mse")
+    model.build()
+
+    assert fir_out.kernel is not None
+    assert linear_out.kernel is not None
+    assert linear_out.bias is not None
+
+    def reset_weights():
+        fir_out.kernel.assign([[1.0]])
+        linear_out.kernel.assign([[1.0]])
+        linear_out.bias.assign([1.0])
+
+    def assert_weights(fir_kernel, kernel, bias):
+        np.testing.assert_allclose(
+            to_numpy(fir_out.kernel), fir_kernel, rtol=1e-5, atol=1e-5
+        )
+        np.testing.assert_allclose(
+            to_numpy(linear_out.kernel), kernel, rtol=1e-5, atol=1e-5
+        )
+        np.testing.assert_allclose(to_numpy(linear_out.bias), bias, rtol=1e-5, atol=1e-5)
+
+    reset_weights()
+    result = model(
+        {
+            "in1": np.ones((1, 1, 1), dtype=np.float32),
+            "target1": np.ones((1, 1, 1), dtype=np.float32) * 3,
+        }
+    )
+    np.testing.assert_allclose(to_numpy(result["out1"]), [[[1.0]]], rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(to_numpy(result["out2"]), [[[2.0]]], rtol=1e-5, atol=1e-5)
+
+    dataset = {"in1": [1], "target1": [3]}
+    data_train = DataLoader(model, source=dataset)
+
+    # ------- Both blocks trainable -------
+    model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
+    assert_weights([[3.0]], [[3.0]], [3.0])
+    model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
+    assert_weights([[-51.0]], [[-51.0]], [-15.0])
+
+    # ------- Only the Fir block trainable -------
+    reset_weights()
+    linear_out._layer.trainable = False
+    model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
+    assert_weights([[3.0]], [[1.0]], [1.0])
+    model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
+    assert_weights([[1.0]], [[1.0]], [1.0])
+
+    # ------- Only the Linear block trainable -------
+    reset_weights()
+    linear_out._layer.trainable = True
+    fir_out._layer.trainable = False
+    model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
+    assert_weights([[1.0]], [[3.0]], [3.0])
+    model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
+    assert_weights([[1.0]], [[-3.0]], [-3.0])
+
+
+def test_training_values_fir_linear_more_samples():
+    input1 = Input("in1")
+    target = Input("out1").last()
+
+    fir_out = Fir(out_features=1, use_bias=False)(input1.last())
+    linear_out = Linear(out_features=1, initializer="ones", bias_initializer="ones")(
+        fir_out
+    )
+
+    output1 = Output("out1-net", fir_out)
+    output2 = Output("out2-net", linear_out)
+
+    model = Modely("test_model", inputs=[input1], outputs=[output1, output2])
+    model.minimize("error", source=output2, target=target, loss="mse")
+    model.build()
+
+    assert fir_out.kernel is not None
+    assert linear_out.kernel is not None
+    assert linear_out.bias is not None
+
+    def reset_weights():
+        fir_out.kernel.assign([[1.0]])
+        linear_out.kernel.assign([[1.0]])
+        linear_out.bias.assign([1.0])
+
+    def assert_weights(fir_kernel, kernel, bias):
+        np.testing.assert_allclose(
+            to_numpy(fir_out.kernel), fir_kernel, rtol=1e-5, atol=1e-5
+        )
+        np.testing.assert_allclose(
+            to_numpy(linear_out.kernel), kernel, rtol=1e-5, atol=1e-5
+        )
+        np.testing.assert_allclose(to_numpy(linear_out.bias), bias, rtol=1e-5, atol=1e-5)
+
+    reset_weights()
+    result = model(
+        {
+            "in1": np.ones((1, 1, 1), dtype=np.float32),
+            "out1": np.ones((1, 1, 1), dtype=np.float32) * 3,
+        }
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["out1-net"]), [[[1.0]]], rtol=1e-5, atol=1e-5
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["out2-net"]), [[[2.0]]], rtol=1e-5, atol=1e-5
+    )
+
+    # ------- Four samples in a single batch -------
+    dataset = {"in1": [0, 2, 7, 1], "out1": [3, 4, 5, 1]}
+    data_train = DataLoader(model, source=dataset)
+    assert len(data_train) == 4
+
+    model.train(train_data=data_train, epochs=1, batch_size=4, optimizer="sgd", lr=1.0)
+    assert_weights([[-9.0]], [[-9.0]], [0.5])
+
+    # ------- The old prediction_samples=3 grouped four consecutive samples into a
+    # block, and train_batch_size=2 put two overlapping blocks in the same batch -------
+    in1 = [0, 2, 7, 1, 5, 0, 2]
+    out1 = [1, 4, 8, 2, 6, 1, 1]
+    order = [index for start in range(4) for index in range(start, start + 4)]
+    data_train2 = DataLoader(
+        model,
+        source={"in1": [in1[i] for i in order], "out1": [out1[i] for i in order]},
+    )
+    assert len(data_train2) == 16
+
+    reset_weights()
+    model.train(
+        train_data=data_train2,
+        epochs=1,
+        batch_size=8,
+        optimizer="sgd",
+        lr=1.0,
+        shuffle=False,
+    )
+    assert_weights([[-162.75]], [[-162.75]], [-15.75])
+
+
+def test_training_values_linear_fir_window():
+    input1 = Input("in1", dim=2)
+    target = Input("target").last()
+
+    lin_out = Linear(out_features=1)(input1.sw(2))
+    fir_out = Fir(out_features=1, use_bias=False)(lin_out)
+
+    output1 = Output("out1", lin_out)
+    output2 = Output("out2", fir_out)
+
+    model = Modely("test_model", inputs=[input1], outputs=[output1, output2])
+    model.minimize("error2", source=output2, target=target, loss="mse")
+    model.build()
+
+    assert lin_out.kernel is not None
+    assert lin_out.bias is not None
+    assert fir_out.kernel is not None
+
+    def reset_weights():
+        lin_out.kernel.assign([[-1.0], [-5.0]])
+        lin_out.bias.assign([1.0])
+        fir_out.kernel.assign([[4.0], [5.0]])
+
+    def assert_weights(kernel, bias, fir_kernel):
+        np.testing.assert_allclose(to_numpy(lin_out.kernel), kernel, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(to_numpy(lin_out.bias), bias, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(
+            to_numpy(fir_out.kernel), fir_kernel, rtol=1e-5, atol=1e-5
+        )
+
+    reset_weights()
+    dataset = {"in1": [[0, 1], [2, 3], [7, 4], [1, 3], [4, 2]], "target": [3, 4, 5, 1, 3]}
+    data = DataLoader(model, source=dataset)
+    assert len(data) == 4
+    result = model(data.as_dict())
+    np.testing.assert_allclose(
+        to_numpy(result["out1"])[:, 0],
+        [[-4.0, -16.0], [-16.0, -26.0], [-26.0, -15.0], [-15.0, -13.0]],
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["out2"]).reshape(-1),
+        [-96.0, -194.0, -179.0, -125.0],
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+    # ------- One sample -------
+    # The old state carried a window of five, so only the last window was left
+    data_train = DataLoader(model, source={"in1": [[1, 3], [4, 2]], "target": [1, 3]})
+    assert len(data_train) == 1
+
+    assert_weights([[-1.0], [-5.0]], [1.0], [[4.0], [5.0]])
+    model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
+    assert_weights([[6143.0], [5627.0]], [2305.0], [[-3836.0], [-3323.0]])
+
+    # ------- Four samples in a single batch -------
+    dataset2 = {
+        "in1": [[1, 3], [4, 2], [6, 5], [4, 5], [0, 0]],
+        "target": [1, 3, 0, 1, 0],
+    }
+    data_train2 = DataLoader(model, source=dataset2)
+    assert len(data_train2) == 4
+
+    reset_weights()
+    model.train(train_data=data_train2, epochs=1, batch_size=4, optimizer="sgd", lr=1.0)
+    assert_weights([[12779.0], [11678.5]], [3142.0], [[-7682.0], [-7457.5]])
+
+
+def test_training_values_fir_and_linear_closed_loop():
+    input1 = Input("in1")
+    input2 = Input("in2")
+    target1 = Input("target1").last()
+    target2 = Input("target2").last()
+
+    fir_out = Fir(out_features=1, use_bias=False)(input1.last())
+    lin_out = Linear(out_features=1, initializer="ones", bias_initializer="ones")(
+        input2.last()
+    )
+    output1 = Output("out1", fir_out)
+    output2 = Output("out2", lin_out)
+
+    ## Each relation is closed on its own input, so each one is its own Loop body
+    body1 = Modely("body1", inputs=[input1], outputs=[output1]).build()
+    body2 = Modely("body2", inputs=[input2], outputs=[output2]).build()
+
+    assert fir_out.kernel is not None
+    assert lin_out.kernel is not None
+    assert lin_out.bias is not None
+
+    def reset_weights():
+        fir_out.kernel.assign([[1.0]])
+        lin_out.kernel.assign([[1.0]])
+        lin_out.bias.assign([1.0])
+
+    def assert_weights(fir_kernel, kernel, bias):
+        np.testing.assert_allclose(
+            to_numpy(fir_out.kernel), fir_kernel, rtol=1e-5, atol=1e-5
+        )
+        np.testing.assert_allclose(to_numpy(lin_out.kernel), kernel, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(to_numpy(lin_out.bias), bias, rtol=1e-5, atol=1e-5)
+
+    reset_weights()
+
+    # ------- Six closed loop steps from a zero state -------
+    seed1 = Input("seed1", seq=6)
+    seed2 = Input("seed2", seq=6)
+    loop1 = Loop(f=body1, callback={input1: output1}, initial={input1: seed1}, name="loop1")
+    loop2 = Loop(f=body2, callback={input2: output2}, initial={input2: seed2}, name="loop2")
+    rollout = Modely(
+        "rollout",
+        inputs=[seed1, seed2],
+        outputs=[Output("rollout1", loop1), Output("rollout2", loop2)],
+    ).build()
+
+    zeros = np.zeros((1, 1, 1, 6), dtype=np.float32)
+    result = rollout({"seed1": zeros, "seed2": zeros})
+    np.testing.assert_allclose(
+        to_numpy(result["rollout1"]).reshape(-1), [0.0] * 6, rtol=1e-5, atol=1e-5
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["rollout2"]).reshape(-1),
+        [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+    # ------- Training is a single step, so the loops are not rolled -------
+    model = Modely("test_model", inputs=[input1, input2], outputs=[output1, output2])
+    model.minimize("error1", source=output1, target=target1, loss="mse")
+    model.minimize("error2", source=output2, target=target2, loss="mse")
+    model.build()
+
+    ones = np.ones((1, 1, 1), dtype=np.float32)
+    reset_weights()  ## build() creates fresh layers, so the weights are set again
+    result = model(
+        {"in1": ones, "in2": ones, "target1": ones * 3, "target2": ones * 3}
+    )
+    np.testing.assert_allclose(to_numpy(result["out1"]), [[[1.0]]], rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(to_numpy(result["out2"]), [[[2.0]]], rtol=1e-5, atol=1e-5)
+
+    dataset = {"in1": [1], "in2": [1.0], "target1": [3], "target2": [3]}
+    data_train = DataLoader(model, source=dataset)
+
+    assert_weights([[1.0]], [[1.0]], [1.0])
+    model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
+    assert_weights([[5.0]], [[3.0]], [3.0])
+    model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
+    assert_weights([[1.0]], [[-3.0]], [-3.0])
+
+    reset_weights()
+    model.train(train_data=data_train, epochs=2, batch_size=1, optimizer="sgd", lr=1.0)
+    assert_weights([[1.0]], [[-3.0]], [-3.0])
+
+    # ------- Two identical samples in one batch -------
+    dataset2 = {
+        "in1": [1.0, 1.0],
+        "in2": [1.0, 1.0],
+        "target1": [3.0, 3.0],
+        "target2": [3.0, 3.0],
+    }
+    data_train2 = DataLoader(model, source=dataset2)
+
+    reset_weights()
+    model.train(train_data=data_train2, epochs=1, batch_size=2, optimizer="sgd", lr=1.0)
+    assert_weights([[5.0]], [[3.0]], [3.0])
+
+    reset_weights()
+    model.train(train_data=data_train2, epochs=2, batch_size=2, optimizer="sgd", lr=1.0)
+    assert_weights([[1.0]], [[-3.0]], [-3.0])
+
+
 def test_training_values_linear():
     input1 = Input("in1")
     target = Input("out1").last()

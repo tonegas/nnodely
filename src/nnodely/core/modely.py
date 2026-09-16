@@ -403,6 +403,7 @@ class Modely:
         optimizer: str | dict[str, Any] | keras.optimizers.Optimizer | None = None,
         lr: float = 1e-3,
         optimizer_kwargs: dict[str, Any] | None = None,
+        shuffle: bool = True,
     ):
         """Train the model with any Keras optimizer.
 
@@ -411,6 +412,9 @@ class Modely:
         ``None``) is provided, ``lr`` and ``optimizer_kwargs`` are used to
         construct it. Optimizer instances and serialized configurations retain
         their own learning-rate configuration.
+
+        ``shuffle`` decides whether the samples are reshuffled before every
+        epoch; set it to ``False`` to batch them in dataset order.
         """
         if not self.minimizers:
             raise ValueError("No minimizers defined. Call minimize() before train().")
@@ -685,7 +689,7 @@ class Modely:
             y=y_data,
             epochs=epochs,
             batch_size=batch_size,
-            shuffle=True,
+            shuffle=shuffle,
             verbose="0",
             callbacks=[FancyLossPrinter()],
         )  # type: ignore[arg-type]
