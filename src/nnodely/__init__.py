@@ -36,6 +36,7 @@ from nnodely.layers.trigonometric import Acos, Asin, Atan, Cos, Sin, Tan
 from nnodely.layers.arithmetic import (
     Abs,
     Ceil,
+    Clamp,
     Deg2Rad,
     Exp,
     Floor,
@@ -43,6 +44,7 @@ from nnodely.layers.arithmetic import (
     Log10,
     Sign,
     Sqrt,
+    Sum,
     Negative
 )
 
@@ -89,6 +91,7 @@ __all__ = [
     "Atan",
     "Abs",
     "Ceil",
+    "Clamp",
     "Deg2Rad",
     "Exp",
     "Floor",
@@ -96,5 +99,6 @@ __all__ = [
     "Log10",
     "Sign",
     "Sqrt",
+    "Sum",
     "Negative"
 ]
