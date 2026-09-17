@@ -55,9 +55,13 @@ class Shape:
     seq: tuple[int] | tuple[()]
 
     def __init__(self, dim=None, time=None, seq=None):
-        self.dim = (1,) if dim is None else (dim,) if isinstance(dim, int) else dim
-        self.time = 1 if time is None else time
-        self.seq = () if seq is None else (seq,) if isinstance(seq, int) else seq
+        # Always tuples: a shape read back from JSON arrives as lists, and two
+        # shapes that describe the same axes have to compare equal.
+        self.dim = (
+            (1,) if dim is None else (dim,) if isinstance(dim, int) else tuple(dim)
+        )
+        self.time = 1 if time is None else int(time)
+        self.seq = () if seq is None else (seq,) if isinstance(seq, int) else tuple(seq)
 
     @property
     def tuple(self) -> tuple:

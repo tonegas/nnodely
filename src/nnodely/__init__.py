@@ -44,6 +44,19 @@ from nnodely.layers.activations import (
 )
 from nnodely.layers.trigonometric import Acos, Asin, Atan, Cos, Sin, Tan
 
+from nnodely.layers.arithmetic import (
+    Exp,
+    Log,
+    Log10,
+    Sqrt,
+    Abs,
+    Floor,
+    Ceil,
+    Deg2Rad,
+    Sign,
+    Negative,
+)
+
 # Public API
 __all__ = [
     "set_seed",
@@ -89,4 +102,14 @@ __all__ = [
     "Asin",
     "Acos",
     "Atan",
+    "Exp",
+    "Log",
+    "Log10",
+    "Sqrt",
+    "Abs",
+    "Floor",
+    "Ceil",
+    "Deg2Rad",
+    "Sign",
+    "Negative",
 ]

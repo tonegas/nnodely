@@ -28,6 +28,37 @@ import keras
 _INFERENCE_CHUNK = 256
 
 
+def _traces_backward_pass(model) -> bool:
+    """True if any layer of the graph evaluates a backward pass of its own.
+
+    Layers declare this themselves, so the export path does not have to know
+    which ones they are. The walk is recursive because such a layer can sit
+    inside a nested model - a recurrent body, or the sub-graph a Derivative
+    differentiates.
+    """
+    seen: set[int] = set()
+    stack = [model]
+    while stack:
+        layer = stack.pop()
+        if id(layer) in seen:
+            continue
+        seen.add(id(layer))
+        if getattr(layer, "_traces_backward_pass", False):
+            return True
+        stack.extend(getattr(layer, "_layers", None) or [])
+    return False
+
+
+def _static_input_signature(model, batch_size: int):
+    """The model's own input structure, with the batch axis fixed."""
+
+    def spec(tensor):
+        shape = (batch_size,) + tuple(int(axis) for axis in tensor.shape[1:])
+        return keras.InputSpec(shape=shape, dtype=tensor.dtype, name=tensor.name)
+
+    return [keras.tree.map_structure(spec, model._inputs_struct)]
+
+
 class Modely:
     name: str
     inputs: list[Input]
@@ -675,6 +706,7 @@ class Modely:
         filename: str | os.PathLike,
         *,
         input_signature=None,
+        batch_size: int | None = None,
         opset_version: int | None = None,
         verbose: bool = False,
     ) -> Path:
@@ -683,6 +715,14 @@ class Modely:
         ONNX export traces the built Keras graph; it does not deserialize
         nnodely layer configurations. An explicit ``input_signature`` is
         recommended when dynamic dimensions must remain fixed at export time.
+        ``batch_size`` is the shorthand for the common case: it exports with
+        the batch axis fixed to that many samples instead of left dynamic.
+
+        A layer that differentiates a sub-graph - ``Derivative`` with respect
+        to an Input - records the backward pass in the traced graph, and the
+        shape arithmetic it introduces has no ONNX equivalent while the batch
+        axis is dynamic. Such a model is therefore exported with a batch of
+        one unless a signature or ``batch_size`` says otherwise.
         """
         if self.model is None:
             raise ValueError("Model is not built. Call build() before export_onnx().")
@@ -723,11 +763,27 @@ class Modely:
                 warmup_inputs[tensor.name] = np.zeros(shape, dtype=np.float32)
             export_model(warmup_inputs, training=False)
 
-        export_kwargs = {"verbose": verbose}
+        if _traces_backward_pass(export_model) and keras.backend.backend() == "torch":
+            raise NotImplementedError(
+                "ONNX export of a model that differentiates a sub-graph - a "
+                "Derivative with respect to an Input - is not supported on the "
+                "'torch' backend: its exporter traces a forward pass only and "
+                "cannot record the backward pass such a layer evaluates. The "
+                "'tensorflow' and 'jax' backends export it, because there the "
+                "backward pass becomes ordinary graph operations."
+            )
+
+        if input_signature is None:
+            if batch_size is None and _traces_backward_pass(export_model):
+                batch_size = 1
+            if batch_size is not None:
+                input_signature = _static_input_signature(export_model, batch_size)
+
+        export_kwargs: dict[str, Any] = {"verbose": verbose}
         if input_signature is not None:
             export_kwargs["input_signature"] = input_signature
         if opset_version is not None:
-            export_kwargs["opset_version"] = opset_version  # type: ignore
+            export_kwargs["opset_version"] = opset_version
 
         export_model.export(path, format="onnx", **export_kwargs)
         self._set_onnx_io_names(path)
@@ -748,20 +804,22 @@ class Modely:
         expected_outputs = [node.name for node in self.train_outputs]
         rename = {}
 
-        if len(graph.input) == len(expected_inputs):
+        # Only an exporter that dropped the names has to be corrected. One that
+        # kept them may still have reordered them - tf2onnx sorts its outputs -
+        # and pairing those off by position would rename each tensor after a
+        # different one, silently swapping two outputs' values.
+        for values, expected_names in (
+            (graph.input, expected_inputs),
+            (graph.output, expected_outputs),
+        ):
+            names = [value.name for value in values]
+            if len(names) != len(expected_names) or set(names) == set(expected_names):
+                continue
             rename.update(
                 {
-                    value.name: expected
-                    for value, expected in zip(graph.input, expected_inputs)
-                    if value.name != expected
-                }
-            )
-        if len(graph.output) == len(expected_outputs):
-            rename.update(
-                {
-                    value.name: expected
-                    for value, expected in zip(graph.output, expected_outputs)
-                    if value.name != expected
+                    name: expected
+                    for name, expected in zip(names, expected_names)
+                    if name != expected
                 }
             )
         if not rename:

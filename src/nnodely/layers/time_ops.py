@@ -31,6 +31,13 @@ class SampleWindowImpl(keras.layers.Layer):
         # This is valid because time axis is after batch + dim axes.
         time_axis = 1 + self.dim_rank
 
+        # A window that covers the whole time axis is the tensor itself. Taking
+        # it as a slice anyway costs an op whose own derivative (a scatter into
+        # a zero tensor) has no ONNX equivalent, so a differentiated graph would
+        # stop exporting for no reason.
+        if self.start == 0 and self.window_size == x.shape[time_axis]:
+            return x
+
         slices = (
             [slice(None)] * time_axis
             + [slice(self.start, self.start + self.window_size)]
