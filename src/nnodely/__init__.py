@@ -19,6 +19,7 @@ from nnodely.layers.derivative import Derivative
 from nnodely.layers.integrate import Integrate
 from nnodely.layers.time_ops import Concatenate, Select, TimeConcatenate, TimeSelect
 from nnodely.layers.batchnorm import BatchNorm
+from nnodely.layers.ode import Ode, OdeNet
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -68,6 +69,8 @@ __all__ = [
     "TimeSelect",
     "Select",
     "BatchNorm",
+    "Ode",
+    "OdeNet",
     "ReLU",
     "LeakyReLU",
     "ELU",
