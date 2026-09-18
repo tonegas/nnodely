@@ -99,7 +99,7 @@
 #     hidden_layers: int = HIDDEN_LAYERS,
 # ):
 #     """Build the neural approximation of dx/dt and expose its state/output."""
-#     state = Input("rhs_state", dim=2, sample_time=dt)
+#     state = Input("rhs_state", dim=2)
 #     hidden = state.last()
 #     for index in range(hidden_layers):
 #         hidden = Linear(

@@ -9,10 +9,10 @@ on the Stream to differentiate, like every other layer::
 With an ``Input`` the derivative is exact: the sub-graph that produces ``fun``
 is differentiated by the backend's automatic differentiation, so any relation
 in between (activations, Fir/Linear weights, a whole sub-network) is taken
-into account. With a float the argument *is* the time step - ``sample_time``
-is never consulted - and the derivative is a causal finite difference along
-``fun``'s own time axis that keeps the window's length: one derivative per
-sample, the oldest one reading the ``init`` condition.
+into account. With a float the argument *is* the time step, and the
+derivative is a causal finite difference along ``fun``'s own time axis that
+keeps the window's length: one derivative per sample, the oldest one reading
+the ``init`` condition.
 """
 
 from __future__ import annotations
@@ -374,8 +374,7 @@ class Derivative(Layer):
       relation with respect to each sample, which is the usual reverse-mode
       (vector-Jacobian) reading. ``fun`` must actually depend on the input.
 
-    * **A float.** The float *is* ``dt`` - ``sample_time`` is deliberately
-      ignored, so the step is always explicit - and the derivative is a causal
+    * **A float.** The float *is* ``dt``, and the derivative is a causal
       finite difference along ``fun``'s own time axis. **The window's length is
       preserved**: a window of n samples gives n derivatives, the i-th one
       estimated from the samples up to i, so the result stays aligned with the

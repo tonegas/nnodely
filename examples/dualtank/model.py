@@ -78,10 +78,10 @@ HORIZON = 10  # prediction horizon N for the closed-loop rollout (Neuromancer's 
 # ---------------------------------------------------------------------------
 # Inputs: current states and the (held-constant-over-horizon) references
 # ---------------------------------------------------------------------------
-h1 = Input("h1", dim=1, sample_time=DT)
-h2 = Input("h2", dim=1, sample_time=DT)
-r1 = Input("r1", dim=1, sample_time=DT)
-r2 = Input("r2", dim=1, sample_time=DT)
+h1 = Input("h1", dim=1)
+h2 = Input("h2", dim=1)
+r1 = Input("r1", dim=1)
+r2 = Input("r2", dim=1)
 
 # ---------------------------------------------------------------------------
 # Neural control policy: u_k = pi_theta(x_k, R) = pi(h1, h2, r1, r2)
@@ -103,10 +103,14 @@ sqrt_h2 = h2.last() ** 0.5
 rate_h1 = C1 * (1.0 - valve) * pump - C2 * sqrt_h1
 rate_h2 = C1 * valve * pump + C2 * sqrt_h1 - C2 * sqrt_h2
 
-h1_increment = Integrate(rate_h1, solver="euler", dt=DT, name="h1_increment")
-h2_increment = Integrate(rate_h2, solver="euler", dt=DT, name="h2_increment")
-h1_next = h1.last() + h1_increment
-h2_next = h2.last() + h2_increment
+# A one-sample rate window is one integration step, so with init set to the
+# current level each Integrate is the state update itself.
+h1_next = Integrate(solver="euler", dt=DT, init=h1.last(), name="h1_next_level")(
+    rate_h1
+)
+h2_next = Integrate(solver="euler", dt=DT, init=h2.last(), name="h2_next_level")(
+    rate_h2
+)
 
 # ---------------------------------------------------------------------------
 # Close the loop: one Modely holds policy + plant for a single step; rollback

@@ -49,6 +49,45 @@ def _traces_backward_pass(model) -> bool:
     return False
 
 
+def _pair_onnx_names(values, expected):
+    """Map each exported tensor to the Modely name it stands for.
+
+    An exporter that renames the graph also reorders it, so position alone is
+    not evidence of identity. A tensor whose shape matches exactly one expected
+    name is that one whatever its position; only tensors left ambiguous - two
+    outputs of the same shape - fall back to pairing in order.
+    """
+
+    def graph_shape(value):
+        dims = value.type.tensor_type.shape.dim
+        return tuple(int(axis.dim_value) for axis in dims[1:] if axis.dim_value)
+
+    shapes = [graph_shape(value) for value in values]
+    pending_graph = list(range(len(values)))
+    pending_expected = list(range(len(expected)))
+
+    pairs: dict[int, int] = {}
+    for index in list(pending_graph):
+        matches = [
+            other for other in pending_expected if expected[other][1] == shapes[index]
+        ]
+        same_shape = [
+            other for other in pending_graph if shapes[other] == shapes[index]
+        ]
+        if len(matches) == 1 and len(same_shape) == 1:
+            pairs[index] = matches[0]
+            pending_graph.remove(index)
+            pending_expected.remove(matches[0])
+    for index, other in zip(pending_graph, pending_expected):
+        pairs[index] = other
+
+    return {
+        values[index].name: expected[other][0]
+        for index, other in pairs.items()
+        if values[index].name != expected[other][0]
+    }
+
+
 def _static_input_signature(model, batch_size: int):
     """The model's own input structure, with the batch axis fixed."""
 
@@ -800,28 +839,30 @@ class Modely:
             raise ValueError("Model is not built. Call build() before export_onnx().")
         onnx_model = onnx.load(str(path))
         graph = onnx_model.graph
-        expected_inputs = [tensor.name for tensor in self.model.inputs]
-        expected_outputs = [node.name for node in self.train_outputs]
+        expected_inputs = [
+            (tensor.name, tuple(int(axis) for axis in tensor.shape[1:] if axis))
+            for tensor in self.model.inputs
+        ]
+        expected_outputs = [
+            (node.name, tuple(node.shape.tuple)) for node in self.train_outputs
+        ]
         rename = {}
 
         # Only an exporter that dropped the names has to be corrected. One that
-        # kept them may still have reordered them - tf2onnx sorts its outputs -
-        # and pairing those off by position would rename each tensor after a
-        # different one, silently swapping two outputs' values.
-        for values, expected_names in (
+        # kept them may still have reordered them - both tf2onnx and the Torch
+        # exporter sort their outputs - and pairing those off by position would
+        # rename each tensor after a different one, silently swapping two
+        # outputs' values.
+        for values, expected in (
             (graph.input, expected_inputs),
             (graph.output, expected_outputs),
         ):
             names = [value.name for value in values]
-            if len(names) != len(expected_names) or set(names) == set(expected_names):
+            if len(names) != len(expected) or set(names) == {
+                name for name, _ in expected
+            }:
                 continue
-            rename.update(
-                {
-                    name: expected
-                    for name, expected in zip(names, expected_names)
-                    if name != expected
-                }
-            )
+            rename.update(_pair_onnx_names(values, expected))
         if not rename:
             return
 

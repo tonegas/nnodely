@@ -145,9 +145,9 @@ def build_dataloader(
 c1 = Parameter("c1", value=[GUESS_C1])
 c2 = Parameter("c2", value=[GUESS_C2])
 
-state = Input("state", dim=2, sample_time=DT)
-pump = Input("pump", dim=1, sample_time=DT)
-valve = Input("valve", dim=1, sample_time=DT)
+state = Input("state", dim=2)
+pump = Input("pump", dim=1)
+valve = Input("valve", dim=1)
 
 state_window = state.sw(WINDOW)
 current = TimeSelect(idx=WINDOW - 1, name="state_current")(state_window)
@@ -159,10 +159,10 @@ sqrt_h2 = h2_cur**0.5
 rate_h1 = c1 * (1.0 - valve.last()) * pump.last() - c2 * sqrt_h1
 rate_h2 = c1 * valve.last() * pump.last() + c2 * sqrt_h1 - c2 * sqrt_h2
 
-inc_h1 = Integrate(rate_h1, solver="euler", dt=DT, name="roll_h1_increment")
-inc_h2 = Integrate(rate_h2, solver="euler", dt=DT, name="roll_h2_increment")
-next_h1 = h1_cur + inc_h1
-next_h2 = h2_cur + inc_h2
+# A one-sample rate window is one integration step, so with init set to the
+# current level each Integrate is the state update itself.
+next_h1 = Integrate(solver="euler", dt=DT, init=h1_cur, name="roll_h1_next")(rate_h1)
+next_h2 = Integrate(solver="euler", dt=DT, init=h2_cur, name="roll_h2_next")(rate_h2)
 next_state = Concatenate(axis=0, name="next_state_combined")([next_h1, next_h2])
 
 next_state_out = Output("next_state", next_state)
@@ -179,7 +179,7 @@ rolled_state = Roll(
 )
 rolled_state_out = Output("rolled_state", rolled_state)
 
-target_state = Input("target_state", dim=2, sample_time=DT)
+target_state = Input("target_state", dim=2)
 
 dual_tank_roll_id = Modely(
     "dual_tank_roll_id",

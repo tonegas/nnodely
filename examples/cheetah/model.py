@@ -147,11 +147,11 @@ def _build_step_graph(
     and once more (a structurally-identical but Keras-object-distinct copy)
     for the training body (build_training_model), so trained weights can
     later be copied across positionally via trainable_weights + assign()."""
-    state = Input("state", dim=STATE_DIM, sample_time=dt)
-    tau = Input("tau", dim=N_DOF, sample_time=dt)
-    mass = Input("mass", dim=(N_DOF, N_DOF), sample_time=dt)
-    bias = Input("bias", dim=N_DOF, sample_time=dt)
-    passive = Input("passive", dim=N_DOF, sample_time=dt)
+    state = Input("state", dim=STATE_DIM)
+    tau = Input("tau", dim=N_DOF)
+    mass = Input("mass", dim=(N_DOF, N_DOF))
+    bias = Input("bias", dim=N_DOF)
+    passive = Input("passive", dim=N_DOF)
 
     state_mean = Parameter("state_mean", value=stats["state_mean"].tolist())
     state_std = Parameter("state_std", value=stats["state_std"].tolist())
@@ -252,9 +252,9 @@ def build_training_model(
         dt, damping, stats, hidden_dim, mlp_layers, velocity_loss_weight
     )
 
-    lam_target_n = Input("lam_target_n", dim=N_DOF, sample_time=dt)
-    pos_target_n = Input("pos_target_n", dim=N_DOF, sample_time=dt)
-    vel_target_n = Input("vel_target_n", dim=N_DOF, sample_time=dt)
+    lam_target_n = Input("lam_target_n", dim=N_DOF)
+    pos_target_n = Input("pos_target_n", dim=N_DOF)
+    vel_target_n = Input("vel_target_n", dim=N_DOF)
 
     lam_n_out = Output("lam_n_train", g["lam_n"])
     lam_target_n_out = Output("lam_target_n_out", lam_target_n.last())
