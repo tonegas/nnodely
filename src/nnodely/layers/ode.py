@@ -6,7 +6,7 @@ from typing import Any
 
 import keras
 
-from nnodely.core.layer import Layer
+from nnodely.core.layer import Layer, has_batch
 from nnodely.core.modely import Modely
 from nnodely.core.stream import Stream
 from nnodely.layers.loop import LoopOutputImpl
@@ -681,9 +681,7 @@ def _resolve_event(f, event, reset, state_inputs):
     return event_output, reset_outputs
 
 
-def _has_batch(node):
-    """False for constants and parameters, which have no batch axis."""
-    return not (isinstance(node, Layer) and len(node.preds) == 0)
+_has_batch = has_batch
 
 
 def _resolve_output_count(t):

@@ -1,6 +1,6 @@
 import keras
 
-from nnodely.core.layer import Layer
+from nnodely.core.layer import Layer, has_batch
 from nnodely.core.modely import Modely
 from nnodely.core.stream import Stream
 
@@ -537,10 +537,7 @@ class Loop(Layer):
             return None
         return source.shape.dim_rank + 2 + len(node_seq)
 
-    @staticmethod
-    def _has_batch(node):
-        """False for constants and parameters, which have no batch axis."""
-        return not (isinstance(node, Layer) and len(node.preds) == 0)
+    _has_batch = staticmethod(has_batch)
 
     @classmethod
     def _state_shape(cls, node, value, axis):

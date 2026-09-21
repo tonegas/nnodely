@@ -44,10 +44,7 @@ class Layer(Stream):
                 "Layers without inputs must implement output_shape()."
             )
 
-        zero_input_layers = [
-            isinstance(input_node, Layer) and len(input_node.preds) == 0
-            for input_node in inputs
-        ]
+        zero_input_layers = [not has_batch(input_node) for input_node in inputs]
         dummy_inputs = [
             keras.ops.zeros(
                 input_node.shape.tuple
@@ -174,6 +171,36 @@ class Layer(Stream):
         return layer(preds)
 
 
+def has_batch(node) -> bool:
+    """False for a node whose value is built only from constants and parameters.
+
+    Batch-free-ness propagates: ``Exp()(parameter)`` carries no batch axis
+    either, so it cannot be recognised by looking at the node alone.
+    """
+    memo: dict[int, bool] = {}
+    stack = [node]
+    while stack:
+        current = stack[-1]
+        if id(current) in memo:
+            stack.pop()
+            continue
+        if not isinstance(current, Layer):
+            memo[id(current)] = True
+            stack.pop()
+            continue
+        if not current.preds:
+            memo[id(current)] = False
+            stack.pop()
+            continue
+        pending = [pred for pred in current.preds if id(pred) not in memo]
+        if pending:
+            stack.extend(pending)
+            continue
+        memo[id(current)] = any(memo[id(pred)] for pred in current.preds)
+        stack.pop()
+    return memo[id(node)]
+
+
 class BinaryOp(Layer):
     operation = None
 
@@ -183,8 +210,7 @@ class BinaryOp(Layer):
                 "Subclasses must define an operation class attribute."
             )
         input_has_batch = tuple(
-            not (isinstance(node, Layer) and len(node.preds) == 0)
-            for node in (self.inputs or self.preds)
+            has_batch(node) for node in (self.inputs or self.preds)
         )
         return BinaryOpImpl(
             operation=self.operation,

@@ -1,7 +1,7 @@
 import numpy as np
 from conftest import to_numpy
 
-from nnodely import Input, Output, Modely, Parameter, Constant
+from nnodely import Input, Output, Modely, Parameter, Constant, Exp
 
 
 def test_parameter_constant_shapes():
@@ -72,3 +72,18 @@ def test_parameter_constant_model_inference():
         rtol=1e-5,
         atol=1e-5,
     )
+
+
+def test_parameter_through_a_layer_keeps_the_batch_axis():
+    x = Input("x", dim=4)
+    parameter = Parameter("param_exp", value=np.zeros((4, 1), dtype=np.float32))
+
+    y = x.last() * Exp()(parameter)
+    model = Modely("model_param_exp", inputs=[x], outputs=[Output("x_out", y)])
+    model.build()
+
+    batch = np.arange(3 * 4, dtype=np.float32).reshape(3, 4, 1)
+    result = to_numpy(model({"x": batch})["x_out"])
+
+    assert result.shape == (3, 4, 1)
+    np.testing.assert_allclose(result, batch, rtol=1e-5, atol=1e-5)
