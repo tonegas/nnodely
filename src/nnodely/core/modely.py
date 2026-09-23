@@ -478,173 +478,6 @@ class Modely:
                 values = _mask_padded_targets(values, mask)
             y_data[source_name] = values
 
-        backend = keras.backend.backend()
-
-        # Not used for now, but could be useful for future extensions
-        if backend == "tensorfloww":
-
-            @tf.function
-            def train_step(
-                model,
-                batch_inputs,
-                batch_targets,
-                optimizer,
-                losses,
-                unique_vars,  # type: ignore
-            ):
-                with tf.GradientTape() as tape:
-                    preds = model(batch_inputs, training=True)
-                    total = keras.ops.zeros(())
-                    for m in self.minimizers:
-                        name = m["name"]
-                        source_name = m["source"].name
-
-                        y_pred = preds[source_name]
-                        y_true = batch_targets[source_name]
-                        loss_obj = losses[name]
-                        total = total + keras.ops.mean(loss_obj(y_true, y_pred))
-
-                unique_vars: list[tf.Variable] = []
-                seen = set()
-
-                for v in list(km.trainable_weights):  # + self._training_params:
-                    vid = id(v)
-                    if vid not in seen:
-                        seen.add(vid)
-                        unique_vars.append(cast(tf.Variable, v))
-
-                gradients = tape.gradient(total, unique_vars)  # type:ignore
-                grads_and_vars = [
-                    (g, v)
-                    for g, v in zip(gradients or [], unique_vars)
-                    if g is not None
-                ]
-                if grads_and_vars:
-                    optimizer.apply_gradients(grads_and_vars)
-                else:
-                    print("Warning: No gradients to apply in this step.")
-                return total
-
-            unique_vars: list[tf.Variable] = []
-            seen = set()
-
-            losses = resolved_losses
-
-            train_history = {"loss": []}
-            idxs = np.arange(n_samples)
-            epoch_bar = tqdm(
-                range(epochs), desc=f"Training {self.name} in tensorflow", unit="epoch"
-            )
-            for _ in epoch_bar:
-                np.random.shuffle(idxs)
-                epoch_losses = []
-                for start in range(0, n_samples, batch_size):
-                    batch_idx = idxs[start : start + batch_size]
-                    batch_samples = [train_data[i] for i in batch_idx]
-                    batch_inputs = {}
-                    for k in train_data.inputs:
-                        batch_inputs[k] = tf.convert_to_tensor(
-                            np.stack([sample[k] for sample in batch_samples], axis=0)
-                        )
-                    batch_targets = {}
-                    for minimizer in self.minimizers:
-                        source_name = minimizer["source"].name
-                        batch_targets[source_name] = tf.convert_to_tensor(
-                            np.stack(
-                                [y_data[source_name][i] for i in batch_idx], axis=0
-                            )
-                        )
-
-                    total = train_step(
-                        km,
-                        batch_inputs,
-                        batch_targets,
-                        resolved_optimizer,
-                        losses,
-                        unique_vars,
-                    )
-                    if isinstance(total, tf.Tensor):
-                        epoch_losses.append(float(total.numpy()))
-
-                mean_epoch_loss = float(np.mean(epoch_losses))
-                train_history["loss"].append(mean_epoch_loss)
-                epoch_bar.set_postfix(epoch_loss=f"{mean_epoch_loss:.3e}")
-
-            return train_history
-
-        if backend == "torchh":
-            import torch
-
-            unique_params = []
-            seen = set()
-            for v in list(km.parameters()):  # + self._training_params:
-                vid = id(v)
-                if vid not in seen:
-                    seen.add(vid)
-                    unique_params.append(v)
-
-            native_optimizer: Any = resolved_optimizer
-            if not (
-                hasattr(native_optimizer, "zero_grad")
-                and hasattr(native_optimizer, "step")
-            ):
-                native_optimizer = torch.optim.Adam(unique_params, lr=lr)
-
-            criterion = torch.nn.MSELoss()
-            device = unique_params[0].device if unique_params else torch.device("cpu")
-            torch_x_data = {
-                name: torch.as_tensor(values, dtype=torch.float32, device=device)
-                for name, values in x_data.items()
-            }
-            torch_y_data = {
-                name: torch.as_tensor(values, dtype=torch.float32, device=device)
-                for name, values in y_data.items()
-            }
-            train_history = {"loss": []}
-            idxs = np.arange(n_samples)
-            epoch_bar = tqdm(
-                range(epochs), desc=f"Training {self.name} in torch", unit="epoch"
-            )
-
-            km.train()
-            for _ in epoch_bar:
-                np.random.shuffle(idxs)
-                epoch_losses = []
-
-                for start in range(0, n_samples, batch_size):
-                    batch_idx = idxs[start : start + batch_size]
-
-                    batch_inputs = {
-                        name: tensor[batch_idx] for name, tensor in torch_x_data.items()
-                    }
-                    batch_targets = {
-                        minimizer["source"].name: torch_y_data[
-                            minimizer["source"].name
-                        ][batch_idx]
-                        for minimizer in self.minimizers
-                    }
-
-                    native_optimizer.zero_grad()
-                    preds = km(batch_inputs, training=True)
-
-                    total = torch.zeros((), dtype=torch.float32, device=device)
-                    for minimizer in self.minimizers:
-                        source_name = minimizer["source"].name
-                        total = total + criterion(
-                            preds[source_name], batch_targets[source_name].unsqueeze(-1)
-                        )
-                    total.backward()
-                    native_optimizer.step()
-
-                    epoch_losses.append(float(total.detach().cpu().item()))
-
-                mean_epoch_loss = float(np.mean(epoch_losses))
-                train_history["loss"].append(mean_epoch_loss)
-                epoch_bar.set_postfix(epoch_loss=f"{mean_epoch_loss:.3e}")
-
-            km.eval()
-            return train_history
-
         compile_losses: dict[str, Any] = {
             name: None for name in getattr(km, "output_names", [])
         }
@@ -929,6 +762,17 @@ class Modely:
         """
         if self.model is None:
             raise ValueError("Model is not built. Call build() before export_onnx().")
+
+        if keras.backend.backend() == "jax":
+            # Keras reaches ONNX from jax through jax2tf, and jax 0.4.36 removed
+            # graph serialization, so jax2tf now emits the whole model as one
+            # opaque XlaCallModule node that tf2onnx has no converter for.
+            raise NotImplementedError(
+                "ONNX export is not available on the jax backend: jax>=0.4.36 "
+                "makes jax2tf emit an XlaCallModule node that tf2onnx cannot "
+                "convert. Export from the tensorflow or torch backend instead "
+                "(set KERAS_BACKEND before importing keras)."
+            )
 
         path = Path(filename)
         if path.suffix.lower() != ".onnx":

@@ -76,6 +76,8 @@ def test_train_basic():
     # ------ Train the model -------
     model1.train(train_data=data_train, epochs=60, batch_size=4)
 
+    model1.validate(data_train)
+
     dummy = {
         "x": np.ones((1, 1, 5), dtype=np.float32),
         "y": np.ones((1, 1, 5), dtype=np.float32),

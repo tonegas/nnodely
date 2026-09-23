@@ -32,7 +32,7 @@ from nnodely import (
 )
 from nnodely.core.layer import Identity
 from nnodely.layers.time_ops import Select
-from conftest import to_numpy
+from conftest import requires_onnx_export, to_numpy
 import numpy as np
 from pathlib import Path
 import pytest
@@ -193,12 +193,9 @@ def _local_model():
     activations = Fuzzify(centers=[0.0, 0.5, 1.0], function="Rectangular")(
         activation_input.sw(1)
     )
-    local_function = LocalModel(
-        input_function=lambda inputs: Identity()(inputs),
-        output_function=lambda inputs: ReLU()(inputs),
-        name="onnx_local_function",
-    )(activation=activations)
-    result = local_function([x.sw(1)])
+    result = LocalModel(out_features=1, name="onnx_local_function")(
+        [x.sw(1)], [activations]
+    )
     return Modely(
         "onnx_local_model",
         inputs=[x, activation_input],
@@ -271,6 +268,7 @@ def _local_model():
         ),
     ],
 )
+@requires_onnx_export
 def test_export_onnx_feedforward_blocks(tmp_path, model_factory, inputs):
     pytest.importorskip("onnxruntime")
     model = model_factory()
@@ -293,6 +291,7 @@ def test_export_onnx_feedforward_blocks(tmp_path, model_factory, inputs):
         )
 
 
+@requires_onnx_export
 def test_validate_onnx_rejects_missing_input(tmp_path):
     pytest.importorskip("onnxruntime")
     model = _single_input_model("onnx_missing", lambda stream: Identity()(stream))
@@ -442,6 +441,40 @@ def test_equation_learner_save_keras_and_html(tmp_path):
     assert "equation_export_linear_out" in nested_html
 
 
+def test_local_model_save_keras_and_html(tmp_path):
+    model = _local_model()
+    inputs = {
+        "onnx_local_x": np.array([[[2.0]]], dtype=np.float32),
+        "onnx_local_activation": np.array([[[0.5]]], dtype=np.float32),
+    }
+    expected = model(inputs)["onnx_local_output"]
+
+    nnodely_path = tmp_path / "local_model.nnodely"
+    model.save(nnodely_path)
+    restored = Modely.load(nnodely_path)
+    np.testing.assert_allclose(
+        to_numpy(restored(inputs)["onnx_local_output"]),
+        to_numpy(expected),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+    keras_path = tmp_path / "local_model.keras"
+    model.export_keras(keras_path)
+    keras_model = Modely.import_keras(keras_path)
+    keras_result = keras_model(inputs, training=False)  # type: ignore
+    np.testing.assert_allclose(
+        to_numpy(keras_result["onnx_local_output"]),
+        to_numpy(expected),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+    html_path = model.export_html(tmp_path, filename="local_model", physics=False)
+    html = Path(html_path).read_text(encoding="utf-8")
+    assert "onnx_local_function" in html
+
+
 def _roll_model():
     x = Input("roll_x")
     fir = Fir(out_features=1, use_bias=False, name="roll_fir")(x.sw(5))
@@ -492,6 +525,7 @@ def test_export_keras_roll_model(tmp_path):
     _assert_roll_result(restored(inputs))  # type: ignore
 
 
+@requires_onnx_export
 def test_export_onnx_roll_model(tmp_path):
     pytest.importorskip("onnxruntime")
     model = _roll_model()
