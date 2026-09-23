@@ -236,8 +236,8 @@ def test_model_saving_loading_and_compose(tmp_path):
     )
 
     # Save and load the composed model
-    model2.save("composed_model")
-    loaded_model2 = Modely.load("composed_model")
+    model2.save(tmp_path / "composed_model")
+    loaded_model2 = Modely.load(tmp_path / "composed_model")
     assert loaded_model2.name == model2.name
 
     result_loaded_model2 = loaded_model2({"z": dummy_z})
