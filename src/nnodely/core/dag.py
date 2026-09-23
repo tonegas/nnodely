@@ -89,7 +89,9 @@ def flatten_node(node: Node, scope: Scope) -> Any:
     new_preds = [flatten_node(pred, scope) for pred in node.preds]
     new_node = copy(node)
     new_node.preds = new_preds
-    if isinstance(new_node, Layer):
+    if isinstance(new_node, Layer) and not bool(
+        getattr(new_node._layer, "weights", None)
+    ):
         new_node._layer = None
     scope.memo[node] = new_node
     return new_node

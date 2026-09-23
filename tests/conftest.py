@@ -1,14 +1,17 @@
 import os
 
 os.environ.setdefault("KERAS_BACKEND", "tensorflow")
+# Tests must never select an interactive GUI backend. In particular, the
+# macOS backend can abort a test process when validation creates a figure.
+os.environ["MPLBACKEND"] = "Agg"
 
-import numpy as np
 import pytest
 
 from typing import Any, cast
 
 import keras
 import numpy.typing as npt
+import nnodely
 
 
 def to_numpy(value: Any) -> npt.NDArray[Any]:
@@ -20,7 +23,7 @@ def to_numpy(value: Any) -> npt.NDArray[Any]:
 
 @pytest.fixture(autouse=True)
 def seed():
-    np.random.seed(42)
+    nnodely.set_seed(42)
 
 
 # Keras reaches ONNX from jax through jax2tf, but jax 0.4.36 removed graph

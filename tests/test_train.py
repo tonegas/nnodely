@@ -196,7 +196,9 @@ def test_training_values_fir_linear():
         np.testing.assert_allclose(
             to_numpy(linear_out.kernel), kernel, rtol=1e-5, atol=1e-5
         )
-        np.testing.assert_allclose(to_numpy(linear_out.bias), bias, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(
+            to_numpy(linear_out.bias), bias, rtol=1e-5, atol=1e-5
+        )
 
     reset_weights()
     result = model(
@@ -205,8 +207,12 @@ def test_training_values_fir_linear():
             "target1": np.ones((1, 1, 1), dtype=np.float32) * 3,
         }
     )
-    np.testing.assert_allclose(to_numpy(result["out1"]), [[[1.0]]], rtol=1e-5, atol=1e-5)
-    np.testing.assert_allclose(to_numpy(result["out2"]), [[[2.0]]], rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(
+        to_numpy(result["out1"]), [[[1.0]]], rtol=1e-5, atol=1e-5
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["out2"]), [[[2.0]]], rtol=1e-5, atol=1e-5
+    )
 
     # ------- One sample, one epoch at a time -------
     dataset = {"in1": [1], "target1": [3]}
@@ -269,7 +275,9 @@ def test_training_values_fir_linear_only_model():
         np.testing.assert_allclose(
             to_numpy(linear_out.kernel), kernel, rtol=1e-5, atol=1e-5
         )
-        np.testing.assert_allclose(to_numpy(linear_out.bias), bias, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(
+            to_numpy(linear_out.bias), bias, rtol=1e-5, atol=1e-5
+        )
 
     reset_weights()
     result = model(
@@ -278,8 +286,12 @@ def test_training_values_fir_linear_only_model():
             "target1": np.ones((1, 1, 1), dtype=np.float32) * 3,
         }
     )
-    np.testing.assert_allclose(to_numpy(result["out1"]), [[[1.0]]], rtol=1e-5, atol=1e-5)
-    np.testing.assert_allclose(to_numpy(result["out2"]), [[[2.0]]], rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(
+        to_numpy(result["out1"]), [[[1.0]]], rtol=1e-5, atol=1e-5
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["out2"]), [[[2.0]]], rtol=1e-5, atol=1e-5
+    )
 
     dataset = {"in1": [1], "target1": [3]}
     data_train = DataLoader(model, source=dataset)
@@ -340,7 +352,9 @@ def test_training_values_fir_linear_more_samples():
         np.testing.assert_allclose(
             to_numpy(linear_out.kernel), kernel, rtol=1e-5, atol=1e-5
         )
-        np.testing.assert_allclose(to_numpy(linear_out.bias), bias, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(
+            to_numpy(linear_out.bias), bias, rtol=1e-5, atol=1e-5
+        )
 
     reset_weights()
     result = model(
@@ -411,14 +425,19 @@ def test_training_values_linear_fir_window():
         fir_out.kernel.assign([[4.0], [5.0]])
 
     def assert_weights(kernel, bias, fir_kernel):
-        np.testing.assert_allclose(to_numpy(lin_out.kernel), kernel, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(
+            to_numpy(lin_out.kernel), kernel, rtol=1e-5, atol=1e-5
+        )
         np.testing.assert_allclose(to_numpy(lin_out.bias), bias, rtol=1e-5, atol=1e-5)
         np.testing.assert_allclose(
             to_numpy(fir_out.kernel), fir_kernel, rtol=1e-5, atol=1e-5
         )
 
     reset_weights()
-    dataset = {"in1": [[0, 1], [2, 3], [7, 4], [1, 3], [4, 2]], "target": [3, 4, 5, 1, 3]}
+    dataset = {
+        "in1": [[0, 1], [2, 3], [7, 4], [1, 3], [4, 2]],
+        "target": [3, 4, 5, 1, 3],
+    }
     data = DataLoader(model, source=dataset)
     assert len(data) == 4
     result = model(data.as_dict())
@@ -487,7 +506,9 @@ def test_training_values_fir_and_linear_closed_loop():
         np.testing.assert_allclose(
             to_numpy(fir_out.kernel), fir_kernel, rtol=1e-5, atol=1e-5
         )
-        np.testing.assert_allclose(to_numpy(lin_out.kernel), kernel, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(
+            to_numpy(lin_out.kernel), kernel, rtol=1e-5, atol=1e-5
+        )
         np.testing.assert_allclose(to_numpy(lin_out.bias), bias, rtol=1e-5, atol=1e-5)
 
     reset_weights()
@@ -495,8 +516,12 @@ def test_training_values_fir_and_linear_closed_loop():
     # ------- Six closed loop steps from a zero state -------
     seed1 = Input("seed1", seq=6)
     seed2 = Input("seed2", seq=6)
-    loop1 = Loop(f=body1, callback={input1: output1}, initial={input1: seed1}, name="loop1")
-    loop2 = Loop(f=body2, callback={input2: output2}, initial={input2: seed2}, name="loop2")
+    loop1 = Loop(
+        f=body1, callback={input1: output1}, initial={input1: seed1}, name="loop1"
+    )
+    loop2 = Loop(
+        f=body2, callback={input2: output2}, initial={input2: seed2}, name="loop2"
+    )
     rollout = Modely(
         "rollout",
         inputs=[seed1, seed2],
@@ -523,11 +548,13 @@ def test_training_values_fir_and_linear_closed_loop():
 
     ones = np.ones((1, 1, 1), dtype=np.float32)
     reset_weights()  ## build() creates fresh layers, so the weights are set again
-    result = model(
-        {"in1": ones, "in2": ones, "target1": ones * 3, "target2": ones * 3}
+    result = model({"in1": ones, "in2": ones, "target1": ones * 3, "target2": ones * 3})
+    np.testing.assert_allclose(
+        to_numpy(result["out1"]), [[[1.0]]], rtol=1e-5, atol=1e-5
     )
-    np.testing.assert_allclose(to_numpy(result["out1"]), [[[1.0]]], rtol=1e-5, atol=1e-5)
-    np.testing.assert_allclose(to_numpy(result["out2"]), [[[2.0]]], rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(
+        to_numpy(result["out2"]), [[[2.0]]], rtol=1e-5, atol=1e-5
+    )
 
     dataset = {"in1": [1], "in2": [1.0], "target1": [3], "target2": [3]}
     data_train = DataLoader(model, source=dataset)
@@ -1118,9 +1145,7 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
     ]
     data = DataLoader(
         model,
-        source=[
-            {"pad_x": signal, "pad_target": ratio * signal} for signal in signals
-        ],
+        source=[{"pad_x": signal, "pad_target": ratio * signal} for signal in signals],
         seq_length="full",
     )
 
@@ -1143,7 +1168,7 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
     model.export_keras(export_path)
     reloaded = Modely.import_keras(export_path, safe_mode=False)
     np.testing.assert_allclose(
-        to_numpy(reloaded(data.as_dict())["pad_out"]),
+        to_numpy(reloaded(data.as_dict())["pad_out"]),  # type: ignore
         to_numpy(model(data.as_dict())["pad_out"]),
         atol=1e-5,
     )

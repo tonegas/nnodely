@@ -4,6 +4,7 @@ import keras
 
 from nnodely.core.layer import Layer
 
+
 @keras.saving.register_keras_serializable(package="nnodely")
 class ArithmeticImpl(keras.layers.Layer):
     def __init__(self, operation: str, name=None, **kwargs):
@@ -36,36 +37,43 @@ class Exp(Arithmetic):
     """Wrapper for exponential transform."""
 
     operation = "exp"
-    
+
+
 class Log(Arithmetic):
     """Wrapper for natural logarithm transform."""
 
     operation = "log"
+
 
 class Log10(Arithmetic):
     """Wrapper for base 10 logarithm transform."""
 
     operation = "log10"
 
+
 class Sqrt(Arithmetic):
     """Wrapper for square root transform."""
 
     operation = "sqrt"
+
 
 class Abs(Arithmetic):
     """Wrapper for absolute value transform."""
 
     operation = "abs"
 
+
 class Floor(Arithmetic):
     """Wrapper for floor transform."""
 
     operation = "floor"
 
+
 class Ceil(Arithmetic):
     """Wrapper for ceiling transform."""
 
     operation = "ceil"
+
 
 ## Note: The following class is commented out, as it is not currently in Keras ops.
 # .
@@ -74,20 +82,24 @@ class Ceil(Arithmetic):
 
 #     operation = "rad2deg"
 
+
 class Deg2Rad(Arithmetic):
     """Wrapper for degrees to radians transform."""
 
     operation = "deg2rad"
+
 
 class Sign(Arithmetic):
     """Wrapper for sign transform."""
 
     operation = "sign"
 
+
 class Negative(Arithmetic):
     """Wrapper for negation transform."""
 
     operation = "negative"
+
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class ClampImpl(keras.layers.Layer):

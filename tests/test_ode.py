@@ -74,7 +74,7 @@ def test_ode_matches_hand_written_rk4():
     dt = Constant(name="dt", value=0.02)
 
     # Shared parameters, so both branches integrate exactly the same dynamics.
-    gear, m1, m2, l, b, d, I = (
+    gear, m1, m2, len, b, d, Inertia = (
         Parameter(name=name, value=[value])
         for name, value in zip(
             "gear m1 m2 l b d I".split(),
@@ -85,21 +85,21 @@ def test_ode_matches_hand_written_rk4():
     def inv_pend(p, v, alpha, omega, u):
         sin_theta = Sin()(alpha)
         cos_theta = Cos()(alpha)
-        I_eff = I + m2 * l**2
-        denom = (m1 + m2) * I_eff - (m2 * l * cos_theta) ** 2
+        I_eff = Inertia + m2 * len**2
+        denom = (m1 + m2) * I_eff - (m2 * len * cos_theta) ** 2
         F = gear * u
         omega_dot = (
-            (m1 + m2) * m2 * g * l * sin_theta
-            - m2**2 * l**2 * omega**2 * sin_theta * cos_theta
+            (m1 + m2) * m2 * g * len * sin_theta
+            - m2**2 * len**2 * omega**2 * sin_theta * cos_theta
             - (m1 + m2) * d * omega
-            + m2 * l * b * v * cos_theta
-            - m2 * l * cos_theta * F
+            + m2 * len * b * v * cos_theta
+            - m2 * len * cos_theta * F
         ) / denom
         v_dot = (
-            I_eff * m2 * l * omega**2 * sin_theta
+            I_eff * m2 * len * omega**2 * sin_theta
             - I_eff * b * v
-            - m2**2 * l**2 * g * sin_theta * cos_theta
-            + m2 * l * d * omega * cos_theta
+            - m2**2 * len**2 * g * sin_theta * cos_theta
+            + m2 * len * d * omega * cos_theta
             + F * I_eff
         ) / denom
         return [v, v_dot, omega, omega_dot]

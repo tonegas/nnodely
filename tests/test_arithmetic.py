@@ -11,7 +11,7 @@ from nnodely.layers.arithmetic import (
     Sign,
     Sqrt,
     Sum,
-    Negative
+    Negative,
 )
 from conftest import to_numpy
 import numpy as np
@@ -30,7 +30,7 @@ import pytest
         (Ceil, np.ceil, -3.0, 3.0),
         (Sign, np.sign, -3.0, 3.0),
         (Negative, np.negative, -3.0, 3.0),
-        (Deg2Rad, np.deg2rad, -180.0, 180.0)
+        (Deg2Rad, np.deg2rad, -180.0, 180.0),
     ],
 )
 def test_arithmetic(layer_class, reference, low, high):

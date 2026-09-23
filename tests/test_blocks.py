@@ -1,4 +1,15 @@
-from nnodely import Input, Output, Modely, ReLU, Linear, EquationLearner, Sin, Cos, Fir, Select
+from nnodely import (
+    Input,
+    Output,
+    Modely,
+    ReLU,
+    Linear,
+    EquationLearner,
+    Sin,
+    Cos,
+    Fir,
+    Select,
+)
 
 from nnodely.core.layer import Identity
 from nnodely.layers.localmodel import LocalModel
@@ -169,9 +180,7 @@ def test_local_model_sums_input_activation_pairs():
         outputs=[Output("single_x", single_x), Output("single_y", single_y)],
     ).build()
 
-    for single, kernel, bias in zip(
-        (single_x, single_y), paired.kernel, paired.bias
-    ):
+    for single, kernel, bias in zip((single_x, single_y), paired.kernel, paired.bias):
         single.kernel.assign(to_numpy(kernel))
         single.bias.assign(to_numpy(bias))
 

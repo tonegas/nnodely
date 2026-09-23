@@ -459,7 +459,7 @@ class OdeNet(Layer):
     every body input has to be a state - because an exogenous driver would have
     to be evaluated at the solver's own times, which are not known in advance.
 
-    `t` is the stream of times to report, shared across the batch. 
+    `t` is the stream of times to report, shared across the batch.
     Its last axis fixes how many points come back, but the values
     are read at call time: the same trained field can be integrated over any
     horizon by feeding a different `t`, with no rebuild. The first time is the

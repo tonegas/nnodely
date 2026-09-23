@@ -464,7 +464,7 @@ def export_html(
                     # A consumer reads the block either through one of its
                     # selector nodes, already bound above, or straight off the
                     # block node, which now resolves to the body output.
-                    results = block_results[pred_name]
+                    results = block_results[pred_name] if pred_name else {}
                     if getattr(node, "name", None) not in results["selectors"]:
                         add_edge(pred, results["primary"], ident(node))
                     continue
@@ -742,12 +742,8 @@ def export_html(
                     "font": {"color": "#6c3483", "bold": {"color": "#6c3483"}},
                     "title": f"minimize {min_name}\nloss: {loss_label}",
                     "level": max(
-                        levels.get(
-                            getattr(minimizer.get("source"), "name", ""), 0
-                        ),
-                        levels.get(
-                            getattr(minimizer.get("target"), "name", ""), 0
-                        ),
+                        levels.get(getattr(minimizer.get("source"), "name", ""), 0),
+                        levels.get(getattr(minimizer.get("target"), "name", ""), 0),
                     )
                     + 1,
                 }
@@ -1090,7 +1086,6 @@ def export_html(
     <input id="search" type="search" placeholder="Find node by name…" autocomplete="off"/>
     <span id="searchInfo"></span>
     <button id="layoutBtn" class="btn"></button>
-    <button id="fitBtn" class="btn">Fit</button>
     <span id="graphInfo"></span>
 </div>
 
@@ -1333,10 +1328,6 @@ def export_html(
         const next = layoutOptions();
         next.edges.font = {{ size: 10, align: "middle" }};
         network.setOptions(next);
-        network.fit({{ animation: true }});
-    }});
-
-    document.getElementById("fitBtn").addEventListener("click", () => {{
         network.fit({{ animation: true }});
     }});
 

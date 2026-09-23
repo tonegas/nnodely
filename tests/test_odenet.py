@@ -248,14 +248,13 @@ def test_odenet_keras_round_trip(tmp_path):
     model.export_keras(path + ".keras")
     reloaded = Modely.import_keras(path, safe_mode=False)
     assert reloaded is not None
-
     after = to_numpy(
         reloaded(
             {
                 x_name: Y0,
                 t_name: times.reshape(1, 1, 1, points).astype(np.float32),
             }
-        )[y_name]
+        )[y_name]  # type: ignore
     )[0, :, 0, :].T
     np.testing.assert_allclose(after, before, atol=1e-6)
 
@@ -312,9 +311,7 @@ def test_odenet_trained_field_matches_analytic_solution():
     predicted_p = Output("p_fit_pred", p_traj)
     predicted_q = Output("q_fit_pred", q_traj)
 
-    trainer = Modely(
-        "spiral_fit", inputs=[p, q, t], outputs=[predicted_p, predicted_q]
-    )
+    trainer = Modely("spiral_fit", inputs=[p, q, t], outputs=[predicted_p, predicted_q])
     trainer.minimize(
         "err_p",
         source=predicted_p,
@@ -374,6 +371,7 @@ def test_odenet_trained_field_matches_analytic_solution():
 
     # The tableau is the only thing that changes: the same model and the same
     # weights, now marching adaptively over twice the horizon it was fitted on.
+    assert trainer.model is not None
     trainer.model.get_layer("fit_ode").set_method("dopri5")
     grid = np.linspace(0.0, 2 * span, points, dtype=np.float32)
     # The losses are part of the trained model's signature, so the targets have
@@ -436,6 +434,7 @@ def test_odenet_set_method_switches_a_built_layer():
     model, trajectory, names = _spiral_model("switch", points, method="euler", steps=5)
     coarse = np.abs(_solve(model, names, times) - _analytic(times)).max()
 
+    assert model.model is not None
     model.model.get_layer(trajectory.name).set_method("dopri5")
     adaptive = np.abs(_solve(model, names, times) - _analytic(times)).max()
 
@@ -498,6 +497,7 @@ def test_odenet_trains_a_field_holding_a_shared_layer():
 
     # The trained layer keeps its weights across the swap, so the same model
     # integrates adaptively once the fitting is done.
+    assert trainer.model is not None
     trainer.model.get_layer("shared_ode").set_method("dopri5")
     rolled = to_numpy(trainer(data.as_dict())["x_shared_pred"])[:, :, 0, -1]
     np.testing.assert_allclose(
@@ -613,6 +613,8 @@ def test_odenet_event_time_reaches_the_gradient():
     horizon = 3.0
     times = np.array([0.0, horizon], dtype=np.float32)
     model, field, names = _ball_model("grad", points=times.size, steps=200)
+    assert model.model is not None
+    assert field.model is not None
     p_name, v_name, t_name, pos_name = names
     gravity = next(
         variable
@@ -714,6 +716,8 @@ def test_odenet_fits_the_event_along_with_the_field():
         train_data=data, epochs=500, batch_size=32, lr=5e-3, optimizer="adam"
     )
     assert history["loss"][-1] < history["loss"][0] / 100
+    assert trainer.model is not None
+    assert field.model is not None
 
     learned = {
         name: float(np.ravel(field.model.get_layer(name).get_weights()[0])[0])
@@ -793,6 +797,7 @@ def test_odenet_event_blocks_the_method_swap():
     # that march has no event handling, so it must not go through silently.
     times = np.array([0.0, 1.0], dtype=np.float32)
     model, _, _ = _ball_model("swap", points=times.size, steps=2)
+    assert model.model is not None
     with pytest.raises(ValueError, match="cannot switch to 'dopri5'"):
         model.model.get_layer("bounce_swap").set_method("dopri5")
 

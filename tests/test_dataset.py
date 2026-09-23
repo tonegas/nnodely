@@ -352,7 +352,9 @@ def test_invalid_step_raises():
     ).build()
 
     with np.testing.assert_raises(ValueError):
-        DataLoader(model, source={"step_invalid_x": np.arange(4, dtype=np.float32)}, step=0)
+        DataLoader(
+            model, source={"step_invalid_x": np.arange(4, dtype=np.float32)}, step=0
+        )
 
 
 def test_format_maps_multiple_columns_to_one_input():

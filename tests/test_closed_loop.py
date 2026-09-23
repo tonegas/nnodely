@@ -17,6 +17,7 @@ from nnodely import (
     DataLoader,
 )
 import pytest
+
 os.environ.setdefault("KERAS_BACKEND", "jax")
 
 
@@ -194,6 +195,7 @@ def test_model_roll():
         atol=1e-5,
     )
 
+
 def dummy_input(shape, method="random"):
     if method == "random":
         return np.random.rand(*shape).astype(np.float32)
@@ -311,7 +313,7 @@ def test_nested_closed_loop(tmp_path):
         {
             "x_seq": dummy_input_x,
             "z": dummy_input_z,
-            "w_target": dummy_input_z, # Not used in this test
+            "w_target": dummy_input_z,  # Not used in this test
         }
     )
     assert "out_w" in result_out

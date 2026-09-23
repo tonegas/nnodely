@@ -78,7 +78,7 @@ def test_parameter_through_a_layer_keeps_the_batch_axis():
     x = Input("x", dim=4)
     parameter = Parameter("param_exp", value=np.zeros((4, 1), dtype=np.float32))
 
-    y = x.last() * Exp()(parameter)
+    y = x.last() * Exp()([parameter])
     model = Modely("model_param_exp", inputs=[x], outputs=[Output("x_out", y)])
     model.build()
 

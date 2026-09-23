@@ -86,14 +86,6 @@ class DataLoader:
                 "step has no meaning with seq_length='full': the sequence already "
                 "spans the whole simulation, so there is a single starting point."
             )
-        if on_short not in ("error", "skip"):
-            raise ValueError(
-                f"on_short must be either 'error' or 'skip', got {on_short!r}."
-            )
-        if format is not None and not isinstance(format, dict):
-            raise TypeError(
-                "format must be a dict mapping input name to column name(s) or index(es)"
-            )
 
         self.model = model
         self.format = format
@@ -117,7 +109,8 @@ class DataLoader:
             name: [node.past, node.future] for name, node in self.input_nodes.items()
         }
         self.sequence_specs = {
-            name: self._resolve_sequence(node) for name, node in self.input_nodes.items()
+            name: self._resolve_sequence(node)
+            for name, node in self.input_nodes.items()
         }
 
         self._dynamic_inputs = {
@@ -136,9 +129,41 @@ class DataLoader:
         self._normalization_aliases = self._build_normalization_aliases()
         self._num_steps = min(len(values) for values in self.dataset.values())
 
+        # Number of CSV files the dataset was assembled from; None when the
+        # samples came from an in-memory dict and no file is involved.
+        self.num_files: int | None = None
+
     @property
     def inputs(self) -> List[str]:
         return list(self.dataset.keys())
+
+    def __repr__(self) -> str:
+        """Table of what the loader actually built, for `print(loader)`."""
+        width = 80
+        label = 30
+        lines = [" nnodely Model Dataset ".center(width, "=")]
+
+        def row(name: str, value: Any) -> None:
+            lines.append(f"{name + ':':<{label}}{value}")
+
+        row("Dataset Name", self.model.name)
+        if self.num_files is None:
+            row("Source", "in-memory dict")
+        else:
+            row("Number of files", self.num_files)
+        row("Total number of samples", len(self))
+        for name, values in self.dataset.items():
+            row(f"Shape of {name}", tuple(values.shape))
+        if self.normalization_stats:
+            methods = {stats["method"] for stats in self.normalization_stats.values()}
+            row(
+                "Normalization",
+                f"{'/'.join(sorted(methods))} "
+                f"({len(self.normalization_stats)}/{len(self.dataset)} inputs)",
+            )
+
+        lines.append("=" * width)
+        return "\n".join(lines)
 
     def __len__(self) -> int:
         return self._num_steps
@@ -191,11 +216,11 @@ class DataLoader:
                     sequence.append(None)
                     continue
                 length = self.seq_length
-            if length < 1:
+            if length < 1:  # type: ignore
                 raise ValueError(
                     f"Input '{node.name}' has invalid sequence length {length}."
                 )
-            sequence.append(int(length))
+            sequence.append(int(length))  # type: ignore
         return tuple(sequence)
 
     # ------------------------------------------------------------------
@@ -215,6 +240,7 @@ class DataLoader:
                     )
             else:
                 files = [path]
+            self.num_files = len(files)
             return [
                 (file.name, self._read_frame(pd.read_csv(file), file.name))
                 for file in files
@@ -264,7 +290,7 @@ class DataLoader:
             values = np.stack(
                 [
                     (
-                        df.iloc[:, column]
+                        df.iloc[:, column]  # type: ignore
                         if isinstance(column, (int, np.integer))
                         else df[column]
                     ).to_numpy(dtype=self.dtype)

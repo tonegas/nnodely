@@ -212,7 +212,7 @@ class LocalModel(Layer):
             n_inputs=self.n_inputs,
         )
 
-    def __call__(self, inputs, activations):
+    def __call__(self, inputs, activations):  # type: ignore #TODO: control the multiple call signature
         inputs = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
         activations = (
             list(activations)
@@ -247,16 +247,28 @@ class LocalModel(Layer):
 
     def build_layer(self):
         for index, node in enumerate(self.preds[: self.n_inputs]):
-            if node.shape.seq_rank:
+            shape = getattr(node, "shape", None)
+            if shape is None:
+                raise ValueError(
+                    f"{self.name}: input {index} has no shape; a local model "
+                    "needs a fixed window."
+                )
+            if shape.seq_rank:
                 raise ValueError(
                     f"{self.name}: input {index} carries a sequence axis "
-                    f"{node.shape.seq}; a local model consumes one window at a time."
+                    f"{shape.seq}; a local model consumes one window at a time."
                 )
         for index, node in enumerate(self.preds[self.n_inputs :]):
-            if node.shape.seq_rank or node.shape.dim_rank != 1 or node.shape.time != 1:
+            shape = getattr(node, "shape", None)
+            if shape is None:
+                raise ValueError(
+                    f"{self.name}: activation {index} has no shape; a local model "
+                    "needs a fixed window."
+                )
+            if shape.seq_rank or shape.dim_rank != 1 or shape.time != 1:
                 raise ValueError(
                     f"{self.name}: activation {index} must have shape "
-                    f"[cells, 1], got {node.shape}."
+                    f"[cells, 1], got {shape}."
                 )
 
         return LocalModelImpl(
@@ -306,3 +318,32 @@ class LocalModel(Layer):
             if len(self._layer.biases) == 1
             else self._layer.biases
         )
+
+
+## HIGH LEVEL BLOCK FOR LOCAL MODEL ##
+# class LocalModel:
+#     """
+#     High-level abstraction for a local model built using only nnodely blocks
+#     """
+
+#     def __init__(
+#         self,
+#         input_function,
+#         output_function=None,
+#         name: str | None = None,
+#     ):
+#         self.input_function = input_function
+#         self.output_function = output_function
+#         self.name = name
+
+#     def __call__(self, activation):
+#         ret = []
+#         local = Input("local_input")
+#         for i in range(activation.dim[0]):
+#             x = self.input_function([local]) * Select(idx=i, axis=0)([activation])
+#             if self.output_function is not None:
+#                 x = self.output_function([x])
+#             ret.append(x)
+#         ret = Add()(ret)
+#         out = Output("local_output", ret)
+#         return Modely(name=f"{self.name}", inputs=[local], outputs=[out])

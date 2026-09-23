@@ -184,8 +184,12 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
     body = Modely("loop_body", inputs=[seed_input], outputs=[body_output]).build()
 
     seed = Input("in1_seq", seq=5)
-    loop = Loop(f=body, callback={seed_input: body_output},
-                initial={seed_input: seed}, name="loop_block")
+    loop = Loop(
+        f=body,
+        callback={seed_input: body_output},
+        initial={seed_input: seed},
+        name="loop_block",
+    )
     model = Modely("loop_model", inputs=[seed], outputs=[Output("out1", loop)])
     model.minimize("err", source=model.outputs[0], target=Input("target", seq=5))
     model.build()
@@ -215,8 +219,12 @@ def test_export_html_layout_survives_feedback_cycles(tmp_path):
     body = Modely("cyc_body", inputs=[seed_input], outputs=[body_output]).build()
 
     seed = Input("in1_seq", seq=5)
-    loop = Loop(f=body, callback={seed_input: body_output},
-                initial={seed_input: seed}, name="cyc_block")
+    loop = Loop(
+        f=body,
+        callback={seed_input: body_output},
+        initial={seed_input: seed},
+        name="cyc_block",
+    )
     model = Modely("cyc_model", inputs=[seed], outputs=[Output("out1", loop)])
     model.build()
 
@@ -227,7 +235,9 @@ def test_export_html_layout_survives_feedback_cycles(tmp_path):
     # "directed" sort collapses every node into one column once an edge
     # points backwards, which the Loop feedback arrow does.
     nodes = json.loads(
-        re.search(r"const nodes = new vis\.DataSet\((\[.*?\])\);\n", body_page, re.S).group(1)
+        re.search(
+            r"const nodes = new vis\.DataSet\((\[.*?\])\);\n", body_page, re.S
+        ).group(1)  # type: ignore
     )
     # The body is a straight chain, so a working layout gives every node its
     # own level; the collapse showed up as every node sharing level 0.
@@ -237,10 +247,14 @@ def test_export_html_layout_survives_feedback_cycles(tmp_path):
 def _graph(page):
     """Node ids, edges and levels of an exported page."""
     nodes = json.loads(
-        re.search(r"const nodes = new vis\.DataSet\((\[.*?\])\);\n", page, re.S).group(1)
+        re.search(r"const nodes = new vis\.DataSet\((\[.*?\])\);\n", page, re.S).group(  # type: ignore
+            1
+        )
     )
     edges = json.loads(
-        re.search(r"const edges = new vis\.DataSet\((\[.*?\])\);\n", page, re.S).group(1)
+        re.search(r"const edges = new vis\.DataSet\((\[.*?\])\);\n", page, re.S).group(  # type: ignore
+            1
+        )
     )
     return nodes, edges
 
@@ -257,8 +271,12 @@ def test_flattened_page_inlines_a_loop_body(tmp_path):
     body = Modely("inline_body", inputs=[seed_input], outputs=[body_output]).build()
 
     seed = Input("in1_seq", seq=4)
-    loop = Loop(f=body, callback={seed_input: body_output},
-                initial={seed_input: seed}, name="inline_block")
+    loop = Loop(
+        f=body,
+        callback={seed_input: body_output},
+        initial={seed_input: seed},
+        name="inline_block",
+    )
     model = Modely("inline_model", inputs=[seed], outputs=[Output("out1", loop)])
     model.build()
     model.export_html(out_dir=tmp_path, filename="inline_model")
@@ -278,7 +296,9 @@ def test_flattened_page_inlines_a_loop_body(tmp_path):
 
     labels = {(e["from"], e["to"]): e["label"] for e in _graph(flattened)[1]}
     assert labels[("in1_seq", "inline_block/in1")] == "initial"
-    assert labels[("inline_block/body_out", "inline_block/in1")] == "feedback (x4 steps)"
+    assert (
+        labels[("inline_block/body_out", "inline_block/in1")] == "feedback (x4 steps)"
+    )
     _assert_no_dangling(flattened)
 
 

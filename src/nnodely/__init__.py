@@ -1,6 +1,11 @@
+# Randomness is configured before importing layers so an environment seed is
+# applied before any model objects or initializers are created.
+from nnodely.utils.random import get_seed, set_seed
+
 # Core
 from nnodely.core.modely import Modely
 from nnodely.core.dataloader import DataLoader
+from nnodely.utils.printers import TinyPrinter, LegacyPrinter, NNodelyPrinter
 
 # Layers
 from nnodely.layers.input import Input
@@ -17,7 +22,14 @@ from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.equationlearner import EquationLearner
 from nnodely.layers.derivative import Derivative
 from nnodely.layers.integrate import Integrate
-from nnodely.layers.time_ops import Concatenate, Select, TimeConcatenate, TimeSelect
+from nnodely.layers.time_ops import (
+    Concatenate,
+    Range,
+    Select,
+    TimeConcatenate,
+    TimeRange,
+    TimeSelect,
+)
 from nnodely.layers.batchnorm import BatchNorm
 from nnodely.layers.ode import Ode, OdeNet
 from nnodely.layers.activations import (
@@ -45,13 +57,18 @@ from nnodely.layers.arithmetic import (
     Sign,
     Sqrt,
     Sum,
-    Negative
+    Negative,
 )
 
 # Public API
 __all__ = [
+    "set_seed",
+    "get_seed",
     "Modely",
     "DataLoader",
+    "TinyPrinter",
+    "NNodelyPrinter",
+    "LegacyPrinter",
     "Input",
     "Output",
     "Fir",
@@ -70,6 +87,8 @@ __all__ = [
     "TimeConcatenate",
     "TimeSelect",
     "Select",
+    "TimeRange",
+    "Range",
     "BatchNorm",
     "Ode",
     "OdeNet",
@@ -89,6 +108,16 @@ __all__ = [
     "Asin",
     "Acos",
     "Atan",
+    "Exp",
+    "Log",
+    "Log10",
+    "Sqrt",
+    "Abs",
+    "Floor",
+    "Ceil",
+    "Deg2Rad",
+    "Sign",
+    "Negative",
     "Abs",
     "Ceil",
     "Clamp",
@@ -100,5 +129,5 @@ __all__ = [
     "Sign",
     "Sqrt",
     "Sum",
-    "Negative"
+    "Negative",
 ]

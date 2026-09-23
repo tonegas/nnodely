@@ -23,12 +23,12 @@ dependencies = [
   "matplotlib>=3.10.8",
   "numpy>=1.26.4",
   "pandas>=2.3.3",
-  "tensorflow>=2.21.0",
   "tqdm>=4.67.3",
   "cloudpickle>=3.0.0"
 ]
 
 [project.optional-dependencies]
+tensorflow = ["tensorflow>=2.21.0"]
 torch = ["torch>=2.2.2"]
 jax = ["jax>=0.6.2"]
 onnx = [

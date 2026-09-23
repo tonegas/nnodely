@@ -546,7 +546,7 @@ def test_save_load_batchnorm_model(tmp_path):
         inputs=[x],
         outputs=[Output("batchnorm_save_output", normalized)],
     ).build()
-
+    assert model.model is not None
     # Move the moving statistics away from their initial values, so a wrong
     # weight roundtrip changes the prediction.
     values = np.random.rand(4, 2, 3).astype(np.float32) * 10.0
