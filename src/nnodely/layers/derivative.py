@@ -597,8 +597,13 @@ class Derivative(Layer):
 
     def call(self, xs):
         if self.dt is not None:
-            if self._layer is None:
+            signature = self.input_signature(xs)
+            stale = (
+                self._layer_signature is not None and self._layer_signature != signature
+            )
+            if self._layer is None or stale:
                 self._layer = self.build_layer()
+            self._layer_signature = signature
             return self._layer(xs if len(xs) > 1 else xs[0])
 
         tensor = xs[0]

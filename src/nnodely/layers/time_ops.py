@@ -91,10 +91,11 @@ class SampleWindow(Layer):
                 f"{self.name}: past + future must be positive, got {self.window_size}."
             )
 
+        predecessor = self.preds[0]
         pred_past = (
-            self.preds[0].past
-            if isinstance(self.preds[0], (Input, SampleWindow))
-            else 0
+            predecessor.past
+            if isinstance(predecessor, (Input, SampleWindow))
+            else predecessor.shape.time  # type: ignore[union-attr]
         )
         start = pred_past - self.past
 

@@ -28,13 +28,12 @@ class ReLU(Layer):
         )
 
     def build_layer(self):
-        self._layer = keras.layers.ReLU(
+        return keras.layers.ReLU(
             max_value=self.max_value,
             negative_slope=self.negative_slope,
             threshold=self.threshold,
             name=self.name,
         )
-        return self._layer
 
     def get_config(self):
         return {
@@ -52,11 +51,10 @@ class LeakyReLU(Layer):
         super().__init__(name=name, negative_slope=self.negative_slope)
 
     def build_layer(self):
-        self._layer = keras.layers.LeakyReLU(
+        return keras.layers.LeakyReLU(
             negative_slope=self.negative_slope,
             name=self.name,
         )
-        return self._layer
 
     def get_config(self):
         return {
@@ -93,8 +91,7 @@ class ELU(Layer):
         super().__init__(name=name, alpha=self.alpha)
 
     def build_layer(self):
-        self._layer = ELUImpl(alpha=self.alpha, name=self.name)
-        return self._layer
+        return ELUImpl(alpha=self.alpha, name=self.name)
 
     def get_config(self):
         return {
@@ -110,8 +107,7 @@ class PReLU(Layer):
         super().__init__(name=name, shared_axes=self.shared_axes)
 
     def build_layer(self):
-        self._layer = keras.layers.PReLU(shared_axes=self.shared_axes, name=self.name)
-        return self._layer
+        return keras.layers.PReLU(shared_axes=self.shared_axes, name=self.name)
 
     def get_config(self):
         return {
@@ -127,8 +123,7 @@ class Softmax(Layer):
         super().__init__(name=name, axis=self.axis)
 
     def build_layer(self):
-        self._layer = keras.layers.Softmax(axis=self.axis, name=self.name)
-        return self._layer
+        return keras.layers.Softmax(axis=self.axis, name=self.name)
 
     def get_config(self):
         return {
@@ -143,8 +138,7 @@ class Sigmoid(Layer):
         super().__init__(name=name)
 
     def build_layer(self):
-        self._layer = keras.layers.Activation("sigmoid", name=self.name)
-        return self._layer
+        return keras.layers.Activation("sigmoid", name=self.name)
 
 
 class Tanh(Layer):
@@ -154,8 +148,7 @@ class Tanh(Layer):
         super().__init__(name=name)
 
     def build_layer(self):
-        self._layer = keras.layers.Activation("tanh", name=self.name)
-        return self._layer
+        return keras.layers.Activation("tanh", name=self.name)
 
 
 class Swish(Layer):
@@ -165,8 +158,7 @@ class Swish(Layer):
         super().__init__(name=name)
 
     def build_layer(self):
-        self._layer = keras.layers.Activation("swish", name=self.name)
-        return self._layer
+        return keras.layers.Activation("swish", name=self.name)
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -192,8 +184,7 @@ class GELU(Layer):
         super().__init__(name=name, approximate=self.approximate)
 
     def build_layer(self):
-        self._layer = GELUImpl(approximate=self.approximate, name=self.name)
-        return self._layer
+        return GELUImpl(approximate=self.approximate, name=self.name)
 
     def get_config(self):
         return {"approximate": self.approximate}
@@ -218,5 +209,4 @@ class Softplus(Layer):
         super().__init__(name=name)
 
     def build_layer(self):
-        self._layer = SoftplusImpl(name=self.name)
-        return self._layer
+        return SoftplusImpl(name=self.name)

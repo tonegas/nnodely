@@ -203,10 +203,14 @@ class Modely:
             flat.order, output_nodes=flat_graph_outputs
         )
         # Graph flattening builds shallow copies. Keep the public symbolic nodes
-        # connected to the concrete Keras layers created from those copies.
+        # connected to the concrete Keras layers created from those copies, and
+        # to the input shapes those were built for - the handle and what it
+        # fits travel together, so composing this model later can tell whether
+        # its layers can be reused where they land.
         for source_node, flat_node in flatten_memo.items():
             if isinstance(source_node, Layer) and isinstance(flat_node, Layer):
                 source_node._layer = flat_node._layer
+                source_node._layer_signature = flat_node._layer_signature
 
         body_model = keras.Model(
             name=self.name + "_train",

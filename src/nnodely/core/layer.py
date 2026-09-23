@@ -20,6 +20,7 @@ class Layer(Stream):
         self._properties = dict(kwargs)
         self.inputs = None
         self._layer = None
+        self._layer_signature = None
 
         super().__init__(
             name=next_name(self.__class__.__name__) if name is None else name,
@@ -127,9 +128,31 @@ class Layer(Stream):
         """
         raise NotImplementedError
 
+    def input_signature(self, xs):
+        """The input shapes a concrete layer was built for.
+
+        Weights belong to the shape they were made for, so a layer carried
+        into another graph - a model used as a block brings its own along -
+        can only be reused where its inputs still look the same. Layers that
+        read no input at all (Parameters, Constants) are shape-independent and
+        keep a constant signature.
+        """
+        if not self.preds:
+            return ()
+        try:
+            return tuple(tuple(x.shape[1:]) for x in xs)
+        except (AttributeError, TypeError):
+            # A layer whose inputs are not plain tensors - a recurrent body
+            # takes structures - cannot be checked this way, and is reused as
+            # it always was.
+            return None
+
     def call(self, xs):
-        if self._layer is None:
+        signature = self.input_signature(xs)
+        stale = self._layer_signature is not None and self._layer_signature != signature
+        if self._layer is None or stale:
             self._layer = self.build_layer()
+        self._layer_signature = signature
         if len(xs) == 1:
             return self._layer(xs[0])
         return self._layer(xs)
