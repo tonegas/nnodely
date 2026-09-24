@@ -18,9 +18,10 @@
 </p>
 
 <p align="center">
-  📖 <a href="https://nnodely.readthedocs.io/"><b>Documentation</b></a> &nbsp;•&nbsp;
-  🚀 <a href="https://nnodely.readthedocs.io/en/latest/getting_started.html"><b>Getting Started</b></a> &nbsp;•&nbsp;
-  🔬 <a href="https://github.com/tonegas/nnodely-applications"><b>Applications</b></a>
+  <a href="https://nnodely.readthedocs.io/"><b>Documentation</b></a> &nbsp;•&nbsp;
+  <a href="https://nnodely.readthedocs.io/en/latest/getting_started.html"><b>Getting Started</b></a> &nbsp;•&nbsp;
+  <a href="https://github.com/tonegas/nnodely-applications"><b>Applications</b></a> &nbsp;•&nbsp;
+  <a href="https://github.com/tonegas/nnodely/blob/main/NNODELY_AI_GUIDE.md"><b>Guide for AI assistants</b></a>
 </p>
 
 <img src="https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/rule.svg" width="100%" height="4" alt="">
@@ -31,20 +32,20 @@ you would write the equations: FIR filters on past samples, local models
 scheduled by a fuzzy variable, derivatives, integrators, ODE solvers. The data
 only has to find the coefficients.
 
-- ⚙️ **Structure first.** Every block has a physical meaning, so the trained
+- **Structure first.** Every block has a physical meaning, so the trained
   network stays interpretable.
-- 📉 **Little data.** Structural priors do the heavy lifting, so a few recordings
+- **Little data.** Structural priors do the heavy lifting, so a few recordings
   are often enough.
-- 🧭 **Generalization.** A model that respects the physics behaves in scenarios it
+- **Generalization.** A model that respects the physics behaves in scenarios it
   never saw during training.
-- ⏱️ **Real time.** Small networks, exported to Keras or ONNX for deployment.
-- 🔌 **Any backend.** Built on Keras 3: the same model runs on TensorFlow,
+- **Real time.** Small networks, exported to Keras or ONNX for deployment.
+- **Any backend.** Built on Keras 3: the same model runs on TensorFlow,
   PyTorch or JAX.
 
 nnodely is not a replacement for general-purpose deep-learning frameworks. It
 is a **structured layer on top of them**, purpose-built for physical systems.
 
-## ⚡ Install
+## Install
 
 ```sh
 pip install "nnodely[torch]"        # or [tensorflow], or [jax]
@@ -57,7 +58,7 @@ Pick the backend with `KERAS_BACKEND` (TensorFlow if unset) before importing nno
 export KERAS_BACKEND=torch
 ```
 
-## 🚀 Hello, world
+## Hello, world
 
 A mass-spring-damper, *m ẍ = −k x − c ẋ + F*, learned as its own
 discrete-time structure: the next position is a filter over the last positions
@@ -92,7 +93,7 @@ model.validate(data)
 `validate()` reports the loss next to RMSE, FIT, R² and the other indicators a
 system-identification report is read for, and can plot them.
 
-## 🧩 What's in the box
+## What's in the box
 
 | | Blocks |
 |---|---|
@@ -107,7 +108,7 @@ Every block is documented, with runnable examples, in the
 [User Guide](https://nnodely.readthedocs.io/en/latest/guide/index.html).
 
 <details>
-<summary><b>🗂️ Structure of the repository</b></summary>
+<summary><b>Structure of the repository</b></summary>
 
 ```bash
 nnodely/
@@ -117,25 +118,62 @@ nnodely/
 │   └── utils/      # printers, plots, seeding
 ├── docs/           # documentation, built on Read the Docs
 ├── tests/          # unit and integration tests, run on all three backends
-└── imgs/           # images used in the README and the documentation
+├── imgs/           # images used in the README and the documentation
+└── NNODELY_AI_GUIDE.md  # reference for AI coding assistants
 ```
 
 </details>
 
-## 🤝 Contributing
+## Writing nnodely code with an AI assistant
+
+The repository ships
+[`NNODELY_AI_GUIDE.md`](https://github.com/tonegas/nnodely/blob/main/NNODELY_AI_GUIDE.md),
+a reference written for LLMs and coding agents rather than for people. It is
+dense on purpose and covers what an assistant needs to produce working code on
+the first attempt:
+
+- the hard rules of the library: lifecycle order, how objectives and targets
+  work, naming and weight sharing, and the behaviors that fail silently;
+- a table that maps physical concepts and equations to nnodely blocks;
+- the shape convention `(*dim, time, *seq)` and how windows and sequences are
+  aligned by the `DataLoader`;
+- exact signatures of every block, of `Modely` and of `DataLoader`;
+- when to use `rollback`, `Loop`, `Roll`, `Ode` or `OdeNet`, and how to align
+  their training data;
+- which models can be saved or exported to Keras and ONNX, on which backend;
+- common error messages with their fix, runnable recipes, and a checklist to
+  review generated code.
+
+To use it, give the assistant the guide together with a description of the
+system you want to model:
+
+```text
+<contents of NNODELY_AI_GUIDE.md>
+
+Using nnodely, write a model of a DC motor: the angular velocity w follows
+J dw/dt = K i - b w, with J, K and b unknown. I have CSV files with columns
+time, current, omega sampled at 1 kHz. Identify J, K and b.
+```
+
+Agents that can read URLs can fetch the raw file directly from
+`https://raw.githubusercontent.com/tonegas/nnodely/main/NNODELY_AI_GUIDE.md`.
+Every behavior the guide marks as verified was checked against the code, so
+keep it in sync when the API changes.
+
+## Contributing
 
 Contributions and collaborations are welcome: open an issue for questions and
 ideas, or a pull request for a new feature or a fix. See
 [CONTRIBUTING.md](CONTRIBUTING.md) to set up the development environment.
 
-## 📄 License
+## License
 
 nnodely is released under the [MIT License](https://opensource.org/licenses/MIT).
 
 <img src="https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/rule.svg" width="100%" height="4" alt="">
 
 <a name="references"></a>
-## 📚 References
+## References
 
 <a id="1">[1]</a>
 Mauro Da Lio, Daniele Bortoluzzi, Gastone Pietro Rosati Papini. (2019).
