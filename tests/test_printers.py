@@ -23,7 +23,9 @@ def _single_minimizer_model():
 
 
 def test_legacy_printer_reproduces_the_original_table(capsys):
-    printer = LegacyPrinter(epochs=6000, minimizers=[("curv_error", "curv")])
+    printer = LegacyPrinter(
+        epochs=6000, minimizers=[("curv_error", "curv")], max_rows=100
+    )
 
     ## 6000 epochs over at most 100 rows is one row every 60 epochs
     assert printer.stride == 60

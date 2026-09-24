@@ -108,6 +108,11 @@ class DataLoader:
         self.input_specs = {
             name: [node.past, node.future] for name, node in self.input_nodes.items()
         }
+
+        # Number of CSV files the dataset was assembled from; None when the
+        # samples came from an in-memory dict and no file is involved.
+        self.num_files: int | None = None
+
         self.sequence_specs = {
             name: self._resolve_sequence(node)
             for name, node in self.input_nodes.items()
@@ -128,10 +133,6 @@ class DataLoader:
         self._original_dataset: Dict[str, np.ndarray] | None = None
         self._normalization_aliases = self._build_normalization_aliases()
         self._num_steps = min(len(values) for values in self.dataset.values())
-
-        # Number of CSV files the dataset was assembled from; None when the
-        # samples came from an in-memory dict and no file is involved.
-        self.num_files: int | None = None
 
     @property
     def inputs(self) -> List[str]:
@@ -182,6 +183,59 @@ class DataLoader:
     def __iter__(self) -> Iterator[Dict[str, Any]]:
         for i in range(self._num_steps):
             yield self.get_step(i)
+
+    def get_samples(
+        self, n: int, start: int = 0, simulation: int | str = 0
+    ) -> Dict[str, np.ndarray]:
+        """``n`` consecutive samples of one simulation, laid out like as_dict().
+
+        Consecutive samples are consecutive time steps (``step`` apart when the
+        loader was built with ``step > 1``), so running the model on them
+        returns a time series of ``n`` predictions. They never cross from one
+        simulation into the next, where two unrelated trajectories would join.
+
+        simulation: index of the simulation, in reading order, or its label -
+            the CSV file name, or ``"simulation <i>"`` for in-memory sources.
+        start: the first sample, counted within that simulation.
+        """
+        label, offset, count = self._simulation(simulation)
+        if isinstance(n, bool) or not isinstance(n, (int, np.integer)) or n < 1:
+            raise ValueError(f"n must be a positive integer, got {n!r}.")
+        if isinstance(start, bool) or not isinstance(start, (int, np.integer)):
+            raise TypeError(f"start must be an integer, got {type(start).__name__}.")
+        if start < 0 or start + n > count:
+            raise ValueError(
+                f"'{label}' has {count} samples, so {n} consecutive samples "
+                f"starting at {start} are not available."
+            )
+        first = offset + int(start)
+        return {
+            name: np.array(values[first : first + int(n)])
+            for name, values in self.dataset.items()
+        }
+
+    def _simulation(self, simulation: int | str) -> tuple[str, int, int]:
+        """A simulation's label, first sample and sample count."""
+        labels = [label for label, _, _ in self._simulations]
+        if isinstance(simulation, str):
+            if simulation not in labels:
+                raise ValueError(
+                    f"No simulation named {simulation!r}. The dataset holds {labels}."
+                )
+            return self._simulations[labels.index(simulation)]
+        if isinstance(simulation, bool) or not isinstance(
+            simulation, (int, np.integer)
+        ):
+            raise TypeError(
+                "simulation must be an index or a label, got "
+                f"{type(simulation).__name__}."
+            )
+        if not 0 <= simulation < len(self._simulations):
+            raise IndexError(
+                f"simulation {simulation} out of range: the dataset holds "
+                f"{len(self._simulations)} simulations {labels}."
+            )
+        return self._simulations[simulation]
 
     def as_dict(self) -> Dict[str, np.ndarray]:
         return self.dataset
@@ -366,6 +420,10 @@ class DataLoader:
         chunks: Dict[str, List[np.ndarray]] = {name: [] for name in self.input_specs}
         lengths: List[int] = []
         skipped = []
+        # Where each simulation's samples sit once all of them are concatenated:
+        # a time series only runs within one simulation, never across two.
+        self._simulations: List[tuple[str, int, int]] = []
+        offset = 0
         for label, simulation in simulations:
             samples = next(iter(simulation.values())).shape[0]
             if samples < required:
@@ -403,6 +461,9 @@ class DataLoader:
                     )
                 )
             lengths.append(length)
+            count = chunks[next(iter(chunks))][-1].shape[0]
+            self._simulations.append((label, offset, count))
+            offset += count
 
         if len(skipped) == len(simulations):
             raise ValueError(

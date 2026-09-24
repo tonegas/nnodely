@@ -653,3 +653,117 @@ def test_uncollected_loop_warns_on_simulations_of_different_lengths():
             ],
             seq_length="full",
         )
+
+
+# ------------------------------------------------------------------
+# get_samples: consecutive samples of one simulation
+# ------------------------------------------------------------------
+
+_SAMPLES_DIR = os.path.join(os.path.dirname(__file__), "datasets")
+_SAMPLES_FORMAT = {"samples_x": "data_1", "samples_y": "data_3"}
+
+
+def _samples_model():
+    """pred = 2 * x[t] from a 3-sample window of x, against y[t + 1]."""
+    from nnodely import Parameter
+
+    x = Input("samples_x")
+    y = Input("samples_y")
+    window = x.sw(3)
+    pred = Output("samples_pred", x.last() * Parameter(value=[2.0]))
+    model = Modely(
+        "samples_model", inputs=[x, y], outputs=[pred, Output("samples_window", window)]
+    )
+    model.minimize("error", pred, y.next())
+    return model.build()
+
+
+def _raw(name):
+    import pandas as pd
+
+    return pd.read_csv(os.path.join(_SAMPLES_DIR, name))
+
+
+def test_get_samples_returns_consecutive_windows_of_one_simulation():
+    data = DataLoader(_samples_model(), source=_SAMPLES_DIR, format=_SAMPLES_FORMAT)
+    raw = _raw("test2.csv")
+
+    samples = data.get_samples(4, start=2, simulation="test2.csv")
+
+    assert set(samples) == set(data.as_dict())
+    assert samples["samples_x"].shape == (4, 1, 3)
+    assert samples["samples_y"].shape == (4, 1, 1)
+    for i in range(4):
+        ## sample i ends on row start + i + 2; its next() is the row after
+        end = 2 + i + 2
+        np.testing.assert_array_equal(
+            samples["samples_x"][i].ravel(), raw["data_1"][end - 2 : end + 1]
+        )
+        assert samples["samples_y"][i].ravel()[0] == raw["data_3"][end + 1]
+
+
+def test_get_samples_picks_a_simulation_by_index_or_label():
+    data = DataLoader(_samples_model(), source=_SAMPLES_DIR, format=_SAMPLES_FORMAT)
+
+    by_index = data.get_samples(3, simulation=1)
+    by_label = data.get_samples(3, simulation="test2.csv")
+    first = data.get_samples(3)
+
+    for name in by_index:
+        np.testing.assert_array_equal(by_index[name], by_label[name])
+    ## simulation 0 is the first file read, and starts the concatenated dataset
+    for name, values in data.as_dict().items():
+        np.testing.assert_array_equal(first[name], values[:3])
+
+
+def test_get_samples_never_crosses_into_the_next_simulation():
+    data = DataLoader(_samples_model(), source=_SAMPLES_DIR, format=_SAMPLES_FORMAT)
+    ## 10 rows, a 3-sample past window and one future sample leave 7 per file
+    assert len(data) == 14
+
+    assert data.get_samples(7)["samples_x"].shape[0] == 7
+    with pytest.raises(ValueError, match="has 7 samples"):
+        data.get_samples(8)
+    with pytest.raises(ValueError, match="has 7 samples"):
+        data.get_samples(3, start=5)
+
+
+def test_get_samples_rejects_invalid_requests():
+    data = DataLoader(_samples_model(), source=_SAMPLES_DIR, format=_SAMPLES_FORMAT)
+
+    with pytest.raises(ValueError, match="positive integer"):
+        data.get_samples(0)
+    with pytest.raises(ValueError, match="missing.csv"):
+        data.get_samples(2, simulation="missing.csv")
+    with pytest.raises(IndexError, match="out of range"):
+        data.get_samples(2, simulation=2)
+    with pytest.raises(ValueError, match="starting at -1"):
+        data.get_samples(2, start=-1)
+
+
+def test_get_samples_follows_the_loader_step():
+    data = DataLoader(
+        _samples_model(), source=_SAMPLES_DIR, format=_SAMPLES_FORMAT, step=2
+    )
+    raw = _raw("test.csv")
+
+    samples = data.get_samples(3)
+
+    ## step=2 keeps every other window: they end on rows 2, 4 and 6
+    np.testing.assert_array_equal(
+        samples["samples_x"][:, 0, -1], raw["data_1"][[2, 4, 6]]
+    )
+
+
+def test_inference_on_get_samples_is_a_time_series():
+    model = _samples_model()
+    data = DataLoader(model, source=_SAMPLES_DIR, format=_SAMPLES_FORMAT)
+    raw = _raw("test.csv")
+
+    prediction = to_numpy(model(data.get_samples(5, start=1))["samples_pred"])
+
+    ## one prediction per sample, in time order: 2 * x on rows 3 .. 7
+    assert prediction.shape == (5, 1, 1)
+    np.testing.assert_allclose(
+        prediction.ravel(), to_numpy(2.0 * raw["data_1"][3:8]), rtol=1e-6
+    )
