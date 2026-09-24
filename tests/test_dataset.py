@@ -287,7 +287,7 @@ def test_step_subsamples_sequences():
 
 
 def test_step_subsamples_sequences_with_seq_length():
-    x = Input("step_seq_length_x", dim=1, seq=(None,))
+    x = Input("step_seq_length_x", dim=1, seq=-1)
     model = Modely(
         "step_seq_length_model",
         inputs=[x],
@@ -457,7 +457,7 @@ def test_simulations_are_windowed_independently():
 
 
 def test_multiple_dynamic_sequence_lengths_are_rejected():
-    x = Input("two_dynamic_x", dim=1, seq=(None, None))
+    x = Input("two_dynamic_x", dim=1, seq=(-1, -1))
     model = Modely(
         "two_dynamic_model",
         inputs=[x],
@@ -473,7 +473,7 @@ def test_multiple_dynamic_sequence_lengths_are_rejected():
 
 
 def test_full_sequence_spans_each_simulation_and_pads():
-    x = Input("full_x", dim=1, seq=(None,))
+    x = Input("full_x", dim=1, seq=-1)
     model = Modely(
         "full_model",
         inputs=[x],
@@ -506,7 +506,7 @@ def test_full_sequence_spans_each_simulation_and_pads():
 
 
 def test_full_sequence_leaves_the_inner_levels_alone():
-    x = Input("full_nested_x", dim=1, seq=(2, None))
+    x = Input("full_nested_x", dim=1, seq=(2, -1))
     model = Modely(
         "full_nested_model",
         inputs=[x],
@@ -531,7 +531,7 @@ def test_full_sequence_leaves_the_inner_levels_alone():
 
 
 def test_full_sequence_of_equal_simulations_needs_no_mask():
-    x = Input("uniform_x", dim=1, seq=(None,))
+    x = Input("uniform_x", dim=1, seq=-1)
     model = Modely(
         "uniform_model",
         inputs=[x],
@@ -553,7 +553,7 @@ def test_full_sequence_of_equal_simulations_needs_no_mask():
 
 
 def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
-    x = Input("full_step_x", dim=1, seq=(None,))
+    x = Input("full_step_x", dim=1, seq=-1)
     model = Modely(
         "full_step_model",
         inputs=[x],
@@ -569,7 +569,7 @@ def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
             step=2,
         )
 
-    inner = Input("full_inner_x", dim=1, seq=(None, 2))
+    inner = Input("full_inner_x", dim=1, seq=(-1, 2))
     inner_model = Modely(
         "full_inner_model",
         inputs=[inner],
@@ -586,7 +586,7 @@ def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
 
 
 def test_normalization_ignores_padded_steps():
-    x = Input("padded_norm_x", dim=1, seq=(None,))
+    x = Input("padded_norm_x", dim=1, seq=-1)
     model = Modely(
         "padded_norm_model",
         inputs=[x],
@@ -618,7 +618,7 @@ def test_uncollected_loop_warns_on_simulations_of_different_lengths():
     body_out = Output("warn_body_out", body_x.last())
     body = Modely("warn_body", inputs=[body_x], outputs=[body_out]).build()
 
-    seed = Input("warn_x", dim=1, seq=(None,))
+    seed = Input("warn_x", dim=1, seq=-1)
     loop = Loop(
         f=body,
         callback={body_x: body_out},

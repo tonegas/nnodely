@@ -39,7 +39,7 @@ class DataLoader:
       every window ends on the same sample.
     - Sequence windows come from ``Input(seq=...)``: one sliding window per
       declared length, applied on top of the temporal windows, the outermost
-      sequence last. Only one length may be dynamic (``None``), and
+      sequence last. Only one length may be dynamic (``-1``), and
       ``seq_length`` resolves it.
     - ``step`` is the jump between one dataset sample and the next; every
       sequence level itself advances one sample at a time.

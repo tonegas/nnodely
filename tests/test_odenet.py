@@ -232,7 +232,7 @@ def test_odenet_rejects_driver_inputs():
 
 def test_odenet_requires_static_time_count():
     x, field = _spiral_field("dynamic")
-    t = Input("t_dynamic", dim=1, seq=(None,))
+    t = Input("t_dynamic", dim=1, seq=-1)
     with pytest.raises(ValueError, match="at least two reported times"):
         OdeNet(f=field, states={x: "dx_dynamic"}, t=t)
 

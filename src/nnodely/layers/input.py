@@ -14,7 +14,7 @@ class Input(Stream):
     A signal the model reads from data.
 
     ``dim`` sets the feature axes (one feature by default) and ``seq`` the
-    optional sequence axes, used by rollouts; ``seq=(None,)`` leaves the
+    optional sequence axes, used by rollouts; ``seq=-1`` leaves the
     sequence length dynamic. The time window is not declared here: it is the
     union of the windows requested with :meth:`sw`, :meth:`last` and
     :meth:`next`.
@@ -25,9 +25,21 @@ class Input(Stream):
         name: str,
         *,
         dim: int | tuple | None = None,
-        seq: int | tuple[int | None, ...] | None = None,
+        seq: int | tuple[int, ...] | None = None,
     ):
-        super().__init__(name=name, seq=seq, time=None, dim=dim, preds=None)
+        if isinstance(seq, int):
+            seq = (seq,)
+        if seq is not None and None in seq:
+            raise ValueError(
+                f"{name}: a dynamic sequence length is declared with -1, not None."
+            )
+        # Keras marks a dynamic axis with None.
+        shape_seq = (
+            None
+            if seq is None
+            else tuple(None if length == -1 else length for length in seq)
+        )
+        super().__init__(name=name, seq=shape_seq, time=None, dim=dim, preds=None)
         self.input = keras.Input(shape=self.shape, name=self.name)
         self.past, self.future = (
             0,
@@ -82,7 +94,7 @@ class Input(Stream):
         node = cls(
             name=config["name"],
             dim=config["dim"],
-            seq=config["seq"],
+            seq=tuple(-1 if length is None else length for length in config["seq"]),
         )
 
         node.past = config["past"]

@@ -1123,7 +1123,7 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
     body_out = Output("pad_body_out", relation)
     body = Modely("pad_body", inputs=[body_x], outputs=[body_out]).build()
 
-    seed = Input("pad_x", dim=1, seq=(None,))
+    seed = Input("pad_x", dim=1, seq=-1)
     loop = Loop(
         f=body,
         callback={body_x: body_out},
@@ -1134,7 +1134,7 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
     output = Output("pad_out", loop)
     model = Modely("pad_loop_model", inputs=[seed], outputs=[output])
     model.minimize(
-        "pad_error", output, Input("pad_target", dim=1, seq=(None,)), loss="mse"
+        "pad_error", output, Input("pad_target", dim=1, seq=-1), loss="mse"
     )
     model.build()
 

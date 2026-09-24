@@ -361,7 +361,7 @@ class Loop(Layer):
     Body inputs left unbound keep their own value at every step.
 
     ``length`` pins the number of steps. It is required when no rollout input
-    declares a concrete width, and a rollout declared dynamic (``seq=(None,)``)
+    declares a concrete width, and a rollout declared dynamic (``seq=-1``)
     follows the length of the sequence it is actually given.
 
     ``collect`` returns the whole trajectory, with the rollout axis appended as

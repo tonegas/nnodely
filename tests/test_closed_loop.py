@@ -544,8 +544,8 @@ def test_loop_dynamic_length():
     body_output = Output("dyn_next", x.last() * 2.0 + u.last())
     body = Modely("dyn_body", inputs=[x, u], outputs=[body_output]).build()
 
-    initial = Input("dyn_x0", dim=1, seq=(None,))
-    driver = Input("dyn_u_seq", dim=1, seq=(None,))
+    initial = Input("dyn_x0", dim=1, seq=-1)
+    driver = Input("dyn_u_seq", dim=1, seq=-1)
 
     with pytest.raises(ValueError, match="cannot determine the rollout length"):
         Loop(
@@ -652,9 +652,9 @@ def test_loop_multi_output():
         outputs=[position_next, velocity_next],
     ).build()
 
-    p0 = Input("int_p0", dim=1, seq=(None,))
-    v0 = Input("int_v0", dim=1, seq=(None,))
-    a_seq = Input("int_a_seq", dim=1, seq=(None,))
+    p0 = Input("int_p0", dim=1, seq=-1)
+    v0 = Input("int_v0", dim=1, seq=-1)
+    a_seq = Input("int_a_seq", dim=1, seq=-1)
     position_out, velocity_out = Loop(
         f=body,
         callback={position: position_next, velocity: velocity_next},
