@@ -1,4 +1,5 @@
 import os
+import warnings
 from pathlib import Path
 
 from typing import Any, Callable
@@ -7,7 +8,6 @@ from nnodely.core.dag import toposort, flatten, _flatten_graph
 from nnodely.core.validation import ValidationResult, score_signal
 from nnodely.utils.utils import (
     MaskedLoss,
-    _mask_padded_targets,
     _resolve_loss,
     _resolve_optimizer,
 )
@@ -103,6 +103,195 @@ def _static_input_signature(model, batch_size: int):
     return [keras.tree.map_structure(spec, model._inputs_struct)]
 
 
+def _depends_on_dynamic_input(node) -> bool:
+    """True if a stream reads an Input whose sequence length is left dynamic.
+
+    Those are the inputs a DataLoader pads when simulations differ in length,
+    so they are the streams whose padded rollout steps the mask removes.
+    """
+    seen: set[int] = set()
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, Input) and any(n is None for n in current.seq):
+            return True
+        stack.extend(current.preds)
+    return False
+
+
+def _reaches_trainable_weight(node) -> bool:
+    """False only for a stream known to be computed without trainable weights.
+
+    The walk enters the body of a called model as well. A layer not built yet
+    cannot tell, and is taken to train: the check must never flag a minimizer
+    that does.
+    """
+    seen: set[int] = set()
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, Layer):
+            layer = current._layer
+            if layer is None or layer.trainable_weights:
+                return True
+        inner = getattr(current, "model", None)
+        if isinstance(inner, Modely):
+            stack.extend(inner.outputs)
+        stack.extend(current.preds)
+    return False
+
+
+def _validate_gain(gain, minimizer: str) -> float:
+    """A minimizer's weight in the total loss: a finite number, not negative.
+
+    A negative gain would maximize the error it weighs.
+    """
+    if isinstance(gain, (bool, np.bool_)) or not isinstance(
+        gain, (int, float, np.integer, np.floating)
+    ):
+        raise TypeError(
+            f"The gain of minimizer {minimizer!r} must be a number, got "
+            f"{type(gain).__name__}."
+        )
+    gain = float(gain)
+    if not np.isfinite(gain) or gain < 0:
+        raise ValueError(
+            f"The gain of minimizer {minimizer!r} must be finite and not "
+            f"negative, got {gain}."
+        )
+    return gain
+
+
+class _MinimizerTerm:
+    """One minimizer, resolved against the outputs of the built graph."""
+
+    def __init__(
+        self, name, source, target, target_rank, loss, masked, log_name, gain=1.0
+    ):
+        self.name = name
+        self.gain = gain  # weight of this term in the total loss
+        self.source = source  # name of the graph output holding the prediction
+        self.target = target  # name of the graph output holding the reference
+        self.target_rank = target_rank  # rank of the target without batch axis
+        self.masked = masked
+        self.loss = MaskedLoss(loss) if masked else loss
+        # Logged under the key compile() gave a per-output loss, which is the
+        # one the printers and existing training scripts read.
+        self.tracker = keras.metrics.Mean(name=f"{log_name}_loss")
+
+
+class _MinimizerTerms:
+    """Plain holder, so Keras does not track the terms as model state.
+
+    The minimizers can change between two calls to train() without a new
+    build(), and state tracked by the model could only ever grow.
+    """
+
+    def __init__(self, terms):
+        self.terms = list(terms)
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class MinimizerModel(keras.Model):
+    """The built graph, trained on the minimizers of its Modely.
+
+    Keras compiles one loss per output against a label fed from the dataset,
+    but a minimizer compares two streams of the graph: its target can be an
+    Output, a computed stream or a window narrower than the dataset column.
+    Both sides are therefore read from the same forward pass, and the loss is
+    computed here. The labels carry only the padding mask, when simulations of
+    different lengths had to be padded to one rollout width.
+    """
+
+    def set_minimizers(self, terms):
+        self._nnodely_minimizers = _MinimizerTerms(terms)
+
+    def _minimizer_terms(self):
+        holder = getattr(self, "_nnodely_minimizers", None)
+        return holder.terms if holder is not None else []
+
+    @property
+    def metrics(self):
+        return super().metrics + [term.tracker for term in self._minimizer_terms()]
+
+    @staticmethod
+    def _align_target(term, target, source):
+        """Give a target built from constants the batch and axes of its source.
+
+        Only such a target is broadcast. Two streams of the graph that differ
+        in shape are an error: a loss would broadcast one over the other and
+        silently compare, say, one sample with a whole window.
+        """
+        batch_free = len(target.shape) == term.target_rank
+        if batch_free:
+            target = keras.ops.expand_dims(target, axis=0)
+            while len(target.shape) < len(source.shape):
+                target = keras.ops.expand_dims(target, axis=-1)
+
+        source_axes, target_axes = tuple(source.shape[1:]), tuple(target.shape[1:])
+        compatible = len(source_axes) == len(target_axes) and all(
+            s is None or t is None or s == t or (batch_free and t == 1)
+            for s, t in zip(source_axes, target_axes)
+        )
+        if not compatible:
+            raise ValueError(
+                f"Minimizer {term.name!r} compares {term.source!r} of shape "
+                f"{source_axes} with {term.target!r} of shape {target_axes}. "
+                "They must have the same shape."
+            )
+        if batch_free:
+            target = keras.ops.broadcast_to(target, keras.ops.shape(source))
+        return target
+
+    def compute_loss(
+        self, x=None, y=None, y_pred=None, sample_weight=None, training=True
+    ):
+        terms = self._minimizer_terms()
+        if not terms:
+            return super().compute_loss(x, y, y_pred, sample_weight, training=training)
+
+        total = None
+        for term in terms:
+            if y_pred is None:
+                raise ValueError(
+                    f"Minimizer {term.name!r} compares {term.source!r} with "
+                    f"{term.target!r}, but the forward pass did not return "
+                    "the graph outputs it needs. Call build() after adding a "
+                    "minimizer, before train()."
+                )
+            source = y_pred[term.source]
+            target = self._align_target(term, y_pred[term.target], source)
+            # The mask is one row per sample, one column per rollout step, and
+            # the rollout is the last axis of every padded stream.
+            rollout = (
+                target.shape[-1] in (None, y.shape[-1]) if y is not None else False
+            )
+            if term.masked and rollout:
+                valid = keras.ops.cast(y, "bool")
+                for _ in range(len(target.shape) - 2):
+                    valid = keras.ops.expand_dims(valid, axis=1)
+                target = keras.ops.where(
+                    valid, target, keras.ops.full_like(target, np.nan)
+                )
+            # A loss function returns one value per sample, a Loss instance
+            # the reduced value: the mean is how compile() reduces either.
+            value = keras.ops.mean(term.loss(target, source))
+            # Logged unweighted, as Keras logs a per-output loss under
+            # loss_weights; only the total the optimizer sees is weighted.
+            term.tracker.update_state(value)
+            weighted = value if term.gain == 1.0 else value * term.gain
+            total = weighted if total is None else total + weighted
+        if self.losses:
+            total = total + keras.ops.sum(self.losses)
+        return total
+
+
 class Modely:
     """A model-structured neural network.
 
@@ -129,6 +318,7 @@ class Modely:
         self.train_inputs = []  # List of Input nodes that are required for training (derived from minimizers)
         self.train_outputs = []  # List of Output nodes that are required for training (derived from minimizers)
         self.minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
+        self._minimizer_outputs: dict[Node, str] = {}  # minimizer side -> graph output
         self._roll_callbacks: dict[Input, Stream] = {}
         self._roll_steps: int | None = None
         self._roll_name: str | None = None
@@ -193,18 +383,19 @@ class Modely:
         """
         from nnodely.core.layer import Identity
 
+        # A minimizer reads both of its sides from the forward pass, so every
+        # source and target has to be an output of the graph. An Input is not
+        # the value of any layer, so it is exposed through an Identity.
         extra_outputs = []
+        self._minimizer_outputs = {}
         for minimizer in self.minimizers:
-            if not isinstance(minimizer["source"], Output):
-                if isinstance(minimizer["source"], Input):
-                    extra_outputs.append(Identity()(minimizer["source"]))
-                else:
-                    extra_outputs.append(minimizer["source"])
-            if not isinstance(minimizer["target"], Output):
-                if isinstance(minimizer["target"], Input):
-                    extra_outputs.append(Identity()(minimizer["target"]))
-                else:
-                    extra_outputs.append(minimizer["target"])
+            for node in (minimizer["source"], minimizer["target"]):
+                if node in self._minimizer_outputs:
+                    continue
+                exposed = Identity()([node]) if isinstance(node, Input) else node
+                if exposed not in self.outputs:
+                    extra_outputs.append(exposed)
+                self._minimizer_outputs[node] = exposed.name
 
         self.train_outputs = self.outputs + extra_outputs
         feedback_streams = list(dict.fromkeys(self._roll_callbacks.values()))
@@ -233,7 +424,8 @@ class Modely:
                 source_node._layer = flat_node._layer
                 source_node._layer_signature = flat_node._layer_signature
 
-        body_model = keras.Model(
+        body_class = keras.Model if self._roll_callbacks else MinimizerModel
+        body_model = body_class(
             name=self.name + "_train",
             inputs=keras_inputs,
             outputs=keras_outputs,
@@ -256,7 +448,7 @@ class Modely:
                 name=self._roll_name or f"{self.name}_roll",
             )
             final_outputs = roll_layer(keras_inputs)
-            self.model = keras.Model(
+            self.model = MinimizerModel(
                 name=self.name + "_train",
                 inputs=keras_inputs,
                 outputs=final_outputs,
@@ -324,42 +516,109 @@ class Modely:
     def minimize(
         self,
         name: str,
-        source: Output | Stream,
-        target: Output | Stream | float | None = None,
+        source: Output | Stream | str,
+        target: Output | Stream | str | float | None = None,
         loss: str | dict[str, Any] | keras.losses.Loss | Callable = "mse",
+        gain: float = 1.0,
     ):
         """Register a Keras loss to minimize during training.
 
-        Parameters
-        ----------
-        name:
-            Identifier of the objective, used to label its loss.
-        source:
-            The stream producing the predictions, for example an Output.
-        target:
-            A window of an Input read from the data, a number, or ``None`` to
-            drive ``source`` to zero.
-        loss:
-            A Keras loss name, serialized configuration, Loss instance, or a
-            callable ``loss(y_true, y_pred)``.
+        name: identifier for this loss (used as an output name in the training model)
+        source: node/stream producing predictions (e.g., an Output node), or the
+            name of a stream of the model
+        target: node/stream providing target values (usually derived from an
+            Input), the name of a stream of the model, a number, or None for
+            zero - a number becomes a Constant
+        loss: Keras loss name, serialized config, Loss instance, or callable
+        gain: weight of this loss in the total training loss, 1 by default -
+            0.5 gives it half the importance, 2 twice. Its own logged and
+            validated loss stays unweighted, the way Keras logs a loss_weight
+
+        A name identifies one minimizer: registering a name again replaces the
+        minimizer it names, in its place, and warns that it did.
         """
-        resolved_loss = _resolve_loss(loss)
+        source = self._minimizer_stream(source, "source", name)
         if target is None:  ## Transform it into a Constant with value zero
-            target = Constant(name=None, value=0.0)
-        if isinstance(target, float):
-            target = Constant(name=None, value=[target])
-        self.minimizers.append(
-            {
-                "name": name,
-                "source": source,
-                "target": target,
-                "loss": resolved_loss,
-            }
-        )
+            target = 0.0
+        # Any real number, numpy scalars included; a bool is not a target value.
+        if isinstance(target, (int, float, np.integer, np.floating)) and not isinstance(
+            target, (bool, np.bool_)
+        ):
+            target = Constant(name=None, value=[float(target)])
+        target = self._minimizer_stream(target, "target", name)
+        resolved_loss = _resolve_loss(loss)
+        gain = _validate_gain(gain, name)
+        minimizer = {
+            "name": name,
+            "source": source,
+            "target": target,
+            "loss": resolved_loss,
+            "gain": gain,
+        }
+        for index, existing in enumerate(self.minimizers):
+            if existing["name"] == name:
+                warnings.warn(
+                    f"Minimizer {name!r} already exists in model {self.name!r}: "
+                    "it is replaced by the new one.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                self.minimizers[index] = minimizer
+                return self
+        self.minimizers.append(minimizer)
         return self
 
+    def _named_streams(self) -> list[Stream]:
+        """Every stream a minimizer can name: the model's graph, its declared
+        inputs, and the streams the registered minimizers already compare."""
+        roots: list[Node] = [*self.outputs, *self.inputs]
+        for minimizer in self.minimizers:
+            roots.extend((minimizer["source"], minimizer["target"]))
+        streams: dict[int, Stream] = {}
+        stack = list(roots)
+        while stack:
+            node = stack.pop()
+            if id(node) in streams:
+                continue
+            if isinstance(node, Stream):
+                streams[id(node)] = node
+            stack.extend(node.preds)
+        return list(streams.values())
+
+    def _minimizer_stream(self, value, side: str, minimizer: str) -> Stream:
+        """A minimizer side as a Stream, looking a name up in the model."""
+        if isinstance(value, Stream):
+            return value
+        if not isinstance(value, str):
+            raise TypeError(
+                f"The {side} of minimizer {minimizer!r} must be a Stream or the "
+                f"name of one, got {type(value).__name__}."
+            )
+        matches = [stream for stream in self._named_streams() if stream.name == value]
+        if not matches:
+            outputs = sorted(output.name for output in self.outputs)
+            raise ValueError(
+                f"The {side} {value!r} of minimizer {minimizer!r} is not the name "
+                f"of a stream of model {self.name!r}. Its outputs are {outputs}."
+            )
+        if len(matches) > 1:
+            raise ValueError(
+                f"The {side} {value!r} of minimizer {minimizer!r} is ambiguous: "
+                f"{len(matches)} streams of model {self.name!r} carry that name. "
+                "Pass the stream itself."
+            )
+        return matches[0]
+
     def remove_minimizer(self, name: str):
-        """Remove a registered minimizer by name."""
+        """Remove a registered minimizer by name; an unknown name only warns."""
+        if all(minimizer["name"] != name for minimizer in self.minimizers):
+            warnings.warn(
+                f"Model {self.name!r} has no minimizer named {name!r}: nothing "
+                "was removed.",
+                UserWarning,
+                stacklevel=2,
+            )
+            return
         self.minimizers = [m for m in self.minimizers if m["name"] != name]
 
     # -------------------------------------------------------------------------
@@ -380,14 +639,43 @@ class Modely:
         if missing:
             raise ValueError(f"Validation data is missing model inputs: {missing}.")
 
+        # An output built only from constants and parameters has no batch axis:
+        # every chunk returns the same value, which is kept once, not stacked.
+        ranks = {node.name: node.shape.rank for node in self.train_outputs}
         chunks: dict[str, list[np.ndarray]] = {}
+        batch_free: dict[str, np.ndarray] = {}
         for start in range(0, n_samples, _INFERENCE_CHUNK):
             stop = min(start + _INFERENCE_CHUNK, n_samples)
             batch = {name: x_data[name][start:stop, ...] for name in input_names}
             for name, value in self.model(batch, training=False).items():
-                chunks.setdefault(name, []).append(keras.ops.convert_to_numpy(value))  # type: ignore
+                value = keras.ops.convert_to_numpy(value)
+                if value.ndim == ranks.get(name):  # type: ignore
+                    batch_free[name] = value  # type: ignore
+                else:
+                    chunks.setdefault(name, []).append(value)  # type: ignore
 
-        return {name: np.concatenate(values, axis=0) for name, values in chunks.items()}
+        predictions = {
+            name: np.concatenate(values, axis=0) for name, values in chunks.items()
+        }
+        predictions.update(batch_free)
+        return predictions
+
+    def _minimizer_key(self, node) -> str | None:
+        """Name under which the forward pass returns a minimizer's side."""
+        return self._minimizer_outputs.get(node, node.name)
+
+    @staticmethod
+    def _broadcast_batch_free(value, source_values: np.ndarray) -> np.ndarray:
+        """A target with no batch axis, laid out like its source's predictions.
+
+        The numpy twin of what training does: prepend the batch axis, append
+        the axes the target omits, then broadcast - so a dim-2 Constant lines
+        up with the dim axis, not the time axis.
+        """
+        value = np.asarray(value, dtype=np.float32)[np.newaxis, ...]
+        while value.ndim < source_values.ndim:
+            value = value[..., np.newaxis]
+        return np.broadcast_to(value, source_values.shape)
 
     def _dataset_name(self, node, x_data: dict) -> str | None:
         """Name of the dataset column a node ultimately reads, if any."""
@@ -408,12 +696,16 @@ class Modely:
         elsewhere in the graph is two steps long, not as wide as the column.
         The column still names the signal, which is what a reader recognizes.
         """
-        source = minimizer["source"]
+        source_values = predictions[self._minimizer_key(minimizer["source"])]
         target = minimizer["target"]
         label = self._dataset_name(target, x_data) or target.name
 
-        if target.name in predictions:
-            return np.asarray(predictions[target.name][:n_samples]), label
+        key = self._minimizer_key(target)
+        if key in predictions:
+            values = predictions[key]
+            if values.ndim == target.shape.rank:  # built from constants only
+                return self._broadcast_batch_free(values, source_values), label
+            return np.asarray(values[:n_samples]), label
 
         if label in x_data:
             return np.asarray(x_data[label][:n_samples]), label
@@ -424,8 +716,7 @@ class Modely:
                 f"Validation target {target.name!r} of minimizer "
                 f"{minimizer['name']!r} is neither in the dataset nor a constant."
             )
-        shape = (n_samples,) + tuple(source.shape)
-        return np.broadcast_to(np.asarray(value, dtype=np.float32), shape), target.name
+        return self._broadcast_batch_free(value, source_values), target.name
 
     def validate(
         self,
@@ -482,7 +773,8 @@ class Modely:
         for minimizer in self.minimizers:
             name = minimizer["name"]
             source = minimizer["source"]
-            if source.name not in predictions:
+            source_key = self._minimizer_key(source)
+            if source_key not in predictions:
                 raise ValueError(
                     f"Minimizer {name!r} sources {source.name!r}, which the built "
                     "model does not expose as an output."
@@ -496,7 +788,7 @@ class Modely:
                 target=target_name,
                 loss_fn=minimizer["loss"],
                 y_true=y_true,
-                y_pred=np.asarray(predictions[source.name][:n_samples]),
+                y_pred=np.asarray(predictions[source_key][:n_samples]),
             )
 
         result = ValidationResult(
@@ -511,53 +803,81 @@ class Modely:
         print(result.summary())
         return result
 
-    def _supervised_arrays(self, data: DataLoader) -> tuple[dict, dict, Any]:
-        """Split a dataset into the model's inputs and the minimizers' labels."""
-        n_samples = len(data)
+    def _training_arrays(self, data: DataLoader) -> tuple[dict, np.ndarray | None]:
+        """The model's inputs and, when simulations were padded, their mask.
+
+        Both sides of every minimizer come from the forward pass, so the only
+        label left is the mask that tells real rollout steps from padded ones.
+        """
         x_data = {name: np.asarray(values) for name, values in data.as_dict().items()}
-
         mask = getattr(data, "mask", None)
-        padded_inputs = getattr(data, "padded_inputs", set())
+        return x_data, None if mask is None else np.asarray(mask, dtype=np.float32)
 
-        y_data = {}
-        predictions = None
-        for minimizer in self.minimizers:
-            source_name = minimizer["source"].name
-            target = minimizer["target"]
+    def _minimizer_terms(self) -> list[_MinimizerTerm]:
+        """Resolve every minimizer to the graph outputs of the built model."""
+        assert self.model is not None
+        # The forward pass returns a dict keyed by the names of these nodes.
+        output_names = {node.name for node in self.train_outputs}
 
-            label_name = self._dataset_name(target, x_data)
-            if label_name is not None:
-                values = x_data[label_name]
-                # The column carries the input's whole window, which is wider
-                # than the target when the input is also read elsewhere (``y.sw(5)``
-                # feeding the model, ``y.next()`` as the target): the target is
-                # then what its own stream evaluates to, as in validate(). An
-                # Input target is its column, whatever its declared shape.
-                if not isinstance(target, Input) and values.shape[1:] != tuple(
-                    target.shape
-                ):
-                    if predictions is None:
-                        predictions = self._predict(x_data, n_samples)
-                    values = predictions[target.name]
-                if label_name in padded_inputs:
-                    values = _mask_padded_targets(values, mask)  # type: ignore
-                y_data[source_name] = values
-                continue
-
-            target_value = getattr(target, "value_numpy", None)
-            if target_value is None:
+        def output_name(minimizer, side):
+            node = minimizer[side]
+            name = self._minimizer_outputs.get(node)
+            if name is None and not isinstance(node, Input):
+                name = node.name
+            if name not in output_names:
                 raise ValueError(
-                    f"Training target '{target.name}' must be present in the dataset or be a constant value."
+                    f"The {side} {node.name!r} of minimizer {minimizer['name']!r} "
+                    "is not an output of the built model. Call build() after "
+                    "adding a minimizer, before train()."
                 )
+            return name
 
-            target_value = np.asarray(target_value, dtype=np.float32)
-            y_shape = (n_samples,) + tuple(minimizer["source"].shape)
-            values = np.broadcast_to(target_value, y_shape).astype(np.float32)
-            if mask is not None and values.shape[-1] == mask.shape[1]:
-                values = _mask_padded_targets(values, mask)
-            y_data[source_name] = values
+        return [
+            _MinimizerTerm(
+                name=minimizer["name"],
+                source=output_name(minimizer, "source"),
+                target=output_name(minimizer, "target"),
+                target_rank=minimizer["target"].shape.rank,
+                loss=_resolve_loss(minimizer["loss"]),
+                masked=_depends_on_dynamic_input(minimizer["source"])
+                or _depends_on_dynamic_input(minimizer["target"]),
+                log_name=minimizer["source"].name,
+                gain=minimizer.get("gain", 1.0),
+            )
+            for minimizer in self.minimizers
+        ]
 
-        return x_data, y_data, mask
+    def _check_minimizers_train_weights(self, km: keras.Model) -> None:
+        """Every minimizer should compare something the network computes.
+
+        A minimizer whose source and target reach no trainable weight adds a
+        constant to the loss and trains nothing. Alongside minimizers that do
+        train, it is only worth a warning; when none of them trains the
+        network's weights, the training could not change anything.
+        """
+        if not km.trainable_weights:
+            return  # Keras itself warns that the model has nothing to train
+        weightless = [
+            minimizer["name"]
+            for minimizer in self.minimizers
+            if not _reaches_trainable_weight(minimizer["source"])
+            and not _reaches_trainable_weight(minimizer["target"])
+        ]
+        if len(weightless) == len(self.minimizers):
+            raise ValueError(
+                f"No minimizer of model {self.name!r} depends on a trainable "
+                f"weight: {weightless} compare streams computed without any, so "
+                "training could not change the network. Compare an output of "
+                "the network with its reference."
+            )
+        for name in weightless:
+            warnings.warn(
+                f"Minimizer {name!r} of model {self.name!r} depends on no "
+                "trainable weight: it adds a constant to the loss and trains "
+                "nothing.",
+                UserWarning,
+                stacklevel=3,
+            )
 
     def train(
         self,
@@ -601,42 +921,25 @@ class Modely:
         # Ensure model is built
         if not self.model:
             raise ValueError("Model is not built. Call build() before training.")
-        km = self.model
 
         resolved_optimizer = _resolve_optimizer(optimizer, lr, optimizer_kwargs)
-        resolved_losses = {
-            minimizer["name"]: _resolve_loss(minimizer["loss"])
-            for minimizer in self.minimizers
-        }
+        self.model.set_minimizers(self._minimizer_terms())
+        self._check_minimizers_train_weights(self.model)
 
-        x_data, y_data, mask = self._supervised_arrays(train_data)
+        x_data, mask = self._training_arrays(train_data)
 
         validation_data = None
         val_mask = None
         if val_data is not None:
             if len(val_data) == 0:
                 raise ValueError("val_data is empty.")
-            val_x, val_y, val_mask = self._supervised_arrays(val_data)
-            validation_data = (val_x, val_y)
+            val_x, val_mask = self._training_arrays(val_data)
+            validation_data = val_x if val_mask is None else (val_x, val_mask)
 
-        # One compiled loss serves both sets, so padded steps in either of them
-        # have to be masked out.
-        masked = mask is not None or val_mask is not None
-        compile_losses: dict[str, Any] = {
-            name: None for name in getattr(km, "output_names", [])
-        }
-        for minimizer in self.minimizers:
-            loss = resolved_losses[minimizer["name"]]
-            compile_losses[minimizer["source"].name] = (
-                MaskedLoss(loss) if masked else loss
-            )
-
-        km.compile(
-            optimizer=resolved_optimizer, loss=compile_losses, jit_compile="auto"
-        )
-        history = km.fit(
+        self.model.compile(optimizer=resolved_optimizer, jit_compile="auto")
+        history = self.model.fit(
             x=x_data,
-            y=y_data,
+            y=mask,
             epochs=epochs,
             batch_size=batch_size,
             shuffle=shuffle,
