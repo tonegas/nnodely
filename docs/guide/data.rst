@@ -108,7 +108,7 @@ Sequences are used by rollouts (see :doc:`recurrent`):
    seq_loader = DataLoader(seq_model, source={"s": np.arange(100.0)})
    print(seq_loader[0]["s"].shape)   # (1, 1, 20)
 
-A sequence length can be left dynamic with ``seq=(None,)``. It is then fixed when
+A sequence length can be left dynamic with ``seq=-1``. It is then fixed when
 the data is loaded:
 
 - ``seq_length=n`` uses sequences of ``n`` steps.
@@ -121,7 +121,7 @@ rolls out over whatever length it is given (see :doc:`recurrent`).
 
 .. code-block:: python
 
-   d = Input("d", seq=(None,))
+   d = Input("d", seq=-1)
    dyn_model = Modely("dynamic", inputs=[d], outputs=[Output("d_out", d.last())])
    dyn_model.build()
 

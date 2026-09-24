@@ -130,7 +130,7 @@ unpacked: ``position_traj, velocity_traj = Loop(...)``. A fed-back input with
 a time window, ``x.sw(n)``, is closed by shifting: after ``n`` steps the window
 contains only predictions.
 
-With a dynamic sequence, ``seq=(None,)``, the rollout follows the length of the
+With a dynamic sequence, ``seq=-1``, the rollout follows the length of the
 data it receives. A ``length`` still has to be given for building. Together
 with ``seq_length="full"`` in the :class:`~nnodely.DataLoader`, this trains on
 whole simulations of different lengths (see :doc:`data`).
