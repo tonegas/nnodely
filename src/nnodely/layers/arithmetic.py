@@ -2,7 +2,7 @@
 
 import keras
 
-from nnodely.core.layer import Layer
+from nnodely.core.layer import Layer, has_batch
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -201,8 +201,9 @@ class Sum(Layer):
                 )
             axes = (axis,)
 
-        # Dim axes start immediately after batch.
-        return SumImpl(axes=tuple(1 + axis for axis in axes), name=self.name)
+        # Dim axes start immediately after batch if present.
+        offset = 1 if has_batch(self) else 0
+        return SumImpl(axes=tuple(offset + axis for axis in axes), name=self.name)
 
     def get_config(self):
         return {"name": self.name, "axis": self.axis}
