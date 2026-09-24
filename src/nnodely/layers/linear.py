@@ -70,10 +70,12 @@ class Linear(Layer):
     """
     Linear projection along the dim dimension.
 
-    Input:
+    Input::
+
         [batch, in_features, time, *seq]
 
-    Output:
+    Output::
+
         [batch, out_features, time, *seq]
     """
 

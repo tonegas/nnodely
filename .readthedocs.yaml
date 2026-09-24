@@ -4,21 +4,19 @@ build:
   os: ubuntu-22.04
   tools:
     python: "3.12"
-#  jobs:
-#    pre_build:
-#      # - sphinx-apidoc -o docs/_autodoc nnodely mplplots
-#      - sphinx-apidoc -o docs/_autodoc nnodely
 
 sphinx:
   configuration: docs/conf.py
-  fail_on_warning: false
+  fail_on_warning: true
 
 formats:
   - pdf
 
 python:
   install:
-    # Install our python package before building the docs
+    # Install our python package, with a Keras backend, before building the docs
     - method: pip
       path: .
+      extra_requirements:
+        - jax
     - requirements: docs/requirements.txt

@@ -18,21 +18,23 @@ class DataLoader:
     single simulation, so no window ever spans two of them, and simulations may
     have different lengths.
 
-    Sources:
+    Sources::
+
         dict / list[dict]            arrays keyed by input name
         DataFrame / list[DataFrame]  columns keyed by input name
         path to a .csv file          one simulation
         path to a folder             one simulation per file matching csv_glob
 
-    ``format`` maps an input name to the column feeding it - a column name or a
-    positional index - or to a list of columns when the input carries more than
-    one feature:
+    For DataFrame and CSV sources, ``format`` maps an input name to the column
+    feeding it - a column name or a positional index - or to a list of columns
+    when the input carries more than one feature::
 
         format={"vel": "vel", "trq": 1, "alt": ["alt1", ..., "alt21"]}
 
     Columns that no input maps to are ignored.
 
     Windows:
+
     - Temporal windows come from ``Input.sw()``. All inputs are aligned so that
       every window ends on the same sample.
     - Sequence windows come from ``Input(seq=...)``: one sliding window per
@@ -48,22 +50,18 @@ class DataLoader:
     - ``on_short`` decides what happens to a simulation with too few samples to
       fill the windows: raise, or leave it out.
 
-    Final dataset format:
+    Final dataset format::
+
         {name: np.ndarray of shape (N, *dim, time, *seq)}
 
-    Example:
-        data_1 = Input('data_1', dim=1)
-        data_2 = Input('data_2', dim=1).sw(1)
-        ...
-        model = Model(..., inputs=[data_1, data_2], ...)
+    Example::
 
-        loader = DataLoader(model, folder="data")
-        sample = loader[0]
+        x = Input("x")
+        y = Output("y", Fir(out_features=1)([x.sw(5)]))
+        model = Modely("model", inputs=[x], outputs=[y]).build()
 
-        sample == {
-            "data_1": np.array([1,2,3,4,5]),
-            "data_2": np.array([2])
-        }
+        loader = DataLoader(model, source={"x": np.arange(10.0)})
+        loader[0]  # {"x": array([[0., 1., 2., 3., 4.]])}
     """
 
     def __init__(
@@ -135,6 +133,7 @@ class DataLoader:
 
     @property
     def inputs(self) -> List[str]:
+        """Names of the inputs the dataset holds."""
         return list(self.dataset.keys())
 
     def __repr__(self) -> str:
@@ -169,9 +168,11 @@ class DataLoader:
         return self._num_steps
 
     def get_input(self, name: str) -> np.ndarray:
+        """All the samples of one input, shaped ``(N, *dim, time, *seq)``."""
         return self.dataset[name]
 
     def get_step(self, idx: int) -> Dict[str, Any]:
+        """Sample ``idx`` as ``{name: array}``; the same as ``loader[idx]``."""
         if idx < 0 or idx >= self._num_steps:
             raise IndexError(f"idx out of range: {idx} (len={self._num_steps})")
         return {k: v[idx] for k, v in self.dataset.items()}
@@ -184,6 +185,7 @@ class DataLoader:
             yield self.get_step(i)
 
     def as_dict(self) -> Dict[str, np.ndarray]:
+        """The whole dataset as ``{name: array of shape (N, *dim, time, *seq)}``."""
         return self.dataset
 
     # ------------------------------------------------------------------

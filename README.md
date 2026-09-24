@@ -1,220 +1,141 @@
 <a name="readme-top"></a>
+
 <p align="center">
-<img src="https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/logo_white_info.png" alt="logo" >
+  <img src="https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/nnodely_console.svg" alt="The nnodely training console" width="820">
 </p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![codecov](https://codecov.io/github/tonegas/nnodely/graph/badge.svg?token=8V6P2PSYT4)](https://codecov.io/github/tonegas/nnodely)
-[![Documentation](https://readthedocs.org/projects/nnodely/badge/?version=main&style=default)](https://nnodely.readthedocs.io/)
-[![PyPI](https://img.shields.io/pypi/v/nnodely?color=blue&label=PyPI%20Package)](https://pypi.org/project/nnodely/)
-
-# Neural Network Framework for Modelling, Control, and Estimation of Physical Systems
-
-Modeling, control, and estimation of physical systems are central to many engineering disciplines. While data-driven methods like neural networks offer powerful tools, they often struggle to **incorporate prior domain knowledge**, limiting their interpretability, generalizability, and safety.
-
-To bridge this gap, we present ***nnodely*** (where "nn" can be read as "m," forming *Modely*) — a framework that facilitates the creation and deployment of **Model-Structured Neural Networks** (**MS-NNs**).
-MS-NNs combine the learning capabilities of neural networks with structural **priors** grounded in **physics, control, and estimation theory**, enabling:
-
-- **Reduced training data** requirements
-- **Generalization** to unseen scenarios
-- **Real-time** deployment in real-world applications
-
-In short:
-
-nnodely is not a replacement for a general purpose deep learning frameworks — it is a **structured layer on top of them**, purpose-built for physical systems.
-
-<br>
 <p align="center">
-  📖 <a href="https://nnodely.readthedocs.io/"><b>Documentation</b></a> •
-  🔬 <a href="./case-studies/"><b>Case Studies</b></a> •
-  🚀 <a href="https://github.com/tonegas/nnodely-applications"><b>Other Applications</b></a>
+  <a href="https://pypi.org/project/nnodely/"><img src="https://img.shields.io/pypi/v/nnodely?color=6F84FE&label=PyPI" alt="PyPI"></a>
+  <a href="https://nnodely.readthedocs.io/"><img src="https://img.shields.io/readthedocs/nnodely?color=80BFFF&label=docs" alt="Documentation"></a>
+  <a href="https://codecov.io/github/tonegas/nnodely"><img src="https://codecov.io/github/tonegas/nnodely/graph/badge.svg?token=8V6P2PSYT4" alt="codecov"></a>
+  <img src="https://img.shields.io/badge/python-3.10%20%E2%80%93%203.13-5B4BFB" alt="Python 3.10 - 3.13">
+  <img src="https://img.shields.io/badge/Keras%203-TensorFlow%20%7C%20PyTorch%20%7C%20JAX-7A3FE8" alt="Keras 3: TensorFlow, PyTorch, JAX">
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-A5D8FF" alt="License: MIT"></a>
 </p>
 
-<!-- > [!NOTE]
-> **Full documentation** of the code is available at the following [link](https://nnodely.readthedocs.io/en/docs-update/)
+<p align="center">
+  <b>Model-Structured Neural Networks for the modeling, control and estimation of physical systems.</b>
+</p>
 
-> Some **examples of applications** of nnodely in different fields are collected in the following open-source repository:   [nnodely-applications](https://github.com/tonegas/nnodely-applications) -->
+<p align="center">
+  📖 <a href="https://nnodely.readthedocs.io/"><b>Documentation</b></a> &nbsp;•&nbsp;
+  🚀 <a href="https://nnodely.readthedocs.io/en/latest/getting_started.html"><b>Getting Started</b></a> &nbsp;•&nbsp;
+  🔬 <a href="https://github.com/tonegas/nnodely-applications"><b>Applications</b></a>
+</p>
 
-<h2>Table of Contents</h2>
-<ol>
-  <li><a href="#gettingstarted">Getting Started</a></li>
-  <ul>
-      <li><a href="#installation">Installation</a></li>
-      <li><a href="#helloworld">Hello, World!</a></li>
-  </ul>
-  <li><a href="#folderstructure">Structure of the Repository</a></li>
-  <li><a href="#contribute">How to contribute</a></li>
-  <li><a href="#license">License</a></li>
-  <li><a href="#references">References</a></li>
-</ol>
+<img src="https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/rule.svg" width="100%" height="4" alt="">
 
+**nnodely** (read the *nn* as an *m*: *Modely*) builds neural networks whose
+structure *is* the physics. Instead of a black box, you write the model the way
+you would write the equations: FIR filters on past samples, local models
+scheduled by a fuzzy variable, derivatives, integrators, ODE solvers. The data
+only has to find the coefficients.
 
-<a name="gettingstarted"></a>
-## Getting Started
+- ⚙️ **Structure first.** Every block has a physical meaning, so the trained
+  network stays interpretable.
+- 📉 **Little data.** Structural priors do the heavy lifting, so a few recordings
+  are often enough.
+- 🧭 **Generalization.** A model that respects the physics behaves in scenarios it
+  never saw during training.
+- ⏱️ **Real time.** Small networks, exported to Keras or ONNX for deployment.
+- 🔌 **Any backend.** Built on Keras 3: the same model runs on TensorFlow,
+  PyTorch or JAX.
 
-<a name="installation"></a>
-### Installation
+nnodely is not a replacement for general-purpose deep-learning frameworks. It
+is a **structured layer on top of them**, purpose-built for physical systems.
 
-Install nnodely with the Keras backend you want to use:
-
-```sh
-pip install "nnodely[tensorflow]"
-# or: pip install "nnodely[torch]"
-# or: pip install "nnodely[jax]"
-```
-
-Set `KERAS_BACKEND` to the matching backend before importing nnodely. For
-example, use `KERAS_BACKEND=torch` when installing the Torch extra.
-
-Alternatively, clone the repository and install the desired backend extra:
+## ⚡ Install
 
 ```sh
-git clone https://github.com/tonegas/nnodely.git
-cd nnodely
-pip install ".[tensorflow]"
+pip install "nnodely[torch]"        # or [tensorflow], or [jax]
+pip install "nnodely[torch,onnx]"   # + ONNX export
 ```
-<a name="helloworld"></a>
-### Hello, World!
-To check if `nnodely` is installed correctly try running the following script.
+
+Pick the backend with `KERAS_BACKEND` (TensorFlow if unset) before importing nnodely:
+
+```sh
+export KERAS_BACKEND=torch
+```
+
+## 🚀 Hello, world
+
+A mass-spring-damper, *m ẍ = −k x − c ẋ + F*, learned as its own
+discrete-time structure: the next position is a filter over the last positions
+plus a gain on the current force.
 
 ```python
-from nnodely import Input, Output, nnodely, Parameter
+import numpy as np
+from nnodely import DataLoader, Fir, Input, Modely, Output
 
-x = Input("x")
-l = x.last()
-o = (Parameter('A')*l.sw([-2,-1])+Parameter('B')*l).closedLoop(x)
-f = Output("fib",o)
-model = nnodely()
-model.addModel("Fibonacci",f)
-model.addMinimize("target", l.sw([-2,-1])+l, f)
-model.neuralizeModel(1)
-model.loadData("data",{ "x" : list(range(100)) } )
-model.trainModel(prediction_samples = 2, lr = 0.5, num_of_epochs = 500)
-model.exportPythonModel(models = "Fibonacci")
-print(model({ "x" : [1] },prediction_samples = 20,num_of_samples = 20))
+# Simulate the system: in practice, these are your measurements
+dt, m, k, c = 0.05, 1.0, 2.0, 0.5
+force = np.repeat(np.random.uniform(-1.0, 1.0, 60), 50)
+position, velocity = np.zeros(3000), np.zeros(3000)
+for t in range(2999):
+    velocity[t + 1] = velocity[t] + dt * (-k * position[t] - c * velocity[t] + force[t]) / m
+    position[t + 1] = position[t] + dt * velocity[t + 1]
+
+# The structure: x[t+1] = FIR(x[t-4..t]) + FIR(F[t])
+x, F = Input("x"), Input("F")
+x_next = Output("x_next", Fir(out_features=1)([x.sw(5)]) + Fir(out_features=1)([F.last()]))
+
+model = Modely("mass_spring_damper", inputs=[x, F], outputs=[x_next])
+model.minimize("next_position", x_next, x.next())
+model.build()
+
+# Train with the nnodely console, then score the model
+data = DataLoader(model, source={"x": position, "F": force})
+model.train(data, epochs=100, batch_size=64, lr=1e-2, printer="nnodely")
+model.validate(data)
 ```
-In the example, the neural network is trained to mimic the Fibonacci series.
-Finally, a native pytorch network is exported in a file.
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+`validate()` reports the loss next to RMSE, FIT, R² and the other indicators a
+system-identification report is read for, and can plot them.
 
-<a name="folderstructure"></a>
-## Structure of the Repository
+## 🧩 What's in the box
 
-```bash
-nnodely/              # root directory
-├── nnodely/          # source code
-│   ├── basic/        # core low-level classes
-│   ├── exporter/     # model export utilities
-│   ├── layers/       # supported layers
-│   ├── operators/    # core operators
-│   ├── support/      # utility functions
-│   └── visualizer/   # visualization tools
-├── case-studies/     # main case studies
-├── docs/             # documentation
-├── tests/            # unit and integration tests
-├── imgs/             # images used in the documentation
-└── mplplots/         # utilities for MatPlotLib
-```
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+| | Blocks |
+|---|---|
+| **Signals** | `Input` with sample windows (`sw`, `last`, `next`), `Output`, `Parameter`, `Constant`, arithmetic on streams |
+| **Structured layers** | `Fir` [[1]](#1), `Linear`, `LocalModel` [[1]](#1) [[3]](#3) [[4]](#4) [[5]](#5), `Fuzzify` [[2]](#2), `EquationLearner` [[6]](#6), `Interpolation`, `BatchNorm` |
+| **Calculus** | `Derivative` w.r.t. inputs or time, for physics-informed [[7]](#7) and Sobolev [[8]](#8) training · `Integrate` · `Ode` (Euler, midpoint, Heun, RK4) · `OdeNet` (neural ODEs, adaptive Dormand-Prince, hybrid events) |
+| **Recurrence** | `rollback` for multi-step prediction, `Loop` and `Roll` for rollouts over whole trajectories |
+| **Data** | `DataLoader` from dicts, DataFrames or CSV folders, multiple simulations, sequences, masks, normalization |
+| **Workflow** | `train` with any Keras optimizer and loss · `validate` with system-identification metrics and plots · model composition · `save`/`load`, Keras and ONNX export, interactive HTML graphs |
+
+Every block is documented, with runnable examples, in the
+[User Guide](https://nnodely.readthedocs.io/en/latest/guide/index.html).
 
 <details>
-<summary>More info about repository structure</summary>
-<a name="nnodelyfolder"></a>
+<summary><b>🗂️ Structure of the repository</b></summary>
 
-### nnodely Folder
-This folder contains all the nnodely library files with relative references.
+```bash
+nnodely/
+├── src/nnodely/
+│   ├── core/       # Modely, DataLoader, streams, graph, validation
+│   ├── layers/     # every block of the table above
+│   └── utils/      # printers, plots, seeding
+├── docs/           # documentation, built on Read the Docs
+├── tests/          # unit and integration tests, run on all three backends
+└── imgs/           # images used in the README and the documentation
+```
 
-The `nnodely` main class defined in __nnodely.py__, it contains all the main properties of the nnodely object and it derives from five main operators, cointained in the folder `operators/`:
-1. __composer.py__ contains all the functions to build the networks: `addModel`, `neuralizeModel`, `addConnection`, `addClosedLoop` etc..
-2. __loader.py__ contains the function for managing the dataset, the main function is `dataLoad`.
-3. __trainer.py__ contains the function for training the network as the `trainModel`.
-4. __exporter.py__ contains all the function for import and export: `saveModel`, `loadModel`, `exportONNX` etc..
-5. __validator.py__ contains all the function for validate the model and the `resultsAnalysis`.
-6. All the operators derive from `Network` defined in __network.py__, that contains the shared support functions for all the operators.
-
-The folder `basic/` contains the main classes for the low level functionalities:
-1. __model.py__ containts the pytorch template model for the structured network.
-2. __modeldef.py__ containts the operation for work with the json model definition.
-3. __loss.py__ contains the loss functions.
-4. __optimizer.py__ contains the optimizer calss.
-6. __relation.py__ contains all the main classes from which all the layers are derived.
-
-The other folders are:
-1. `exporter/` that contains the classes for the export functions.
-2. `support/` for the support functions.
-3. `visualizer/` that contains all the classes related to the visualization.
-4. And finally the `layers/` folder.
-
-The `layers/` folder contains all the layers that can be used in the MSNN.
-In particular, the model structured NN is defined by `Inputs`, `Outputs` and `Parameters`:
-1. __input.py__ contains the Input class used for create an input for the network.
-2. __output.py__ contains the Output class used for create an output for the network.
-3. __parameter.py__ contains the logic for create a generic parameters and constants.
-
-The main basic layers without parameters are:
-1. __activation.py__ this file contains all the activation functions. The activation are mainly based on the pytorch functions.
-2. __arithmetic.py__ this file contains the aritmetic functions as: +, -, /, *., **.
-3. __trigonometric.py__ this file contains all the trigonometric functions.
-4. __part.py__ are used for selecting part of the data.
-5. __fuzzify.py__ contains the operation for the fuzzification of a variable,
-commonly used in the local model as activation function as in [[1]](#1) with rectangular activation functions or in [[3]](#3), [[4]](#4) and [[5]](#5) with triangular activation function activation functions.
-Using fuzzification it is also possible create a channel coding as presented in [[2]](#2).
-
-The main basic layers with parameters are:
-1. __fir.py__ this file contains the finite impulse response filter function. It is a linear operation on the time dimension (second dimension).
-This filter was introduced in [[1]](#1).
-2. __linear.py__ this file contains the linear function. Typical Linear operation `W*x+b` operated on the space dimension (third dimension).
-This operation is presented in [[1]](#1).
-3. __localmodel.py__ this file contains the logic for build a local model. This operation is presented in [[1]](#1), [[3]](#3), [[4]](#4) and [[5]](#5).
-4. __parametricfunction.py__ are the user custom function. The function can use the pytorch syntax. A parametric function is presented in [[3]](#3), [[4]](#4), [[5]](#5).
-5. __equationlearner.py__ contains the logic for the equation learner. The equation learner is used for learn a relation input outpur following a list of activation functions. The first implementation is presented in [[6]](#6).
-6. __timeoperation.py__ contains the time operation functions. The time operation are used for extract a time window from a signal. The derivative operation can be used to implement Physics-informed neural network [[7]](#7) Sobolev learning [[8]](#8).
-
-<a name="casestudiesfolder"></a>
-### Case Studies Folder
-In the case studies folder you can find the main case studies cited in the paper.
-Each case study is a jupyter notebook that explains the main functionalities of the library.
-
-<a name="docsfolder"></a>
-### Docs Folder
-This folder contains all files used to automatically generate the documentation.
-
-<a name="testsfolder"></a>
-### Tests Folder
-This folder contains the unit tests of the library. Each file tests a specific functionality.
-
-<a name="mplfolder"></a>
-### Matplotlib Folder
-This folder contains the utilities for Matplotlib.
-
-<a name="imgfolder"></a>
-### Images Folder
-This folder contains the images used in the documentation.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
 </details>
 
-<a name="contribute"></a>
-## How to Contribute
+## 🤝 Contributing
 
-To contribute to the nnodely framework, you can:
+Contributions and collaborations are welcome: open an issue for questions and
+ideas, or a pull request for a new feature or a fix. See
+[CONTRIBUTING.md](CONTRIBUTING.md) to set up the development environment.
 
-- Open a pull request if you have a new feature or bug fix.
-- Open an issue if you have a question or suggestion.
+## 📄 License
 
-We welcome contributions and collaborations.
+nnodely is released under the [MIT License](https://opensource.org/licenses/MIT).
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<a name="license"></a>
-## License
-This project is released under the license [License: MIT](https://opensource.org/licenses/MIT).
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+<img src="https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/rule.svg" width="100%" height="4" alt="">
 
 <a name="references"></a>
-## References
+## 📚 References
 
 <a id="1">[1]</a>
 Mauro Da Lio, Daniele Bortoluzzi, Gastone Pietro Rosati Papini. (2019).

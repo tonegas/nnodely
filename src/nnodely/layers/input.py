@@ -11,7 +11,13 @@ import keras
 
 class Input(Stream):
     """
-    Input di rete. Come Layer ha seq, time, dim.
+    A signal the model reads from data.
+
+    ``dim`` sets the feature axes (one feature by default) and ``seq`` the
+    optional sequence axes, used by rollouts; ``seq=(None,)`` leaves the
+    sequence length dynamic. The time window is not declared here: it is the
+    union of the windows requested with :meth:`sw`, :meth:`last` and
+    :meth:`next`.
     """
 
     def __init__(
@@ -29,7 +35,13 @@ class Input(Stream):
         )
 
     def sw(self, window_size: int | list[int]):
-        """Crea SampleWindow (Layer) con finestra temporale. Aggiorna self.time (max finestra)."""
+        """Return a window of samples of this input.
+
+        ``sw(n)`` is the last ``n`` samples, up to and including the current
+        one. ``sw([p, f])`` is ``p`` samples up to and including the current
+        one followed by the next ``f`` samples. The input's own window grows to
+        cover every window requested from it.
+        """
         if isinstance(window_size, list):
             if len(window_size) != 2:
                 raise ValueError(
@@ -48,11 +60,11 @@ class Input(Stream):
         return SampleWindow(past=local_past, future=local_future)([self])
 
     def last(self):
-        """Shortcut per sw(1)."""
+        """The current sample, the same as ``sw(1)``."""
         return self.sw(1)
 
     def next(self):
-        """Shortcut per sw([0, 1])."""
+        """The next sample, the same as ``sw([0, 1])``."""
         return self.sw([0, 1])
 
     def get_config(self):

@@ -109,6 +109,14 @@ class FuzzifyImpl(keras.layers.Layer):
 
 
 class Fuzzify(Layer):
+    """
+    Membership degrees of the input to fuzzy sets placed on ``centers``.
+
+    ``function`` is ``"Triangular"``, ``"Rectangular"`` or ``"Gaussian"``. The
+    output has one feature per center, and is typically used as the activation
+    of a :class:`LocalModel`.
+    """
+
     def __init__(
         self,
         centers: list[float],

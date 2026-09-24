@@ -1184,3 +1184,64 @@ def test_masked_loss_survives_a_diverging_padded_rollout():
     np.testing.assert_allclose(
         to_numpy(loss(y_true, exploded)), [(0.25 + 0.25) / 4], rtol=1e-6
     )
+
+
+def test_train_with_val_data_reports_validation_loss():
+    x = Input("val_data_x")
+    relation = Linear(
+        out_features=1, use_bias=False, initializer="ones", name="val_data_linear"
+    )(x.last())
+    output = Output("val_data_output", relation)
+    model = Modely("val_data_model", inputs=[x], outputs=[output])
+    model.minimize("val_data_error", output, Input("val_data_target").last())
+    model.build()
+
+    train = DataLoader(
+        model, source={"val_data_x": [1.0, 2.0], "val_data_target": [1.0, 2.0]}
+    )
+    val = DataLoader(
+        model, source={"val_data_x": [1.0, 2.0], "val_data_target": [3.0, 3.0]}
+    )
+    # A zero learning rate keeps w=1, so the validation loss is known exactly:
+    # predictions [1, 2] against [3, 3] give MSE (4 + 1) / 2.
+    history = model.train(
+        train_data=train,
+        val_data=val,
+        epochs=2,
+        batch_size=2,
+        optimizer=keras.optimizers.SGD(learning_rate=0.0),
+        printer=None,
+    )
+
+    np.testing.assert_allclose(history["val_loss"], [2.5, 2.5], rtol=1e-6)
+    np.testing.assert_allclose(history["loss"], [0.0, 0.0], atol=1e-6)
+
+
+def test_train_target_window_of_an_input_with_a_wider_window():
+    # x feeds the model through sw(3) and is its own target through next(), so
+    # the data column of x is four samples wide while the target is the last.
+    x = Input("wide_target_x")
+    fir = Fir(out_features=1, use_bias=False, name="wide_target_fir")([x.sw(3)])
+    output = Output("wide_target_output", fir)
+    model = Modely("wide_target_model", inputs=[x], outputs=[output])
+    model.minimize("wide_target_error", output, x.next())
+    model.build()
+    assert fir.kernel is not None
+    fir.kernel.assign(np.ones((3, 1), dtype=np.float32))
+
+    data = DataLoader(model, source={"wide_target_x": np.arange(6.0)})
+    # Windows end at t = 2, 3, 4: sums 3, 6, 9 against x[t+1] = 3, 4, 5, so the
+    # errors are 0, 2, 4 and the MSE is 20 / 3.
+    history = model.train(
+        train_data=data,
+        epochs=1,
+        batch_size=3,
+        optimizer=keras.optimizers.SGD(learning_rate=0.0),
+        printer=None,
+    )
+
+    np.testing.assert_allclose(history["loss"], [20.0 / 3.0], rtol=1e-5)
+    result = model.validate(data)
+    np.testing.assert_allclose(
+        result["wide_target_error"].metrics["loss"], 20.0 / 3.0, rtol=1e-5
+    )

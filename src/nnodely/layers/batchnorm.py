@@ -11,10 +11,12 @@ class BatchNorm(Layer):
     """
     Wrapper for keras.layers.BatchNormalization.
 
-    Input:
+    Input::
+
         [batch, *dim, time, *seq]
 
-    Output:
+    Output::
+
         [batch, *dim, time, *seq]
 
     Statistics are accumulated per feature, so the normalization axis defaults

@@ -104,6 +104,17 @@ def _static_input_signature(model, batch_size: int):
 
 
 class Modely:
+    """A model-structured neural network.
+
+    ``inputs`` and ``outputs`` delimit the graph of streams that makes up the
+    model. Objectives (:meth:`minimize`) and feedback (:meth:`rollback`) are
+    declared on it, then :meth:`build` creates the Keras model and its weights.
+
+    A built model is called with ``{input name: array}`` and returns
+    ``{output name: tensor}``. Called with a list of streams instead, it
+    becomes a block of a larger graph and returns its outputs as streams.
+    """
+
     name: str
     inputs: list[Input]
     outputs: list[Output]
@@ -171,10 +182,15 @@ class Modely:
 
     @property
     def built(self):
-        """True se build() è stato chiamato, False altrimenti."""
+        """True once :meth:`build` has been called."""
         return self.model is not None
 
     def build(self):
+        """Create the Keras model of the graph, with its weights.
+
+        Objectives and feedback have to be declared before, because they add
+        to the graph that is built. Returns the model itself.
+        """
         from nnodely.core.layer import Identity
 
         extra_outputs = []
@@ -314,10 +330,18 @@ class Modely:
     ):
         """Register a Keras loss to minimize during training.
 
-        name: identifier for this loss (used as an output name in the training model)
-        source: node/stream producing predictions (e.g., an Output node)
-        target: node/stream providing target values (usually derived from an Input)
-        loss: Keras loss name, serialized config, Loss instance, or callable
+        Parameters
+        ----------
+        name:
+            Identifier of the objective, used to label its loss.
+        source:
+            The stream producing the predictions, for example an Output.
+        target:
+            A window of an Input read from the data, a number, or ``None`` to
+            drive ``source`` to zero.
+        loss:
+            A Keras loss name, serialized configuration, Loss instance, or a
+            callable ``loss(y_true, y_pred)``.
         """
         resolved_loss = _resolve_loss(loss)
         if target is None:  ## Transform it into a Constant with value zero
@@ -496,6 +520,7 @@ class Modely:
         padded_inputs = getattr(data, "padded_inputs", set())
 
         y_data = {}
+        predictions = None
         for minimizer in self.minimizers:
             source_name = minimizer["source"].name
             target = minimizer["target"]
@@ -503,6 +528,17 @@ class Modely:
             label_name = self._dataset_name(target, x_data)
             if label_name is not None:
                 values = x_data[label_name]
+                # The column carries the input's whole window, which is wider
+                # than the target when the input is also read elsewhere (``y.sw(5)``
+                # feeding the model, ``y.next()`` as the target): the target is
+                # then what its own stream evaluates to, as in validate(). An
+                # Input target is its column, whatever its declared shape.
+                if not isinstance(target, Input) and values.shape[1:] != tuple(
+                    target.shape
+                ):
+                    if predictions is None:
+                        predictions = self._predict(x_data, n_samples)
+                    values = predictions[target.name]
                 if label_name in padded_inputs:
                     values = _mask_padded_targets(values, mask)  # type: ignore
                 y_data[source_name] = values
@@ -551,7 +587,7 @@ class Modely:
 
         ``printer`` selects how progress is rendered: ``"tiny"`` prints a compact
         summary of the training progress, ``"legacy"`` prints the scrolling
-        per-minimizer loss table of the original nnodely trainer, ``"factory"``
+        per-minimizer loss table of the original nnodely trainer, ``"nnodely"``
         drives the animated machine-room console, ``None`` prints nothing, and
         any Keras callback is used as given.
         """
@@ -576,18 +612,23 @@ class Modely:
         x_data, y_data, mask = self._supervised_arrays(train_data)
 
         validation_data = None
+        val_mask = None
         if val_data is not None:
             if len(val_data) == 0:
                 raise ValueError("val_data is empty.")
-            validation_data, _, _ = self._supervised_arrays(val_data)
+            val_x, val_y, val_mask = self._supervised_arrays(val_data)
+            validation_data = (val_x, val_y)
 
+        # One compiled loss serves both sets, so padded steps in either of them
+        # have to be masked out.
+        masked = mask is not None or val_mask is not None
         compile_losses: dict[str, Any] = {
             name: None for name in getattr(km, "output_names", [])
         }
         for minimizer in self.minimizers:
             loss = resolved_losses[minimizer["name"]]
             compile_losses[minimizer["source"].name] = (
-                MaskedLoss(loss) if mask is not None else loss
+                MaskedLoss(loss) if masked else loss
             )
 
         km.compile(
@@ -611,6 +652,7 @@ class Modely:
     # -------------------------------------------------------------------------
 
     def flatten(self) -> "Modely":
+        """Return an equivalent model with every sub-model inlined."""
         return flatten(model=self)
 
     # -------------------------------------------------------------------------
@@ -651,6 +693,7 @@ class Modely:
         )
 
     def summary(self):
+        """Print the Keras summary of the built model."""
         if self.model is not None:
             self.model.summary()
 
@@ -739,13 +782,16 @@ class Modely:
     # -------------------------------------------------------------------------
 
     def save(self, path):
+        """Save the model - graph, objectives and weights - to ``path``."""
         ModelSerializer.serialize(self, path)
 
     @classmethod
     def load(cls, path):
+        """Load a model saved with :meth:`save`."""
         return ModelSerializer.load(path)
 
     def export_keras(self, filename: str):
+        """Save the built Keras model to a ``.keras`` file."""
         if self.model is None:
             raise ValueError("Model is not built. Call build() before export_keras().")
 
@@ -756,6 +802,7 @@ class Modely:
 
     @staticmethod
     def import_keras(filename: str, safe_mode: bool = True):
+        """Load a ``.keras`` file written by :meth:`export_keras` as a ``keras.Model``."""
         path = Path(filename)
         if path.suffix.lower() != ".keras":
             path = path.with_suffix(".keras")

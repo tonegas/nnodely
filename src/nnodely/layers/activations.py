@@ -140,6 +140,9 @@ class Sigmoid(Layer):
     def build_layer(self):
         return keras.layers.Activation("sigmoid", name=self.name)
 
+    def get_config(self):
+        return {"name": self.name}
+
 
 class Tanh(Layer):
     """Wrapper for keras.layers.Activation('tanh')."""
@@ -150,6 +153,9 @@ class Tanh(Layer):
     def build_layer(self):
         return keras.layers.Activation("tanh", name=self.name)
 
+    def get_config(self):
+        return {"name": self.name}
+
 
 class Swish(Layer):
     """Wrapper for keras.layers.Activation('swish')."""
@@ -159,6 +165,9 @@ class Swish(Layer):
 
     def build_layer(self):
         return keras.layers.Activation("swish", name=self.name)
+
+    def get_config(self):
+        return {"name": self.name}
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -210,3 +219,6 @@ class Softplus(Layer):
 
     def build_layer(self):
         return SoftplusImpl(name=self.name)
+
+    def get_config(self):
+        return {"name": self.name}

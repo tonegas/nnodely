@@ -565,3 +565,26 @@ def test_save_load_batchnorm_model(tmp_path):
         rtol=1e-5,
         atol=1e-5,
     )
+
+
+@pytest.mark.parametrize("activation", [Sigmoid, Tanh, Swish, Softplus])
+def test_save_load_parameterless_activation(tmp_path, activation):
+    # These activations take no arguments besides a name: their saved config
+    # must not carry the stream shape, which their constructor does not accept.
+    x = Input(name="activation_save_input")
+    out = Output("activation_save_output", activation(name="act")([x.sw(3)]))
+    model = Modely(name="activation_save_model", inputs=[x], outputs=[out]).build()
+
+    values = np.random.randn(1, 1, 3).astype(np.float32)
+    pred = model({"activation_save_input": values})
+    model.save(tmp_path / "activation_save")
+
+    new_model = Modely.load(tmp_path / "activation_save")
+    assert graph_signature(new_model) == graph_signature(model)
+    np.testing.assert_allclose(
+        to_numpy(pred["activation_save_output"]),
+        to_numpy(
+            new_model({"activation_save_input": values})["activation_save_output"]
+        ),
+        rtol=1e-6,
+    )

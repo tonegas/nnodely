@@ -1110,7 +1110,7 @@ wheels = [
 
 [[package]]
 name = "nnodely"
-version = "1.5.5.dev1"
+version = "2.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "cloudpickle" },
