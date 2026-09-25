@@ -169,21 +169,19 @@ def _validate_gain(gain, minimizer: str) -> float:
     return gain
 
 
-def _validate_seq_weights(seq_weights, source: Stream, minimizer: str):
-    """One weight per step of the source's last axis, normalized to mean one.
+def _seq_weights_for(seq_weights, steps: int | None, minimizer: str):
+    """One weight per step of a last axis ``steps`` long, normalized to mean one.
 
-    Not negative, and not all zero: a negative weight would maximize the error
-    of its step, and all zeros would train nothing.
+    A callable is given the number of steps. Weights are not negative, and not
+    all zero: a negative weight would maximize the error of its step, and all
+    zeros would train nothing. ``steps=None`` leaves the length unchecked.
     """
-    if seq_weights is None:
-        return None
-    weights = np.asarray(seq_weights, dtype=np.float32)
-    steps = source.shape.tuple[-1]
-    if weights.shape != (steps,):
+    weights = seq_weights(steps) if callable(seq_weights) else seq_weights
+    weights = np.asarray(weights, dtype=np.float32)
+    if weights.ndim != 1 or steps is not None and weights.shape != (steps,):
         raise ValueError(
             f"The seq_weights of minimizer {minimizer!r} must be one weight per "
-            f"step of the last axis of {source.name!r}, {steps} of them, got "
-            f"shape {weights.shape}."
+            f"step of the last axis, {steps} of them, got shape {weights.shape}."
         )
     if not np.isfinite(weights).all() or (weights < 0).any() or not weights.any():
         raise ValueError(
@@ -191,6 +189,22 @@ def _validate_seq_weights(seq_weights, source: Stream, minimizer: str):
             f"negative and not all zero, got {weights.tolist()}."
         )
     return weights / weights.mean()
+
+
+def _validate_seq_weights(seq_weights, source: Stream, minimizer: str):
+    """The seq_weights of a minimizer, checked as far as its source allows.
+
+    A dynamic sequence follows the data, whatever length its stream declares,
+    so its weights are checked once the data sets the length.
+    """
+    if seq_weights is None:
+        return None
+    steps = None if _depends_on_dynamic_input(source) else source.shape.tuple[-1]
+    if callable(seq_weights):
+        if steps is not None:
+            _seq_weights_for(seq_weights, steps, minimizer)
+        return seq_weights
+    return _seq_weights_for(seq_weights, steps, minimizer)
 
 
 class _MinimizerTerm:
@@ -210,7 +224,8 @@ class _MinimizerTerm:
     ):
         self.name = name
         self.gain = gain  # weight of this term in the total loss
-        self.seq_weights = seq_weights  # weight of each step of the last axis
+        # weight of each step of the last axis, or a callable of its length
+        self.seq_weights = seq_weights
         self.source = source  # name of the graph output holding the prediction
         self.target = target  # name of the graph output holding the reference
         self.target_rank = target_rank  # rank of the target without batch axis
@@ -315,9 +330,11 @@ class MinimizerModel(keras.Model):
                     valid, target, keras.ops.full_like(target, np.nan)
                 )
             if term.seq_weights is not None:
-                value = _weighted_sequence_loss(
-                    term.loss, target, source, term.seq_weights
+                # The rollout is unrolled, so its length is static here.
+                weights = _seq_weights_for(
+                    term.seq_weights, source.shape[-1], term.name
                 )
+                value = _weighted_sequence_loss(term.loss, target, source, weights)
             else:
                 # A loss function returns one value per sample, a Loss instance
                 # the reduced value: the mean is how compile() reduces either.
@@ -577,11 +594,13 @@ class Modely:
             validated loss stays unweighted, the way Keras logs a loss_weight
         seq_weights: one weight per step of the last axis of the source - the
             rollout of a Loop, or the window of a stream - such as
-            ``np.exp(0.1 * np.arange(N))`` to weigh the last predictions more.
-            Normalized to mean one, so only their profile matters; the logged
-            and validated loss is the weighted one. None weighs every step the
-            same. It suits losses computed element by element, as the
-            regression losses are
+            ``np.exp(0.1 * np.arange(N))`` to weigh the last predictions more,
+            or a callable of the number of steps returning them, such as
+            ``lambda n: np.exp(0.1 * np.arange(n))``, for a sequence whose
+            length is dynamic. Normalized to mean one, so only their profile
+            matters; the logged and validated loss is the weighted one. None
+            weighs every step the same. It suits losses computed element by
+            element, as the regression losses are
 
         A name identifies one minimizer: registering a name again replaces the
         minimizer it names, in its place, and warns that it did.
@@ -838,7 +857,13 @@ class Modely:
                 source=source.name,
                 target=target_name,
                 loss_fn=minimizer["loss"],
-                seq_weights=minimizer.get("seq_weights"),
+                seq_weights=(
+                    None
+                    if minimizer.get("seq_weights") is None
+                    else _seq_weights_for(
+                        minimizer["seq_weights"], y_true.shape[-1], name
+                    )
+                ),
                 y_true=y_true,
                 y_pred=np.asarray(predictions[source_key][:n_samples]),
             )

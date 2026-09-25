@@ -1142,3 +1142,79 @@ def test_minimize_rejects_invalid_seq_weights(seq_weights):
     with pytest.raises(ValueError, match="seq_weights"):
         model.minimize("error", out, y.sw(3), seq_weights=seq_weights)
     assert model.minimizers == []
+
+
+def test_callable_seq_weights_are_evaluated_with_the_sequence_length():
+    model, X, Y = _window_model(seq_weights=lambda n: np.exp(0.5 * np.arange(n)))
+    weights = np.exp(0.5 * np.arange(3))
+    expected = _mse(0, np.sqrt(weights / weights.mean()) * (2 * X - Y))
+
+    np.testing.assert_allclose(_training_loss(model, _load(model)), expected, rtol=1e-5)
+
+
+def _dynamic_loop_model(seq_weights):
+    """A rollout of dynamic length predicting ``2 * y`` at every step."""
+    x, y = Input("x"), Input("y")
+    step = x.last() * Parameter("c", value=[0.0]) + y.last() * Parameter(
+        "d", value=[2.0]
+    )
+    body = Modely("body", inputs=[x, y], outputs=[Output("step", step)]).build()
+    x_seq, y_seq = Input("x_seq", seq=-1), Input("y_seq", seq=-1)
+    t_seq = Input("t_seq", seq=-1)
+    loop = Loop(
+        f=body,
+        callback={"x": "step"},
+        initial={"x": x_seq},
+        inputs={"y": y_seq},
+        length=3,
+    )
+    out = Output("rollout", loop)
+    model = Modely("model", inputs=[x_seq, y_seq], outputs=[out])
+    model.minimize("error", out, t_seq, seq_weights=seq_weights)
+    model.build()
+    rng = np.random.default_rng(0)
+    raw = {
+        name: rng.normal(size=20).astype(np.float32)
+        for name in ("x_seq", "y_seq", "t_seq")
+    }
+    return model, raw
+
+
+def _rollout_loss(raw, width, weights):
+    samples = 20 - width + 1
+    Y = np.stack([raw["y_seq"][i : i + width] for i in range(samples)])
+    T = np.stack([raw["t_seq"][i : i + width] for i in range(samples)])
+    return float(np.mean(weights / weights.mean() * (2 * Y - T) ** 2))
+
+
+@pytest.mark.parametrize("width", [5, 8])
+def test_callable_seq_weights_follow_the_length_of_a_dynamic_rollout(width):
+    model, raw = _dynamic_loop_model(lambda n: np.exp(0.3 * np.arange(n)))
+    data = DataLoader(model, source=raw, seq_length=width)
+    expected = _rollout_loss(raw, width, np.exp(0.3 * np.arange(width)))
+
+    np.testing.assert_allclose(_training_loss(model, data), expected, rtol=1e-5)
+    np.testing.assert_allclose(
+        _validation_losses(model, data)["error"], expected, rtol=1e-5
+    )
+
+
+def test_array_seq_weights_on_a_dynamic_rollout_match_the_data_length():
+    # The stream declares length=3, but the rollout follows the data: 5 steps
+    weights = np.array([1.0, 1.0, 2.0, 3.0, 5.0])
+    model, raw = _dynamic_loop_model(weights)
+    data = DataLoader(model, source=raw, seq_length=5)
+
+    np.testing.assert_allclose(
+        _training_loss(model, data), _rollout_loss(raw, 5, weights), rtol=1e-5
+    )
+
+
+def test_minimize_rejects_a_callable_giving_the_wrong_number_of_weights():
+    x, y = Input("x"), Input("y")
+    out = Output("pred", x.sw(3) * Parameter(value=[2.0]))
+    model = Modely("model", inputs=[x], outputs=[out])
+
+    with pytest.raises(ValueError, match="seq_weights"):
+        model.minimize("error", out, y.sw(3), seq_weights=lambda n: np.ones(n + 1))
+    assert model.minimizers == []
