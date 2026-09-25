@@ -14,7 +14,13 @@ class ModelSerializer:
     VERSION = 1
 
     @staticmethod
-    def serialize(model, path):
+    def serialize(model, path, *, layers=None, folder=""):
+        from nnodely.core.modely import Modely
+
+        # Every weighted layer saved so far by this save, across all the
+        # models it writes, mapped by identity to the key it is reloaded under:
+        # the folder of its model and its name.
+        layers = {} if layers is None else layers
         path = Path(path)
         path.mkdir(parents=True, exist_ok=True)
 
@@ -25,14 +31,39 @@ class ModelSerializer:
         nodes = []
 
         for node in flat.order:
-            nodes.append(
-                {
-                    "id": node_ids[node],
-                    "class_name": node.__class__.__name__,
-                    "config": node.get_config(),
-                    "preds": [node_ids[pred] for pred in node.preds],
-                }
-            )
+            node_data = {
+                "id": node_ids[node],
+                "class_name": node.__class__.__name__,
+                "config": node.get_config(),
+                "preds": [node_ids[pred] for pred in node.preds],
+            }
+            # A block that wraps a model (Loop, Roll, OdeNet) saves that model
+            # as a model of its own, in a folder named after the block, so
+            # nested blocks nest their folders the same way.
+            body = getattr(node, "f", None)
+            if isinstance(body, Modely):
+                node_data["model"] = node.name
+                ModelSerializer.serialize(
+                    body,
+                    path / node.name,
+                    layers=layers,
+                    folder=f"{folder}{node.name}/",
+                )
+            nodes.append(node_data)
+
+        # One layer can belong to several models of the tree - a Parameter
+        # used by two bodies, or one body rolled out by two Loops. Keras saves
+        # its weights once, so it has to be shared again when loading. A
+        # wrapped model is built before the model that holds it, both here and
+        # when loading, so the first model to claim a layer is its owner.
+        for node, node_data in zip(flat.order, nodes):
+            layer = getattr(node, "_layer", None)
+            if not getattr(layer, "weights", None):
+                continue
+            key = f"{folder}{node.name}"
+            owner = layers.setdefault(id(layer), key)
+            if owner != key:
+                node_data["shared"] = owner
 
         data = {
             "format": ModelSerializer.FORMAT,
@@ -64,8 +95,10 @@ class ModelSerializer:
             model.model.save_weights(path / "model.weights.h5")
 
     @staticmethod
-    def deserialize(data):
+    def deserialize(data, path, *, layers=None, folder=""):
         from nnodely.core.modely import Modely
+
+        layers = {} if layers is None else layers
 
         node_map = {}
 
@@ -73,10 +106,25 @@ class ModelSerializer:
             cls = NODE_REGISTRY[node_data["class_name"]]
 
             preds = [node_map[pred_id] for pred_id in node_data["preds"]]
+            config = node_data["config"]
+            if "model" in node_data:
+                # The wrapped model is loaded, built and given its weights
+                # first, then handed to the block as the `f` it was built with.
+                config = {
+                    **config,
+                    "f": ModelSerializer.load(
+                        path / node_data["model"],
+                        layers=layers,
+                        folder=f"{folder}{node_data['model']}/",
+                    ),
+                }
             node = cls.from_config(
-                node_data["config"],
+                config,
                 preds=preds,
             )
+            if node_data.get("shared") in layers:
+                # Reuse the layer its owner, loaded earlier, has already built.
+                node._layer = layers[node_data["shared"]]  # type: ignore
             # node.preds = preds
             node_map[node_data["id"]] = node
 
@@ -97,7 +145,10 @@ class ModelSerializer:
         return model
 
     @staticmethod
-    def load(path):
+    def load(path, *, layers=None, folder=""):
+        # The weighted layers built so far by this load, by the key they were
+        # saved under, for the models loaded after them to share.
+        layers = {} if layers is None else layers
         path = Path(path)
 
         config_path = path / "model.json"
@@ -111,7 +162,7 @@ class ModelSerializer:
         with open(config_path, "r") as f:
             data = json.load(f)
 
-        model = ModelSerializer.deserialize(data)
+        model = ModelSerializer.deserialize(data, path, layers=layers, folder=folder)
         model.build()
 
         if weights_path.exists():
@@ -122,4 +173,8 @@ class ModelSerializer:
         else:
             print(f"the weights path: {weights_path} does not exist.")
 
+        for node in model.order:
+            layer = getattr(node, "_layer", None)
+            if getattr(layer, "weights", None):
+                layers.setdefault(f"{folder}{node.name}", layer)
         return model

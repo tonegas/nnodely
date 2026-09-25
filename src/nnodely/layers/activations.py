@@ -37,6 +37,7 @@ class ReLU(Layer):
 
     def get_config(self):
         return {
+            "name": self.name,
             "max_value": self.max_value,
             "negative_slope": self.negative_slope,
             "threshold": self.threshold,
@@ -58,6 +59,7 @@ class LeakyReLU(Layer):
 
     def get_config(self):
         return {
+            "name": self.name,
             "negative_slope": self.negative_slope,
         }
 
@@ -95,6 +97,7 @@ class ELU(Layer):
 
     def get_config(self):
         return {
+            "name": self.name,
             "alpha": self.alpha,
         }
 
@@ -111,6 +114,7 @@ class PReLU(Layer):
 
     def get_config(self):
         return {
+            "name": self.name,
             "shared_axes": self.shared_axes,
         }
 
@@ -127,6 +131,7 @@ class Softmax(Layer):
 
     def get_config(self):
         return {
+            "name": self.name,
             "axis": self.axis,
         }
 
@@ -140,6 +145,9 @@ class Sigmoid(Layer):
     def build_layer(self):
         return keras.layers.Activation("sigmoid", name=self.name)
 
+    def get_config(self):
+        return {"name": self.name}
+
 
 class Tanh(Layer):
     """Wrapper for keras.layers.Activation('tanh')."""
@@ -150,6 +158,9 @@ class Tanh(Layer):
     def build_layer(self):
         return keras.layers.Activation("tanh", name=self.name)
 
+    def get_config(self):
+        return {"name": self.name}
+
 
 class Swish(Layer):
     """Wrapper for keras.layers.Activation('swish')."""
@@ -159,6 +170,9 @@ class Swish(Layer):
 
     def build_layer(self):
         return keras.layers.Activation("swish", name=self.name)
+
+    def get_config(self):
+        return {"name": self.name}
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -187,7 +201,7 @@ class GELU(Layer):
         return GELUImpl(approximate=self.approximate, name=self.name)
 
     def get_config(self):
-        return {"approximate": self.approximate}
+        return {"name": self.name, "approximate": self.approximate}
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -210,3 +224,6 @@ class Softplus(Layer):
 
     def build_layer(self):
         return SoftplusImpl(name=self.name)
+
+    def get_config(self):
+        return {"name": self.name}

@@ -1,18 +1,32 @@
 from nnodely import (
+    Abs,
     Acos,
     BatchNorm,
     Asin,
     Atan,
+    Ceil,
+    Clamp,
     Constant,
     Concatenate,
     Cos,
+    Deg2Rad,
+    Derivative,
     ELU,
     EquationLearner,
+    Exp,
+    Floor,
     Fuzzify,
     GELU,
+    Integrate,
     Interpolation,
+    Log,
+    Log10,
+    Loop,
     Modely,
     Input,
+    Negative,
+    Ode,
+    OdeNet,
     Output,
     Fir,
     LeakyReLU,
@@ -20,15 +34,22 @@ from nnodely import (
     LocalModel,
     PReLU,
     Parameter,
+    Range,
     ReLU,
+    Roll,
     Sigmoid,
+    Sign,
     Sin,
     Softmax,
     Softplus,
+    Sqrt,
+    Sum,
     Swish,
     Tan,
     Tanh,
     TimeConcatenate,
+    TimeRange,
+    TimeSelect,
 )
 from nnodely.core.layer import Identity
 from nnodely.layers.time_ops import Select
@@ -322,6 +343,7 @@ def test_interpolation_save_keras_and_html(tmp_path, mode):
         node for node in restored.flatten().order if isinstance(node, Interpolation)
     )
     assert restored_layer.get_config() == {
+        "name": f"{mode}_interpolation",
         "x_points": [-2.0, -1.0, 0.0, 1.0, 2.0],
         "y_points": [3.0, 2.0, 3.0, 6.0, 11.0],
         "mode": mode,
@@ -565,3 +587,650 @@ def test_save_load_batchnorm_model(tmp_path):
         rtol=1e-5,
         atol=1e-5,
     )
+
+
+# ---------------------------------------------------------------------------
+# Save/load round trips across the layer suite
+#
+# A reloaded model has to behave like the one that was saved: the same outputs
+# on the same batch, the same graph, and it has to survive being saved again.
+# ---------------------------------------------------------------------------
+
+_BATCH = 3
+
+
+def _randomize_trainable_weights(model):
+    """Move every trainable weight off its initial value.
+
+    A weight that is not restored then changes the prediction whatever its
+    initializer, so a reload that only rebuilds the graph cannot pass.
+    """
+    assert model.model is not None
+    rng = np.random.default_rng(0)
+    for weight in model.model.trainable_weights:
+        weight.assign(rng.uniform(-1.0, 1.0, size=weight.shape).astype(np.float32))
+    return model
+
+
+def _random_inputs(model):
+    rng = np.random.default_rng(1)
+    return {
+        node.name: rng.uniform(0.1, 1.0, size=(_BATCH, *node.shape.tuple)).astype(
+            np.float32
+        )
+        for node in model.train_inputs
+    }
+
+
+def _assert_same_outputs(actual, expected):
+    assert sorted(actual) == sorted(expected)
+    for name, value in expected.items():
+        np.testing.assert_allclose(
+            to_numpy(actual[name]), value, rtol=1e-5, atol=1e-5, err_msg=name
+        )
+
+
+def _assert_round_trip(model, inputs, path):
+    """Save ``model``, load it back and check the copy behaves the same.
+
+    The copy is saved and loaded once more: a reloaded model is saved again as
+    soon as it is fine-tuned, so it has to be as serializable as the original.
+    """
+    expected = {name: to_numpy(value) for name, value in model(dict(inputs)).items()}
+
+    model.save(path / "saved")
+    restored = Modely.load(path / "saved")
+    _assert_same_outputs(restored(dict(inputs)), expected)
+    assert graph_signature(restored) == graph_signature(model)
+    # A layer shared by several parts of the model is still one layer.
+    assert restored.model is not None
+    assert len(restored.model.weights) == len(model.model.weights)
+
+    restored.save(path / "resaved")
+    _assert_same_outputs(Modely.load(path / "resaved")(dict(inputs)), expected)
+
+
+def _unary_arithmetic_model():
+    x = Input("unary_x", dim=2)
+    window = x.sw(3)
+    relations = {
+        "unary_exp_log": Log()(Exp()(window)),
+        "unary_log10_sqrt": Log10()(Sqrt()(window) + 1.0),
+        "unary_rounding": Floor()(window * 10.0) + Ceil()(window * 10.0),
+        "unary_sign_abs": Sign()(Negative()(window)) * Abs()(window - 0.5),
+        "unary_deg2rad": Deg2Rad()(window),
+        "unary_clamp": Clamp(min=0.3, max=0.7)(window),
+        "unary_sum": Sum()(window),
+    }
+    return Modely(
+        "unary_arithmetic",
+        inputs=[x],
+        outputs=[Output(name, relation) for name, relation in relations.items()],
+    ).build()
+
+
+def _weighted_layers_model():
+    x = Input("weighted_x", dim=1)
+    y = Input("weighted_y", dim=3)
+    # One Fir applied to two windows: both applications share its weights.
+    shared_fir = Fir(out_features=2, name="weighted_shared_fir")
+    past = shared_fir(x.sw(4))
+    around = shared_fir(x.sw([3, 1]))
+    projected = Linear(out_features=2, name="weighted_linear")(y.sw(2))
+    mixed = Fir(out_features=2, use_bias=False, name="weighted_fir")(projected)
+    gain = Parameter("weighted_gain", dim=2)
+    offset = Constant("weighted_offset", value=[[1.0], [2.0]])
+    return Modely(
+        "weighted_layers",
+        inputs=[x, y],
+        outputs=[
+            Output("weighted_out", (past - around + mixed) * gain + offset),
+            Output("weighted_projected", projected),
+        ],
+    ).build()
+
+
+def _shared_activation_model():
+    x = Input("shared_activation_x", dim=1)
+    y = Input("shared_activation_y", dim=1)
+    # Layers are shared by name, so both applications must keep one alpha.
+    activation = PReLU(name="shared_activation_prelu")
+    return Modely(
+        "shared_activation",
+        inputs=[x, y],
+        outputs=[
+            Output(
+                "shared_activation_out",
+                activation(x.sw(2) - 0.5) + activation(y.sw(2) - 0.5),
+            )
+        ],
+    ).build()
+
+
+def _time_ops_model():
+    x = Input("time_ops_x", dim=3)
+    window = x.sw([3, 2])
+    newest = TimeSelect(idx=-1, name="time_ops_time_select")(window)
+    middle = TimeRange(start=1, end=4, name="time_ops_time_range")(window)
+    third = Select(idx=2, axis=0, name="time_ops_select")(window)
+    first_two = Range(start=0, end=2, axis=0, name="time_ops_range")(window)
+    return Modely(
+        "time_ops",
+        inputs=[x],
+        outputs=[
+            Output(
+                "time_ops_dims",
+                Concatenate(axis=0, name="time_ops_concat")([first_two, third]),
+            ),
+            Output(
+                "time_ops_times",
+                TimeConcatenate(name="time_ops_time_concat")([newest, middle]),
+            ),
+        ],
+    ).build()
+
+
+def _fuzzy_local_model():
+    x = Input("fuzzy_x", dim=1)
+    gear = Input("fuzzy_gear", dim=1)
+    speed = Input("fuzzy_speed", dim=1)
+    triangular = Fuzzify(
+        centers=[0.0, 0.5, 1.0], function="Triangular", name="fuzzy_triangular"
+    )(gear.last())
+    rectangular = Fuzzify(
+        centers=[0.0, 0.5, 1.0], function="Rectangular", name="fuzzy_rectangular"
+    )(speed.last())
+    gaussian = Fuzzify(centers=[0.2, 0.8], function="Gaussian", name="fuzzy_gaussian")(
+        speed.last()
+    )
+    # Two inputs, each scheduled by its own activation.
+    affine = LocalModel(out_features=2, name="fuzzy_affine")(
+        [x.sw(3), speed.sw(2)], [triangular, gaussian]
+    )
+    # One explicit cell per membership, built from ordinary layers.
+    expanded = LocalModel(
+        input_function=lambda stream: Fir(out_features=1)(stream),
+        output_function=lambda stream: ReLU()(stream),
+        name="fuzzy_expanded",
+    )([x.sw(3)], [rectangular])
+    return Modely(
+        "fuzzy_local",
+        inputs=[x, gear, speed],
+        outputs=[
+            Output("fuzzy_affine_out", affine),
+            Output("fuzzy_expanded_out", expanded),
+            Output("fuzzy_triangular_out", triangular),
+        ],
+    ).build()
+
+
+def _derivative_model():
+    dt = 0.1
+    x = Input("derivative_x", dim=2)
+    x0 = Input("derivative_x0", dim=2)
+    u = Input("derivative_u", dim=1)
+    window = x.sw(4)
+    relation = Sin()(Linear(out_features=1, name="derivative_linear")(u.sw(3)))
+    mixed = Linear(out_features=2, name="derivative_mix")(window)
+    relations = {
+        "d_init_stream": Derivative(order=1, respect_to=dt, init=x0.last())(window),
+        "d_init_number": Derivative(order=2, respect_to=dt, init=0.5)(window),
+        "d_smooth": Derivative(order=1, respect_to=dt, window=3, poly_order=2)(window),
+        "d_of_layer": Derivative(order=1, respect_to=dt)(mixed),
+        "d_wrt_input": Derivative(order=1, respect_to=u)(relation),
+        "d2_wrt_input": Derivative(order=2, respect_to=u)(relation),
+    }
+    return Modely(
+        "derivative_suite",
+        inputs=[x, x0, u],
+        outputs=[Output(name, relation) for name, relation in relations.items()],
+    ).build()
+
+
+def _integrate_model():
+    dt = 0.1
+    rate = Input("integrate_rate", dim=2)
+    state = Input("integrate_state", dim=2)
+    signal = Input("integrate_signal", dim=1)
+    x0 = Input("integrate_x0", dim=1)
+    acceleration = Input("integrate_acceleration", dim=1)
+    window = rate.sw(3)
+    velocity = Integrate(dt=dt, init=0.2)(acceleration.sw(4))
+    relations = {
+        "i_euler": Integrate(solver="euler", dt=dt)(window),
+        "i_trapezoidal": Integrate(solver="trapezoidal", dt=dt / 2, init=state.last())(
+            window
+        ),
+        "i_rectangular": Integrate(solver="rectangular", dt=dt, init=1.5)(window),
+        "i_position": Integrate(solver="trapezoidal", dt=dt, init=-0.3)(velocity),
+        # Integrating the backward difference with the same initial condition
+        # gives the signal back.
+        "i_inverse": Integrate(dt=dt, init=x0.last())(
+            Derivative(respect_to=dt, init=x0.last())(signal.sw(4))
+        ),
+    }
+    return Modely(
+        "integrate_suite",
+        inputs=[rate, state, signal, x0, acceleration],
+        outputs=[Output(name, relation) for name, relation in relations.items()],
+    ).build()
+
+
+def _ode_step_model():
+    position = Input("ode_step_p", dim=1)
+    velocity = Input("ode_step_v", dim=1)
+    stiffness = Parameter("ode_step_k", value=[[2.0]])
+    damping = Constant("ode_step_c", value=[[0.3]])
+
+    def field(p, v):
+        return [v, -1.0 * stiffness * p - damping * v]
+
+    p_next, v_next = Ode(
+        field, [position.last(), velocity.last()], dt=0.1, method="rk4"
+    )
+    return Modely(
+        "ode_step",
+        inputs=[position, velocity],
+        outputs=[Output("ode_step_p_next", p_next), Output("ode_step_v_next", v_next)],
+    ).build()
+
+
+def _rollback_mechanical_model():
+    dt = 0.1
+    position = Input("rollback_position", dim=1)
+    velocity = Input("rollback_velocity", dim=1)
+    force = Input("rollback_force", dim=1)
+    stiffness = Parameter("rollback_stiffness", value=[[1.0]])
+    # The damping reads the velocity estimated from the position window.
+    estimated_velocity = TimeSelect(idx=-1)(Derivative(respect_to=dt)(position.sw(3)))
+    acceleration = (
+        Fir(out_features=1, name="rollback_force_fir")(force.sw(3))
+        - stiffness * position.last()
+        - Linear(out_features=1, use_bias=False, name="rollback_damping")(
+            estimated_velocity
+        )
+    )
+    velocity_next = Integrate(dt=dt, init=velocity.last(), name="rollback_v_next")(
+        acceleration
+    )
+    position_next = Integrate(dt=dt, init=position.last(), name="rollback_p_next")(
+        velocity_next
+    )
+    model = Modely(
+        "rollback_mechanical",
+        inputs=[position, velocity, force],
+        outputs=[
+            Output("rollback_position_out", position_next),
+            Output("rollback_velocity_out", velocity_next),
+        ],
+    )
+    model.rollback(
+        {position: position_next, velocity: velocity_next},
+        steps=4,
+        name="rollback_mechanical_roll",
+    )
+    return model.build()
+
+
+def _composition_model():
+    signal = Input("composition_signal", dim=1)
+    rate = Fir(out_features=1, name="composition_fir")(signal.sw(3))
+    block = Modely(
+        "composition_block",
+        inputs=[signal],
+        outputs=[
+            Output("composition_state", Integrate(dt=0.1, init=signal.last())(rate))
+        ],
+    ).build()
+
+    a = Input("composition_a", dim=1)
+    b = Input("composition_b", dim=1)
+    # The block is called twice, and both calls run with the same weights.
+    return Modely(
+        "composition",
+        inputs=[a, b],
+        outputs=[
+            Output("composition_first", block([a.sw(3)])),
+            Output("composition_second", block([b.sw(3)])),
+        ],
+    ).build()
+
+
+def _loop_final_state_model():
+    state = Input("loop_final_state", dim=1)
+    force = Input("loop_final_force", dim=1)
+    next_state = Output(
+        "loop_final_next",
+        Linear(out_features=1, name="loop_final_linear")(state.last()) + force.last(),
+    )
+    body = Modely(
+        "loop_final_body", inputs=[state, force], outputs=[next_state]
+    ).build()
+
+    seed = Input("loop_final_seed", dim=1, seq=4)
+    loop = Loop(
+        f=body,
+        callback={state: next_state},
+        initial={state: seed},
+        collect=False,
+        name="loop_final",
+    )
+    return Modely(
+        "loop_final",
+        inputs=[seed, force],
+        outputs=[Output("loop_final_out", loop)],
+    ).build()
+
+
+def _loop_trajectory_model():
+    dt, horizon = 0.1, 5
+    position = Input("loop_traj_position", dim=1)
+    velocity = Input("loop_traj_velocity", dim=1)
+    force = Input("loop_traj_force", dim=1)
+    window = position.sw(2)
+    acceleration = Fir(out_features=1, name="loop_traj_force_fir")(
+        force.last()
+    ) - Parameter("loop_traj_damping", value=[[0.5]]) * TimeSelect(idx=-1)(
+        Derivative(respect_to=dt)(window)
+    )
+    velocity_step = Integrate(dt=dt, init=velocity.last())(acceleration)
+    position_step = Integrate(
+        solver="trapezoidal", dt=dt, init=TimeSelect(idx=-1)(window)
+    )(velocity_step)
+    position_next = Output("loop_traj_position_next", position_step)
+    velocity_next = Output("loop_traj_velocity_next", velocity_step)
+    body = Modely(
+        "loop_traj_body",
+        inputs=[position, velocity, force],
+        outputs=[position_next, velocity_next],
+    ).build()
+
+    # The position window is shifted, the velocity seeded by a constant and the
+    # force read one step at a time from its own sequence.
+    p0 = Input("loop_traj_p0", dim=1, seq=horizon)
+    force_sequence = Input("loop_traj_force_sequence", dim=1, seq=horizon)
+    position_trajectory, velocity_trajectory = Loop(
+        f=body,
+        callback={position: position_next, velocity: velocity_next},
+        initial={position: p0.sw(2), velocity: 0.25},
+        inputs={force: force_sequence},
+        name="loop_traj",
+    )
+    return Modely(
+        "loop_traj",
+        inputs=[p0, force_sequence],
+        outputs=[
+            Output("loop_traj_positions", position_trajectory),
+            Output("loop_traj_velocities", velocity_trajectory),
+        ],
+    ).build()
+
+
+def _nested_loop_model():
+    x = Input("nested_save_input", dim=1, seq=(5, 3))
+    gain = Constant("nested_save_gain", value=2.0)
+
+    inner = Input("nested_save_inner", dim=1, seq=5)
+    first_output = Output("nested_save_first_out", inner * gain)
+    first_body = Modely(
+        "nested_save_first_body", inputs=[inner], outputs=[first_output]
+    ).build()
+    first_loop = Loop(
+        f=first_body,
+        callback={inner: first_output},
+        initial={inner: x},
+        name="nested_save_first_loop",
+        collect=False,
+    )
+
+    second = Input("nested_save_second", dim=1)
+    second_output = Output("nested_save_second_out", second * gain)
+    second_body = Modely(
+        "nested_save_second_body", inputs=[second], outputs=[second_output]
+    ).build()
+    second_loop = Loop(
+        f=second_body,
+        callback={second: second_output},
+        initial={second: first_loop},
+        name="nested_save_second_loop",
+        collect=False,
+    )
+    return Modely(
+        "nested_save_loop",
+        inputs=[x],
+        outputs=[Output("nested_save_out", second_loop)],
+    ).build()
+
+
+def _shared_body_model():
+    state = Input("shared_body_state", dim=1)
+    gain = Parameter("shared_body_gain", value=[[0.5]])
+    next_state = Output(
+        "shared_body_next",
+        Linear(out_features=1, name="shared_body_linear")(state.last()) * gain,
+    )
+    body = Modely("shared_body", inputs=[state], outputs=[next_state]).build()
+
+    # One body rolled out by two loops, and its gain read outside it as well:
+    # all three places use the same weights.
+    short = Input("shared_body_short", dim=1, seq=3)
+    long = Input("shared_body_long", dim=1, seq=5)
+    first = Loop(
+        f=body,
+        callback={state: next_state},
+        initial={state: short},
+        collect=False,
+        name="shared_body_first",
+    )
+    second = Loop(
+        f=body,
+        callback={state: next_state},
+        initial={state: long},
+        collect=False,
+        name="shared_body_second",
+    )
+    return Modely(
+        "shared_body_model",
+        inputs=[short, long],
+        outputs=[
+            Output("shared_body_first_out", first),
+            Output("shared_body_second_out", second + gain),
+        ],
+    ).build()
+
+
+def _ode_loop_model():
+    x = Input("ode_loop_x", dim=1)
+    rate = Parameter("ode_loop_rate", value=[[1.0]])
+    body_output = Output(
+        "ode_loop_next",
+        Ode(lambda state: -1.0 * rate * state, x.last(), 0.05, method="rk4"),
+    )
+    body = Modely("ode_loop_body", inputs=[x], outputs=[body_output]).build()
+
+    seed = Input("ode_loop_seed", dim=1, seq=6)
+    loop = Loop(f=body, callback={x: body_output}, initial={x: seed}, name="ode_loop")
+    return Modely(
+        "ode_loop", inputs=[seed], outputs=[Output("ode_loop_out", loop)]
+    ).build()
+
+
+def _roll_layer_model():
+    x = Input("roll_layer_x", dim=1)
+    u = Input("roll_layer_u", dim=1)
+    feedback = Output(
+        "roll_layer_next",
+        Fir(out_features=1, name="roll_layer_fir")(x.sw(4))
+        + Linear(out_features=1, name="roll_layer_linear")(u.last()),
+    )
+    body = Modely("roll_layer_body", inputs=[x, u], outputs=[feedback]).build()
+    roll = Roll(f=body, callback={x: feedback}, steps=3, name="roll_layer")
+    return Modely(
+        "roll_layer", inputs=[x, u], outputs=[Output("roll_layer_out", roll)]
+    ).build()
+
+
+def _complete_vehicle_model():
+    """Most layer families at once, wired like a real mechanical relation."""
+    dt = 0.05
+    speed = Input("vehicle_speed", dim=1)
+    throttle = Input("vehicle_throttle", dim=1)
+    gear = Input("vehicle_gear", dim=1)
+    wheels = Input("vehicle_wheels", dim=4)
+
+    gear_membership = Fuzzify(centers=[0.0, 0.5, 1.0], name="vehicle_gear_fuzzy")(
+        gear.last()
+    )
+    engine = LocalModel(out_features=1, name="vehicle_engine")(
+        [throttle.sw(5)], [gear_membership]
+    )
+    grip = Sigmoid()(
+        PReLU()(
+            Linear(out_features=1, name="vehicle_grip")(
+                BatchNorm(name="vehicle_wheels_norm")(wheels.last())
+            )
+        )
+    )
+    slope = Interpolation(
+        x_points=[0.0, 0.5, 1.0], y_points=[0.0, 0.2, 0.1], name="vehicle_slope"
+    )(speed.last())
+    drag = Parameter("vehicle_drag", value=[[0.1]]) * speed.last() ** 2
+    gravity = Constant("vehicle_gravity", value=[[9.81]])
+    acceleration = (
+        engine * grip
+        - drag
+        - gravity * Sin()(slope)
+        + Fir(out_features=1, name="vehicle_throttle_fir")(throttle.sw(3))
+    )
+    return Modely(
+        "vehicle",
+        inputs=[speed, throttle, gear, wheels],
+        outputs=[
+            Output(
+                "vehicle_speed_next",
+                Integrate(dt=dt, init=speed.last())(acceleration),
+            ),
+            Output(
+                "vehicle_acceleration_estimate",
+                Derivative(respect_to=dt, window=3, poly_order=2)(speed.sw(3)),
+            ),
+            Output("vehicle_grip_out", grip),
+        ],
+    ).build()
+
+
+@pytest.mark.parametrize(
+    "model_factory",
+    [
+        _arithmetic_model,
+        _unary_arithmetic_model,
+        _activation_model,
+        _trigonometric_model,
+        _weighted_layers_model,
+        _shared_activation_model,
+        _time_ops_model,
+        _fuzzy_local_model,
+        _derivative_model,
+        _integrate_model,
+        _ode_step_model,
+        _rollback_mechanical_model,
+        _composition_model,
+        _loop_final_state_model,
+        _loop_trajectory_model,
+        _nested_loop_model,
+        _shared_body_model,
+        _ode_loop_model,
+        _roll_layer_model,
+        _complete_vehicle_model,
+    ],
+    ids=lambda factory: factory.__name__.strip("_").removesuffix("_model"),
+)
+def test_save_load_behaves_like_original(tmp_path, model_factory):
+    model = _randomize_trainable_weights(model_factory())
+    _assert_round_trip(model, _random_inputs(model), tmp_path)
+
+
+@pytest.mark.parametrize("method", ["rk4", "dopri5"])
+def test_save_load_odenet(tmp_path, method):
+    points = 4
+    x = Input(f"odenet_save_{method}_x", dim=2)
+    field = Modely(
+        f"odenet_save_{method}_field",
+        inputs=[x],
+        outputs=[
+            Output(
+                f"odenet_save_{method}_dx",
+                Linear(out_features=2, use_bias=False)(x.last()),
+            )
+        ],
+    ).build()
+    t = Input(f"odenet_save_{method}_t", dim=1, seq=points)
+    trajectory = OdeNet(
+        f=field,
+        states={x: f"odenet_save_{method}_dx"},
+        t=t,
+        method=method,
+        steps=2,
+        name=f"odenet_save_{method}",
+    )
+    model = Modely(
+        f"odenet_save_{method}_model",
+        inputs=[x, t],
+        outputs=[Output(f"odenet_save_{method}_y", trajectory)],
+    ).build()
+    _randomize_trainable_weights(model)
+
+    times = np.linspace(0.0, 1.0, points, dtype=np.float32).reshape(1, 1, 1, points)
+    inputs = {
+        x.name: np.random.default_rng(1)
+        .uniform(-1.0, 1.0, size=(_BATCH, 2, 1))
+        .astype(np.float32),
+        t.name: np.tile(times, (_BATCH, 1, 1, 1)),
+    }
+    _assert_round_trip(model, inputs, tmp_path)
+
+
+def test_save_load_odenet_with_event(tmp_path):
+    # A ball dropped on a floor: the event and the reset are part of the model.
+    position = Input("odenet_event_p", dim=1)
+    velocity = Input("odenet_event_v", dim=1)
+    gravity = Parameter("odenet_event_g", value=[9.8])
+    floor = Parameter("odenet_event_floor", value=[0.0])
+    restitution = Parameter("odenet_event_e", value=[0.8])
+    field = Modely(
+        "odenet_event_field",
+        inputs=[position, velocity],
+        outputs=[
+            Output("odenet_event_dp", velocity.last()),
+            Output("odenet_event_dv", 0.0 * position.last() - gravity),
+            Output("odenet_event_guard", position.last() - floor),
+            Output("odenet_event_p_plus", position.last()),
+            Output("odenet_event_v_plus", -1.0 * restitution * velocity.last()),
+        ],
+    ).build()
+    t = Input("odenet_event_t", dim=1, seq=4)
+    position_trajectory, velocity_trajectory = OdeNet(
+        f=field,
+        states={position: "odenet_event_dp", velocity: "odenet_event_dv"},
+        t=t,
+        steps=20,
+        event="odenet_event_guard",
+        reset={position: "odenet_event_p_plus", velocity: "odenet_event_v_plus"},
+        name="odenet_event",
+    )
+    model = Modely(
+        "odenet_event_model",
+        inputs=[position, velocity, t],
+        outputs=[
+            Output("odenet_event_positions", position_trajectory),
+            Output("odenet_event_velocities", velocity_trajectory),
+        ],
+    ).build()
+
+    times = np.array([0.0, 0.5, 1.0, 1.5], dtype=np.float32).reshape(1, 1, 1, 4)
+    inputs = {
+        position.name: np.array([0.5, 1.0, 1.5], dtype=np.float32).reshape(3, 1, 1),
+        velocity.name: np.zeros((_BATCH, 1, 1), dtype=np.float32),
+        t.name: np.tile(times, (_BATCH, 1, 1, 1)),
+    }
+    _assert_round_trip(model, inputs, tmp_path)

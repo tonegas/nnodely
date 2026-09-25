@@ -209,6 +209,7 @@ class Select(Layer):
 
     def get_config(self):
         return {
+            "name": self.name,
             "idx": self.idx,
             "axis": self.axis,
         }
@@ -327,6 +328,7 @@ class Range(Layer):
 
     def get_config(self):
         return {
+            "name": self.name,
             "start": self.start,
             "end": self.end,
             "axis": self.axis,
@@ -525,7 +527,7 @@ class TimeConcatenate(Layer):
         )
 
     def get_config(self):
-        return {}
+        return {"name": self.name}
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -605,7 +607,7 @@ class Concatenate(Layer):
         )
 
     def get_config(self):
-        return {"axis": self.axis}
+        return {"name": self.name, "axis": self.axis}
 
 
 def _concatenation_inputs(layer: Layer) -> list[Stream]:

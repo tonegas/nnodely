@@ -40,6 +40,14 @@ class LoopOutput(Layer):
     def get_config(self):
         return {"name": self.name, "index": self.index}
 
+    @classmethod
+    def from_config(cls, config: dict, preds=None):
+        # The outputs belong to the loop that was just rebuilt, and selecting
+        # one of them is what unpacking the loop does.
+        loop = preds[0]  # type: ignore[index]
+        loop.return_all_outputs = True
+        return loop.loop_outputs[config["index"]]
+
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class LoopImpl(keras.layers.Layer):
@@ -697,4 +705,31 @@ class Loop(Layer):
         )
 
     def get_config(self):
-        return {"name": self.name, "horizon": self.horizon}
+        return {
+            "name": self.name,
+            "callback": {
+                node.name: output.name
+                for node, output in zip(self.callback_inputs, self.callback_outputs)
+            },
+            "length": self.length,
+            "collect": self.collect,
+        }
+
+    @classmethod
+    def from_config(cls, config: dict, preds=None):
+        # `f` is the reloaded body (see ModelSerializer). The predecessors are
+        # the initial value of every callback, then the source of every other
+        # body input in the body's order. A body input left unbound was its own
+        # source; the reloaded body is a copy of its own, so it is bound to the
+        # node of the same name in the graph the loop is loaded in.
+        config = dict(config)
+        body, callback = config.pop("f"), config.pop("callback")
+        preds = list(preds or [])
+        static_names = [node.name for node in body.inputs if node.name not in callback]
+        return cls(
+            f=body,
+            callback=callback,
+            initial=dict(zip(callback, preds[: len(callback)])),
+            inputs=dict(zip(static_names, preds[len(callback) :])),
+            **config,
+        )

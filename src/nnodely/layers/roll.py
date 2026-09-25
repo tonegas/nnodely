@@ -205,5 +205,16 @@ class Roll(Layer):
     def get_config(self):
         return {
             "name": self.name,
+            "callback": {self.callback_input.name: self.callback_output.name},
             "steps": self.steps,
         }
+
+    @classmethod
+    def from_config(cls, config: dict, preds=None):
+        # `f` is the reloaded body (see ModelSerializer). A Roll reads the
+        # body's own inputs, and the reloaded body is a copy of its own, so
+        # the layer is reconnected to the nodes of the graph it is loaded in.
+        layer = cls(**config)
+        if preds:
+            layer.preds = list(preds)
+        return layer

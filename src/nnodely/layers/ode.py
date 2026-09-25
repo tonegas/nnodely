@@ -449,6 +449,14 @@ class OdeNetOutput(Layer):
     def get_config(self):
         return {"name": self.name, "index": self.index}
 
+    @classmethod
+    def from_config(cls, config: dict, preds=None):
+        # The outputs belong to the OdeNet that was just rebuilt, and selecting
+        # one of them is what unpacking it does.
+        odenet = preds[0]  # type: ignore[index]
+        odenet.return_all_outputs = True
+        return odenet.odenet_outputs[config["index"]]
+
 
 class OdeNet(Layer):
     """Integrate a vector field.
@@ -615,12 +623,35 @@ class OdeNet(Layer):
     def get_config(self):
         return {
             "name": self.name,
+            "states": {
+                node.name: output.name
+                for node, output in zip(self.state_inputs, self.state_outputs)
+            },
             "method": self.method,
             "steps": self.steps,
+            "event": None if self.event_output is None else self.event_output.name,
+            "reset": (
+                None
+                if self.event_output is None
+                else {
+                    node.name: output.name
+                    for node, output in zip(self.state_inputs, self.reset_outputs)
+                }
+            ),
             "rtol": self.rtol,
             "atol": self.atol,
             "max_steps": self.max_steps,
         }
+
+    @classmethod
+    def from_config(cls, config: dict, preds=None):
+        # `f` is the reloaded body (see ModelSerializer). The predecessors are
+        # the initial value of every state, in the order of `states`, then the
+        # reported times. A state seeded by the body input itself is seeded by
+        # the node of the same name in the graph the OdeNet is loaded in, since
+        # the reloaded body is a copy of its own.
+        *initial, times = preds  # type: ignore[misc]
+        return cls(t=times, initial=dict(zip(config["states"], initial)), **config)
 
 
 def _find_node(nodes, value, kind):

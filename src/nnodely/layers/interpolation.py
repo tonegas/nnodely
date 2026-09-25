@@ -135,6 +135,7 @@ class Interpolation(Layer):
 
     def get_config(self):
         return {
+            "name": self.name,
             "x_points": self.x_points,
             "y_points": self.y_points,
             "mode": self.mode,
