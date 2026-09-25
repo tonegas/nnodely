@@ -763,6 +763,7 @@ def test_float_target_drives_the_source_to_it():
     np.testing.assert_allclose(_value(k), 3.0, atol=1e-3)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("swapped", [False, True], ids=["source_first", "target_first"])
 def test_output_is_trained_whichever_side_it_is_declared_on(swapped):
     x = Input("x")
@@ -781,6 +782,7 @@ def test_output_is_trained_whichever_side_it_is_declared_on(swapped):
     np.testing.assert_allclose(_value(k), 3.0, atol=1e-3)
 
 
+@pytest.mark.slow
 def test_computed_target_is_trained_against():
     x = Input("x")
     y = Input("y")
@@ -795,6 +797,7 @@ def test_computed_target_is_trained_against():
     np.testing.assert_allclose(_value(k), 3.0, atol=1e-3)
 
 
+@pytest.mark.slow
 def test_output_vs_output_trains_both_sides():
     x = Input("x")
     y = Input("y")
@@ -820,6 +823,7 @@ def test_output_vs_output_trains_both_sides():
     np.testing.assert_allclose(_value(k_follow), 3.0, atol=1e-3)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("rebuild", [True, False], ids=["rebuilt", "not_rebuilt"])
 def test_a_removed_minimizer_no_longer_trains_its_weights(rebuild):
     x = Input("x")

@@ -1110,6 +1110,7 @@ def test_masked_loss_ignores_padded_target_steps():
     )
 
 
+@pytest.mark.slow
 def test_train_on_simulations_of_different_lengths(tmp_path):
     ## x[t + 1] = w * x[t], rolled out over the whole simulation
     ratio = 0.8
@@ -1162,14 +1163,16 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
     assert relation.kernel is not None
     np.testing.assert_allclose(to_numpy(relation.kernel), [[ratio]], atol=1e-2)
 
-    ## The masked loss is kept in the compiled model state, so it has to survive
-    ## an export/import round trip
+    ## The export is the model as declared, without its minimizers: it reads the
+    ## simulations only, not the target the loss compared them against
     export_path = os.path.join(tmp_path, "padded_loop_model.keras")
     model.export_keras(export_path)
-    reloaded = Modely.import_keras(export_path, safe_mode=False)
+    reloaded = Modely.import_keras(export_path)
+    assert [tensor.name for tensor in reloaded.inputs] == ["pad_x"]  # type: ignore
+    inputs = {"pad_x": data.as_dict()["pad_x"]}
     np.testing.assert_allclose(
-        to_numpy(reloaded(data.as_dict())["pad_out"]),  # type: ignore
-        to_numpy(model(data.as_dict())["pad_out"]),
+        to_numpy(reloaded(inputs)["pad_out"]),  # type: ignore
+        to_numpy(model(inputs)["pad_out"]),
         atol=1e-5,
     )
 

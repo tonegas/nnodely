@@ -76,6 +76,7 @@ def test_odenet_matches_analytic_solution():
     np.testing.assert_allclose(solved, _analytic(times), atol=1e-4)
 
 
+@pytest.mark.slow
 def test_odenet_integrates_arbitrary_horizon_without_rebuild():
     # One built model, three horizons chosen at call time: the reported times are
     # tensor values, so the trained field is not tied to the training step size.
@@ -108,6 +109,7 @@ def _rotation_field():
     return lambda p, q: [q, -1.0 * p]
 
 
+@pytest.mark.slow
 def test_odenet_beats_coarse_fixed_step():
     # The point of adaptivity: over a long horizon a coarse fixed step accumulates
     # phase error while a controlled march holds the tolerance. Same field both
@@ -279,6 +281,7 @@ def _linear_field(prefix, values):
     return field, entries
 
 
+@pytest.mark.slow
 def test_odenet_trained_field_matches_analytic_solution():
     dt, span, points = 0.05, 10.0, 11
     sample_times = np.arange(0.0, span + dt / 2, dt, dtype=np.float32)
@@ -449,6 +452,7 @@ def test_odenet_rejects_unknown_method():
         OdeNet(f=field, states={x: "dx_badmethod"}, t=t, method="dopri8")
 
 
+@pytest.mark.slow
 def test_odenet_trains_a_field_holding_a_shared_layer():
     # The training path `Ode` cannot take: the field is a built Modely, so the
     # one Linear is applied at every Runge-Kutta stage with the same weights.
@@ -591,6 +595,7 @@ def _drop(model, names, times):
     return to_numpy(result[pos_name]).ravel()
 
 
+@pytest.mark.slow
 def test_odenet_event_bounces_off_the_floor():
     # Three reported times spanning the first impact at sqrt(2 * 9.8 / 9.8).
     times = np.array([0.0, 1.0, 2.0, 3.0], dtype=np.float32)
@@ -603,6 +608,7 @@ def test_odenet_event_bounces_off_the_floor():
     )
 
 
+@pytest.mark.slow
 def test_odenet_event_time_reaches_the_gradient():
     # The point of locating the crossing inside the step: gravity moves the
     # impact time, and that term has to show up in the gradient. Resetting at

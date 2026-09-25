@@ -306,6 +306,10 @@ class Modely:
         self.model = None  # Keras model build from this DAG
         self.train_inputs = []  # List of Input nodes that are required for training (derived from minimizers)
         self.train_outputs = []  # List of Output nodes that are required for training (derived from minimizers)
+        self.inference_model = (
+            None  # Keras model of the declared outputs only, without minimizers
+        )
+        self.inference_inputs = []  # List of Input nodes the declared outputs read (no minimizer-only input)
         self.minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
         self._minimizer_outputs: dict[Node, str] = {}  # minimizer side -> graph output
         self._roll_callbacks: dict[Input, Stream] = {}
@@ -325,15 +329,16 @@ class Modely:
             mc.outputs_map = {new: old for old, new in zip(self.outputs, outputs)}
             return outputs[0] if len(outputs) == 1 else outputs
 
-        # tensor execution mode
-        if self.model is None:
+        # tensor execution mode: the declared outputs, without minimizers, so
+        # an input only a minimizer reads is neither needed nor used here.
+        if self.inference_model is None:
             raise ValueError("Model build failed, model is still None.")
         if isinstance(inputs, dict):
-            expected = {inp.name for inp in self.train_inputs}
+            expected = {inp.name for inp in self.inference_inputs}
             extra = set(inputs) - expected
             if extra:
                 inputs = {k: v for k, v in inputs.items() if k in expected}
-            for inp in self.train_inputs:
+            for inp in self.inference_inputs:
                 value = inputs[inp.name]
                 if not hasattr(value, "shape"):
                     value = np.asarray(value)
@@ -342,7 +347,7 @@ class Modely:
                 ):
                     value = np.reshape(value, inp.shape.tuple)
                 inputs[inp.name] = value
-        for idx, inp in enumerate(self.train_inputs):
+        for idx, inp in enumerate(self.inference_inputs):
             if isinstance(inputs, dict):
                 if len(inputs[inp.name].shape) == inp.shape.rank:
                     if type(inputs[inp.name]) is np.ndarray:
@@ -357,7 +362,7 @@ class Modely:
                         inputs[idx] = np.expand_dims(inputs[idx], axis=0)
                     else:
                         inputs[idx] = keras.ops.expand_dims(inputs[idx], axis=0)
-        return self.model(inputs)
+        return self.inference_model(inputs)
 
     @property
     def built(self):
@@ -415,31 +420,70 @@ class Modely:
             outputs=keras_outputs,
         )
         if self._roll_callbacks:
-            from nnodely.layers.roll import ModelRollImpl
-
-            callbacks = {
-                input_node.name: feedback.name
-                for input_node, feedback in self._roll_callbacks.items()
-            }
-            roll_layer = ModelRollImpl(
-                model=body_model,
-                callbacks=callbacks,
-                output_names=tuple(node.name for node in self.train_outputs),
-                input_time_axes={
-                    node.name: node.shape.dim_rank + 1 for node in self._roll_callbacks
-                },
-                steps=cast(int, self._roll_steps),
-                name=self._roll_name or f"{self.name}_roll",
-            )
-            final_outputs = roll_layer(keras_inputs)
             self.model = MinimizerModel(
                 name=self.name + "_train",
                 inputs=keras_inputs,
-                outputs=final_outputs,
+                outputs=self._rolled(body_model, self.train_outputs, keras_inputs),
             )
         else:
             self.model = body_model
+
+        # Inference sees the model as it was declared: its outputs, the streams
+        # its rollback feeds back, and only the inputs those read. What the
+        # minimizers add - their sides, and the inputs only they read, such as
+        # targets - is there for the loss and stays in the training model. The
+        # inputs are read off the Keras graph rather than the DAG, because a
+        # Parameter or Constant is wired to an arbitrary input for its batch.
+        from nnodely.layers.derivative import _source_input_tensors, _source_names
+
+        inference_outputs = {
+            node.name: keras_outputs[node.name]
+            for node in self.outputs
+            + [stream for stream in feedback_streams if stream not in self.outputs]
+        }
+        read = {
+            name
+            for tensor in inference_outputs.values()
+            for name in _source_names(_source_input_tensors(tensor))
+        }
+        self.inference_inputs = [
+            node for node in self.train_inputs if node.name in read
+        ]
+        inference_inputs = {
+            node.name: keras_inputs[node.name] for node in self.inference_inputs
+        }
+        if self._roll_callbacks:
+            inference_body = keras.Model(
+                name=self.name + "_body",
+                inputs=inference_inputs,
+                outputs=inference_outputs,
+            )
+            inference_outputs = self._rolled(
+                inference_body, self.outputs, inference_inputs
+            )
+        self.inference_model = keras.Model(
+            name=self.name, inputs=inference_inputs, outputs=inference_outputs
+        )
         return self
+
+    def _rolled(self, body_model, output_nodes, keras_inputs):
+        """The outputs of ``body_model`` unrolled over the configured rollback."""
+        from nnodely.layers.roll import ModelRollImpl
+
+        roll_layer = ModelRollImpl(
+            model=body_model,
+            callbacks={
+                input_node.name: feedback.name
+                for input_node, feedback in self._roll_callbacks.items()
+            },
+            output_names=tuple(node.name for node in output_nodes),
+            input_time_axes={
+                node.name: node.shape.dim_rank + 1 for node in self._roll_callbacks
+            },
+            steps=cast(int, self._roll_steps),
+            name=self._roll_name or f"{self.name}_roll",
+        )
+        return roll_layer(keras_inputs)
 
     def resolve_graph(self, order, output_nodes=None):
         # Applying one layer several times yields several nodes that carry its
@@ -1073,13 +1117,14 @@ class Modely:
         return ModelSerializer.load(path)
 
     def export_keras(self, filename: str):
-        if self.model is None:
+        """Export the model as declared, without its minimizers, like save()."""
+        if self.inference_model is None:
             raise ValueError("Model is not built. Call build() before export_keras().")
 
-        if not isinstance(self.model, keras.Model):
-            raise TypeError(f"Expected keras.Model, got {type(self.model)}.")
+        if not isinstance(self.inference_model, keras.Model):
+            raise TypeError(f"Expected keras.Model, got {type(self.inference_model)}.")
 
-        self.model.save(filename)
+        self.inference_model.save(filename)
 
     @staticmethod
     def import_keras(filename: str, safe_mode: bool = True):
@@ -1102,6 +1147,9 @@ class Modely:
     ) -> Path:
         """Export the built inference graph to ONNX.
 
+        The model is exported as declared, without its minimizers: only its
+        outputs, and only the inputs they read.
+
         ONNX export traces the built Keras graph; it does not deserialize
         nnodely layer configurations. An explicit ``input_signature`` is
         recommended when dynamic dimensions must remain fixed at export time.
@@ -1114,7 +1162,7 @@ class Modely:
         axis is dynamic. Such a model is therefore exported with a batch of
         one unless a signature or ``batch_size`` says otherwise.
         """
-        if self.model is None:
+        if self.inference_model is None:
             raise ValueError("Model is not built. Call build() before export_onnx().")
 
         if keras.backend.backend() == "jax":
@@ -1133,8 +1181,11 @@ class Modely:
             path = path.with_suffix(".onnx")
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        export_model = self.model
-        if keras.backend.backend() == "torch" and isinstance(self.model.input, dict):
+        inference_model = self.inference_model
+        export_model = inference_model
+        if keras.backend.backend() == "torch" and isinstance(
+            inference_model.input, dict
+        ):
             # Keras' Torch ONNX exporter does not currently accept dictionary
             # signatures. Trace an equivalent positional wrapper instead.
             export_inputs = [
@@ -1143,16 +1194,16 @@ class Modely:
                     dtype=tensor.dtype,
                     name=tensor.name,
                 )
-                for tensor in self.model.inputs
+                for tensor in inference_model.inputs
             ]
             input_map = {
                 tensor.name: export_input
-                for tensor, export_input in zip(self.model.inputs, export_inputs)
+                for tensor, export_input in zip(inference_model.inputs, export_inputs)
             }
             export_model = keras.Model(
                 export_inputs,
-                self.model(input_map, training=False),
-                name=f"{self.model.name}_onnx",
+                inference_model(input_map, training=False),
+                name=f"{inference_model.name}_onnx",
             )
 
         # Keras requires a model to have been called before export. Modely.build
@@ -1197,16 +1248,16 @@ class Modely:
         except ImportError:
             return
 
-        if self.model is None or not self.built:
+        if self.inference_model is None or not self.built:
             raise ValueError("Model is not built. Call build() before export_onnx().")
         onnx_model = onnx.load(str(path))
         graph = onnx_model.graph
         expected_inputs = [
             (tensor.name, tuple(int(axis) for axis in tensor.shape[1:] if axis))
-            for tensor in self.model.inputs
+            for tensor in self.inference_model.inputs
         ]
         expected_outputs = [
-            (node.name, tuple(node.shape.tuple)) for node in self.train_outputs
+            (node.name, tuple(node.shape.tuple)) for node in self.outputs
         ]
         rename = {}
 

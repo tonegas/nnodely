@@ -63,6 +63,7 @@ def test_ode_derivative_count_mismatch():
         Ode(lambda a, b: [-1.0 * a], [x, y], 0.1)
 
 
+@pytest.mark.slow
 def test_ode_matches_hand_written_rk4():
     pos = Input(name="Xpos", dim=1)
     vel = Input(name="Xvelocity", dim=1)

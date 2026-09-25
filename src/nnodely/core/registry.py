@@ -91,8 +91,10 @@ class ModelSerializer:
         with open(path / "model.json", "w") as f:
             json.dump(data, f, indent=2)
 
-        if model.model is not None:
-            model.model.save_weights(path / "model.weights.h5")
+        # The saved model is the declared one: minimizers, and whatever only
+        # they read, belong to a training session, not to the model.
+        if model.inference_model is not None:
+            model.inference_model.save_weights(path / "model.weights.h5")
 
     @staticmethod
     def deserialize(data, path, *, layers=None, folder=""):
@@ -166,8 +168,8 @@ class ModelSerializer:
         model.build()
 
         if weights_path.exists():
-            if model.model is not None:
-                model.model.load_weights(weights_path)
+            if model.inference_model is not None:
+                model.inference_model.load_weights(weights_path)
             else:
                 print(f"the model {model.name} has no keras model to load weights.")
         else:

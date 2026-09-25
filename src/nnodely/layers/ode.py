@@ -598,7 +598,7 @@ class OdeNet(Layer):
 
     def build_layer(self):
         return OdeNetImpl(
-            model=self.f.model,
+            model=self.f.inference_model,
             state_input_names=tuple(node.name for node in self.state_inputs),
             state_output_names=tuple(node.name for node in self.state_outputs),
             model_output_names=tuple(node.name for node in self.f.outputs),

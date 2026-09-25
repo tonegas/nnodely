@@ -9,6 +9,7 @@ from nnodely import (
     Constant,
     Concatenate,
     Cos,
+    DataLoader,
     Deg2Rad,
     Derivative,
     ELU,
@@ -54,6 +55,7 @@ from nnodely import (
 from nnodely.core.layer import Identity
 from nnodely.layers.time_ops import Select
 from conftest import requires_onnx_export, to_numpy
+import json
 import numpy as np
 from pathlib import Path
 import pytest
@@ -643,8 +645,8 @@ def _assert_round_trip(model, inputs, path):
     _assert_same_outputs(restored(dict(inputs)), expected)
     assert graph_signature(restored) == graph_signature(model)
     # A layer shared by several parts of the model is still one layer.
-    assert restored.model is not None
-    assert len(restored.model.weights) == len(model.model.weights)
+    assert restored.inference_model is not None
+    assert len(restored.inference_model.weights) == len(model.inference_model.weights)
 
     restored.save(path / "resaved")
     _assert_same_outputs(Modely.load(path / "resaved")(dict(inputs)), expected)
@@ -1119,7 +1121,7 @@ def _complete_vehicle_model():
     ).build()
 
 
-@pytest.mark.parametrize(
+_LAYER_SUITE = pytest.mark.parametrize(
     "model_factory",
     [
         _arithmetic_model,
@@ -1145,9 +1147,102 @@ def _complete_vehicle_model():
     ],
     ids=lambda factory: factory.__name__.strip("_").removesuffix("_model"),
 )
+
+
+@_LAYER_SUITE
 def test_save_load_behaves_like_original(tmp_path, model_factory):
     model = _randomize_trainable_weights(model_factory())
     _assert_round_trip(model, _random_inputs(model), tmp_path)
+
+
+def _target_for(output):
+    """A dataset input shaped like ``output``, the way a user adds a target."""
+    return Input(f"{output.name}_target", dim=output.dim, seq=output.seq).sw(
+        output.time
+    )
+
+
+@_LAYER_SUITE
+def test_loaded_model_rebuilt_with_new_minimizers_keeps_its_weights(
+    tmp_path, model_factory
+):
+    model = _randomize_trainable_weights(model_factory())
+    inputs = _random_inputs(model)
+    model.save(tmp_path / "pretrained")
+
+    loaded = Modely.load(tmp_path / "pretrained")
+    assert loaded.inference_model is not None
+    expected = {name: to_numpy(value) for name, value in loaded(dict(inputs)).items()}
+    weight_count = len(loaded.inference_model.weights)
+
+    # The user's own minimizers bring new inputs and new graph nodes, so the
+    # model is built again - around the blocks it loaded, not fresh ones.
+    for output in loaded.outputs:
+        loaded.minimize(f"{output.name}_fit", source=output, target=_target_for(output))
+    loaded.build()
+
+    assert loaded.inference_model is not None
+    assert len(loaded.inference_model.weights) == weight_count
+    _assert_same_outputs(loaded(dict(inputs)), expected)
+
+
+def test_fine_tune_a_loaded_model_with_its_own_minimizers(tmp_path):
+    samples = np.linspace(0.0, 1.0, 64, dtype=np.float32)
+    x = Input("fine_tune_x", dim=1)
+    prediction = Output(
+        "fine_tune_out", Fir(out_features=1, name="fine_tune_fir")(x.sw(3))
+    )
+    model = Modely("fine_tune", inputs=[x], outputs=[prediction])
+    model.minimize(
+        "pretrain", source=prediction, target=Input("pretrain_target", dim=1).last()
+    )
+    model.build()
+    model.train(
+        train_data=DataLoader(
+            model, source={"fine_tune_x": samples, "pretrain_target": 2.0 * samples}
+        ),
+        epochs=5,
+        batch_size=8,
+        lr=1e-2,
+        printer=None,
+    )
+    model.save(tmp_path / "pretrained")
+
+    windows = np.random.default_rng(1).uniform(size=(_BATCH, 1, 3))
+    inputs = {"fine_tune_x": windows.astype(np.float32)}
+    pretrained = to_numpy(model(inputs)["fine_tune_out"])
+
+    # A loaded model is known by the names of its streams, not by their nodes.
+    loaded = Modely.load(tmp_path / "pretrained")
+    loaded.minimize(
+        "fine_tune",
+        source="fine_tune_out",
+        target=Input("fine_tune_target", dim=1).last(),
+    )
+    loaded.build()
+    np.testing.assert_allclose(
+        to_numpy(loaded(inputs)["fine_tune_out"]), pretrained, rtol=1e-6
+    )
+
+    # Fine-tuning starts from the loaded weights and moves them, and inference
+    # runs with the weights the training left.
+    loaded.train(
+        train_data=DataLoader(
+            loaded, source={"fine_tune_x": samples, "fine_tune_target": -samples}
+        ),
+        epochs=5,
+        batch_size=8,
+        lr=1e-2,
+        printer=None,
+    )
+    tuned = to_numpy(loaded(inputs)["fine_tune_out"])
+    assert not np.allclose(tuned, pretrained)
+    assert loaded.model is not None
+    trained = loaded.model(
+        {**inputs, "fine_tune_target": np.zeros((_BATCH, 1, 1), dtype=np.float32)},
+        training=False,
+    )
+    np.testing.assert_allclose(tuned, to_numpy(trained["fine_tune_out"]), rtol=1e-6)
 
 
 @pytest.mark.parametrize("method", ["rk4", "dopri5"])
@@ -1190,6 +1285,7 @@ def test_save_load_odenet(tmp_path, method):
     _assert_round_trip(model, inputs, tmp_path)
 
 
+@pytest.mark.slow
 def test_save_load_odenet_with_event(tmp_path):
     # A ball dropped on a floor: the event and the reset are part of the model.
     position = Input("odenet_event_p", dim=1)
@@ -1234,3 +1330,77 @@ def test_save_load_odenet_with_event(tmp_path):
         t.name: np.tile(times, (_BATCH, 1, 1, 1)),
     }
     _assert_round_trip(model, inputs, tmp_path)
+
+
+def _minimized_model():
+    """A model whose minimizers read a target and a layer of their own."""
+    x = Input("minimized_x", dim=1)
+    target = Input("minimized_target", dim=1)
+    prediction = Output(
+        "minimized_out", Fir(out_features=1, name="minimized_fir")(x.sw(3))
+    )
+    model = Modely("minimized", inputs=[x, target], outputs=[prediction])
+    model.minimize("minimized_fit", source=prediction, target=target.last())
+    # A stream only a minimizer reads, computed by a weight of its own.
+    auxiliary = Linear(out_features=1, name="minimized_auxiliary")(x.last())
+    model.minimize("minimized_auxiliary_fit", source=auxiliary, target=target.last())
+    return _randomize_trainable_weights(model.build())
+
+
+def _minimized_inputs():
+    # Only the model's own input: nothing exported or saved asks for the target.
+    values = np.random.default_rng(1).uniform(size=(_BATCH, 1, 3))
+    return {"minimized_x": values.astype(np.float32)}
+
+
+def test_save_load_leaves_minimizers_out(tmp_path):
+    model = _minimized_model()
+    _assert_round_trip(model, _minimized_inputs(), tmp_path)
+
+    restored = Modely.load(tmp_path / "saved")
+    assert restored.minimizers == []
+    assert [node.name for node in restored.train_inputs] == ["minimized_x"]
+    saved = json.loads((tmp_path / "saved" / "model.json").read_text())
+    saved_names = {node["config"]["name"] for node in saved["nodes"]}
+    assert "minimized_target" not in saved_names
+    assert "minimized_auxiliary" not in saved_names
+    # The auxiliary layer trains with the model, but is not part of it.
+    assert model.model is not None and model.inference_model is not None
+    assert len(model.model.weights) > len(model.inference_model.weights)
+
+
+def test_export_keras_leaves_minimizers_out(tmp_path):
+    model = _minimized_model()
+    inputs = _minimized_inputs()
+    expected = model(dict(inputs))["minimized_out"]
+
+    path = tmp_path / "minimized.keras"
+    model.export_keras(path)
+    restored = Modely.import_keras(path)
+
+    assert [tensor.name for tensor in restored.inputs] == ["minimized_x"]  # type: ignore
+    result = restored(inputs, training=False)  # type: ignore
+    assert set(result) == {"minimized_out"}
+    np.testing.assert_allclose(
+        to_numpy(result["minimized_out"]), to_numpy(expected), rtol=1e-5, atol=1e-5
+    )
+
+
+@requires_onnx_export
+def test_export_onnx_leaves_minimizers_out(tmp_path):
+    pytest.importorskip("onnxruntime")
+    model = _minimized_model()
+    inputs = _minimized_inputs()
+    expected = model(dict(inputs))["minimized_out"]
+
+    path = model.export_onnx(tmp_path / "minimized.onnx")
+    # validate_onnx feeds every input of the graph: the target is not one of them.
+    result = Modely.validate_onnx(path, inputs, return_dict=True)
+
+    assert list(result) == ["minimized_out"]
+    np.testing.assert_allclose(
+        to_numpy(result["minimized_out"]),  # type: ignore
+        to_numpy(expected),
+        rtol=1e-5,
+        atol=1e-5,  # type: ignore
+    )

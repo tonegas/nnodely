@@ -680,7 +680,7 @@ class Loop(Layer):
 
     def build_layer(self):
         return LoopImpl(
-            model=self.f.model,
+            model=self.f.inference_model,
             callback_input_names=tuple(node.name for node in self.callback_inputs),
             callback_output_names=tuple(node.name for node in self.callback_outputs),
             model_output_names=tuple(node.name for node in self.f.outputs),

@@ -193,7 +193,7 @@ class Roll(Layer):
 
     def build_layer(self):
         return RollImpl(
-            model=self.f.model,
+            model=self.f.inference_model,
             callback_input_name=self.callback_input.name,
             callback_output_name=self.callback_output.name,
             static_input_names=tuple(node.name for node in self.static_inputs),
