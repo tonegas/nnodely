@@ -134,7 +134,7 @@ class LegacyPrinter(keras.callbacks.Callback):
         self,
         epochs: int,
         minimizers: Sequence[tuple[str, str]] = (),
-        max_rows: int = 100,
+        max_rows: int = 20,
     ):
         super().__init__()
         if max_rows < 1:
