@@ -10,6 +10,7 @@ from nnodely.utils.utils import (
     MaskedLoss,
     _resolve_loss,
     _resolve_optimizer,
+    _weighted_sequence_loss,
 )
 from nnodely.utils.printers import _resolve_printer
 from nnodely.utils import validation_plot
@@ -168,14 +169,48 @@ def _validate_gain(gain, minimizer: str) -> float:
     return gain
 
 
+def _validate_seq_weights(seq_weights, source: Stream, minimizer: str):
+    """One weight per step of the source's last axis, normalized to mean one.
+
+    Not negative, and not all zero: a negative weight would maximize the error
+    of its step, and all zeros would train nothing.
+    """
+    if seq_weights is None:
+        return None
+    weights = np.asarray(seq_weights, dtype=np.float32)
+    steps = source.shape.tuple[-1]
+    if weights.shape != (steps,):
+        raise ValueError(
+            f"The seq_weights of minimizer {minimizer!r} must be one weight per "
+            f"step of the last axis of {source.name!r}, {steps} of them, got "
+            f"shape {weights.shape}."
+        )
+    if not np.isfinite(weights).all() or (weights < 0).any() or not weights.any():
+        raise ValueError(
+            f"The seq_weights of minimizer {minimizer!r} must be finite, not "
+            f"negative and not all zero, got {weights.tolist()}."
+        )
+    return weights / weights.mean()
+
+
 class _MinimizerTerm:
     """One minimizer, resolved against the outputs of the built graph."""
 
     def __init__(
-        self, name, source, target, target_rank, loss, masked, log_name, gain=1.0
+        self,
+        name,
+        source,
+        target,
+        target_rank,
+        loss,
+        masked,
+        log_name,
+        gain=1.0,
+        seq_weights=None,
     ):
         self.name = name
         self.gain = gain  # weight of this term in the total loss
+        self.seq_weights = seq_weights  # weight of each step of the last axis
         self.source = source  # name of the graph output holding the prediction
         self.target = target  # name of the graph output holding the reference
         self.target_rank = target_rank  # rank of the target without batch axis
@@ -279,11 +314,17 @@ class MinimizerModel(keras.Model):
                 target = keras.ops.where(
                     valid, target, keras.ops.full_like(target, np.nan)
                 )
-            # A loss function returns one value per sample, a Loss instance
-            # the reduced value: the mean is how compile() reduces either.
-            value = keras.ops.mean(term.loss(target, source))
-            # Logged unweighted, as Keras logs a per-output loss under
-            # loss_weights; only the total the optimizer sees is weighted.
+            if term.seq_weights is not None:
+                value = _weighted_sequence_loss(
+                    term.loss, target, source, term.seq_weights
+                )
+            else:
+                # A loss function returns one value per sample, a Loss instance
+                # the reduced value: the mean is how compile() reduces either.
+                value = keras.ops.mean(term.loss(target, source))
+            # Logged unweighted by the gain, as Keras logs a per-output loss
+            # under loss_weights; only the total the optimizer sees is weighted.
+            # The seq_weights are part of the loss itself, so they are logged.
             term.tracker.update_state(value)
             weighted = value if term.gain == 1.0 else value * term.gain
             total = weighted if total is None else total + weighted
@@ -520,6 +561,7 @@ class Modely:
         target: Output | Stream | str | float | None = None,
         loss: str | dict[str, Any] | keras.losses.Loss | Callable = "mse",
         gain: float = 1.0,
+        seq_weights: Any = None,
     ):
         """Register a Keras loss to minimize during training.
 
@@ -533,6 +575,13 @@ class Modely:
         gain: weight of this loss in the total training loss, 1 by default -
             0.5 gives it half the importance, 2 twice. Its own logged and
             validated loss stays unweighted, the way Keras logs a loss_weight
+        seq_weights: one weight per step of the last axis of the source - the
+            rollout of a Loop, or the window of a stream - such as
+            ``np.exp(0.1 * np.arange(N))`` to weigh the last predictions more.
+            Normalized to mean one, so only their profile matters; the logged
+            and validated loss is the weighted one. None weighs every step the
+            same. It suits losses computed element by element, as the
+            regression losses are
 
         A name identifies one minimizer: registering a name again replaces the
         minimizer it names, in its place, and warns that it did.
@@ -548,12 +597,14 @@ class Modely:
         target = self._minimizer_stream(target, "target", name)
         resolved_loss = _resolve_loss(loss)
         gain = _validate_gain(gain, name)
+        seq_weights = _validate_seq_weights(seq_weights, source, name)
         minimizer = {
             "name": name,
             "source": source,
             "target": target,
             "loss": resolved_loss,
             "gain": gain,
+            "seq_weights": seq_weights,
         }
         for index, existing in enumerate(self.minimizers):
             if existing["name"] == name:
@@ -787,6 +838,7 @@ class Modely:
                 source=source.name,
                 target=target_name,
                 loss_fn=minimizer["loss"],
+                seq_weights=minimizer.get("seq_weights"),
                 y_true=y_true,
                 y_pred=np.asarray(predictions[source_key][:n_samples]),
             )
@@ -843,6 +895,7 @@ class Modely:
                 or _depends_on_dynamic_input(minimizer["target"]),
                 log_name=minimizer["source"].name,
                 gain=minimizer.get("gain", 1.0),
+                seq_weights=minimizer.get("seq_weights"),
             )
             for minimizer in self.minimizers
         ]

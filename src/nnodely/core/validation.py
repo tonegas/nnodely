@@ -34,17 +34,30 @@ def loss_name(loss_fn: Any) -> str:
     return type(loss_fn).__name__ if loss_fn is not None else "mse"
 
 
-def evaluate_loss(loss_fn: Any, y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """The minimizer's own loss, so validation is scored the way it was trained."""
+def evaluate_loss(
+    loss_fn: Any,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    seq_weights: np.ndarray | None = None,
+) -> float:
+    """The minimizer's own loss, so validation is scored the way it was trained.
+
+    With ``seq_weights`` the signals keep their layout, whose last axis is the
+    one the weights are laid along.
+    """
     if loss_fn is None:
         return float(np.mean((y_true - y_pred) ** 2))
     try:
         import keras
 
-        value = loss_fn(
-            keras.ops.convert_to_tensor(y_true.astype(np.float32)),
-            keras.ops.convert_to_tensor(y_pred.astype(np.float32)),
-        )
+        y_true = keras.ops.convert_to_tensor(np.asarray(y_true, dtype=np.float32))
+        y_pred = keras.ops.convert_to_tensor(np.asarray(y_pred, dtype=np.float32))
+        if seq_weights is not None:
+            from nnodely.utils.utils import _weighted_sequence_loss
+
+            value = _weighted_sequence_loss(loss_fn, y_true, y_pred, seq_weights)
+        else:
+            value = loss_fn(y_true, y_pred)
         return float(np.mean(keras.ops.convert_to_numpy(value)))  # type: ignore
     except Exception:
         # A loss that cannot be replayed outside training should not cost the
@@ -80,6 +93,7 @@ def score_signal(
     loss_fn: Any,
     y_true: np.ndarray,
     y_pred: np.ndarray,
+    seq_weights: np.ndarray | None = None,
 ) -> SignalScore:
     """Score one minimizer's prediction against its reference."""
     true_channels = as_channels(y_true)
@@ -113,7 +127,11 @@ def score_signal(
         )
 
     metrics = {
-        "loss": evaluate_loss(loss_fn, true_channels, pred_channels),
+        "loss": (
+            evaluate_loss(loss_fn, true_channels, pred_channels)
+            if seq_weights is None
+            else evaluate_loss(loss_fn, y_true, y_pred, seq_weights)
+        ),
         "rmse": float(np.sqrt(np.mean(error**2))),
         "mae": float(np.mean(np.abs(error))),
         "max_error": float(np.max(np.abs(error))) if error.size else float("nan"),
