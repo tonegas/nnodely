@@ -100,6 +100,20 @@ class MaskedLoss(keras.losses.Loss):
         return cls(**config)
 
 
+def _weighted_sequence_loss(loss, y_true, y_pred, weights):
+    """Mean of ``loss`` with each step of the last axis scaled by ``weights``.
+
+    A Keras loss reduces the last axis, which is the sequence the weights are
+    laid along: a trailing axis of one is added for it to reduce instead, so
+    every step keeps its own value. The weights have mean one, so uniform
+    weights give back the unweighted loss.
+    """
+    if isinstance(loss, keras.losses.Loss):
+        loss = loss.call  # one value per element, before the Loss reduces them
+    values = loss(keras.ops.expand_dims(y_true, -1), keras.ops.expand_dims(y_pred, -1))
+    return keras.ops.mean(values * keras.ops.cast(weights, values.dtype))
+
+
 def _resolve_optimizer(
     optimizer: str | dict[str, Any] | keras.optimizers.Optimizer | None,
     learning_rate: float,

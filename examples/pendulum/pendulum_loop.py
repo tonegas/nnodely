@@ -111,7 +111,7 @@ model = Modely(
 model.plot(to_file=os.path.join(SAVE_FOLDER, "model_inv_pend_initial.png"))
 model.export_html(os.path.join(SAVE_FOLDER, "model_inv_pend_initial.html"))
 
-sequence_length = (None,)  # dynamic loop axis; horizon is pinned by Loop(length=...)
+sequence_length = -1  # dynamic loop axis; horizon is pinned by Loop(length=...)
 pos = Input(name="Xpos_s", dim=1, seq=sequence_length)
 vel = Input(name="Xvelocity_s", dim=1, seq=sequence_length)
 angle = Input(name="Xangle_s", dim=1, seq=sequence_length)

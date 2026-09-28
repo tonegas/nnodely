@@ -6,6 +6,12 @@ from nnodely.core.stream import Stream
 
 
 class Output(Stream):
+    """Expose ``stream`` as an output of the model, under ``name``.
+
+    Output names are the keys of the model's results and the names used to
+    refer to outputs elsewhere, for example in feedback mappings.
+    """
+
     def __init__(self, name: str, stream: Stream) -> None:
         super().__init__(
             name=name,

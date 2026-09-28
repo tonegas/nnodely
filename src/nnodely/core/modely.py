@@ -10,6 +10,7 @@ from nnodely.utils.utils import (
     MaskedLoss,
     _resolve_loss,
     _resolve_optimizer,
+    _weighted_sequence_loss,
 )
 from nnodely.utils.printers import _resolve_printer
 from nnodely.utils import validation_plot
@@ -168,14 +169,63 @@ def _validate_gain(gain, minimizer: str) -> float:
     return gain
 
 
+def _seq_weights_for(seq_weights, steps: int | None, minimizer: str):
+    """One weight per step of a last axis ``steps`` long, normalized to mean one.
+
+    A callable is given the number of steps. Weights are not negative, and not
+    all zero: a negative weight would maximize the error of its step, and all
+    zeros would train nothing. ``steps=None`` leaves the length unchecked.
+    """
+    weights = seq_weights(steps) if callable(seq_weights) else seq_weights
+    weights = np.asarray(weights, dtype=np.float32)
+    if weights.ndim != 1 or steps is not None and weights.shape != (steps,):
+        raise ValueError(
+            f"The seq_weights of minimizer {minimizer!r} must be one weight per "
+            f"step of the last axis, {steps} of them, got shape {weights.shape}."
+        )
+    if not np.isfinite(weights).all() or (weights < 0).any() or not weights.any():
+        raise ValueError(
+            f"The seq_weights of minimizer {minimizer!r} must be finite, not "
+            f"negative and not all zero, got {weights.tolist()}."
+        )
+    return weights / weights.mean()
+
+
+def _validate_seq_weights(seq_weights, source: Stream, minimizer: str):
+    """The seq_weights of a minimizer, checked as far as its source allows.
+
+    A dynamic sequence follows the data, whatever length its stream declares,
+    so its weights are checked once the data sets the length.
+    """
+    if seq_weights is None:
+        return None
+    steps = None if _depends_on_dynamic_input(source) else source.shape.tuple[-1]
+    if callable(seq_weights):
+        if steps is not None:
+            _seq_weights_for(seq_weights, steps, minimizer)
+        return seq_weights
+    return _seq_weights_for(seq_weights, steps, minimizer)
+
+
 class _MinimizerTerm:
     """One minimizer, resolved against the outputs of the built graph."""
 
     def __init__(
-        self, name, source, target, target_rank, loss, masked, log_name, gain=1.0
+        self,
+        name,
+        source,
+        target,
+        target_rank,
+        loss,
+        masked,
+        log_name,
+        gain=1.0,
+        seq_weights=None,
     ):
         self.name = name
         self.gain = gain  # weight of this term in the total loss
+        # weight of each step of the last axis, or a callable of its length
+        self.seq_weights = seq_weights
         self.source = source  # name of the graph output holding the prediction
         self.target = target  # name of the graph output holding the reference
         self.target_rank = target_rank  # rank of the target without batch axis
@@ -279,11 +329,19 @@ class MinimizerModel(keras.Model):
                 target = keras.ops.where(
                     valid, target, keras.ops.full_like(target, np.nan)
                 )
-            # A loss function returns one value per sample, a Loss instance
-            # the reduced value: the mean is how compile() reduces either.
-            value = keras.ops.mean(term.loss(target, source))
-            # Logged unweighted, as Keras logs a per-output loss under
-            # loss_weights; only the total the optimizer sees is weighted.
+            if term.seq_weights is not None:
+                # The rollout is unrolled, so its length is static here.
+                weights = _seq_weights_for(
+                    term.seq_weights, source.shape[-1], term.name
+                )
+                value = _weighted_sequence_loss(term.loss, target, source, weights)
+            else:
+                # A loss function returns one value per sample, a Loss instance
+                # the reduced value: the mean is how compile() reduces either.
+                value = keras.ops.mean(term.loss(target, source))
+            # Logged unweighted by the gain, as Keras logs a per-output loss
+            # under loss_weights; only the total the optimizer sees is weighted.
+            # The seq_weights are part of the loss itself, so they are logged.
             term.tracker.update_state(value)
             weighted = value if term.gain == 1.0 else value * term.gain
             total = weighted if total is None else total + weighted
@@ -293,6 +351,17 @@ class MinimizerModel(keras.Model):
 
 
 class Modely:
+    """A model-structured neural network.
+
+    ``inputs`` and ``outputs`` delimit the graph of streams that makes up the
+    model. Objectives (:meth:`minimize`) and feedback (:meth:`rollback`) are
+    declared on it, then :meth:`build` creates the Keras model and its weights.
+
+    A built model is called with ``{input name: array}`` and returns
+    ``{output name: tensor}``. Called with a list of streams instead, it
+    becomes a block of a larger graph and returns its outputs as streams.
+    """
+
     name: str
     inputs: list[Input]
     outputs: list[Output]
@@ -366,10 +435,15 @@ class Modely:
 
     @property
     def built(self):
-        """True se build() è stato chiamato, False altrimenti."""
+        """True once :meth:`build` has been called."""
         return self.model is not None
 
     def build(self):
+        """Create the Keras model of the graph, with its weights.
+
+        Objectives and feedback have to be declared before, because they add
+        to the graph that is built. Returns the model itself.
+        """
         from nnodely.core.layer import Identity
 
         # A minimizer reads both of its sides from the forward pass, so every
@@ -548,6 +622,7 @@ class Modely:
         target: Output | Stream | str | float | None = None,
         loss: str | dict[str, Any] | keras.losses.Loss | Callable = "mse",
         gain: float = 1.0,
+        seq_weights: Any = None,
     ):
         """Register a Keras loss to minimize during training.
 
@@ -561,6 +636,15 @@ class Modely:
         gain: weight of this loss in the total training loss, 1 by default -
             0.5 gives it half the importance, 2 twice. Its own logged and
             validated loss stays unweighted, the way Keras logs a loss_weight
+        seq_weights: one weight per step of the last axis of the source - the
+            rollout of a Loop, or the window of a stream - such as
+            ``np.exp(0.1 * np.arange(N))`` to weigh the last predictions more,
+            or a callable of the number of steps returning them, such as
+            ``lambda n: np.exp(0.1 * np.arange(n))``, for a sequence whose
+            length is dynamic. Normalized to mean one, so only their profile
+            matters; the logged and validated loss is the weighted one. None
+            weighs every step the same. It suits losses computed element by
+            element, as the regression losses are
 
         A name identifies one minimizer: registering a name again replaces the
         minimizer it names, in its place, and warns that it did.
@@ -576,12 +660,14 @@ class Modely:
         target = self._minimizer_stream(target, "target", name)
         resolved_loss = _resolve_loss(loss)
         gain = _validate_gain(gain, name)
+        seq_weights = _validate_seq_weights(seq_weights, source, name)
         minimizer = {
             "name": name,
             "source": source,
             "target": target,
             "loss": resolved_loss,
             "gain": gain,
+            "seq_weights": seq_weights,
         }
         for index, existing in enumerate(self.minimizers):
             if existing["name"] == name:
@@ -815,6 +901,13 @@ class Modely:
                 source=source.name,
                 target=target_name,
                 loss_fn=minimizer["loss"],
+                seq_weights=(
+                    None
+                    if minimizer.get("seq_weights") is None
+                    else _seq_weights_for(
+                        minimizer["seq_weights"], y_true.shape[-1], name
+                    )
+                ),
                 y_true=y_true,
                 y_pred=np.asarray(predictions[source_key][:n_samples]),
             )
@@ -871,6 +964,7 @@ class Modely:
                 or _depends_on_dynamic_input(minimizer["target"]),
                 log_name=minimizer["source"].name,
                 gain=minimizer.get("gain", 1.0),
+                seq_weights=minimizer.get("seq_weights"),
             )
             for minimizer in self.minimizers
         ]
@@ -935,7 +1029,7 @@ class Modely:
 
         ``printer`` selects how progress is rendered: ``"tiny"`` prints a compact
         summary of the training progress, ``"legacy"`` prints the scrolling
-        per-minimizer loss table of the original nnodely trainer, ``"factory"``
+        per-minimizer loss table of the original nnodely trainer, ``"nnodely"``
         drives the animated machine-room console, ``None`` prints nothing, and
         any Keras callback is used as given.
         """
@@ -957,6 +1051,7 @@ class Modely:
         x_data, mask = self._training_arrays(train_data)
 
         validation_data = None
+        val_mask = None
         if val_data is not None:
             if len(val_data) == 0:
                 raise ValueError("val_data is empty.")
@@ -982,6 +1077,7 @@ class Modely:
     # -------------------------------------------------------------------------
 
     def flatten(self) -> "Modely":
+        """Return an equivalent model with every sub-model inlined."""
         return flatten(model=self)
 
     # -------------------------------------------------------------------------
@@ -1022,6 +1118,7 @@ class Modely:
         )
 
     def summary(self):
+        """Print the Keras summary of the built model."""
         if self.model is not None:
             self.model.summary()
 
@@ -1110,10 +1207,12 @@ class Modely:
     # -------------------------------------------------------------------------
 
     def save(self, path):
+        """Save the model - graph, objectives and weights - to ``path``."""
         ModelSerializer.serialize(self, path)
 
     @classmethod
     def load(cls, path):
+        """Load a model saved with :meth:`save`."""
         return ModelSerializer.load(path)
 
     def export_keras(self, filename: str):
@@ -1128,6 +1227,7 @@ class Modely:
 
     @staticmethod
     def import_keras(filename: str, safe_mode: bool = True):
+        """Load a ``.keras`` file written by :meth:`export_keras` as a ``keras.Model``."""
         path = Path(filename)
         if path.suffix.lower() != ".keras":
             path = path.with_suffix(".keras")

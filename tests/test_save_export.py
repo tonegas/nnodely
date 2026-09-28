@@ -216,9 +216,7 @@ def _local_model():
     activations = Fuzzify(centers=[0.0, 0.5, 1.0], function="Rectangular")(
         activation_input.sw(1)
     )
-    result = LocalModel(out_features=1, name="onnx_local_function")(
-        [x.sw(1)], [activations]
-    )
+    result = LocalModel(name="onnx_local_function")([x.sw(1)], [activations])
     return Modely(
         "onnx_local_model",
         inputs=[x, activation_input],
@@ -497,6 +495,41 @@ def test_local_model_save_keras_and_html(tmp_path):
     html_path = model.export_html(tmp_path, filename="local_model", physics=False)
     html = Path(html_path).read_text(encoding="utf-8")
     assert "onnx_local_function" in html
+
+
+def test_local_model_with_fuzzy_product_round_trips(tmp_path):
+    x = Input("save_local_x", dim=1)
+    j = Input("save_local_j", dim=1)
+    k = Input("save_local_k", dim=1)
+    activations = [
+        Fuzzify(centers=[0.0, 1.0, 2.0], function="Triangular")([j]),
+        Fuzzify(centers=[0.0, 1.0], function="Triangular")([k]),
+    ]
+    fused = LocalModel(Fir(out_features=2), output_function=Tanh(), name="save_fused")(
+        [x.sw(3)], activations
+    )
+    stacked = LocalModel(lambda s: Fir(out_features=2)(s), name="save_stacked")(
+        [x.sw(3)], activations
+    )
+    model = Modely(
+        "save_local_model",
+        inputs=[x, j, k],
+        outputs=[Output("save_fused_out", fused), Output("save_stacked_out", stacked)],
+    ).build()
+    inputs = {
+        "save_local_x": np.arange(12, dtype=np.float32).reshape(4, 1, 3) / 5.0,
+        "save_local_j": np.linspace(0.0, 2.0, 4, dtype=np.float32).reshape(4, 1, 1),
+        "save_local_k": np.linspace(0.2, 0.9, 4, dtype=np.float32).reshape(4, 1, 1),
+    }
+    expected = model(dict(inputs))
+
+    path = tmp_path / "local_product.nnodely"
+    model.save(path)
+    restored = Modely.load(path)(dict(inputs))
+    for name in ("save_fused_out", "save_stacked_out"):
+        np.testing.assert_allclose(
+            to_numpy(restored[name]), to_numpy(expected[name]), rtol=1e-5, atol=1e-5
+        )
 
 
 def _roll_model():

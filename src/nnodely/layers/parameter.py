@@ -57,7 +57,12 @@ class Parameter(Layer):
     """
     Trainable symbolic parameter layer.
 
-    Shape without batch:
+    The shape is taken from ``value`` when given, otherwise from ``dim``,
+    ``time`` and ``seq``. Without ``value`` the parameter starts from
+    ``initializer``, any Keras initializer.
+
+    Shape without batch::
+
         dim + time + seq
     """
 

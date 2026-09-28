@@ -41,7 +41,11 @@ class Constant(Layer):
     """
     Non-trainable symbolic constant layer.
 
-    Shape without batch:
+    The shape is taken from ``value``. Numbers used in arithmetic with a
+    stream become constants automatically.
+
+    Shape without batch::
+
         dim + time + seq
     """
 
