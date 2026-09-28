@@ -1134,9 +1134,7 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
     )
     output = Output("pad_out", loop)
     model = Modely("pad_loop_model", inputs=[seed], outputs=[output])
-    model.minimize(
-        "pad_error", output, Input("pad_target", dim=1, seq=-1), loss="mse"
-    )
+    model.minimize("pad_error", output, Input("pad_target", dim=1, seq=-1), loss="mse")
     model.build()
 
     ## Three simulations of different lengths, the longest fixing the rollout

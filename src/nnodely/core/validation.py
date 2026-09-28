@@ -48,17 +48,13 @@ def evaluate_loss(
     if loss_fn is None:
         return float(np.mean((y_true - y_pred) ** 2))
     try:
-        import keras
-
-        y_true = keras.ops.convert_to_tensor(np.asarray(y_true, dtype=np.float32))
-        y_pred = keras.ops.convert_to_tensor(np.asarray(y_pred, dtype=np.float32))
         if seq_weights is not None:
             from nnodely.utils.utils import _weighted_sequence_loss
 
             value = _weighted_sequence_loss(loss_fn, y_true, y_pred, seq_weights)
         else:
             value = loss_fn(y_true, y_pred)
-        return float(np.mean(keras.ops.convert_to_numpy(value)))  # type: ignore
+        return np.mean(value)  # type: ignore
     except Exception:
         # A loss that cannot be replayed outside training should not cost the
         # caller the rest of the report.

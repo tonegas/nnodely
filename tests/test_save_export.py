@@ -778,9 +778,9 @@ def _fuzzy_local_model():
     gaussian = Fuzzify(centers=[0.2, 0.8], function="Gaussian", name="fuzzy_gaussian")(
         speed.last()
     )
-    # Two inputs, each scheduled by its own activation.
-    affine = LocalModel(out_features=2, name="fuzzy_affine")(
-        [x.sw(3), speed.sw(2)], [triangular, gaussian]
+    # Two fuzzifications combined into joint memberships, one Fir per cell.
+    affine = LocalModel(Fir(out_features=2), name="fuzzy_affine")(
+        [x.sw(3)], [triangular, gaussian]
     )
     # One explicit cell per membership, built from ordinary layers.
     expanded = LocalModel(
@@ -1116,9 +1116,7 @@ def _complete_vehicle_model():
     gear_membership = Fuzzify(centers=[0.0, 0.5, 1.0], name="vehicle_gear_fuzzy")(
         gear.last()
     )
-    engine = LocalModel(out_features=1, name="vehicle_engine")(
-        [throttle.sw(5)], [gear_membership]
-    )
+    engine = LocalModel(name="vehicle_engine")([throttle.sw(5)], [gear_membership])
     grip = Sigmoid()(
         PReLU()(
             Linear(out_features=1, name="vehicle_grip")(

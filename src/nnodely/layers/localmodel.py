@@ -403,7 +403,7 @@ class LocalModel:
         """One output function per cell, for functions that cannot be batched."""
         cells = [
             self._cell(self.output_function, i, index, "out")(
-                [output * Select(idx=i, axis=0)([mu])]
+                [output * Select(idx=i, axis=0)([mu])]  # type: ignore
             )
             for i, (output, index) in enumerate(zip(outputs, indices))
         ]
