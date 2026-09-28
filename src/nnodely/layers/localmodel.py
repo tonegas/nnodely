@@ -6,10 +6,43 @@ from collections.abc import Callable
 from math import prod
 from typing import cast
 
+import numpy as np
 import keras
 
-from nnodely.core.layer import Add, Layer
+from nnodely.core.dag import next_name
+from nnodely.core.layer import Add, Identity, Layer
+from nnodely.core.stream import Stream
+from nnodely.layers.activations import (
+    ELU,
+    GELU,
+    LeakyReLU,
+    ReLU,
+    Sigmoid,
+    Softplus,
+    Swish,
+    Tanh,
+)
+from nnodely.layers.arithmetic import Arithmetic, Clamp
+from nnodely.layers.fir import Fir
 from nnodely.layers.time_ops import Select
+from nnodely.layers.trigonometric import Trigonometric
+
+# Weightless layers that act on every element alone: applying one of them to
+# all the cells stacked together is the same as applying it cell by cell.
+_ELEMENTWISE = (
+    Identity,
+    Arithmetic,
+    Clamp,
+    Trigonometric,
+    ReLU,
+    LeakyReLU,
+    ELU,
+    Sigmoid,
+    Tanh,
+    Swish,
+    GELU,
+    Softplus,
+)
 
 
 def _per_cell_initializer(initializer):
@@ -37,246 +70,149 @@ def _per_cell_initializer(initializer):
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
-class LocalModelImpl(keras.layers.Layer):
+class FuzzyProductImpl(keras.layers.Layer):
     """
-    Affine local models blended by their membership degrees.
+    Joint membership of several fuzzifications.
 
-    Inputs (one activation per input):
-        x_j: [batch, dim..., time]
-        a_j: [batch, cells_j, 1]
+    Inputs:  a_k: [batch, n_k, 1]
+    Output:  [batch, n_1 * n_2 * ..., 1], row-major: the last input varies fastest.
+    """
+
+    def call(self, xs):
+        result = keras.ops.reshape(xs[0], (-1, xs[0].shape[1]))
+        for activation in xs[1:]:
+            cells = activation.shape[1]
+            result = keras.ops.expand_dims(result, -1) * keras.ops.reshape(
+                activation, (-1, 1, cells)
+            )
+            result = keras.ops.reshape(result, (-1, result.shape[1] * cells))
+        return keras.ops.expand_dims(result, -1)
+
+
+class FuzzyProduct(Layer):
+    """Outer product of membership vectors, flattened row-major into ``[N, 1]``."""
+
+    def build_layer(self):
+        return FuzzyProductImpl(name=self.name)
+
+    def get_config(self):
+        return {"name": self.name}
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class LocalFirImpl(keras.layers.Layer):
+    """
+    One affine map per cell, weighted by its membership degree.
+
+    Inputs:
+        x:  [batch, dim..., time]
+        mu: [batch, cells, 1]
 
     Output:
-        [batch, out_features, 1]
-
-    Cell ``(j, i)`` owns an affine map of the flattened ``x_j``, so the block is
-    ``sum_j sum_i a_j,i (W_j,i x_j + b_j,i)``. Blending the memberships into the
-    input before the projection turns those cells into a single matmul per
-    input, instead of one Keras layer per cell.
+        reduce=True:  [batch, out_features, 1]           sum_i mu_i (W_i x + b_i)
+        reduce=False: [batch, cells, out_features, 1]    mu_i (W_i x + b_i)
     """
 
-    def __init__(
-        self,
-        n_inputs: int = 1,
-        out_features: int = 1,
-        use_bias: bool = True,
-        initializer="glorot_uniform",
-        bias_initializer="zeros",
-        name=None,
-        **kwargs,
-    ):
+    def __init__(self, out_features=1, use_bias=True, reduce=True, name=None, **kwargs):
         super().__init__(name=name, **kwargs)
-        self.n_inputs = int(n_inputs)
         self.out_features = int(out_features)
         self.use_bias = bool(use_bias)
-        self.initializer = initializer
-        self.bias_initializer = bias_initializer
-        self.features: list[int] = []
-        self.cells: list[int] = []
-        self.kernels: list[keras.Variable] = []
-        self.biases: list[keras.Variable] = []
+        self.reduce = bool(reduce)
 
     def get_config(self):
         config = super().get_config()
         config.update(
             {
-                "n_inputs": self.n_inputs,
                 "out_features": self.out_features,
                 "use_bias": self.use_bias,
-                "initializer": self.initializer,
-                "bias_initializer": self.bias_initializer,
+                "reduce": self.reduce,
             }
         )
         return config
 
     def build(self, input_shape):
-        data_shapes = input_shape[: self.n_inputs]
-        activation_shapes = input_shape[self.n_inputs :]
-
-        for index, (data_shape, activation_shape) in enumerate(
-            zip(data_shapes, activation_shapes)
-        ):
-            if any(axis is None for axis in data_shape[1:]):
-                raise ValueError(
-                    f"{self.name}: input {index} has a dynamic shape "
-                    f"{tuple(data_shape)}; a local model needs a fixed window."
-                )
-            if len(activation_shape) != 3 or activation_shape[1] is None:
-                raise ValueError(
-                    f"{self.name}: activation {index} must have shape "
-                    f"[batch, cells, 1], got {tuple(activation_shape)}."
-                )
-
-            features = prod(int(axis) for axis in data_shape[1:])
-            cells = int(activation_shape[1])
-            self.features.append(features)
-            self.cells.append(cells)
-            self.kernels.append(
-                self.add_weight(
-                    shape=(cells, features, self.out_features),
-                    initializer=_per_cell_initializer(self.initializer),
-                    name=f"kernel_{index}",
-                )
+        x_shape, mu_shape = input_shape
+        self.features = prod(int(axis) for axis in x_shape[1:])
+        self.cells = int(mu_shape[1])
+        self.kernel = self.add_weight(
+            shape=(self.cells, self.features, self.out_features),
+            initializer=_per_cell_initializer("glorot_uniform"),
+            name="kernel",
+        )
+        self.bias = (
+            self.add_weight(
+                shape=(self.cells, self.out_features), initializer="zeros", name="bias"
             )
-            if self.use_bias:
-                self.biases.append(
-                    self.add_weight(
-                        shape=(cells, self.out_features),
-                        initializer=self.bias_initializer,
-                        name=f"bias_{index}",
-                    )
-                )
+            if self.use_bias
+            else None
+        )
         super().build(input_shape)
 
     def call(self, xs):
-        result = None
-        for index, (x, activation) in enumerate(
-            zip(xs[: self.n_inputs], xs[self.n_inputs :])
-        ):
-            features = self.features[index]
-            cells = self.cells[index]
+        x = keras.ops.reshape(xs[0], (-1, self.features))
+        mu = keras.ops.reshape(xs[1], (-1, self.cells))
 
-            x = keras.ops.reshape(x, (-1, features))
-            activation = keras.ops.reshape(activation, (-1, cells))
-
-            # [batch, cells, features] flattened: one matmul then evaluates
-            # every cell and sums them weighted by their membership degree.
+        if self.reduce:
+            # Blending the memberships into the input first evaluates and sums
+            # every cell with a single matmul.
             blended = keras.ops.reshape(
-                keras.ops.expand_dims(activation, -1) * keras.ops.expand_dims(x, 1),
-                (-1, cells * features),
+                keras.ops.expand_dims(mu, -1) * keras.ops.expand_dims(x, 1),
+                (-1, self.cells * self.features),
             )
-            term = keras.ops.matmul(
+            y = keras.ops.matmul(
                 blended,
                 keras.ops.reshape(
-                    self.kernels[index], (cells * features, self.out_features)
+                    self.kernel, (self.cells * self.features, self.out_features)
                 ),
             )
-            if self.use_bias:
-                term = term + keras.ops.matmul(activation, self.biases[index])
+            if self.bias is not None:
+                y = y + keras.ops.matmul(mu, self.bias)
+            return keras.ops.reshape(y, (-1, self.out_features, 1))
 
-            result = term if result is None else result + term
+        y = keras.ops.einsum("bf,nfo->bno", x, self.kernel)
+        if self.bias is not None:
+            y = y + self.bias
+        y = y * keras.ops.expand_dims(mu, -1)
+        return keras.ops.reshape(y, (-1, self.cells, self.out_features, 1))
 
-        return keras.ops.reshape(result, (-1, self.out_features, 1))
 
-
-class LocalModel(Layer):
+class LocalFir(Layer):
     """
-    Local models blended by fuzzy membership degrees.
+    ``cells`` independent :class:`Fir` maps evaluated at once.
 
-    Every input is paired with the activation that schedules it, and the pairs
-    are summed::
-
-        LocalModel(out_features=1)([torque.sw(25)], [fuzzified_gear])
-
-    Input:
-        x_j: [batch, dim..., time]
-        a_j: [batch, cells_j, 1]
-
-    Output:
-        [batch, out_features, 1]
-
-    Each cell is affine in the flattened input, which is what lets the whole
-    block collapse into one matmul per input. ``input_function`` and
-    ``output_function`` escape that: they build one explicit cell per
-    membership out of ordinary nnodely layers, so an arbitrary user function
-    gets its own parameters per cell at the price of the expanded graph. They
-    replace the affine cell entirely, so ``out_features`` and ``use_bias`` are
-    then unused.
+    Input:  x: [dim..., time], mu: [cells, 1]
+    Output: [out_features, 1] summed over the cells, or
+            [cells, out_features, 1] with ``reduce=False``.
     """
 
     def __init__(
         self,
         out_features: int = 1,
         use_bias: bool = True,
-        initializer="glorot_uniform",
-        bias_initializer="zeros",
-        input_function: Callable | None = None,
-        output_function: Callable | None = None,
-        n_inputs: int = 1,
+        reduce: bool = True,
         name=None,
     ):
         self.out_features = int(out_features)
         self.use_bias = bool(use_bias)
-        self.initializer = initializer
-        self.bias_initializer = bias_initializer
-        self.input_function = input_function
-        self.output_function = output_function
-        self.n_inputs = int(n_inputs)
+        self.reduce = bool(reduce)
         super().__init__(
             name=name,
             out_features=self.out_features,
             use_bias=self.use_bias,
-            initializer=initializer,
-            bias_initializer=bias_initializer,
-            input_function=input_function,
-            output_function=output_function,
-            n_inputs=self.n_inputs,
+            reduce=self.reduce,
         )
-
-    def __call__(self, inputs, activations):  # type: ignore #TODO: control the multiple call signature
-        inputs = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
-        activations = (
-            list(activations)
-            if isinstance(activations, (list, tuple))
-            else [activations]
-        )
-        if len(inputs) != len(activations):
-            raise ValueError(
-                f"{self.name}: got {len(inputs)} inputs and {len(activations)} "
-                "activations; every input is scheduled by its own activation."
-            )
-
-        self.n_inputs = len(inputs)
-        self._properties["n_inputs"] = self.n_inputs
-
-        if self.input_function is None and self.output_function is None:
-            return super().__call__([*inputs, *activations])
-
-        return self._expand(inputs, activations)
-
-    def _expand(self, inputs, activations):
-        """One explicit cell per membership, for functions no matmul can fold."""
-        cells = []
-        for x, activation in zip(inputs, activations):
-            for index in range(activation.dim[0]):
-                cell = x if self.input_function is None else self.input_function([x])
-                cell = cell * Select(idx=index, axis=0)([activation])
-                if self.output_function is not None:
-                    cell = self.output_function([cell])
-                cells.append(cell)
-        return Add()(cells) if len(cells) > 1 else cells[0]
 
     def build_layer(self):
-        for index, node in enumerate(self.preds[: self.n_inputs]):
-            shape = getattr(node, "shape", None)
-            if shape is None:
-                raise ValueError(
-                    f"{self.name}: input {index} has no shape; a local model "
-                    "needs a fixed window."
-                )
-            if shape.seq_rank:
-                raise ValueError(
-                    f"{self.name}: input {index} carries a sequence axis "
-                    f"{shape.seq}; a local model consumes one window at a time."
-                )
-        for index, node in enumerate(self.preds[self.n_inputs :]):
-            shape = getattr(node, "shape", None)
-            if shape is None:
-                raise ValueError(
-                    f"{self.name}: activation {index} has no shape; a local model "
-                    "needs a fixed window."
-                )
-            if shape.seq_rank or shape.dim_rank != 1 or shape.time != 1:
-                raise ValueError(
-                    f"{self.name}: activation {index} must have shape "
-                    f"[cells, 1], got {shape}."
-                )
-
-        return LocalModelImpl(
-            n_inputs=self.n_inputs,
+        x = cast(Stream, self.preds[0])
+        if x.shape.seq_rank:
+            raise ValueError(
+                f"{self.name}: the input carries a sequence axis {x.shape.seq}; "
+                "a local model consumes one window at a time."
+            )
+        return LocalFirImpl(
             out_features=self.out_features,
             use_bias=self.use_bias,
-            initializer=self.initializer,
-            bias_initializer=self.bias_initializer,
+            reduce=self.reduce,
             name=self.name,
         )
 
@@ -285,65 +221,211 @@ class LocalModel(Layer):
             "name": self.name,
             "out_features": self.out_features,
             "use_bias": self.use_bias,
-            "n_inputs": self.n_inputs,
+            "reduce": self.reduce,
         }
-
-    @classmethod
-    def from_config(cls, config: dict, preds=None):
-        layer = cls(**config)
-
-        if preds is None or len(preds) == 0:
-            return layer
-
-        return layer(preds[: layer.n_inputs], preds[layer.n_inputs :])
 
     @property
     def kernel(self):
-        """The cell matrices, one ``[cells, features, out_features]`` per input."""
-        if self._layer is None:
-            return None
-        return (
-            self._layer.kernels[0]
-            if len(self._layer.kernels) == 1
-            else self._layer.kernels
-        )
+        """The cell matrices, ``[cells, features, out_features]``."""
+        return None if self._layer is None else self._layer.kernel
 
     @property
     def bias(self):
-        """The cell biases, one ``[cells, out_features]`` per input."""
-        if self._layer is None or not self._layer.use_bias:
-            return None
-        return (
-            self._layer.biases[0]
-            if len(self._layer.biases) == 1
-            else self._layer.biases
+        """The cell biases, ``[cells, out_features]``."""
+        return None if self._layer is None else self._layer.bias
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class CellStackImpl(keras.layers.Layer):
+    """
+    Cells weighted by their membership degree.
+
+    Inputs:  cell_0, ..., cell_{N-1}: [batch, *cell], mu: [batch, N, 1]
+    Output:  [batch, *cell] summed, or [batch, N, *cell] with ``reduce=False``.
+    """
+
+    def __init__(self, reduce=True, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.reduce = bool(reduce)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"reduce": self.reduce})
+        return config
+
+    def call(self, xs):
+        cells = keras.ops.stack(xs[:-1], axis=1)
+        mu = keras.ops.reshape(
+            xs[-1], (-1, len(xs) - 1) + (1,) * (len(cells.shape) - 2)
+        )
+        cells = cells * mu
+        return keras.ops.sum(cells, axis=1) if self.reduce else cells
+
+
+class CellStack(Layer):
+    """Stack the cells weighted by the memberships given last, optionally summed."""
+
+    def __init__(self, reduce: bool = True, name=None):
+        self.reduce = bool(reduce)
+        super().__init__(name=name, reduce=self.reduce)
+
+    def build_layer(self):
+        return CellStackImpl(reduce=self.reduce, name=self.name)
+
+    def get_config(self):
+        return {"name": self.name, "reduce": self.reduce}
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class CellSumImpl(keras.layers.Layer):
+    """[batch, N, *cell] -> [batch, *cell]."""
+
+    def call(self, x):
+        return keras.ops.sum(x, axis=1)
+
+
+class CellSum(Layer):
+    """Sum over the leading cell axis, dropping it."""
+
+    def build_layer(self):
+        return CellSumImpl(name=self.name)
+
+    def get_config(self):
+        return {"name": self.name}
+
+
+class LocalModel:
+    """
+    Local models blended by fuzzy membership degrees.
+
+    ::
+
+        LocalModel(Fir(out_features=1))(torque.sw(25), [gear_mu, speed_mu])
+
+    The activations ``a_k: [n_k, 1]`` are combined into ``N = n_1 * n_2 * ...``
+    joint memberships ``mu`` (their outer product, flattened row-major: cell
+    ``(i_1, i_2)`` is number ``i_1 * n_2 + i_2``), which still sum to one when
+    every activation does. Each cell gets its own instance of
+    ``input_function``, evaluated on ``inputs``, and the result is::
+
+        sum_i output_function_i(mu_i * input_function_i(inputs))
+
+    ``input_function`` and ``output_function`` take the list of input streams
+    and are either one callable, instantiated anew for every cell, or a list of
+    ``N`` callables used as given; every cell must return the same shape.
+    ``input_function`` defaults to ``Fir(out_features=1)``. With
+    ``pass_index=True`` a plain function is a factory instead: it receives the
+    cell index ``(i_1, i_2, ...)`` and returns the callable of that cell.
+
+    A :class:`Fir` instance as ``input_function`` evaluates every cell with a
+    single matmul, and a weightless elementwise layer instance (``ReLU()``,
+    ``Tanh()``, ``Sin()``...) as ``output_function`` is applied once to all
+    the cells together. Anything else builds one explicit subgraph per cell.
+    """
+
+    def __init__(
+        self,
+        input_function: Callable | list[Callable] | None = None,
+        output_function: Callable | list[Callable] | None = None,
+        pass_index: bool = False,
+        name: str | None = None,
+    ):
+        self.input_function = (
+            Fir(out_features=1) if input_function is None else input_function
+        )
+        self.output_function = output_function
+        self.pass_index = bool(pass_index)
+        self.name = next_name("LocalModel") if name is None else name
+
+    def __call__(self, inputs, activations):
+        inputs = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
+        activations = (
+            list(activations)
+            if isinstance(activations, (list, tuple))
+            else [activations]
+        )
+        for index, activation in enumerate(activations):
+            shape = activation.shape
+            if shape.seq_rank or shape.dim_rank != 1 or shape.time != 1:
+                raise ValueError(
+                    f"{self.name}: activation {index} must have shape "
+                    f"[cells, 1], got {shape}."
+                )
+
+        sizes = [activation.dim[0] for activation in activations]
+        indices = list(np.ndindex(*sizes))
+        for role, function in (
+            ("input", self.input_function),
+            ("output", self.output_function),
+        ):
+            if isinstance(function, (list, tuple)) and len(function) != len(indices):
+                raise ValueError(
+                    f"{self.name}: got {len(function)} {role} functions for "
+                    f"{len(indices)} cells."
+                )
+        mu = (
+            activations[0]
+            if len(activations) == 1
+            else FuzzyProduct(name=f"{self.name}_mu")(activations)
         )
 
+        once = self.output_function is None or isinstance(
+            self.output_function, _ELEMENTWISE
+        )
+        final_name = self.name if self.output_function is None else f"{self.name}_cells"
 
-## HIGH LEVEL BLOCK FOR LOCAL MODEL ##
-# class LocalModel:
-#     """
-#     High-level abstraction for a local model built using only nnodely blocks
-#     """
+        if once and type(self.input_function) is Fir and len(inputs) == 1:
+            fir = cast(Fir, self.input_function)
+            cells = LocalFir(
+                out_features=fir.out_features,
+                use_bias=fir.use_bias,
+                reduce=self.output_function is None,
+                name=final_name,
+            )([inputs[0], mu])
+        else:
+            outputs = [
+                self._cell(self.input_function, i, index, "in")(inputs)
+                for i, index in enumerate(indices)
+            ]
+            self._check_same_shape(outputs, "input")
+            if not once:
+                return self._per_cell_outputs(outputs, mu, indices)
+            cells = CellStack(reduce=self.output_function is None, name=final_name)(
+                [*outputs, mu]
+            )
 
-#     def __init__(
-#         self,
-#         input_function,
-#         output_function=None,
-#         name: str | None = None,
-#     ):
-#         self.input_function = input_function
-#         self.output_function = output_function
-#         self.name = name
+        if self.output_function is None:
+            return cells
+        output_function = cast(Layer, self.output_function)
+        return CellSum(name=self.name)([output_function([cells])])
 
-#     def __call__(self, activation):
-#         ret = []
-#         local = Input("local_input")
-#         for i in range(activation.dim[0]):
-#             x = self.input_function([local]) * Select(idx=i, axis=0)([activation])
-#             if self.output_function is not None:
-#                 x = self.output_function([x])
-#             ret.append(x)
-#         ret = Add()(ret)
-#         out = Output("local_output", ret)
-#         return Modely(name=f"{self.name}", inputs=[local], outputs=[out])
+    def _per_cell_outputs(self, outputs, mu, indices):
+        """One output function per cell, for functions that cannot be batched."""
+        cells = [
+            self._cell(self.output_function, i, index, "out")(
+                [output * Select(idx=i, axis=0)([mu])]
+            )
+            for i, (output, index) in enumerate(zip(outputs, indices))
+        ]
+        self._check_same_shape(cells, "output")
+        return Add(name=self.name)(cells) if len(cells) > 1 else cells[0]
+
+    def _check_same_shape(self, cells, role):
+        shapes = {cell.shape.tuple for cell in cells}
+        if len(shapes) > 1:
+            raise ValueError(
+                f"{self.name}: every {role} function must return the same "
+                f"shape, got {sorted(shapes)}."
+            )
+
+    def _cell(self, function, i, index, role):
+        """The callable of cell ``i``, whose multi-index is ``index``."""
+        if isinstance(function, (list, tuple)):
+            return function[i]
+        if isinstance(function, Layer):
+            # Nodes that share a name share their weights, so a single layer
+            # repeated over the cells is copied under a name of its own.
+            return type(function)(name=f"{self.name}_{role}{i}", **function._properties)
+        if self.pass_index:
+            return function(index)
+        return function

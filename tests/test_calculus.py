@@ -4,13 +4,15 @@ import keras
 import numpy as np
 import pytest
 
-from conftest import to_numpy
+from conftest import requires_onnx_export, to_numpy
 from nnodely import (
+    DataLoader,
     DataLoader,
     Derivative,
     Fir,
     Input,
     Integrate,
+    Linear,
     Linear,
     Modely,
     Output,

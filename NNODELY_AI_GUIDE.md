@@ -113,7 +113,7 @@ The Input's own window is the union of all requested windows: `past = max p`, `f
 | `TimeConcatenate()([v.sw(2), v.sw(3)])` | `(3, 5)` |
 | `Fuzzify(centers=[0,1,2])([g.last()])` | `(3, 1)`: one feature per center |
 | `Fuzzify(centers=[0,1,2])([g.sw(4)])` | `(3, 4)` |
-| `LocalModel(out_features=1)([t.sw(10)], [Fuzzify(...)([g.last()])])` | `(1, 1)` |
+| `LocalModel(Fir(out_features=1))([t.sw(10)], [Fuzzify(...)([g.last()])])` | `(1, 1)` |
 | `Derivative(respect_to=dt)(x.sw(n))` | `(1, n)`: window length preserved |
 | `Derivative(respect_to=t_input)(u)` | shape of `t_input`'s full window |
 | `Integrate(dt=dt)(a.sw(n))` | `(1, n)` |
@@ -185,12 +185,12 @@ Install: `pip install "nnodely[torch]"` (or `[tensorflow]` / `[jax]`); add `onnx
 Configure first, then call on a stream or a list of streams:
 - `Linear(out_features=4)([s])` and `Linear(out_features=4)(s)` are both accepted.
 - Multi-input layers take a list: `Concatenate()([a, b])`.
-- `LocalModel` takes two lists: `LocalModel(...)(inputs, activations)`.
+- `LocalModel` takes the inputs and a list of activations: `LocalModel(...)(inputs, activations)`.
 
 After build, weights are available on the *returned stream node*: `node.kernel`, `node.bias` (Keras variables; `.assign(np.array(...))` works).
 - `Fir.kernel` has shape `(prod(dim)*time, out_features)`; rows follow C order over `(*dim, time)`, so for `dim=1` row k is window sample k, oldest first.
 - `Linear.kernel` has shape `(in_features, out_features)`.
-- `LocalModel.kernel` has shape `[cells, features, out_features]` per input.
+- `LocalModel(Fir(...))` without output function (or the `"{name}_cells"` layer with an elementwise one) exposes `kernel` `[cells, features, out_features]` and `bias` `[cells, out_features]`.
 
 ---
 
@@ -203,7 +203,7 @@ Legend: **in → out** gives semantic shapes. `d` = dim, `T` = time, `S` = seq.
 |---|---|---|
 | `Linear(out_features=1, use_bias=True, name=None, initializer="glorot_uniform", bias_initializer="glorot_uniform")` | `(d, T, *S)` → `(out, T, *S)` | Dense on the first dim axis, applied per time/seq element. The bias initializer is glorot, not zeros. |
 | `Fir(out_features, use_bias=True, name=None)` | anything → `(out, 1)` | Flattens **all** of dim×time×seq, then Dense. `out_features` is required. The seq axis is lost, so do not use it on seq streams. |
-| `LocalModel(out_features=1, use_bias=True, initializer="glorot_uniform", bias_initializer="zeros", input_function=None, output_function=None, name=None)` called as `(inputs: list, activations: list)` | `x_j: (d, T)`, `a_j: (cells, 1)` → `(out, 1)` | Computes `Σ_j Σ_i a_j,i (W_j,i x_j + b_j,i)`. Each activation must be `(cells,1)`, e.g. `Fuzzify(...)([g.last()])`. Inputs must not carry seq. With `input_function` / `output_function` (callables receiving a **list** `[stream]`), one explicit cell is built per membership: `Σ_i output_function(input_function([x]) * a_i)`, and `out_features` / `use_bias` are then unused. Create layers inside those callables so that each cell gets its own weights. |
+| `LocalModel(input_function=None, output_function=None, pass_index=False, name=None)` called as `(inputs, activations: list)` | `a_k: (n_k, 1)` → shape of one cell | The activations are multiplied into `N = Π n_k` joint memberships `mu`, row-major (cell `(i1, i2)` is `i1*n2 + i2`). Computes `Σ_i output_function_i(mu_i * input_function_i([x...]))`. Functions receive a **list** of streams and are one callable (a new instance per cell: a `Layer` instance is copied as `"{name}_in{i}"` / `"{name}_out{i}"`, a plain function is called once per cell) or a list of `N` callables used as given; all cells must return the same shape. `input_function` defaults to `Fir(out_features=1)`. With `pass_index=True` a plain function is a factory `f((i1, i2, ...)) -> callable`. Fast paths: a `Fir` instance as input evaluates all cells in one matmul (inputs must not carry seq); a weightless elementwise layer instance (`ReLU()`, `Tanh()`, `Sin()`, ...) as output is applied once to all cells. Anything else builds one subgraph per cell. |
 | `EquationLearner(functions: list, *, linear_in: Linear \| None = None, linear_out: Linear \| None = None, name=None)` called on `stream` or `[streams]` | `(d, T)` → `(n_functions, T)`, or `linear_out`'s output | `functions` items can be a name (`identity sin cos tan asin acos atan relu leaky_relu elu prelu sigmoid tanh swish gelu softplus add subtract multiply divide power`), a Layer class or instance, a callable over streams (arity inferred), or `(callable, arity)`. `linear_in` projects to Σarity arguments; its `out_features` must equal that sum. Inputs must have dim rank 1 (several inputs are concatenated). Internally it is a composed `Modely`. |
 | `BatchNorm(axis=1, momentum=0.99, epsilon=1e-3, center=True, scale=True, name=None)` | unchanged | Per-feature statistics. Uses the inference branch in `validate` / `_predict`. |
 | `Parameter(...)` | – | See §5. |
@@ -592,7 +592,7 @@ node.model.get_layer("node").set_method("dopri5")               # adaptive for i
 from nnodely import Fir, Fuzzify, Input, LocalModel, Modely, Output
 trq, gear = Input("trq"), Input("gear")
 mu = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function="Triangular")([gear.last()])   # (4, 1)
-engine = LocalModel(out_features=1)([trq.sw(10)], [mu])                              # (1, 1)
+engine = LocalModel(Fir(out_features=1))([trq.sw(10)], [mu])                         # (1, 1)
 m = Modely("sched", inputs=[trq, gear], outputs=[Output("force", engine)]).build()
 m({"trq": np.ones((1, 1, 10)), "gear": [[2.5]]})
 # engine.kernel.shape == (4, 10, 1): one 10-tap FIR per gear cell
