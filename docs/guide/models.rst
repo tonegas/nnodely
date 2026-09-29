@@ -23,8 +23,12 @@ Parameters and constants
 ------------------------
 
 A :class:`~nnodely.Parameter` is a trainable tensor used directly in the graph,
-and a :class:`~nnodely.Constant` is a fixed one. Either the shape is given with
-``dim``, or it is taken from ``value``:
+and a :class:`~nnodely.Constant` is a fixed one. A ``value`` sets the shape: a
+number or a vector is one time step of its ``dim``, a matrix is ``(dim, time)``
+and further axes are ``seq`` axes. A constant always takes its shape from its
+``value``; a parameter can be given ``dim``, ``time`` and ``seq`` instead, and
+start from a random value. Like every stream they are laid out
+``(batch, *dim, time, *seq)``, the same value for every sample:
 
 .. code-block:: python
 
@@ -159,8 +163,11 @@ Inference
 ---------
 
 A built model is called with a dictionary that maps input names to arrays of
-shape ``(batch, *dim, time, *seq)``. The batch axis may be left out for a
-single sample. The result maps output names to tensors of the active backend.
+shape ``(batch, *dim, time, *seq)``, batch axis included. Inputs only the
+minimizers read, such as targets, are ignored, so the arrays of a
+:class:`~nnodely.DataLoader` - ``as_dict()`` or ``get_samples(n)`` - can be
+passed as they are. The result maps output names to tensors of the active
+backend.
 
 The ``time`` axis of an input's array must cover the union of all its windows,
 which the input's ``shape`` reports. Here ``velocity`` is read through

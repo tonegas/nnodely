@@ -34,6 +34,13 @@ SUPPORTED_OPTIMIZERS = {
 #     return result
 
 
+def _serialized_initializer(initializer):
+    """An initializer as a saved config can hold it: its name, or its config."""
+    if isinstance(initializer, str):
+        return initializer
+    return keras.initializers.serialize(initializer)
+
+
 def _resolve_loss(
     loss: str | dict[str, Any] | keras.losses.Loss | Callable,
 ) -> keras.losses.Loss | Callable:

@@ -45,14 +45,8 @@ class Layer(Stream):
                 "Layers without inputs must implement output_shape()."
             )
 
-        zero_input_layers = [not has_batch(input_node) for input_node in inputs]
         dummy_inputs = [
-            keras.ops.zeros(
-                input_node.shape.tuple
-                if is_zero_input_layer
-                else (1, *input_node.shape.tuple)
-            )
-            for input_node, is_zero_input_layer in zip(inputs, zero_input_layers)
+            keras.ops.zeros((1, *input_node.shape.tuple)) for input_node in inputs
         ]
 
         # Some build_layer() implementations need the symbolic input context to
@@ -81,18 +75,14 @@ class Layer(Stream):
         output_values = list(outputs) if multiple_outputs else [outputs]
         inferred = [
             self._shape_from_tensor(
-                output,
-                max(input_node.shape.seq_rank for input_node in inputs),
-                has_batch=not all(zero_input_layers),
+                output, max(input_node.shape.seq_rank for input_node in inputs)
             )
             for output in output_values
         ]
         return inferred if multiple_outputs else inferred[0]
 
-    def _shape_from_tensor(self, tensor, seq_rank: int, *, has_batch: bool):
-        shape = tuple(tensor.shape)
-        if has_batch:
-            shape = shape[1:]
+    def _shape_from_tensor(self, tensor, seq_rank: int):
+        shape = tuple(tensor.shape)[1:]
         # A layer may consume sequence axes (for example a recurrent body
         # relation reduced to one step), so preserve only those still present.
         seq_rank = min(seq_rank, max(0, len(shape) - 2))
@@ -194,36 +184,6 @@ class Layer(Stream):
         return layer(preds)
 
 
-def has_batch(node) -> bool:
-    """False for a node whose value is built only from constants and parameters.
-
-    Batch-free-ness propagates: ``Exp()(parameter)`` carries no batch axis
-    either, so it cannot be recognised by looking at the node alone.
-    """
-    memo: dict[int, bool] = {}
-    stack = [node]
-    while stack:
-        current = stack[-1]
-        if id(current) in memo:
-            stack.pop()
-            continue
-        if not isinstance(current, Layer):
-            memo[id(current)] = True
-            stack.pop()
-            continue
-        if not current.preds:
-            memo[id(current)] = False
-            stack.pop()
-            continue
-        pending = [pred for pred in current.preds if id(pred) not in memo]
-        if pending:
-            stack.extend(pending)
-            continue
-        memo[id(current)] = any(memo[id(pred)] for pred in current.preds)
-        stack.pop()
-    return memo[id(node)]
-
-
 class BinaryOp(Layer):
     operation = None
 
@@ -232,47 +192,42 @@ class BinaryOp(Layer):
             raise NotImplementedError(
                 "Subclasses must define an operation class attribute."
             )
-        input_has_batch = tuple(has_batch(node) for node in (self.inputs or self.preds))
-        return BinaryOpImpl(
-            operation=self.operation,
-            input_has_batch=input_has_batch,
-            name=self.name,
-        )
+        return BinaryOpImpl(operation=self.operation, name=self.name)
+
+
+_BINARY_OPERATIONS = {
+    "add": keras.ops.add,
+    "subtract": keras.ops.subtract,
+    "multiply": keras.ops.multiply,
+    "divide": keras.ops.divide,
+    "power": keras.ops.power,
+}
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class BinaryOpImpl(keras.layers.Layer):
-    def __init__(
-        self,
-        operation: str,
-        input_has_batch: tuple[bool, ...] | None = None,
-        **kwargs,
-    ):
+    """An elementwise operation between streams laid out
+    ``(batch, *dim, time, *seq)``.
+
+    An operand with fewer axes - a number carries no sequence axis - gets its
+    missing axes at the end, so it broadcasts along those. Aligned from the
+    end instead, as broadcasting does by default, its batch axis would line
+    up with the other operand's first dim axis.
+    """
+
+    def __init__(self, operation: str, **kwargs):
         super().__init__(**kwargs)
         self.operation = operation
-        self.input_has_batch = input_has_batch
 
     def call(self, xs):
-        has_batch = self.input_has_batch or tuple(True for _ in xs)
-        graph_has_batch = any(has_batch)
-        target_rank = max(
-            len(value.shape) + int(graph_has_batch and not value_has_batch)
-            for value, value_has_batch in zip(xs, has_batch)
-        )
-        values = list(xs)
-        for index, (value, value_has_batch) in enumerate(zip(values, has_batch)):
-            if graph_has_batch and not value_has_batch:
-                value = keras.ops.expand_dims(value, axis=0)
-            while len(value.shape) < target_rank:
+        rank = max(len(value.shape) for value in xs)
+        values = []
+        for value in xs:
+            while len(value.shape) < rank:
                 value = keras.ops.expand_dims(value, axis=-1)
-            values[index] = value
+            values.append(value)
 
-        operations = {
-            "add": keras.ops.add,
-            "subtract": keras.ops.subtract,
-            "multiply": keras.ops.multiply,
-        }
-        operation = operations[self.operation]
+        operation = _BINARY_OPERATIONS[self.operation]
         result = values[0]
         for value in values[1:]:
             result = operation(result, value)
@@ -280,12 +235,7 @@ class BinaryOpImpl(keras.layers.Layer):
 
     def get_config(self):
         config = super().get_config()
-        config.update(
-            {
-                "operation": self.operation,
-                "input_has_batch": self.input_has_batch,
-            }
-        )
+        config.update({"operation": self.operation})
         return config
 
 
@@ -301,32 +251,12 @@ class Multiply(BinaryOp):
     operation = "multiply"
 
 
-@keras.saving.register_keras_serializable(package="nnodely")
-class DivideImpl(keras.layers.Layer):
-    def call(self, xs):
-        return xs[0] / xs[1]
-
-    def get_config(self):
-        return super().get_config()
-
-
 class Divide(BinaryOp):
-    def build_layer(self):
-        return DivideImpl(name=self.name)
-
-
-@keras.saving.register_keras_serializable(package="nnodely")
-class PowerImpl(keras.layers.Layer):
-    def call(self, xs):
-        return keras.ops.power(xs[0], xs[1])
-
-    def get_config(self):
-        return super().get_config()
+    operation = "divide"
 
 
 class Power(BinaryOp):
-    def build_layer(self):
-        return PowerImpl(name=self.name)
+    operation = "power"
 
 
 class Identity(Layer):

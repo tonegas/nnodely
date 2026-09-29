@@ -56,8 +56,8 @@ from nnodely.core.layer import Identity
 from nnodely.layers.time_ops import Select
 from conftest import requires_onnx_export, to_numpy
 import json
+import keras
 import numpy as np
-from pathlib import Path
 import pytest
 
 
@@ -87,8 +87,8 @@ def test_save_load_simple_model(tmp_path):
     model.build()
 
     ## dummy input
-    x_data = np.random.randn(1, 5)
-    y_data = np.random.randn(1, 5)
+    x_data = np.random.randn(1, 1, 5)
+    y_data = np.random.randn(1, 1, 5)
 
     pred = model({"x": x_data, "y": y_data})
     assert pred["accelleration"].shape == (1, 1, 1)
@@ -298,7 +298,8 @@ def test_export_onnx_feedforward_blocks(tmp_path, model_factory, inputs):
     }
 
     expected = model(inputs)
-    path = model.export_onnx(tmp_path / model.name)
+    model.export_onnx(tmp_path)
+    path = tmp_path / f"{model.name}.onnx"
     actual = Modely.validate_onnx(path, inputs, return_dict=True)
 
     assert path.is_file()
@@ -312,11 +313,25 @@ def test_export_onnx_feedforward_blocks(tmp_path, model_factory, inputs):
         )
 
 
+@pytest.mark.skipif(
+    keras.backend.backend() != "jax",
+    reason="the jax backend is the one without an ONNX exporter",
+)
+def test_export_onnx_on_jax_says_it_is_unavailable(tmp_path):
+    # Every other ONNX test is skipped on jax: this is what a jax user sees.
+    model = _single_input_model("onnx_on_jax", lambda stream: Identity()(stream))
+
+    with pytest.raises(NotImplementedError, match="not available on the jax backend"):
+        model.export_onnx(tmp_path, "onnx_on_jax")
+    assert not (tmp_path / "onnx_on_jax.onnx").exists()
+
+
 @requires_onnx_export
 def test_validate_onnx_rejects_missing_input(tmp_path):
     pytest.importorskip("onnxruntime")
     model = _single_input_model("onnx_missing", lambda stream: Identity()(stream))
-    path = model.export_onnx(tmp_path / "missing.onnx")
+    model.export_onnx(tmp_path, "missing")
+    path = tmp_path / "missing.onnx"
 
     with pytest.raises(ValueError, match="Missing ONNX inputs"):
         Modely.validate_onnx(path, {})
@@ -350,7 +365,7 @@ def test_interpolation_save_keras_and_html(tmp_path, mode):
     }
 
     keras_path = tmp_path / f"interpolation_{mode}.keras"
-    model.export_keras(keras_path)
+    model.export_keras(tmp_path, f"interpolation_{mode}")
     keras_model = Modely.import_keras(keras_path)
     keras_result = keras_model(inputs, training=False)  # type: ignore
     np.testing.assert_allclose(
@@ -360,12 +375,12 @@ def test_interpolation_save_keras_and_html(tmp_path, mode):
         atol=1e-5,
     )
 
-    html_path = model.export_html(
+    model.export_html(
         tmp_path,
         filename=f"interpolation_{mode}.html",
         physics=False,
     )
-    html = Path(html_path).read_text(encoding="utf-8")
+    html = (tmp_path / f"interpolation_{mode}.html").read_text(encoding="utf-8")
     assert f"{mode}_interpolation" in html
     assert '"class": "Interpolation"' in html
     assert '"x_points"' in html
@@ -391,7 +406,7 @@ def test_concatenate_save_keras_and_html(tmp_path):
     )
 
     keras_path = tmp_path / "concatenate.keras"
-    model.export_keras(keras_path)
+    model.export_keras(tmp_path, "concatenate")
     keras_model = Modely.import_keras(keras_path)
     keras_result = keras_model(inputs, training=False)  # type: ignore
     np.testing.assert_allclose(
@@ -401,12 +416,12 @@ def test_concatenate_save_keras_and_html(tmp_path):
         atol=1e-5,
     )
 
-    html_path = model.export_html(
+    model.export_html(
         tmp_path,
         filename="concatenate.html",
         physics=False,
     )
-    html = Path(html_path).read_text(encoding="utf-8")
+    html = (tmp_path / "concatenate.html").read_text(encoding="utf-8")
     assert "export_dim_concatenate" in html
     assert '"class": "Concatenate"' in html
     assert '"axis": 0' in html
@@ -432,7 +447,7 @@ def test_equation_learner_save_keras_and_html(tmp_path):
     )
 
     keras_path = tmp_path / "equation_learner.keras"
-    model.export_keras(keras_path)
+    model.export_keras(tmp_path, "equation_learner")
     keras_model = Modely.import_keras(keras_path)
     keras_result = keras_model(inputs, training=False)  # type: ignore
     np.testing.assert_allclose(
@@ -442,12 +457,12 @@ def test_equation_learner_save_keras_and_html(tmp_path):
         atol=1e-5,
     )
 
-    html_path = model.export_html(
+    model.export_html(
         tmp_path,
         filename="equation_learner",
         physics=False,
     )
-    html = Path(html_path).read_text(encoding="utf-8")
+    html = (tmp_path / "equation_learner.html").read_text(encoding="utf-8")
     assert "equation_export_call" in html
     assert '"nested_model": "equation_export"' in html
 
@@ -482,7 +497,7 @@ def test_local_model_save_keras_and_html(tmp_path):
     )
 
     keras_path = tmp_path / "local_model.keras"
-    model.export_keras(keras_path)
+    model.export_keras(tmp_path, "local_model")
     keras_model = Modely.import_keras(keras_path)
     keras_result = keras_model(inputs, training=False)  # type: ignore
     np.testing.assert_allclose(
@@ -492,8 +507,8 @@ def test_local_model_save_keras_and_html(tmp_path):
         atol=1e-5,
     )
 
-    html_path = model.export_html(tmp_path, filename="local_model", physics=False)
-    html = Path(html_path).read_text(encoding="utf-8")
+    model.export_html(tmp_path, filename="local_model", physics=False)
+    html = (tmp_path / "local_model.html").read_text(encoding="utf-8")
     assert "onnx_local_function" in html
 
 
@@ -555,7 +570,7 @@ def _assert_roll_result(result):
 
 def test_save_load_roll_model(tmp_path):
     model = _roll_model()
-    inputs = {"roll_x": np.arange(1, 6, dtype=np.float32)}
+    inputs = {"roll_x": np.arange(1, 6, dtype=np.float32).reshape((1, 1, 5))}
     _assert_roll_result(model(inputs))
 
     path = tmp_path / "roll_model.nnodely"
@@ -575,7 +590,7 @@ def test_export_keras_roll_model(tmp_path):
     inputs = {"roll_x": np.arange(1, 6, dtype=np.float32).reshape((1, 1, 5))}
     path = tmp_path / "roll_model.keras"
 
-    model.export_keras(path)
+    model.export_keras(tmp_path, "roll_model")
     restored = Modely.import_keras(str(path.with_suffix("")))
 
     assert path.is_file()
@@ -588,7 +603,8 @@ def test_export_onnx_roll_model(tmp_path):
     model = _roll_model()
     inputs = {"roll_x": np.arange(1, 6, dtype=np.float32).reshape((1, 1, 5))}
 
-    path = model.export_onnx(tmp_path / "roll.onnx")
+    model.export_onnx(tmp_path, "roll")
+    path = tmp_path / "roll.onnx"
     result = Modely.validate_onnx(path, inputs, return_dict=True)
 
     assert path.is_file()
@@ -1406,7 +1422,7 @@ def test_export_keras_leaves_minimizers_out(tmp_path):
     expected = model(dict(inputs))["minimized_out"]
 
     path = tmp_path / "minimized.keras"
-    model.export_keras(path)
+    model.export_keras(tmp_path, "minimized")
     restored = Modely.import_keras(path)
 
     assert [tensor.name for tensor in restored.inputs] == ["minimized_x"]  # type: ignore
@@ -1421,10 +1437,12 @@ def test_export_keras_leaves_minimizers_out(tmp_path):
 def test_export_onnx_leaves_minimizers_out(tmp_path):
     pytest.importorskip("onnxruntime")
     model = _minimized_model()
-    inputs = _minimized_inputs()
+    # One sample: the exported graph is run one sample at a time.
+    inputs = {name: value[:1] for name, value in _minimized_inputs().items()}
     expected = model(dict(inputs))["minimized_out"]
 
-    path = model.export_onnx(tmp_path / "minimized.onnx")
+    model.export_onnx(tmp_path, "minimized")
+    path = tmp_path / "minimized.onnx"
     # validate_onnx feeds every input of the graph: the target is not one of them.
     result = Modely.validate_onnx(path, inputs, return_dict=True)
 
@@ -1435,3 +1453,93 @@ def test_export_onnx_leaves_minimizers_out(tmp_path):
         rtol=1e-5,
         atol=1e-5,  # type: ignore
     )
+
+
+# ---------------------------------------------------------------------------
+# Names and weights of a loaded model
+# ---------------------------------------------------------------------------
+
+
+def _from_another_process(path):
+    """Mark a saved model as written by another process, and return its file."""
+    config = path / "model.json"
+    data = json.loads(config.read_text())
+    data["session"] = "another process"
+    config.write_text(json.dumps(data))
+    return config
+
+
+def test_a_model_from_another_process_keeps_its_layers_apart_from_ours(tmp_path):
+    x = Input("apart_x")
+    ours = Fir(out_features=1, use_bias=False)(x.sw(2))  # left unnamed
+    saved = Modely("apart", inputs=[x], outputs=[Output("apart_out", ours)]).build()
+    assert ours.kernel is not None
+    ours.kernel.assign(np.full((2, 1), 3.0, dtype=np.float32))
+    saved.save(tmp_path / "apart")
+    # Generated in another process, the saved names can be the very ones this
+    # process gave its own layers - as they are here.
+    _from_another_process(tmp_path / "apart")
+
+    loaded = Modely.load(tmp_path / "apart")
+    loaded_fir = next(node for node in loaded.order if isinstance(node, Fir))
+    assert loaded_fir.name != ours.name
+    ours.kernel.assign(np.ones((2, 1), dtype=np.float32))
+
+    both = Modely(
+        "apart_both", inputs=[x], outputs=[Output("apart_sum", ours + loaded([x]))]
+    ).build()
+    assert both.inference_model is not None
+    assert len(both.inference_model.weights) == 2
+    result = both({"apart_x": np.ones((1, 1, 2), dtype=np.float32)})["apart_sum"]
+    # Ours sums the window of ones, the loaded Fir keeps its 3.0 per sample.
+    np.testing.assert_allclose(to_numpy(result), [[[2.0 + 6.0]]])
+
+
+def test_names_generated_after_a_load_avoid_the_loaded_ones(tmp_path):
+    from nnodely.core import dag
+
+    x = Input("upcoming_x")
+    fir = Fir(out_features=1, name="upcoming_fir")(x.sw(2))
+    model = Modely("upcoming", inputs=[x], outputs=[Output("upcoming_out", fir)])
+    model.build().save(tmp_path / "upcoming")
+    # Another process ran further: its Fir took the name this one makes next.
+    upcoming = f"Fir{dag._node_counter + 1}"
+    config = _from_another_process(tmp_path / "upcoming")
+    data = json.loads(config.read_text())
+    for node in data["nodes"]:
+        if node["config"]["name"] == "upcoming_fir":
+            node["config"]["name"] = upcoming
+            node["generated"] = True
+    config.write_text(json.dumps(data))
+
+    loaded = Modely.load(tmp_path / "upcoming")
+
+    assert upcoming in {node.name for node in loaded.order}
+    assert Fir(out_features=1).name != upcoming
+
+
+def test_a_model_saved_without_weights_loads_as_freshly_built(tmp_path):
+    x = Input("architecture_x")
+    gain = Parameter("architecture_gain", value=[2.0])
+    fir = Fir(out_features=1, use_bias=False, name="architecture_fir")(x.sw(2))
+    model = Modely(
+        "architecture", inputs=[x], outputs=[Output("architecture_out", fir * gain)]
+    ).build()
+    assert fir.kernel is not None and gain.param is not None
+    fir.kernel.assign(np.full((2, 1), 5.0, dtype=np.float32))  # as if trained
+    gain.param.assign([[7.0]])
+
+    path = tmp_path / "architecture"
+    model.save(path)
+    model.save(path, weights=False)  # the architecture alone, from now on
+    assert not (path / "model.weights.h5").exists()
+
+    restored = {node.name: node for node in Modely.load(path).order}
+    restored_gain, restored_fir = (
+        restored["architecture_gain"],
+        restored["architecture_fir"],
+    )
+    assert isinstance(restored_gain, Parameter) and isinstance(restored_fir, Fir)
+    # As declared again: the parameter from its value, the Fir from a new draw.
+    np.testing.assert_allclose(to_numpy(restored_gain.param), [[2.0]])
+    assert not np.allclose(to_numpy(restored_fir.kernel), 5.0)

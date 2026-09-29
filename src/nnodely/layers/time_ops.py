@@ -480,18 +480,11 @@ class TimeConcatenateImpl(keras.layers.Layer):
         self.input_rank = int(input_rank)
 
     def call(self, xs):
-        values, rank_offset = _align_concatenate_inputs(xs, self.input_rank)
-        return keras.ops.concatenate(
-            values,
-            axis=rank_offset + self.dim_rank,
-        )
+        values = _concatenation_values(xs, self.input_rank)
+        return keras.ops.concatenate(values, axis=1 + self.dim_rank)
 
     def compute_output_shape(self, input_shape):
-        return _concatenated_output_shape(
-            input_shape,
-            semantic_axis=self.dim_rank,
-            input_rank=self.input_rank,
-        )
+        return _concatenated_output_shape(input_shape, semantic_axis=self.dim_rank)
 
     def get_config(self):
         config = super().get_config()
@@ -540,15 +533,11 @@ class ConcatenateImpl(keras.layers.Layer):
         self.input_rank = int(input_rank)
 
     def call(self, xs):
-        values, rank_offset = _align_concatenate_inputs(xs, self.input_rank)
-        return keras.ops.concatenate(values, axis=rank_offset + self.axis)
+        values = _concatenation_values(xs, self.input_rank)
+        return keras.ops.concatenate(values, axis=1 + self.axis)
 
     def compute_output_shape(self, input_shape):
-        return _concatenated_output_shape(
-            input_shape,
-            semantic_axis=self.axis,
-            input_rank=self.input_rank,
-        )
+        return _concatenated_output_shape(input_shape, semantic_axis=self.axis)
 
     def get_config(self):
         config = super().get_config()
@@ -619,35 +608,24 @@ def _concatenation_inputs(layer: Layer) -> list[Stream]:
     return [input_node for input_node in inputs if isinstance(input_node, Stream)]
 
 
-def _align_concatenate_inputs(xs, input_rank):
+def _concatenation_values(xs, input_rank):
+    """The tensors to concatenate, each laid out ``(batch, *dim, time, *seq)``."""
     if not isinstance(xs, (list, tuple)) or len(xs) < 2:
         raise ValueError("Concatenate implementations require at least two tensors.")
-
-    target_rank = max(len(value.shape) for value in xs)
-    if target_rank not in (input_rank, input_rank + 1):
+    if any(len(value.shape) != input_rank + 1 for value in xs):
         raise ValueError(
-            f"Unexpected tensor rank {target_rank}; expected {input_rank} "
-            f"or {input_rank + 1}."
+            "All tensors must be laid out (batch, *dim, time, *seq), of rank "
+            f"{input_rank + 1}."
         )
-
-    values = []
-    for value in xs:
-        if len(value.shape) not in (input_rank, target_rank):
-            raise ValueError("All tensors must share the same semantic rank.")
-        while len(value.shape) < target_rank:
-            value = keras.ops.expand_dims(value, axis=0)
-        values.append(value)
-    return values, target_rank - input_rank
+    return list(xs)
 
 
-def _concatenated_output_shape(input_shapes, semantic_axis, input_rank):
+def _concatenated_output_shape(input_shapes, semantic_axis):
     shapes: list[list[int | None]] = [list(shape) for shape in input_shapes]
     if len(shapes) < 2:
         raise ValueError("Concatenate implementations require at least two tensors.")
 
-    target_rank = max(len(shape) for shape in shapes)
-    shapes = [[1] * (target_rank - len(shape)) + shape for shape in shapes]
-    axis = target_rank - input_rank + semantic_axis
+    axis = 1 + semantic_axis
     output_shape: list[int | None] = list(shapes[0])
     axis_sizes = [shape[axis] for shape in shapes]
     output_shape[axis] = (

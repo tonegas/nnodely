@@ -150,4 +150,4 @@ inputs, and returns a window of the same length. With the default ``steps``
 
    rolled = Roll(f=one_step, callback={x: out})
    free_run = Modely("free_run", inputs=[x], outputs=[Output("free", rolled)]).build()
-   print(free_run({"x_roll": [1.0, 2.0, 3.0, 4.0, 5.0]})["free"].shape)   # (1, 1, 5)
+   print(free_run({"x_roll": np.arange(1.0, 6.0).reshape(1, 1, 5)})["free"].shape)   # (1, 1, 5)

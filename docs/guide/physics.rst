@@ -128,7 +128,7 @@ body of a :class:`~nnodely.Loop`. Here a pendulum with an unknown ratio
        outputs=[Output("theta_traj", theta_traj), Output("omega_traj", omega_traj)],
    ).build()
 
-   result = simulator({"theta0": np.full((1, 1, 100), 0.5), "omega0": np.zeros((1, 1, 100))})
+   result = simulator({"theta0": np.full((1, 1, 1, 100), 0.5), "omega0": np.zeros((1, 1, 1, 100))})
    print(result["theta_traj"].shape)   # (1, 1, 1, 100)
 
 ``g_over_l`` is a parameter, so training the simulator on measured angles

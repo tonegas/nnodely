@@ -78,12 +78,11 @@ def _operator_matrix(rule: str, window_length: int, dt: float) -> np.ndarray:
 class IntegrateImpl(keras.layers.Layer):
     """Running integral of a window, one integrated sample per rate sample."""
 
-    def __init__(self, dt, rule, dim_rank, init_has_batch=True, name=None, **kwargs):
+    def __init__(self, dt, rule, dim_rank, name=None, **kwargs):
         super().__init__(name=name, **kwargs)
         self.dt = float(dt)
         self.rule = rule
         self.dim_rank = int(dim_rank)
-        self.init_has_batch = bool(init_has_batch)
 
     def build(self, input_shape):
         shapes = (
@@ -116,10 +115,10 @@ class IntegrateImpl(keras.layers.Layer):
             result = keras.ops.moveaxis(result, last_axis, time_axis)
 
         if init is not None:
-            # A Constant carries no batch axis and a scalar initial condition
-            # no dim axis; adding it to the integral broadcasts both up.
-            if not self.init_has_batch:
-                init = keras.ops.expand_dims(init, axis=0)
+            # An initial condition may leave out the sequence axes, and a
+            # scalar one the dim size: adding it broadcasts along both.
+            while len(init.shape) < len(result.shape):
+                init = keras.ops.expand_dims(init, axis=-1)
             result = result + init
         return result
 
@@ -135,7 +134,6 @@ class IntegrateImpl(keras.layers.Layer):
                 "dt": self.dt,
                 "rule": self.rule,
                 "dim_rank": self.dim_rank,
-                "init_has_batch": self.init_has_batch,
             }
         )
         return config
@@ -269,19 +267,10 @@ class Integrate(Layer):
     # Keras layer logic
     # ------------------------------------------------------------------
     def build_layer(self):
-        # A Constant or Parameter is a leaf of the graph and carries no batch
-        # axis, so the initial condition it holds broadcasts instead.
-        init_has_batch = True
-        if len(self.preds) > 1:
-            init_node = self.preds[1]
-            init_has_batch = not (
-                isinstance(init_node, Layer) and len(init_node.preds) == 0
-            )
         return IntegrateImpl(
             dt=self.dt,
             rule=_SOLVER_RULE[self.solver],
             dim_rank=len(self.dim),
-            init_has_batch=init_has_batch,
             name=self.name,
         )
 

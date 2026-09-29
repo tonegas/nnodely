@@ -3,6 +3,7 @@ from __future__ import annotations
 import keras
 
 from nnodely.core.layer import Layer
+from nnodely.utils.utils import _serialized_initializer
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -26,7 +27,7 @@ class LinearImpl(keras.layers.Layer):
         bias_initializer="glorot_uniform",
         **kwargs,
     ):
-        super().__init__(name=name)
+        super().__init__(name=name, **kwargs)
         self.out_features = int(out_features)
         self.use_bias = bool(use_bias)
         self.proj = keras.layers.Dense(
@@ -86,7 +87,6 @@ class Linear(Layer):
         name=None,
         initializer="glorot_uniform",
         bias_initializer="glorot_uniform",
-        **kwargs,
     ):
         self.out_features = int(out_features)
         self.use_bias = bool(use_bias)
@@ -98,7 +98,6 @@ class Linear(Layer):
             use_bias=self.use_bias,
             initializer=initializer,
             bias_initializer=bias_initializer,
-            **kwargs,
         )
 
     def build_layer(self):
@@ -115,6 +114,8 @@ class Linear(Layer):
             "name": self.name,
             "out_features": self.out_features,
             "use_bias": self.use_bias,
+            "initializer": _serialized_initializer(self.initializer),
+            "bias_initializer": _serialized_initializer(self.bias_initializer),
         }
 
     @property

@@ -7,18 +7,45 @@ Default: dim=1
 """
 
 from copy import copy
-from nnodely.core.stream import Node, Stream
+
+import keras
+
+from nnodely.core.stream import NODE_NAMES, Node, Stream, reserve_name
 from nnodely.layers.output import Output
 from typing import Any
 
 _node_counter = 0
 
+#: The names next_name() made. Unlike a given name, a load may replace one.
+GENERATED_NAMES: set[str] = set()
+
 
 def next_name(prefix: str) -> str:
-    """Nome univoco per nodi generati."""
+    """A name for a node left unnamed, used by no node of this process.
+
+    The counter alone is not enough: a given name, or one read back from a
+    saved model, can already have the form it would produce.
+    """
     global _node_counter
-    _node_counter += 1
-    return f"{prefix}{_node_counter}"
+    while True:
+        _node_counter += 1
+        name = f"{prefix}{_node_counter}"
+        if name not in NODE_NAMES:
+            break
+    # Reserved here as well, because a LocalModel or an EquationLearner takes
+    # its name from here without being a node, and derives its layers' names.
+    reserve_name(name)
+    GENERATED_NAMES.add(name)
+    return name
+
+
+def is_generated(name: str) -> bool:
+    """True for a name next_name() made, or one derived from it - a LocalModel
+    cell is ``"<LocalModel name>_out0"``."""
+    parts = name.split("_")
+    return any(
+        "_".join(parts[:index]) in GENERATED_NAMES for index in range(1, len(parts) + 1)
+    )
 
 
 # ------------------------------------------------------------------
@@ -122,6 +149,42 @@ def _flatten_graph(
 
 
 # ------------------------------------------------------------------
+# Keras graph introspection
+# ------------------------------------------------------------------
+def _source_input_tensors(tensor):
+    """The model-input tensors ``tensor`` is computed from.
+
+    The Keras graph is walked rather than the nnodely DAG because the two do
+    not always agree: a Constant or Parameter is wired to an arbitrary anchor
+    input to give it a batch context, so the Keras sub-graph of a relation can
+    need a tensor its symbolic predecessors never mention. Sources are ordered
+    by name so a reloaded model resolves them exactly like the saved one did.
+    """
+    sources: dict[str, object] = {}
+    seen: set[int] = set()
+    stack = [tensor]
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        history = getattr(current, "_keras_history", None)
+        if history is None:
+            continue
+        operation = history[0]
+        if isinstance(operation, keras.layers.InputLayer):
+            sources[operation.name] = current
+            continue
+        node = operation._inbound_nodes[history[1]]
+        stack.extend(node.input_tensors)
+    return [sources[name] for name in sorted(sources)]
+
+
+def _source_names(tensors):
+    return [tensor._keras_history[0].name for tensor in tensors]
+
+
+# ------------------------------------------------------------------
 # DAG topological ordering
 # ------------------------------------------------------------------
 def toposort(model) -> list[Node]:
@@ -144,3 +207,23 @@ def toposort_outputs(outputs: list[Output]) -> list[Node]:
         dfs(output)
 
     return order
+
+
+def _streams_from(roots) -> list[Stream]:
+    """Every Stream ``roots`` are computed from, the roots themselves included.
+
+    Iterative, so a graph of any depth is walked; one stream reached along
+    several paths is listed once.
+    """
+    streams: dict[int, Stream] = {}
+    seen: set[int] = set()
+    stack = list(roots)
+    while stack:
+        node = stack.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        if isinstance(node, Stream):
+            streams[id(node)] = node
+        stack.extend(node.preds)
+    return list(streams.values())

@@ -1,113 +1,36 @@
-import numpy as np
-import keras
-
-from nnodely.core.layer import Layer
+from nnodely.layers.parameter import ConstantImpl, _Value
 
 
-@keras.saving.register_keras_serializable(package="nnodely")
-class ConstantImpl(keras.layers.Layer):
-    def __init__(self, value, constant_shape, name: str | None = None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.value = np.asarray(value, dtype=np.float32)
-        self.constant_shape = constant_shape
-
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "value": self.value.tolist(),
-                "constant_shape": self.constant_shape,
-            }
-        )
-        return config
-
-    def build(self, input_shape=None):
-        self.constant = self.add_weight(
-            name="value",
-            shape=self.constant_shape,
-            initializer=keras.initializers.Constant(
-                value=self.value.reshape(self.constant_shape).tolist()
-            ),
-            trainable=False,
-            dtype="float32",
-        )
-        super().build(input_shape)
-
-    def call(self, anchor):
-        return self.constant.value
-
-
-class Constant(Layer):
+class Constant(_Value):
     """
     Non-trainable symbolic constant layer.
 
-    The shape is taken from ``value``. Numbers used in arithmetic with a
-    stream become constants automatically.
+    ``value`` sets its shape: a number or a vector is one time step of its
+    ``dim``, a matrix is ``(dim, time)``, and further axes are ``seq`` axes.
+    Numbers used in arithmetic with a stream become constants automatically.
 
-    Shape without batch::
+    Like every stream it is laid out with a batch axis first, the same value
+    for every sample::
 
-        dim + time + seq
+        (batch, *dim, time, *seq)
     """
 
-    def __init__(
-        self,
-        name: str | None = None,
-        *,
-        value,
-        dim=None,
-    ):
+    _impl = ConstantImpl
+
+    def __init__(self, name: str | None = None, *, value):
         if value is None:
             raise ValueError("Constant requires a value.")
-
-        arr = np.atleast_1d(np.asarray(value, dtype=np.float32))
-
-        if dim is None:
-            dim = arr.shape[0]
-            time = arr.shape[1] if arr.ndim > 1 else None
-            seq = arr.shape[2:] if arr.ndim > 2 else None
-        else:
-            time = arr.shape[dim] if arr.ndim > dim else None
-            seq = arr.shape[dim + 1 :] if arr.ndim > dim + 1 else None
-
-        self.value = arr
-        super().__init__(
-            name=name,
-            seq=seq,
-            time=time,
-            dim=dim,
-            value=arr.tolist(),
-        )
-
-    def build_layer(self):
-        return ConstantImpl(
-            value=self.value,
-            constant_shape=self.shape.tuple,
-            name=self.name,
-        )
+        super().__init__(name, value, None, None, None, None)
 
     @property
     def constant(self):
-        if self._layer is not None and hasattr(self._layer, "constant"):
-            return self._layer.constant
-        return None
-
-    @property
-    def value_numpy(self):
-        return keras.ops.convert_to_numpy(self.constant)
+        return self._variable
 
     def get_config(self):
         config = super().get_config()
-        config.update(
-            {
-                "value": self.value.tolist(),
-            }
-        )
+        config.update({"value": self.value.tolist()})  # type: ignore
         return config
 
     @classmethod
     def from_config(cls, config: dict, preds=None):
-        node = cls(
-            name=config["name"],
-            value=config["value"],
-        )
-        return node
+        return cls(name=config["name"], value=config["value"])

@@ -247,7 +247,7 @@ def test_odenet_keras_round_trip(tmp_path):
     before = _solve(model, names, times)
 
     path = str(tmp_path / "odenet")
-    model.export_keras(path + ".keras")
+    model.export_keras(tmp_path, "odenet")
     reloaded = Modely.import_keras(path, safe_mode=False)
     assert reloaded is not None
     after = to_numpy(

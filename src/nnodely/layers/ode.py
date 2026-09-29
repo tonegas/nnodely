@@ -6,7 +6,7 @@ from typing import Any
 
 import keras
 
-from nnodely.core.layer import Layer, has_batch
+from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
 from nnodely.core.stream import Stream
 from nnodely.layers.loop import LoopOutputImpl
@@ -161,7 +161,6 @@ class OdeNetImpl(keras.layers.Layer):
         rtol: float = 1e-6,
         atol: float = 1e-8,
         max_steps: int = 1000,
-        times_have_batch: bool = True,
         return_all_outputs: bool = False,
         **kwargs,
     ):
@@ -179,7 +178,6 @@ class OdeNetImpl(keras.layers.Layer):
         self.rtol = float(rtol)
         self.atol = float(atol)
         self.max_steps = int(max_steps)
-        self.times_have_batch = bool(times_have_batch)
         self.return_all_outputs = bool(return_all_outputs)
         self.output_indices = {
             name: index for index, name in enumerate(self.model_output_names)
@@ -368,7 +366,7 @@ class OdeNetImpl(keras.layers.Layer):
         times = inputs[state_count]
 
         grid = keras.ops.cast(
-            keras.ops.reshape(times[0] if self.times_have_batch else times, (-1,)),
+            keras.ops.reshape(times[0], (-1,)),
             self.compute_dtype,
         )
 
@@ -415,7 +413,6 @@ class OdeNetImpl(keras.layers.Layer):
                 "rtol": self.rtol,
                 "atol": self.atol,
                 "max_steps": self.max_steps,
-                "times_have_batch": self.times_have_batch,
                 "return_all_outputs": self.return_all_outputs,
             }
         )
@@ -615,7 +612,6 @@ class OdeNet(Layer):
             rtol=self.rtol,
             atol=self.atol,
             max_steps=self.max_steps,
-            times_have_batch=_has_batch(self.times),
             return_all_outputs=self.return_all_outputs,
             name=self.name,
         )
@@ -710,9 +706,6 @@ def _resolve_event(f, event, reset, state_inputs):
             )
         reset_outputs.append(output)
     return event_output, reset_outputs
-
-
-_has_batch = has_batch
 
 
 def _resolve_output_count(t):

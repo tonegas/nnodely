@@ -51,7 +51,7 @@ def test_loop(tmp_path):
     assert loop.f is body
     model.export_html(out_dir=tmp_path, filename="test_closed_loop")
 
-    seed_values = np.zeros((1, 1, 5), dtype=np.float32)
+    seed_values = np.zeros((1, 1, 1, 5), dtype=np.float32)
     seed_values[..., 0] = 1.0
     result = model({"in1_seq": seed_values})
     output = to_numpy(result["out1"])[0]
@@ -100,7 +100,7 @@ def test_nested_loop(tmp_path):
     model = Modely("nested_loop_model", inputs=[x], outputs=[output]).build()
     model.export_html(out_dir=tmp_path, filename="test_nested_loop")
 
-    nested_values = np.zeros((1, 1, 5, 3), dtype=np.float32)
+    nested_values = np.zeros((1, 1, 1, 5, 3), dtype=np.float32)
     nested_values[..., 0] = 1.0
     result = model({"nested_input": nested_values})
     output = to_numpy(result["nested_output"])[0]
@@ -149,12 +149,12 @@ def test_loop_mechanical_modely(tmp_path):
     ).build()
     model.export_html(out_dir=tmp_path, filename="closed_mechanical_model")
 
-    state_values = np.zeros((1, 1, 5), dtype=np.float32)
+    state_values = np.zeros((1, 1, 1, 5), dtype=np.float32)
     state_values[..., 0] = 1.0
     result = model(
         {
             "mechanical_state_seq": state_values,
-            "external_force": np.ones((1, 1), dtype=np.float32),
+            "external_force": np.ones((1, 1, 1), dtype=np.float32),
         }
     )
     output = to_numpy(result["closed_state"])[0]
@@ -179,7 +179,7 @@ def test_model_roll():
     model = Modely("test_roll_multi_input", inputs=[x], outputs=[output, output_3])
     model.build()
 
-    result = model(inputs={"x": [1, 2, 3, 4, 5]})
+    result = model(inputs={"x": np.arange(1, 6, dtype=np.float32).reshape(1, 1, 5)})
     assert result["res"].shape == (1, 1, 5)
     assert result["res_3"].shape == (1, 1, 5)
     np.testing.assert_allclose(
@@ -216,7 +216,7 @@ def test_model_rollback():
     test.build()
     fir.kernel.assign(np.full((5, 1), 1.0, dtype=np.float32))
 
-    result = test(inputs={"x": [1, 2, 3, 4, 5]})
+    result = test(inputs={"x": np.arange(1, 6, dtype=np.float32).reshape(1, 1, 5)})
     assert result["out"].shape == (1, 1, 1)
     np.testing.assert_allclose(
         to_numpy(result["out"]),
@@ -236,7 +236,12 @@ def test_model_multi_rollback(tmp_path):
     test.build()
     fir.kernel.assign(np.full((5, 1), 1.0, dtype=np.float32))
 
-    result = test(inputs={"x": [1, 2, 3, 4, 5], "y": [10]})
+    result = test(
+        inputs={
+            "x": np.arange(1, 6, dtype=np.float32).reshape(1, 1, 5),
+            "y": np.full((1, 1, 1), 10.0, dtype=np.float32),
+        }
+    )
     assert result["out"].shape == (1, 1, 1)
     np.testing.assert_allclose(
         to_numpy(result["out"]),
@@ -366,9 +371,9 @@ def test_simple_model_loop(tmp_path):
 
     res = model_in(
         {
-            "x_seq": dummy_input((1, 1, 4), method="ones") + 7,
-            "z": dummy_input((1, 1), method="ones"),
-            "x_target": dummy_input((1, 1, 4), method="sequential"),
+            "x_seq": dummy_input((1, 1, 1, 4), method="ones") + 7,
+            "z": dummy_input((1, 1, 1), method="ones"),
+            "x_target": dummy_input((1, 1, 1, 4), method="sequential"),
         }
     )
     print("Result of simple model:", res["out"])
@@ -379,9 +384,9 @@ def test_simple_model_loop(tmp_path):
 
     res = model_in(
         {
-            "x_seq": dummy_input((1, 1, 4), method="ones") + 7,
-            "z": dummy_input((1, 1), method="ones"),
-            "x_target": dummy_input((1, 1, 4), method="sequential"),
+            "x_seq": dummy_input((1, 1, 1, 4), method="ones") + 7,
+            "z": dummy_input((1, 1, 1), method="ones"),
+            "x_target": dummy_input((1, 1, 1, 4), method="sequential"),
         }
     )
     print("Result of simple model:", res["out"])
@@ -471,10 +476,10 @@ def test_simple_model2(tmp_path):
 
     res = model_in(
         {
-            "x_seq": dummy_input((1, 1, 4), method="ones") + 7,
-            "z_seq": dummy_input((1, 1, 4), method="ones"),
-            "x_target": dummy_input((1, 1, 4), method="sequential"),
-            "z_target": dummy_input((1, 1, 4), method="sequential"),
+            "x_seq": dummy_input((1, 1, 1, 4), method="ones") + 7,
+            "z_seq": dummy_input((1, 1, 1, 4), method="ones"),
+            "x_target": dummy_input((1, 1, 1, 4), method="sequential"),
+            "z_target": dummy_input((1, 1, 1, 4), method="sequential"),
         }
     )
     print("Result of simple model:", res["out1"], res["out2"])
@@ -521,7 +526,7 @@ def test_loop_bound_inputs(tmp_path):
     np.testing.assert_allclose(to_numpy(result["sliced_out"]), expected)
 
     path = os.path.join(tmp_path, "sliced_model.keras")
-    model.export_keras(path)
+    model.export_keras(tmp_path, "sliced_model")
     reloaded = cast(Modely, Modely.import_keras(path))
     np.testing.assert_allclose(
         to_numpy(
@@ -703,7 +708,7 @@ def test_loop_collects_output_that_is_not_fed_back():
         outputs=[Output("s", state_out), Output("d", diagnostic_out)],
     ).build()
 
-    result = model({"extra_x0": np.array([[[1.0, 2.0, 3.0, 4.0]]], dtype=np.float32)})
+    result = model({"extra_x0": np.array([[[[1.0, 2.0, 3.0, 4.0]]]], dtype=np.float32)})
     # the state starts at x[0] = 1 and doubles; the diagnostic reports each state
     np.testing.assert_allclose(
         to_numpy(result["s"]),

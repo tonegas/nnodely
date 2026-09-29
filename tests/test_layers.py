@@ -1,5 +1,6 @@
 from nnodely import (
     BatchNorm,
+    Linear,
     Constant,
     Concatenate,
     Input,
@@ -184,7 +185,7 @@ def test_polynomial_interpolation(tmp_path):
     np.testing.assert_allclose(result, expected, rtol=1e-5, atol=1e-5)
 
     export_path = tmp_path / "polynomial_interpolation.keras"
-    model.export_keras(export_path)
+    model.export_keras(tmp_path, "polynomial_interpolation")
     restored = Modely.import_keras(export_path)
     restored_result = to_numpy(
         restored({"polynomial_input": values})["interpolated"]  # type: ignore
@@ -560,3 +561,59 @@ def test_batchnorm_axis_and_moving_statistics():
     moving_mean = to_numpy(normalized._layer.moving_mean)
     assert moving_mean.shape == (3,)
     assert np.any(moving_mean != 0.0)
+
+
+# ---------------------------------------------------------------------------
+# Linear takes the arguments it declares, and keeps them
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "argument",
+    [{"output_dimension": 4}, {"dim": 4}],
+    ids=["misspelled", "shape_of_the_node"],
+)
+def test_linear_rejects_an_argument_it_does_not_declare(argument):
+    # Once kept aside and ignored: output_dimension built one output, and dim
+    # set the shape of the node rather than the size of the projection.
+    with pytest.raises(TypeError, match=next(iter(argument))):
+        Linear(**argument)
+
+
+def test_a_frozen_linear_stays_frozen_through_a_keras_file(tmp_path):
+    x = Input("frozen_x", dim=2)
+    model = Modely(
+        "frozen",
+        inputs=[x],
+        outputs=[
+            Output("frozen_out", Linear(out_features=3, name="frozen_linear")(x.last()))
+        ],
+    ).build()
+    assert model.inference_model is not None
+    model.inference_model.get_layer("frozen_linear").trainable = False
+
+    model.export_keras(tmp_path, "frozen")
+    restored = Modely.import_keras(tmp_path / "frozen.keras")
+
+    assert restored.get_layer("frozen_linear").trainable is False  # type: ignore
+
+
+def test_linear_initializers_are_saved_with_the_architecture(tmp_path):
+    x = Input("initialized_x", dim=2)
+    linear = Linear(
+        out_features=3,
+        initializer="ones",
+        bias_initializer="zeros",
+        name="initialized_linear",
+    )(x.last())
+    model = Modely(
+        "initialized", inputs=[x], outputs=[Output("initialized_out", linear)]
+    ).build()
+
+    model.save(tmp_path / "initialized", weights=False)
+    restored = {node.name: node for node in Modely.load(tmp_path / "initialized").order}
+    restored_linear = restored["initialized_linear"]
+
+    assert isinstance(restored_linear, Linear)
+    np.testing.assert_allclose(to_numpy(restored_linear.kernel), np.ones((2, 3)))
+    np.testing.assert_allclose(to_numpy(restored_linear.bias), np.zeros(3))

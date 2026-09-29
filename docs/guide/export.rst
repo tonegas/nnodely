@@ -41,18 +41,23 @@ Saving and loading
    print(np.allclose(model(sample)["y"], restored(sample)["y"]))
 
 A restored model is a full :class:`~nnodely.Modely`: it can be trained,
-composed and exported again.
+composed and exported again. ``model.save(path, weights=False)`` saves the
+architecture alone, to be trained later or on another machine: loading it
+initializes the weights as ``build()`` does.
 
 Keras
 -----
 
 .. code-block:: python
 
-   model.export_keras("filter.keras")
-   keras_model = Modely.import_keras("filter.keras")
+   model.export_keras("exports")   # writes exports/filter.keras
+   keras_model = Modely.import_keras("exports/filter.keras")
    print(keras_model(sample)["y"].shape)
 
-``import_keras`` returns a ``keras.Model``, which runs on any Keras backend.
+Both exporters write into the folder they are given and name the file after
+the model, unless ``filename`` names it; the ``.keras`` or ``.onnx`` suffix is
+added when missing. ``import_keras`` returns a ``keras.Model``, which runs on
+any Keras backend.
 
 ONNX
 ----
@@ -63,8 +68,8 @@ and the **TensorFlow** or **PyTorch** backend:
 .. code-block:: python
    :class: skip-test
 
-   path = model.export_onnx("filter.onnx")
-   outputs = Modely.validate_onnx(path, sample, return_dict=True)
+   model.export_onnx("exports")    # writes exports/filter.onnx
+   outputs = Modely.validate_onnx("exports/filter.onnx", sample, return_dict=True)
    print(outputs["y"])
 
 :meth:`~nnodely.Modely.validate_onnx` runs the exported file with ONNX Runtime,

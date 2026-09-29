@@ -23,8 +23,7 @@ def test_plot_and_export_html(tmp_path):
     model = Modely("plot_model", inputs=[x], outputs=[out])
     model.build()
 
-    html_path = model.export_html(out_dir=tmp_path, filename="plot_model")
-    assert html_path.endswith(".html")
+    model.export_html(out_dir=tmp_path, filename="plot_model")
     assert (tmp_path / "plot_model.html").exists()
 
 
@@ -171,9 +170,8 @@ def test_export_html_accepts_a_file_path(tmp_path):
     model = Modely("path_model", inputs=[x], outputs=[out])
     model.build()
 
-    path = model.export_html(tmp_path / "named_page.html")
+    model.export_html(tmp_path / "named_page.html")
 
-    assert path == str(tmp_path / "named_page.html")
     assert (tmp_path / "named_page.html").is_file()
     assert (tmp_path / "named_page__flattened.html").is_file()
 

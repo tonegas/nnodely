@@ -1164,7 +1164,7 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
     ## The export is the model as declared, without its minimizers: it reads the
     ## simulations only, not the target the loss compared them against
     export_path = os.path.join(tmp_path, "padded_loop_model.keras")
-    model.export_keras(export_path)
+    model.export_keras(tmp_path, "padded_loop_model")
     reloaded = Modely.import_keras(export_path)
     assert [tensor.name for tensor in reloaded.inputs] == ["pad_x"]  # type: ignore
     inputs = {"pad_x": data.as_dict()["pad_x"]}

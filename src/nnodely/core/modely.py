@@ -1,19 +1,27 @@
 import os
 import warnings
-from pathlib import Path
 
 from typing import Any, Callable
 
-from nnodely.core.dag import toposort, flatten, _flatten_graph
-from nnodely.core.validation import ValidationResult, score_signal
-from nnodely.utils.utils import (
-    MaskedLoss,
-    _resolve_loss,
-    _resolve_optimizer,
-    _weighted_sequence_loss,
+from nnodely.core import export, validation
+from nnodely.core.dag import (
+    toposort,
+    flatten,
+    _flatten_graph,
+    _source_input_tensors,
+    _source_names,
 )
+from nnodely.core.minimizer import (
+    MinimizerModel,
+    _check_minimizers_train_weights,
+    _minimizer_stream,
+    _resolve_minimizer_terms,
+    _validate_gain,
+    _validate_seq_weights,
+)
+from nnodely.core.validation import ValidationResult
+from nnodely.utils.utils import _resolve_loss, _resolve_optimizer
 from nnodely.utils.printers import _resolve_printer
-from nnodely.utils import validation_plot
 from nnodely.core.registry import ModelSerializer
 from nnodely.core.stream import Stream, Node
 from nnodely.layers.constant import Constant
@@ -28,327 +36,6 @@ from nnodely.core.layer import Layer
 
 import keras
 
-#: Samples evaluated per forward pass during validation. Validation is defined
-#: one sample at a time - nothing about the result depends on this number - so
-#: it is a memory bound rather than a parameter worth exposing.
-_INFERENCE_CHUNK = 256
-
-
-def _traces_backward_pass(model) -> bool:
-    """True if any layer of the graph evaluates a backward pass of its own.
-
-    Layers declare this themselves, so the export path does not have to know
-    which ones they are. The walk is recursive because such a layer can sit
-    inside a nested model - a recurrent body, or the sub-graph a Derivative
-    differentiates.
-    """
-    seen: set[int] = set()
-    stack = [model]
-    while stack:
-        layer = stack.pop()
-        if id(layer) in seen:
-            continue
-        seen.add(id(layer))
-        if getattr(layer, "_traces_backward_pass", False):
-            return True
-        stack.extend(getattr(layer, "_layers", None) or [])
-    return False
-
-
-def _pair_onnx_names(values, expected):
-    """Map each exported tensor to the Modely name it stands for.
-
-    An exporter that renames the graph also reorders it, so position alone is
-    not evidence of identity. A tensor whose shape matches exactly one expected
-    name is that one whatever its position; only tensors left ambiguous - two
-    outputs of the same shape - fall back to pairing in order.
-    """
-
-    def graph_shape(value):
-        dims = value.type.tensor_type.shape.dim
-        return tuple(int(axis.dim_value) for axis in dims[1:] if axis.dim_value)
-
-    shapes = [graph_shape(value) for value in values]
-    pending_graph = list(range(len(values)))
-    pending_expected = list(range(len(expected)))
-
-    pairs: dict[int, int] = {}
-    for index in list(pending_graph):
-        matches = [
-            other for other in pending_expected if expected[other][1] == shapes[index]
-        ]
-        same_shape = [
-            other for other in pending_graph if shapes[other] == shapes[index]
-        ]
-        if len(matches) == 1 and len(same_shape) == 1:
-            pairs[index] = matches[0]
-            pending_graph.remove(index)
-            pending_expected.remove(matches[0])
-    for index, other in zip(pending_graph, pending_expected):
-        pairs[index] = other
-
-    return {
-        values[index].name: expected[other][0]
-        for index, other in pairs.items()
-        if values[index].name != expected[other][0]
-    }
-
-
-def _static_input_signature(model, batch_size: int):
-    """The model's own input structure, with the batch axis fixed."""
-
-    def spec(tensor):
-        shape = (batch_size,) + tuple(int(axis) for axis in tensor.shape[1:])
-        return keras.InputSpec(shape=shape, dtype=tensor.dtype, name=tensor.name)
-
-    return [keras.tree.map_structure(spec, model._inputs_struct)]
-
-
-def _depends_on_dynamic_input(node) -> bool:
-    """True if a stream reads an Input whose sequence length is left dynamic.
-
-    Those are the inputs a DataLoader pads when simulations differ in length,
-    so they are the streams whose padded rollout steps the mask removes.
-    """
-    seen: set[int] = set()
-    stack = [node]
-    while stack:
-        current = stack.pop()
-        if id(current) in seen:
-            continue
-        seen.add(id(current))
-        if isinstance(current, Input) and any(n is None for n in current.seq):
-            return True
-        stack.extend(current.preds)
-    return False
-
-
-def _reaches_trainable_weight(node) -> bool:
-    """False only for a stream known to be computed without trainable weights.
-
-    The walk enters the body of a called model as well. A layer not built yet
-    cannot tell, and is taken to train: the check must never flag a minimizer
-    that does.
-    """
-    seen: set[int] = set()
-    stack = [node]
-    while stack:
-        current = stack.pop()
-        if id(current) in seen:
-            continue
-        seen.add(id(current))
-        if isinstance(current, Layer):
-            layer = current._layer
-            if layer is None or layer.trainable_weights:
-                return True
-        inner = getattr(current, "model", None)
-        if isinstance(inner, Modely):
-            stack.extend(inner.outputs)
-        stack.extend(current.preds)
-    return False
-
-
-def _validate_gain(gain, minimizer: str) -> float:
-    """A minimizer's weight in the total loss: a finite number, not negative.
-
-    A negative gain would maximize the error it weighs.
-    """
-    if isinstance(gain, (bool, np.bool_)) or not isinstance(
-        gain, (int, float, np.integer, np.floating)
-    ):
-        raise TypeError(
-            f"The gain of minimizer {minimizer!r} must be a number, got "
-            f"{type(gain).__name__}."
-        )
-    gain = float(gain)
-    if not np.isfinite(gain) or gain < 0:
-        raise ValueError(
-            f"The gain of minimizer {minimizer!r} must be finite and not "
-            f"negative, got {gain}."
-        )
-    return gain
-
-
-def _seq_weights_for(seq_weights, steps: int | None, minimizer: str):
-    """One weight per step of a last axis ``steps`` long, normalized to mean one.
-
-    A callable is given the number of steps. Weights are not negative, and not
-    all zero: a negative weight would maximize the error of its step, and all
-    zeros would train nothing. ``steps=None`` leaves the length unchecked.
-    """
-    weights = seq_weights(steps) if callable(seq_weights) else seq_weights
-    weights = np.asarray(weights, dtype=np.float32)
-    if weights.ndim != 1 or steps is not None and weights.shape != (steps,):
-        raise ValueError(
-            f"The seq_weights of minimizer {minimizer!r} must be one weight per "
-            f"step of the last axis, {steps} of them, got shape {weights.shape}."
-        )
-    if not np.isfinite(weights).all() or (weights < 0).any() or not weights.any():
-        raise ValueError(
-            f"The seq_weights of minimizer {minimizer!r} must be finite, not "
-            f"negative and not all zero, got {weights.tolist()}."
-        )
-    return weights / weights.mean()
-
-
-def _validate_seq_weights(seq_weights, source: Stream, minimizer: str):
-    """The seq_weights of a minimizer, checked as far as its source allows.
-
-    A dynamic sequence follows the data, whatever length its stream declares,
-    so its weights are checked once the data sets the length.
-    """
-    if seq_weights is None:
-        return None
-    steps = None if _depends_on_dynamic_input(source) else source.shape.tuple[-1]
-    if callable(seq_weights):
-        if steps is not None:
-            _seq_weights_for(seq_weights, steps, minimizer)
-        return seq_weights
-    return _seq_weights_for(seq_weights, steps, minimizer)
-
-
-class _MinimizerTerm:
-    """One minimizer, resolved against the outputs of the built graph."""
-
-    def __init__(
-        self,
-        name,
-        source,
-        target,
-        target_rank,
-        loss,
-        masked,
-        log_name,
-        gain=1.0,
-        seq_weights=None,
-    ):
-        self.name = name
-        self.gain = gain  # weight of this term in the total loss
-        # weight of each step of the last axis, or a callable of its length
-        self.seq_weights = seq_weights
-        self.source = source  # name of the graph output holding the prediction
-        self.target = target  # name of the graph output holding the reference
-        self.target_rank = target_rank  # rank of the target without batch axis
-        self.masked = masked
-        self.loss = MaskedLoss(loss) if masked else loss
-        # Logged under the key compile() gave a per-output loss, which is the
-        # one the printers and existing training scripts read.
-        self.tracker = keras.metrics.Mean(name=f"{log_name}_loss")
-
-
-class _MinimizerTerms:
-    """Plain holder, so Keras does not track the terms as model state.
-
-    The minimizers can change between two calls to train() without a new
-    build(), and state tracked by the model could only ever grow.
-    """
-
-    def __init__(self, terms):
-        self.terms = list(terms)
-
-
-@keras.saving.register_keras_serializable(package="nnodely")
-class MinimizerModel(keras.Model):
-    """The built graph, trained on the minimizers of its Modely.
-
-    Keras compiles one loss per output against a label fed from the dataset,
-    but a minimizer compares two streams of the graph: its target can be an
-    Output, a computed stream or a window narrower than the dataset column.
-    Both sides are therefore read from the same forward pass, and the loss is
-    computed here. The labels carry only the padding mask, when simulations of
-    different lengths had to be padded to one rollout width.
-    """
-
-    def set_minimizers(self, terms):
-        self._nnodely_minimizers = _MinimizerTerms(terms)
-
-    def _minimizer_terms(self):
-        holder = getattr(self, "_nnodely_minimizers", None)
-        return holder.terms if holder is not None else []
-
-    @property
-    def metrics(self):
-        return super().metrics + [term.tracker for term in self._minimizer_terms()]
-
-    @staticmethod
-    def _align_target(term, target, source):
-        """Give a target built from constants the batch and axes of its source.
-
-        Only such a target is broadcast. Two streams of the graph that differ
-        in shape are an error: a loss would broadcast one over the other and
-        silently compare, say, one sample with a whole window.
-        """
-        batch_free = len(target.shape) == term.target_rank
-        if batch_free:
-            target = keras.ops.expand_dims(target, axis=0)
-            while len(target.shape) < len(source.shape):
-                target = keras.ops.expand_dims(target, axis=-1)
-
-        source_axes, target_axes = tuple(source.shape[1:]), tuple(target.shape[1:])
-        compatible = len(source_axes) == len(target_axes) and all(
-            s is None or t is None or s == t or (batch_free and t == 1)
-            for s, t in zip(source_axes, target_axes)
-        )
-        if not compatible:
-            raise ValueError(
-                f"Minimizer {term.name!r} compares {term.source!r} of shape "
-                f"{source_axes} with {term.target!r} of shape {target_axes}. "
-                "They must have the same shape."
-            )
-        if batch_free:
-            target = keras.ops.broadcast_to(target, keras.ops.shape(source))
-        return target
-
-    def compute_loss(
-        self, x=None, y=None, y_pred=None, sample_weight=None, training=True
-    ):
-        terms = self._minimizer_terms()
-        if not terms:
-            return super().compute_loss(x, y, y_pred, sample_weight, training=training)
-
-        total = None
-        for term in terms:
-            if y_pred is None:
-                raise ValueError(
-                    f"Minimizer {term.name!r} compares {term.source!r} with "
-                    f"{term.target!r}, but the forward pass did not return "
-                    "the graph outputs it needs. Call build() after adding a "
-                    "minimizer, before train()."
-                )
-            source = y_pred[term.source]
-            target = self._align_target(term, y_pred[term.target], source)
-            # The mask is one row per sample, one column per rollout step, and
-            # the rollout is the last axis of every padded stream.
-            rollout = (
-                target.shape[-1] in (None, y.shape[-1]) if y is not None else False
-            )
-            if term.masked and rollout:
-                valid = keras.ops.cast(y, "bool")
-                for _ in range(len(target.shape) - 2):
-                    valid = keras.ops.expand_dims(valid, axis=1)
-                target = keras.ops.where(
-                    valid, target, keras.ops.full_like(target, np.nan)
-                )
-            if term.seq_weights is not None:
-                # The rollout is unrolled, so its length is static here.
-                weights = _seq_weights_for(
-                    term.seq_weights, source.shape[-1], term.name
-                )
-                value = _weighted_sequence_loss(term.loss, target, source, weights)
-            else:
-                # A loss function returns one value per sample, a Loss instance
-                # the reduced value: the mean is how compile() reduces either.
-                value = keras.ops.mean(term.loss(target, source))
-            # Logged unweighted by the gain, as Keras logs a per-output loss
-            # under loss_weights; only the total the optimizer sees is weighted.
-            # The seq_weights are part of the loss itself, so they are logged.
-            term.tracker.update_state(value)
-            weighted = value if term.gain == 1.0 else value * term.gain
-            total = weighted if total is None else total + weighted
-        if self.losses:
-            total = total + keras.ops.sum(self.losses)
-        return total
-
 
 class Modely:
     """A model-structured neural network.
@@ -357,8 +44,9 @@ class Modely:
     model. Objectives (:meth:`minimize`) and feedback (:meth:`rollback`) are
     declared on it, then :meth:`build` creates the Keras model and its weights.
 
-    A built model is called with ``{input name: array}`` and returns
-    ``{output name: tensor}``. Called with a list of streams instead, it
+    A built model is called with ``{input name: array}``, every array with its
+    batch axis, and returns ``{output name: tensor}``. Called with a list of
+    streams instead, it
     becomes a block of a larger graph and returns its outputs as streams.
     """
 
@@ -398,39 +86,12 @@ class Modely:
             mc.outputs_map = {new: old for old, new in zip(self.outputs, outputs)}
             return outputs[0] if len(outputs) == 1 else outputs
 
-        # tensor execution mode: the declared outputs, without minimizers, so
-        # an input only a minimizer reads is neither needed nor used here.
+        # tensor execution mode: the declared outputs, without minimizers. The
+        # arrays come batched, as a DataLoader lays them out; an input only a
+        # minimizer reads, such as a target, is neither needed nor passed on.
         if self.inference_model is None:
-            raise ValueError("Model build failed, model is still None.")
-        if isinstance(inputs, dict):
-            expected = {inp.name for inp in self.inference_inputs}
-            extra = set(inputs) - expected
-            if extra:
-                inputs = {k: v for k, v in inputs.items() if k in expected}
-            for inp in self.inference_inputs:
-                value = inputs[inp.name]
-                if not hasattr(value, "shape"):
-                    value = np.asarray(value)
-                if len(value.shape) < inp.shape.rank and value.size == int(
-                    np.prod(inp.shape.tuple)
-                ):
-                    value = np.reshape(value, inp.shape.tuple)
-                inputs[inp.name] = value
-        for idx, inp in enumerate(self.inference_inputs):
-            if isinstance(inputs, dict):
-                if len(inputs[inp.name].shape) == inp.shape.rank:
-                    if type(inputs[inp.name]) is np.ndarray:
-                        inputs[inp.name] = np.expand_dims(inputs[inp.name], axis=0)
-                    else:
-                        inputs[inp.name] = keras.ops.expand_dims(
-                            inputs[inp.name], axis=0
-                        )
-            else:
-                if len(inputs[idx].shape) == inp.shape.rank:
-                    if type(inputs[idx]) is np.ndarray:
-                        inputs[idx] = np.expand_dims(inputs[idx], axis=0)
-                    else:
-                        inputs[idx] = keras.ops.expand_dims(inputs[idx], axis=0)
+            raise ValueError("Model is not built. Call build() before calling it.")
+        inputs = {inp.name: inputs[inp.name] for inp in self.inference_inputs}
         return self.inference_model(inputs)
 
     @property
@@ -474,7 +135,7 @@ class Modely:
         self.train_inputs = [node for node in flat.order if isinstance(node, Input)]
 
         flat_graph_outputs = [flatten_memo[node] for node in graph_outputs]
-        keras_inputs, keras_outputs = self.resolve_graph(
+        keras_inputs, keras_outputs = self._resolve_graph(
             flat.order, output_nodes=flat_graph_outputs
         )
         # Graph flattening builds shallow copies. Keep the public symbolic nodes
@@ -508,8 +169,6 @@ class Modely:
         # targets - is there for the loss and stays in the training model. The
         # inputs are read off the Keras graph rather than the DAG, because a
         # Parameter or Constant is wired to an arbitrary input for its batch.
-        from nnodely.layers.derivative import _source_input_tensors, _source_names
-
         inference_outputs = {
             node.name: keras_outputs[node.name]
             for node in self.outputs
@@ -559,7 +218,7 @@ class Modely:
         )
         return roll_layer(keras_inputs)
 
-    def resolve_graph(self, order, output_nodes=None):
+    def _resolve_graph(self, order, output_nodes=None):
         # Applying one layer several times yields several nodes that carry its
         # name, so tensors are keyed by node identity: keying them by name made
         # each application overwrite the previous one, and every consumer then
@@ -626,30 +285,40 @@ class Modely:
     ):
         """Register a Keras loss to minimize during training.
 
-        name: identifier for this loss (used as an output name in the training model)
-        source: node/stream producing predictions (e.g., an Output node), or the
-            name of a stream of the model
-        target: node/stream providing target values (usually derived from an
-            Input), the name of a stream of the model, a number, or None for
-            zero - a number becomes a Constant
-        loss: Keras loss name, serialized config, Loss instance, or callable
-        gain: weight of this loss in the total training loss, 1 by default -
+        Parameters
+        ----------
+        name:
+            Identifier for this loss, used as an output name in the training
+            model.
+        source:
+            Node or stream producing the predictions (e.g. an Output node), or
+            the name of a stream of the model.
+        target:
+            Node or stream providing the target values (usually derived from
+            an Input), the name of a stream of the model, a number, or None
+            for zero. A number becomes a Constant.
+        loss:
+            Keras loss name, serialized config, Loss instance, or callable.
+        gain:
+            Weight of this loss in the total training loss, 1 by default:
             0.5 gives it half the importance, 2 twice. Its own logged and
-            validated loss stays unweighted, the way Keras logs a loss_weight
-        seq_weights: one weight per step of the last axis of the source - the
-            rollout of a Loop, or the window of a stream - such as
+            validated loss stays unweighted, the way Keras logs a
+            ``loss_weight``.
+        seq_weights:
+            One weight per step of the last axis of the source - the rollout
+            of a Loop, or the window of a stream - such as
             ``np.exp(0.1 * np.arange(N))`` to weigh the last predictions more,
             or a callable of the number of steps returning them, such as
             ``lambda n: np.exp(0.1 * np.arange(n))``, for a sequence whose
             length is dynamic. Normalized to mean one, so only their profile
             matters; the logged and validated loss is the weighted one. None
             weighs every step the same. It suits losses computed element by
-            element, as the regression losses are
+            element, as the regression losses are.
 
         A name identifies one minimizer: registering a name again replaces the
         minimizer it names, in its place, and warns that it did.
         """
-        source = self._minimizer_stream(source, "source", name)
+        source = _minimizer_stream(self, source, "source", name)
         if target is None:  ## Transform it into a Constant with value zero
             target = 0.0
         # Any real number, numpy scalars included; a bool is not a target value.
@@ -657,7 +326,7 @@ class Modely:
             target, (bool, np.bool_)
         ):
             target = Constant(name=None, value=[float(target)])
-        target = self._minimizer_stream(target, "target", name)
+        target = _minimizer_stream(self, target, "target", name)
         resolved_loss = _resolve_loss(loss)
         gain = _validate_gain(gain, name)
         seq_weights = _validate_seq_weights(seq_weights, source, name)
@@ -682,47 +351,6 @@ class Modely:
         self.minimizers.append(minimizer)
         return self
 
-    def _named_streams(self) -> list[Stream]:
-        """Every stream a minimizer can name: the model's graph, its declared
-        inputs, and the streams the registered minimizers already compare."""
-        roots: list[Node] = [*self.outputs, *self.inputs]
-        for minimizer in self.minimizers:
-            roots.extend((minimizer["source"], minimizer["target"]))
-        streams: dict[int, Stream] = {}
-        stack = list(roots)
-        while stack:
-            node = stack.pop()
-            if id(node) in streams:
-                continue
-            if isinstance(node, Stream):
-                streams[id(node)] = node
-            stack.extend(node.preds)
-        return list(streams.values())
-
-    def _minimizer_stream(self, value, side: str, minimizer: str) -> Stream:
-        """A minimizer side as a Stream, looking a name up in the model."""
-        if isinstance(value, Stream):
-            return value
-        if not isinstance(value, str):
-            raise TypeError(
-                f"The {side} of minimizer {minimizer!r} must be a Stream or the "
-                f"name of one, got {type(value).__name__}."
-            )
-        matches = [stream for stream in self._named_streams() if stream.name == value]
-        if not matches:
-            outputs = sorted(output.name for output in self.outputs)
-            raise ValueError(
-                f"The {side} {value!r} of minimizer {minimizer!r} is not the name "
-                f"of a stream of model {self.name!r}. Its outputs are {outputs}."
-            )
-        if len(matches) > 1:
-            raise ValueError(
-                f"The {side} {value!r} of minimizer {minimizer!r} is ambiguous: "
-                f"{len(matches)} streams of model {self.name!r} carry that name. "
-                "Pass the stream itself."
-            )
-        return matches[0]
-
     def remove_minimizer(self, name: str):
         """Remove a registered minimizer by name; an unknown name only warns."""
         if all(minimizer["name"] != name for minimizer in self.minimizers):
@@ -738,99 +366,6 @@ class Modely:
     # -------------------------------------------------------------------------
     # Validation API
     # -------------------------------------------------------------------------
-
-    def _predict(self, x_data: dict, n_samples: int) -> dict[str, np.ndarray]:
-        """Run the graph over the whole dataset with the training path disabled.
-
-        ``training=False`` is the backend-independent switch: it is what tells
-        every Keras layer to take its inference branch, so no per-backend module
-        mode has to be toggled here.
-        """
-        if self.model is None:
-            raise ValueError("Model is not built. Call build() before validate().")
-        input_names = [node.name for node in self.train_inputs]
-        missing = [name for name in input_names if name not in x_data]
-        if missing:
-            raise ValueError(f"Validation data is missing model inputs: {missing}.")
-
-        # An output built only from constants and parameters has no batch axis:
-        # every chunk returns the same value, which is kept once, not stacked.
-        ranks = {node.name: node.shape.rank for node in self.train_outputs}
-        chunks: dict[str, list[np.ndarray]] = {}
-        batch_free: dict[str, np.ndarray] = {}
-        for start in range(0, n_samples, _INFERENCE_CHUNK):
-            stop = min(start + _INFERENCE_CHUNK, n_samples)
-            batch = {name: x_data[name][start:stop, ...] for name in input_names}
-            for name, value in self.model(batch, training=False).items():
-                value = keras.ops.convert_to_numpy(value)
-                if value.ndim == ranks.get(name):  # type: ignore
-                    batch_free[name] = value  # type: ignore
-                else:
-                    chunks.setdefault(name, []).append(value)  # type: ignore
-
-        predictions = {
-            name: np.concatenate(values, axis=0) for name, values in chunks.items()
-        }
-        predictions.update(batch_free)
-        return predictions
-
-    def _minimizer_key(self, node) -> str | None:
-        """Name under which the forward pass returns a minimizer's side."""
-        return self._minimizer_outputs.get(node, node.name)
-
-    @staticmethod
-    def _broadcast_batch_free(value, source_values: np.ndarray) -> np.ndarray:
-        """A target with no batch axis, laid out like its source's predictions.
-
-        The numpy twin of what training does: prepend the batch axis, append
-        the axes the target omits, then broadcast - so a dim-2 Constant lines
-        up with the dim axis, not the time axis.
-        """
-        value = np.asarray(value, dtype=np.float32)[np.newaxis, ...]
-        while value.ndim < source_values.ndim:
-            value = value[..., np.newaxis]
-        return np.broadcast_to(value, source_values.shape)
-
-    def _dataset_name(self, node, x_data: dict) -> str | None:
-        """Name of the dataset column a node ultimately reads, if any."""
-        if node.name in x_data:
-            return node.name
-        preds = getattr(node, "preds", [])
-        if len(preds) == 1:
-            return self._dataset_name(preds[0], x_data)
-        return None
-
-    def _validation_target(
-        self, minimizer: dict, x_data: dict, predictions: dict, n_samples: int
-    ) -> tuple[np.ndarray, str]:
-        """Resolve the reference signal a minimizer is scored against.
-
-        The evaluated target stream wins over the dataset column it reads: a
-        target declared as ``y.sw(2)`` on an input that carries a wider window
-        elsewhere in the graph is two steps long, not as wide as the column.
-        The column still names the signal, which is what a reader recognizes.
-        """
-        source_values = predictions[self._minimizer_key(minimizer["source"])]
-        target = minimizer["target"]
-        label = self._dataset_name(target, x_data) or target.name
-
-        key = self._minimizer_key(target)
-        if key in predictions:
-            values = predictions[key]
-            if values.ndim == target.shape.rank:  # built from constants only
-                return self._broadcast_batch_free(values, source_values), label
-            return np.asarray(values[:n_samples]), label
-
-        if label in x_data:
-            return np.asarray(x_data[label][:n_samples]), label
-
-        value = getattr(target, "value_numpy", None)
-        if value is None:
-            raise ValueError(
-                f"Validation target {target.name!r} of minimizer "
-                f"{minimizer['name']!r} is neither in the dataset nor a constant."
-            )
-        return self._broadcast_batch_free(value, source_values), target.name
 
     def validate(
         self,
@@ -862,67 +397,9 @@ class Modely:
         The summary is printed and the whole result returned, so the numbers
         can be asserted on or logged as well as read.
         """
-        if self.model is None:
-            raise ValueError("Model is not built. Call build() before validate().")
-        if not self.minimizers:
-            raise ValueError("No minimizers defined. Cannot infer validation targets.")
-
-        if out_dir is not None:
-            os.makedirs(out_dir, exist_ok=True)
-
-        x_data = {
-            name: np.asarray(values) for name, values in val_data.as_dict().items()
-        }
-
-        n_samples = len(val_data)
-        if n_samples == 0:
-            raise ValueError("Validation dataset is empty.")
-
-        x_data = {
-            name: np.asarray(values) for name, values in val_data.as_dict().items()
-        }
-        predictions = self._predict(x_data, n_samples)
-
-        signals = {}
-        for minimizer in self.minimizers:
-            name = minimizer["name"]
-            source = minimizer["source"]
-            source_key = self._minimizer_key(source)
-            if source_key not in predictions:
-                raise ValueError(
-                    f"Minimizer {name!r} sources {source.name!r}, which the built "
-                    "model does not expose as an output."
-                )
-            y_true, target_name = self._validation_target(
-                minimizer, x_data, predictions, n_samples
-            )
-            signals[name] = score_signal(
-                name=name,
-                source=source.name,
-                target=target_name,
-                loss_fn=minimizer["loss"],
-                seq_weights=(
-                    None
-                    if minimizer.get("seq_weights") is None
-                    else _seq_weights_for(
-                        minimizer["seq_weights"], y_true.shape[-1], name
-                    )
-                ),
-                y_true=y_true,
-                y_pred=np.asarray(predictions[source_key][:n_samples]),
-            )
-
-        result = ValidationResult(
-            model=self.name,
-            samples=n_samples,
-            signals=signals,
-            figures=[],
-            history=history,
+        return validation.validate(
+            self, val_data, out_dir=out_dir, show=show, history=history
         )
-        if out_dir is not None or show:
-            result.figures = validation_plot.render(result, out_dir=out_dir, show=show)
-        print(result.summary())
-        return result
 
     def _training_arrays(self, data: DataLoader) -> tuple[dict, np.ndarray | None]:
         """The model's inputs and, when simulations were padded, their mask.
@@ -933,73 +410,6 @@ class Modely:
         x_data = {name: np.asarray(values) for name, values in data.as_dict().items()}
         mask = getattr(data, "mask", None)
         return x_data, None if mask is None else np.asarray(mask, dtype=np.float32)
-
-    def _minimizer_terms(self) -> list[_MinimizerTerm]:
-        """Resolve every minimizer to the graph outputs of the built model."""
-        assert self.model is not None
-        # The forward pass returns a dict keyed by the names of these nodes.
-        output_names = {node.name for node in self.train_outputs}
-
-        def output_name(minimizer, side):
-            node = minimizer[side]
-            name = self._minimizer_outputs.get(node)
-            if name is None and not isinstance(node, Input):
-                name = node.name
-            if name not in output_names:
-                raise ValueError(
-                    f"The {side} {node.name!r} of minimizer {minimizer['name']!r} "
-                    "is not an output of the built model. Call build() after "
-                    "adding a minimizer, before train()."
-                )
-            return name
-
-        return [
-            _MinimizerTerm(
-                name=minimizer["name"],
-                source=output_name(minimizer, "source"),
-                target=output_name(minimizer, "target"),
-                target_rank=minimizer["target"].shape.rank,
-                loss=_resolve_loss(minimizer["loss"]),
-                masked=_depends_on_dynamic_input(minimizer["source"])
-                or _depends_on_dynamic_input(minimizer["target"]),
-                log_name=minimizer["source"].name,
-                gain=minimizer.get("gain", 1.0),
-                seq_weights=minimizer.get("seq_weights"),
-            )
-            for minimizer in self.minimizers
-        ]
-
-    def _check_minimizers_train_weights(self, km: keras.Model) -> None:
-        """Every minimizer should compare something the network computes.
-
-        A minimizer whose source and target reach no trainable weight adds a
-        constant to the loss and trains nothing. Alongside minimizers that do
-        train, it is only worth a warning; when none of them trains the
-        network's weights, the training could not change anything.
-        """
-        if not km.trainable_weights:
-            return  # Keras itself warns that the model has nothing to train
-        weightless = [
-            minimizer["name"]
-            for minimizer in self.minimizers
-            if not _reaches_trainable_weight(minimizer["source"])
-            and not _reaches_trainable_weight(minimizer["target"])
-        ]
-        if len(weightless) == len(self.minimizers):
-            raise ValueError(
-                f"No minimizer of model {self.name!r} depends on a trainable "
-                f"weight: {weightless} compare streams computed without any, so "
-                "training could not change the network. Compare an output of "
-                "the network with its reference."
-            )
-        for name in weightless:
-            warnings.warn(
-                f"Minimizer {name!r} of model {self.name!r} depends on no "
-                "trainable weight: it adds a constant to the loss and trains "
-                "nothing.",
-                UserWarning,
-                stacklevel=3,
-            )
 
     def train(
         self,
@@ -1045,8 +455,8 @@ class Modely:
             raise ValueError("Model is not built. Call build() before training.")
 
         resolved_optimizer = _resolve_optimizer(optimizer, lr, optimizer_kwargs)
-        self.model.set_minimizers(self._minimizer_terms())
-        self._check_minimizers_train_weights(self.model)
+        self.model.set_minimizers(_resolve_minimizer_terms(self))
+        _check_minimizers_train_weights(self, self.model)
 
         x_data, mask = self._training_arrays(train_data)
 
@@ -1091,25 +501,22 @@ class Modely:
         *,
         open_subgraph_in_new_tab: bool = False,
         physics: bool = True,
-    ) -> str:
+    ) -> None:
         """
         Export this Modely DAG to interactive HTML using vis-network.
 
         ``out_dir`` is the folder the pages are written to; a path ending in
         ``.html`` names the root page instead and its parent becomes the folder.
+        The root page is ``filename``, the model name by default, with the
+        ``.html`` suffix added when missing.
 
         Every block that wraps a model (``ModelCall``, ``Loop``, ``Roll``) is
         exported recursively as its own page, linked from the block node and
         annotated with the ports that bind the body to the graph above it.
-
-        Returns
-        -------
-        str
-            Path to the root exported HTML file.
         """
-        from nnodely.utils.plot import export_html
+        from nnodely.utils.html_export import export_html
 
-        return export_html(
+        export_html(
             model=self,
             out_dir=out_dir,
             filename=filename,
@@ -1137,7 +544,7 @@ class Modely:
         If include_minimizers=True, each minimizer is shown as a dedicated node
         labeled with its loss type and connected from source/target.
         """
-        from nnodely.utils.plot import plot_graphviz
+        from nnodely.utils.graphviz_plot import plot_graphviz
 
         return plot_graphviz(
             model=self,
@@ -1206,49 +613,52 @@ class Modely:
     # Save and load
     # -------------------------------------------------------------------------
 
-    def save(self, path):
-        """Save the model - graph, objectives and weights - to ``path``."""
-        ModelSerializer.serialize(self, path)
+    def save(self, path, weights: bool = True):
+        """Save the model - its graph, and its weights unless ``weights`` is
+        False - to ``path``.
+
+        Without weights only the architecture is saved, to be trained later
+        or elsewhere: loading it initializes the weights as ``build()`` does.
+        """
+        ModelSerializer.serialize(self, path, weights=weights)
 
     @classmethod
     def load(cls, path):
-        """Load a model saved with :meth:`save`."""
+        """Load a model saved with :meth:`save`, and its weights if it was
+        saved with them."""
         return ModelSerializer.load(path)
 
-    def export_keras(self, filename: str):
-        """Export the model as declared, without its minimizers, like save()."""
-        if self.inference_model is None:
-            raise ValueError("Model is not built. Call build() before export_keras().")
+    def export_keras(
+        self, path: str | os.PathLike, filename: str | None = None
+    ) -> None:
+        """Export the model as declared, without its minimizers, like save().
 
-        if not isinstance(self.inference_model, keras.Model):
-            raise TypeError(f"Expected keras.Model, got {type(self.inference_model)}.")
-
-        self.inference_model.save(filename)
+        The file is written to the folder ``path`` as ``filename``, the model
+        name by default, with the ``.keras`` suffix added when missing.
+        """
+        export.export_keras(self, path, filename)
 
     @staticmethod
     def import_keras(filename: str, safe_mode: bool = True):
         """Load a ``.keras`` file written by :meth:`export_keras` as a ``keras.Model``."""
-        path = Path(filename)
-        if path.suffix.lower() != ".keras":
-            path = path.with_suffix(".keras")
-        return keras.models.load_model(
-            path,
-            safe_mode=safe_mode,
-        )
+        return export.import_keras(filename, safe_mode=safe_mode)
 
     def export_onnx(
         self,
-        filename: str | os.PathLike,
+        path: str | os.PathLike,
+        filename: str | None = None,
         *,
         input_signature=None,
         batch_size: int | None = None,
         opset_version: int | None = None,
         verbose: bool = False,
-    ) -> Path:
+    ) -> None:
         """Export the built inference graph to ONNX.
 
         The model is exported as declared, without its minimizers: only its
-        outputs, and only the inputs they read.
+        outputs, and only the inputs they read. The file is written to the
+        folder ``path`` as ``filename``, the model name by default, with the
+        ``.onnx`` suffix added when missing.
 
         ONNX export traces the built Keras graph; it does not deserialize
         nnodely layer configurations. An explicit ``input_signature`` is
@@ -1262,139 +672,15 @@ class Modely:
         axis is dynamic. Such a model is therefore exported with a batch of
         one unless a signature or ``batch_size`` says otherwise.
         """
-        if self.inference_model is None:
-            raise ValueError("Model is not built. Call build() before export_onnx().")
-
-        if keras.backend.backend() == "jax":
-            # Keras reaches ONNX from jax through jax2tf, and jax 0.4.36 removed
-            # graph serialization, so jax2tf now emits the whole model as one
-            # opaque XlaCallModule node that tf2onnx has no converter for.
-            raise NotImplementedError(
-                "ONNX export is not available on the jax backend: jax>=0.4.36 "
-                "makes jax2tf emit an XlaCallModule node that tf2onnx cannot "
-                "convert. Export from the tensorflow or torch backend instead "
-                "(set KERAS_BACKEND before importing keras)."
-            )
-
-        path = Path(filename)
-        if path.suffix.lower() != ".onnx":
-            path = path.with_suffix(".onnx")
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        inference_model = self.inference_model
-        export_model = inference_model
-        if keras.backend.backend() == "torch" and isinstance(
-            inference_model.input, dict
-        ):
-            # Keras' Torch ONNX exporter does not currently accept dictionary
-            # signatures. Trace an equivalent positional wrapper instead.
-            export_inputs = [
-                keras.Input(
-                    shape=tuple(tensor.shape[1:]),
-                    dtype=tensor.dtype,
-                    name=tensor.name,
-                )
-                for tensor in inference_model.inputs
-            ]
-            input_map = {
-                tensor.name: export_input
-                for tensor, export_input in zip(inference_model.inputs, export_inputs)
-            }
-            export_model = keras.Model(
-                export_inputs,
-                inference_model(input_map, training=False),
-                name=f"{inference_model.name}_onnx",
-            )
-
-        # Keras requires a model to have been called before export. Modely.build
-        # creates a Functional model, but does not necessarily execute it.
-        if not getattr(export_model, "_called", False):
-            warmup_inputs = {}
-            for tensor in export_model.inputs:
-                shape = tuple(1 if dim is None else int(dim) for dim in tensor.shape)
-                warmup_inputs[tensor.name] = np.zeros(shape, dtype=np.float32)
-            export_model(warmup_inputs, training=False)
-
-        if _traces_backward_pass(export_model) and keras.backend.backend() == "torch":
-            raise NotImplementedError(
-                "ONNX export of a model that differentiates a sub-graph - a "
-                "Derivative with respect to an Input - is not supported on the "
-                "'torch' backend: its exporter traces a forward pass only and "
-                "cannot record the backward pass such a layer evaluates. The "
-                "'tensorflow' and 'jax' backends export it, because there the "
-                "backward pass becomes ordinary graph operations."
-            )
-
-        if input_signature is None:
-            if batch_size is None and _traces_backward_pass(export_model):
-                batch_size = 1
-            if batch_size is not None:
-                input_signature = _static_input_signature(export_model, batch_size)
-
-        export_kwargs: dict[str, Any] = {"verbose": verbose}
-        if input_signature is not None:
-            export_kwargs["input_signature"] = input_signature
-        if opset_version is not None:
-            export_kwargs["opset_version"] = opset_version
-
-        export_model.export(path, format="onnx", **export_kwargs)
-        self._set_onnx_io_names(path)
-        return path
-
-    def _set_onnx_io_names(self, path: Path) -> None:
-        """Restore Modely input/output names if an exporter replaced them."""
-        try:
-            import onnx
-        except ImportError:
-            return
-
-        if self.inference_model is None or not self.built:
-            raise ValueError("Model is not built. Call build() before export_onnx().")
-        onnx_model = onnx.load(str(path))
-        graph = onnx_model.graph
-        expected_inputs = [
-            (tensor.name, tuple(int(axis) for axis in tensor.shape[1:] if axis))
-            for tensor in self.inference_model.inputs
-        ]
-        expected_outputs = [
-            (node.name, tuple(node.shape.tuple)) for node in self.outputs
-        ]
-        rename = {}
-
-        # Only an exporter that dropped the names has to be corrected. One that
-        # kept them may still have reordered them - both tf2onnx and the Torch
-        # exporter sort their outputs - and pairing those off by position would
-        # rename each tensor after a different one, silently swapping two
-        # outputs' values.
-        for values, expected in (
-            (graph.input, expected_inputs),
-            (graph.output, expected_outputs),
-        ):
-            names = [value.name for value in values]
-            if len(names) != len(expected) or set(names) == {
-                name for name, _ in expected
-            }:
-                continue
-            rename.update(_pair_onnx_names(values, expected))
-        if not rename:
-            return
-
-        for collection in (
-            graph.input,
-            graph.output,
-            graph.value_info,
-            graph.initializer,
-        ):
-            for value in collection:
-                value.name = rename.get(value.name, value.name)
-        for node in graph.node:
-            for idx, name in enumerate(node.input):
-                node.input[idx] = rename.get(name, name)
-            for idx, name in enumerate(node.output):
-                node.output[idx] = rename.get(name, name)
-
-        onnx.checker.check_model(onnx_model)
-        onnx.save(onnx_model, str(path))
+        export.export_onnx(
+            self,
+            path,
+            filename,
+            input_signature=input_signature,
+            batch_size=batch_size,
+            opset_version=opset_version,
+            verbose=verbose,
+        )
 
     @staticmethod
     def validate_onnx(
@@ -1405,35 +691,9 @@ class Modely:
         providers: list[str] | None = None,
     ):
         """Run an exported ONNX model and return its outputs."""
-        try:
-            import onnxruntime as ort
-        except ImportError as exc:
-            raise ImportError(
-                "validate_onnx() requires the optional 'onnxruntime' package."
-            ) from exc
-
-        path = Path(filename)
-        if path.suffix.lower() != ".onnx":
-            path = path.with_suffix(".onnx")
-        if not path.is_file():
-            raise FileNotFoundError(f"ONNX model not found: {path}")
-
-        session_kwargs = {} if providers is None else {"providers": providers}
-        session = ort.InferenceSession(str(path), **session_kwargs)  # type: ignore
-        input_names = [item.name for item in session.get_inputs()]
-        missing = [name for name in input_names if name not in inputs]
-        if missing:
-            raise ValueError(f"Missing ONNX inputs: {missing}")
-
-        feed = {
-            name: np.asarray(inputs[name], dtype=np.float32) for name in input_names
-        }
-        outputs = session.run(None, feed)
-        if return_dict:
-            return {
-                item.name: value for item, value in zip(session.get_outputs(), outputs)
-            }
-        return outputs
+        return export.validate_onnx(
+            filename, inputs, return_dict=return_dict, providers=providers
+        )
 
 
 class ModelCall(Node):

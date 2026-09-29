@@ -32,7 +32,7 @@ def test_basic_model_build_and_inference(batch_size, window_size):
     dummy_x = np.ones((batch_size, 1, window_size), dtype=np.float32)
     dummy_y = np.ones((batch_size, 1, window_size), dtype=np.float32)
 
-    result = model([dummy_x, dummy_y])
+    result = model({"x": dummy_x, "y": dummy_y})
 
     assert "x_pred" in result
     assert result["x_pred"].shape == (batch_size, 2, 1)
@@ -66,21 +66,21 @@ def test_model_inference_with_composed_model(batch_size, window_size):
     dummy_input_y = np.ones((batch_size, 1, window_size), dtype=np.float32)
     dummy_input_z = np.ones((batch_size, 1, window_size), dtype=np.float32)
 
-    result1 = model1([dummy_input_x, dummy_input_y])
+    result1 = model1({"x": dummy_input_x, "y": dummy_input_y})
     assert "x_pred" in result1
     assert result1["x_pred"].shape == (batch_size, 2, 1)
 
-    result2 = model2([dummy_input_z])
+    result2 = model2({"z": dummy_input_z})
     assert "z_pred" in result2
     assert result2["z_pred"].shape == (batch_size, 1, 1)
 
 
-def test_inference_adds_batch_axis_to_backend_tensor():
+def test_inference_accepts_a_backend_tensor():
     x = Input("backend_tensor_x", dim=1)
     output = Output("backend_tensor_out", x * 2.0)
     model = Modely("backend_tensor_model", inputs=[x], outputs=[output]).build()
 
-    value = keras.ops.convert_to_tensor(np.array([[3.0]], dtype=np.float32))
+    value = keras.ops.convert_to_tensor(np.array([[[3.0]]], dtype=np.float32))
     result = model({"backend_tensor_x": value})
 
     assert result["backend_tensor_out"].shape == (1, 1, 1)
@@ -160,15 +160,6 @@ def test_inference_returns_only_declared_outputs():
     assert set(trained) > {"declared_only_pred"}
     # ...inference only what the model declared.
     assert set(model({"declared_only_x": x})) == {"declared_only_pred"}
-
-
-def test_positional_inference_takes_only_the_inputs_the_outputs_read():
-    model = _minimized_model("positional")
-
-    result = model([_windows()])
-
-    assert set(result) == {"positional_pred"}
-    assert result["positional_pred"].shape == (4, 1, 1)
 
 
 def test_inference_keeps_an_input_that_outputs_and_minimizers_both_read():
@@ -253,7 +244,7 @@ def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
         "minimized_loop", inputs=[seed], outputs=[Output("minimized_loop_out", loop)]
     ).build()
 
-    seed_values = np.zeros((1, 1, 4), dtype=np.float32)
+    seed_values = np.zeros((1, 1, 1, 4), dtype=np.float32)
     seed_values[..., 0] = 1.0
     result = model({"minimized_body_seed": seed_values})
     np.testing.assert_allclose(

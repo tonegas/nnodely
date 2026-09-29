@@ -1,14 +1,26 @@
+import warnings
+
 import numpy as np
 import keras
 
 from nnodely.core.layer import Layer
+from nnodely.core.stream import Shape
+from nnodely.utils.utils import _serialized_initializer
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class ParameterImpl(keras.layers.Layer):
+    """A value of fixed shape, the same for every sample of the batch.
+
+    It is called with a tensor of the graph, of which it reads only the batch
+    size: the value comes out ``(batch, *dim, time, *seq)`` like every stream.
+    """
+
+    trainable_value = True
+
     def __init__(
         self,
-        parameter_shape,
+        value_shape,
         value=None,
         initializer="random_normal",
         name=None,
@@ -16,15 +28,19 @@ class ParameterImpl(keras.layers.Layer):
     ):
         super().__init__(name=name, **kwargs)
 
-        self.parameter_shape = tuple(parameter_shape)
-        self.value = None if value is None else np.asarray(value, dtype=np.float32)
+        self.value_shape = tuple(int(axis) for axis in value_shape)
+        self.value = (
+            None
+            if value is None
+            else np.asarray(value, dtype=np.float32).reshape(self.value_shape)
+        )
         self.initializer = initializer
 
     def get_config(self):
         config = super().get_config()
         config.update(
             {
-                "parameter_shape": self.parameter_shape,
+                "value_shape": self.value_shape,
                 "value": None if self.value is None else self.value.tolist(),
                 "initializer": self.initializer,
             }
@@ -35,35 +51,116 @@ class ParameterImpl(keras.layers.Layer):
         initializer = (
             keras.initializers.get(self.initializer)
             if self.value is None
-            else keras.initializers.Constant(
-                value=self.value.reshape(self.parameter_shape).tolist()
-            )
+            else keras.initializers.Constant(value=self.value.tolist())
         )
 
-        self.param = self.add_weight(
+        self.variable = self.add_weight(
             name="value",
-            shape=self.parameter_shape,
+            shape=self.value_shape,
             initializer=initializer,
-            trainable=True,
+            trainable=self.trainable_value,
             dtype="float32",
         )
         super().build(input_shape)
 
     def call(self, anchor):
-        return self.param.value
+        value = keras.ops.expand_dims(self.variable, axis=0)
+        if anchor is None:
+            return value
+        batch = keras.ops.shape(anchor)[0]
+        return keras.ops.broadcast_to(value, (batch, *self.value_shape))
 
 
-class Parameter(Layer):
+@keras.saving.register_keras_serializable(package="nnodely")
+class ConstantImpl(ParameterImpl):
+    trainable_value = False
+
+
+def _value_array(value, owner: str) -> np.ndarray:
+    """``value`` laid out ``(dim, time, *seq)``.
+
+    A number or a vector is one time step of its dim, a matrix gives the dim
+    and time axes, and any further axis is a sequence axis.
     """
-    Trainable symbolic parameter layer.
+    array = np.atleast_1d(np.asarray(value, dtype=np.float32))
+    if array.size == 0:
+        raise ValueError(f"{owner}: value must not be empty.")
+    return array[:, np.newaxis] if array.ndim == 1 else array
 
-    The shape is taken from ``value`` when given, otherwise from ``dim``,
-    ``time`` and ``seq``. Without ``value`` the parameter starts from
-    ``initializer``, any Keras initializer.
 
-    Shape without batch::
+class _Value(Layer):
+    """What a Parameter and a Constant share: a value the model holds rather
+    than reads from data, laid out and batched like any other stream.
 
-        dim + time + seq
+    The two differ only in whether training changes the value.
+    """
+
+    _impl: type[ParameterImpl] = ParameterImpl
+
+    def __init__(self, name, value, initializer, dim, time, seq):
+        overridden = []
+        if value is not None:
+            value = _value_array(value, self.__class__.__name__)
+            shape = Shape(dim=value.shape[0], time=value.shape[1], seq=value.shape[2:])
+            given = {"dim": dim, "time": time, "seq": seq}
+            overridden = [
+                axis
+                for axis, size in given.items()
+                if size is not None
+                and getattr(Shape(**{axis: size}), axis) != getattr(shape, axis)
+            ]
+            dim, time, seq = shape.dimensions
+
+        self.value = value
+        self.initializer = initializer
+
+        super().__init__(
+            name=name,
+            seq=seq,
+            time=time,
+            dim=dim,
+            value=None if value is None else value.tolist(),
+            initializer=initializer,
+        )
+        if overridden:
+            warnings.warn(
+                f"{self.name}: the shape of value is {self.shape.tuple}, which "
+                f"overrides the {', '.join(overridden)} given with it.",
+                UserWarning,
+                stacklevel=3,
+            )
+
+    def build_layer(self):
+        return self._impl(
+            value_shape=self.shape.tuple,
+            value=self.value,
+            initializer=self.initializer,
+            name=self.name,
+        )
+
+    @property
+    def _variable(self):
+        return getattr(self._layer, "variable", None)
+
+    @property
+    def value_numpy(self):
+        return keras.ops.convert_to_numpy(self._variable)
+
+
+class Parameter(_Value):
+    """
+    Trainable symbolic parameter.
+
+    ``value`` sets its shape and initial value: a number or a vector is one
+    time step of its ``dim``, a matrix is ``(dim, time)``, and further axes
+    are ``seq`` axes. Without ``value`` the shape is given by ``dim``, ``time``
+    and ``seq``, and ``initializer``, any Keras initializer, draws the initial
+    value. A ``value`` overrides the ``dim``, ``time`` and ``seq`` given with it.
+
+    Like every stream it is laid out with a batch axis first, the same value
+    for every sample::
+
+        (batch, *dim, time, *seq)
     """
 
     def __init__(
@@ -76,47 +173,18 @@ class Parameter(Layer):
         time=None,
         dim=None,
     ):
-        arr = (
-            None
-            if value is None
-            else np.atleast_1d(np.asarray(value, dtype=np.float32))
+        super().__init__(name, value, initializer, dim, time, seq)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "value": None if self.value is None else self.value.tolist(),
+                "initializer": _serialized_initializer(self.initializer),
+            }
         )
-
-        if arr is not None:
-            if dim is None:
-                dim = arr.shape[0]
-                time = arr.shape[1] if arr.ndim > 1 else None
-                seq = arr.shape[2:] if arr.ndim > 2 else None
-            else:
-                time = arr.shape[dim] if arr.ndim > dim else None
-                seq = arr.shape[dim + 1 :] if arr.ndim > dim + 1 else None
-
-        self.value = arr
-        self.initializer = initializer
-
-        super().__init__(
-            name=name,
-            seq=seq,
-            time=time,
-            dim=dim,
-            value=None if arr is None else arr.tolist(),
-            initializer=initializer,
-        )
-
-    def build_layer(self):
-        return ParameterImpl(
-            parameter_shape=self.shape,
-            value=self.value,
-            initializer=self.initializer,
-            name=self.name,
-        )
+        return config
 
     @property
     def param(self):
-        if self._layer is not None and hasattr(self._layer, "param"):
-            return self._layer.param
-        return None
-
-    @property
-    def value_numpy(self):
-        return keras.ops.convert_to_numpy(self.param)
+        return self._variable

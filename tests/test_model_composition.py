@@ -38,7 +38,7 @@ def test_model_composition():
     z_fir.bias.assign(np.zeros((1,), dtype=np.float32))
 
     dummy_z = np.ones((3, 1, 10), dtype=np.float32)
-    result = model2([dummy_z])
+    result = model2({"z": dummy_z})
 
     assert "z_pred" in result
     assert result["z_pred"].shape == (3, 1, 1)

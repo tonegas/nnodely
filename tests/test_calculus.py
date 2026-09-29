@@ -4,7 +4,7 @@ import keras
 import numpy as np
 import pytest
 
-from conftest import to_numpy
+from conftest import requires_onnx_export, to_numpy
 from nnodely import (
     DataLoader,
     Derivative,
@@ -16,7 +16,7 @@ from nnodely import (
     Output,
     Sin,
 )
-from nnodely.core.modely import _traces_backward_pass
+from nnodely.core.export import _traces_backward_pass
 
 
 def test_derivate_wrt_input_and_time():
@@ -36,7 +36,12 @@ def test_derivate_wrt_input_and_time():
     m = Modely(name="test", inputs=[x, y], outputs=[out, outx, outy, out_time])
     m.build()
 
-    result = m({"x": [[np.pi / 2]], "y": [[3]]})
+    result = m(
+        {
+            "x": np.full((1, 1, 1), np.pi / 2, dtype=np.float32),
+            "y": np.full((1, 1, 1), 3.0, dtype=np.float32),
+        }
+    )
     np.testing.assert_allclose(
         to_numpy(result["out"]),
         np.array(10.0, dtype=np.float32),
@@ -616,7 +621,7 @@ def test_derivative_export_keras_round_trip(tmp_path):
     expected = {name: to_numpy(value) for name, value in model(inputs).items()}
 
     path = tmp_path / "derivative_export.keras"
-    model.export_keras(path)
+    model.export_keras(tmp_path, "derivative_export")
     restored = Modely.import_keras(path)
 
     result = restored(inputs, training=False)  # type: ignore
@@ -624,6 +629,7 @@ def test_derivative_export_keras_round_trip(tmp_path):
         np.testing.assert_allclose(to_numpy(result[name]), value, rtol=1e-5, atol=1e-5)
 
 
+@requires_onnx_export
 def test_derivative_export_onnx(tmp_path):
     """A differentiated graph carries its backward pass into ONNX; the batch
     axis is fixed for it, which is what the exporter can convert."""
@@ -642,15 +648,17 @@ def test_derivative_export_onnx(tmp_path):
         # pass this graph evaluates - and says so instead of writing a model
         # whose gradient operators no runtime implements.
         with pytest.raises(NotImplementedError, match="torch"):
-            model.export_onnx(tmp_path / "derivative_export.onnx")
+            model.export_onnx(tmp_path, "derivative_export")
         return
 
-    path = model.export_onnx(tmp_path / "derivative_export.onnx")
+    model.export_onnx(tmp_path, "derivative_export")
+    path = tmp_path / "derivative_export.onnx"
     result = Modely.validate_onnx(str(path), inputs, return_dict=True)
     for name, value in expected.items():
         np.testing.assert_allclose(result[name], value, rtol=1e-4, atol=1e-4)  # type: ignore
 
 
+@requires_onnx_export
 def test_derivative_wrt_time_needs_no_fixed_batch_to_export():
     """Only automatic differentiation constrains the export: the finite
     difference is ordinary arithmetic, so the time mode leaves the batch axis
@@ -674,7 +682,8 @@ def test_derivative_wrt_time_needs_no_fixed_batch_to_export():
     assert _traces_backward_pass(gradient_model.model)
 
     with tempfile.TemporaryDirectory() as folder:
-        path = time_model.export_onnx(f"{folder}/derivative_time.onnx")
+        time_model.export_onnx(folder, "derivative_time")
+        path = f"{folder}/derivative_time.onnx"
         values = np.array([[[1.0, 2.0]]], dtype=np.float32)
         result = Modely.validate_onnx(
             str(path), {"onnx_time_v": values}, return_dict=True
@@ -774,7 +783,13 @@ def test_integrate_pos_vel():
     ).build()
 
     vel0, pos0, force0 = 1.0, 0.0, 4.0
-    result = model({vel.name: [vel0], pos.name: [pos0], force.name: [force0]})
+    result = model(
+        {
+            vel.name: np.full((1, 1, 1), vel0, dtype=np.float32),
+            pos.name: np.full((1, 1, 1), pos0, dtype=np.float32),
+            force.name: np.full((1, 1, 1), force0, dtype=np.float32),
+        }
+    )
 
     acc0 = force0 / mass
     expected_vel = vel0 + dt * acc0
@@ -809,7 +824,13 @@ def test_integrate_pos_vel_multi_step_rollback():
     model.build()
 
     vel0, pos0, force0 = 1.0, 0.0, 4.0
-    result = model({vel.name: [vel0], pos.name: [pos0], force.name: [force0]})
+    result = model(
+        {
+            vel.name: np.full((1, 1, 1), vel0, dtype=np.float32),
+            pos.name: np.full((1, 1, 1), pos0, dtype=np.float32),
+            force.name: np.full((1, 1, 1), force0, dtype=np.float32),
+        }
+    )
 
     acc0 = force0 / mass
     v, x = vel0, pos0
@@ -866,7 +887,12 @@ def test_integrate_one_sample_window_is_one_step():
         ],
     ).build()
 
-    result = model({"v": [[3.0]], "v_state": [[1.0]]})
+    result = model(
+        {
+            "v": np.full((1, 1, 1), 3.0, dtype=np.float32),
+            "v_state": np.full((1, 1, 1), 1.0, dtype=np.float32),
+        }
+    )
     np.testing.assert_allclose(
         to_numpy(result["increment"]), np.full((1, 1, 1), dt * 3.0), rtol=1e-5
     )
@@ -997,7 +1023,7 @@ def test_integrate_save_load_round_trip(tmp_path):
     )
 
 
-def test_integrate_export_keras_and_onnx(tmp_path):
+def _integrate_export_model():
     dt = 0.1
     v = Input("v", dim=1)
     model = Modely(
@@ -1005,22 +1031,32 @@ def test_integrate_export_keras_and_onnx(tmp_path):
         inputs=[v],
         outputs=[Output("integral", Integrate(solver="euler", dt=dt)(v.last()))],
     ).build()
+    return model, {"v": np.array([[[3.0]]], dtype=np.float32)}
 
-    values = np.array([[[3.0]]], dtype=np.float32)
-    expected = model({"v": values})["integral"]
+
+def test_integrate_export_keras(tmp_path):
+    model, inputs = _integrate_export_model()
+    expected = model(inputs)["integral"]
 
     keras_path = tmp_path / "integrate_export.keras"
-    model.export_keras(keras_path)
+    model.export_keras(tmp_path, "integrate_export")
     restored = Modely.import_keras(keras_path)
     np.testing.assert_allclose(
-        to_numpy(restored({"v": values}, training=False)["integral"]),  # type: ignore
+        to_numpy(restored(inputs, training=False)["integral"]),  # type: ignore
         to_numpy(expected),
         rtol=1e-5,
         atol=1e-5,
     )
 
-    onnx_path = model.export_onnx(tmp_path / "integrate_export.onnx")
-    onnx_result = Modely.validate_onnx(str(onnx_path), {"v": values}, return_dict=True)
+
+@requires_onnx_export
+def test_integrate_export_onnx(tmp_path):
+    model, inputs = _integrate_export_model()
+    expected = model(inputs)["integral"]
+
+    model.export_onnx(tmp_path, "integrate_export")
+    onnx_path = tmp_path / "integrate_export.onnx"
+    onnx_result = Modely.validate_onnx(str(onnx_path), inputs, return_dict=True)
     np.testing.assert_allclose(
         onnx_result["integral"],  # type: ignore
         to_numpy(expected),
@@ -1208,7 +1244,12 @@ def test_integrate_step_init_returns_the_updated_state():
         ],
     ).build()
 
-    result = model({"step_init_force": [[4.0]], "step_init_vel": [[1.0]]})
+    result = model(
+        {
+            "step_init_force": np.full((1, 1, 1), 4.0, dtype=np.float32),
+            "step_init_vel": np.full((1, 1, 1), 1.0, dtype=np.float32),
+        }
+    )
     expected = 1.0 + dt * (4.0 / mass)
 
     np.testing.assert_allclose(
@@ -1348,7 +1389,7 @@ def test_integrate_init_save_load_round_trip(tmp_path):
         np.testing.assert_allclose(to_numpy(result[name]), value, rtol=1e-5, atol=1e-5)
 
 
-def test_integrate_init_export_keras_and_onnx(tmp_path):
+def _integrate_init_export_model():
     dt = 0.1
     rate = Input("init_export_rate", dim=1)
     state = Input("init_export_state", dim=1)
@@ -1372,10 +1413,15 @@ def test_integrate_init_export_keras_and_onnx(tmp_path):
         "init_export_rate": np.array([[[1.0, 2.0, 3.0, 5.0]]], dtype=np.float32),
         "init_export_state": np.array([[[2.0]]], dtype=np.float32),
     }
+    return model, inputs
+
+
+def test_integrate_init_export_keras(tmp_path):
+    model, inputs = _integrate_init_export_model()
     expected = {name: to_numpy(value) for name, value in model(inputs).items()}
 
     keras_path = tmp_path / "integrate_init_export.keras"
-    model.export_keras(keras_path)
+    model.export_keras(tmp_path, "integrate_init_export")
     restored = Modely.import_keras(keras_path)
     keras_result = restored(inputs, training=False)  # type: ignore
     for name, value in expected.items():
@@ -1383,7 +1429,14 @@ def test_integrate_init_export_keras_and_onnx(tmp_path):
             to_numpy(keras_result[name]), value, rtol=1e-5, atol=1e-5
         )
 
-    onnx_path = model.export_onnx(tmp_path / "integrate_init_export.onnx")
+
+@requires_onnx_export
+def test_integrate_init_export_onnx(tmp_path):
+    model, inputs = _integrate_init_export_model()
+    expected = {name: to_numpy(value) for name, value in model(inputs).items()}
+
+    model.export_onnx(tmp_path, "integrate_init_export")
+    onnx_path = tmp_path / "integrate_init_export.onnx"
     onnx_result = Modely.validate_onnx(str(onnx_path), inputs, return_dict=True)
     for name, value in expected.items():
         np.testing.assert_allclose(onnx_result[name], value, rtol=1e-4, atol=1e-4)  # type: ignore

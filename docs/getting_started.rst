@@ -141,7 +141,7 @@ a dictionary of windows runs it.
 .. code-block:: python
 
    result = model.validate(train_data)
-   prediction = model(train_data[0])
+   prediction = model(train_data.get_samples(1))
    print(prediction["x_next_est"])
 
 Where to go next

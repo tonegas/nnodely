@@ -149,6 +149,6 @@ target reads:
 
    loader = DataLoader(model, source=signals)
    loader.normalize(method="standard")            # or "minmax", feature_range=(-1, 1)
-   prediction = model(loader[0])
+   prediction = model(loader.get_samples(1))
    physical = loader.denormalize({"y": np.asarray(prediction["y"])})
    loader.denormalize()                           # restore the original data

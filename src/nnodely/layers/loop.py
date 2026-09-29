@@ -1,6 +1,6 @@
 import keras
 
-from nnodely.core.layer import Layer, has_batch
+from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
 from nnodely.core.stream import Stream
 
@@ -80,7 +80,6 @@ class LoopImpl(keras.layers.Layer):
         result_shapes: tuple[tuple[int | None, ...], ...] = (),
         horizon_index: int | None = None,
         horizon_axis: int | None = None,
-        batch_reference_index: int | None = None,
         primary_output_index: int = 0,
         return_all_outputs: bool = False,
         **kwargs,
@@ -104,7 +103,6 @@ class LoopImpl(keras.layers.Layer):
         self.result_shapes = tuple(tuple(shape) for shape in result_shapes)
         self.horizon_index = horizon_index
         self.horizon_axis = horizon_axis
-        self.batch_reference_index = batch_reference_index
         self.primary_output_index = int(primary_output_index)
         self.return_all_outputs = bool(return_all_outputs)
         self.output_indices = {
@@ -141,19 +139,15 @@ class LoopImpl(keras.layers.Layer):
         return keras.ops.concatenate([window[tuple(slices)], value], axis=axis)
 
     @staticmethod
-    def _align_to_shape(state, shape, reference):
-        """Broadcast an initial value up to ``(batch, *shape)``."""
+    def _align_to_shape(state, shape):
+        """Broadcast an initial value ``(batch, ...)`` up to ``(batch, *shape)``.
+
+        Its axes line up with the last ones of ``shape``, the way the value was
+        checked against its callback input when the loop was declared.
+        """
         while len(state.shape) < len(shape) + 1:
-            state = keras.ops.expand_dims(state, axis=0)
-        state = state + keras.ops.zeros((1, *shape))
-        if reference is None:
-            return state
-        # A constant initial value carries no batch axis, while the carry has to
-        # match the body output, so borrow the batch from a batched input.
-        batch = keras.ops.sum(
-            reference * 0.0, axis=tuple(range(1, len(reference.shape)))
-        )
-        return state + keras.ops.reshape(batch, (-1, *([1] * len(shape))))
+            state = keras.ops.expand_dims(state, axis=1)
+        return state + keras.ops.zeros((1, *shape))
 
     def _model_outputs(self, model_inputs):
         outputs = self.model(model_inputs)
@@ -207,11 +201,6 @@ class LoopImpl(keras.layers.Layer):
         sources = list(inputs[callback_count:])
 
         horizon = self._resolve_horizon(inputs)
-        batch_reference = (
-            None
-            if self.batch_reference_index is None
-            else inputs[self.batch_reference_index]
-        )
 
         # Inputs carrying the rollout axis are consumed one slice per step; the
         # others are closed over, so they are not tiled horizon times.
@@ -235,7 +224,7 @@ class LoopImpl(keras.layers.Layer):
             if initial_axis is not None:
                 state = keras.ops.take(state, 0, axis=initial_axis)
             if state_shape is not None:
-                state = self._align_to_shape(state, state_shape, batch_reference)
+                state = self._align_to_shape(state, state_shape)
 
             if shift_axis is None:
                 states.append(state)
@@ -345,7 +334,6 @@ class LoopImpl(keras.layers.Layer):
                 "result_shapes": self.result_shapes,
                 "horizon_index": self.horizon_index,
                 "horizon_axis": self.horizon_axis,
-                "batch_reference_index": self.batch_reference_index,
                 "primary_output_index": self.primary_output_index,
                 "return_all_outputs": self.return_all_outputs,
             }
@@ -486,16 +474,6 @@ class Loop(Layer):
             ),
             (None, None),
         )
-        self.batch_reference_index = next(
-            (index for index, source in enumerate(sources) if self._has_batch(source)),
-            None,
-        )
-        if self.batch_reference_index is None:
-            raise ValueError(
-                "Loop needs at least one input with a batch axis: pass a stream "
-                "derived from an Input through initial= or inputs=."
-            )
-
         self.output_sequence_axes = [
             output.shape.dim_rank + 2 + len(output.seq) for output in self.f.outputs
         ]
@@ -545,16 +523,14 @@ class Loop(Layer):
             return None
         return source.shape.dim_rank + 2 + len(node_seq)
 
-    _has_batch = staticmethod(has_batch)
-
-    @classmethod
-    def _state_shape(cls, node, value, axis):
+    @staticmethod
+    def _state_shape(node, value, axis):
         """Shape an initial value must be broadcast to, or None if it fits."""
         source = tuple(value.shape.tuple)
         if axis is not None:
             source = source[:-1]
         target = tuple(node.shape.tuple)
-        if source == target and cls._has_batch(value):
+        if source == target:
             return None
         incompatible = len(source) > len(target) or any(
             size not in (1, target_size)
@@ -698,7 +674,6 @@ class Loop(Layer):
             ),
             horizon_index=self.horizon_index,
             horizon_axis=self.horizon_axis,
-            batch_reference_index=self.batch_reference_index,
             primary_output_index=self.f.outputs.index(self.callback_outputs[0]),
             return_all_outputs=self.return_all_outputs,
             name=self.name,

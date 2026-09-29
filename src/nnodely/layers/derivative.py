@@ -22,6 +22,7 @@ import math
 import keras
 import numpy as np
 
+from nnodely.core.dag import _source_input_tensors, _source_names
 from nnodely.core.layer import Layer
 from nnodely.core.stream import Stream
 from nnodely.layers.input import Input
@@ -74,39 +75,6 @@ def _operator_matrix(coefficients, window_length: int) -> np.ndarray:
 # ----------------------------------------------------------------------
 # Graph introspection
 # ----------------------------------------------------------------------
-def _source_input_tensors(tensor):
-    """The model-input tensors ``tensor`` is computed from.
-
-    The Keras graph is walked rather than the nnodely DAG because the two do
-    not always agree: a Constant or Parameter is wired to an arbitrary anchor
-    input to give it a batch context, so the Keras sub-graph of a relation can
-    need a tensor its symbolic predecessors never mention. Sources are ordered
-    by name so a reloaded model resolves them exactly like the saved one did.
-    """
-    sources: dict[str, object] = {}
-    seen: set[int] = set()
-    stack = [tensor]
-    while stack:
-        current = stack.pop()
-        if id(current) in seen:
-            continue
-        seen.add(id(current))
-        history = getattr(current, "_keras_history", None)
-        if history is None:
-            continue
-        operation = history[0]
-        if isinstance(operation, keras.layers.InputLayer):
-            sources[operation.name] = current
-            continue
-        node = operation._inbound_nodes[history[1]]
-        stack.extend(node.input_tensors)
-    return [sources[name] for name in sorted(sources)]
-
-
-def _source_names(tensors):
-    return [tensor._keras_history[0].name for tensor in tensors]
-
-
 def _find_input(node, name: str):
     """The Input named ``name`` among ``node``'s ancestors, if any."""
     seen: set[int] = set()
@@ -269,7 +237,6 @@ class TimeDerivativeImpl(keras.layers.Layer):
         coefficients,
         dim_rank: int,
         init_time: int = 1,
-        init_has_batch: bool = True,
         name=None,
         **kwargs,
     ):
@@ -277,7 +244,6 @@ class TimeDerivativeImpl(keras.layers.Layer):
         self.coefficients = tuple(float(c) for c in coefficients)
         self.dim_rank = int(dim_rank)
         self.init_time = int(init_time)
-        self.init_has_batch = bool(init_has_batch)
 
     @property
     def past(self) -> int:
@@ -312,15 +278,15 @@ class TimeDerivativeImpl(keras.layers.Layer):
         time_axis = 1 + self.dim_rank
 
         # One sample of zeros shaped like the window's first: it both stands
-        # in for a missing initial condition and gives a given one the batch
-        # (and dim) axes it may be broadcasting over - a Constant carries
-        # neither, and a scalar initial condition carries no dim axis.
+        # in for a missing initial condition and gives a given one the axes it
+        # may be broadcasting over - a scalar initial condition carries no dim
+        # size, and one may leave out the sequence axes.
         reference = keras.ops.zeros_like(self._time_slice(x, 0, 1))
         if init is None:
             history = reference
         else:
-            if not self.init_has_batch:
-                init = keras.ops.expand_dims(init, axis=0)
+            while len(init.shape) < len(reference.shape):
+                init = keras.ops.expand_dims(init, axis=-1)
             history = init + reference
         if self.init_time != self.past:
             history = keras.ops.repeat(history, self.past, axis=time_axis)
@@ -347,7 +313,6 @@ class TimeDerivativeImpl(keras.layers.Layer):
                 "coefficients": self.coefficients,
                 "dim_rank": self.dim_rank,
                 "init_time": self.init_time,
-                "init_has_batch": self.init_has_batch,
             }
         )
         return config
@@ -576,22 +541,16 @@ class Derivative(Layer):
                 f"{self.name}: a Derivative with respect to an Input is built "
                 "from the graph it differentiates, not from its input value."
             )
-        init_time, init_has_batch = 1, True
+        init_time = 1
         if len(self.preds) > 1:
             init_node = self.preds[1]
             init_time = init_node.shape.time if isinstance(init_node, Stream) else 1
-            # A Constant or Parameter is a leaf of the graph and carries no
-            # batch axis, so the initial condition it holds broadcasts instead.
-            init_has_batch = not (
-                isinstance(init_node, Layer) and len(init_node.preds) == 0
-            )
         return TimeDerivativeImpl(
             coefficients=_stencil_coefficients(
                 self.order, self.window, self.poly_order, self.dt
             ),
             dim_rank=len(self.dim),
             init_time=init_time,
-            init_has_batch=init_has_batch,
             name=self.name,
         )
 

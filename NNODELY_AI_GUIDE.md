@@ -673,7 +673,7 @@ Rules:
 - Weights go in the Impl's `build()` through `add_weight`.
 - A multi-input layer receives a list of tensors in `call`.
 - Classes register themselves for `save` / `load` by class name, so class names must be unique.
-- Example of a custom multi-input physics layer: `examples/cheetah/model.py` (`DynamicsStep`, a linear solve).
+- Example of a custom multi-input physics layer: `examples/cheetah/model.py` (`LinearSolve`, a linear solve with its own `output_shape`).
 
 ---
 
@@ -721,7 +721,7 @@ src/nnodely/
   utils/                 printers, plot (graphviz / html), validation_plot, random (set_seed), utils (loss/optimizer resolution, MaskedLoss)
 tests/                   pytest; run all backends with scripts/test_all_backends.sh; KERAS_BACKEND defaults to tensorflow in conftest
 docs/                    Sphinx user guide (getting_started, guide/*.rst, api/*.rst)
-examples/                pendulum (Ode + Loop), longitudinal_dynamics (Fuzzify/LocalModel vehicle), cheetah (custom layer + Roll), hnn.py (PortHamiltonian, experimental)
+examples/                pendulum (Ode + Loop), longitudinal_dynamics (Fuzzify/LocalModel vehicle), cheetah (custom layer + Loop nested in a Loop), hnn.py (PortHamiltonian, experimental)
 ```
 Mechanics worth knowing:
 - Symbolic call: `Layer.__call__(streams)` infers the output shape (by probing `build_layer()` on zeros unless `output_shape` is overridden) and returns a *new* node of the same class with the same name and properties.

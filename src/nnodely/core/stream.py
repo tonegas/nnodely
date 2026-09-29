@@ -10,6 +10,16 @@ from typing import Any, Sequence
 
 NODE_REGISTRY: dict[str, type["Node"]] = {}
 
+#: Every node name this process has used - given, generated or loaded - with
+#: the "_"-separated prefixes it is built from. Layers are told apart by name,
+#: one name building one Keras layer, so a generated name has to avoid them all.
+NODE_NAMES: set[str] = set()
+
+
+def reserve_name(name: str) -> None:
+    parts = name.split("_")
+    NODE_NAMES.update("_".join(parts[:index]) for index in range(1, len(parts) + 1))
+
 
 class Node:
     name: str
@@ -24,6 +34,7 @@ class Node:
     def __init__(self, name: str, preds: list[Node] | None = None) -> None:
         self.name = name
         self.preds = preds or []
+        reserve_name(name)
 
     def __call__(self, inputs: Sequence[Node]) -> Any:
         node = copy(self)

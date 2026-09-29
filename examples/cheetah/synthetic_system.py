@@ -1,36 +1,29 @@
-"""A synthetic stand-in for the HalfCheetah/MuJoCo dynamics used by the
-PyTorch reference in this folder (model.py/data.py/conf.py/utils.py/main.py).
+"""A synthetic stand-in for the HalfCheetah/MuJoCo dynamics, used until the
+dataset comes from the real simulator.
 
-We deliberately do NOT call MuJoCo: the reference's use_mujoco_dynamics=True
-path calls MuJoCo's C++ physics engine directly inside training through a
-hand-written finite-difference gradient, which isn't practical to replicate
-in nnodely (no MuJoCo bindings, no generic "wrap an external non-
-differentiable engine" mechanism). Instead this fabricates a structurally
-similar - same shapes, same qualitative physics roles - 9-DOF system:
+It is structurally similar to HalfCheetah (same shapes, same physics roles)
+and follows the constrained mechanical system equation the model is built on:
 
-    q, v in R^9   (dof 0-2: an unactuated "root" - x, z/height, pitch;
-                   dof 3-8: 6 actuated "leg" joints, matching real
-                   HalfCheetah's actuator count)
-    tau in R^9    (zero at the unactuated root dof, a rhythmic gait-like
-                   pattern at the leg dof)
-    M(q)          a genuinely coupled (not just diagonal), positive-definite
-                   9x9 mass matrix: a fixed SPD base plus a rank-1,
-                   q-dependent perturbation (v_q @ v_q.T is always PSD, so
-                   the sum stays SPD by construction)
-    bias(q, v)    a simple velocity-coupled ("Coriolis-like") term
-    passive(q, v) per-dof spring-damper forces
-    lam(q, v)     a ReLU-gated ground-contact force at the height dof and
-                  the two "foot" dof, active only when height dips below
-                  ground level - the nonlinear, state-dependent quantity the
-                  network has to learn to predict, playing the same role as
-                  the reference's neural fit to MuJoCo's contact solver.
+    q_ddot = M(q)^-1 (tau + J^T lambda(q, q_dot) - h(q, q_dot))
 
-Integration matches the reference's own scheme exactly (semi-implicit Euler
-with implicitly-integrated joint damping):
+    q, q_dot in R^9   (dof 0-2: an unactuated "root" - x, z/height, pitch;
+                       dof 3-8: 6 actuated "leg" joints, matching real
+                       HalfCheetah's actuator count)
+    tau in R^9        (zero at the unactuated root dof, a rhythmic gait-like
+                       pattern at the leg dof)
+    M(q)              a coupled, positive-definite 9x9 mass matrix: a fixed
+                      SPD base plus a rank-1, q-dependent PSD perturbation
+    h(q, q_dot)       Coriolis-like, spring, damping and gravity terms, in the
+                      role of MuJoCo's qfrc_bias - qfrc_passive
+    J^T lambda        a ReLU-gated ground-contact force at the height dof and
+                      the two "foot" dof, active only when the base dips below
+                      ground level - the quantity the network has to learn,
+                      in the role of MuJoCo's qfrc_constraint
 
-    dv = (M(q) + dt*diag(damping))^-1 @ (tau + lam(q,v) + passive(q,v) - bias(q,v))
-    v_next = v + dt*dv
-    q_next = q + dt*v_next
+Integration is semi-implicit Euler, MuJoCo's Euler integrator:
+
+    q_dot_next = q_dot + dt * q_ddot
+    q_next     = q + dt * q_dot_next
 """
 
 from __future__ import annotations
@@ -76,19 +69,16 @@ def mass_matrix(q: np.ndarray) -> np.ndarray:
 
 
 def bias_force(q: np.ndarray, v: np.ndarray) -> np.ndarray:
-    """Simple velocity-coupled ("Coriolis-like") term."""
-    return _BIAS_GAIN * v * np.abs(v).sum()
-
-
-def passive_force(q: np.ndarray, v: np.ndarray) -> np.ndarray:
-    """Per-dof spring-damper, plus gravity pulling the root down."""
-    force = -_SPRING_K * q - _PASSIVE_DAMP * v
-    force[HEIGHT_DOF] -= _GRAVITY * _BASE_MASS_DIAG[HEIGHT_DOF]
+    """h(q, q_dot): a velocity-coupled ("Coriolis-like") term, per-dof
+    springs and dampers, and gravity pulling the root down."""
+    coriolis = _BIAS_GAIN * v * np.abs(v).sum()
+    force = coriolis + _SPRING_K * q + (_PASSIVE_DAMP + _DOF_DAMPING) * v
+    force[HEIGHT_DOF] += _GRAVITY * _BASE_MASS_DIAG[HEIGHT_DOF]
     return force
 
 
 def contact_force(q: np.ndarray, v: np.ndarray) -> np.ndarray:
-    """ReLU-gated ground contact at the height/foot dof."""
+    """J^T lambda: ReLU-gated ground contact at the height/foot dof."""
     depth = max(GROUND_LEVEL - q[HEIGHT_DOF], 0.0)
     lam = np.zeros(N_DOF, dtype=np.float64)
     if depth > 0.0:
@@ -108,22 +98,23 @@ def gait_tau(t: float, phase: np.ndarray, freq: float, amplitude: float) -> np.n
 
 
 def step(q, v, tau):
-    """One semi-implicit Euler step, matching the reference's own scheme."""
+    """One semi-implicit Euler step of the constrained dynamics."""
     M = mass_matrix(q)
-    bias = bias_force(q, v)
-    passive = passive_force(q, v)
+    h = bias_force(q, v)
     lam = contact_force(q, v)
 
-    rhs = tau + lam + passive - bias
-    lhs = M + DT * np.diag(_DOF_DAMPING)
-    dv = np.linalg.solve(lhs, rhs)
-    v_next = v + DT * dv
+    qdd = np.linalg.solve(M, tau + lam - h)
+    v_next = v + DT * qdd
     q_next = q + DT * v_next
-    return q_next, v_next, lam, M, bias, passive
+    return q_next, v_next, qdd, lam, M, h
 
 
 def simulate_run(rng: np.random.Generator, n_steps: int) -> dict:
-    """One episode: random initial state, a randomized gait, full physics log."""
+    """One episode: random initial state, a randomized gait, full physics log.
+
+    Row t holds the state at time t and every quantity the step t -> t+1
+    uses, so q[t+1] = q[t] + DT * qd[t+1] and qd[t+1] = qd[t] + DT * qdd[t].
+    """
     q = rng.normal(0.0, 0.1, size=N_DOF)
     q[HEIGHT_DOF] = rng.uniform(0.05, 0.25)  # start just above ground
     v = rng.normal(0.0, 0.1, size=N_DOF)
@@ -132,35 +123,32 @@ def simulate_run(rng: np.random.Generator, n_steps: int) -> dict:
     freq = rng.uniform(0.5, 1.5)
     amplitude = rng.uniform(2.0, 5.0)
 
-    state = np.empty((n_steps, 2 * N_DOF), dtype=np.float32)
-    tau_log = np.empty((n_steps, N_DOF), dtype=np.float32)
-    lam_log = np.empty((n_steps, N_DOF), dtype=np.float32)
-    mass_log = np.empty((n_steps, N_DOF, N_DOF), dtype=np.float32)
-    bias_log = np.empty((n_steps, N_DOF), dtype=np.float32)
-    passive_log = np.empty((n_steps, N_DOF), dtype=np.float32)
+    log = {
+        name: np.empty((n_steps, *shape), dtype=np.float32)
+        for name, shape in [
+            ("q", (N_DOF,)),
+            ("qd", (N_DOF,)),
+            ("tau", (N_DOF,)),
+            ("M", (N_DOF, N_DOF)),
+            ("h", (N_DOF,)),
+            ("JT_lambda", (N_DOF,)),
+            ("qdd", (N_DOF,)),
+        ]
+    }
 
     for t in range(n_steps):
-        state[t, :N_DOF] = q
-        state[t, N_DOF:] = v
         tau = gait_tau(t * DT, phase, freq, amplitude)
-        tau_log[t] = tau
-
-        q_next, v_next, lam, M, bias, passive = step(q, v, tau)
-        lam_log[t] = lam
-        mass_log[t] = M
-        bias_log[t] = bias
-        passive_log[t] = passive
-
+        q_next, v_next, qdd, lam, M, h = step(q, v, tau)
+        log["q"][t] = q
+        log["qd"][t] = v
+        log["tau"][t] = tau
+        log["M"][t] = M
+        log["h"][t] = h
+        log["JT_lambda"][t] = lam
+        log["qdd"][t] = qdd
         q, v = q_next, v_next
 
-    return {
-        "state": state,
-        "tau": tau_log,
-        "JT_lambda": lam_log,
-        "M": mass_log,
-        "bias": bias_log,
-        "passive": passive_log,
-    }
+    return log
 
 
 def generate_runs(n_runs: int, n_steps: int, seed: int) -> list[dict]:

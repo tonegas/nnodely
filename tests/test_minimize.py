@@ -191,7 +191,7 @@ def test_minimize_without_target_compares_against_a_zero_constant():
 
     target = model.minimizers[0]["target"]
     assert isinstance(target, Constant)
-    np.testing.assert_allclose(target.value, [0.0])
+    np.testing.assert_allclose(to_numpy(target.value), [[0.0]])
 
 
 @pytest.mark.parametrize(
@@ -207,7 +207,7 @@ def test_minimize_numeric_target_becomes_a_constant(number):
 
     target = model.minimizers[0]["target"]
     assert isinstance(target, Constant)
-    np.testing.assert_allclose(target.value, [3.0])
+    np.testing.assert_allclose(to_numpy(target.value), [[3.0]])
 
 
 def test_minimize_keeps_an_explicit_constant_target():
@@ -231,7 +231,7 @@ def test_minimize_with_an_existing_name_replaces_it_and_warns():
 
     assert [m["name"] for m in model.minimizers] == ["error", "other"]
     replaced = model.minimizers[0]
-    np.testing.assert_allclose(replaced["target"].value, [1.0])
+    np.testing.assert_allclose(replaced["target"].value, [[1.0]])
     value = replaced["loss"](_f32([[1.0]]), _f32([[4.0]]))
     np.testing.assert_allclose(to_numpy(value), [3.0])
 
@@ -376,7 +376,7 @@ def test_a_removed_name_can_be_registered_again():
     model.minimize("error", out, 2.0)
 
     [minimizer] = model.minimizers
-    np.testing.assert_allclose(minimizer["target"].value, [2.0])
+    np.testing.assert_allclose(minimizer["target"].value, [[2.0]])
 
 
 def test_train_after_removing_every_minimizer_raises():

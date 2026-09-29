@@ -1,53 +1,26 @@
-"""nnodely port of the PyTorch ContactModel (../model.py) - a neural
-contact-force predictor coupled to a physics integrator, trained
-autoregressively.
+"""Cheetah quadruped: a learned contact force inside the equation of a
+constrained mechanical system, rolled out in closed loop.
 
-Deliberate departures from the reference, each forced by a real gap between
-what the reference needs and what nnodely currently offers:
+One step of the model (build_step):
 
-- Physics runs on the dataset's cached mass/bias/passive (the reference's
-  own use_mujoco_dynamics=False path), not live MuJoCo calls - no MuJoCo
-  bindings exist in nnodely, and wrapping MuJoCo in a custom differentiable
-  op is a much bigger undertaking than this example warrants.
-- No LSTM history encoder: nnodely has no recurrent layer. The contact-force
-  predictor here uses only the current (state, tau) features - a real
-  architectural simplification, not a like-for-like swap.
-- The 9x9 linear solve (dv = (M + dt*diag(damping))^-1 @ rhs) has no nnodely
-  layer either, so it's one small custom keras.layers.Layer here (not added
-  to nnodely's own layers/ - this is example-specific, not a general
-  framework feature). It also does the q/v split internally via plain
-  Keras slicing, matching DynamicsStepImpl's other internal splits.
-- Roll (used for the autoregressive rollout, exactly as validated in
-  examples/dualtank/system_id.py) holds every non-callback input fixed
-  across all rolled steps - so mass/bias/passive, which really depend on
-  the evolving q (and v for bias), are held at their seed-window value for
-  the whole rollout. The reference's own use_mujoco_dynamics=False path has
-  a related (if less severe, since it at least uses a fresh cached value
-  per step) acknowledged approximation - see conf.py's comment on it. Since
-  this makes a genuinely time-varying tau/mass/bias/passive rollout
-  unrealistic to train against, training itself uses a single teacher step
-  (build_training_model, rollout_steps=1 in practice) and Roll is reserved
-  for qualitative multi-step assessment after training.
-- nnodely's minimize() has no per-loss weight argument, so the reference's
-  differential position_loss_weight=1.0/velocity_loss_weight=0.1 is folded
-  directly into the velocity stream (scaled by sqrt(0.1) before an
-  otherwise-equal-weight MSE) rather than passed as a loss weight.
-- minimize()'s target must resolve to a dataset column through a chain of
-  single-pred nodes (Modely.train's _resolve_label_name) - a Subtract/
-  Divide normalization chain (2 preds each) can't satisfy that, so targets
-  are fed pre-normalized(-and-scaled) as their own Inputs (train.py's
-  dataset prep does the normalizing, with this same `stats`) rather than
-  derived inline from a raw target Input.
-- Calling an already-built Modely with fresh Streams (as in
-  test_model_composition.py) does not reuse its trained Keras layers - it
-  rebuilds a fresh, freshly-initialized copy of the composed graph (verified
-  empirically: the composed layers get distinct auto-numbered names and
-  distinct Variable objects from the original). So training instead builds
-  its own structurally-identical copy of the step graph (_build_step_graph,
-  called twice) and copies the trained weights across positionally
-  afterwards (train.py, via trainable_weights + assign()) - this lines up
-  because both graphs are built by the exact same helper and so contain the
-  same trainable layers in the same construction order.
+    q, q_dot  (last `window` samples, normalized)
+      -> GRU encoder run over the window         (a Loop nested in the step)
+      -> MLP on the last encoder state           -> J^T lambda
+      -> q_ddot = M^-1 (tau + J^T lambda - h)     (LinearSolve)
+      -> Integrate(q_ddot) -> q_dot*, Integrate(q_dot*) -> q*   (Euler)
+
+The simulator (build_simulator) is an outer Loop over that step: q* and q_dot*
+are fed back into the q and q_dot windows (the oldest sample is dropped, the
+prediction appended), while tau, M and h are read from the dataset at every
+step - they are what the simulator provides, and the model only has to learn
+the contact term. Integrating the rate with Euler and then the new velocity
+with Euler again is semi-implicit Euler, MuJoCo's Euler integrator.
+
+Every Loop wraps its body's Keras model, so the simulator trains the weights
+of the step itself, and the step called on its own uses them too. The
+simulator rolls out a fixed `horizon`; a longer prediction chains calls, each
+seeded with the last predicted q/q_dot windows - the whole state a step
+carries, since the encoder starts from zero at every step.
 """
 
 from __future__ import annotations
@@ -55,264 +28,223 @@ from __future__ import annotations
 import keras
 import numpy as np
 
-from nnodely import Input, Linear, Modely, Output, Parameter, Range, Swish
+from nnodely import (
+    Concatenate,
+    Constant,
+    Input,
+    Integrate,
+    Linear,
+    Loop,
+    Modely,
+    Output,
+    Range,
+    Sigmoid,
+    Swish,
+    Tanh,
+    TimeSelect,
+)
 from nnodely.core.layer import Layer
-from nnodely.layers.roll import Roll
-from nnodely.layers.time_ops import Concatenate
 
 N_DOF = 9
-STATE_DIM = 2 * N_DOF
 
 
 @keras.saving.register_keras_serializable(package="cheetah_example")
-class DynamicsStepImpl(keras.layers.Layer):
-    """One semi-implicit Euler step from (state, tau, lam, M, bias, passive)
-    to a combined next state [q_next, v_next] - matching the reference
-    dynamics_step's math exactly, for frame_skip=1 (no MuJoCo substepping).
-    Splits state into q/v internally via plain slicing."""
-
-    def __init__(self, dt, damping, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.dt = float(dt)
-        self.damping = tuple(float(d) for d in damping)
+class LinearSolveImpl(keras.layers.Layer):
+    """x = A^-1 b, with A [batch, n, n, time] and b [batch, n, time]."""
 
     def call(self, inputs):
-        state, tau, lam, mass, bias, passive = inputs
-        # nnodely tensor convention: [batch, dim..., time]; time=1 is always
-        # the trailing axis regardless of dim's rank, so squeeze it off
-        # uniformly (mass has dim=(9,9), everything else dim=(9,) or (18,)).
-        state = keras.ops.squeeze(state, axis=-1)
-        tau = keras.ops.squeeze(tau, axis=-1)
-        lam = keras.ops.squeeze(lam, axis=-1)
-        mass = keras.ops.squeeze(mass, axis=-1)
-        bias = keras.ops.squeeze(bias, axis=-1)
-        passive = keras.ops.squeeze(passive, axis=-1)
-
-        q = state[:, :N_DOF]
-        v = state[:, N_DOF:]
-
-        damping = keras.ops.convert_to_tensor(self.damping, dtype=mass.dtype)
-        lhs = mass + self.dt * keras.ops.diag(damping)[None, :, :]
-        rhs = tau + lam + passive - bias
-        dv = keras.ops.solve(lhs, rhs)
-
-        v_next = v + self.dt * dv
-        q_next = q + self.dt * v_next
-        state_next = keras.ops.concatenate([q_next, v_next], axis=-1)
-        return keras.ops.expand_dims(state_next, axis=-1)
-
-    def compute_output_shape(self, input_shapes):
-        batch = input_shapes[0][0]
-        return (batch, STATE_DIM, 1)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({"dt": self.dt, "damping": self.damping})
-        return config
+        a, b = inputs
+        a = keras.ops.transpose(a, (0, 3, 1, 2))
+        b = keras.ops.expand_dims(keras.ops.transpose(b, (0, 2, 1)), axis=-1)
+        x = keras.ops.squeeze(keras.ops.solve(a, b), axis=-1)
+        return keras.ops.transpose(x, (0, 2, 1))
 
 
-class DynamicsStep(Layer):
-    """nnodely Layer wrapper around DynamicsStepImpl."""
+class LinearSolve(Layer):
+    """Solves A x = b per sample, for A of dim (n, n) and b of dim n: the
+    M^-1 of the dynamics, without forming the inverse."""
 
-    def __init__(self, dt: float, damping, name=None):
-        self.dt = float(dt)
-        self.damping = tuple(float(d) for d in damping)
-        super().__init__(name=name, dt=self.dt, damping=self.damping)
+    def __init__(self, name=None):
+        super().__init__(name=name)
+
+    def output_shape(self, *inputs):
+        # The default probes the layer with zeros, which makes A singular.
+        b = inputs[1]
+        return tuple(b.dim), b.time, tuple(b.seq)
 
     def build_layer(self):
-        return DynamicsStepImpl(dt=self.dt, damping=self.damping, name=self.name)
+        return LinearSolveImpl(name=self.name)
 
     def get_config(self):
-        return {"name": self.name, "dt": self.dt, "damping": list(self.damping)}
+        return {"name": self.name}
 
 
-def _mlp(x, hidden_dim, out_dim, n_hidden_layers, name_prefix):
-    for i in range(n_hidden_layers):
-        x = Swish(name=f"{name_prefix}_act{i}")(
-            Linear(out_features=hidden_dim, name=f"{name_prefix}_lin{i}")(x)
-        )
-    return Linear(out_features=out_dim, name=f"{name_prefix}_out")(x)
+def build_encoder_cell(n_features: int, window: int, hidden: int) -> Modely:
+    """One GRU step, run over a window of `window` samples by a Loop.
 
+    The cell reads the oldest sample of the window and also returns it as a
+    callback output: the Loop drops the oldest sample and appends the returned
+    one, so the window rotates and step k reads sample k, oldest first.
+    """
+    x = Input("enc_x", dim=n_features)
+    state = Input("enc_state", dim=hidden)
+    x_k = TimeSelect(0)(x.sw(window))
+    s = state.last()
 
-def _build_step_graph(
-    dt: float,
-    damping: np.ndarray,
-    stats: dict,
-    hidden_dim: int,
-    mlp_layers: int,
-    velocity_loss_weight: float,
-):
-    """Builds one fresh copy of the step architecture's symbolic graph -
-    called once for the plain inference/rollout body (build_contact_step)
-    and once more (a structurally-identical but Keras-object-distinct copy)
-    for the training body (build_training_model), so trained weights can
-    later be copied across positionally via trainable_weights + assign()."""
-    state = Input("state", dim=STATE_DIM)
-    tau = Input("tau", dim=N_DOF)
-    mass = Input("mass", dim=(N_DOF, N_DOF))
-    bias = Input("bias", dim=N_DOF)
-    passive = Input("passive", dim=N_DOF)
-
-    state_mean = Parameter("state_mean", value=stats["state_mean"].tolist())
-    state_std = Parameter("state_std", value=stats["state_std"].tolist())
-    tau_mean = Parameter("tau_mean", value=stats["tau_mean"].tolist())
-    tau_std = Parameter("tau_std", value=stats["tau_std"].tolist())
-    lam_mean = Parameter("lam_mean", value=stats["lam_mean"].tolist())
-    lam_std = Parameter("lam_std", value=stats["lam_std"].tolist())
-
-    state_last = state.last()
-    tau_last = tau.last()
-
-    state_n = (state_last - state_mean) / state_std
-    tau_n = (tau_last - tau_mean) / tau_std
-    features = Concatenate(axis=0, name="features")([state_n, tau_n])
-
-    lam_n = _mlp(features, hidden_dim, N_DOF, mlp_layers, "force_head")
-    lam = lam_n * lam_std + lam_mean
-
-    state_next = DynamicsStep(dt=dt, damping=damping, name="dynamics_step")(
-        [state_last, tau_last, lam, mass.last(), bias.last(), passive.last()]
+    gates = Sigmoid()(Linear(out_features=2 * hidden)([Concatenate()([x_k, s])]))
+    update = Range(0, hidden)(gates)
+    reset = Range(hidden, 2 * hidden)(gates)
+    candidate = Tanh()(
+        Linear(out_features=hidden)([x_k])
+        + Linear(out_features=hidden, use_bias=False)([reset * s])
     )
+    state_next = s + update * (candidate - s)
 
-    state_next_n = (state_next - state_mean) / state_std
-    vel_scale = float(np.sqrt(velocity_loss_weight))
-    pos_pred_n = Range(0, N_DOF, name="pos_pred_n")(state_next_n)
-    vel_pred_n = Range(N_DOF, STATE_DIM, name="vel_pred_n")(state_next_n) * vel_scale
-
-    return {
-        "state": state,
-        "tau": tau,
-        "mass": mass,
-        "bias": bias,
-        "passive": passive,
-        "state_next": state_next,
-        "lam_n": lam_n,
-        "pos_pred_n": pos_pred_n,
-        "vel_pred_n": vel_pred_n,
-    }
+    return Modely(
+        "gru_cell",
+        inputs=[x, state],
+        outputs=[
+            Output("enc_state_next", state_next),
+            Output("enc_x_oldest", x_k),
+        ],
+    ).build()
 
 
-def build_contact_step(
+def build_step(
     dt: float,
-    damping: np.ndarray,
     stats: dict,
-    hidden_dim: int = 64,
+    window: int = 5,
+    hidden: int = 32,
+    mlp_hidden: int = 64,
     mlp_layers: int = 2,
-    velocity_loss_weight: float = 0.1,
     name: str = "cheetah_step",
 ) -> Modely:
-    """Plain inference/rollout body: predicts the contact force from the
-    current (state, tau), then integrates the physics one dt forward.
-    `stats` supplies state/tau/lam mean+std (numpy arrays) for normalization.
-    No training targets - safe to wrap in Roll."""
-    g = _build_step_graph(
-        dt, damping, stats, hidden_dim, mlp_layers, velocity_loss_weight
-    )
+    """One step of the constrained dynamics with a learned contact term.
 
-    lam_n_out = Output("lam_n", g["lam_n"])
-    state_next_out = Output("state_next", g["state_next"])
-    pos_pred_out = Output("pos_pred_n", g["pos_pred_n"])
-    vel_pred_out = Output("vel_pred_n", g["vel_pred_n"])
-
-    step_body = Modely(
-        name,
-        inputs=[g["state"], g["tau"], g["mass"], g["bias"], g["passive"]],
-        outputs=[state_next_out, lam_n_out, pos_pred_out, vel_pred_out],
-    )
-    step_body.build()
-    return step_body
-
-
-def build_training_model(
-    dt: float,
-    damping: np.ndarray,
-    stats: dict,
-    hidden_dim: int = 64,
-    mlp_layers: int = 2,
-    velocity_loss_weight: float = 0.1,
-    name: str = "cheetah_train",
-) -> Modely:
-    """A second, structurally-identical copy of the step graph (see
-    _build_step_graph), plus minimize() calls for one-step supervised
-    training: force loss on the normalized contact force, position loss on
-    the normalized next position, velocity loss on the normalized next
-    velocity (pre-scaled by sqrt(velocity_loss_weight) inside the graph
-    itself, since minimize() has no per-loss weight argument - an otherwise-
-    equal-weight MSE on the scaled stream reproduces the reference's
-    velocity_loss_weight exactly, as MSE(a*s, b*s) = s^2 * MSE(a, b)).
-
-    Targets are fed as already-normalized(-and-scaled) Inputs rather than
-    derived inline from a raw target Input: minimize()'s target must resolve
-    to a dataset column through a chain of single-pred nodes (Modely.train's
-    _resolve_label_name), which a Subtract/Divide normalization chain (each
-    node has 2 preds) can't satisfy. train.py's dataset prep normalizes the
-    targets with this same `stats`/`velocity_loss_weight`.
+    Inputs: q, qd (windows of `window` samples), tau, M, h (current sample).
+    Outputs: q_next, qd_next, JT_lambda, qdd. `stats` holds the mean and std
+    (numpy arrays) of q, qd and JT_lambda, used to normalize the encoder input
+    and to scale the MLP output to physical units.
     """
-    g = _build_step_graph(
-        dt, damping, stats, hidden_dim, mlp_layers, velocity_loss_weight
+    q = Input("q", dim=N_DOF)
+    qd = Input("qd", dim=N_DOF)
+    tau = Input("tau", dim=N_DOF)
+    mass = Input("M", dim=(N_DOF, N_DOF))
+    h = Input("h", dim=N_DOF)
+
+    q_n = (q.sw(window) - Constant("q_mean", value=stats["q_mean"].tolist())) * (
+        Constant("q_inv_std", value=(1.0 / stats["q_std"]).tolist())
+    )
+    qd_n = (qd.sw(window) - Constant("qd_mean", value=stats["qd_mean"].tolist())) * (
+        Constant("qd_inv_std", value=(1.0 / stats["qd_std"]).tolist())
     )
 
-    lam_target_n = Input("lam_target_n", dim=N_DOF)
-    pos_target_n = Input("pos_target_n", dim=N_DOF)
-    vel_target_n = Input("vel_target_n", dim=N_DOF)
+    cell = build_encoder_cell(2 * N_DOF, window, hidden)
+    enc_state = Loop(
+        f=cell,
+        callback={"enc_state": "enc_state_next", "enc_x": "enc_x_oldest"},
+        initial={"enc_state": 0.0, "enc_x": Concatenate()([q_n, qd_n])},
+        length=window,
+        collect=False,
+        name="gru_encoder",
+    )
 
-    lam_n_out = Output("lam_n_train", g["lam_n"])
-    lam_target_n_out = Output("lam_target_n_out", lam_target_n.last())
-    pos_pred_out = Output("pos_pred_n_train", g["pos_pred_n"])
-    pos_target_out = Output("pos_target_n_out", pos_target_n.last())
-    vel_pred_out = Output("vel_pred_n_train", g["vel_pred_n"])
-    vel_target_out = Output("vel_target_n_out", vel_target_n.last())
+    x = enc_state
+    for _ in range(mlp_layers):
+        x = Swish()(Linear(out_features=mlp_hidden)([x]))
+    jt_lambda = Linear(out_features=N_DOF)([x]) * Constant(
+        "lam_std", value=stats["lam_std"].tolist()
+    ) + Constant("lam_mean", value=stats["lam_mean"].tolist())
 
-    training_body = Modely(
+    qdd = LinearSolve(name="mass_solve")(
+        [mass.last(), tau.last() + jt_lambda - h.last()]
+    )
+    qd_next = Integrate(solver="euler", dt=dt, init=qd.last())(qdd)
+    q_next = Integrate(solver="euler", dt=dt, init=q.last())(qd_next)
+
+    return Modely(
         name,
-        inputs=[
-            g["state"],
-            g["tau"],
-            g["mass"],
-            g["bias"],
-            g["passive"],
-            lam_target_n,
-            pos_target_n,
-            vel_target_n,
-        ],
+        inputs=[q, qd, tau, mass, h],
         outputs=[
-            lam_n_out,
-            lam_target_n_out,
-            pos_pred_out,
-            pos_target_out,
-            vel_pred_out,
-            vel_target_out,
+            Output("q_next", q_next),
+            Output("qd_next", qd_next),
+            Output("JT_lambda", jt_lambda),
+            Output("qdd", qdd),
         ],
+    ).build()
+
+
+def build_simulator(
+    step: Modely, horizon: int, stats: dict, name: str = "cheetah_sim"
+) -> Modely:
+    """Closed-loop rollout of `step` over `horizon` steps, with its objectives.
+
+    Data, one row per time t of a run (see train.py): the q/qd windows seed the
+    rollout at the first step, tau/M/h drive every step, and the targets are
+    the next state and the contact force of each step. Each objective compares
+    the whole trajectory, per dof in units of that dof's std.
+    """
+    window = next(node for node in step.inputs if node.name == "q").time
+
+    q_seq = Input("q_seq", dim=N_DOF, seq=horizon)
+    qd_seq = Input("qd_seq", dim=N_DOF, seq=horizon)
+    tau_seq = Input("tau_seq", dim=N_DOF, seq=horizon)
+    mass_seq = Input("M_seq", dim=(N_DOF, N_DOF), seq=horizon)
+    h_seq = Input("h_seq", dim=N_DOF, seq=horizon)
+
+    q_traj, qd_traj, jt_lambda_traj, _ = Loop(
+        f=step,
+        callback={"q": "q_next", "qd": "qd_next"},
+        initial={"q": q_seq.sw(window), "qd": qd_seq.sw(window)},
+        inputs={"tau": tau_seq.last(), "M": mass_seq.last(), "h": h_seq.last()},
+        name="cheetah_loop",
     )
-    training_body.minimize("force_loss", lam_n_out, lam_target_n_out, loss="mse")
-    training_body.minimize("position_loss", pos_pred_out, pos_target_out, loss="mse")
-    training_body.minimize("velocity_loss", vel_pred_out, vel_target_out, loss="mse")
-    training_body.build()
-    return training_body
 
-
-def build_rollout_model(step_body: Modely, rollout_steps: int) -> Modely:
-    """Chains step_body's own predictions `rollout_steps` times via Roll -
-    genuine closed-loop/free-running multi-step simulation, matching
-    examples/dualtank/system_id.py's validated approach."""
-    state = next(n for n in step_body.inputs if n.name == "state")
-    tau = next(n for n in step_body.inputs if n.name == "tau")
-    mass = next(n for n in step_body.inputs if n.name == "mass")
-    bias = next(n for n in step_body.inputs if n.name == "bias")
-    passive = next(n for n in step_body.inputs if n.name == "passive")
-    state_next_out = next(o for o in step_body.outputs if o.name == "state_next")
-
-    rolled_state = Roll(
-        f=step_body,
-        callback={state: state_next_out},
-        steps=rollout_steps,
-        name="cheetah_roll",
+    q_out = Output("q_traj", q_traj)
+    qd_out = Output("qd_traj", qd_traj)
+    jt_lambda_out = Output("JT_lambda_traj", jt_lambda_traj)
+    sim = Modely(
+        name,
+        inputs=[q_seq, qd_seq, tau_seq, mass_seq, h_seq],
+        outputs=[q_out, qd_out, jt_lambda_out],
     )
-    rolled_state_out = Output("rolled_state", rolled_state)
 
-    rollout_model = Modely(
-        "cheetah_rollout",
-        inputs=[state, tau, mass, bias, passive],
-        outputs=[rolled_state_out],
+    q_scale = Constant("q_loss_scale", value=(1.0 / stats["q_std"]).tolist())
+    qd_scale = Constant("qd_loss_scale", value=(1.0 / stats["qd_std"]).tolist())
+    lam_scale = Constant("lam_loss_scale", value=(1.0 / stats["lam_std"]).tolist())
+    q_target = Input("q_next_seq", dim=N_DOF, seq=horizon)
+    qd_target = Input("qd_next_seq", dim=N_DOF, seq=horizon)
+    jt_lambda_target = Input("JT_lambda_seq", dim=N_DOF, seq=horizon)
+
+    sim.minimize(
+        "position",
+        Output("q_traj_n", q_out * q_scale),
+        Output("q_target_n", q_target.last() * q_scale),
     )
-    return rollout_model
+    sim.minimize(
+        "velocity",
+        Output("qd_traj_n", qd_out * qd_scale),
+        Output("qd_target_n", qd_target.last() * qd_scale),
+    )
+    sim.minimize(
+        "contact_force",
+        Output("JT_lambda_traj_n", jt_lambda_out * lam_scale),
+        Output("JT_lambda_target_n", jt_lambda_target.last() * lam_scale),
+    )
+    return sim.build()
+
+
+def stats_from_runs(runs: list[dict]) -> dict[str, np.ndarray]:
+    """Per-dof mean and std of q, qd and J^T lambda. A dof that never sees a
+    contact force has zero std: flooring it keeps the MLP output there at
+    ~0 and its normalized loss finite."""
+
+    def moments(key):
+        values = np.concatenate([run[key] for run in runs], axis=0)
+        std = np.maximum(values.std(axis=0), 1e-6)
+        return values.mean(axis=0).astype(np.float32), std.astype(np.float32)
+
+    stats = {}
+    for key, prefix in [("q", "q"), ("qd", "qd"), ("JT_lambda", "lam")]:
+        stats[f"{prefix}_mean"], stats[f"{prefix}_std"] = moments(key)
+    return stats
