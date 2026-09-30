@@ -983,6 +983,42 @@ def test_train_with_loop():
     assert history["loss"][-1] < history["loss"][0]
 
 
+@pytest.mark.skipif(
+    keras.backend.backend() == "torch",
+    reason="jit_compile on the torch backend is torch.compile, not XLA",
+)
+def test_train_with_loop_under_xla(monkeypatch):
+    # XLA compiles the gradient of the rollout loop only when its trip count is
+    # bounded, which "auto" does not exercise on a CPU-only machine.
+    compile_model = keras.Model.compile
+    monkeypatch.setattr(
+        keras.Model,
+        "compile",
+        lambda self, *args, **kwargs: compile_model(
+            self, *args, **{**kwargs, "jit_compile": True}
+        ),
+    )
+    state = Input("state")
+    x = Input("x", seq=5)
+    target = Input("target", seq=5)
+    relation = Linear(out_features=1, initializer="ones")(state.last())
+    output = Output("out", relation)
+    body = Modely("body", inputs=[state], outputs=[output]).build()
+    loop = Loop(f=body, callback={state: output}, initial={state: x}, name="loop")
+    out_loop = Output("out_loop", loop)
+    model = Modely("model", inputs=[x, target], outputs=[out_loop])
+    model.minimize("error", source=out_loop, target=target.last(), loss="mse")
+    model.build()
+
+    values = np.linspace(0.0, 1.0, 20)
+    data = DataLoader(model, source={"x": values, "target": 2.0 * values})
+    history = model.train(train_data=data, epochs=5, batch_size=4, lr=0.01)
+
+    assert model.model.jit_compile
+    assert np.all(np.isfinite(history["loss"]))
+    assert history["loss"][-1] < history["loss"][0]
+
+
 def test_train_with_roll():
     x = Input("x")
     target = Input("target")

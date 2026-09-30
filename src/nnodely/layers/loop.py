@@ -57,10 +57,11 @@ class LoopImpl(keras.layers.Layer):
     an input is one sequence rank deeper than the body input it feeds, so every
     step consumes a single slice and the body is evaluated exactly once per step.
 
-    The rollout length is static, so the body is unrolled step by step instead
-    of run through a backend loop primitive: the traced graph then holds only
-    ordinary ops, which is what makes it exportable to ONNX. The carry holds
-    every body output followed by one window per shifted feedback state.
+    The body runs through a backend loop primitive, so the traced graph holds
+    the body once whatever the rollout length, which keeps tracing and XLA
+    compilation fast for long rollouts; ONNX exports it as a ``Loop`` node.
+    The carry holds every body output followed by one window per shifted
+    feedback state.
     """
 
     def __init__(
@@ -160,10 +161,10 @@ class LoopImpl(keras.layers.Layer):
     def _resolve_horizon(self, inputs):
         """Number of rollout steps, always a Python int.
 
-        The rollout is unrolled, so the horizon is never read symbolically. A
-        rollout axis declared as ``None`` follows the sequence it is actually
-        given, which is what makes a longer input roll out further; a declared
-        width always wins over the tensor.
+        The loop needs a static trip count, so the horizon is never read
+        symbolically. A rollout axis declared as ``None`` follows the sequence
+        it is actually given, which is what makes a longer input roll out
+        further; a declared width always wins over the tensor.
         """
         if self.horizon_index is not None:
             width = inputs[self.horizon_index].shape[self.horizon_axis]
@@ -295,17 +296,11 @@ class LoopImpl(keras.layers.Layer):
                 for index in shifted
             )
 
-        carry = init_carry
-        trajectory = []
-        for index in range(horizon):
-            carry = step(carry, [value[index] for value in xs])
-            trajectory.append(carry[:output_count])
+        carry, trajectory = self._rollout(step, init_carry, xs, horizon, output_count)
 
         if self.collect:
             results = tuple(
-                self._move_scan_axis(
-                    keras.ops.stack([outputs[position] for outputs in trajectory]), axis
-                )
+                self._move_scan_axis(trajectory[position], axis)
                 for position, axis in enumerate(self.output_sequence_axes)
             )
         else:
@@ -314,6 +309,54 @@ class LoopImpl(keras.layers.Layer):
         if self.return_all_outputs:
             return results
         return results[self.primary_output_index]
+
+    def _rollout(self, step, init_carry, xs, horizon, output_count):
+        """Run ``step`` ``horizon`` times through a backend loop primitive.
+
+        Returns the final carry and, when collecting, the body outputs of every
+        step stacked on a leading axis. On TensorFlow the loop is written by
+        hand: ``keras.ops.scan`` leaves ``maximum_iterations`` unset, which XLA
+        needs to compile the gradient, and requires every per-step output to
+        match the carry.
+        """
+        if keras.backend.backend() != "tensorflow":
+
+            def scan_step(carry, x_step):
+                carry = step(carry, x_step)
+                return carry, carry[:output_count] if self.collect else None
+
+            return keras.ops.scan(
+                scan_step, init_carry, xs=xs if xs else None, length=horizon
+            )
+
+        import tensorflow as tf
+
+        xs_arrays = [
+            tf.TensorArray(
+                value.dtype, size=horizon, element_shape=value.shape[1:]
+            ).unstack(value)
+            for value in xs
+        ]
+        ys_arrays = [
+            tf.TensorArray(value.dtype, size=horizon, element_shape=value.shape)
+            for value in (init_carry[:output_count] if self.collect else ())
+        ]
+
+        def body(index, carry, ys_arrays):
+            carry = step(carry, [array.read(index) for array in xs_arrays])
+            return (
+                index + 1,
+                carry,
+                [array.write(index, value) for array, value in zip(ys_arrays, carry)],
+            )
+
+        _, carry, ys_arrays = tf.while_loop(
+            lambda index, *_: index < horizon,
+            body,
+            (0, init_carry, ys_arrays),
+            maximum_iterations=horizon,
+        )
+        return carry, tuple(array.stack() for array in ys_arrays)
 
     def get_config(self):
         config = super().get_config()

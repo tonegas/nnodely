@@ -1196,6 +1196,34 @@ _LAYER_SUITE = pytest.mark.parametrize(
 )
 
 
+@pytest.mark.parametrize(
+    "model_factory",
+    [_loop_final_state_model, _loop_trajectory_model],
+    ids=["loop_final_state", "loop_trajectory"],
+)
+@requires_onnx_export
+def test_export_onnx_loop_model(tmp_path, model_factory):
+    pytest.importorskip("onnxruntime")
+    model = model_factory()
+    # The torch exporter fixes the batch axis to the one it traces with.
+    inputs = {name: value[:1] for name, value in _random_inputs(model).items()}
+
+    expected = model(inputs)
+    model.export_onnx(tmp_path)
+    path = tmp_path / f"{model.name}.onnx"
+    actual = Modely.validate_onnx(path, inputs, return_dict=True)
+
+    assert path.is_file()
+    assert list(actual) == list(expected)
+    for name in expected:
+        np.testing.assert_allclose(
+            to_numpy(actual[name]),
+            to_numpy(expected[name]),
+            rtol=1e-5,
+            atol=1e-5,
+        )
+
+
 @_LAYER_SUITE
 def test_save_load_behaves_like_original(tmp_path, model_factory):
     model = _randomize_trainable_weights(model_factory())
