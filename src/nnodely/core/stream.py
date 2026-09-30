@@ -1,6 +1,4 @@
-"""
-Stream - nodo del DAG con predecessors.
-"""
+"""Stream: a node of the graph, with its shape and its predecessors."""
 
 from __future__ import annotations
 import inspect
@@ -11,8 +9,9 @@ from typing import Any, Sequence
 NODE_REGISTRY: dict[str, type["Node"]] = {}
 
 #: Every node name this process has used - given, generated or loaded - with
-#: the "_"-separated prefixes it is built from. Layers are told apart by name,
-#: one name building one Keras layer, so a generated name has to avoid them all.
+#: the "_"-separated prefixes it is built from. Layers are told apart by the
+#: object they come from, but names are how a graph is read and searched, so a
+#: generated name avoids all of these.
 NODE_NAMES: set[str] = set()
 
 

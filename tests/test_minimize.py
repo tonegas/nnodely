@@ -948,11 +948,39 @@ def test_gains_weight_the_total_loss_but_not_the_logged_losses():
     )
 
     np.testing.assert_allclose(history["loss"][0], 0.5 * half + 2 * double, rtol=1e-5)
-    np.testing.assert_allclose(history["pred_loss"][0], half, rtol=1e-5)
-    np.testing.assert_allclose(history["pred_unit_loss"][0], double, rtol=1e-5)
+    np.testing.assert_allclose(history["half_loss"][0], half, rtol=1e-5)
+    np.testing.assert_allclose(history["double_loss"][0], double, rtol=1e-5)
     losses = _validation_losses(model, data)
     np.testing.assert_allclose(losses["half"], half, rtol=1e-5)
     np.testing.assert_allclose(losses["double"], double, rtol=1e-5)
+
+
+def test_two_minimizers_on_one_source_each_log_their_own_loss():
+    # Keyed by their source, both were once logged as "pred_loss": the history
+    # kept one of the two, and the printer showed it in both columns.
+    x, _, _, out = _gain_model()
+    y = Input("y")
+    model = Modely("model", inputs=[x], outputs=[out])
+    model.minimize("squared", out, y.last(), loss="mse")
+    model.minimize("absolute", out, y.last(), loss="mae")
+    model.build()
+    data = _load(model)
+    X, Y = _column("data_1"), _column("data_3")
+    squared, absolute = _mse(Y, 2 * X), float(np.mean(np.abs(Y - 2 * X)))
+
+    history = model.train(
+        train_data=data,
+        epochs=1,
+        batch_size=len(data),
+        optimizer="sgd",
+        lr=0.0,
+        shuffle=False,
+        printer=None,
+    )
+
+    np.testing.assert_allclose(history["squared_loss"][0], squared, rtol=1e-5)
+    np.testing.assert_allclose(history["absolute_loss"][0], absolute, rtol=1e-5)
+    np.testing.assert_allclose(history["loss"][0], squared + absolute, rtol=1e-5)
 
 
 @pytest.mark.parametrize("gain", [0.0, 0.5, 1.0, 2.0])
@@ -1057,7 +1085,7 @@ def test_seq_weights_weigh_each_step_trained_logged_and_validated(kind):
     )
 
     np.testing.assert_allclose(history["loss"][0], expected, rtol=1e-5)
-    np.testing.assert_allclose(history["pred_loss"][0], expected, rtol=1e-5)
+    np.testing.assert_allclose(history["error_loss"][0], expected, rtol=1e-5)
     np.testing.assert_allclose(
         _validation_losses(model, data)["error"], expected, rtol=1e-5
     )

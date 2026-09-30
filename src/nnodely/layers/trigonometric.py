@@ -31,9 +31,6 @@ class Trigonometric(Layer):
     def build_layer(self):
         return TrigonometricImpl(operation=self.operation, name=self.name)
 
-    def get_config(self):
-        return {"name": self.name}
-
 
 class Sin(Trigonometric):
     """Wrapper for sine transform."""

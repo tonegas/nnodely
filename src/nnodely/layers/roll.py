@@ -163,7 +163,6 @@ class Roll(Layer):
             raise ValueError("steps must be a positive integer.")
 
         self.f = f
-        self.callback = {callback_input: callback_output}
         self.callback_input = callback_input
         self.callback_output = callback_output
         self.static_inputs = [node for node in f.inputs if node is not callback_input]

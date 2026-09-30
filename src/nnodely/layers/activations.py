@@ -35,14 +35,6 @@ class ReLU(Layer):
             name=self.name,
         )
 
-    def get_config(self):
-        return {
-            "name": self.name,
-            "max_value": self.max_value,
-            "negative_slope": self.negative_slope,
-            "threshold": self.threshold,
-        }
-
 
 class LeakyReLU(Layer):
     """Wrapper for keras.layers.LeakyReLU."""
@@ -56,12 +48,6 @@ class LeakyReLU(Layer):
             negative_slope=self.negative_slope,
             name=self.name,
         )
-
-    def get_config(self):
-        return {
-            "name": self.name,
-            "negative_slope": self.negative_slope,
-        }
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -86,7 +72,8 @@ class ELUImpl(keras.layers.Layer):
 
 
 class ELU(Layer):
-    """Wrapper for keras.layers.ELU."""
+    """Exponential linear unit: ``x`` where it is positive, and
+    ``alpha * (exp(x) - 1)`` elsewhere."""
 
     def __init__(self, alpha: float = 1.0, name=None):
         self.alpha = float(alpha)
@@ -94,12 +81,6 @@ class ELU(Layer):
 
     def build_layer(self):
         return ELUImpl(alpha=self.alpha, name=self.name)
-
-    def get_config(self):
-        return {
-            "name": self.name,
-            "alpha": self.alpha,
-        }
 
 
 class PReLU(Layer):
@@ -112,28 +93,25 @@ class PReLU(Layer):
     def build_layer(self):
         return keras.layers.PReLU(shared_axes=self.shared_axes, name=self.name)
 
-    def get_config(self):
-        return {
-            "name": self.name,
-            "shared_axes": self.shared_axes,
-        }
-
 
 class Softmax(Layer):
-    """Wrapper for keras.layers.Softmax."""
+    """Wrapper for keras.layers.Softmax.
 
-    def __init__(self, axis: int = -1, name=None):
-        self.axis = int(axis)
+    By default a sample is normalized as a whole: its values over every dim,
+    time and seq axis sum to one, as any other activation reads every value
+    of it. ``axis`` normalizes along one axis of the tensor instead, counted
+    with the batch axis as 0.
+    """
+
+    def __init__(self, axis: int | None = None, name=None):
+        self.axis = None if axis is None else int(axis)
         super().__init__(name=name, axis=self.axis)
 
     def build_layer(self):
-        return keras.layers.Softmax(axis=self.axis, name=self.name)
-
-    def get_config(self):
-        return {
-            "name": self.name,
-            "axis": self.axis,
-        }
+        axis = self.axis
+        if axis is None:
+            axis = list(range(1, 1 + self.preds[0].shape.rank))  # type: ignore
+        return keras.layers.Softmax(axis=axis, name=self.name)  # type: ignore
 
 
 class Sigmoid(Layer):
@@ -145,9 +123,6 @@ class Sigmoid(Layer):
     def build_layer(self):
         return keras.layers.Activation("sigmoid", name=self.name)
 
-    def get_config(self):
-        return {"name": self.name}
-
 
 class Tanh(Layer):
     """Wrapper for keras.layers.Activation('tanh')."""
@@ -158,9 +133,6 @@ class Tanh(Layer):
     def build_layer(self):
         return keras.layers.Activation("tanh", name=self.name)
 
-    def get_config(self):
-        return {"name": self.name}
-
 
 class Swish(Layer):
     """Wrapper for keras.layers.Activation('swish')."""
@@ -170,9 +142,6 @@ class Swish(Layer):
 
     def build_layer(self):
         return keras.layers.Activation("swish", name=self.name)
-
-    def get_config(self):
-        return {"name": self.name}
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -191,7 +160,8 @@ class GELUImpl(keras.layers.Layer):
 
 
 class GELU(Layer):
-    """Wrapper for keras.layers.Activation('gelu')."""
+    """Gaussian error linear unit, ``keras.activations.gelu``; ``approximate``
+    uses its tanh approximation."""
 
     def __init__(self, approximate: bool = True, name=None):
         self.approximate = bool(approximate)
@@ -199,9 +169,6 @@ class GELU(Layer):
 
     def build_layer(self):
         return GELUImpl(approximate=self.approximate, name=self.name)
-
-    def get_config(self):
-        return {"name": self.name, "approximate": self.approximate}
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -217,13 +184,11 @@ class SoftplusImpl(keras.layers.Layer):
 
 
 class Softplus(Layer):
-    """Wrapper for keras.layers.Activation('softplus')."""
+    """``log(1 + exp(x))``, computed in a form that does not overflow for
+    large ``x``."""
 
     def __init__(self, name=None):
         super().__init__(name=name)
 
     def build_layer(self):
         return SoftplusImpl(name=self.name)
-
-    def get_config(self):
-        return {"name": self.name}

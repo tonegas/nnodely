@@ -37,9 +37,6 @@ class LoopOutput(Layer):
     def build_layer(self):
         return LoopOutputImpl(index=self.index, name=self.name)
 
-    def get_config(self):
-        return {"name": self.name, "index": self.index}
-
     @classmethod
     def from_config(cls, config: dict, preds=None):
         # The outputs belong to the loop that was just rebuilt, and selecting
@@ -57,9 +54,11 @@ class LoopImpl(keras.layers.Layer):
     an input is one sequence rank deeper than the body input it feeds, so every
     step consumes a single slice and the body is evaluated exactly once per step.
 
-    The body runs through a backend loop primitive, so the traced graph holds
-    the body once whatever the rollout length, which keeps tracing and XLA
-    compilation fast for long rollouts; ONNX exports it as a ``Loop`` node.
+    The body runs through a backend loop primitive - ``tf.while_loop`` on
+    TensorFlow, ``keras.ops.scan`` on the others - so on TensorFlow and JAX the
+    traced graph holds the body once whatever the rollout length, which keeps
+    tracing and XLA compilation fast for long rollouts. Exported from
+    TensorFlow, ONNX holds it as a ``Loop`` node.
     The carry holds every body output followed by one window per shifted
     feedback state.
     """
@@ -448,7 +447,6 @@ class Loop(Layer):
         static_sources = self._resolve_sources(inputs, static_inputs, callback_inputs)
 
         self.f = f
-        self.callback = dict(callback_pairs)
         self.callback_inputs = callback_inputs
         self.callback_outputs = callback_outputs
         self.static_inputs = static_inputs

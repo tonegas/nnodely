@@ -344,7 +344,8 @@ class Derivative(Layer):
       preserved**: a window of n samples gives n derivatives, the i-th one
       estimated from the samples up to i, so the result stays aligned with the
       signal and composes with ``Integrate`` (whose cumulative form is its
-      exact inverse: integrating ``Derivative(x)`` returns ``x - x[0]``).
+      exact inverse: integrating ``Derivative(x)`` with the same ``init``
+      returns ``x``).
 
     The time derivative takes two further arguments:
 

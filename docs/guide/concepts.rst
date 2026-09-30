@@ -114,3 +114,9 @@ Every node has a name. Layers get one automatically (``Linear1``,
 ``Fir2``, ...) unless ``name=`` is given. Inputs and outputs are addressed by
 name everywhere else: in the data dictionaries, the results of inference and
 the training objectives. They must be unique within a model.
+
+A layer's name does not decide its weights, the layer object does: two layers
+created apart never share weights, even under the same name - a model and its
+reloaded copy, for instance. When two such layers meet in one model, the Keras
+layer of the second takes a suffix (``Fir1_1``), since Keras names the layers
+of a model uniquely.

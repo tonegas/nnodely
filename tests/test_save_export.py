@@ -1488,39 +1488,134 @@ def test_export_onnx_leaves_minimizers_out(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _from_another_process(path):
-    """Mark a saved model as written by another process, and return its file."""
-    config = path / "model.json"
-    data = json.loads(config.read_text())
-    data["session"] = "another process"
-    config.write_text(json.dumps(data))
-    return config
+def _fir_model(name, gain):
+    """``out = Fir(x.sw(2))`` with every kernel entry equal to ``gain``."""
+    x = Input(f"{name}_x")
+    fir = Fir(out_features=1, use_bias=False)(x.sw(2))  # left unnamed
+    model = Modely(name, inputs=[x], outputs=[Output(f"{name}_out", fir)]).build()
+    assert fir.kernel is not None
+    fir.kernel.assign(np.full((2, 1), gain, dtype=np.float32))
+    return model, fir
 
 
-def test_a_model_from_another_process_keeps_its_layers_apart_from_ours(tmp_path):
-    x = Input("apart_x")
-    ours = Fir(out_features=1, use_bias=False)(x.sw(2))  # left unnamed
-    saved = Modely("apart", inputs=[x], outputs=[Output("apart_out", ours)]).build()
-    assert ours.kernel is not None
-    ours.kernel.assign(np.full((2, 1), 3.0, dtype=np.float32))
-    saved.save(tmp_path / "apart")
-    # Generated in another process, the saved names can be the very ones this
-    # process gave its own layers - as they are here.
-    _from_another_process(tmp_path / "apart")
+_WINDOW_OF_ONES = np.ones((1, 1, 2), dtype=np.float32)
+
+
+def test_a_loaded_layer_keeps_its_name_and_its_own_weights(tmp_path):
+    model, ours = _fir_model("apart", 3.0)
+    model.save(tmp_path / "apart")
 
     loaded = Modely.load(tmp_path / "apart")
     loaded_fir = next(node for node in loaded.order if isinstance(node, Fir))
-    assert loaded_fir.name != ours.name
+    # One name, two layers: a layer is told apart by the object it comes from.
+    assert loaded_fir.name == ours.name
+    assert ours.kernel is not None
     ours.kernel.assign(np.ones((2, 1), dtype=np.float32))
 
+    x = model.inputs[0]
     both = Modely(
         "apart_both", inputs=[x], outputs=[Output("apart_sum", ours + loaded([x]))]
     ).build()
     assert both.inference_model is not None
     assert len(both.inference_model.weights) == 2
-    result = both({"apart_x": np.ones((1, 1, 2), dtype=np.float32)})["apart_sum"]
+    # Keras names the layers of one model uniquely, so one of them is suffixed.
+    keras_names = [layer.name for layer in both.inference_model.layers]
+    assert len(keras_names) == len(set(keras_names))
+    result = both({"apart_x": _WINDOW_OF_ONES})["apart_sum"]
     # Ours sums the window of ones, the loaded Fir keeps its 3.0 per sample.
     np.testing.assert_allclose(to_numpy(result), [[[2.0 + 6.0]]])
+
+
+def test_a_reloaded_model_stays_apart_from_its_original(tmp_path):
+    # Once tied by name: composed with its original, the copy computed with
+    # the original's layer from then on, and saved the original's weights.
+    original, fir = _fir_model("reload", 1.0)
+    original.save(tmp_path / "reload")
+    copy = Modely.load(tmp_path / "reload")
+    assert fir.kernel is not None
+    fir.kernel.assign(np.full((2, 1), 2.0, dtype=np.float32))  # trained on
+
+    z = Input("reload_z")
+    both = Modely(
+        "reload_both",
+        inputs=[z],
+        outputs=[
+            Output("reload_original", original([z.sw(2)])),
+            Output("reload_copy", copy([z.sw(2)])),
+        ],
+    ).build()
+    result = both({"reload_z": _WINDOW_OF_ONES})
+
+    np.testing.assert_allclose(to_numpy(result["reload_original"]), [[[4.0]]])
+    np.testing.assert_allclose(to_numpy(result["reload_copy"]), [[[2.0]]])
+    np.testing.assert_allclose(
+        to_numpy(copy({"reload_x": _WINDOW_OF_ONES})["reload_out"]), [[[2.0]]]
+    )
+    copy.build()
+    np.testing.assert_allclose(
+        to_numpy(copy({"reload_x": _WINDOW_OF_ONES})["reload_out"]), [[[2.0]]]
+    )
+    copy.save(tmp_path / "copy")
+    again = Modely.load(tmp_path / "copy")
+    np.testing.assert_allclose(
+        to_numpy(again({"reload_x": _WINDOW_OF_ONES})["reload_out"]), [[[2.0]]]
+    )
+
+
+def test_one_file_loaded_twice_gives_two_models(tmp_path):
+    model, _ = _fir_model("twice", 1.0)
+    model.save(tmp_path / "twice")
+    first, second = Modely.load(tmp_path / "twice"), Modely.load(tmp_path / "twice")
+    second_fir = next(node for node in second.order if isinstance(node, Fir))
+    assert second_fir.kernel is not None
+    second_fir.kernel.assign(np.full((2, 1), 5.0, dtype=np.float32))
+
+    np.testing.assert_allclose(
+        to_numpy(first({"twice_x": _WINDOW_OF_ONES})["twice_out"]), [[[2.0]]]
+    )
+    np.testing.assert_allclose(
+        to_numpy(second({"twice_x": _WINDOW_OF_ONES})["twice_out"]), [[[10.0]]]
+    )
+
+
+def test_a_loop_closed_over_a_generated_layer_reloads_beside_its_original(tmp_path):
+    # Once a failure: a load renamed the body's layer while the Loop still
+    # named it as the output it feeds back.
+    s = Input("bare_s")
+    bare = Fir(out_features=1, use_bias=False)(s.last())  # a body output, unnamed
+    body = Modely("bare_body", inputs=[s], outputs=[bare]).build()
+    assert bare.kernel is not None
+    bare.kernel.assign(np.full((1, 1), 2.0, dtype=np.float32))
+    seed = Input("bare_seed", seq=4)
+    loop = Loop(f=body, callback={s: bare}, initial={s: seed}, collect=False)
+    model = Modely(
+        "bare_top", inputs=[seed], outputs=[Output("bare_out", loop)]
+    ).build()
+    seed_values = np.zeros((1, 1, 1, 4), dtype=np.float32)
+    seed_values[..., 0] = 1.0
+    expected = to_numpy(model({"bare_seed": seed_values})["bare_out"])
+    model.save(tmp_path / "bare")
+
+    restored = Modely.load(tmp_path / "bare")
+
+    np.testing.assert_allclose(
+        to_numpy(restored({"bare_seed": seed_values})["bare_out"]), expected
+    )
+    np.testing.assert_allclose(expected, [[[16.0]]])
+
+
+def test_load_without_weights_initializes_the_saved_architecture(tmp_path):
+    model, _ = _fir_model("fresh", 7.0)
+    model.save(tmp_path / "fresh")
+
+    restored = Modely.load(tmp_path / "fresh", weights=False)
+    restored_fir = next(node for node in restored.order if isinstance(node, Fir))
+
+    assert (tmp_path / "fresh" / "model.weights.h5").exists()
+    assert not np.allclose(to_numpy(restored_fir.kernel), 7.0)
+    reloaded = Modely.load(tmp_path / "fresh")
+    reloaded_fir = next(node for node in reloaded.order if isinstance(node, Fir))
+    np.testing.assert_allclose(to_numpy(reloaded_fir.kernel), 7.0)
 
 
 def test_names_generated_after_a_load_avoid_the_loaded_ones(tmp_path):
@@ -1530,14 +1625,13 @@ def test_names_generated_after_a_load_avoid_the_loaded_ones(tmp_path):
     fir = Fir(out_features=1, name="upcoming_fir")(x.sw(2))
     model = Modely("upcoming", inputs=[x], outputs=[Output("upcoming_out", fir)])
     model.build().save(tmp_path / "upcoming")
-    # Another process ran further: its Fir took the name this one makes next.
+    # Saved by a process that ran further: its Fir has the name this one makes next.
     upcoming = f"Fir{dag._node_counter + 1}"
-    config = _from_another_process(tmp_path / "upcoming")
+    config = tmp_path / "upcoming" / "model.json"
     data = json.loads(config.read_text())
     for node in data["nodes"]:
         if node["config"]["name"] == "upcoming_fir":
             node["config"]["name"] = upcoming
-            node["generated"] = True
     config.write_text(json.dumps(data))
 
     loaded = Modely.load(tmp_path / "upcoming")
@@ -1571,3 +1665,23 @@ def test_a_model_saved_without_weights_loads_as_freshly_built(tmp_path):
     # As declared again: the parameter from its value, the Fir from a new draw.
     np.testing.assert_allclose(to_numpy(restored_gain.param), [[2.0]])
     assert not np.allclose(to_numpy(restored_fir.kernel), 5.0)
+
+
+def test_a_linear_initializer_object_is_saved_as_its_config(tmp_path):
+    x = Input("initializer_x")
+    linear = Linear(
+        out_features=2,
+        initializer=keras.initializers.Constant(0.5),
+        bias_initializer=keras.initializers.Constant(-1.0),
+        name="initializer_linear",
+    )([x.last()])
+    model = Modely(
+        "initializer", inputs=[x], outputs=[Output("initializer_out", linear)]
+    ).build()
+    model.save(tmp_path / "initializer", weights=False)
+
+    restored = Modely.load(tmp_path / "initializer")
+    restored_linear = next(node for node in restored.order if isinstance(node, Linear))
+
+    np.testing.assert_allclose(to_numpy(restored_linear.kernel), np.full((1, 2), 0.5))
+    np.testing.assert_allclose(to_numpy(restored_linear.bias), [-1.0, -1.0])

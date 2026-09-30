@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Literal, Union
+from typing import Any, Dict, Iterator, List, Literal, Sequence
 
 import numpy as np
 import pandas as pd
@@ -71,7 +71,7 @@ class DataLoader:
         format: dict[str, Any] | None = None,
         csv_glob: str = "*.csv",
         delimiter: str = ",",
-        header: Union[int, None, Literal["infer"]] = "infer",
+        header: int | Sequence[int] | Literal["infer"] | None = "infer",
         dtype: Any = np.float32,
         seq_length: int | Literal["full"] | None = None,
         step: int = 1,
@@ -298,7 +298,13 @@ class DataLoader:
                 files = [path]
             self.num_files = len(files)
             return [
-                (file.name, self._read_frame(pd.read_csv(file), file.name))
+                (
+                    file.name,
+                    self._read_frame(
+                        pd.read_csv(file, sep=self.delimiter, header=self.header),  # type: ignore
+                        file.name,
+                    ),
+                )
                 for file in files
             ]
 
@@ -389,6 +395,16 @@ class DataLoader:
             raise ValueError(
                 f"Input '{name}' in '{label}' provides {feature_size} values per "
                 f"timestep, but its dim={dim} requires {expected_size}."
+            )
+        # A cell pandas reads as n/a - empty, "n/a", "NaN" - stays a NaN, and a
+        # NaN reaching a minimizer turns its loss, and every weight it trains,
+        # into NaN.
+        missing = int(np.isnan(values).sum())
+        if missing:
+            warnings.warn(
+                f"'{label}': input '{name}' has {missing} n/a values, kept as NaN.",
+                UserWarning,
+                stacklevel=5,
             )
         return np.reshape(values, (values.shape[0], *dim))
 

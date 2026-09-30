@@ -60,13 +60,3 @@ class BatchNorm(Layer):
             scale=self.scale,
             name=self.name,
         )
-
-    def get_config(self):
-        return {
-            "name": self.name,
-            "axis": self.axis,
-            "momentum": self.momentum,
-            "epsilon": self.epsilon,
-            "center": self.center,
-            "scale": self.scale,
-        }

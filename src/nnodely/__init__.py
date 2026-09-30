@@ -1,6 +1,29 @@
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("nnodely")
+except PackageNotFoundError:  # a source tree used without being installed
+    __version__ = "unknown"
+
+# Keras imports its backend on import, and names only the missing module when
+# that backend is not installed.
+try:
+    import keras  # noqa: F401
+except ModuleNotFoundError as error:
+    missing = (error.name or "").split(".")[0]
+    if missing not in ("tensorflow", "torch", "jax", "jaxlib"):
+        raise
+    raise ImportError(
+        f"nnodely runs on Keras, whose backend needs {missing!r}, which is "
+        "not installed. Install nnodely with a backend - "
+        'pip install "nnodely[tensorflow]", "nnodely[torch]" or "nnodely[jax]" '
+        "- and choose it with the KERAS_BACKEND environment variable, "
+        "tensorflow when it is not set."
+    ) from error
+
 # Randomness is configured before importing layers so an environment seed is
 # applied before any model objects or initializers are created.
-from nnodely.utils.random import get_seed, set_seed
+from nnodely.utils.random import get_seed, set_seed  # noqa: E402
 
 # Core
 from nnodely.core.modely import Modely
@@ -111,23 +134,13 @@ __all__ = [
     "Exp",
     "Log",
     "Log10",
-    "Sqrt",
-    "Abs",
     "Floor",
-    "Ceil",
     "Deg2Rad",
-    "Sign",
     "Negative",
     "Abs",
     "Ceil",
     "Clamp",
-    "Deg2Rad",
-    "Exp",
-    "Floor",
-    "Log",
-    "Log10",
     "Sign",
     "Sqrt",
     "Sum",
-    "Negative",
 ]

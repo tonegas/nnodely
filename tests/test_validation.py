@@ -317,3 +317,20 @@ def test_the_history_figure_draws_every_curve():
         }
     finally:
         validation_plot.close_all([figure])
+
+
+def test_validate_prints_its_summary_unless_told_not_to(capsys):
+    # Once printed on every call, with no way to keep a log or a loop quiet.
+    name = "verbose_model"
+    model = _identity_model(name)
+    values = np.linspace(0.0, 1.0, 10)
+    data = _data(model, name, values, values + 0.25)
+
+    shown = model.validate(data)
+    assert "nnodely Validation" in capsys.readouterr().out
+
+    quiet = model.validate(data, verbose=False)
+    assert capsys.readouterr().out == ""
+    assert quiet["tracking"].metrics["mae"] == pytest.approx(
+        shown["tracking"].metrics["mae"]
+    )

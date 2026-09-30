@@ -767,3 +767,66 @@ def test_inference_on_get_samples_is_a_time_series():
     np.testing.assert_allclose(
         prediction.ravel(), to_numpy(2.0 * raw["data_1"][3:8]), rtol=1e-6
     )
+
+
+# ------------------------------------------------------------------
+# CSV options go to pandas as they are
+# ------------------------------------------------------------------
+
+
+def _csv_model():
+    x = Input("csv_x")
+    y = Input("csv_y")
+    return Modely(
+        "csv_model", inputs=[x, y], outputs=[Output("csv_out", x.last() + y.last())]
+    ).build()
+
+
+def _column_values(data, name):
+    return data.as_dict()[name].ravel().tolist()
+
+
+def test_csv_delimiter_is_the_pandas_separator(tmp_path):
+    (tmp_path / "semicolon.csv").write_text("csv_x;csv_y\n1;10\n2;20\n3;30\n")
+
+    data = DataLoader(_csv_model(), source=tmp_path / "semicolon.csv", delimiter=";")
+
+    assert _column_values(data, "csv_x") == [1.0, 2.0, 3.0]
+    assert _column_values(data, "csv_y") == [10.0, 20.0, 30.0]
+
+
+def test_csv_without_a_header_row_keeps_its_first_row(tmp_path):
+    # Once read with the default header: the first row named the columns.
+    (tmp_path / "bare.csv").write_text("1,10\n2,20\n3,30\n")
+
+    data = DataLoader(
+        _csv_model(),
+        source=tmp_path / "bare.csv",
+        header=None,
+        format={"csv_x": 0, "csv_y": 1},
+    )
+
+    assert _column_values(data, "csv_x") == [1.0, 2.0, 3.0]
+    assert _column_values(data, "csv_y") == [10.0, 20.0, 30.0]
+
+
+def test_csv_header_can_follow_a_title_line(tmp_path):
+    (tmp_path / "titled.csv").write_text("bench run 3\ncsv_x,csv_y\n1,10\n2,20\n")
+
+    data = DataLoader(_csv_model(), source=tmp_path / "titled.csv", header=1)
+
+    assert _column_values(data, "csv_x") == [1.0, 2.0]
+    assert _column_values(data, "csv_y") == [10.0, 20.0]
+
+
+def test_na_cells_are_kept_as_nan_with_a_warning(tmp_path):
+    (tmp_path / "holes.csv").write_text("csv_x,csv_y\n1,10\nn/a,20\n3,\n")
+
+    with pytest.warns(UserWarning) as caught:
+        data = DataLoader(_csv_model(), source=tmp_path / "holes.csv")
+
+    messages = {str(warning.message) for warning in caught}
+    assert "'holes.csv': input 'csv_x' has 1 n/a values, kept as NaN." in messages
+    assert "'holes.csv': input 'csv_y' has 1 n/a values, kept as NaN." in messages
+    assert np.isnan(_column_values(data, "csv_x")[1])
+    assert np.isnan(_column_values(data, "csv_y")[2])

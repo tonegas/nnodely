@@ -32,7 +32,7 @@ from typing import cast
 
 from nnodely.layers.output import Output
 from nnodely.layers.input import Input
-from nnodely.core.layer import Layer
+from nnodely.core.layer import Layer, _claim_keras_name
 
 import keras
 
@@ -78,9 +78,27 @@ class Modely:
         return f"Model {self.name}:\n - {items}"
 
     def __call__(self, inputs) -> Any:
-        if all(isinstance(v, Node) for v in inputs):
+        if not isinstance(inputs, dict):
+            # block mode: one stream for every declared input, in their order.
+            # Pairing them off with zip made a missing stream an input of the
+            # graph above, and dropped an extra one.
+            if not isinstance(inputs, (list, tuple)) or not all(
+                isinstance(v, Node) for v in inputs
+            ):
+                raise TypeError(
+                    f"Model {self.name!r} is called with a dict of arrays to run "
+                    "it, or with a list of streams, one per input, to use it as "
+                    f"a block; got {type(inputs).__name__}."
+                )
+            if len(inputs) != len(self.inputs):
+                names = [node.name for node in self.inputs]
+                raise ValueError(
+                    f"Model {self.name!r} has {len(self.inputs)} inputs {names}: "
+                    "used as a block it takes one stream for each, in that "
+                    f"order, got {len(inputs)}."
+                )
             mc = ModelCall(f"{self.name}_call", self)
-            mc.preds = inputs
+            mc.preds = list(inputs)
             mc.inputs_map = {old: new for old, new in zip(self.inputs, inputs)}
             outputs = [IntermediateOutput(output, mc) for output in self.outputs]
             mc.outputs_map = {new: old for old, new in zip(self.outputs, outputs)}
@@ -91,6 +109,12 @@ class Modely:
         # minimizer reads, such as a target, is neither needed nor passed on.
         if self.inference_model is None:
             raise ValueError("Model is not built. Call build() before calling it.")
+        missing = [inp.name for inp in self.inference_inputs if inp.name not in inputs]
+        if missing:
+            raise ValueError(
+                f"Model {self.name!r} reads the inputs {missing}, which are "
+                "missing from the data it was called with."
+            )
         inputs = {inp.name: inputs[inp.name] for inp in self.inference_inputs}
         return self.inference_model(inputs)
 
@@ -219,23 +243,25 @@ class Modely:
         return roll_layer(keras_inputs)
 
     def _resolve_graph(self, order, output_nodes=None):
-        # Applying one layer several times yields several nodes that carry its
-        # name, so tensors are keyed by node identity: keying them by name made
-        # each application overwrite the previous one, and every consumer then
-        # read the same tensor. The concrete Keras layer is still keyed by name,
-        # so those applications share one layer and therefore its weights, the
-        # way repeated calls do in Keras.
+        # Applying one layer several times yields one node per application, so
+        # tensors are keyed by node identity: keying them by name made each
+        # application overwrite the previous one. The concrete Keras layer is
+        # keyed by the layer object the node applies, its source: applications
+        # of one layer share its weights, the way repeated calls do in Keras,
+        # and layers created apart never do - even under one name, as a model
+        # and its reloaded copy have.
         input_tensors = {
             node.name: node.input for node in order if isinstance(node, Input)
         }
         tensor_map: dict[Node, Any] = {
             node: input_tensors[node.name] for node in order if isinstance(node, Input)
         }
-        layers_by_name: dict[str, Any] = {}
+        layers_by_source: dict[int, Any] = {}
+        keras_names: dict[str, Any] = {name: Input for name in input_tensors}
 
         for node in [n for n in order if not isinstance(n, Input)]:
             if isinstance(node, Layer):
-                shared = layers_by_name.get(node.name)
+                shared = layers_by_source.get(id(node._source))
                 if shared is not None:
                     node._layer = shared
                 if len(node.preds) == 0:  ## Parameters and Constants
@@ -245,7 +271,8 @@ class Modely:
                     tensor_map[node] = node.call(
                         [tensor_map[pred] for pred in node.preds]
                     )
-                layers_by_name[node.name] = node._layer
+                layers_by_source[id(node._source)] = node._layer
+                _claim_keras_name(node._layer, keras_names)
             else:  ## Output or other non-Layer node
                 tensor_map[node] = tensor_map[node.preds[0]]
 
@@ -373,6 +400,7 @@ class Modely:
         out_dir: str | os.PathLike | None = None,
         show: bool = False,
         history: dict[str, Any] | None = None,
+        verbose: bool = True,
     ) -> ValidationResult:
         """Score the built model on ``val_data`` and draw what it did.
 
@@ -393,12 +421,19 @@ class Modely:
             curves with the usual Matplotlib toolbar.
         history:
             The dictionary returned by :meth:`train`, drawn as loss curves.
+        verbose:
+            Print the summary; False keeps the validation silent.
 
-        The summary is printed and the whole result returned, so the numbers
-        can be asserted on or logged as well as read.
+        The whole result is returned, so the numbers can be asserted on or
+        logged as well as read.
         """
         return validation.validate(
-            self, val_data, out_dir=out_dir, show=show, history=history
+            self,
+            val_data,
+            out_dir=out_dir,
+            show=show,
+            history=history,
+            verbose=verbose,
         )
 
     def _training_arrays(self, data: DataLoader) -> tuple[dict, np.ndarray | None]:
@@ -623,10 +658,15 @@ class Modely:
         ModelSerializer.serialize(self, path, weights=weights)
 
     @classmethod
-    def load(cls, path):
-        """Load a model saved with :meth:`save`, and its weights if it was
-        saved with them."""
-        return ModelSerializer.load(path)
+    def load(cls, path, weights: bool = True):
+        """Load a model saved with :meth:`save`, with its weights unless
+        ``weights`` is False or it was saved without them.
+
+        A model loaded without weights is initialized as ``build()`` does. The
+        loaded layers are layers of their own: one added to the model, or
+        another model loaded from the same file, never shares their weights.
+        """
+        return ModelSerializer.load(path, weights=weights)
 
     def export_keras(
         self, path: str | os.PathLike, filename: str | None = None

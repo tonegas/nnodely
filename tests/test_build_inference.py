@@ -250,3 +250,11 @@ def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
     np.testing.assert_allclose(
         to_numpy(result["minimized_loop_out"]), np.full((1, 1, 1), 16.0)
     )
+
+
+def test_inference_names_the_inputs_missing_from_the_data():
+    model = _minimized_model("missing_input")
+
+    # The target is only read by a minimizer, so it is not what is missing.
+    with pytest.raises(ValueError, match=r"\['missing_input_x'\]"):
+        model({"missing_input_target": np.ones((4, 1, 1), dtype=np.float32)})

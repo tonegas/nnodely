@@ -1014,6 +1014,7 @@ def test_train_with_loop_under_xla(monkeypatch):
     data = DataLoader(model, source={"x": values, "target": 2.0 * values})
     history = model.train(train_data=data, epochs=5, batch_size=4, lr=0.01)
 
+    assert model.model is not None
     assert model.model.jit_compile
     assert np.all(np.isfinite(history["loss"]))
     assert history["loss"][-1] < history["loss"][0]

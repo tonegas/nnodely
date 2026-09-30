@@ -16,9 +16,6 @@ from typing import Any
 
 _node_counter = 0
 
-#: The names next_name() made. Unlike a given name, a load may replace one.
-GENERATED_NAMES: set[str] = set()
-
 
 def next_name(prefix: str) -> str:
     """A name for a node left unnamed, used by no node of this process.
@@ -35,17 +32,7 @@ def next_name(prefix: str) -> str:
     # Reserved here as well, because a LocalModel or an EquationLearner takes
     # its name from here without being a node, and derives its layers' names.
     reserve_name(name)
-    GENERATED_NAMES.add(name)
     return name
-
-
-def is_generated(name: str) -> bool:
-    """True for a name next_name() made, or one derived from it - a LocalModel
-    cell is ``"<LocalModel name>_out0"``."""
-    parts = name.split("_")
-    return any(
-        "_".join(parts[:index]) in GENERATED_NAMES for index in range(1, len(parts) + 1)
-    )
 
 
 # ------------------------------------------------------------------
@@ -73,8 +60,8 @@ class Scope:
         Callers use this to reconnect the public symbolic nodes to the concrete
         layers built from their copies, and a node inside a body is public too:
         a block that wraps a model still exposes the layers it holds. A body
-        inlined once per call has one copy per call here, but they share a name
-        and therefore a single concrete layer, so either copy answers for it.
+        inlined once per call has one copy per call here, but they apply one
+        layer, so they hold one concrete layer and either copy answers for it.
         """
         merged: dict[Node, Any] = {}
         for call_scope in self.calls.values():

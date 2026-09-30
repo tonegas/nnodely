@@ -57,7 +57,10 @@ Columns that no input reads are ignored:
    from_file = DataLoader(model, source="run_0.csv", format=format)
    from_folder = DataLoader(model, source=".", format=format, csv_glob="run_*.csv")
 
-``delimiter`` and ``header`` are passed to the CSV reader.
+``delimiter`` and ``header`` are passed to ``pandas.read_csv`` as ``sep``
+and ``header``: ``header=None`` reads a file without a header row, whose
+columns ``format`` then names by index. A cell pandas reads as missing - empty,
+``n/a``, ``NaN`` - stays a NaN, and the loader warns about it.
 
 Simulations
 -----------

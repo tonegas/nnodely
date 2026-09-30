@@ -337,6 +337,7 @@ def validate(
     out_dir: str | os.PathLike | None = None,
     show: bool = False,
     history: dict[str, Any] | None = None,
+    verbose: bool = True,
 ) -> ValidationResult:
     """The implementation of :meth:`Modely.validate`."""
     if model.model is None:
@@ -394,5 +395,6 @@ def validate(
         from nnodely.utils import validation_plot
 
         result.figures = validation_plot.render(result, out_dir=out_dir, show=show)
-    print(result.summary())
+    if verbose:
+        print(result.summary())
     return result

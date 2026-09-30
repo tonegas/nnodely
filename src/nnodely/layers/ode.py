@@ -130,8 +130,8 @@ class OdeNetImpl(keras.layers.Layer):
     caller: every step is tried, its error estimated against the embedded
     fourth-order solution and accepted only when the scaled error norm is at
     most one. A rejected step shrinks and is retried, so the number of body
-    evaluations depends on the values flowing through and the march cannot be
-    unrolled the way `Loop` is.
+    evaluations depends on the values flowing through, and is not known when
+    the graph is built.
 
     With a fixed-step tableau each reported interval is covered by `steps`
     equal substeps, so the body is evaluated a statically known number of times
@@ -443,9 +443,6 @@ class OdeNetOutput(Layer):
         # The same index selector the Loop outputs use.
         return LoopOutputImpl(index=self.index, name=self.name)
 
-    def get_config(self):
-        return {"name": self.name, "index": self.index}
-
     @classmethod
     def from_config(cls, config: dict, preds=None):
         # The outputs belong to the OdeNet that was just rebuilt, and selecting
@@ -484,7 +481,7 @@ class OdeNet(Layer):
 
     The two modes are the same layer, so a field fitted with `rk4` is switched
     to the adaptive march for inference with
-    `model.get_layer(name).set_method("dopri5")`.
+    `model.model.get_layer(name).set_method("dopri5")`.
 
     `event` and `reset` make the field hybrid: `event` names an output of `f`
     holding a single value per sample, positive before the event and negative
@@ -565,7 +562,6 @@ class OdeNet(Layer):
         self.f = f
         self.state_inputs = state_inputs
         self.state_outputs = state_outputs
-        self.initial_streams = initial_streams
         self.times = t
         self.method = method
         self.steps = int(steps)

@@ -23,8 +23,8 @@ class LinearImpl(keras.layers.Layer):
         out_features: int = 1,
         use_bias: bool = True,
         name=None,
-        initializer="glorot_uniform",
-        bias_initializer="glorot_uniform",
+        initializer: str | keras.initializers.Initializer = "glorot_uniform",
+        bias_initializer: str | keras.initializers.Initializer = "glorot_uniform",
         **kwargs,
     ):
         super().__init__(name=name, **kwargs)
@@ -33,8 +33,9 @@ class LinearImpl(keras.layers.Layer):
         self.proj = keras.layers.Dense(
             self.out_features,
             use_bias=self.use_bias,
-            kernel_initializer=initializer,
-            bias_initializer=bias_initializer,
+            # Keras infers str from its defaults, but takes initializers too.
+            kernel_initializer=initializer,  # type: ignore[arg-type]
+            bias_initializer=bias_initializer,  # type: ignore[arg-type]
         )
 
     def get_config(self):
@@ -85,8 +86,8 @@ class Linear(Layer):
         out_features: int = 1,
         use_bias: bool = True,
         name=None,
-        initializer="glorot_uniform",
-        bias_initializer="glorot_uniform",
+        initializer: str | keras.initializers.Initializer = "glorot_uniform",
+        bias_initializer: str | keras.initializers.Initializer = "glorot_uniform",
     ):
         self.out_features = int(out_features)
         self.use_bias = bool(use_bias)

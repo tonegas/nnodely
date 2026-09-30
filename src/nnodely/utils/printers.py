@@ -40,18 +40,12 @@ def _resolve_printer(
     if printer == "legacy":
         return LegacyPrinter(
             epochs=epochs,
-            minimizers=[
-                (minimizer["name"], minimizer["source"].name)
-                for minimizer in minimizers
-            ],
+            minimizers=[minimizer["name"] for minimizer in minimizers],
         )
     if printer == "nnodely":
         return NNodelyPrinter(
             epochs=epochs,
-            minimizers=[
-                (minimizer["name"], minimizer["source"].name)
-                for minimizer in minimizers
-            ],
+            minimizers=[minimizer["name"] for minimizer in minimizers],
             model_name=name,
         )
     raise ValueError(
@@ -79,9 +73,10 @@ class TinyPrinter(keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
 
-        # Clear terminal
-        sys.stdout.write("\033[H\033[J")
-        sys.stdout.flush()
+        # Repainted in place on a terminal; a file gets one block per epoch.
+        if _supports_colour(sys.stdout):
+            sys.stdout.write("\033[H\033[J")
+            sys.stdout.flush()
 
         elapsed = time.time() - self.start_time
 
@@ -122,10 +117,8 @@ class LegacyPrinter(keras.callbacks.Callback):
     epochs:
         Total number of epochs, used for the stride and the ``n/total`` label.
     minimizers:
-        ``(display name, keras output name)`` pairs, in column order. The
-        display name is the minimizer's name; the output name is what Keras
-        prefixes its per-output loss with. When a model has a single output,
-        Keras reports only the total loss and that column mirrors it.
+        The minimizers' names, in column order: each logs its loss under
+        ``"<name>_loss"``.
     max_rows:
         Upper bound on the number of printed rows.
     """
@@ -133,7 +126,7 @@ class LegacyPrinter(keras.callbacks.Callback):
     def __init__(
         self,
         epochs: int,
-        minimizers: Sequence[tuple[str, str]] = (),
+        minimizers: Sequence[str] = (),
         max_rows: int = 20,
     ):
         super().__init__()
@@ -146,7 +139,7 @@ class LegacyPrinter(keras.callbacks.Callback):
         self.start_time = 0.0
         self.rows_printed = 0
 
-        self.groups = [name for name, _ in self.minimizers] + ["Total"]
+        self.groups = [*self.minimizers, "Total"]
         self.width = 2 + _EPOCH_CELL + len(self.groups) * (2 * _CELL + 2)
 
     # ------------------------------------------------------------------
@@ -197,11 +190,9 @@ class LegacyPrinter(keras.callbacks.Callback):
         ]
 
     def _row(self, epoch: int, logs: dict[str, Any]) -> str:
-        keys = [f"{output}_loss" for _, output in self.minimizers] + ["loss"]
+        keys = [f"{name}_loss" for name in self.minimizers] + ["loss"]
         cells = []
         for key in keys:
-            # Keras only emits per-output losses when the model has more than
-            # one output; with a single one the total is the only loss there is.
             train = logs.get(key, logs.get("loss"))
             val = logs.get(f"val_{key}", logs.get("val_loss"))
             cells.append(_format(train) + "|" + _format(val))
@@ -586,7 +577,7 @@ class NNodelyPrinter(keras.callbacks.Callback):
     def __init__(
         self,
         epochs: int,
-        minimizers: Sequence[tuple[str, str]] = (),
+        minimizers: Sequence[str] = (),
         model_name: str = "model",
         width: int | None = None,
         fps: float = 24.0,
@@ -604,7 +595,7 @@ class NNodelyPrinter(keras.callbacks.Callback):
         self.spark = max(10, min(28, self.width - 62))
 
         self.channels = [
-            _Channel(name, f"{output}_loss", self.spark) for name, output in minimizers
+            _Channel(name, f"{name}_loss", self.spark) for name in minimizers
         ] + [_Channel("Total", "loss", self.spark)]
 
         self.start_time = 0.0
@@ -629,7 +620,10 @@ class NNodelyPrinter(keras.callbacks.Callback):
         if not self.colour:
             return
         # A crash or a Ctrl-C must never leave the user staring at a terminal
-        # with no cursor, so the restore is armed before anything is hidden.
+        # with no cursor, so the restore is armed before anything is hidden -
+        # and disarmed once training ends, since the hook keeps this printer
+        # alive until the interpreter exits.
+        self._restored = False
         atexit.register(self._restore)
         self.stream.write("\033[?25l\033[2J")
         self.stream.flush()
@@ -670,6 +664,7 @@ class NNodelyPrinter(keras.callbacks.Callback):
         elapsed = time.time() - self.start_time
         if self.colour:
             self._paint(elapsed, done=True)
+            atexit.unregister(self._restore)
         self._restore()
         self.stream.write("\n")
         for line in self._plaque(elapsed):

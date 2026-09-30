@@ -1,9 +1,16 @@
+import io
+
 import keras
 import numpy as np
 import pytest
 
 from nnodely import Input, Output, Fir, Modely, DataLoader
-from nnodely.utils.printers import TinyPrinter, LegacyPrinter, _resolve_printer
+from nnodely.utils.printers import (
+    LegacyPrinter,
+    NNodelyPrinter,
+    TinyPrinter,
+    _resolve_printer,
+)
 
 
 def _single_minimizer_model():
@@ -23,9 +30,7 @@ def _single_minimizer_model():
 
 
 def test_legacy_printer_reproduces_the_original_table(capsys):
-    printer = LegacyPrinter(
-        epochs=6000, minimizers=[("curv_error", "curv")], max_rows=100
-    )
+    printer = LegacyPrinter(epochs=6000, minimizers=["curv_error"], max_rows=100)
 
     ## 6000 epochs over at most 100 rows is one row every 60 epochs
     assert printer.stride == 60
@@ -34,8 +39,8 @@ def test_legacy_printer_reproduces_the_original_table(capsys):
     printer.on_epoch_end(
         59,
         {
-            "curv_loss": 2.099e-06,
-            "val_curv_loss": 1.226e-06,
+            "curv_error_loss": 2.099e-06,
+            "val_curv_error_loss": 1.226e-06,
             "loss": 2.099e-06,
             "val_loss": 1.226e-06,
         },
@@ -54,7 +59,7 @@ def test_legacy_printer_reproduces_the_original_table(capsys):
 
 
 def test_legacy_printer_keeps_the_row_count_bounded(capsys):
-    printer = LegacyPrinter(epochs=1000, minimizers=[("a", "a")], max_rows=10)
+    printer = LegacyPrinter(epochs=1000, minimizers=["a"], max_rows=10)
     printer.on_train_begin()
     for epoch in range(1000):
         printer.on_epoch_end(epoch, {"loss": 1.0, "a_loss": 1.0})
@@ -72,7 +77,7 @@ def test_legacy_printer_keeps_the_row_count_bounded(capsys):
 
 def test_legacy_printer_always_prints_the_final_epoch(capsys):
     ## 7 epochs over at most 3 rows gives a stride of 3: epochs 3, 6 and then 7
-    printer = LegacyPrinter(epochs=7, minimizers=[("a", "a")], max_rows=3)
+    printer = LegacyPrinter(epochs=7, minimizers=["a"], max_rows=3)
     printer.on_train_begin()
     for epoch in range(7):
         printer.on_epoch_end(epoch, {"loss": 1.0})
@@ -87,9 +92,8 @@ def test_legacy_printer_always_prints_the_final_epoch(capsys):
 
 
 def test_legacy_printer_falls_back_to_the_total_loss(capsys):
-    ## Keras reports no per-output loss for a single-output model, so the
-    ## minimizer column mirrors the total one
-    printer = LegacyPrinter(epochs=1, minimizers=[("only", "only_out")])
+    ## A minimizer missing from the logs mirrors the total loss
+    printer = LegacyPrinter(epochs=1, minimizers=["only"])
     printer.on_train_begin()
     printer.on_epoch_end(0, {"loss": 0.25})
     row = capsys.readouterr().out.splitlines()[-1]
@@ -98,7 +102,7 @@ def test_legacy_printer_falls_back_to_the_total_loss(capsys):
 
 
 def test_legacy_printer_columns_stay_aligned_for_wide_values(capsys):
-    printer = LegacyPrinter(epochs=1, minimizers=[("a", "a")])
+    printer = LegacyPrinter(epochs=1, minimizers=["a"])
     printer.on_train_begin()
     printer.on_epoch_end(0, {"loss": -1.23456789e-123, "val_loss": 9.87654321e-321})
     lines = capsys.readouterr().out.splitlines()
@@ -108,7 +112,7 @@ def test_legacy_printer_columns_stay_aligned_for_wide_values(capsys):
 
 
 def test_legacy_printer_reports_the_training_time(capsys):
-    printer = LegacyPrinter(epochs=1, minimizers=[("a", "a")])
+    printer = LegacyPrinter(epochs=1, minimizers=["a"])
     printer.on_train_begin()
     printer.on_epoch_end(0, {"loss": 1.0})
     printer.on_train_end()
@@ -122,7 +126,7 @@ def test_legacy_printer_reports_the_training_time(capsys):
 
 def test_legacy_printer_rejects_a_non_positive_max_rows():
     with pytest.raises(ValueError):
-        LegacyPrinter(epochs=10, minimizers=[("a", "a")], max_rows=0)
+        LegacyPrinter(epochs=10, minimizers=["a"], max_rows=0)
 
 
 def test_train_resolves_the_printer_argument():
@@ -134,8 +138,8 @@ def test_train_resolves_the_printer_argument():
 
     legacy = _resolve_printer("legacy", 10, model.minimizers, model.name)
     assert isinstance(legacy, LegacyPrinter)
-    ## Columns are named after the minimizers and keyed by their keras output
-    assert legacy.minimizers == [("curv_error", "printer_pred")]
+    ## Columns are named after the minimizers, which log their losses by name
+    assert legacy.minimizers == ["curv_error"]
     assert legacy.epochs == 10
 
     ## None is silent, and a callback is taken as given
@@ -148,3 +152,38 @@ def test_train_resolves_the_printer_argument():
 
     with pytest.raises(ValueError):
         _resolve_printer("loud", 10, model.minimizers, model.name)
+
+
+def test_tiny_printer_writes_no_terminal_codes_into_a_file(capsys):
+    # Once cleared the screen unconditionally: a redirected run was full of
+    # escape sequences.
+    printer = TinyPrinter(epochs=2)
+    printer.on_train_begin()
+    printer.on_epoch_end(0, {"loss": 1.0})
+    printer.on_epoch_end(1, {"loss": 0.5})
+
+    out = capsys.readouterr().out
+    assert "Epoch 2/2" in out
+    assert "\033" not in out
+
+
+def test_nnodely_printer_arms_the_cursor_restore_only_while_training(monkeypatch):
+    # Once registered at every run and never removed, each hook keeping its
+    # printer, and the model it trained, alive until the interpreter exits.
+    registered, unregistered = [], []
+    monkeypatch.setattr("atexit.register", registered.append)
+    monkeypatch.setattr("atexit.unregister", unregistered.append)
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    stream = io.StringIO()
+    printer = NNodelyPrinter(epochs=1, minimizers=["a"], stream=stream)
+
+    for _ in range(2):
+        printer.on_train_begin()
+        printer.on_epoch_end(0, {"loss": 1.0, "a_loss": 1.0})
+        printer.on_train_end()
+
+    assert len(registered) == 2
+    assert unregistered == registered
+    # The cursor is shown again at the end of each run, not only the first.
+    assert stream.getvalue().count("\033[?25h") == 2

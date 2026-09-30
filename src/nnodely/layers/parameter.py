@@ -4,7 +4,7 @@ import numpy as np
 import keras
 
 from nnodely.core.layer import Layer
-from nnodely.core.stream import Shape
+from nnodely.core.stream import Shape, Stream
 from nnodely.utils.utils import _serialized_initializer
 
 
@@ -137,6 +137,11 @@ class _Value(Layer):
             initializer=self.initializer,
             name=self.name,
         )
+
+    def get_config(self):
+        # Read from no stream, a value keeps its shape in its config rather
+        # than taking it from its inputs as other layers do.
+        return Stream.get_config(self)
 
     @property
     def _variable(self):

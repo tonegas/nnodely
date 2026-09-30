@@ -144,7 +144,6 @@ class _MinimizerTerm:
         target_constant,
         loss,
         masked,
-        log_name,
         gain=1.0,
         seq_weights=None,
     ):
@@ -158,9 +157,8 @@ class _MinimizerTerm:
         self.target_constant = target_constant
         self.masked = masked
         self.loss = MaskedLoss(loss) if masked else loss
-        # Logged under the key compile() gave a per-output loss, which is the
-        # one the printers and existing training scripts read.
-        self.tracker = keras.metrics.Mean(name=f"{log_name}_loss")
+        # Logged under the minimizer's name: two minimizers can share a source.
+        self.tracker = keras.metrics.Mean(name=f"{name}_loss")
 
 
 class _MinimizerTerms:
@@ -341,7 +339,6 @@ def _resolve_minimizer_terms(model) -> list[_MinimizerTerm]:
             loss=_resolve_loss(minimizer["loss"]),
             masked=_depends_on_dynamic_input(minimizer["source"])
             or _depends_on_dynamic_input(minimizer["target"]),
-            log_name=minimizer["source"].name,
             gain=minimizer.get("gain", 1.0),
             seq_weights=minimizer.get("seq_weights"),
         )

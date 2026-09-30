@@ -29,9 +29,6 @@ class Arithmetic(Layer):
     def build_layer(self):
         return ArithmeticImpl(operation=self.operation, name=self.name)
 
-    def get_config(self):
-        return {"name": self.name}
-
 
 class Exp(Arithmetic):
     """Wrapper for exponential transform."""
@@ -73,14 +70,6 @@ class Ceil(Arithmetic):
     """Wrapper for ceiling transform."""
 
     operation = "ceil"
-
-
-## Note: The following class is commented out, as it is not currently in Keras ops.
-# .
-# class Rad2Deg(Arithmetic):
-#     """Wrapper for radians to degrees transform."""
-
-#     operation = "rad2deg"
 
 
 class Deg2Rad(Arithmetic):
@@ -136,9 +125,6 @@ class Clamp(Layer):
 
     def build_layer(self):
         return ClampImpl(min=self.min, max=self.max, name=self.name)
-
-    def get_config(self):
-        return {"name": self.name, "min": self.min, "max": self.max}
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -203,6 +189,3 @@ class Sum(Layer):
 
         # Dim axes start immediately after the batch axis.
         return SumImpl(axes=tuple(1 + axis for axis in axes), name=self.name)
-
-    def get_config(self):
-        return {"name": self.name, "axis": self.axis}

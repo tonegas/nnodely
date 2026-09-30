@@ -9,6 +9,7 @@ from nnodely import (
     Output,
     Parameter,
     Range,
+    Select,
     TimeConcatenate,
     TimeRange,
     TimeSelect,
@@ -617,3 +618,139 @@ def test_linear_initializers_are_saved_with_the_architecture(tmp_path):
     assert isinstance(restored_linear, Linear)
     np.testing.assert_allclose(to_numpy(restored_linear.kernel), np.ones((2, 3)))
     np.testing.assert_allclose(to_numpy(restored_linear.bias), np.zeros(3))
+
+
+# ---------------------------------------------------------------------------
+# Select only takes an index its dim axis has
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "dim, axis, idx",
+    [(3, 0, 3), (3, 0, 5), (3, 0, -4), ((4, 3), 1, 3), ((4, 3), 1, -4)],
+    ids=["one_past", "far_past", "one_before", "second_axis", "second_axis_negative"],
+)
+def test_select_rejects_an_index_out_of_its_dim_axis(dim, axis, idx):
+    # Once accepted: the stream came out with an empty dim axis.
+    x = Input("select_bounds_x", dim=dim)
+    with pytest.raises(ValueError, match=f"idx {idx} out of bounds"):
+        Select(idx=idx, axis=axis)([x.last()])
+
+
+def test_select_takes_every_index_of_its_dim_axis():
+    x = Input("select_every_x", dim=3)
+    outputs = [
+        Output(f"select_{index + 3}", Select(idx=index)([x.last()]))
+        for index in range(-3, 3)
+    ]
+    model = Modely("select_every", inputs=[x], outputs=outputs).build()
+
+    result = model(
+        {"select_every_x": np.array([[[1.0], [2.0], [3.0]]], dtype=np.float32)}
+    )
+
+    picked = [
+        float(to_numpy(result[f"select_{index + 3}"]).ravel()[0])
+        for index in range(-3, 3)
+    ]
+    assert picked == [1.0, 2.0, 3.0, 1.0, 2.0, 3.0]
+
+
+# ---------------------------------------------------------------------------
+# Softmax normalizes the whole sample by default
+# ---------------------------------------------------------------------------
+
+
+def test_softmax_normalizes_every_value_of_each_sample():
+    # Once over the last tensor axis only: on x.last() that is the time axis,
+    # one value long, so every output was 1.
+    x = Input("softmax_whole_x", dim=3)
+    y = Input("softmax_whole_y", dim=2, seq=2)
+    model = Modely(
+        "softmax_whole",
+        inputs=[x, y],
+        outputs=[
+            Output("softmax_dim", Softmax()([x.last()])),
+            Output("softmax_all", Softmax()([y.sw(3)])),
+        ],
+    ).build()
+    rng = np.random.default_rng(0)
+    x_values = rng.normal(size=(2, 3, 1)).astype(np.float32)
+    y_values = rng.normal(size=(2, 2, 3, 2)).astype(np.float32)
+
+    result = model({"softmax_whole_x": x_values, "softmax_whole_y": y_values})
+
+    for name, values in (("softmax_dim", x_values), ("softmax_all", y_values)):
+        flat = values.reshape(len(values), -1)
+        expected = np.exp(flat) / np.exp(flat).sum(axis=1, keepdims=True)
+        np.testing.assert_allclose(
+            to_numpy(result[name]).reshape(len(values), -1), expected, rtol=1e-5
+        )
+
+
+# ---------------------------------------------------------------------------
+# Fir compresses dim and time, one sequence step at a time
+# ---------------------------------------------------------------------------
+
+
+def _fir_kernel(fir, in_features, out_features):
+    kernel = np.arange(in_features * out_features, dtype=np.float32)
+    kernel = kernel.reshape(in_features, out_features) / 10.0
+    fir.kernel.assign(kernel)
+    fir.bias.assign(np.full(out_features, 0.5, dtype=np.float32))
+    return kernel
+
+
+def test_fir_keeps_the_sequence_axes():
+    # Once flattened into the projection as well: every output mixed every
+    # step of the sequence, and the seq axis was gone from the result.
+    x = Input("fir_seq_x", dim=2, seq=4)
+    fir = Fir(out_features=3, name="fir_seq")([x.sw(3)])
+    model = Modely("fir_seq_model", inputs=[x], outputs=[Output("fir_seq_out", fir)])
+    model.build()
+    assert fir.shape.dimensions == ((3,), 1, (4,))
+
+    kernel = _fir_kernel(fir, 2 * 3, 3)
+    values = np.random.default_rng(1).normal(size=(2, 2, 3, 4)).astype(np.float32)
+    result = to_numpy(model({"fir_seq_x": values})["fir_seq_out"])
+
+    assert result.shape == (2, 3, 1, 4)
+    for step in range(4):
+        expected = values[..., step].reshape(2, -1) @ kernel + 0.5
+        np.testing.assert_allclose(result[:, :, 0, step], expected, rtol=1e-5)
+
+
+def test_fir_without_sequence_axes_projects_the_whole_window():
+    x = Input("fir_plain_x", dim=2)
+    fir = Fir(out_features=3, name="fir_plain")([x.sw(3)])
+    model = Modely(
+        "fir_plain_model", inputs=[x], outputs=[Output("fir_plain_out", fir)]
+    )
+    model.build()
+
+    kernel = _fir_kernel(fir, 2 * 3, 3)
+    values = np.random.default_rng(2).normal(size=(2, 2, 3)).astype(np.float32)
+    result = to_numpy(model({"fir_plain_x": values})["fir_plain_out"])
+
+    assert result.shape == (2, 3, 1)
+    np.testing.assert_allclose(
+        result[:, :, 0], values.reshape(2, -1) @ kernel + 0.5, rtol=1e-5
+    )
+
+
+def test_fir_follows_a_dynamic_sequence_length():
+    x = Input("fir_dynamic_x", seq=-1)
+    fir = Fir(out_features=2, name="fir_dynamic")([x.sw(2)])
+    model = Modely(
+        "fir_dynamic_model", inputs=[x], outputs=[Output("fir_dynamic_out", fir)]
+    )
+    model.build()
+
+    for length in (3, 5):
+        values = np.ones((1, 1, 2, length), dtype=np.float32)
+        assert to_numpy(model({"fir_dynamic_x": values})["fir_dynamic_out"]).shape == (
+            1,
+            2,
+            1,
+            length,
+        )

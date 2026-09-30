@@ -10,19 +10,13 @@ class SampleWindowImpl(keras.layers.Layer):
         self,
         start: int,
         window_size: int,
-        dim_rank: int | None = None,
-        output_shape_no_batch=None,
+        dim_rank: int,
         name=None,
         **kwargs,
     ):
         super().__init__(name=name, **kwargs)
         self.start = int(start)
         self.window_size = int(window_size)
-
-        if dim_rank is None:
-            if output_shape_no_batch is None:
-                raise ValueError("SampleWindowImpl requires dim_rank.")
-            dim_rank = len(tuple(output_shape_no_batch)) - 1
         self.dim_rank = int(dim_rank)
 
     def call(self, x):
@@ -64,8 +58,8 @@ class SampleWindowImpl(keras.layers.Layer):
 
 class SampleWindow(Layer):
     """
-    Layer che estrae finestra temporale. Se window_size < input.time, applica slice.
-    Simmetrico agli altri layer: usa build_layer e call.
+    A window of an Input: its ``past`` samples up to the current one and its
+    ``future`` samples after it, cut from the union of the Input's windows.
     """
 
     def __init__(self, past: int, future: int, name=None):
@@ -105,13 +99,6 @@ class SampleWindow(Layer):
             dim_rank=len(self.dim),
             name=self.name,
         )
-
-    def get_config(self):
-        return {
-            "name": self.name,
-            "past": self.past,
-            "future": self.future,
-        }
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -195,24 +182,26 @@ class Select(Layer):
         return axis
 
     def build_layer(self):
-        axis = self._resolve_dim_axis(len(self.dim))
+        # The input's dim, not this node's: once applied, a Select carries its
+        # own output shape, in which the selected axis is 1 long.
+        input_dim = self.preds[0].dim  # type: ignore
+        axis = self._resolve_dim_axis(len(input_dim))
 
+        dim_size = input_dim[axis]
         idx = self.idx
         if idx < 0:
-            idx += self.dim[axis]
+            idx += dim_size
+        if idx < 0 or idx >= dim_size:
+            raise ValueError(
+                f"{self.name}: idx {self.idx} out of bounds for dim axis {axis} "
+                f"of size {dim_size}."
+            )
 
         return SelectImpl(
             idx=idx,
             axis=axis,
             name=self.name,
         )
-
-    def get_config(self):
-        return {
-            "name": self.name,
-            "idx": self.idx,
-            "axis": self.axis,
-        }
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -326,14 +315,6 @@ class Range(Layer):
             name=self.name,
         )
 
-    def get_config(self):
-        return {
-            "name": self.name,
-            "start": self.start,
-            "end": self.end,
-            "axis": self.axis,
-        }
-
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class TimeSelectImpl(keras.layers.Layer):
@@ -391,12 +372,6 @@ class TimeSelect(Layer):
             dim_rank=len(self.dim),
             name=self.name,
         )
-
-    def get_config(self):
-        return {
-            "name": self.name,
-            "idx": self.idx,
-        }
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -462,13 +437,6 @@ class TimeRange(Layer):
             name=self.name,
         )
 
-    def get_config(self):
-        return {
-            "name": self.name,
-            "start": self.start,
-            "end": self.end,
-        }
-
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class TimeConcatenateImpl(keras.layers.Layer):
@@ -518,9 +486,6 @@ class TimeConcatenate(Layer):
             input_rank=reference.rank,
             name=self.name,
         )
-
-    def get_config(self):
-        return {"name": self.name}
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -594,9 +559,6 @@ class Concatenate(Layer):
             input_rank=reference.rank,
             name=self.name,
         )
-
-    def get_config(self):
-        return {"name": self.name, "axis": self.axis}
 
 
 def _concatenation_inputs(layer: Layer) -> list[Stream]:

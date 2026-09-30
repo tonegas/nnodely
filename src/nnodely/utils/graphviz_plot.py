@@ -1,6 +1,10 @@
 """A static drawing of a Modely graph, rendered by graphviz."""
 
+import warnings
+from pathlib import Path
+
 from nnodely.core.modely import Modely
+from nnodely.core.validation import loss_name
 
 
 def plot_graphviz(
@@ -20,11 +24,12 @@ def plot_graphviz(
     if flatten:
         model = model.flatten()
 
-    fmt = None
-    if "." in to_file:
-        fmt = to_file.split(".")[-1]
+    # The suffix names the format; a dot in a folder's name is no suffix.
+    target = Path(to_file)
+    fmt = target.suffix[1:] or "png"
+    outpath = target.with_suffix("") if target.suffix else target
 
-    dot = graphviz.Digraph(name=model.name, format=fmt or "png")
+    dot = graphviz.Digraph(name=model.name, format=fmt)
     dot.attr(rankdir="LR")
     dot.attr("graph", bgcolor="white")
     dot.attr("node", fontname="Helvetica", fontsize="10")
@@ -112,7 +117,7 @@ def plot_graphviz(
     # Add minimizers
     if include_minimizers:
         for i, m in enumerate(model.minimizers):
-            loss_name = m.get("loss", "loss")
+            loss_label = loss_name(m.get("loss"))
             min_name = m.get("name", f"loss_{i}")
 
             source = m.get("source")
@@ -136,7 +141,7 @@ def plot_graphviz(
 
             dot.node(
                 loss_node_id,
-                label=f"{min_name}\n{loss_name}",
+                label=f"{min_name}\n{loss_label}",
                 shape="hexagon",
                 style="filled",
                 fillcolor=loss_fill,
@@ -157,11 +162,16 @@ def plot_graphviz(
 
     # Render
     try:
-        outpath = to_file
-        if "." in to_file:
-            outpath = ".".join(to_file.split(".")[:-1])
-        dot.render(filename=outpath, cleanup=True)
-    except Exception:
-        with open(to_file, "w", encoding="utf-8") as f:
-            f.write(dot.source)
+        dot.render(filename=str(outpath), cleanup=True)
+    except graphviz.ExecutableNotFound:
+        source_file = outpath.with_name(f"{outpath.name}.gv")
+        source_file.parent.mkdir(parents=True, exist_ok=True)
+        source_file.write_text(dot.source, encoding="utf-8")
+        warnings.warn(
+            f"Graphviz's dot program was not found, so {str(target)!r} was not "
+            f"drawn: the graph's DOT source is written to {str(source_file)!r}. "
+            "Install Graphviz (https://graphviz.org/download/) to render it.",
+            UserWarning,
+            stacklevel=3,
+        )
     return dot

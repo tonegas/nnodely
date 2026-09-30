@@ -1,3 +1,4 @@
+import pytest
 import json
 import os
 import re
@@ -318,3 +319,78 @@ def test_flattened_page_inlines_a_roll_body(tmp_path):
     assert "inline_roll" not in ids
     assert ("inline_roll/roll_out", "out") in {(e["from"], e["to"]) for e in edges}
     _assert_no_dangling(flattened)
+
+
+def _minimized_plot_model(name):
+    x = Input(f"{name}_x", dim=1)
+    y = Input(f"{name}_y", dim=1)
+    out = Output(f"{name}_out", Fir(out_features=1)([x.sw(3)]))
+    model = Modely(name, inputs=[x, y], outputs=[out])
+    model.minimize(f"{name}_fit", out, y.last())
+    return model.build()
+
+
+def test_plot_labels_a_minimizer_with_its_loss_name(tmp_path):
+    # Once the loss function's repr, memory address included.
+    dot = _minimized_plot_model("labelled").plot(str(tmp_path / "labelled.png"))
+
+    assert "labelled_fit\nmean_squared_error" in dot.source
+    assert " at 0x" not in dot.source
+
+
+def test_plot_draws_into_a_folder_with_a_dot_in_its_name(tmp_path):
+    model = _minimized_plot_model("dotted")
+
+    model.plot(str(tmp_path / "run.1" / "graph"))
+
+    assert (tmp_path / "run.1" / "graph.png").read_bytes().startswith(b"\x89PNG")
+
+
+def test_plot_without_graphviz_writes_the_dot_source_and_warns(tmp_path, monkeypatch):
+    # Once wrote the DOT text into the .png itself, without a word.
+    import graphviz
+
+    def no_dot(*args, **kwargs):
+        raise graphviz.ExecutableNotFound(["dot"])
+
+    monkeypatch.setattr(graphviz.Digraph, "render", no_dot)
+    model = _minimized_plot_model("undrawn")
+
+    with pytest.warns(UserWarning, match="dot program was not found"):
+        model.plot(str(tmp_path / "undrawn.png"))
+
+    assert not (tmp_path / "undrawn.png").exists()
+    assert (tmp_path / "undrawn.gv").read_text().startswith("digraph")
+
+
+def test_export_html_escapes_the_names_it_shows(tmp_path):
+    # Once inserted raw: a name could close the page's <script>, or run its own.
+    x = Input("escaped_x")
+    out = Output("o</script><script>alert(2)//", Fir(out_features=1)([x.sw(2)]))
+    model = Modely("<img src=x onerror=alert(1)>", inputs=[x], outputs=[out]).build()
+
+    model.export_html(tmp_path, filename="escaped")
+    page = (tmp_path / "escaped.html").read_text()
+
+    assert "<img src=x" not in page
+    assert "&lt;img src=x onerror=alert(1)&gt;" in page
+    assert "</script><script>alert(2)" not in page
+    assert "o\\u003c/script\\u003e\\u003cscript\\u003ealert(2)//" in page
+
+
+def test_export_html_loads_a_pinned_vis_network(tmp_path):
+    x = Input("pinned_x")
+    model = Modely(
+        "pinned",
+        inputs=[x],
+        outputs=[Output("pinned_out", Fir(out_features=1)([x.sw(2)]))],
+    ).build()
+
+    model.export_html(tmp_path)
+    page = (tmp_path / "pinned.html").read_text()
+
+    assert (
+        'src="https://unpkg.com/vis-network@10.1.2/standalone/umd/vis-network.min.js"'
+        in page
+    )
+    assert 'integrity="sha384-' in page

@@ -1,7 +1,5 @@
-"""
-Input - nodo radice del DAG. Come Layer ha seq, time, dim.
-SampleWindow - Layer che applica finestra temporale (slice se necessario).
-"""
+"""Input: a signal read from data, a root of the graph. Its windows are
+``SampleWindow`` nodes."""
 
 from nnodely.layers.time_ops import SampleWindow
 from nnodely.core.stream import Stream

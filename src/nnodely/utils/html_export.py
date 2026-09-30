@@ -8,6 +8,7 @@ import os
 import re
 import json
 import shutil
+from html import escape
 from pathlib import Path
 from nnodely.core.modely import Modely, ModelCall
 
@@ -28,6 +29,13 @@ _TEMPLATE = Path(__file__).with_name("templates") / "graph.html"
 _PLACEHOLDER = re.compile(r"\{\{ (\w+) \}\}")
 
 
+def _script_json(value, **kwargs) -> str:
+    """``value`` as JSON that can sit inside a ``<script>``: a name holding
+    ``</script>`` would otherwise end the script there."""
+    text = json.dumps(value, ensure_ascii=False, **kwargs)
+    return text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
 def _render_page(**values: str) -> str:
     """The page of one graph: the template with every ``{{ name }}`` filled in.
 
@@ -40,9 +48,7 @@ def _render_page(**values: str) -> str:
 
 def _copy_logo(out_path: Path) -> str | None:
     """Place the header logo next to the pages, returning its relative URL."""
-    source = Path(__file__).resolve().parents[3] / "imgs" / "logo_info.png"
-    if not source.is_file():
-        return None
+    source = Path(__file__).with_name("templates") / "logo.png"
     target = out_path / "imgs" / "logo_info.png"
     if not target.exists():
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -696,20 +702,20 @@ def export_html(
         """
 
         html = _render_page(
-            title=page_title,
+            title=escape(page_title),
             title_suffix=" [flattened]" if flattened else "",
             logo=logo_html,
             back_button=back_html,
             view_toggle=flat_button_html,
             boundary_section=boundary_html,
-            nodes=json.dumps(vis_nodes, ensure_ascii=False),
-            edges=json.dumps(vis_edges, ensure_ascii=False),
-            node_details=json.dumps(node_details, ensure_ascii=False, default=str),
-            boundary=json.dumps(boundary, ensure_ascii=False, default=str),
+            nodes=_script_json(vis_nodes),
+            edges=_script_json(vis_edges),
+            node_details=_script_json(node_details, default=str),
+            boundary=_script_json(boundary, default=str),
             hierarchical=str(hierarchical).lower(),
             physics=str(physics).lower(),
             link_target=target,
-            parent_rel=json.dumps(parent_rel),
+            parent_rel=_script_json(parent_rel),
         )
         file_path.write_text(html, encoding="utf-8")
         return str(file_path)

@@ -123,7 +123,6 @@ class Fuzzify(Layer):
         function: str = "Triangular",
         name=None,
     ):
-        self.output_dimension = len(centers)
         self.centers = centers
         self.function = function
         super().__init__(
@@ -138,10 +137,3 @@ class Fuzzify(Layer):
             function_name=self.function,
             name=self.name,
         )
-
-    def get_config(self):
-        return {
-            "name": self.name,
-            "centers": self.centers,
-            "function": self.function,
-        }

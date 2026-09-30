@@ -8,6 +8,22 @@ from nnodely.core.stream import Stream, Shape
 from nnodely.core.dag import next_name
 
 
+def _claim_keras_name(layer, taken: dict[str, Any]) -> None:
+    """Give ``layer`` a name no other layer of the Keras model being built has.
+
+    Two nnodely layers may share a name - a model and its reloaded copy, or
+    layers named alike by hand - while the layers of one Keras model may not:
+    a layer arriving at a name already taken takes the first free suffix. A
+    layer applied several times keeps the one name it has.
+    """
+    if layer.name in taken and taken[layer.name] is not layer:
+        index = 1
+        while f"{layer.name}_{index}" in taken:
+            index += 1
+        layer.name = f"{layer.name}_{index}"
+    taken[layer.name] = layer
+
+
 class Layer(Stream):
     """
     Symbolic DAG node that can lazily build its concrete Keras layer.
@@ -21,6 +37,10 @@ class Layer(Stream):
         self.inputs = None
         self._layer = None
         self._layer_signature = None
+        # The layer this node applies. Every node made by calling one layer
+        # object is an application of it, and they all share its weights;
+        # layers created apart never do, whatever their names.
+        self._source = self
 
         super().__init__(
             name=next_name(self.__class__.__name__) if name is None else name,
@@ -160,6 +180,7 @@ class Layer(Stream):
                 out_shapes = [out_shapes]
             for idx, (out_dim, out_time, out_seq) in enumerate(out_shapes):
                 node = self.__class__(name=self.name, **self._properties)
+                node._source = self._source
                 node.inputs = inputs
                 node.shape = Shape(dim=out_dim, time=out_time, seq=out_seq)
                 node.preds = inputs  # type: ignore
@@ -169,6 +190,11 @@ class Layer(Stream):
         # Tensor mode: Layer(tensor, ...) -> KerasTensor / Tensor
         ret = self.call(*inputs)
         return ret if len(ret) > 1 else ret[0]
+
+    def get_config(self):
+        # The arguments the layer was created with, which rebuild it; its shape
+        # follows from the streams it is called on again.
+        return {"name": self.name, **self._properties}
 
     @classmethod
     def from_config(

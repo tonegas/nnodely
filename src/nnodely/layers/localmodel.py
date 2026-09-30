@@ -95,9 +95,6 @@ class FuzzyProduct(Layer):
     def build_layer(self):
         return FuzzyProductImpl(name=self.name)
 
-    def get_config(self):
-        return {"name": self.name}
-
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class LocalFirImpl(keras.layers.Layer):
@@ -216,14 +213,6 @@ class LocalFir(Layer):
             name=self.name,
         )
 
-    def get_config(self):
-        return {
-            "name": self.name,
-            "out_features": self.out_features,
-            "use_bias": self.use_bias,
-            "reduce": self.reduce,
-        }
-
     @property
     def kernel(self):
         """The cell matrices, ``[cells, features, out_features]``."""
@@ -272,9 +261,6 @@ class CellStack(Layer):
     def build_layer(self):
         return CellStackImpl(reduce=self.reduce, name=self.name)
 
-    def get_config(self):
-        return {"name": self.name, "reduce": self.reduce}
-
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class CellSumImpl(keras.layers.Layer):
@@ -289,9 +275,6 @@ class CellSum(Layer):
 
     def build_layer(self):
         return CellSumImpl(name=self.name)
-
-    def get_config(self):
-        return {"name": self.name}
 
 
 class LocalModel:
@@ -336,6 +319,9 @@ class LocalModel:
         self.output_function = output_function
         self.pass_index = bool(pass_index)
         self.name = next_name("LocalModel") if name is None else name
+        # The layers made for the cells, kept so every call of this LocalModel
+        # applies the same ones - and so shares their weights.
+        self._cells: dict[tuple[str, int], Layer] = {}
 
     def __call__(self, inputs, activations):
         inputs = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
@@ -423,9 +409,13 @@ class LocalModel:
         if isinstance(function, (list, tuple)):
             return function[i]
         if isinstance(function, Layer):
-            # Nodes that share a name share their weights, so a single layer
-            # repeated over the cells is copied under a name of its own.
-            return type(function)(name=f"{self.name}_{role}{i}", **function._properties)
+            # A single layer repeated over the cells is copied, so each cell
+            # has weights of its own.
+            if (role, i) not in self._cells:
+                self._cells[(role, i)] = type(function)(
+                    name=f"{self.name}_{role}{i}", **function._properties
+                )
+            return self._cells[(role, i)]
         if self.pass_index:
             return function(index)
         return function

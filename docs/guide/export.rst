@@ -41,9 +41,14 @@ Saving and loading
    print(np.allclose(model(sample)["y"], restored(sample)["y"]))
 
 A restored model is a full :class:`~nnodely.Modely`: it can be trained,
-composed and exported again. ``model.save(path, weights=False)`` saves the
-architecture alone, to be trained later or on another machine: loading it
-initializes the weights as ``build()`` does.
+composed and exported again. Its layers are layers of their own: a layer added
+to it, the model it was saved from, or another model loaded from the same file
+never share their weights.
+
+Weights are saved and loaded by default. ``model.save(path, weights=False)``
+saves the architecture alone, to be trained later or on another machine, and
+``Modely.load(path, weights=False)`` ignores the saved weights; either way the
+loaded model is initialized as ``build()`` does.
 
 Keras
 -----

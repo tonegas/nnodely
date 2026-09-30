@@ -1,6 +1,4 @@
-"""
-Output - nomina uno stream come output del modello.
-"""
+"""Output: names a stream as an output of the model."""
 
 from nnodely.core.stream import Stream
 

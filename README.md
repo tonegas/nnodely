@@ -66,7 +66,9 @@ plus a gain on the current force.
 
 ```python
 import numpy as np
-from nnodely import DataLoader, Fir, Input, Modely, Output
+from nnodely import DataLoader, Fir, Input, Modely, Output, set_seed
+
+set_seed(0)  # the same data and initial weights, so the same results, on every run
 
 # Simulate the system: in practice, these are your measurements
 dt, m, k, c = 0.05, 1.0, 2.0, 0.5
@@ -160,11 +162,21 @@ Agents that can read URLs can fetch the raw file directly from
 Every behavior the guide marks as verified was checked against the code, so
 keep it in sync when the API changes.
 
+## Coming from nnodely 1.x
+
+nnodely 2.0 is a rewrite on Keras 3: the model is a `Modely` built from its
+inputs and outputs, trained on a `DataLoader`, and runs on TensorFlow, PyTorch
+or JAX. The
+[CHANGELOG](https://github.com/tonegas/nnodely/blob/main/CHANGELOG.md#migrating-from-1x)
+maps every 1.x call to its 2.0 counterpart. Models saved with 1.x cannot be
+loaded by 2.0; to keep using them, pin `pip install "nnodely<2"`.
+
 ## Contributing
 
 Contributions and collaborations are welcome: open an issue for questions and
 ideas, or a pull request for a new feature or a fix. See
-[CONTRIBUTING.md](CONTRIBUTING.md) to set up the development environment.
+[CONTRIBUTING.md](https://github.com/tonegas/nnodely/blob/main/CONTRIBUTING.md)
+to set up the development environment.
 
 ## License
 
@@ -227,9 +239,3 @@ Robust and Sample-Efficient Estimation of Vehicle Lateral Velocity Using Neural 
 IEEE Transactions on Intelligent Transportation Systems. https://doi.org/10.1109/TITS.2023.3303776
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
-<!--
-<a name="cite-us"></a>
-## Cite Us
-
-> TODO: Possiamo aggiungere DOI di repo con zenodo e mettere la citazione di quello [guida](https://docs.github.com/en/repositories/archiving-a-github-repository/referencing-and-citing-content)
--->

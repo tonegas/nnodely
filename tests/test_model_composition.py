@@ -412,3 +412,67 @@ def test_composition_rebuilds_a_block_whose_input_shape_changes():
         rtol=1e-5,
         atol=1e-5,
     )
+
+
+def test_a_model_used_as_a_block_takes_one_stream_per_input():
+    a = Input("block_a")
+    b = Input("block_b")
+    body = Modely(
+        "two_inputs", inputs=[a, b], outputs=[Output("block_sum", a.last() + b.last())]
+    ).build()
+    x = Input("block_x")
+    y = Input("block_y")
+    z = Input("block_z")
+
+    # One stream short: b was once promoted to an input of the outer graph,
+    # and a stream too many was dropped without a word.
+    with pytest.raises(ValueError, match="2 inputs"):
+        body([x.last()])
+    with pytest.raises(ValueError, match="2 inputs"):
+        body([x.last(), y.last(), z.last()])
+    with pytest.raises(TypeError, match="list of streams"):
+        body(x.last())
+
+    outer = Modely(
+        "uses_block",
+        inputs=[x, y],
+        outputs=[Output("outer_sum", body([x.last(), 10.0 * y.last()]))],
+    ).build()
+    result = outer(
+        {
+            "block_x": np.full((1, 1, 1), 1.0, dtype=np.float32),
+            "block_y": np.full((1, 1, 1), 2.0, dtype=np.float32),
+        }
+    )
+    assert [node.name for node in outer.inference_inputs] == ["block_x", "block_y"]
+    np.testing.assert_allclose(to_numpy(result["outer_sum"]), [[[21.0]]])
+
+
+def test_layers_created_apart_have_their_own_weights_whatever_their_names():
+    # Once shared by name: two Fir named alike were one layer.
+    x = Input("twins_x")
+    first = Fir(out_features=1, use_bias=False, name="twin")([x.sw(2)])
+    second = Fir(out_features=1, use_bias=False, name="twin")([x.sw(2)])
+    shared = Fir(out_features=1, use_bias=False, name="shared_fir")
+    model = Modely(
+        "twins",
+        inputs=[x],
+        outputs=[
+            Output("twins_first", first),
+            Output("twins_second", second),
+            Output("twins_shared", shared([x.sw(2)]) + shared([x.sw(2)])),
+        ],
+    ).build()
+    assert first.kernel is not None and second.kernel is not None
+    first.kernel.assign(np.full((2, 1), 1.0, dtype=np.float32))
+    second.kernel.assign(np.full((2, 1), 3.0, dtype=np.float32))
+
+    assert model.inference_model is not None
+    keras_names = [layer.name for layer in model.inference_model.layers]
+    assert {"twin", "twin_1"} <= set(keras_names)
+    assert len(keras_names) == len(set(keras_names))
+    # Three layers: the two twins, and the one applied twice.
+    assert len(model.inference_model.weights) == 3
+    result = model({"twins_x": np.ones((1, 1, 2), dtype=np.float32)})
+    np.testing.assert_allclose(to_numpy(result["twins_first"]), [[[2.0]]])
+    np.testing.assert_allclose(to_numpy(result["twins_second"]), [[[6.0]]])
