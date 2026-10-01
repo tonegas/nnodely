@@ -10,11 +10,16 @@ All you need to do is:
 
 - install [uv](https://docs.astral.sh/uv/)
 - clone the repo
-- run `uv sync --dev`
+- run `uv sync --all-extras --dev`, which installs the three Keras backends,
+  the ONNX tools and the development tools
 - install the hooks `uv run pre-commit install --install-hooks`
 
 You are now up and running, just make sure to run everything via `uv` (e.g.,
-`uv run ...`).
+`uv run ...`). Always sync with `--all-extras --dev`: a plain `uv sync` removes
+the backends, which are optional extras.
+
+The backend is chosen with the `KERAS_BACKEND` environment variable
+(`tensorflow`, `torch` or `jax`); the tests default to `tensorflow`.
 
 ### IDE
 
@@ -31,6 +36,30 @@ should be ready to go.
 - `neovim`: you have to add the `pyright` and `ruff` (e.g., using `mason`) and
   enable them (e.g., `vim.lsp.enable(...)`). To pick up `uv` just run `uv run
 nvim .` in the project root.
+
+## Tests
+
+```bash
+uv run pytest tests -m "not slow"                  # the fast suite, about 30 s
+uv run pytest tests                                # everything
+KERAS_BACKEND=torch uv run pytest tests -m "not slow"
+scripts/test_all_backends.sh                       # every backend in turn
+```
+
+- A test that takes 1 s or more is marked `@pytest.mark.slow`.
+- Every change comes with a test; a bug fix with one that fails without it.
+- A test for one backend only is marked so it is skipped on the others (see
+  `requires_onnx_export` in `tests/conftest.py`).
+
+## Documentation
+
+The documentation is built by Read the Docs with warnings as errors. To build
+it locally the same way:
+
+```bash
+KERAS_BACKEND=jax uv run --with-requirements docs/requirements.txt \
+    sphinx-build -W -b html docs docs/_build/html
+```
 
 ## Code Style
 
@@ -52,9 +81,9 @@ In short: **let the tools do the work**.
 
 ## Python Version
 
-We target all the [supported Python
-versions](https://devguide.python.org/versions/). Tests will catch most of the
-version specific behaviour, but please keep it in mind.
+We support Python 3.10 and later (`requires-python` in `pyproject.toml` has no
+upper bound), and CI tests 3.10 to 3.13. Tests will catch most of the version
+specific behaviour, but please keep it in mind.
 
 ---
 
@@ -130,12 +159,70 @@ We use:
 
 ---
 
-## Docstrings and Comments
+## Docstrings
 
-- Use docstrings for public modules, classes, and functions
-- Follow the project's configured docstring style
-- Comments should explain why, not what
-- Avoid obvious or redundant comments
+We use the NumPy docstring style, which the documentation renders through
+`sphinx.ext.napoleon`. An example:
+
+```python
+"""Short description of the function.
+
+Parameters
+----------
+param:
+    What the parameter is.
+
+Returns
+-------
+What the function returns.
+"""
+```
+
+Public classes and methods are documented: their docstrings are the API
+reference.
+
+I strongly suggest you to **not** write docstrings by hand, but rather use one
+of the many editor plugins. Hereafter some examples for each editor we use.
+
+> We do not put types in the docstrings! You **have** to put type hints
+> whenever you can.
+
+### VSCode
+
+We use the
+[autoDocstring](https://marketplace.visualstudio.com/items?itemName=njpwerner.autodocstring)
+plugin, with the "numpy" docstring format.
+
+### PyCharm
+
+Simply enable the "NumPy" docstring format in "Settings > Python >
+Tools > Integrated Tools".
+
+### neovim
+
+We use the [neogen](https://github.com/danymat/neogen) plugin, configured as such:
+
+```lua
+require("neogen").setup({
+    snippet_engine = "nvim",
+    languages = {
+        python = {
+            template = {
+                annotation_convention = "numpydoc",
+            },
+        },
+    },
+})
+```
+
+---
+
+## Comments
+
+Please refrain from writing useless comments. As a rule of thumb, you should
+always be able to understand code without needing comments. As such, write
+comments only when absolutely necessary, like to explain a particular exclusion
+of a static checker rule.
 
 ---
 
@@ -169,5 +256,5 @@ We follow [this](https://www.conventionalcommits.org/en/v1.0.0/).
 Testing GitHub Actions is a pain, but it becomes easier if you test at least
 some of their functionality with [act](https://github.com/nektos/act).
 
-For example, to test the `codecov.xml` action just setup `act` and run: `act
+For example, to test the `codecov.yml` action just setup `act` and run: `act
 --workflows .github/workflows/codecov.yml`.

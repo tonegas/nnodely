@@ -2,59 +2,35 @@
 #
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
-# -- Path setup --------------------------------------------------------------
 import os
+from importlib.metadata import version as package_version
 
-
-def read_version():
-    version_file = os.path.join(
-        os.path.dirname(__file__), "..", "nnodely", "__init__.py"
-    )
-    with open(version_file, "r") as f:
-        for line in f:
-            if line.startswith("__version__"):
-                delim = '"' if '"' in line else "'"
-                return line.split(delim)[1]
-    raise RuntimeError("Unable to find version string.")
-
-
-def skip_nnodely(app, what, name, obj, skip, options):
-    # Skip the alias nnodely
-    if name == "nnodely":
-        return True  # esclude questo membro dalla documentazione
-    return skip
-
-
-def setup(app):
-    app.connect("autodoc-skip-member", skip_nnodely)
-
+# autodoc imports nnodely, which imports Keras: pick a backend before that
+# happens. The documentation build installs the jax extra.
+os.environ.setdefault("KERAS_BACKEND", "jax")
 
 # -- Project information -----------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = __package__
+project = "nnodely"
 author = "tonegas"
-release = read_version()
-version = read_version()
+copyright = "2024, tonegas"
+release = package_version("nnodely")
+version = ".".join(release.split(".")[:2])
 
 # -- General configuration ---------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
-    #    'sphinx.ext.autodoc',
+    "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx.ext.mathjax",
-    "myst_parser",
-    "nbsphinx",
 ]
 
-templates_path = []
-exclude_patterns = []
-# exclude_patterns = ['Thumbs.db', '.DS_Store', 'docs', 'examples', 'tests', 'mplplots']
-# autodoc_default_options = {
-#     'exclude-members': 'nnodely.activation'
-# }
+autoclass_content = "both"
+autodoc_member_order = "bysource"
+autodoc_typehints = "none"
+
+exclude_patterns = ["_build"]
 
 # -- Options for HTML output -------------------------------------------------
 
@@ -62,13 +38,12 @@ html_theme = "sphinx_rtd_theme"
 
 html_theme_options = {
     "collapse_navigation": False,
-    "navigation_depth": 4,
+    "navigation_depth": 3,
     "titles_only": False,
 }
-
 
 html_static_path = ["_static"]
 html_logo = "_static/logo.png"
 
 # -- Options for EPUB output -------------------------------------------------
-epub_copyright = "2024, tonegas"  # Add this line
+epub_copyright = "2024, tonegas"

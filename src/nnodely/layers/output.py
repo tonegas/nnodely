@@ -1,55 +1,37 @@
-from pprint import pformat
+"""Output: names a stream as an output of the model."""
 
-from nnodely.basic.relation import Stream, NeuObj
-from nnodely.support.utils import enforce_types
-from nnodely.support.jsonutils import stream_to_str
-
-from nnodely.support.logger import logging, nnLogger
-
-log = nnLogger(__name__, logging.INFO)
+from nnodely.core.stream import Stream
 
 
-class Output(NeuObj):
-    """
-    Represents an output in the neural network model. This relation is what the network will give as output during inference.
+class Output(Stream):
+    """Expose ``stream`` as an output of the model, under ``name``.
 
-    Parameters
-    ----------
-    name : str
-        The name of the output.
-    relation : Stream
-        The relation to be used for the output.
-
-    Attributes
-    ----------
-    name : str
-        The name of the output.
-    json : dict
-        A dictionary containing the configuration of the output.
-    dim : dict
-        A dictionary containing the dimensions of the output.
+    Output names are the keys of the model's results and the names used to
+    refer to outputs elsewhere, for example in feedback mappings.
     """
 
-    @enforce_types
-    def __init__(self, name: str, relation: Stream):
-        """
-        Initializes the Output object.
+    def __init__(self, name: str, stream: Stream) -> None:
+        super().__init__(
+            name=name,
+            dim=stream.shape.dim,
+            time=stream.shape.time,
+            seq=stream.shape.seq,
+            preds=[stream],
+        )
 
-        Parameters
-        ----------
-        name : str
-            The name of the output.
-        relation : Stream
-            The relation to be used for the output.
-        """
-        super().__init__(name, relation.json, relation.dim)
-        log.debug(f"Output {name}")
-        self.json["Outputs"][name] = {}
-        self.json["Outputs"][name] = relation.name
-        log.debug("\n" + pformat(self.json))
+    def get_config(self) -> dict:
+        return {
+            "name": self.name,
+        }
 
-    def __str__(self):
-        return stream_to_str(self, "Output")
+    @classmethod
+    def from_config(cls, config: dict, preds=None) -> "Output":
+        if preds is None or len(preds) != 1:
+            raise ValueError(
+                f"Output '{config['name']}' requires exactly one predecessor."
+            )
 
-    def __repr__(self):
-        return self.__str__()
+        return cls(
+            name=config["name"],
+            stream=preds[0],
+        )

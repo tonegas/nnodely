@@ -1,0 +1,745 @@
+"""An interactive HTML page of a Modely graph, drawn with vis-network.
+
+Every block that wraps a model gets a page of its own. The page itself is
+the template ``templates/graph.html``, filled in with the graph's data.
+"""
+
+import os
+import re
+import json
+import shutil
+from html import escape
+from pathlib import Path
+from nnodely.core.modely import Modely, ModelCall
+
+from nnodely.layers.input import Input
+from nnodely.layers.loop import Loop
+from nnodely.layers.roll import Roll
+
+## nnodely pallette
+# :root {
+#   --color-primary: #6C75DF;   /* modely blue-purple */
+#   --color-secondary: #89C1F9; /* light sky blue */
+#   --color-accent: #81ACF4;    /* soft gradient blue */
+#   --color-text: #000000;      /* logo black */
+# }
+
+
+_TEMPLATE = Path(__file__).with_name("templates") / "graph.html"
+_PLACEHOLDER = re.compile(r"\{\{ (\w+) \}\}")
+
+
+def _script_json(value, **kwargs) -> str:
+    """``value`` as JSON that can sit inside a ``<script>``: a name holding
+    ``</script>`` would otherwise end the script there."""
+    text = json.dumps(value, ensure_ascii=False, **kwargs)
+    return text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
+def _render_page(**values: str) -> str:
+    """The page of one graph: the template with every ``{{ name }}`` filled in.
+
+    One pass over the template, so a value is never searched for placeholders
+    of its own - a node may well be named after one.
+    """
+    template = _TEMPLATE.read_text(encoding="utf-8")
+    return _PLACEHOLDER.sub(lambda match: values[match.group(1)], template)
+
+
+def _copy_logo(out_path: Path) -> str | None:
+    """Place the header logo next to the pages, returning its relative URL."""
+    source = Path(__file__).with_name("templates") / "logo.png"
+    target = out_path / "imgs" / "logo_info.png"
+    if not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+    return "imgs/logo_info.png"
+
+
+def _block_ports(node):
+    """The model a block node wraps, plus how that body is bound to this graph.
+
+    A block hides a whole model behind one node, so the drill-down is only
+    readable if both pages name the same ports: which body input every
+    predecessor feeds, which body output every successor reads, and which
+    outputs are fed back inside the block.
+    """
+    if isinstance(node, ModelCall):
+        return node.model, {
+            "block": "ModelCall",
+            "detail": {},
+            "inputs": [
+                {"body": body.name, "outer": outer.name, "role": "input"}
+                for body, outer in node.inputs_map.items()
+            ],
+            "outputs": [
+                {"body": body.name, "outer": outer.name}
+                for outer, body in node.outputs_map.items()
+            ],
+            "feedback": [],
+        }
+
+    if isinstance(node, Loop):
+        return node.f, {
+            "block": "Loop",
+            "detail": {"steps": node.horizon, "collect": node.collect},
+            "inputs": [
+                {"body": body.name, "outer": outer.name, "role": "initial"}
+                for body, outer in zip(node.callback_inputs, node.initial_values)
+            ]
+            + [
+                {"body": body.name, "outer": outer.name, "role": "input"}
+                for body, outer in zip(node.static_inputs, node.static_sources)
+            ],
+            "outputs": [
+                {"body": body.name, "outer": outer.name}
+                for body, outer in zip(node.f.outputs, node.loop_outputs)
+            ],
+            "feedback": [
+                {"from": output.name, "to": input_node.name}
+                for input_node, output in zip(
+                    node.callback_inputs, node.callback_outputs
+                )
+            ],
+        }
+
+    if isinstance(node, Roll):
+        # Roll wires the body's own inputs, so a port's outer name is its own.
+        return node.f, {
+            "block": "Roll",
+            "detail": {"steps": node.steps},
+            "inputs": [
+                {
+                    "body": node.callback_input.name,
+                    "outer": node.callback_input.name,
+                    "role": "state",
+                }
+            ]
+            + [
+                {"body": body.name, "outer": body.name, "role": "input"}
+                for body in node.static_inputs
+            ],
+            "outputs": [{"body": node.callback_output.name, "outer": node.name}],
+            "feedback": [
+                {"from": node.callback_output.name, "to": node.callback_input.name}
+            ],
+        }
+
+    return None
+
+
+def export_html(
+    model: Modely,
+    out_dir: str | os.PathLike,
+    filename: str | None = None,
+    *,
+    open_subgraph_in_new_tab: bool = False,
+    physics: bool = True,
+) -> str:
+    """
+    Export this Modely DAG to interactive HTML using vis-network.
+
+    ``out_dir`` is the folder the pages are written to; a path ending in
+    ``.html`` names the root page instead and its parent becomes the folder.
+
+    Every block that wraps a model (``ModelCall``, ``Loop``, ``Roll``) is
+    exported as its own page, linked from the block node and annotated with the
+    ports that bind the body to the graph above it.
+    """
+    out_path = Path(out_dir)
+    if out_path.suffix.lower() == ".html":
+        filename = filename or out_path.stem
+        out_path = out_path.parent
+    out_path.mkdir(parents=True, exist_ok=True)
+    logo_rel = _copy_logo(out_path)
+
+    visited_pages: set[tuple[int, str, bool]] = set()
+
+    def _slug(s: str) -> str:
+        s = str(s).strip().lower()
+        s = re.sub(r"[^a-z0-9._-]+", "-", s)
+        s = re.sub(r"-{2,}", "-", s).strip("-")
+        return s or "graph"
+
+    def _node_color(kind: str) -> str:
+        if kind == "Input":
+            return "#2ecc71"
+        if kind == "Output" or kind == "IntermediateOutput":
+            return "#e74c3c"
+        if kind in ("ModelCall", "Loop", "Roll"):
+            return "#3498db"
+        if kind == "Parameter":
+            return "#ff9900"
+        if kind == "Constant":
+            return "#00e5ff"
+        return "#95a5a6"
+
+    def _safe_attrs(node) -> dict:
+        attrs = {
+            "class": type(node).__name__,
+            "name": getattr(node, "name", None),
+        }
+
+        for attr in ("seq", "time", "dim", "shape"):
+            if hasattr(node, attr):
+                try:
+                    attrs[attr] = str(getattr(node, attr))
+                except Exception:
+                    pass
+
+        if hasattr(node, "_properties"):
+            try:
+                attrs["properties"] = dict(getattr(node, "_properties"))
+            except Exception:
+                pass
+
+        return attrs
+
+    def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
+        """Nodes, edges and feedback arrows of a graph, blocks optionally spliced.
+
+        With ``inline`` every block is replaced by the body it wraps, so the
+        flattened view answers what the model actually computes. ``Modely.flatten``
+        cannot do this itself: ``build`` runs the very same pass, and a Loop or a
+        Roll has to survive it as one node to become a single Keras layer. A
+        rollout is spliced once and its recurrence drawn as a feedback arrow, so
+        the picture stays the same size whatever the horizon.
+
+        Body ids are prefixed with the block that owns them, which keeps two
+        calls of one model apart and says on the label where a node came from.
+        """
+        nodes: list = []
+        edges: list = []
+        feedbacks: list = []
+        seen_nodes: set[str] = set()
+        seen_edges: set[tuple[str, str]] = set()
+        alias = alias or {}
+
+        def outer_id(name: str) -> str:
+            """Display id of a node of this graph, by name."""
+            return alias.get(name, prefix + name)
+
+        def ident(node) -> str:
+            """Display id of a node of this graph."""
+            return outer_id(getattr(node, "name", str(node)))
+
+        def add_edge(pred, src: str, dst: str, role: str | None = None) -> None:
+            if (src, dst) in seen_edges:
+                return
+            edges.append((pred, src, dst, role))
+            seen_edges.add((src, dst))
+
+        blocks = {}
+        # How each spliced block hands its results on: the selector nodes that
+        # read one output each, and the body output the block node itself
+        # stands for when something reads it as a value instead.
+        block_results: dict[str, dict] = {}
+        present = {getattr(node, "name", None) for node in model_obj.order}
+        if inline:
+            blocks = {
+                node.name: _block_ports(node)
+                for node in model_obj.order
+                if _block_ports(node) is not None
+            }
+
+        for node in model_obj.order:
+            name = getattr(node, "name", str(node))
+            ports = blocks.get(name)
+
+            if ports is not None:
+                submodel, port_map = ports
+                body_prefix = f"{prefix}{name}/"
+
+                # A Roll wires the body's own inputs, so its ports name the very
+                # same node on both sides: alias those instead of duplicating them.
+                body_alias = {
+                    port["body"]: outer_id(port["outer"])
+                    for port in port_map["inputs"]
+                    if port["body"] == port["outer"]
+                }
+                body_nodes, body_edges, body_feedbacks = _collect_graph(
+                    submodel, inline=True, prefix=body_prefix, alias=body_alias
+                )
+
+                def body_id(body_name: str) -> str:
+                    return body_alias.get(body_name, body_prefix + body_name)
+
+                for body_node, nid, kind, attrs in body_nodes:
+                    if nid in seen_nodes:
+                        continue
+                    attrs["inlined_in"] = prefix + name
+                    nodes.append((body_node, nid, kind, attrs))
+                    seen_nodes.add(nid)
+                for body_pred, src, dst, role in body_edges:
+                    add_edge(body_pred, src, dst, role)
+                feedbacks.extend(body_feedbacks)
+
+                # Bind the enclosing graph to the body it now contains.
+                for port in port_map["inputs"]:
+                    outer, body = outer_id(port["outer"]), body_id(port["body"])
+                    if outer != body:
+                        add_edge(None, outer, body, port["role"])
+                block_results[name] = {
+                    "selectors": {port["outer"] for port in port_map["outputs"]},
+                    "primary": body_id(port_map["outputs"][0]["body"]),
+                }
+                for port in port_map["outputs"]:
+                    # A selector absent from this graph means the block is read
+                    # as a value: a single-output Loop, or any Roll.
+                    if port["outer"] == name or port["outer"] not in present:
+                        continue
+                    outer, body = outer_id(port["outer"]), body_id(port["body"])
+                    if outer != body:
+                        add_edge(None, body, outer, "output")
+
+                steps = port_map["detail"].get("steps")
+                for pair in port_map["feedback"]:
+                    feedbacks.append(
+                        (
+                            body_id(pair["from"]),
+                            body_id(pair["to"]),
+                            f"feedback (x{steps} steps)" if steps else "feedback",
+                            {
+                                "kind": "feedback",
+                                "block": port_map["block"],
+                                "block_node": prefix + name,
+                                "feedback_stream": pair["from"],
+                                "feedback_input": pair["to"],
+                                **port_map["detail"],
+                            },
+                        )
+                    )
+                continue
+
+            nid = ident(node)
+            if nid in seen_nodes:
+                continue
+            nodes.append((node, nid, node.__class__.__name__, _safe_attrs(node)))
+            seen_nodes.add(nid)
+
+        for node in model_obj.order:
+            if getattr(node, "name", None) in blocks:
+                continue
+            for pred in getattr(node, "preds", []) or []:
+                pred_name = getattr(pred, "name", None)
+                if pred_name in blocks:
+                    # A consumer reads the block either through one of its
+                    # selector nodes, already bound above, or straight off the
+                    # block node, which now resolves to the body output.
+                    results = block_results[pred_name] if pred_name else {}
+                    if getattr(node, "name", None) not in results["selectors"]:
+                        add_edge(pred, results["primary"], ident(node))
+                    continue
+                add_edge(pred, ident(pred), ident(node))
+
+        return nodes, edges, feedbacks
+
+    def _levels(graph_nodes, graph_edges) -> dict[str, int]:
+        """Longest-path layer of every node, so the flow reads left to right.
+
+        The levels are assigned here instead of by vis-network because feedback
+        arrows close cycles, and its own ``directed`` sort collapses the whole
+        graph into a single column as soon as one edge points backwards. Only
+        the acyclic edges are passed in, so the recurrence cannot skew them.
+        """
+        incoming: dict[str, list[str]] = {}
+        consumers: dict[str, list[str]] = {}
+        for _, src, dst, _ in graph_edges:
+            incoming.setdefault(dst, []).append(src)
+            consumers.setdefault(src, []).append(dst)
+
+        # The collected nodes are already in topological order, so one forward
+        # pass is enough to give each its longest distance from a source.
+        level: dict[str, int] = {}
+        for _, nid, _, _ in graph_nodes:
+            level[nid] = max(
+                (level.get(src, 0) + 1 for src in incoming.get(nid, ())), default=0
+            )
+
+        # Parameters and constants have no predecessors, so the pass above parks
+        # them all in the first column and makes it as tall as the whole graph.
+        # Each one belongs beside the node that reads it instead.
+        for node, nid, _, _ in graph_nodes:
+            if incoming.get(nid) or isinstance(node, Input):
+                continue
+            read_by = consumers.get(nid)
+            if read_by:
+                level[nid] = min(level[name] for name in read_by) - 1
+        return level
+
+    def _feedback_edge(src: str, dst: str, label: str, attrs: dict) -> dict:
+        """A recurrence arrow, drawn apart from the ordinary data flow."""
+        return {
+            "from": src,
+            "to": dst,
+            "arrows": {"to": {"enabled": True, "scaleFactor": 1.2}},
+            "label": label,
+            "width": 3,
+            "color": {
+                "color": "#e74c3c",
+                "highlight": "#c0392b",
+                "hover": "#c0392b",
+            },
+            "font": {
+                "align": "middle",
+                "size": 12,
+                "color": "#c0392b",
+                "background": "#ffffff",
+            },
+            "smooth": {
+                "enabled": True,
+                "type": "curvedCW",
+                "roundness": 0.35,
+            },
+            "title": json.dumps(attrs, ensure_ascii=False, indent=2, default=str),
+        }
+
+    def _export_one(
+        model_obj,
+        html_name: str,
+        page_title: str,
+        *,
+        parent_rel: str | None = None,
+        flattened: bool = False,
+        standard_rel: str | None = None,
+        flattened_rel: str | None = None,
+        boundary: dict | None = None,
+    ) -> str:
+        page_key = (id(model_obj), html_name, flattened)
+        file_path = out_path / html_name
+
+        if page_key in visited_pages and file_path.exists():
+            return str(file_path)
+        visited_pages.add(page_key)
+
+        render_model = model_obj.flatten() if flattened else model_obj
+        graph_nodes, graph_edges, inlined_feedbacks = _collect_graph(
+            render_model, inline=flattened
+        )
+        levels = _levels(graph_nodes, graph_edges)
+
+        # Flattening inlines ModelCall bodies but leaves Loop and Roll intact,
+        # so a flattened page still has blocks worth drilling into.
+        url_map: dict[str, str] = {}
+        for node, nid, kind, attrs in graph_nodes:
+            ports = _block_ports(node)
+            if ports is None:
+                continue
+            submodel, port_map = ports
+            attrs["nested_model"] = submodel.name
+            attrs["block"] = port_map
+
+            sub_name = f"{_slug(page_title)}__{_slug(nid)}.html"
+            sub_title = f"{page_title} :: {nid}"
+            parent_for_child = os.path.relpath(file_path, start=out_path)
+
+            sub_path = _export_one(
+                submodel,
+                sub_name,
+                sub_title,
+                parent_rel=parent_for_child,
+                boundary={
+                    "node": nid,
+                    "parent": page_title,
+                    "parent_rel": parent_for_child,
+                    "ports": port_map,
+                },
+            )
+            url_map[nid] = os.path.relpath(sub_path, start=out_path)
+
+        # Ports of the block this page is the body of, so the reader can see
+        # where the graph above enters and leaves.
+        entry_ports: dict[str, dict] = {}
+        exit_ports: dict[str, dict] = {}
+        if boundary is not None:
+            entry_ports = {port["body"]: port for port in boundary["ports"]["inputs"]}
+            exit_ports = {port["body"]: port for port in boundary["ports"]["outputs"]}
+
+        vis_nodes = []
+        node_details = {}
+
+        for node, nid, kind, attrs in graph_nodes:
+            node_details[nid] = attrs
+
+            rec = {
+                "id": nid,
+                "label": nid,
+                "shape": "dot",
+                "size": 14,
+                "color": {
+                    "background": _node_color(kind),
+                    "border": "#2c3e50",
+                    "highlight": {
+                        "background": "#f1c40f",
+                        "border": "#2c3e50",
+                    },
+                },
+                "font": {"color": "#111111"},
+                "title": f"{nid}\n{kind} {attrs.get('shape', '')}",
+                "level": levels.get(nid, 0),
+            }
+
+            if nid in url_map:
+                rec["shape"] = "diamond"
+                rec["size"] = 18
+                rec["color"]["background"] = "#3498db"
+                rec["url"] = url_map[nid]
+                rec["title"] = f"{rec['title']}\ndouble-click to open the body"
+
+            port = entry_ports.get(nid) or exit_ports.get(nid)
+            if port is not None:
+                rec["borderWidth"] = 4
+                rec["color"]["border"] = "#f39c12"
+                bound = (
+                    f"{nid} ← {port['outer']} ({port['role']})"
+                    if nid in entry_ports
+                    else f"{nid} → {port['outer']}"
+                )
+                rec["title"] = f"{rec['title']}\nblock port: {bound}"
+
+            vis_nodes.append(rec)
+
+        vis_edges = []
+        for pred, src, dst, role in graph_edges:
+            edge_attrs = {
+                "from": src,
+                "to": dst,
+                "shape": str(getattr(pred, "shape", "")),
+            }
+            if role is not None:
+                edge_attrs["block port"] = role
+
+            record = {
+                "from": src,
+                "to": dst,
+                "arrows": "to",
+                "label": role if role is not None else str(getattr(pred, "shape", "")),
+                "font": {"align": "middle", "size": 10},
+                "title": json.dumps(
+                    edge_attrs, ensure_ascii=False, indent=2, default=str
+                ),
+                "color": {"color": "#7f8c8d"},
+            }
+            if role is not None:
+                # A binding edge crosses a block boundary that no longer has a
+                # node of its own, so it is the only thing marking the seam.
+                record["color"] = {"color": "#3498db", "highlight": "#2563eb"}
+                record["dashes"] = True
+                record["font"] = {"align": "middle", "size": 10, "color": "#2563eb"}
+            vis_edges.append(record)
+
+        visible_node_ids = {record["id"] for record in vis_nodes}
+        for src, dst, label, attrs in inlined_feedbacks:
+            if src in visible_node_ids and dst in visible_node_ids:
+                vis_edges.append(_feedback_edge(src, dst, label, attrs))
+
+        for input_node, stream in getattr(model_obj, "_roll_callbacks", {}).items():
+            src = stream.name
+            dst = input_node.name
+            if src not in visible_node_ids or dst not in visible_node_ids:
+                continue
+            steps = getattr(model_obj, "_roll_steps", None)
+            vis_edges.append(
+                _feedback_edge(
+                    src,
+                    dst,
+                    f"roll ({steps} steps)",
+                    {
+                        "kind": "roll",
+                        "feedback_stream": src,
+                        "feedback_input": dst,
+                        "steps": steps,
+                    },
+                )
+            )
+
+        # The recurrence the enclosing block closes over this body.
+        if boundary is not None:
+            detail = boundary["ports"]["detail"]
+            steps = detail.get("steps")
+            for pair in boundary["ports"]["feedback"]:
+                if (
+                    pair["from"] not in visible_node_ids
+                    or pair["to"] not in visible_node_ids
+                ):
+                    continue
+                vis_edges.append(
+                    _feedback_edge(
+                        pair["from"],
+                        pair["to"],
+                        f"feedback ({steps} steps)" if steps else "feedback",
+                        {
+                            "kind": "feedback",
+                            "block": boundary["ports"]["block"],
+                            "block_node": boundary["node"],
+                            "feedback_stream": pair["from"],
+                            "feedback_input": pair["to"],
+                            **detail,
+                        },
+                    )
+                )
+
+        # Training objectives, so the loss wiring is visible here too.
+        for index, minimizer in enumerate(getattr(model_obj, "minimizers", [])):
+            min_name = minimizer.get("name", f"loss_{index}")
+            loss = minimizer.get("loss")
+            loss_label = (
+                getattr(loss, "name", None)
+                or getattr(loss, "__name__", None)
+                or type(loss).__name__
+            )
+            loss_id = f"__min_{min_name}"
+
+            vis_nodes.append(
+                {
+                    "id": loss_id,
+                    "label": f"{min_name}\n{loss_label}",
+                    "shape": "hexagon",
+                    "size": 18,
+                    "color": {
+                        "background": "#8e44ad",
+                        "border": "#6c3483",
+                        "highlight": {"background": "#a569bd", "border": "#6c3483"},
+                    },
+                    "font": {"color": "#6c3483", "bold": {"color": "#6c3483"}},
+                    "title": f"minimize {min_name}\nloss: {loss_label}",
+                    "level": max(
+                        levels.get(getattr(minimizer.get("source"), "name", ""), 0),
+                        levels.get(getattr(minimizer.get("target"), "name", ""), 0),
+                    )
+                    + 1,
+                }
+            )
+            node_details[loss_id] = {
+                "class": "Minimizer",
+                "name": min_name,
+                "loss": loss_label,
+                "source": getattr(minimizer.get("source"), "name", None),
+                "target": getattr(minimizer.get("target"), "name", None),
+            }
+
+            for role, endpoint in (
+                ("source", minimizer.get("source")),
+                ("target", minimizer.get("target")),
+            ):
+                name = getattr(endpoint, "name", None)
+                if name is None:
+                    continue
+                # A target is usually an Input that no output depends on, so it
+                # is absent from the traversal and has to be drawn here.
+                if name not in visible_node_ids:
+                    kind = type(endpoint).__name__
+                    vis_nodes.append(
+                        {
+                            "id": name,
+                            "label": name,
+                            "shape": "dot",
+                            "size": 14,
+                            "color": {
+                                "background": _node_color(kind),
+                                "border": "#8e44ad",
+                                "highlight": {
+                                    "background": "#f1c40f",
+                                    "border": "#8e44ad",
+                                },
+                            },
+                            "font": {"color": "#111111"},
+                            "title": f"{name}\n{kind} (training target)",
+                            "level": levels.get(name, 0),
+                        }
+                    )
+                    node_details[name] = _safe_attrs(endpoint)
+                    visible_node_ids.add(name)
+
+                vis_edges.append(
+                    {
+                        "from": name,
+                        "to": loss_id,
+                        "arrows": "to",
+                        "label": role,
+                        "dashes": role == "target",
+                        "width": 2,
+                        "font": {"align": "middle", "size": 10, "color": "#6c3483"},
+                        "color": {"color": "#8e44ad", "highlight": "#6c3483"},
+                    }
+                )
+
+        target = "_blank" if open_subgraph_in_new_tab else "_self"
+        # A spring layout turns a large body into a hairball, so those pages
+        # open on the deterministic hierarchical one instead.
+        hierarchical = len(vis_nodes) > 60
+
+        back_html = ""
+        if parent_rel is not None:
+            back_html = f"""
+            <button id="backBtn" class="btn" title="Go back to parent graph">← Back</button>
+            <a class="crumb" href="{parent_rel}">Parent</a>
+            """
+
+        flat_button_html = ""
+        if not flattened and flattened_rel is not None:
+            flat_button_html = f"""
+            <a class="toggle-btn" href="{flattened_rel}">Flatten</a>
+            """
+        elif flattened and standard_rel is not None:
+            flat_button_html = f"""
+            <a class="toggle-btn" href="{standard_rel}">Standard</a>
+            """
+
+        logo_html = ""
+        if logo_rel is not None:
+            logo_html = (
+                f'<img src="./{logo_rel}" alt="nnodely logo" width="120" height="40"/>'
+            )
+
+        boundary_html = ""
+        if boundary is not None:
+            boundary_html = """
+        <section id="boundary">
+            <h2>Block boundary</h2>
+            <div id="boundaryContent"></div>
+        </section>
+        """
+
+        html = _render_page(
+            title=escape(page_title),
+            title_suffix=" [flattened]" if flattened else "",
+            logo=logo_html,
+            back_button=back_html,
+            view_toggle=flat_button_html,
+            boundary_section=boundary_html,
+            nodes=_script_json(vis_nodes),
+            edges=_script_json(vis_edges),
+            node_details=_script_json(node_details, default=str),
+            boundary=_script_json(boundary, default=str),
+            hierarchical=str(hierarchical).lower(),
+            physics=str(physics).lower(),
+            link_target=target,
+            parent_rel=_script_json(parent_rel),
+        )
+        file_path.write_text(html, encoding="utf-8")
+        return str(file_path)
+
+    root_base = _slug(filename if filename else model.name)
+    if root_base.endswith(".html"):
+        root_base = root_base[: -len(".html")]
+    root_name = f"{root_base}.html"
+    flat_name = f"{root_base}__flattened.html"
+
+    # The root goes first so that a body page shared by both views points its
+    # breadcrumb at the standard graph rather than the flattened one.
+    root_path = _export_one(
+        model,
+        root_name,
+        model.name,
+        flattened=False,
+        flattened_rel=flat_name,
+    )
+    _export_one(
+        model,
+        flat_name,
+        model.name,
+        flattened=True,
+        standard_rel=root_name,
+    )
+    return root_path

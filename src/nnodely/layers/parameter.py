@@ -1,266 +1,195 @@
-import copy
-import inspect
-import textwrap
+import warnings
+
 import numpy as np
+import keras
 
-from collections.abc import Callable
-
-from nnodely.basic.relation import NeuObj, Relation
-from nnodely.support.utils import check, enforce_types, NP_DTYPE
-
-
-def is_numpy_float(var):
-    return isinstance(var, (np.float16, np.float32, np.float64))
+from nnodely.core.layer import Layer
+from nnodely.core.stream import Shape, Stream
+from nnodely.utils.utils import _serialized_initializer
 
 
-class Constant(NeuObj, Relation):
-    """
-    Represents a constant value in the neural network model.
+@keras.saving.register_keras_serializable(package="nnodely")
+class ParameterImpl(keras.layers.Layer):
+    """A value of fixed shape, the same for every sample of the batch.
 
-    Parameters
-    ----------
-    name : str
-        The name of the constant.
-    values : list, float, int, or np.ndarray
-        The values of the constant.
-    tw : float or int, optional
-        The time window for the constant. Default is None.
-    sw : int, optional
-        The sample window for the constant. Default is None.
-
-    Attributes
-    ----------
-    name : str
-        The name of the constant.
-    dim : dict
-        A dictionary containing the dimensions of the constant.
-    json : dict
-        A dictionary containing the configuration of the constant.
-
-    Examples
-    --------
-
-    .. include:: /examples_basics/parameter_module_ex/constant.rst
+    It is called with a tensor of the graph, of which it reads only the batch
+    size: the value comes out ``(batch, *dim, time, *seq)`` like every stream.
     """
 
-    @enforce_types
+    trainable_value = True
+
     def __init__(
         self,
-        name: str,
-        values: list | float | int | np.ndarray,
-        *,
-        tw: float | int | None = None,
-        sw: int | None = None,
+        value_shape,
+        value=None,
+        initializer="random_normal",
+        name=None,
+        **kwargs,
     ):
+        super().__init__(name=name, **kwargs)
 
-        NeuObj.__init__(self, name)
-        values = np.array(values, dtype=NP_DTYPE)
-        shape = values.shape
-        values = values.tolist()
-
-        self.dim = {}
-        if tw is not None:
-            check(
-                len(shape) >= 2,
-                ValueError,
-                "The dimension must be at least 2 if tw is set.",
-            )
-            check(sw is None, ValueError, "If tw is set sw must be None")
-            dimensions = shape[1] if len(shape[1:]) == 1 else list(shape[1:])
-            self.dim["tw"] = tw
-        elif sw is not None:
-            check(
-                len(shape) >= 2,
-                ValueError,
-                "The dimension must be at least 2 if sw is set.",
-            )
-            self.dim["sw"] = sw
-            check(
-                shape[0] == self.dim["sw"],
-                ValueError,
-                f"The sw = {sw} is different from sw = {shape[0]} of the values.",
-            )
-            dimensions = shape[1] if len(shape[1:]) == 1 else list(shape[1:])
-        else:
-            dimensions = (
-                1
-                if len(shape[0:]) == 0
-                else shape[0]
-                if len(shape[0:]) == 1
-                else list(shape[0:])
-            )
-
-        self.dim["dim"] = dimensions
-
-        # deepcopy dimention information inside Parameters
-        self.json["Constants"][self.name] = copy.deepcopy(self.dim)
-        if type(values) in (float, int):
-            self.json["Constants"][self.name]["values"] = [values]
-        else:
-            self.json["Constants"][self.name]["values"] = values
-
-
-class Parameter(NeuObj, Relation):
-    """
-    Represents a trainable parameter in the neural network model.
-
-    Notes
-    -----
-    .. note::
-        You can find some initialization functions for the 'init' and 'init_params' parameters inside the initializer module.
-
-    Parameters
-    ----------
-    name : str
-        The name of the parameter.
-    dimensions : int, list, tuple, or None, optional
-        The dimensions of the parameter. Default is None.
-    tw : float or int, optional
-        The time window for the parameter. Default is None.
-    sw : int, optional
-        The sample window for the parameter. Default is None.
-    values : list, float, int, np.ndarray, or None, optional
-        The values by which initialize the parameter. Default is None.
-    init : Callable, optional
-        A callable for initializing the parameter values. Default is None.
-    init_params : dict, optional
-        A dictionary of parameters for the initializer. Default is None.
-
-    Attributes
-    ----------
-    name : str
-        The name of the parameter.
-    dim : dict
-        A dictionary containing the dimensions of the parameter.
-    json : dict
-        A dictionary containing the configuration of the parameter.
-
-    Examples
-    --------
-
-    .. include:: /examples_basics/parameter_module_ex/parameter.rst
-    """
-
-    @enforce_types
-    def __init__(
-        self,
-        name: str,
-        dimensions: int | list | tuple | None = None,
-        *,
-        tw: float | int | None = None,
-        sw: int | None = None,
-        values: list | float | int | np.ndarray | None = None,
-        init: Callable | str | None = None,
-        init_params: dict | None = None,
-    ):
-
-        NeuObj.__init__(self, name)
-        dimensions = list(dimensions) if type(dimensions) is tuple else dimensions
-        if values is None:
-            if dimensions is None:
-                dimensions = 1
-            self.dim = {"dim": dimensions}
-            if tw is not None:
-                check(sw is None, ValueError, "If tw is set sw must be None")
-                self.dim["tw"] = tw
-            elif sw is not None:
-                self.dim["sw"] = sw
-
-            # deepcopy dimention information inside Parameters
-            self.json["Parameters"][self.name] = copy.deepcopy(self.dim)
-        else:
-            values = np.array(values, dtype=NP_DTYPE)
-            shape = values.shape
-            values = values.tolist()
-
-            self.dim = {}
-            if tw is not None:
-                check(
-                    len(shape) >= 2,
-                    ValueError,
-                    "The dimension must be at least 2 if tw is set.",
-                )
-                check(sw is None, ValueError, "If tw is set sw must be None")
-                dimensions = shape[1] if len(shape[1:]) == 1 else list(shape[1:])
-                self.dim["tw"] = tw
-            elif sw is not None:
-                check(
-                    len(shape) >= 2,
-                    ValueError,
-                    "The dimension must be at least 2 if sw is set.",
-                )
-                self.dim["sw"] = sw
-                check(
-                    shape[0] == self.dim["sw"],
-                    ValueError,
-                    f"The sw = {sw} is different from sw = {shape[0]} of the values.",
-                )
-                dimensions = shape[1] if len(shape[1:]) == 1 else list(shape[1:])
-            else:
-                dimensions = (
-                    1
-                    if len(shape[0:]) == 0
-                    else shape[0]
-                    if len(shape[0:]) == 1
-                    else list(shape[0:])
-                )
-
-            self.dim["dim"] = dimensions
-
-            # deepcopy dimention information inside Parameters
-            self.json["Parameters"][self.name] = copy.deepcopy(self.dim)
-            if type(values) in (int, float):
-                self.json["Parameters"][self.name]["init_values"] = [values]
-            else:
-                self.json["Parameters"][self.name]["init_values"] = values
-            self.json["Parameters"][self.name]["values"] = self.json["Parameters"][
-                self.name
-            ]["init_values"]
-
-        if init is not None:
-            check(
-                "values" not in self.json["Parameters"][self.name],
-                ValueError,
-                f"The parameter {self.name} is already initialized.",
-            )
-            # check(inspect.isfunction(init), ValueError,f"The init parameter must be a function.")
-            if inspect.isfunction(init):
-                code = textwrap.dedent(inspect.getsource(init)).replace('"', "'")
-                self.json["Parameters"][self.name]["init_fun"] = {
-                    "code": code,
-                    "name": init.__name__,
-                }
-            elif type(init) is str:
-                self.json["Parameters"][self.name]["init_fun"] = {"name": init}
-            if init_params is not None:
-                self.json["Parameters"][self.name]["init_fun"]["params"] = init_params
-
-
-class SampleTime:
-    """
-    Represents a constant value that is equal to the sample time.
-
-    Attributes
-    ----------
-    name : str
-        The name of the constant.
-    dim : dict
-        A dictionary containing the dimensions of the constant.
-    json : dict
-        A dictionary containing the configuration of the constant.
-
-    Example
-    -------
-    .. include:: /examples_basics/parameter_module_ex/sample_time.rst
-    """
-
-    name = "SampleTime"
-    g = Constant(name, values=0)
-
-    def __new__(cls):
-        SampleTime.g.dim = {"dim": 1}
-        SampleTime.g.json["Constants"][SampleTime.name] = copy.deepcopy(
-            SampleTime.g.dim
+        self.value_shape = tuple(int(axis) for axis in value_shape)
+        self.value = (
+            None
+            if value is None
+            else np.asarray(value, dtype=np.float32).reshape(self.value_shape)
         )
-        SampleTime.g.json["Constants"][SampleTime.name]["values"] = SampleTime.name
-        return SampleTime.g
+        self.initializer = initializer
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "value_shape": self.value_shape,
+                "value": None if self.value is None else self.value.tolist(),
+                "initializer": self.initializer,
+            }
+        )
+        return config
+
+    def build(self, input_shape=None):
+        initializer = (
+            keras.initializers.get(self.initializer)
+            if self.value is None
+            else keras.initializers.Constant(value=self.value.tolist())
+        )
+
+        self.variable = self.add_weight(
+            name="value",
+            shape=self.value_shape,
+            initializer=initializer,
+            trainable=self.trainable_value,
+            dtype="float32",
+        )
+        super().build(input_shape)
+
+    def call(self, anchor):
+        value = keras.ops.expand_dims(self.variable, axis=0)
+        if anchor is None:
+            return value
+        batch = keras.ops.shape(anchor)[0]
+        return keras.ops.broadcast_to(value, (batch, *self.value_shape))
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class ConstantImpl(ParameterImpl):
+    trainable_value = False
+
+
+def _value_array(value, owner: str) -> np.ndarray:
+    """``value`` laid out ``(dim, time, *seq)``.
+
+    A number or a vector is one time step of its dim, a matrix gives the dim
+    and time axes, and any further axis is a sequence axis.
+    """
+    array = np.atleast_1d(np.asarray(value, dtype=np.float32))
+    if array.size == 0:
+        raise ValueError(f"{owner}: value must not be empty.")
+    return array[:, np.newaxis] if array.ndim == 1 else array
+
+
+class _Value(Layer):
+    """What a Parameter and a Constant share: a value the model holds rather
+    than reads from data, laid out and batched like any other stream.
+
+    The two differ only in whether training changes the value.
+    """
+
+    _impl: type[ParameterImpl] = ParameterImpl
+
+    def __init__(self, name, value, initializer, dim, time, seq):
+        overridden = []
+        if value is not None:
+            value = _value_array(value, self.__class__.__name__)
+            shape = Shape(dim=value.shape[0], time=value.shape[1], seq=value.shape[2:])
+            given = {"dim": dim, "time": time, "seq": seq}
+            overridden = [
+                axis
+                for axis, size in given.items()
+                if size is not None
+                and getattr(Shape(**{axis: size}), axis) != getattr(shape, axis)
+            ]
+            dim, time, seq = shape.dimensions
+
+        self.value = value
+        self.initializer = initializer
+
+        super().__init__(
+            name=name,
+            seq=seq,
+            time=time,
+            dim=dim,
+            value=None if value is None else value.tolist(),
+            initializer=initializer,
+        )
+        if overridden:
+            warnings.warn(
+                f"{self.name}: the shape of value is {self.shape.tuple}, which "
+                f"overrides the {', '.join(overridden)} given with it.",
+                UserWarning,
+                stacklevel=3,
+            )
+
+    def build_layer(self):
+        return self._impl(
+            value_shape=self.shape.tuple,
+            value=self.value,
+            initializer=self.initializer,
+            name=self.name,
+        )
+
+    def get_config(self):
+        # Read from no stream, a value keeps its shape in its config rather
+        # than taking it from its inputs as other layers do.
+        return Stream.get_config(self)
+
+    @property
+    def _variable(self):
+        return getattr(self._layer, "variable", None)
+
+    @property
+    def value_numpy(self):
+        return keras.ops.convert_to_numpy(self._variable)
+
+
+class Parameter(_Value):
+    """
+    Trainable symbolic parameter.
+
+    ``value`` sets its shape and initial value: a number or a vector is one
+    time step of its ``dim``, a matrix is ``(dim, time)``, and further axes
+    are ``seq`` axes. Without ``value`` the shape is given by ``dim``, ``time``
+    and ``seq``, and ``initializer``, any Keras initializer, draws the initial
+    value. A ``value`` overrides the ``dim``, ``time`` and ``seq`` given with it.
+
+    Like every stream it is laid out with a batch axis first, the same value
+    for every sample::
+
+        (batch, *dim, time, *seq)
+    """
+
+    def __init__(
+        self,
+        name: str | None = None,
+        *,
+        value=None,
+        initializer="random_normal",
+        seq=None,
+        time=None,
+        dim=None,
+    ):
+        super().__init__(name, value, initializer, dim, time, seq)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "value": None if self.value is None else self.value.tolist(),
+                "initializer": _serialized_initializer(self.initializer),
+            }
+        )
+        return config
+
+    @property
+    def param(self):
+        return self._variable

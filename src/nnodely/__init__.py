@@ -1,129 +1,146 @@
-import sys
-import logging
+from importlib.metadata import PackageNotFoundError, version
 
-# Network input, outputs and parameters
-from nnodely.layers.input import Input, Connect, ClosedLoop
-from nnodely.layers.parameter import Parameter, Constant, SampleTime
+try:
+    __version__ = version("nnodely")
+except PackageNotFoundError:  # a source tree used without being installed
+    __version__ = "unknown"
+
+# Keras imports its backend on import, and names only the missing module when
+# that backend is not installed.
+try:
+    import keras  # noqa: F401
+except ModuleNotFoundError as error:
+    missing = (error.name or "").split(".")[0]
+    if missing not in ("tensorflow", "torch", "jax", "jaxlib"):
+        raise
+    raise ImportError(
+        f"nnodely runs on Keras, whose backend needs {missing!r}, which is "
+        "not installed. Install nnodely with a backend - "
+        'pip install "nnodely[tensorflow]", "nnodely[torch]" or "nnodely[jax]" '
+        "- and choose it with the KERAS_BACKEND environment variable, "
+        "tensorflow when it is not set."
+    ) from error
+
+# Randomness is configured before importing layers so an environment seed is
+# applied before any model objects or initializers are created.
+from nnodely.utils.random import get_seed, set_seed  # noqa: E402
+
+# Core
+from nnodely.core.modely import Modely
+from nnodely.core.dataloader import DataLoader
+from nnodely.utils.printers import TinyPrinter, LegacyPrinter, NNodelyPrinter
+
+# Layers
+from nnodely.layers.input import Input
 from nnodely.layers.output import Output
-
-# Network elements
-from nnodely.layers.activation import Relu, ELU, Softmax, Sigmoid, Identity
 from nnodely.layers.fir import Fir
 from nnodely.layers.linear import Linear
-from nnodely.layers.arithmetic import Add, Sum, Sub, Mul, Div, Pow, Neg, Sign
-from nnodely.layers.trigonometric import Sin, Cos, Tan, Cosh, Tanh, Sech
-from nnodely.layers.parametricfunction import ParamFun
-from nnodely.layers.fuzzify import Fuzzify
-from nnodely.layers.part import (
-    Part,
-    Select,
-    Concatenate,
-    SamplePart,
-    SampleSelect,
-    TimePart,
-    TimeConcatenate,
-)
+from nnodely.layers.parameter import Parameter
+from nnodely.layers.constant import Constant
+from nnodely.layers.roll import Roll
+from nnodely.layers.loop import Loop
 from nnodely.layers.localmodel import LocalModel
-from nnodely.layers.equationlearner import EquationLearner
-from nnodely.layers.timeoperation import Integrate, Differentiate
+from nnodely.layers.fuzzify import Fuzzify
 from nnodely.layers.interpolation import Interpolation
-from nnodely.layers.rungekutta import ForwardEuler, RK2, RK4
-from nnodely.layers.neuralODE import NeuralODE
+from nnodely.layers.equationlearner import EquationLearner
+from nnodely.layers.derivative import Derivative
+from nnodely.layers.integrate import Integrate
+from nnodely.layers.time_ops import (
+    Concatenate,
+    Range,
+    Select,
+    TimeConcatenate,
+    TimeRange,
+    TimeSelect,
+)
+from nnodely.layers.batchnorm import BatchNorm
+from nnodely.layers.ode import Ode, OdeNet
+from nnodely.layers.activations import (
+    ELU,
+    GELU,
+    PReLU,
+    ReLU,
+    LeakyReLU,
+    Sigmoid,
+    Softmax,
+    Softplus,
+    Swish,
+    Tanh,
+)
+from nnodely.layers.trigonometric import Acos, Asin, Atan, Cos, Sin, Tan
+from nnodely.layers.arithmetic import (
+    Abs,
+    Ceil,
+    Clamp,
+    Deg2Rad,
+    Exp,
+    Floor,
+    Log,
+    Log10,
+    Sign,
+    Sqrt,
+    Sum,
+    Negative,
+)
 
-# Main nnodely classes
-from nnodely.nnodely import nnodely, Modely, clearNames
-from nnodely.visualizer import TextVisualizer, MPLVisualizer, MPLNotebookVisualizer
-from nnodely.exporter import StandardExporter
-
-# Basic nnodely
-from nnodely.basic.optimizer import Optimizer, SGD, Adam
-
-# Support functions
-from nnodely.support.initializer import init_negexp, init_lin, init_constant, init_exp
-from nnodely.support import logger
-
-major, minor = sys.version_info.major, sys.version_info.minor
-logger.LOG_LEVEL = logging.INFO
-
-__version__ = "1.5.4"
-
-if major < 3:
-    sys.exit(
-        "Sorry, Python 2 is not supported. You need Python >= 3.10 for "
-        + __package__
-        + "."
-    )
-elif minor < 9:
-    sys.exit("Sorry, You need Python >= 3.10 for " + __package__ + ".")
-else:
-    print(
-        ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>"
-        + f" {__package__}_v{__version__} ".center(20, "-")
-        + "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
-    )
-
-
+# Public API
 __all__ = [
-    "nnodely",
+    "set_seed",
+    "get_seed",
     "Modely",
-    "clearNames",
+    "DataLoader",
+    "TinyPrinter",
+    "NNodelyPrinter",
+    "LegacyPrinter",
     "Input",
-    "Connect",
-    "ClosedLoop",
-    "Parameter",
-    "Constant",
-    "SampleTime",
     "Output",
-    "Relu",
-    "ELU",
-    "Softmax",
-    "Sigmoid",
-    "Identity",
     "Fir",
     "Linear",
-    "NeuralODE",
-    "Add",
-    "Sum",
-    "Sub",
-    "Mul",
-    "Div",
-    "Pow",
-    "Neg",
-    "Sign",
+    "Parameter",
+    "Constant",
+    "Roll",
+    "Loop",
+    "LocalModel",
+    "Fuzzify",
+    "Interpolation",
+    "EquationLearner",
+    "Derivative",
+    "Integrate",
+    "Concatenate",
+    "TimeConcatenate",
+    "TimeSelect",
+    "Select",
+    "TimeRange",
+    "Range",
+    "BatchNorm",
+    "Ode",
+    "OdeNet",
+    "ReLU",
+    "LeakyReLU",
+    "ELU",
+    "PReLU",
+    "Sigmoid",
+    "Tanh",
+    "Softmax",
+    "Swish",
+    "GELU",
+    "Softplus",
     "Sin",
     "Cos",
     "Tan",
-    "Cosh",
-    "Tanh",
-    "Sech",
-    "ParamFun",
-    "Fuzzify",
-    "Part",
-    "Select",
-    "Concatenate",
-    "SamplePart",
-    "SampleSelect",
-    "TimePart",
-    "TimeConcatenate",
-    "LocalModel",
-    "EquationLearner",
-    "Integrate",
-    "Differentiate",
-    "Interpolation",
-    "ForwardEuler",
-    "RK2",
-    "RK4",
-    "TextVisualizer",
-    "MPLVisualizer",
-    "MPLNotebookVisualizer",
-    "StandardExporter",
-    "SGD",
-    "Adam",
-    "Optimizer",
-    "init_negexp",
-    "init_lin",
-    "init_constant",
-    "init_exp",
-    # Main nnodely classes
-    "__version__",
+    "Asin",
+    "Acos",
+    "Atan",
+    "Exp",
+    "Log",
+    "Log10",
+    "Floor",
+    "Deg2Rad",
+    "Negative",
+    "Abs",
+    "Ceil",
+    "Clamp",
+    "Sign",
+    "Sqrt",
+    "Sum",
 ]

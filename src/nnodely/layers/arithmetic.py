@@ -1,407 +1,191 @@
-import torch.nn as nn
-import torch
+"""Arithmetic layers for nnodely."""
 
-from nnodely.basic.relation import ToStream, Stream, toStream
-from nnodely.basic.model import Model
-from nnodely.support.utils import check, enforce_types
-from nnodely.layers.parameter import Parameter, Constant
-from nnodely.support.jsonutils import merge, binary_cheks
+import keras
+
+from nnodely.core.layer import Layer
 
 
-# Binary operators
-add_relation_name = "Add"
-sub_relation_name = "Sub"
-mul_relation_name = "Mul"
-div_relation_name = "Div"
-pow_relation_name = "Pow"
+@keras.saving.register_keras_serializable(package="nnodely")
+class ArithmeticImpl(keras.layers.Layer):
+    def __init__(self, operation: str, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.operation = operation
 
-# Unary operators
-neg_relation_name = "Neg"
-sign_relation_name = "Sign"
+    def call(self, inputs):
+        return getattr(keras.ops, self.operation)(inputs)
 
-# Merge operator
-sum_relation_name = "Sum"
+    def get_config(self):
+        config = super().get_config()
+        config.update({"operation": self.operation})
+        return config
 
 
-class Add(Stream, ToStream):
+class Arithmetic(Layer):
+    operation = ""
+
+    def __init__(self, name=None):
+        super().__init__(name=name)
+
+    def build_layer(self):
+        return ArithmeticImpl(operation=self.operation, name=self.name)
+
+
+class Exp(Arithmetic):
+    """Wrapper for exponential transform."""
+
+    operation = "exp"
+
+
+class Log(Arithmetic):
+    """Wrapper for natural logarithm transform."""
+
+    operation = "log"
+
+
+class Log10(Arithmetic):
+    """Wrapper for base 10 logarithm transform."""
+
+    operation = "log10"
+
+
+class Sqrt(Arithmetic):
+    """Wrapper for square root transform."""
+
+    operation = "sqrt"
+
+
+class Abs(Arithmetic):
+    """Wrapper for absolute value transform."""
+
+    operation = "abs"
+
+
+class Floor(Arithmetic):
+    """Wrapper for floor transform."""
+
+    operation = "floor"
+
+
+class Ceil(Arithmetic):
+    """Wrapper for ceiling transform."""
+
+    operation = "ceil"
+
+
+class Deg2Rad(Arithmetic):
+    """Wrapper for degrees to radians transform."""
+
+    operation = "deg2rad"
+
+
+class Sign(Arithmetic):
+    """Wrapper for sign transform."""
+
+    operation = "sign"
+
+
+class Negative(Arithmetic):
+    """Wrapper for negation transform."""
+
+    operation = "negative"
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class ClampImpl(keras.layers.Layer):
+    def __init__(self, min=None, max=None, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.min = min
+        self.max = max
+
+    def call(self, inputs):
+        return keras.ops.clip(
+            inputs,
+            -float("inf") if self.min is None else self.min,
+            float("inf") if self.max is None else self.max,
+        )
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"min": self.min, "max": self.max})
+        return config
+
+
+class Clamp(Layer):
+    """Wrapper for element-wise clipping between min and max.
+
+    A bound left to None is unbounded on that side.
     """
-    Implement the addition function between two tensors.
-    (it is also possible to use the classical math operator '+')
 
-    See also:
-        Official PyTorch Add documentation:
-        `torch.add <https://pytorch.org/docs/stable/generated/torch.add.html>`_
+    def __init__(self, min: float | None = None, max: float | None = None, name=None):
+        if min is not None and max is not None and min > max:
+            raise ValueError(f"{name}: min {min} must not be greater than max {max}.")
+        self.min = min
+        self.max = max
+        super().__init__(name=name, min=self.min, max=self.max)
 
-    :param input1: the first element of the addition
-    :type obj: Tensor
-    :param input2: the second element of the addition
-    :type obj: Tensor
+    def build_layer(self):
+        return ClampImpl(min=self.min, max=self.max, name=self.name)
 
-    Example:
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class SumImpl(keras.layers.Layer):
+    """
+    Serializable implementation of Sum.
+
+    Runtime tensor shape:
+        [batch, dim1, dim2, ..., time, seq1, seq2, ...]
+    """
+
+    def __init__(self, axes, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.axes = tuple(int(axis) for axis in axes)
+
+    def call(self, x):
+        return keras.ops.sum(x, axis=self.axes, keepdims=True)
+
+    def compute_output_shape(self, input_shape):
+        output_shape = list(input_shape)
+        for axis in self.axes:
+            output_shape[axis] = 1
+        return tuple(output_shape)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"axes": self.axes})
+        return config
+
+
+class Sum(Layer):
+    """
+    Sum over the dim axes, keeping them with length 1.
+
+    Runtime tensor shape:
+        [batch, dim1, dim2, ..., time, seq1, seq2, ...]
+
+    With axis=None every dim axis is summed together, otherwise only the
+    chosen one.
+
+    Examples
     --------
-    .. include:: /examples_basics/layer_module_ex/arithmetic_module_ex/add.rst
+    dim=(2, 3), axis=None -> dim=(1, 1)
+    dim=(2, 3), axis=0 -> dim=(1, 3)
     """
 
-    @enforce_types
-    def __init__(
-        self,
-        obj1: Stream | Parameter | Constant | int | float,
-        obj2: Stream | Parameter | Constant | int | float,
-    ) -> Stream:
-        obj1, obj2, dim = binary_cheks(self, obj1, obj2, "addition operators (+)")
-        super().__init__(
-            add_relation_name + str(Stream.count), merge(obj1.json, obj2.json), dim
-        )
-        self.json["Relations"][self.name] = [add_relation_name, [obj1.name, obj2.name]]
-
-
-## TODO: check the scalar dimension, helpful for the offset
-class Sub(Stream, ToStream):
-    """
-    Implement the subtraction function between two tensors.
-    (it is also possible to use the classical math operator '-')
-
-    :param input1: the first element of the subtraction
-    :type obj: Tensor
-    :param input2: the second element of the subtraction
-    :type obj: Tensor
-
-    Example:
-    --------
-    .. include:: /examples_basics/layer_module_ex/arithmetic_module_ex/sub.rst
-    """
-
-    @enforce_types
-    def __init__(
-        self,
-        obj1: Stream | Parameter | Constant | int | float,
-        obj2: Stream | Parameter | Constant | int | float,
-    ) -> Stream:
-        obj1, obj2, dim = binary_cheks(self, obj1, obj2, "subtraction operators (-)")
-        super().__init__(
-            sub_relation_name + str(Stream.count), merge(obj1.json, obj2.json), dim
-        )
-        self.json["Relations"][self.name] = [sub_relation_name, [obj1.name, obj2.name]]
-
-
-class Mul(Stream, ToStream):
-    """
-    Implement the multiplication function between two tensors.
-    (it is also possible to use the classical math operator '*')
-
-    :param input1: the first element of the multiplication
-    :type obj: Tensor
-    :param input2: the second element of the multiplication
-    :type obj: Tensor
-
-    Example:
-    --------
-    .. include:: /examples_basics/layer_module_ex/arithmetic_module_ex/mul.rst
-    """
-
-    @enforce_types
-    def __init__(
-        self,
-        obj1: Stream | Parameter | Constant | int | float,
-        obj2: Stream | Parameter | Constant | int | float,
-    ) -> Stream:
-        obj1, obj2, dim = binary_cheks(self, obj1, obj2, "multiplication operators (*)")
-        super().__init__(
-            mul_relation_name + str(Stream.count), merge(obj1.json, obj2.json), dim
-        )
-        self.json["Relations"][self.name] = [mul_relation_name, [obj1.name, obj2.name]]
-
-
-class Div(Stream, ToStream):
-    """
-    Implement the division function between two tensors.
-    (it is also possible to use the classical math operator '/')
-
-    :param input1: the numerator of the division
-    :type obj: Tensor
-    :param input2: the denominator of the division
-    :type obj: Tensor
-
-    Example:
-    --------
-    .. include:: /examples_basics/layer_module_ex/arithmetic_module_ex/div.rst
-    """
-
-    @enforce_types
-    def __init__(
-        self,
-        obj1: Stream | Parameter | Constant | int | float,
-        obj2: Stream | Parameter | Constant | int | float,
-    ) -> Stream:
-        obj1, obj2, dim = binary_cheks(self, obj1, obj2, "division operators (/) ")
-        super().__init__(
-            div_relation_name + str(Stream.count), merge(obj1.json, obj2.json), dim
-        )
-        self.json["Relations"][self.name] = [div_relation_name, [obj1.name, obj2.name]]
-
-
-class Pow(Stream, ToStream):
-    """
-    Implement the power function given an input and an exponent.
-    (it is also possible to use the classical math operator '**')
-
-    See also:
-        Official PyTorch pow documentation:
-        `torch.pow <https://pytorch.org/docs/stable/generated/torch.pow.html>`_
-
-    :param input: the base of the power function
-    :type obj: Tensor
-    :param exp: the exponent of the power function
-    :type obj: float or Tensor
-
-    Example:
-    --------
-    .. include:: /examples_basics/layer_module_ex/arithmetic_module_ex/pow.rst
-    """
-
-    @enforce_types
-    def __init__(
-        self,
-        obj1: Stream | Parameter | Constant | int | float,
-        obj2: Stream | Parameter | Constant | int | float,
-    ) -> Stream:
-        obj1, obj2, dim = binary_cheks(self, obj1, obj2, "pow operators (**)")
-        super().__init__(
-            pow_relation_name + str(Stream.count), merge(obj1.json, obj2.json), dim
-        )
-        self.json["Relations"][self.name] = [pow_relation_name, [obj1.name, obj2.name]]
-
-
-class Neg(Stream, ToStream):
-    """
-    Implement the negate function given an input.
-
-    :param input: the input to negate
-    :type obj: Tensor
-
-    Example:
-    --------
-    .. include:: /examples_basics/layer_module_ex/arithmetic_module_ex/neg.rst
-    """
-
-    @enforce_types
-    def __init__(self, obj: Stream | Parameter | Constant) -> Stream:
-        obj = toStream(obj)
-        check(
-            type(obj) is Stream,
-            TypeError,
-            f"The type of {obj} is {type(obj)} and is not supported for neg operation.",
-        )
-        super().__init__(neg_relation_name + str(Stream.count), obj.json, obj.dim)
-        self.json["Relations"][self.name] = [neg_relation_name, [obj.name]]
-
-
-class Sign(Stream, ToStream):
-    """
-    Implement the sign function given an input.
-
-    :param input: the input for the sign function
-    :type obj: Tensor
-
-    Example:
-        >>> x = Sign(x)
-    """
-
-    @enforce_types
-    def __init__(self, obj: Stream | Parameter | Constant) -> Stream:
-        obj = toStream(obj)
-        check(
-            type(obj) is Stream,
-            TypeError,
-            f"The type of {obj} is {type(obj)} and is not supported for sign operation.",
-        )
-        super().__init__(sign_relation_name + str(Stream.count), obj.json, obj.dim)
-        self.json["Relations"][self.name] = [sign_relation_name, [obj.name]]
-
-
-class Sum(Stream, ToStream):
-    @enforce_types
-    def __init__(self, obj: Stream | Parameter | Constant) -> Stream:
-        obj = toStream(obj)
-        check(
-            type(obj) is Stream,
-            TypeError,
-            f"The type of {obj} is {type(obj)} and is not supported for sum operation.",
-        )
-        obj.dim["dim"] = 1
-        super().__init__(sum_relation_name + str(Stream.count), obj.json, obj.dim)
-        self.json["Relations"][self.name] = [sum_relation_name, [obj.name]]
-
-
-class Add_Layer(nn.Module):
-    #: :noindex:
-    def __init__(self):
-        super(Add_Layer, self).__init__()
-
-    def forward(self, *inputs):
-        results = inputs[0]
-        for input in inputs[1:]:
-            results = results + input
-        return results
-
-
-def createAdd(name, *inputs):
-    """
-    :noindex:
-    """
-    return Add_Layer()
-
-
-class Sub_Layer(nn.Module):
-    """
-    :noindex:
-    """
-
-    def __init__(self):
-        super(Sub_Layer, self).__init__()
-
-    def forward(self, *inputs):
-        # Perform element-wise subtraction
-        results = inputs[0]
-        for input in inputs[1:]:
-            results = results - input
-        return results
-
-
-def createSub(self, *inputs):
-    """
-    :noindex:
-    """
-    return Sub_Layer()
-
-
-class Mul_Layer(nn.Module):
-    """
-    :noindex:
-    """
-
-    def __init__(self):
-        super(Mul_Layer, self).__init__()
-
-    def forward(self, *inputs):
-        results = inputs[0]
-        for input in inputs[1:]:
-            results = results * input
-        return results
-
-
-def createMul(name, *inputs):
-    """
-    :noindex:
-    """
-    return Mul_Layer()
-
-
-class Div_Layer(nn.Module):
-    """
-    :noindex:
-    """
-
-    def __init__(self):
-        super(Div_Layer, self).__init__()
-
-    def forward(self, *inputs):
-        results = inputs[0]
-        for input in inputs[1:]:
-            results = results / input
-        return results
-
-
-def createDiv(name, *inputs):
-    """
-    :noindex:
-    """
-    return Div_Layer()
-
-
-class Pow_Layer(nn.Module):
-    """
-    :noindex:
-    """
-
-    def __init__(self):
-        super(Pow_Layer, self).__init__()
-
-    def forward(self, *inputs):
-        return torch.pow(inputs[0], inputs[1])
-
-
-def createPow(name, *inputs):
-    """
-    :noindex:
-    """
-    return Pow_Layer()
-
-
-class Neg_Layer(nn.Module):
-    """
-    :noindex:
-    """
-
-    def __init__(self):
-        super(Neg_Layer, self).__init__()
-
-    def forward(self, x):
-        return -x
-
-
-def createNeg(self, *inputs):
-    """
-    :noindex:
-    """
-    return Neg_Layer()
-
-
-class Sign_Layer(nn.Module):
-    """
-    :noindex:
-    """
-
-    def __init__(self):
-        super(Sign_Layer, self).__init__()
-
-    def forward(self, x):
-        return torch.sign(x)
-
-
-def createSign(self, *inputs):
-    """
-    :noindex:
-    """
-    return Sign_Layer()
-
-
-class Sum_Layer(nn.Module):
-    """
-    :noindex:
-    """
-
-    def __init__(self):
-        super(Sum_Layer, self).__init__()
-
-    def forward(self, inputs):
-        return torch.sum(inputs, dim=2, keepdim=True)
-
-
-def createSum(name, *inputs):
-    """
-    :noindex:
-    """
-    return Sum_Layer()
-
-
-setattr(Model, add_relation_name, createAdd)
-setattr(Model, sub_relation_name, createSub)
-setattr(Model, mul_relation_name, createMul)
-setattr(Model, div_relation_name, createDiv)
-setattr(Model, pow_relation_name, createPow)
-
-setattr(Model, neg_relation_name, createNeg)
-setattr(Model, sign_relation_name, createSign)
-
-setattr(Model, sum_relation_name, createSum)
+    def __init__(self, axis: int | None = None, name=None):
+        self.axis = axis if axis is None else int(axis)
+        super().__init__(name=name, axis=self.axis)
+
+    def build_layer(self):
+        dim_rank = len(self.dim)
+        if self.axis is None:
+            axes = range(dim_rank)
+        else:
+            axis = self.axis + dim_rank if self.axis < 0 else self.axis
+            if axis < 0 or axis >= dim_rank:
+                raise ValueError(
+                    f"{self.name}: axis {self.axis} out of bounds for dim rank {dim_rank}."
+                )
+            axes = (axis,)
+
+        # Dim axes start immediately after the batch axis.
+        return SumImpl(axes=tuple(1 + axis for axis in axes), name=self.name)
