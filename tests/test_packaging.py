@@ -50,7 +50,9 @@ def test_the_html_logo_ships_with_the_package(tmp_path):
     model.build().export_html(tmp_path)
 
     assert (tmp_path / "imgs" / "logo_info.png").read_bytes() == logo.read_bytes()
-    assert 'src="./imgs/logo_info.png"' in (tmp_path / "logo.html").read_text()
+    assert 'src="./imgs/logo_info.png"' in (tmp_path / "logo.html").read_text(
+        encoding="utf-8"
+    )
 
 
 @pytest.mark.parametrize("backend", ["tensorflow", "torch", "jax"])
@@ -59,9 +61,9 @@ def test_a_missing_backend_is_named_with_how_to_install_one(backend):
     code = f"import sys; sys.modules[{backend!r}] = None; import nnodely"
     result = subprocess.run(
         [sys.executable, "-c", code],
-        env={**os.environ, "KERAS_BACKEND": backend},
+        env={**os.environ, "KERAS_BACKEND": backend, "PYTHONIOENCODING": "utf-8"},
         capture_output=True,
-        text=True,
+        encoding="utf-8",
     )
 
     assert result.returncode != 0

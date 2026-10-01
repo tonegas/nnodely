@@ -108,7 +108,7 @@ class ModelSerializer:
             "outputs": [node_ids[x] for x in flat.outputs],
         }
 
-        with open(path / "model.json", "w") as f:
+        with open(path / "model.json", "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
         # The saved model is the declared one: minimizers, and whatever only
@@ -177,7 +177,7 @@ class ModelSerializer:
             )
 
         loading = _Loading(weights) if loading is None else loading
-        with open(config_path, "r") as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         model = ModelSerializer.deserialize(data, path, loading=loading)

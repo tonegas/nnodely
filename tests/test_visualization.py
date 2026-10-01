@@ -2,6 +2,7 @@ import pytest
 import json
 import os
 import re
+import shutil
 
 from nnodely import (
     Input,
@@ -118,7 +119,7 @@ def test_visualize_roll(tmp_path):
     model1.export_html(out_dir=tmp_path, filename="model1")
     model.export_html(out_dir=tmp_path, filename="model2")
 
-    html = (tmp_path / "model2.html").read_text()
+    html = (tmp_path / "model2.html").read_text(encoding="utf-8")
     assert '"nested_model": "roll_body"' in html
     assert len(list(tmp_path.glob("*roll_fn.html"))) == 1
 
@@ -132,8 +133,10 @@ def test_visualize_model_roll(tmp_path):
     model.build()
 
     model.export_html(out_dir=tmp_path, filename="closed_model")
-    html = (tmp_path / "closed_model.html").read_text()
-    flattened_html = (tmp_path / "closed_model__flattened.html").read_text()
+    html = (tmp_path / "closed_model.html").read_text(encoding="utf-8")
+    flattened_html = (tmp_path / "closed_model__flattened.html").read_text(
+        encoding="utf-8"
+    )
 
     for page in (html, flattened_html):
         assert '"from": "closed_fir", "to": "closed_x"' in page
@@ -194,8 +197,8 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
     model.build()
 
     model.export_html(out_dir=tmp_path, filename="loop_model")
-    page = (tmp_path / "loop_model.html").read_text()
-    body_page = (tmp_path / "loop_model__loop_block.html").read_text()
+    page = (tmp_path / "loop_model.html").read_text(encoding="utf-8")
+    body_page = (tmp_path / "loop_model__loop_block.html").read_text(encoding="utf-8")
 
     # The block node carries the ports that bind the body to this graph.
     assert '"nested_model": "loop_body"' in page
@@ -228,7 +231,7 @@ def test_export_html_layout_survives_feedback_cycles(tmp_path):
     model.build()
 
     model.export_html(out_dir=tmp_path, filename="cyc_model")
-    body_page = (tmp_path / "cyc_model__cyc_block.html").read_text()
+    body_page = (tmp_path / "cyc_model__cyc_block.html").read_text(encoding="utf-8")
 
     # Levels are assigned from the acyclic edges only: vis-network's own
     # "directed" sort collapses every node into one column once an edge
@@ -280,8 +283,8 @@ def test_flattened_page_inlines_a_loop_body(tmp_path):
     model.build()
     model.export_html(out_dir=tmp_path, filename="inline_model")
 
-    standard = (tmp_path / "inline_model.html").read_text()
-    flattened = (tmp_path / "inline_model__flattened.html").read_text()
+    standard = (tmp_path / "inline_model.html").read_text(encoding="utf-8")
+    flattened = (tmp_path / "inline_model__flattened.html").read_text(encoding="utf-8")
 
     # Modely.flatten leaves the Loop intact because build() runs the same pass
     # and it has to survive as one Keras layer, so the splice is display-only.
@@ -310,7 +313,9 @@ def test_flattened_page_inlines_a_roll_body(tmp_path):
     model.build()
     model.export_html(out_dir=tmp_path, filename="inline_roll_model")
 
-    flattened = (tmp_path / "inline_roll_model__flattened.html").read_text()
+    flattened = (tmp_path / "inline_roll_model__flattened.html").read_text(
+        encoding="utf-8"
+    )
     nodes, edges = _graph(flattened)
     ids = {node["id"] for node in nodes}
 
@@ -338,6 +343,10 @@ def test_plot_labels_a_minimizer_with_its_loss_name(tmp_path):
     assert " at 0x" not in dot.source
 
 
+@pytest.mark.skipif(
+    shutil.which("dot") is None,
+    reason="drawing the PNG needs Graphviz's dot program, which is not installed",
+)
 def test_plot_draws_into_a_folder_with_a_dot_in_its_name(tmp_path):
     model = _minimized_plot_model("dotted")
 
@@ -360,7 +369,7 @@ def test_plot_without_graphviz_writes_the_dot_source_and_warns(tmp_path, monkeyp
         model.plot(str(tmp_path / "undrawn.png"))
 
     assert not (tmp_path / "undrawn.png").exists()
-    assert (tmp_path / "undrawn.gv").read_text().startswith("digraph")
+    assert (tmp_path / "undrawn.gv").read_text(encoding="utf-8").startswith("digraph")
 
 
 def test_export_html_escapes_the_names_it_shows(tmp_path):
@@ -370,7 +379,7 @@ def test_export_html_escapes_the_names_it_shows(tmp_path):
     model = Modely("<img src=x onerror=alert(1)>", inputs=[x], outputs=[out]).build()
 
     model.export_html(tmp_path, filename="escaped")
-    page = (tmp_path / "escaped.html").read_text()
+    page = (tmp_path / "escaped.html").read_text(encoding="utf-8")
 
     assert "<img src=x" not in page
     assert "&lt;img src=x onerror=alert(1)&gt;" in page
@@ -387,7 +396,7 @@ def test_export_html_loads_a_pinned_vis_network(tmp_path):
     ).build()
 
     model.export_html(tmp_path)
-    page = (tmp_path / "pinned.html").read_text()
+    page = (tmp_path / "pinned.html").read_text(encoding="utf-8")
 
     assert (
         'src="https://unpkg.com/vis-network@10.1.2/standalone/umd/vis-network.min.js"'

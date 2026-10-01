@@ -787,7 +787,9 @@ def _column_values(data, name):
 
 
 def test_csv_delimiter_is_the_pandas_separator(tmp_path):
-    (tmp_path / "semicolon.csv").write_text("csv_x;csv_y\n1;10\n2;20\n3;30\n")
+    (tmp_path / "semicolon.csv").write_text(
+        "csv_x;csv_y\n1;10\n2;20\n3;30\n", encoding="utf-8"
+    )
 
     data = DataLoader(_csv_model(), source=tmp_path / "semicolon.csv", delimiter=";")
 
@@ -797,7 +799,7 @@ def test_csv_delimiter_is_the_pandas_separator(tmp_path):
 
 def test_csv_without_a_header_row_keeps_its_first_row(tmp_path):
     # Once read with the default header: the first row named the columns.
-    (tmp_path / "bare.csv").write_text("1,10\n2,20\n3,30\n")
+    (tmp_path / "bare.csv").write_text("1,10\n2,20\n3,30\n", encoding="utf-8")
 
     data = DataLoader(
         _csv_model(),
@@ -811,7 +813,9 @@ def test_csv_without_a_header_row_keeps_its_first_row(tmp_path):
 
 
 def test_csv_header_can_follow_a_title_line(tmp_path):
-    (tmp_path / "titled.csv").write_text("bench run 3\ncsv_x,csv_y\n1,10\n2,20\n")
+    (tmp_path / "titled.csv").write_text(
+        "bench run 3\ncsv_x,csv_y\n1,10\n2,20\n", encoding="utf-8"
+    )
 
     data = DataLoader(_csv_model(), source=tmp_path / "titled.csv", header=1)
 
@@ -820,7 +824,9 @@ def test_csv_header_can_follow_a_title_line(tmp_path):
 
 
 def test_na_cells_are_kept_as_nan_with_a_warning(tmp_path):
-    (tmp_path / "holes.csv").write_text("csv_x,csv_y\n1,10\nn/a,20\n3,\n")
+    (tmp_path / "holes.csv").write_text(
+        "csv_x,csv_y\n1,10\nn/a,20\n3,\n", encoding="utf-8"
+    )
 
     with pytest.warns(UserWarning) as caught:
         data = DataLoader(_csv_model(), source=tmp_path / "holes.csv")

@@ -1435,7 +1435,7 @@ def test_save_load_leaves_minimizers_out(tmp_path):
     restored = Modely.load(tmp_path / "saved")
     assert restored.minimizers == []
     assert [node.name for node in restored.train_inputs] == ["minimized_x"]
-    saved = json.loads((tmp_path / "saved" / "model.json").read_text())
+    saved = json.loads((tmp_path / "saved" / "model.json").read_text(encoding="utf-8"))
     saved_names = {node["config"]["name"] for node in saved["nodes"]}
     assert "minimized_target" not in saved_names
     assert "minimized_auxiliary" not in saved_names
@@ -1628,11 +1628,11 @@ def test_names_generated_after_a_load_avoid_the_loaded_ones(tmp_path):
     # Saved by a process that ran further: its Fir has the name this one makes next.
     upcoming = f"Fir{dag._node_counter + 1}"
     config = tmp_path / "upcoming" / "model.json"
-    data = json.loads(config.read_text())
+    data = json.loads(config.read_text(encoding="utf-8"))
     for node in data["nodes"]:
         if node["config"]["name"] == "upcoming_fir":
             node["config"]["name"] = upcoming
-    config.write_text(json.dumps(data))
+    config.write_text(json.dumps(data), encoding="utf-8")
 
     loaded = Modely.load(tmp_path / "upcoming")
 
