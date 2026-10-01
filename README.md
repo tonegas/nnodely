@@ -55,40 +55,53 @@ export KERAS_BACKEND=torch
 
 ## Hello, world
 
-A mass-spring-damper, *m ẍ = −k x − c ẋ + F*, learned as its own
-discrete-time structure: the next position is a filter over the last positions
-plus a gain on the current force.
+To check that nnodely is installed, teach it the Fibonacci rule: two
+parameters, *x[t+1] = A x[t−1] + B x[t]*, trained until the next value is the
+sum of the last two, then run closed loop to generate the series.
 
 ```python
 import numpy as np
-from nnodely import DataLoader, Fir, Input, Modely, Output, set_seed
 
-set_seed(0)  # the same data and initial weights, so the same results, on every run
+from nnodely import *
 
-# Simulate the system: in practice, these are your measurements
-dt, m, k, c = 0.05, 1.0, 2.0, 0.5
-force = np.repeat(np.random.uniform(-1.0, 1.0, 60), 50)
-position, velocity = np.zeros(3000), np.zeros(3000)
-for t in range(2999):
-    velocity[t + 1] = velocity[t] + dt * (-k * position[t] - c * velocity[t] + force[t]) / m
-    position[t + 1] = position[t] + dt * velocity[t + 1]
+set_seed(42)
 
-# The structure: x[t+1] = FIR(x[t-4..t]) + FIR(F[t])
-x, F = Input("x"), Input("F")
-x_next = Output("x_next", Fir(out_features=1)([x.sw(5)]) + Fir(out_features=1)([F.last()]))
+# The rule to learn: x[t+1] = A x[t-1] + B x[t], which is Fibonacci for A = B = 1
+x = Input("x")
+window = x.sw(2)  # [x[t-1], x[t]]
+prev, cur = TimeSelect(0)(window), TimeSelect(1)(window)
+fib = Output("fib", Parameter("A") * prev + Parameter("B") * cur)
 
-model = Modely("mass_spring_damper", inputs=[x, F], outputs=[x_next])
-model.minimize("next_position", x_next, x.next())
+model = Modely("Fibonacci", inputs=[x], outputs=[fib])
+model.minimize("target", fib, prev + cur)  # the next value is the sum of the last two
 model.build()
 
-# Train with the nnodely console, then score the model
-data = DataLoader(model, source={"x": position, "F": force})
-model.train(data, epochs=100, batch_size=64, lr=1e-2, printer="nnodely")
-model.validate(data)
+# Any series teaches the rule: a random one, so x[t-1] and x[t] vary independently
+data = DataLoader(model, source={"x": np.random.uniform(-1.0, 1.0, 200)})
+model.train(data,
+    epochs=100,
+    batch_size=32,
+    lr=0.05,
+    early_stopping="loss",
+    early_stopping_kwargs={"patience": 10},
+)
+
+# Run it closed loop: each prediction is fed back into x, for 20 steps from 0, 1
+seed = Input("seed")
+series = Output(
+    "series", Loop(f=model, callback={x: fib}, initial=seed.sw(2), length=20)
+)
+generator = Modely("FibonacciGenerator", inputs=[seed], outputs=[series]).build()
+start = np.array([[[0.0, 1.0]]], dtype=np.float32)
+print(generator({"seed": start}))
+# [    1     2     3     5     8    13 ...  4181  6765 10946]
+
+generator.save("path/to/fibonacci_model")  # save the nnodely model
 ```
 
-`validate()` reports the loss next to RMSE, FIT, R² and the other indicators a
-system-identification report is read for, and can plot them.
+Training stops on its own once the loss stops falling, and the generator is
+exported as a Keras model that runs without nnodely.
+
 
 ## What's in the box
 
@@ -161,17 +174,12 @@ keep it in sync when the API changes.
 
 nnodely 2.0 is a rewrite on Keras 3: the model is a `Modely` built from its
 inputs and outputs, trained on a `DataLoader`, and runs on TensorFlow, PyTorch
-or JAX. The
-[CHANGELOG](https://github.com/tonegas/nnodely/blob/main/CHANGELOG.md#migrating-from-1x)
-maps every 1.x call to its 2.0 counterpart. Models saved with 1.x cannot be
-loaded by 2.0; to keep using them, pin `pip install "nnodely<2"`.
+or JAX. The [CHANGELOG](https://github.com/tonegas/nnodely/blob/main/CHANGELOG.md#migrating-from-1x) maps every 1.x call to its 2.0 counterpart. Models saved with 1.x cannot be loaded by 2.0; to keep using them, pin `pip install "nnodely<2"`.
 
 ## Contributing
 
 Contributions and collaborations are welcome: open an issue for questions and
-ideas, or a pull request for a new feature or a fix. See
-[CONTRIBUTING.md](https://github.com/tonegas/nnodely/blob/main/CONTRIBUTING.md)
-to set up the development environment.
+ideas, or a pull request for a new feature or a fix. See [CONTRIBUTING.md](https://github.com/tonegas/nnodely/blob/main/CONTRIBUTING.md) to set up the development environment.
 
 ## License
 
