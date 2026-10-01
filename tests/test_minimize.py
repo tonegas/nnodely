@@ -31,7 +31,7 @@ from nnodely import (
     Parameter,
     Tanh,
 )
-from conftest import to_numpy
+from conftest import CONVERGED, to_numpy
 
 
 DATASETS = os.path.join(os.path.dirname(__file__), "datasets")
@@ -113,7 +113,7 @@ def _validation_losses(model, data):
     return {name: signal.metrics["loss"] for name, signal in result.signals.items()}
 
 
-def _fit(model, data, epochs, lr):
+def _fit(model, data, epochs, lr, **train_kwargs):
     return model.train(
         train_data=data,
         epochs=epochs,
@@ -122,6 +122,7 @@ def _fit(model, data, epochs, lr):
         lr=lr,
         shuffle=False,
         printer=None,
+        **train_kwargs,
     )
 
 
@@ -759,7 +760,7 @@ def test_float_target_drives_the_source_to_it():
     model.build()
     data = DataLoader(model, source={"x": np.full(8, 2.0, dtype=np.float32)})
 
-    _fit(model, data, epochs=60, lr=0.05)
+    _fit(model, data, epochs=60, lr=0.05, **CONVERGED)
 
     np.testing.assert_allclose(_value(k), 3.0, atol=1e-3)
 
@@ -778,7 +779,7 @@ def test_output_is_trained_whichever_side_it_is_declared_on(swapped):
         model.minimize("error", out, y.last())
     model.build()
 
-    _fit(model, _proportional_data(model), epochs=300, lr=0.2)
+    _fit(model, _proportional_data(model), epochs=300, lr=0.2, **CONVERGED)
 
     np.testing.assert_allclose(_value(k), 3.0, atol=1e-3)
 
@@ -793,7 +794,7 @@ def test_computed_target_is_trained_against():
     model.minimize("error", out, y.last() * 0.5)
     model.build()
 
-    _fit(model, _proportional_data(model, gain=6.0), epochs=300, lr=0.2)
+    _fit(model, _proportional_data(model, gain=6.0), epochs=300, lr=0.2, **CONVERGED)
 
     np.testing.assert_allclose(_value(k), 3.0, atol=1e-3)
 
@@ -818,7 +819,7 @@ def test_output_vs_output_trains_both_sides():
         },
     )
 
-    _fit(model, data, epochs=300, lr=0.1)
+    _fit(model, data, epochs=300, lr=0.1, **CONVERGED)
 
     np.testing.assert_allclose(_value(k_fit), 3.0, atol=1e-3)
     np.testing.assert_allclose(_value(k_follow), 3.0, atol=1e-3)
@@ -841,7 +842,7 @@ def test_a_removed_minimizer_no_longer_trains_its_weights(rebuild):
     model.remove_minimizer("removed_error")
     if rebuild:
         model.build()
-    _fit(model, _proportional_data(model), epochs=300, lr=0.2)
+    _fit(model, _proportional_data(model), epochs=300, lr=0.2, **CONVERGED)
 
     np.testing.assert_allclose(_value(k_kept), 3.0, atol=1e-3)
     np.testing.assert_allclose(_value(k_removed), 1.0)
@@ -1010,6 +1011,8 @@ def test_gains_set_the_trade_off_between_conflicting_minimizers():
     model.build()
     data = DataLoader(model, source={"x": np.ones(8, dtype=np.float32)})
 
+    # No early stopping: the optimum loss is not zero, and float32 cannot show
+    # the last 1e-4 of k in a loss of 6, so it would stop before k gets there.
     _fit(model, data, epochs=60, lr=0.1)
 
     np.testing.assert_allclose(_value(k), 2.0, atol=1e-4)

@@ -249,7 +249,7 @@ See §10 (`Loop`, `Roll`, `rollback`) and §11 (`Derivative`, `Integrate`, `Ode`
 | `build()` → self | Creates the `keras.Model` (`model.model`) and its weights. Can be called again; weights are kept. |
 | `model(inputs_dict)` | Inference. Takes `{input_name: array (batch, *dim, time, *seq)}`, the batch axis always included (§1.24). Reads `model.inference_inputs`, ignores other keys, and raises `ValueError` when one is missing. Returns `{output_name: backend tensor}` for the declared outputs; convert with `keras.ops.convert_to_numpy`. |
 | `model([stream, ...])` | Composition: one stream per input, in `model.inputs` order; returns the outputs as streams of an outer graph (§12). |
-| `train(train_data, val_data=None, epochs=10, batch_size=1, optimizer=None, lr=1e-3, shuffle=True, optimizer_kwargs=None, printer="legacy")` → `dict` | Keras history (§8). |
+| `train(train_data, val_data=None, epochs=10, batch_size=1, optimizer=None, early_stopping=None, lr=1e-3, shuffle=True, optimizer_kwargs=None, early_stopping_kwargs=None, printer="legacy", jit_compile="auto")` → `dict` | Keras history (§8). |
 | `validate(val_data, out_dir=None, show=False, history=None, verbose=True)` → `ValidationResult` | Metrics plus optional PNG figures (§13). `verbose=False` skips the printed summary. |
 | `flatten()` → Modely | Inlines every composed sub-model. |
 | `summary()` | Keras summary. |
@@ -280,6 +280,7 @@ Properties: `built`, `model` (the training keras.Model), `inference_model` (the 
 
 `train(...)`
 - `optimizer`: a name (`sgd rmsprop adam adamw adagrad adadelta adamax adafactor nadam ftrl lion`; default `"adam"`), a config dict, or an instance. `lr` and `optimizer_kwargs` (e.g. `{"weight_decay": 1e-4, "global_clipnorm": 1.0}`) apply only to names; configure an instance yourself.
+- `early_stopping`: the name of a logged quantity (`"loss"`, `"<minimizer name>_loss"`, or their `val_` versions with `val_data`), completed by `early_stopping_kwargs` into a `keras.callbacks.EarlyStopping`; a dict of `EarlyStopping` arguments; or any callback that sets `self.model.stop_training = True`. Typical: `early_stopping="val_loss", early_stopping_kwargs={"patience": 10, "restore_best_weights": True}`. Monitoring a quantity that is not logged raises `ValueError`; the mode defaults to `"min"` (every logged quantity is a loss).
 - `printer`: `"legacy"` (default, a loss table), `"tiny"`, `"nnodely"` (animated), `None` (silent), or any `keras.callbacks.Callback`.
 - Returns a history dict: `loss` (the total) and `<minimizer name>_loss` for each objective, plus their `val_` versions with `val_data` [verified: one objective named `one` gives `['loss', 'one_loss', 'val_loss', 'val_one_loss']`].
 - Each `train` call continues from the current weights.

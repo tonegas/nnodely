@@ -1,6 +1,6 @@
 # This file contains utility functions for the nnodely library.
 import keras
-from typing import Any, Callable
+from typing import Any, Callable, Collection
 
 SUPPORTED_OPTIMIZERS = {
     "sgd",
@@ -130,3 +130,65 @@ def _resolve_optimizer(
             "optimizer must resolve to an instance of keras.optimizers.Optimizer."
         )
     return resolved
+
+
+def _resolve_early_stopping(
+    early_stopping: str | dict[str, Any] | keras.callbacks.Callback | None,
+    early_stopping_kwargs: dict[str, Any] | None,
+    logged: Collection[str],
+) -> keras.callbacks.Callback | None:
+    """Turn the ``early_stopping`` argument of :meth:`train` into a callback.
+
+    ``logged`` holds the quantities training logs, the ones a Keras
+    ``EarlyStopping`` can monitor.
+    """
+    if early_stopping is None:
+        if early_stopping_kwargs:
+            raise ValueError(
+                "early_stopping_kwargs needs early_stopping to name the "
+                "quantity to monitor."
+            )
+        return None
+
+    if isinstance(early_stopping, str):
+        callback = keras.callbacks.EarlyStopping(
+            monitor=early_stopping, **(early_stopping_kwargs or {})
+        )
+    elif early_stopping_kwargs:
+        raise ValueError(
+            "early_stopping_kwargs can only be used when early_stopping is the "
+            "name of the quantity to monitor. Configure callbacks and "
+            "configurations before passing them to train()."
+        )
+    elif isinstance(early_stopping, dict):
+        callback = keras.callbacks.EarlyStopping(**early_stopping)
+    elif isinstance(early_stopping, keras.callbacks.Callback):
+        callback = early_stopping
+    else:
+        raise TypeError(
+            "early_stopping must be the name of a monitored quantity, a "
+            "keras.callbacks.EarlyStopping configuration, or a "
+            "keras.callbacks.Callback."
+        )
+
+    # Keras only warns, at every epoch, about a quantity that is never logged,
+    # and never stops: a misspelled name, or a validation loss without val_data.
+    if (
+        isinstance(callback, keras.callbacks.EarlyStopping)
+        and callback.monitor not in logged
+    ):
+        hint = (
+            " Pass val_data to monitor a validation loss."
+            if callback.monitor.startswith("val_")
+            and not any(name.startswith("val_") for name in logged)
+            else ""
+        )
+        raise ValueError(
+            f"Early stopping monitors {callback.monitor!r}, which training "
+            f"does not log: it logs {sorted(logged)}.{hint}"
+        )
+    # Every quantity training logs is a loss, but Keras infers a direction only
+    # for the names "loss" and "val_loss": "fit_loss" would raise in "auto" mode.
+    if isinstance(callback, keras.callbacks.EarlyStopping) and callback.mode == "auto":
+        callback.mode = "min"
+    return callback

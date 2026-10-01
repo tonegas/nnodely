@@ -138,6 +138,10 @@ class LegacyPrinter(keras.callbacks.Callback):
         self.stride = max(1, -(-self.epochs // self.max_rows))
         self.start_time = 0.0
         self.rows_printed = 0
+        # The last epoch seen, and whether its row was printed: early stopping
+        # can end training between two printed rows.
+        self.last_epoch: tuple[int, dict] | None = None
+        self.last_printed = False
 
         self.groups = [*self.minimizers, "Total"]
         self.width = 2 + _EPOCH_CELL + len(self.groups) * (2 * _CELL + 2)
@@ -152,16 +156,15 @@ class LegacyPrinter(keras.callbacks.Callback):
             print(line, flush=True)
 
     def on_epoch_end(self, epoch, logs=None):
+        self.last_epoch = (epoch, dict(logs or {}))
         last = epoch + 1 >= self.epochs
-        if not last and (epoch + 1) % self.stride:
-            return
-        # A row is left unterminated so that whatever ends the training - an
-        # early-stopping notice - reads as a continuation of its own row.
-        prefix = "\n" if self.rows_printed else ""
-        print(prefix + self._row(epoch, logs or {}), end="", flush=True)
-        self.rows_printed += 1
+        self.last_printed = last or not (epoch + 1) % self.stride
+        if self.last_printed:
+            self._print_row(epoch, logs or {})
 
     def on_train_end(self, logs=None):
+        if self.last_epoch is not None and not self.last_printed:
+            self._print_row(*self.last_epoch)
         elapsed = time.time() - self.start_time
         print()
         print(" nnodely Training Time ".center(80, "="))
@@ -171,6 +174,13 @@ class LegacyPrinter(keras.callbacks.Callback):
     # ------------------------------------------------------------------
     # Rendering
     # ------------------------------------------------------------------
+
+    def _print_row(self, epoch: int, logs: dict) -> None:
+        # A row is left unterminated so that whatever ends the training - an
+        # early-stopping notice - reads as a continuation of its own row.
+        prefix = "\n" if self.rows_printed else ""
+        print(prefix + self._row(epoch, logs), end="", flush=True)
+        self.rows_printed += 1
 
     def _header(self) -> list[str]:
         group_width = 2 * _CELL + 1

@@ -26,6 +26,19 @@ def seed():
     nnodely.set_seed(42)
 
 
+# Ends a training once its loss stops falling. Most trainings here reach what
+# their test checks within a few dozen epochs, then spend the rest of their
+# budget polishing a loss already far below any tolerance.
+CONVERGED = {
+    "early_stopping": "loss",
+    "early_stopping_kwargs": {
+        "patience": 10,
+        "min_delta": 1e-10,
+        "restore_best_weights": True,
+    },
+}
+
+
 @pytest.fixture(autouse=True)
 def torch_on_cpu():
     # Keras's torch backend picks the Apple GPU (MPS) whenever there is one,

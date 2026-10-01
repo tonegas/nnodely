@@ -4,7 +4,7 @@ import keras
 import numpy as np
 import pytest
 
-from conftest import requires_onnx_export, to_numpy
+from conftest import CONVERGED, requires_onnx_export, to_numpy
 from nnodely import (
     DataLoader,
     Derivative,
@@ -737,7 +737,7 @@ def test_train_through_a_derivative():
 
     data = DataLoader(model, source={"dtrain_x": np.ones((16, 1), dtype=np.float32)})
     history = model.train(
-        train_data=data, epochs=40, batch_size=4, lr=0.1, printer=None
+        train_data=data, epochs=40, batch_size=4, lr=0.1, printer=None, **CONVERGED
     )
 
     after = float(to_numpy(model({"dtrain_x": values})["dx"]).ravel()[0])
@@ -1482,7 +1482,7 @@ def test_train_a_rate_through_an_integrated_trajectory():
         },
     )
     history = model.train(
-        train_data=data, epochs=200, batch_size=8, lr=0.1, printer=None
+        train_data=data, epochs=200, batch_size=8, lr=0.1, printer=None, **CONVERGED
     )
 
     # y[i] = dt*w*(i+1), so argmin_w sum_i (dt*w*(i+1) - c)^2 gives

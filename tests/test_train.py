@@ -17,7 +17,7 @@ from nnodely import (
 import pytest
 import numpy as np
 import keras
-from conftest import to_numpy
+from conftest import CONVERGED, to_numpy
 from nnodely.utils.utils import MaskedLoss, _resolve_loss, _resolve_optimizer
 
 
@@ -74,7 +74,7 @@ def test_train_basic():
     )
 
     # ------ Train the model -------
-    model1.train(train_data=data_train, epochs=60, batch_size=4)
+    model1.train(train_data=data_train, epochs=60, batch_size=4, **CONVERGED)
 
     model1.validate(data_train)
 
@@ -106,7 +106,7 @@ def test_train_basic():
     )  ## with target=None, the loss will be minimized to zero
 
     model1.build()  # Rebuild the model after removing the minimizer otherwise the training Roll will still try to compute the loss and update the model based on it, even if it's not used for training anymore
-    model1.train(train_data=data_train, epochs=60, batch_size=4)
+    model1.train(train_data=data_train, epochs=60, batch_size=4, **CONVERGED)
 
     # ------ Remove one minimizer and retrain with a constant value -------
     model1.remove_minimizer("error_fir_y")
@@ -114,7 +114,7 @@ def test_train_basic():
         "error_fir_y", source=y_fir, target=3.0, loss="mse"
     )  ## this will minimize the difference between y_fir and the constant value 3.0, effectively training the model to make y_fir close to 3.0
     model1.build()
-    model1.train(train_data=data_train, epochs=60, batch_size=4)
+    model1.train(train_data=data_train, epochs=60, batch_size=4, **CONVERGED)
 
 
 @pytest.mark.slow
@@ -141,7 +141,7 @@ def test_train_with_parameters():
     }
     data_train = DataLoader(model, source=dataframe)
 
-    model.train(train_data=data_train, epochs=100, batch_size=16, lr=0.01)
+    model.train(train_data=data_train, epochs=100, batch_size=16, lr=0.01, **CONVERGED)
     assert np.isclose(
         a=np.array(param.value_numpy),
         b=np.array(true_param - const.value_numpy),
@@ -1190,7 +1190,12 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
     np.testing.assert_array_equal(data.mask.sum(axis=1), [6, 3, 5])
 
     history = model.train(
-        train_data=data, epochs=300, batch_size=3, lr=0.02, optimizer="adam"
+        train_data=data,
+        epochs=300,
+        batch_size=3,
+        lr=0.02,
+        optimizer="adam",
+        **CONVERGED,
     )
 
     assert np.isfinite(history["loss"][-1])

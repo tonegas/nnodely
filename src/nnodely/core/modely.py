@@ -20,7 +20,11 @@ from nnodely.core.minimizer import (
     _validate_seq_weights,
 )
 from nnodely.core.validation import ValidationResult
-from nnodely.utils.utils import _resolve_loss, _resolve_optimizer
+from nnodely.utils.utils import (
+    _resolve_early_stopping,
+    _resolve_loss,
+    _resolve_optimizer,
+)
 from nnodely.utils.printers import _resolve_printer
 from nnodely.core.registry import ModelSerializer
 from nnodely.core.stream import Stream, Node
@@ -453,9 +457,11 @@ class Modely:
         epochs: int = 10,
         batch_size: int = 1,
         optimizer: str | dict[str, Any] | keras.optimizers.Optimizer | None = None,
+        early_stopping: str | dict[str, Any] | keras.callbacks.Callback | None = None,
         lr: float = 1e-3,
         shuffle: bool = True,
         optimizer_kwargs: dict[str, Any] | None = None,
+        early_stopping_kwargs: dict[str, Any] | None = None,
         printer: str | keras.callbacks.Callback | None = "legacy",
         jit_compile: str = "auto",
     ):
@@ -472,6 +478,18 @@ class Modely:
         curves together say whether a falling training loss is the model
         learning the system or memorizing the training set, so pass it whenever
         a held-out set exists - :meth:`validate` draws them on one axis.
+
+        ``early_stopping`` ends training before ``epochs`` once it stops
+        improving. Like ``optimizer``, it may be the name of the quantity to
+        monitor, completed by ``early_stopping_kwargs`` into a
+        ``keras.callbacks.EarlyStopping``; that callback's configuration, as a
+        dict of its arguments; or a callback instance - a configured
+        ``keras.callbacks.EarlyStopping``, or a callback of your own that sets
+        ``self.model.stop_training = True``. The quantities are ``"loss"``, the
+        total, and ``"<minimizer name>_loss"``, each with a ``val_`` version
+        when ``val_data`` is given; monitoring one that is not logged raises.
+        For example ``early_stopping="val_loss",
+        early_stopping_kwargs={"patience": 10, "restore_best_weights": True}``.
 
         ``printer`` selects how progress is rendered: ``"tiny"`` prints a compact
         summary of the training progress, ``"legacy"`` prints the scrolling
@@ -491,6 +509,13 @@ class Modely:
             raise ValueError("Model is not built. Call build() before training.")
 
         resolved_optimizer = _resolve_optimizer(optimizer, lr, optimizer_kwargs)
+        logged = [
+            "loss",
+            *(f"{minimizer['name']}_loss" for minimizer in self.minimizers),
+        ]
+        if val_data is not None:
+            logged += [f"val_{name}" for name in logged]
+        stopper = _resolve_early_stopping(early_stopping, early_stopping_kwargs, logged)
         self.model.set_minimizers(_resolve_minimizer_terms(self))
         _check_minimizers_train_weights(self, self.model)
 
@@ -512,7 +537,10 @@ class Modely:
             batch_size=batch_size,
             shuffle=shuffle,
             verbose=0,  # type: ignore
-            callbacks=[_resolve_printer(printer, epochs, self.minimizers, self.name)],
+            callbacks=[
+                _resolve_printer(printer, epochs, self.minimizers, self.name),
+                *([stopper] if stopper is not None else []),
+            ],
             validation_data=validation_data,
         )
 

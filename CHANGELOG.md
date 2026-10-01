@@ -21,6 +21,9 @@ variable, and trains, validates and exports through Keras. Models saved with
   `header` are passed to `pandas.read_csv`; n/a values are reported.
 - `minimize()` with any Keras loss, a `gain` per objective and `seq_weights`
   along a rollout; targets can be computed streams or numbers.
+- Early stopping in `train()`: the name of a monitored loss (made into a Keras
+  `EarlyStopping` with `early_stopping_kwargs`), its configuration, or any
+  callback, Keras's or your own.
 - `validate()` with system-identification metrics (RMSE, MAE, FIT, R², ...)
   and figures.
 - Calculus blocks `Derivative` (with respect to an input or to time),

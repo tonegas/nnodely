@@ -294,6 +294,8 @@ def test_training_a_composed_model_trains_the_block():
     composed.build()
 
     data = DataLoader(composed, source={"train_z": np.ones((8, 1), dtype=np.float32)})
+    # No early stopping: at this learning rate the loss oscillates on its way
+    # down, and stopping at a low point of the swing leaves the weight off 3.
     composed.train(train_data=data, epochs=40, batch_size=4, lr=0.2, printer=None)
 
     trained = float(to_numpy(body_fir.kernel).ravel()[0])

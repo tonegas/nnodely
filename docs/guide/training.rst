@@ -104,6 +104,50 @@ per-epoch losses, with the validation ones under ``val_`` keys when
 Training can be called several times: every call continues from the current
 weights.
 
+Early stopping
+--------------
+
+``early_stopping`` ends training before ``epochs`` once it stops improving. As
+with the optimizer, it can be given three ways:
+
+- the **name** of the quantity to monitor, made into a Keras
+  `EarlyStopping <https://keras.io/api/callbacks/early_stopping/>`_ with
+  ``early_stopping_kwargs`` as its other arguments;
+- a **dict** of the arguments of ``keras.callbacks.EarlyStopping``;
+- a **callback**: a configured ``keras.callbacks.EarlyStopping``, or one of
+  your own that sets ``self.model.stop_training = True``.
+
+The quantities are ``"loss"``, the total, and ``"<objective>_loss"`` for each
+objective, each with a ``val_`` version when ``val_data`` is given. Monitoring
+a quantity that is not logged raises, rather than training to the end.
+
+.. code-block:: python
+
+   history = model.train(
+       train_data,
+       val_data=val_data,
+       epochs=500,
+       batch_size=32,
+       lr=1e-2,
+       early_stopping="val_loss",
+       early_stopping_kwargs={"patience": 10, "restore_best_weights": True},
+       printer=None,
+   )
+   print(len(history["loss"]))   # the epochs actually run
+
+
+   class StopBelow(keras.callbacks.Callback):
+       """Stop once the objective's loss falls below a level."""
+
+       def on_epoch_end(self, epoch, logs=None):
+           if logs["one_step_loss"] < 1e-4:
+               self.model.stop_training = True
+
+
+   history = model.train(
+       train_data, epochs=500, batch_size=32, early_stopping=StopBelow(), printer=None
+   )
+
 Reproducibility
 ---------------
 

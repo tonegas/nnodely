@@ -3,7 +3,7 @@ from typing import cast
 
 import numpy as np
 
-from conftest import to_numpy
+from conftest import CONVERGED, to_numpy
 from nnodely import (
     Constant,
     Parameter,
@@ -370,7 +370,9 @@ def test_simple_model_loop(tmp_path):
     dataset = {"x_seq": xs, "z": zs, "x_target": xs + 5.0}
 
     data_train = DataLoader(model_in, source=dataset)
-    model_in.train(train_data=data_train, epochs=100, batch_size=64, lr=5e-3)
+    model_in.train(
+        train_data=data_train, epochs=100, batch_size=64, lr=5e-3, **CONVERGED
+    )
 
     if model_in.model is None:
         raise ValueError(
@@ -440,7 +442,9 @@ def test_simple_model2(tmp_path):
             "Model weights are not available. call model_in.build() before training."
         )
     print("Weights of simple model:", model_in.model.get_weights())
-    model_in.train(train_data=data_train, epochs=100, batch_size=64, lr=5e-3)
+    model_in.train(
+        train_data=data_train, epochs=100, batch_size=64, lr=5e-3, **CONVERGED
+    )
 
     res = model_in(
         {
