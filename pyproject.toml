@@ -74,6 +74,12 @@ dev = [
   "ruff>=0.15.10",
 ]
 
+[tool.uv]
+# onnxruntime 1.24.1-1.24.3 declare Python >=3.10 but ship no 3.10 wheels, so
+# a lock shared by every Python picks one that 3.10 cannot install. pip skips
+# them on its own; this only steers the lock.
+constraint-dependencies = ["onnxruntime<1.24; python_version < '3.11'"]
+
 [tool.uv.build-backend]
 # Finder writes .DS_Store files into the folders it opens, and the build takes
 # every file of the package otherwise.
