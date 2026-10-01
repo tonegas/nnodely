@@ -15,8 +15,8 @@ An MS‑NN architecture defined through inputs, outputs, and building blocks (re
 
 .. rubric:: Input / Output / Parameter
 
-- **Input**: variables entering the model.  
-- **Output**: signals predicted or calculated by the model.  
+- **Input**: variables entering the model.
+- **Output**: signals predicted or calculated by the model.
 - **Parameter**: quantities learned during training or fixed constants.
 
 .. rubric:: Stream
