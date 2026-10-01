@@ -40,10 +40,10 @@ jobs:
 
       # Check that basic features work and we didn't miss to include crucial files
       - name: Basic test (wheel)
-        run: uv run --isolated --no-project --with dist/*.whl python -c "import nnodely"
+        run: KERAS_BACKEND=numpy uv run --isolated --no-project --with dist/*.whl python -c "import nnodely"
 
       - name: Basic test (source distribution)
-        run: uv run --isolated --no-project --with dist/*.tar.gz python -c "import nnodely"
+        run: KERAS_BACKEND=numpy uv run --isolated --no-project --with dist/*.tar.gz python -c "import nnodely"
 
       - name: TestPyPi publish
         run: uv publish --index testpypi

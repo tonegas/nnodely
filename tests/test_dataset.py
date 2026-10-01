@@ -1,2743 +1,838 @@
-import sys
+from nnodely import Input, Output, Modely, DataLoader, Loop
+from conftest import to_numpy
 import os
-import unittest
+import warnings
 import numpy as np
-
-from nnodely import *
-from nnodely.basic.relation import NeuObj
-from nnodely.support.logger import logging, nnLogger
-
-log = nnLogger(__name__, logging.CRITICAL)
-log.setAllLevel(logging.CRITICAL)
-
-sys.path.append(os.getcwd())
-
-# 16 Tests
-# This file test the data loading in particular:
-# The shape and the value of the inputs
-
-train_folder = os.path.join(os.path.dirname(__file__), "data/")
-val_folder = os.path.join(os.path.dirname(__file__), "val_data/")
-test_folder = os.path.join(os.path.dirname(__file__), "test_data/")
+import pytest
 
 
-class ModelyCreateDatasetTest(unittest.TestCase):
-    def test_build_dataset_simple(self):
-        NeuObj.clearNames()
-        input = Input("in1")
-        output = Input("out")
-        relation = Fir(input.tw(0.05))
+def test_dataset_creation_and_iteration():
+    x = Input("x", dim=1)
+    y = Input("y", dim=1)
+    z = Input("z", dim=1)
 
-        test = Modely(visualizer=None)
-        test.addMinimize("out", output.z(-1), relation)
-        test.neuralizeModel(0.01)
+    x_stream1 = x.sw(3)  ## 3 samples of x in the past
+    y_stream1 = y.sw([0, 3])  ## 3 samples of y in the future
+    z_stream1 = z.sw(
+        [4, 2]
+    )  ## 4 samples of z in the past and 2 samples of z in the future
 
-        data_struct = [
-            "x1",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            "A1x",
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            "A2x",
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            "in1",
-            "theta",
-            "time",
-        ]
-        test.loadData(
-            name="dataset_1",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        self.assertEqual((10, 5, 1), test._data["dataset_1"]["in1"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977]],
-            test._data["dataset_1"]["in1"][0].tolist(),
-        )
+    x_stream2 = x.last()  ## 1 sample of x in the past
+    y_stream2 = y.next()  ## 1 sample of y in the future
+    z_stream2 = z.sw(3)  ## 3 samples of z in the past
 
-        self.assertEqual((10, 1, 1), test._data["dataset_1"]["out"].shape)
-        self.assertEqual([[1.225]], test._data["dataset_1"]["out"][0].tolist())
-        self.assertEqual(
+    x_stream3 = x.sw(5)  ## 5 samples of x in the past
+    y_stream3 = y.sw(
+        [2, 2]
+    )  ## 2 samples of y in the past and 2 samples of y in the future
+    z_stream3 = z.sw(
+        [1, 3]
+    )  ## 1 sample of z in the past and 3 samples of z in the future
+
+    add1 = x_stream1 + y_stream1 + z_stream2
+    add2 = x_stream2 + y_stream2
+    add3 = y_stream3 + z_stream3
+
+    out1 = Output("out1", add1)
+    out2 = Output("out2", add2)
+    out3 = Output("out3", add3)
+    out_x_stream1 = Output("out_x_stream1", x_stream1)
+    out_y_stream1 = Output("out_y_stream1", y_stream1)
+    out_z_stream1 = Output("out_z_stream1", z_stream1)
+    out_x_stream2 = Output("out_x_stream2", x_stream2)
+    out_y_stream2 = Output("out_y_stream2", y_stream2)
+    out_z_stream2 = Output("out_z_stream2", z_stream2)
+    out_x_stream3 = Output("out_x_stream3", x_stream3)
+    out_y_stream3 = Output("out_y_stream3", y_stream3)
+    out_z_stream3 = Output("out_z_stream3", z_stream3)
+    model = Modely(
+        "model1",
+        inputs=[x, y, z],
+        outputs=[
+            out1,
+            out2,
+            out3,
+            out_x_stream1,
+            out_y_stream1,
+            out_z_stream1,
+            out_x_stream2,
+            out_y_stream2,
+            out_z_stream2,
+            out_x_stream3,
+            out_y_stream3,
+            out_z_stream3,
+        ],
+    )
+    model.build()
+
+    ## ------ Load dataset -------
+    data_train = DataLoader(
+        model,
+        format={"x": "data_1", "y": "data_2", "z": "data_3"},
+        source=os.path.join(os.path.dirname(__file__), "datasets"),
+    )
+
+    ## ------ Iterate through the dataset -------
+    for batch in data_train:
+        assert "x" in batch and "y" in batch and "z" in batch
+        assert batch["x"].shape[0] == 1  # Check if x has the correct dimension
+        assert batch["y"].shape[0] == 1  # Check if y has the correct dimension
+        assert batch["z"].shape[0] == 1  # Check if z has the correct dimension
+        assert batch["x"].shape[1] == 5  # Check if x has the correct dimension
+        assert batch["y"].shape[1] == 5  # Check if y has the correct dimension
+        assert batch["z"].shape[1] == 7  # Check if z has the correct dimension
+
+
+def test_sequence_windows_are_created_on_temporal_windows():
+    x = Input("x", dim=1, seq=3)
+    target = Input("target", dim=1)
+    x_window = x.sw(5)
+    output = Output("out", x_window)
+    model = Modely("sequence_dataset", inputs=[x], outputs=[output])
+    model.minimize("error", source=output, target=target.last(), loss="mse")
+    model.build()
+
+    loader = DataLoader(
+        model,
+        source={
+            "x": np.arange(9, dtype=np.float32),
+            "target": np.arange(9, dtype=np.float32),
+        },
+    )
+
+    assert loader.dataset["x"].shape == (3, 1, 5, 3)
+    assert loader.dataset["target"].shape == (3, 1, 1)
+    np.testing.assert_array_equal(
+        loader.dataset["x"][0, 0],
+        np.array(
             [
-                [[1.225]],
-                [[1.224]],
-                [[1.222]],
-                [[1.22]],
-                [[1.217]],
-                [[1.214]],
-                [[1.211]],
-                [[1.207]],
-                [[1.204]],
-                [[1.2]],
+                [0, 1, 2],
+                [1, 2, 3],
+                [2, 3, 4],
+                [3, 4, 5],
+                [4, 5, 6],
             ],
-            test._data["dataset_1"]["out"].tolist(),
-        )
+            dtype=np.float32,
+        ),
+    )
+    np.testing.assert_array_equal(
+        loader.dataset["target"][:, 0, 0],
+        np.array([6, 7, 8], dtype=np.float32),
+    )
 
-    def test_build_dataset_tuple(self):
-        NeuObj.clearNames()
-        inputA = Input("inA")
-        inputB = Input("inB")
-        out = Output("out", Fir(inputA.tw(0.05) + inputB.tw(0.05)))
 
-        test = Modely(visualizer=None)
-        test.addModel("out", out)
-        test.neuralizeModel(0.01)
+def test_explicit_dataloader_normalization_and_denormalization():
+    x = Input("normalization_x", dim=2)
+    target = Input("normalization_target")
+    relation = x.sw(2)
+    output = Output("normalization_output", relation)
+    model = Modely("normalization_model", inputs=[x], outputs=[output])
+    model.minimize("error", output, target.last(), loss="mse")
+    model.build()
 
-        data_struct = [
-            "",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            "A1x",
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            "A2x",
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            ("inA", "inB"),
-            "theta",
-            "time",
-        ]
-        test.loadData(
-            name="dataset_1",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        self.assertEqual((11, 5, 1), test._data["dataset_1"]["inA"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977]],
-            test._data["dataset_1"]["inA"][0].tolist(),
-        )
-        self.assertEqual((11, 5, 1), test._data["dataset_1"]["inB"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977]],
-            test._data["dataset_1"]["inB"][0].tolist(),
-        )
+    loader = DataLoader(
+        model,
+        source={
+            "normalization_x": np.array(
+                [[0.0, 100.0], [2.0, 200.0], [4.0, 300.0], [6.0, 400.0]],
+                dtype=np.float32,
+            ),
+            "normalization_target": np.array(
+                [10.0, 20.0, 30.0, 40.0], dtype=np.float32
+            ),
+        },
+    )
+    original = {
+        name: np.array(values, copy=True) for name, values in loader.as_dict().items()
+    }
 
-        out = Output("out2", Fir(inputA.tw(0.05)))
+    loader.normalize(method="minmax")
 
-        test2 = Modely(visualizer=None)
-        test2.addModel("out2", out)
-        test2.neuralizeModel(0.01)
+    normalized_x = loader.dataset["normalization_x"]
+    np.testing.assert_array_equal(np.min(normalized_x, axis=(0, 2)), [-1.0, -1.0])
+    np.testing.assert_array_equal(np.max(normalized_x, axis=(0, 2)), [1.0, 1.0])
+    assert np.min(loader.dataset["normalization_target"]) == -1.0
+    assert np.max(loader.dataset["normalization_target"]) == 1.0
 
-        data_struct = [
-            "",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            "A1x",
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            ("A2x", "f"),
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            ("inA", "inB"),
-            "theta",
-            "time",
-        ]
-        test2.loadData(
-            name="dataset_1",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        self.assertEqual((11, 5, 1), test._data["dataset_1"]["inA"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977]],
-            test._data["dataset_1"]["inA"][0].tolist(),
-        )
-
-    def test_build_dataset_tuple_dim(self):
-        NeuObj.clearNames()
-        inputA1 = Input("inA1")
-        inputA = Input("inA", dimensions=3)
-        inputB = Input("inB", dimensions=3)
-        out = Output(
-            "out", inputA1.sw(1) + Fir(Linear(inputA.tw(0.05) + inputB.tw(0.05)))
-        )
-
-        test = Modely(visualizer=None)
-        test.addModel("out", out)
-        test.neuralizeModel(0.01)
-
-        data_struct = [
-            "",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            ("A1x", "inA1"),
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            "A2x",
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            ("inA", "inB"),
-            "theta",
-            "time",
-        ]
-        test.loadData(
-            name="dataset_1",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        self.assertEqual((11, 5, 3), test._data["dataset_1"]["inA"].shape)
-        self.assertEqual(
-            [
-                [0.984, 12.493, 0.0],
-                [0.983, 12.493, 0.01],
-                [0.982, 12.495, 0.02],
-                [0.98, 12.498, 0.03],
-                [0.977, 12.502, 0.04],
-            ],
-            test._data["dataset_1"]["inA"][0].tolist(),
-        )
-        self.assertEqual((11, 5, 3), test._data["dataset_1"]["inB"].shape)
-        self.assertEqual(
-            [
-                [0.984, 12.493, 0.0],
-                [0.983, 12.493, 0.01],
-                [0.982, 12.495, 0.02],
-                [0.98, 12.498, 0.03],
-                [0.977, 12.502, 0.04],
-            ],
-            test._data["dataset_1"]["inB"][0].tolist(),
-        )
-
-        with self.assertRaises(ValueError):
-            data_struct = [
-                "",
-                "y1",
-                "x2",
-                "y2",
-                "",
-                ("inA1", "inA"),
-                "A1y",
-                "B1x",
-                "B1y",
-                "",
-                "A2x",
-                "A2y",
-                "B2x",
-                "out",
-                "",
-                "x3",
-                ("inA", "inB"),
-                "theta",
-                "time",
-            ]
-            test.loadData(
-                name="dataset_2",
-                source=train_folder,
-                format=data_struct,
-                skiplines=4,
-                delimiter="\t",
-                header=None,
+    restored = loader.denormalize(loader.as_dict())
+    for name in original:
+        if isinstance(restored, dict):
+            np.testing.assert_allclose(
+                to_numpy(restored[name]), to_numpy(original[name]), atol=1e-6
+            )
+        else:
+            np.testing.assert_allclose(
+                to_numpy(restored), to_numpy(original[name]), atol=1e-6
             )
 
-        with self.assertRaises(ValueError):
-            data_struct = [
-                "",
-                "y1",
-                "x2",
-                "y2",
-                "",
-                ("inA1", "inA"),
-                "A1y",
-                "B1x",
-                "B1y",
-                "",
-                "A2x",
-                "A2y",
-                "B2x",
-                "out",
-                "",
-                "x3",
-                "inB",
-                "theta",
-                "time",
-            ]
-            test.loadData(
-                name="dataset_3",
-                source=train_folder,
-                format=data_struct,
-                skiplines=4,
-                delimiter="\t",
-                header=None,
-            )
+    normalized_prediction = loader.dataset["normalization_target"][:1]
+    restored_prediction = loader.denormalize(
+        {"normalization_output": normalized_prediction}
+    )
+    if isinstance(restored_prediction, dict):
+        np.testing.assert_allclose(
+            to_numpy(restored_prediction["normalization_output"]),
+            to_numpy(original["normalization_target"][:1]),
+            atol=1e-6,
+        )
+    else:
+        np.testing.assert_allclose(
+            to_numpy(restored_prediction),
+            to_numpy(original["normalization_target"][:1]),
+            atol=1e-6,
+        )
 
-    def test_build_multi_dataset_simple(self):
-        NeuObj.clearNames()
-        input = Input("in1")
-        output = Input("out")
-        relation = Fir(input.tw(0.05))
+    loader.denormalize()
+    for name in original:
+        np.testing.assert_array_equal(loader.dataset[name], original[name])
 
-        test = Modely(visualizer=None)
-        test.addMinimize("out", output.z(-1), relation)
-        test.neuralizeModel(0.01)
 
-        data_struct = [
-            "x1",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            "A1x",
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            "A2x",
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            "in1",
-            "theta",
-            "time",
+def test_standard_normalization_handles_constant_inputs():
+    x = Input("constant_normalization_x")
+    model = Modely(
+        "constant_normalization_model",
+        inputs=[x],
+        outputs=[Output("constant_normalization_output", x.last())],
+    ).build()
+    loader = DataLoader(
+        model,
+        source={"constant_normalization_x": np.full(4, 5.0, dtype=np.float32)},
+    )
+
+    loader.normalize(method="standard")
+    np.testing.assert_array_equal(loader.dataset["constant_normalization_x"], 0.0)
+    restored = loader.denormalize(
+        loader.dataset["constant_normalization_x"],
+        name="constant_normalization_x",
+    )
+    np.testing.assert_array_equal(restored, 5.0)
+
+
+def test_step_subsamples_sample_windows():
+    x = Input("step_x", dim=1)
+    model = Modely(
+        "step_windows_model",
+        inputs=[x],
+        outputs=[Output("step_out", x.sw(3))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source={"step_x": np.array([1, 2, 3, 4, 5], dtype=np.float32)},
+        step=2,
+    )
+
+    ## [1, 2, 3, 4, 5] with sw=3 and step=2 -> [[1, 2, 3], [3, 4, 5]]
+    assert loader.dataset["step_x"].shape == (2, 1, 3)
+    np.testing.assert_array_equal(
+        loader.dataset["step_x"][:, 0],
+        np.array([[1, 2, 3], [3, 4, 5]], dtype=np.float32),
+    )
+
+
+def test_step_keeps_multiple_inputs_aligned():
+    x = Input("step_align_x", dim=1)
+    y = Input("step_align_y", dim=1)
+    model = Modely(
+        "step_align_model",
+        inputs=[x, y],
+        outputs=[Output("step_align_out", x.sw(3) + y.last())],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source={
+            "step_align_x": np.array([1, 2, 3, 4, 5], dtype=np.float32),
+            "step_align_y": np.array([1, 2, 3, 4, 5], dtype=np.float32),
+        },
+        step=2,
+    )
+
+    np.testing.assert_array_equal(
+        loader.dataset["step_align_x"][:, 0],
+        np.array([[1, 2, 3], [3, 4, 5]], dtype=np.float32),
+    )
+    ## Every window is aligned to its last temporal sample
+    np.testing.assert_array_equal(
+        loader.dataset["step_align_y"][:, 0],
+        np.array([[3], [5]], dtype=np.float32),
+    )
+
+
+def test_step_subsamples_sequences():
+    x = Input("step_seq_x", dim=1, seq=3)
+    model = Modely(
+        "step_sequence_model",
+        inputs=[x],
+        outputs=[Output("step_seq_out", x.sw(2))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source={"step_seq_x": np.array([1, 2, 3, 4, 5, 6], dtype=np.float32)},
+        step=2,
+    )
+
+    ## [1, ..., 6] with sw=2, seq=3 and step=2 ->
+    ## [[[1, 2], [2, 3], [3, 4]], [[3, 4], [4, 5], [5, 6]]]
+    assert loader.dataset["step_seq_x"].shape == (2, 1, 2, 3)
+    np.testing.assert_array_equal(
+        loader.dataset["step_seq_x"][0, 0].T,
+        np.array([[1, 2], [2, 3], [3, 4]], dtype=np.float32),
+    )
+    np.testing.assert_array_equal(
+        loader.dataset["step_seq_x"][1, 0].T,
+        np.array([[3, 4], [4, 5], [5, 6]], dtype=np.float32),
+    )
+
+
+def test_step_subsamples_sequences_with_seq_length():
+    x = Input("step_seq_length_x", dim=1, seq=-1)
+    model = Modely(
+        "step_seq_length_model",
+        inputs=[x],
+        outputs=[Output("step_seq_length_out", x.sw(2))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source={"step_seq_length_x": np.array([1, 2, 3, 4, 5, 6], dtype=np.float32)},
+        seq_length=3,
+        step=2,
+    )
+
+    assert loader.dataset["step_seq_length_x"].shape == (2, 1, 2, 3)
+    np.testing.assert_array_equal(
+        loader.dataset["step_seq_length_x"][0, 0].T,
+        np.array([[1, 2], [2, 3], [3, 4]], dtype=np.float32),
+    )
+    np.testing.assert_array_equal(
+        loader.dataset["step_seq_length_x"][1, 0].T,
+        np.array([[3, 4], [4, 5], [5, 6]], dtype=np.float32),
+    )
+
+
+def test_step_does_not_mix_csv_files():
+    x = Input("step_csv_x", dim=1)
+    model = Modely(
+        "step_csv_model",
+        inputs=[x],
+        outputs=[Output("step_csv_out", x.sw(2))],
+    ).build()
+
+    stepped = DataLoader(
+        model,
+        format={"step_csv_x": "data_1"},
+        source=os.path.join(os.path.dirname(__file__), "datasets"),
+        step=3,
+    )
+
+    ## Each file is windowed independently, so the step restarts on every file
+    expected = np.concatenate(
+        [
+            DataLoader(
+                model,
+                format={"step_csv_x": "data_1"},
+                source=os.path.join(os.path.dirname(__file__), "datasets"),
+                csv_glob=csv_name,
+                step=3,
+            ).dataset["step_csv_x"]
+            for csv_name in ("test.csv", "test2.csv")
         ]
+    )
+    np.testing.assert_array_equal(stepped.dataset["step_csv_x"], expected)
 
-        test.loadData(
-            name="train_dataset",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        test.loadData(
-            name="validation_dataset",
-            source=val_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        test.loadData(
-            name="test_dataset",
-            source=test_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
+
+def test_invalid_step_raises():
+    x = Input("step_invalid_x", dim=1)
+    model = Modely(
+        "step_invalid_model",
+        inputs=[x],
+        outputs=[Output("step_invalid_out", x.last())],
+    ).build()
+
+    with np.testing.assert_raises(ValueError):
+        DataLoader(
+            model, source={"step_invalid_x": np.arange(4, dtype=np.float32)}, step=0
         )
 
-        self.assertEqual(3, test._Loader__n_datasets)
 
-        self.assertEqual((10, 5, 1), test._data["train_dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977]],
-            test._data["train_dataset"]["in1"][0].tolist(),
-        )
-        self.assertEqual((6, 5, 1), test._data["validation_dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.884], [0.883], [0.882], [0.88], [0.877]],
-            test._data["validation_dataset"]["in1"][0].tolist(),
-        )
-        self.assertEqual((8, 5, 1), test._data["test_dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.784], [0.783], [0.782], [0.78], [0.777]],
-            test._data["test_dataset"]["in1"][0].tolist(),
+def test_format_maps_multiple_columns_to_one_input():
+    x = Input("multi_column_x", dim=3)
+    model = Modely(
+        "multi_column_model",
+        inputs=[x],
+        outputs=[Output("multi_column_out", x.sw(2))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        format={"multi_column_x": ["a", "b", "c"]},
+        source=os.path.join(os.path.dirname(__file__), "datasets", "test.csv"),
+    )
+
+    ## One window per pair of consecutive rows, features in the declared order
+    assert loader.dataset["multi_column_x"].shape == (9, 3, 2)
+    np.testing.assert_array_equal(
+        loader.dataset["multi_column_x"][0],
+        np.array([[2, 6], [3, 7], [4, 8]], dtype=np.float32),
+    )
+
+    ## Positional indices select the same three columns
+    by_index = DataLoader(
+        model,
+        format={"multi_column_x": [3, 4, 5]},
+        source=os.path.join(os.path.dirname(__file__), "datasets", "test.csv"),
+    )
+    np.testing.assert_array_equal(
+        by_index.dataset["multi_column_x"], loader.dataset["multi_column_x"]
+    )
+
+
+def test_format_rejects_a_column_count_that_does_not_match_dim():
+    x = Input("wrong_width_x", dim=3)
+    model = Modely(
+        "wrong_width_model",
+        inputs=[x],
+        outputs=[Output("wrong_width_out", x.sw(2))],
+    ).build()
+
+    with np.testing.assert_raises(ValueError):
+        DataLoader(
+            model,
+            format={"wrong_width_x": ["a", "b"]},
+            source=os.path.join(os.path.dirname(__file__), "datasets", "test.csv"),
         )
 
-        self.assertEqual((10, 1, 1), test._data["train_dataset"]["out"].shape)
-        self.assertEqual([[1.225]], test._data["train_dataset"]["out"][0].tolist())
-        self.assertEqual(
-            [
-                [[1.225]],
-                [[1.224]],
-                [[1.222]],
-                [[1.22]],
-                [[1.217]],
-                [[1.214]],
-                [[1.211]],
-                [[1.207]],
-                [[1.204]],
-                [[1.2]],
+
+def test_on_short_skips_simulations_that_are_too_short():
+    x = Input("short_x", dim=1)
+    model = Modely(
+        "short_model",
+        inputs=[x],
+        outputs=[Output("short_out", x.sw(4))],
+    ).build()
+
+    simulations = [
+        {"short_x": np.arange(1, 6, dtype=np.float32)},  ## 5 samples -> 2 windows
+        {"short_x": np.arange(10, 13, dtype=np.float32)},  ## 3 samples -> too short
+    ]
+
+    with np.testing.assert_raises(ValueError):
+        DataLoader(model, source=simulations)
+
+    loader = DataLoader(model, source=simulations, on_short="skip")
+    assert loader.dataset["short_x"].shape == (2, 1, 4)
+    np.testing.assert_array_equal(
+        loader.dataset["short_x"][:, 0],
+        np.array([[1, 2, 3, 4], [2, 3, 4, 5]], dtype=np.float32),
+    )
+
+    ## Skipping every simulation leaves nothing to train on
+    with np.testing.assert_raises(ValueError):
+        DataLoader(model, source=simulations[1:], on_short="skip")
+
+
+def test_simulations_are_windowed_independently():
+    x = Input("independent_x", dim=1)
+    model = Modely(
+        "independent_model",
+        inputs=[x],
+        outputs=[Output("independent_out", x.sw(2))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source=[
+            {"independent_x": np.array([1, 2, 3], dtype=np.float32)},
+            {"independent_x": np.array([10, 11], dtype=np.float32)},
+        ],
+    )
+
+    ## No window spans two simulations
+    np.testing.assert_array_equal(
+        loader.dataset["independent_x"][:, 0],
+        np.array([[1, 2], [2, 3], [10, 11]], dtype=np.float32),
+    )
+
+
+def test_multiple_dynamic_sequence_lengths_are_rejected():
+    x = Input("two_dynamic_x", dim=1, seq=(-1, -1))
+    model = Modely(
+        "two_dynamic_model",
+        inputs=[x],
+        outputs=[Output("two_dynamic_out", x.sw(2))],
+    ).build()
+
+    with np.testing.assert_raises(ValueError):
+        DataLoader(
+            model,
+            source={"two_dynamic_x": np.arange(20, dtype=np.float32)},
+            seq_length=3,
+        )
+
+
+def test_full_sequence_spans_each_simulation_and_pads():
+    x = Input("full_x", dim=1, seq=-1)
+    model = Modely(
+        "full_model",
+        inputs=[x],
+        outputs=[Output("full_out", x.sw(1))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source=[
+            {"full_x": np.arange(1, 6, dtype=np.float32)},
+            {"full_x": np.arange(10, 13, dtype=np.float32)},
+        ],
+        seq_length="full",
+    )
+
+    ## One sample per simulation, padded on the rollout axis to the longest one
+    assert len(loader) == 2
+    assert loader.dataset["full_x"].shape == (2, 1, 1, 5)
+    np.testing.assert_array_equal(
+        loader.dataset["full_x"][:, 0, 0],
+        np.array([[1, 2, 3, 4, 5], [10, 11, 12, 12, 12]], dtype=np.float32),
+    )
+
+    ## The mask marks the real steps of every simulation
+    assert loader.padded_inputs == {"full_x"}
+    np.testing.assert_array_equal(
+        loader.mask,
+        np.array([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=bool),
+    )
+
+
+def test_full_sequence_leaves_the_inner_levels_alone():
+    x = Input("full_nested_x", dim=1, seq=(2, -1))
+    model = Modely(
+        "full_nested_model",
+        inputs=[x],
+        outputs=[Output("full_nested_out", x.sw(1))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source=[
+            {"full_nested_x": np.arange(6, dtype=np.float32)},
+            {"full_nested_x": np.arange(4, dtype=np.float32)},
+        ],
+        seq_length="full",
+    )
+
+    ## The inner level still spans 2, so the outermost one covers what is left
+    assert loader.dataset["full_nested_x"].shape == (2, 1, 1, 2, 5)
+    np.testing.assert_array_equal(
+        loader.mask,
+        np.array([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=bool),
+    )
+
+
+def test_full_sequence_of_equal_simulations_needs_no_mask():
+    x = Input("uniform_x", dim=1, seq=-1)
+    model = Modely(
+        "uniform_model",
+        inputs=[x],
+        outputs=[Output("uniform_out", x.sw(1))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source=[
+            {"uniform_x": np.arange(4, dtype=np.float32)},
+            {"uniform_x": np.arange(10, 14, dtype=np.float32)},
+        ],
+        seq_length="full",
+    )
+
+    assert loader.dataset["uniform_x"].shape == (2, 1, 1, 4)
+    assert loader.mask is None
+    assert loader.padded_inputs == set()
+
+
+def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
+    x = Input("full_step_x", dim=1, seq=-1)
+    model = Modely(
+        "full_step_model",
+        inputs=[x],
+        outputs=[Output("full_step_out", x.sw(1))],
+    ).build()
+
+    ## The sequence already spans the simulation, so there is nothing to step over
+    with np.testing.assert_raises(ValueError):
+        DataLoader(
+            model,
+            source={"full_step_x": np.arange(6, dtype=np.float32)},
+            seq_length="full",
+            step=2,
+        )
+
+    inner = Input("full_inner_x", dim=1, seq=(-1, 2))
+    inner_model = Modely(
+        "full_inner_model",
+        inputs=[inner],
+        outputs=[Output("full_inner_out", inner.sw(1))],
+    ).build()
+
+    ## 'full' resolves the outermost sequence only
+    with np.testing.assert_raises(ValueError):
+        DataLoader(
+            inner_model,
+            source={"full_inner_x": np.arange(6, dtype=np.float32)},
+            seq_length="full",
+        )
+
+
+def test_normalization_ignores_padded_steps():
+    x = Input("padded_norm_x", dim=1, seq=-1)
+    model = Modely(
+        "padded_norm_model",
+        inputs=[x],
+        outputs=[Output("padded_norm_out", x.sw(1))],
+    ).build()
+
+    loader = DataLoader(
+        model,
+        source=[
+            {"padded_norm_x": np.arange(1, 6, dtype=np.float32)},
+            {"padded_norm_x": np.array([10, 11], dtype=np.float32)},
+        ],
+        seq_length="full",
+    )
+    loader.normalize(method="standard")
+
+    ## The three repeated steps of the short simulation must not move the mean
+    observed = np.array([1, 2, 3, 4, 5, 10, 11], dtype=np.float64)
+    assert loader.normalization_stats["padded_norm_x"]["offset"].ravel()[
+        0
+    ] == pytest.approx(observed.mean())
+    assert loader.normalization_stats["padded_norm_x"]["scale"].ravel()[
+        0
+    ] == pytest.approx(observed.std())
+
+
+def test_uncollected_loop_warns_on_simulations_of_different_lengths():
+    body_x = Input("warn_body_x", dim=1)
+    body_out = Output("warn_body_out", body_x.last())
+    body = Modely("warn_body", inputs=[body_x], outputs=[body_out]).build()
+
+    seed = Input("warn_x", dim=1, seq=-1)
+    loop = Loop(
+        f=body,
+        callback={body_x: body_out},
+        initial={body_x: seed},
+        length=4,
+        collect=False,
+        name="warn_loop",
+    )
+    model = Modely(
+        "warn_model", inputs=[seed], outputs=[Output("warn_out", loop)]
+    ).build()
+
+    ## The last rollout step of a short simulation lies past the end of its data
+    with pytest.warns(UserWarning, match="collect=False"):
+        DataLoader(
+            model,
+            source=[
+                {"warn_x": np.arange(4, dtype=np.float32)},
+                {"warn_x": np.arange(2, dtype=np.float32)},
             ],
-            test._data["train_dataset"]["out"].tolist(),
+            seq_length="full",
         )
-        self.assertEqual((6, 1, 1), test._data["validation_dataset"]["out"].shape)
-        self.assertEqual([[2.225]], test._data["validation_dataset"]["out"][0].tolist())
-        self.assertEqual(
-            [[[2.225]], [[2.224]], [[2.222]], [[2.22]], [[2.217]], [[2.214]]],
-            test._data["validation_dataset"]["out"].tolist(),
-        )
-        self.assertEqual((8, 1, 1), test._data["test_dataset"]["out"].shape)
-        self.assertEqual([[3.225]], test._data["test_dataset"]["out"][0].tolist())
-        self.assertEqual(
-            [
-                [[3.225]],
-                [[3.224]],
-                [[3.222]],
-                [[3.22]],
-                [[3.217]],
-                [[3.214]],
-                [[3.211]],
-                [[3.207]],
+
+    ## Equal lengths need no padding, so there is nothing to warn about
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        DataLoader(
+            model,
+            source=[
+                {"warn_x": np.arange(4, dtype=np.float32)},
+                {"warn_x": np.arange(10, 14, dtype=np.float32)},
             ],
-            test._data["test_dataset"]["out"].tolist(),
+            seq_length="full",
         )
 
-    def test_build_dataset_medium1(self):
-        NeuObj.clearNames()
-        input = Input("in1")
-        output = Input("out")
-        rel1 = Fir(input.tw(0.05))
-        rel2 = Fir(input.tw(0.01))
 
-        test = Modely(visualizer=None)
-        test.addMinimize("out", output.z(-1), rel1 + rel2)
-        test.neuralizeModel(0.01)
+# ------------------------------------------------------------------
+# get_samples: consecutive samples of one simulation
+# ------------------------------------------------------------------
 
-        data_struct = [
-            "x1",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            "A1x",
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            "A2x",
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            "in1",
-            "theta",
-            "time",
-        ]
-        test.loadData(
-            name="dataset",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        self.assertEqual((10, 5, 1), test._data["dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977]],
-            test._data["dataset"]["in1"][0].tolist(),
-        )
-
-        self.assertEqual((10, 1, 1), test._data["dataset"]["out"].shape)
-        self.assertEqual(
-            [
-                [[1.225]],
-                [[1.224]],
-                [[1.222]],
-                [[1.22]],
-                [[1.217]],
-                [[1.214]],
-                [[1.211]],
-                [[1.207]],
-                [[1.204]],
-                [[1.2]],
-            ],
-            test._data["dataset"]["out"].tolist(),
-        )
-
-    def test_build_multi_dataset_medium1(self):
-        NeuObj.clearNames()
-        input = Input("in1")
-        output = Input("out")
-        rel1 = Fir(input.tw(0.05))
-        rel2 = Fir(input.tw(0.01))
-
-        test = Modely(visualizer=None)
-        test.addMinimize("out", output.z(-1), rel1 + rel2)
-        test.neuralizeModel(0.01)
-
-        data_struct = [
-            "x1",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            "A1x",
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            "A2x",
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            "in1",
-            "theta",
-            "time",
-        ]
-
-        test.loadData(
-            name="train_dataset",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        test.loadData(
-            name="validation_dataset",
-            source=val_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        test.loadData(
-            name="test_dataset",
-            source=test_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-
-        self.assertEqual(3, test._Loader__n_datasets)
-
-        self.assertEqual((10, 5, 1), test._data["train_dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977]],
-            test._data["train_dataset"]["in1"][0].tolist(),
-        )
-        self.assertEqual((6, 5, 1), test._data["validation_dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.884], [0.883], [0.882], [0.88], [0.877]],
-            test._data["validation_dataset"]["in1"][0].tolist(),
-        )
-        self.assertEqual((8, 5, 1), test._data["test_dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.784], [0.783], [0.782], [0.78], [0.777]],
-            test._data["test_dataset"]["in1"][0].tolist(),
-        )
-
-        self.assertEqual((10, 1, 1), test._data["train_dataset"]["out"].shape)
-        self.assertEqual(
-            [
-                [[1.225]],
-                [[1.224]],
-                [[1.222]],
-                [[1.22]],
-                [[1.217]],
-                [[1.214]],
-                [[1.211]],
-                [[1.207]],
-                [[1.204]],
-                [[1.2]],
-            ],
-            test._data["train_dataset"]["out"].tolist(),
-        )
-        self.assertEqual((6, 1, 1), test._data["validation_dataset"]["out"].shape)
-        self.assertEqual(
-            [[[2.225]], [[2.224]], [[2.222]], [[2.22]], [[2.217]], [[2.214]]],
-            test._data["validation_dataset"]["out"].tolist(),
-        )
-        self.assertEqual((8, 1, 1), test._data["test_dataset"]["out"].shape)
-        self.assertEqual(
-            [
-                [[3.225]],
-                [[3.224]],
-                [[3.222]],
-                [[3.22]],
-                [[3.217]],
-                [[3.214]],
-                [[3.211]],
-                [[3.207]],
-            ],
-            test._data["test_dataset"]["out"].tolist(),
-        )
-
-    def test_build_dataset_medium2(self):
-        NeuObj.clearNames()
-        input1 = Input("in1")
-        input2 = Input("in2")
-        output = Input("out")
-        rel1 = Fir(input1.tw(0.05))
-        rel2 = Fir(input1.tw(0.01))
-        rel3 = Fir(input2.tw(0.02))
-
-        test = Modely(visualizer=None)
-        test.addMinimize("out", output.z(-1), rel1 + rel2 + rel3)
-        test.neuralizeModel(0.01)
-
-        data_struct = [
-            "x1",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            "A1x",
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            "A2x",
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            "in1",
-            "in2",
-            "time",
-        ]
-        test.loadData(
-            name="dataset",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        self.assertEqual((10, 5, 1), test._data["dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977]],
-            test._data["dataset"]["in1"][0].tolist(),
-        )
-
-        self.assertEqual((10, 2, 1), test._data["dataset"]["in2"].shape)
-        self.assertEqual([[12.498], [12.502]], test._data["dataset"]["in2"][0].tolist())
-
-        self.assertEqual((10, 1, 1), test._data["dataset"]["out"].shape)
-        self.assertEqual(
-            [
-                [[1.225]],
-                [[1.224]],
-                [[1.222]],
-                [[1.22]],
-                [[1.217]],
-                [[1.214]],
-                [[1.211]],
-                [[1.207]],
-                [[1.204]],
-                [[1.2]],
-            ],
-            test._data["dataset"]["out"].tolist(),
-        )
-
-    def test_build_dataset_complex1(self):
-        NeuObj.clearNames()
-        input1 = Input("in1")
-        output = Input("out")
-        rel1 = Fir(input1.tw(0.05))
-        rel2 = Fir(input1.tw([-0.01, 0.02]))
-
-        test = Modely(visualizer=None)
-        test.addMinimize("out", output.z(-1), rel1 + rel2)
-        test.neuralizeModel(0.01)
-
-        data_struct = [
-            "x1",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            "A1x",
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            "A2x",
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            "in1",
-            "in2",
-            "time",
-        ]
-        test.loadData(
-            name="dataset",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        self.assertEqual((9, 7, 1), test._data["dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977], [0.973], [0.969]],
-            test._data["dataset"]["in1"][0].tolist(),
-        )
-
-        self.assertEqual((9, 1, 1), test._data["dataset"]["out"].shape)
-        self.assertEqual(
-            [
-                [[1.225]],
-                [[1.224]],
-                [[1.222]],
-                [[1.22]],
-                [[1.217]],
-                [[1.214]],
-                [[1.211]],
-                [[1.207]],
-                [[1.204]],
-            ],
-            test._data["dataset"]["out"].tolist(),
-        )
-
-    def test_build_multi_dataset_complex1(self):
-        NeuObj.clearNames()
-        input1 = Input("in1")
-        output = Input("out")
-        rel1 = Fir(input1.tw(0.05))
-        rel2 = Fir(input1.tw([-0.01, 0.02]))
-
-        test = Modely(visualizer=None)
-        test.addMinimize("out", output.z(-1), rel1 + rel2)
-        test.neuralizeModel(0.01)
-
-        data_struct = [
-            "x1",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            "A1x",
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            "A2x",
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            "in1",
-            "in2",
-            "time",
-        ]
-
-        test.loadData(
-            name="train_dataset",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        test.loadData(
-            name="validation_dataset",
-            source=val_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        test.loadData(
-            name="test_dataset",
-            source=test_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-
-        self.assertEqual(3, test._Loader__n_datasets)
-
-        self.assertEqual((9, 7, 1), test._data["train_dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977], [0.973], [0.969]],
-            test._data["train_dataset"]["in1"][0].tolist(),
-        )
-        self.assertEqual((5, 7, 1), test._data["validation_dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.884], [0.883], [0.882], [0.88], [0.877], [0.873], [0.869]],
-            test._data["validation_dataset"]["in1"][0].tolist(),
-        )
-        self.assertEqual((7, 7, 1), test._data["test_dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.784], [0.783], [0.782], [0.78], [0.777], [0.773], [0.769]],
-            test._data["test_dataset"]["in1"][0].tolist(),
-        )
-
-        self.assertEqual((9, 1, 1), test._data["train_dataset"]["out"].shape)
-        self.assertEqual(
-            [
-                [[1.225]],
-                [[1.224]],
-                [[1.222]],
-                [[1.22]],
-                [[1.217]],
-                [[1.214]],
-                [[1.211]],
-                [[1.207]],
-                [[1.204]],
-            ],
-            test._data["train_dataset"]["out"].tolist(),
-        )
-        self.assertEqual((5, 1, 1), test._data["validation_dataset"]["out"].shape)
-        self.assertEqual(
-            [[[2.225]], [[2.224]], [[2.222]], [[2.22]], [[2.217]]],
-            test._data["validation_dataset"]["out"].tolist(),
-        )
-        self.assertEqual((7, 1, 1), test._data["test_dataset"]["out"].shape)
-        self.assertEqual(
-            [
-                [[3.225]],
-                [[3.224]],
-                [[3.222]],
-                [[3.22]],
-                [[3.217]],
-                [[3.214]],
-                [[3.211]],
-            ],
-            test._data["test_dataset"]["out"].tolist(),
-        )
-
-    def test_build_dataset_complex2(self):
-        NeuObj.clearNames()
-        input1 = Input("in1")
-        output = Input("out")
-        rel1 = Fir(input1.tw(0.05))
-        rel2 = Fir(input1.tw([-0.01, 0.01]))
-
-        test = Modely(visualizer=None)
-        test.addMinimize("out", output.z(-1), rel1 + rel2)
-        test.neuralizeModel(0.01)
-
-        data_struct = [
-            "x1",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            "A1x",
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            "A2x",
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            "in1",
-            "in2",
-            "time",
-        ]
-        test.loadData(
-            name="dataset",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        self.assertEqual((10, 6, 1), test._data["dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977], [0.973]],
-            test._data["dataset"]["in1"][0].tolist(),
-        )
-
-        self.assertEqual((10, 1, 1), test._data["dataset"]["out"].shape)
-        self.assertEqual(
-            [
-                [[1.225]],
-                [[1.224]],
-                [[1.222]],
-                [[1.22]],
-                [[1.217]],
-                [[1.214]],
-                [[1.211]],
-                [[1.207]],
-                [[1.204]],
-                [[1.2]],
-            ],
-            test._data["dataset"]["out"].tolist(),
-        )
-
-    def test_build_dataset_complex3(self):
-        NeuObj.clearNames()
-        input1 = Input("in1")
-        input2 = Input("in2")
-        output = Input("out")
-        rel1 = Fir(input1.tw(0.05))
-        rel2 = Fir(input2.tw(0.02))
-        rel3 = Fir(input1.tw([-0.01, 0.01]))
-        rel4 = Fir(input2.last())
-        fun = Output("out-net", rel1 + rel2 + rel3 + rel4)
-
-        test = Modely(visualizer=None)
-        test.addModel("fun", fun)
-        test.addMinimize("out", output.z(-1), rel1 + rel2 + rel3 + rel4)
-        test.neuralizeModel(0.01)
-
-        data_struct = [
-            "x1",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            "A1x",
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            "A2x",
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            "in1",
-            "in2",
-            "time",
-        ]
-        test.loadData(
-            name="dataset",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        self.assertEqual((10, 6, 1), test._data["dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977], [0.973]],
-            test._data["dataset"]["in1"][0].tolist(),
-        )
-
-        self.assertEqual((10, 2, 1), test._data["dataset"]["in2"].shape)
-        self.assertEqual([[12.498], [12.502]], test._data["dataset"]["in2"][0].tolist())
-
-        self.assertEqual((10, 1, 1), test._data["dataset"]["out"].shape)
-        self.assertEqual(
-            [
-                [[1.225]],
-                [[1.224]],
-                [[1.222]],
-                [[1.22]],
-                [[1.217]],
-                [[1.214]],
-                [[1.211]],
-                [[1.207]],
-                [[1.204]],
-                [[1.2]],
-            ],
-            test._data["dataset"]["out"].tolist(),
-        )
-
-    def test_build_multi_dataset_complex3(self):
-        NeuObj.clearNames()
-        input1 = Input("in1")
-        input2 = Input("in2")
-        output = Input("out")
-        rel1 = Fir(input1.tw(0.05))
-        rel2 = Fir(input2.tw(0.02))
-        rel3 = Fir(input1.tw([-0.01, 0.01]))
-        rel4 = Fir(input2.last())
-        fun = Output("out-net", rel1 + rel2 + rel3 + rel4)
-
-        test = Modely(visualizer=None)
-        test.addModel("fun", fun)
-        test.addMinimize("out", output.z(-1), rel1 + rel2 + rel3 + rel4)
-        test.neuralizeModel(0.01)
-
-        data_struct = [
-            "x1",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            "A1x",
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            "A2x",
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            "in1",
-            "in2",
-            "time",
-        ]
-        test.loadData(
-            name="train_dataset",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        test.loadData(
-            name="validation_dataset",
-            source=val_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        test.loadData(
-            name="test_dataset",
-            source=test_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-
-        self.assertEqual(3, test._Loader__n_datasets)
-
-        self.assertEqual((10, 6, 1), test._data["train_dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977], [0.973]],
-            test._data["train_dataset"]["in1"][0].tolist(),
-        )
-        self.assertEqual((6, 6, 1), test._data["validation_dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.884], [0.883], [0.882], [0.88], [0.877], [0.873]],
-            test._data["validation_dataset"]["in1"][0].tolist(),
-        )
-        self.assertEqual((8, 6, 1), test._data["test_dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.784], [0.783], [0.782], [0.78], [0.777], [0.773]],
-            test._data["test_dataset"]["in1"][0].tolist(),
-        )
-
-        self.assertEqual((10, 2, 1), test._data["train_dataset"]["in2"].shape)
-        self.assertEqual(
-            [[12.498], [12.502]], test._data["train_dataset"]["in2"][0].tolist()
-        )
-        self.assertEqual((6, 2, 1), test._data["validation_dataset"]["in2"].shape)
-        self.assertEqual(
-            [[12.498], [12.502]], test._data["validation_dataset"]["in2"][0].tolist()
-        )
-        self.assertEqual((8, 2, 1), test._data["test_dataset"]["in2"].shape)
-        self.assertEqual(
-            [[12.498], [12.502]], test._data["test_dataset"]["in2"][0].tolist()
-        )
-
-        self.assertEqual((10, 1, 1), test._data["train_dataset"]["out"].shape)
-        self.assertEqual(
-            [
-                [[1.225]],
-                [[1.224]],
-                [[1.222]],
-                [[1.22]],
-                [[1.217]],
-                [[1.214]],
-                [[1.211]],
-                [[1.207]],
-                [[1.204]],
-                [[1.2]],
-            ],
-            test._data["train_dataset"]["out"].tolist(),
-        )
-        self.assertEqual((6, 1, 1), test._data["validation_dataset"]["out"].shape)
-        self.assertEqual(
-            [[[2.225]], [[2.224]], [[2.222]], [[2.22]], [[2.217]], [[2.214]]],
-            test._data["validation_dataset"]["out"].tolist(),
-        )
-        self.assertEqual((8, 1, 1), test._data["test_dataset"]["out"].shape)
-        self.assertEqual(
-            [
-                [[3.225]],
-                [[3.224]],
-                [[3.222]],
-                [[3.22]],
-                [[3.217]],
-                [[3.214]],
-                [[3.211]],
-                [[3.207]],
-            ],
-            test._data["test_dataset"]["out"].tolist(),
-        )
-
-    def test_build_dataset_complex5(self):
-        NeuObj.clearNames()
-        input1 = Input("in1")
-        output = Input("out")
-        rel1 = Fir(input1.tw(0.05))
-        rel2 = Fir(input1.tw([-0.01, 0.01]))
-        rel3 = Fir(input1.tw([-0.02, 0.02]))
-        fun = Output("out-net", rel1 + rel2 + rel3)
-
-        test = Modely(visualizer=None)
-        test.addModel("fun", fun)
-        test.addMinimize("out", output.z(-1), fun)
-        test.neuralizeModel(0.01)
-
-        data_struct = [
-            "x1",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            "A1x",
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            "A2x",
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            "in1",
-            "in2",
-            "time",
-        ]
-        test.loadData(
-            name="dataset",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        self.assertEqual((9, 7, 1), test._data["dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977], [0.973], [0.969]],
-            test._data["dataset"]["in1"][0].tolist(),
-        )
-
-        self.assertEqual((9, 1, 1), test._data["dataset"]["out"].shape)
-        self.assertEqual(
-            [
-                [[1.225]],
-                [[1.224]],
-                [[1.222]],
-                [[1.22]],
-                [[1.217]],
-                [[1.214]],
-                [[1.211]],
-                [[1.207]],
-                [[1.204]],
-            ],
-            test._data["dataset"]["out"].tolist(),
-        )
-
-    def test_filter_data(self):
-        NeuObj.clearNames()
-        input1 = Input("in1")
-        output = Input("out")
-        rel1 = Fir(input1.tw(0.05))
-        rel2 = Fir(input1.tw([-0.01, 0.01]))
-        rel3 = Fir(input1.tw([-0.02, 0.02]))
-        fun = Output("out-net", rel1 + rel2 + rel3)
-
-        test = Modely(visualizer=None)
-        test.addModel("fun", fun)
-        test.addMinimize("out", output.z(-1), fun)
-        test.neuralizeModel(0.01)
-
-        data_struct = [
-            "x1",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            "A1x",
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            "A2x",
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            "in1",
-            "in2",
-            "time",
-        ]
-        test.loadData(
-            name="dataset",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-
-        def filter_fn(sample):
-            return min(sample["in1"]) > 0.957
-
-        test.filterData(filter_fn)
-
-        self.assertEqual((2, 7, 1), test._data["dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977], [0.973], [0.969]],
-            test._data["dataset"]["in1"][0].tolist(),
-        )
-
-        self.assertEqual((2, 1, 1), test._data["dataset"]["out"].shape)
-        self.assertEqual([[[1.225]], [[1.224]]], test._data["dataset"]["out"].tolist())
-
-        test.loadData(
-            name="dataset2",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        test.filterData(filter_fn, dataset_name="dataset2")
-        self.assertEqual((2, 7, 1), test._data["dataset2"]["in1"].shape)
-        self.assertEqual((2, 1, 1), test._data["dataset2"]["out"].shape)
-
-    def test_build_dataset_complex6(self):
-        NeuObj.clearNames()
-        input1 = Input("in1")
-        output = Input("out")
-        rel1 = Fir(input1.tw(0.05))
-        rel2 = Fir(input1.tw([-0.01, 0.02]))
-        rel3 = Fir(input1.tw([-0.05, 0.01]))
-        fun = Output("out-net", rel1 + rel2 + rel3)
-
-        test = Modely(visualizer=None)
-        test.addModel("fun", fun)
-        test.addMinimize("out", output.z(-1), fun)
-        test.neuralizeModel(0.01)
-
-        data_struct = [
-            "x1",
-            "y1",
-            "x2",
-            "y2",
-            "",
-            "A1x",
-            "A1y",
-            "B1x",
-            "B1y",
-            "",
-            "A2x",
-            "A2y",
-            "B2x",
-            "out",
-            "",
-            "x3",
-            "in1",
-            "in2",
-            "time",
-        ]
-        test.loadData(
-            name="dataset",
-            source=train_folder,
-            format=data_struct,
-            skiplines=4,
-            delimiter="\t",
-            header=None,
-        )
-        self.assertEqual((9, 7, 1), test._data["dataset"]["in1"].shape)
-        self.assertEqual(
-            [[0.984], [0.983], [0.982], [0.98], [0.977], [0.973], [0.969]],
-            test._data["dataset"]["in1"][0].tolist(),
-        )
-
-        self.assertEqual((9, 1, 1), test._data["dataset"]["out"].shape)
-        self.assertEqual(
-            [
-                [[1.225]],
-                [[1.224]],
-                [[1.222]],
-                [[1.22]],
-                [[1.217]],
-                [[1.214]],
-                [[1.211]],
-                [[1.207]],
-                [[1.204]],
-            ],
-            test._data["dataset"]["out"].tolist(),
-        )
-
-    def test_build_dataset_custom(self):
-        NeuObj.clearNames()
-        input1 = Input("in1")
-        output = Input("out")
-        rel1 = Fir(input1.tw(0.05))
-        rel2 = Fir(input1.tw([-0.01, 0.02]))
-        rel3 = Fir(input1.tw([-0.05, 0.01]))
-        fun = Output("out-net", rel1 + rel2 + rel3)
-
-        test = Modely(visualizer=None)
-        test.addModel("fun", fun)
-        test.addMinimize("out", output.z(-1), fun)
-        test.neuralizeModel(0.01)
+_SAMPLES_DIR = os.path.join(os.path.dirname(__file__), "datasets")
+_SAMPLES_FORMAT = {"samples_x": "data_1", "samples_y": "data_3"}
 
-        data_x = np.array(range(10))
-        data_a = 2
-        data_b = -3
-        dataset = {"in1": data_x, "out": (data_a * data_x) + data_b}
 
-        test.loadData(name="dataset", source=dataset)
-        self.assertEqual((4, 7, 1), test._data["dataset"]["in1"].shape)
-        self.assertEqual(
-            [
-                [[0], [1], [2], [3], [4], [5], [6]],
-                [[1], [2], [3], [4], [5], [6], [7]],
-                [[2], [3], [4], [5], [6], [7], [8]],
-                [[3], [4], [5], [6], [7], [8], [9]],
-            ],
-            test._data["dataset"]["in1"].tolist(),
-        )
-
-        self.assertEqual((4, 1, 1), test._data["dataset"]["out"].shape)
-        self.assertEqual(
-            [[[7]], [[9]], [[11]], [[13]]], test._data["dataset"]["out"].tolist()
-        )
-
-    def test_build_multi_dataset_custom(self):
-        NeuObj.clearNames()
-        input1 = Input("in1")
-        output = Input("out")
-        rel1 = Fir(input1.tw(0.05))
-        rel2 = Fir(input1.tw([-0.01, 0.02]))
-        rel3 = Fir(input1.tw([-0.05, 0.01]))
-        fun = Output("out-net", rel1 + rel2 + rel3)
-
-        test = Modely(visualizer=None)
-        test.addModel("fun", fun)
-        test.addMinimize("out", output.z(-1), fun)
-        test.neuralizeModel(0.01)
-
-        train_data_x = np.array(range(10))
-        val_data_x = np.array(range(10, 20))
-        test_data_x = np.array(range(20, 30))
-        data_a = 2
-        data_b = -3
-        train_dataset = {"in1": train_data_x, "out": (data_a * train_data_x) + data_b}
-        val_dataset = {"in1": val_data_x, "out": (data_a * val_data_x) + data_b}
-        test_dataset = {"in1": test_data_x, "out": (data_a * test_data_x) + data_b}
-
-        test.loadData(name="train_dataset", source=train_dataset)
-        test.loadData(name="val_dataset", source=val_dataset)
-        test.loadData(name="test_dataset", source=test_dataset)
-
-        self.assertEqual(3, test._Loader__n_datasets)
-
-        self.assertEqual((4, 7, 1), test._data["train_dataset"]["in1"].shape)
-        self.assertEqual(
-            [
-                [[0], [1], [2], [3], [4], [5], [6]],
-                [[1], [2], [3], [4], [5], [6], [7]],
-                [[2], [3], [4], [5], [6], [7], [8]],
-                [[3], [4], [5], [6], [7], [8], [9]],
-            ],
-            test._data["train_dataset"]["in1"].tolist(),
-        )
-        self.assertEqual((4, 7, 1), test._data["val_dataset"]["in1"].shape)
-        self.assertEqual(
-            [
-                [[10], [11], [12], [13], [14], [15], [16]],
-                [[11], [12], [13], [14], [15], [16], [17]],
-                [[12], [13], [14], [15], [16], [17], [18]],
-                [[13], [14], [15], [16], [17], [18], [19]],
-            ],
-            test._data["val_dataset"]["in1"].tolist(),
-        )
-        self.assertEqual((4, 7, 1), test._data["test_dataset"]["in1"].shape)
-        self.assertEqual(
-            [
-                [[20], [21], [22], [23], [24], [25], [26]],
-                [[21], [22], [23], [24], [25], [26], [27]],
-                [[22], [23], [24], [25], [26], [27], [28]],
-                [[23], [24], [25], [26], [27], [28], [29]],
-            ],
-            test._data["test_dataset"]["in1"].tolist(),
-        )
-
-        self.assertEqual((4, 1, 1), test._data["train_dataset"]["out"].shape)
-        self.assertEqual(
-            [[[7]], [[9]], [[11]], [[13]]], test._data["train_dataset"]["out"].tolist()
-        )
-        self.assertEqual((4, 1, 1), test._data["val_dataset"]["out"].shape)
-        self.assertEqual(
-            [[[27]], [[29]], [[31]], [[33]]], test._data["val_dataset"]["out"].tolist()
-        )
-        self.assertEqual((4, 1, 1), test._data["test_dataset"]["out"].shape)
-        self.assertEqual(
-            [[[47]], [[49]], [[51]], [[53]]], test._data["test_dataset"]["out"].tolist()
-        )
-
-    def test_vector_input_dataset(self):
-        NeuObj.clearNames()
-        x = Input("x", dimensions=4)
-        y = Input("y", dimensions=3)
-        k = Input("k", dimensions=2)
-        w = Input("w")
-
-        out = Output("out", Fir(Linear(Linear(3)(x.tw(0.02)) + y.tw(0.02))))
-        out2 = Output("out2", Fir(Linear(k.last() + Fir(2)(w.tw(0.05, offset=-0.02)))))
-
-        test = Modely(visualizer=None)
-        test.addMinimize("out", out, out2)
-        test.neuralizeModel(0.01)
-
-        ## Custom dataset
-        data_x = np.transpose(
-            np.array(
-                [
-                    np.linspace(1, 100, 100, dtype=np.float32),
-                    np.linspace(2, 101, 100, dtype=np.float32),
-                    np.linspace(3, 102, 100, dtype=np.float32),
-                    np.linspace(4, 103, 100, dtype=np.float32),
-                ]
-            )
-        )
-        data_y = np.transpose(
-            np.array(
-                [
-                    np.linspace(1, 100, 100, dtype=np.float32) + 10,
-                    np.linspace(2, 101, 100, dtype=np.float32) + 10,
-                    np.linspace(3, 102, 100, dtype=np.float32) + 10,
-                ]
-            )
-        )
-        data_k = np.transpose(
-            np.array(
-                [
-                    np.linspace(1, 100, 100, dtype=np.float32) + 20,
-                    np.linspace(2, 101, 100, dtype=np.float32) + 20,
-                ]
-            )
-        )
-        data_w = np.linspace(1, 100, 100, dtype=np.float32) + 30
-        dataset = {"x": data_x, "y": data_y, "w": data_w, "k": data_k}
-
-        test.loadData(name="dataset", source=dataset)
-
-        self.assertEqual((96, 2, 4), test._data["dataset"]["x"].shape)
-        self.assertEqual((96, 2, 3), test._data["dataset"]["y"].shape)
-        self.assertEqual((96, 1, 2), test._data["dataset"]["k"].shape)
-        self.assertEqual((96, 5, 1), test._data["dataset"]["w"].shape)
-
-        self.assertEqual(
-            [[4.0, 5.0, 6.0, 7.0], [5.0, 6.0, 7.0, 8.0]],
-            test._data["dataset"]["x"][0].tolist(),
-        )
-        self.assertEqual(
-            [[5.0, 6.0, 7.0, 8.0], [6.0, 7.0, 8.0, 9.0]],
-            test._data["dataset"]["x"][1].tolist(),
-        )
-        self.assertEqual(
-            [[99, 100, 101, 102], [100, 101, 102, 103]],
-            test._data["dataset"]["x"][-1].tolist(),
-        )
-        self.assertEqual(
-            [[98, 99, 100, 101], [99, 100, 101, 102]],
-            test._data["dataset"]["x"][-2].tolist(),
-        )
-
-        self.assertEqual(
-            [[14.0, 15.0, 16.0], [15.0, 16.0, 17.0]],
-            test._data["dataset"]["y"][0].tolist(),
-        )
-        self.assertEqual(
-            [[15.0, 16.0, 17.0], [16.0, 17.0, 18.0]],
-            test._data["dataset"]["y"][1].tolist(),
-        )
-        self.assertEqual(
-            [[109, 110, 111], [110, 111, 112]], test._data["dataset"]["y"][-1].tolist()
-        )
-        self.assertEqual(
-            [[108, 109, 110], [109, 110, 111]], test._data["dataset"]["y"][-2].tolist()
-        )
-
-        self.assertEqual([[25.0, 26.0]], test._data["dataset"]["k"][0].tolist())
-        self.assertEqual([[26.0, 27.0]], test._data["dataset"]["k"][1].tolist())
-        self.assertEqual([[120, 121]], test._data["dataset"]["k"][-1].tolist())
-        self.assertEqual([[119, 120]], test._data["dataset"]["k"][-2].tolist())
-
-        self.assertEqual(
-            [[31], [32], [33], [34], [35]], test._data["dataset"]["w"][0].tolist()
-        )
-        self.assertEqual(
-            [[32], [33], [34], [35], [36]], test._data["dataset"]["w"][1].tolist()
-        )
-        self.assertEqual(
-            [[126], [127], [128], [129], [130]], test._data["dataset"]["w"][-1].tolist()
-        )
-        self.assertEqual(
-            [[125], [126], [127], [128], [129]], test._data["dataset"]["w"][-2].tolist()
-        )
-
-    def test_vector_input_dataset_files(self):
-        NeuObj.clearNames()
-        x = Input("x", dimensions=4)
-        y = Input("y", dimensions=3)
-        k = Input("k", dimensions=2)
-        w = Input("w")
-
-        out = Output("out", Fir(Linear(Linear(3)(x.tw(0.02)) + y.tw(0.02))))
-        out2 = Output("out2", Fir(Linear(k.last() + Fir(2)(w.tw(0.05, offset=-0.02)))))
-
-        test = Modely(visualizer=None)
-        test.addMinimize("out", out, out2)
-        test.neuralizeModel(0.01)
-
-        data_folder = os.path.join(os.path.dirname(__file__), "vector_data/")
-        data_struct = ["x", "y", "", "", "", "", "k", "", "", "", "w"]
-        test.loadData(
-            name="dataset",
-            source=data_folder,
-            format=data_struct,
-            skiplines=1,
-            delimiter="\t",
-            header=None,
-        )
-
-        self.assertEqual((22, 2, 4), test._data["dataset"]["x"].shape)
-        self.assertEqual((22, 2, 3), test._data["dataset"]["y"].shape)
-        self.assertEqual((22, 1, 2), test._data["dataset"]["k"].shape)
-        self.assertEqual((22, 5, 1), test._data["dataset"]["w"].shape)
-
-        self.assertEqual(
-            [[0.804, 0.825, 0.320, 0.488], [0.805, 0.825, 0.322, 0.485]],
-            test._data["dataset"]["x"][0].tolist(),
-        )
-        self.assertEqual(
-            [[0.805, 0.825, 0.322, 0.485], [0.806, 0.824, 0.325, 0.481]],
-            test._data["dataset"]["x"][1].tolist(),
-        )
-        self.assertEqual(
-            [[0.806, 0.824, 0.325, 0.481], [0.807, 0.823, 0.329, 0.477]],
-            test._data["dataset"]["x"][-1].tolist(),
-        )
-        self.assertEqual(
-            [[0.805, 0.825, 0.322, 0.485], [0.806, 0.824, 0.325, 0.481]],
-            test._data["dataset"]["x"][-2].tolist(),
-        )
-
-        self.assertEqual(
-            [[0.350, 1.375, 0.586], [0.350, 1.375, 0.585]],
-            test._data["dataset"]["y"][0].tolist(),
-        )
-        self.assertEqual(
-            [[0.350, 1.375, 0.585], [0.350, 1.375, 0.584]],
-            test._data["dataset"]["y"][1].tolist(),
-        )
-        self.assertEqual(
-            [[0.350, 1.375, 0.584], [0.350, 1.375, 0.582]],
-            test._data["dataset"]["y"][-1].tolist(),
-        )
-        self.assertEqual(
-            [[0.350, 1.375, 0.585], [0.350, 1.375, 0.584]],
-            test._data["dataset"]["y"][-2].tolist(),
-        )
-
-        self.assertEqual([[0.714, 1.227]], test._data["dataset"]["k"][0].tolist())
-        self.assertEqual([[0.712, 1.225]], test._data["dataset"]["k"][1].tolist())
-        self.assertEqual([[0.710, 1.224]], test._data["dataset"]["k"][-1].tolist())
-        self.assertEqual([[0.712, 1.225]], test._data["dataset"]["k"][-2].tolist())
-
-        self.assertEqual(
-            [[12.493], [12.493], [12.495], [12.498], [12.502]],
-            test._data["dataset"]["w"][0].tolist(),
-        )
-        self.assertEqual(
-            [[12.493], [12.495], [12.498], [12.502], [12.508]],
-            test._data["dataset"]["w"][1].tolist(),
-        )
-        self.assertEqual(
-            [[12.495], [12.498], [12.502], [12.508], [12.515]],
-            test._data["dataset"]["w"][-1].tolist(),
-        )
-        self.assertEqual(
-            [[12.493], [12.495], [12.498], [12.502], [12.508]],
-            test._data["dataset"]["w"][-2].tolist(),
-        )
-
-        ## Load from file
-        ## Try to train the model
-        # test.trainModel(splits=[80, 10, 10],
-        #                 training_params={'num_of_epochs': 100, 'train_batch_size': 4, 'test_batch_size': 4})
-
-    def test_multifiles(self):
-        NeuObj.clearNames()
-        x = Input("x")
-        relation = Fir()(x.tw(0.05))
-        relation.closedLoop(x)
-        output = Output("out", relation)
-
-        test = Modely(visualizer=None, log_internal=True)
-        test.addModel("model", output)
-        test.addMinimize("error", output, x.next())
-        test.neuralizeModel(0.01)
-
-        ## The folder contains 3 files with 10, 20 and 30 samples respectively
-        data_struct = ["x"]
-        ## each folder contains 3 files with 10, 20 and 30 samples respectively
-        data_folder = os.path.join(os.path.dirname(__file__), "multifile/")
-        data_folder2 = os.path.join(os.path.dirname(__file__), "multifile2/")
-        ## this folder contains only one file with 50 samples
-        data_folder3 = os.path.join(os.path.dirname(__file__), "multifile3/")
-        test.loadData(
-            name="dataset1", source=data_folder, format=data_struct, skiplines=1
-        )
-        test.loadData(
-            name="dataset2", source=data_folder2, format=data_struct, skiplines=1
-        )
-        test.loadData(
-            name="dataset3", source=data_folder3, format=data_struct, skiplines=1
-        )
-
-        self.assertListEqual(list(test._data["dataset1"]["x"].shape), [45, 6, 1])
-        self.assertListEqual(test._multifile["dataset1"], [5, 20, 45])
-        self.assertListEqual(list(test._data["dataset2"]["x"].shape), [45, 6, 1])
-        self.assertListEqual(test._multifile["dataset2"], [5, 20, 45])
-        self.assertListEqual(list(test._data["dataset3"]["x"].shape), [45, 6, 1])
-        self.assertEqual(test._num_of_samples["dataset1"], 45)  ## 5 + 15 + 25
-        self.assertEqual(test._num_of_samples["dataset2"], 45)  ## 5 + 15 + 25
-        self.assertEqual(test._num_of_samples["dataset3"], 45)  ## 50 - 5
-
-        ## train one dataset using splits
-        test.trainModel(
-            dataset="dataset1",
-            splits=[80, 10, 10],
-            prediction_samples=3,
-            num_of_epochs=1,
-        )
-        tp = test.getTrainingInfo()
-
-        self.assertEqual(tp["n_samples_train"], 36)  ## 45 * 0.8
-        self.assertEqual(tp["n_samples_val"], 4)  ## 45 * 0.1
-        self.assertEqual(tp["n_samples_test"], 5)  ## 45 * 0.1
-        self.assertEqual(
-            test.running_parameters["train_indexes"],
-            [
-                0,
-                1,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12,
-                13,
-                14,
-                15,
-                16,
-                20,
-                21,
-                22,
-                23,
-                24,
-                25,
-                26,
-                27,
-                28,
-                29,
-                30,
-                31,
-                32,
-            ],
-        )
-        self.assertEqual(test.running_parameters["val_indexes"], [0])
-
-        ## train using one dataset for train and one for validation
-        test.trainModel(
-            train_dataset="dataset1",
-            validation_dataset="dataset2",
-            prediction_samples=3,
-            num_of_epochs=1,
-        )
-        tp = test.getTrainingInfo()
-
-        self.assertEqual(tp["n_samples_train"], 45)
-        self.assertEqual(tp["n_samples_val"], 45)
-        self.assertEqual(tp["n_samples_test"], 0)
-        self.assertEqual(
-            test.running_parameters["train_indexes"],
-            [
-                0,
-                1,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12,
-                13,
-                14,
-                15,
-                16,
-                20,
-                21,
-                22,
-                23,
-                24,
-                25,
-                26,
-                27,
-                28,
-                29,
-                30,
-                31,
-                32,
-                33,
-                34,
-                35,
-                36,
-                37,
-                38,
-                39,
-                40,
-                41,
-            ],
-        )
-        self.assertEqual(
-            test.running_parameters["val_indexes"],
-            [
-                0,
-                1,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12,
-                13,
-                14,
-                15,
-                16,
-                20,
-                21,
-                22,
-                23,
-                24,
-                25,
-                26,
-                27,
-                28,
-                29,
-                30,
-                31,
-                32,
-                33,
-                34,
-                35,
-                36,
-                37,
-                38,
-                39,
-                40,
-                41,
-            ],
-        )
-
-        ## train using two dataset for train and one for validation
-        test.trainModel(
-            train_dataset=["dataset1", "dataset2"],
-            validation_dataset="dataset3",
-            prediction_samples=3,
-            num_of_epochs=1,
-        )
-        tp = test.getTrainingInfo()
-
-        self.assertEqual(tp["n_samples_train"], 90)  ## 45 + 45
-        self.assertEqual(tp["n_samples_val"], 45)
-        self.assertEqual(tp["n_samples_test"], 0)
-        self.assertEqual(
-            test.running_parameters["train_indexes"],
-            [
-                0,
-                1,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12,
-                13,
-                14,
-                15,
-                16,
-                20,
-                21,
-                22,
-                23,
-                24,
-                25,
-                26,
-                27,
-                28,
-                29,
-                30,
-                31,
-                32,
-                33,
-                34,
-                35,
-                36,
-                37,
-                38,
-                39,
-                40,
-                41,
-                45,
-                46,
-                50,
-                51,
-                52,
-                53,
-                54,
-                55,
-                56,
-                57,
-                58,
-                59,
-                60,
-                61,
-                65,
-                66,
-                67,
-                68,
-                69,
-                70,
-                71,
-                72,
-                73,
-                74,
-                75,
-                76,
-                77,
-                78,
-                79,
-                80,
-                81,
-                82,
-                83,
-                84,
-                85,
-                86,
-            ],
-        )
-        self.assertEqual(
-            test.running_parameters["val_indexes"],
-            [
-                0,
-                1,
-                2,
-                3,
-                4,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12,
-                13,
-                14,
-                15,
-                16,
-                17,
-                18,
-                19,
-                20,
-                21,
-                22,
-                23,
-                24,
-                25,
-                26,
-                27,
-                28,
-                29,
-                30,
-                31,
-                32,
-                33,
-                34,
-                35,
-                36,
-                37,
-                38,
-                39,
-                40,
-                41,
-            ],
-        )
+def _samples_model():
+    """pred = 2 * x[t] from a 3-sample window of x, against y[t + 1]."""
+    from nnodely import Parameter
 
-        ## train using two dataset for train and two for validation
-        test.trainModel(
-            train_dataset=["dataset1", "dataset2"],
-            validation_dataset=["dataset2", "dataset3"],
-            prediction_samples=3,
-            num_of_epochs=1,
-        )
-        tp = test.getTrainingInfo()
+    x = Input("samples_x")
+    y = Input("samples_y")
+    window = x.sw(3)
+    pred = Output("samples_pred", x.last() * Parameter(value=[2.0]))
+    model = Modely(
+        "samples_model", inputs=[x, y], outputs=[pred, Output("samples_window", window)]
+    )
+    model.minimize("error", pred, y.next())
+    return model.build()
 
-        self.assertEqual(tp["n_samples_train"], 90)  ## 45 + 45
-        self.assertEqual(tp["n_samples_val"], 90)
-        self.assertEqual(tp["n_samples_test"], 0)
-        self.assertEqual(
-            test.running_parameters["train_indexes"],
-            [
-                0,
-                1,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12,
-                13,
-                14,
-                15,
-                16,
-                20,
-                21,
-                22,
-                23,
-                24,
-                25,
-                26,
-                27,
-                28,
-                29,
-                30,
-                31,
-                32,
-                33,
-                34,
-                35,
-                36,
-                37,
-                38,
-                39,
-                40,
-                41,
-                45,
-                46,
-                50,
-                51,
-                52,
-                53,
-                54,
-                55,
-                56,
-                57,
-                58,
-                59,
-                60,
-                61,
-                65,
-                66,
-                67,
-                68,
-                69,
-                70,
-                71,
-                72,
-                73,
-                74,
-                75,
-                76,
-                77,
-                78,
-                79,
-                80,
-                81,
-                82,
-                83,
-                84,
-                85,
-                86,
-            ],
-        )
-        self.assertEqual(
-            test.running_parameters["val_indexes"],
-            [
-                0,
-                1,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12,
-                13,
-                14,
-                15,
-                16,
-                20,
-                21,
-                22,
-                23,
-                24,
-                25,
-                26,
-                27,
-                28,
-                29,
-                30,
-                31,
-                32,
-                33,
-                34,
-                35,
-                36,
-                37,
-                38,
-                39,
-                40,
-                41,
-                45,
-                46,
-                47,
-                48,
-                49,
-                50,
-                51,
-                52,
-                53,
-                54,
-                55,
-                56,
-                57,
-                58,
-                59,
-                60,
-                61,
-                62,
-                63,
-                64,
-                65,
-                66,
-                67,
-                68,
-                69,
-                70,
-                71,
-                72,
-                73,
-                74,
-                75,
-                76,
-                77,
-                78,
-                79,
-                80,
-                81,
-                82,
-                83,
-                84,
-                85,
-                86,
-            ],
-        )
 
-        ## train using two dataset for train and two for validation (dataset4 is ignored)
-        test.trainModel(
-            train_dataset=["dataset1", "dataset2"],
-            validation_dataset=["dataset2", "dataset3", "dataset4"],
-            num_of_epochs=1,
-            prediction_samples=3,
-        )
-        tp = test.getTrainingInfo()
+def _raw(name):
+    import pandas as pd
 
-        self.assertEqual(tp["n_samples_train"], 90)  ## 45 + 45
-        self.assertEqual(tp["n_samples_val"], 90)
-        self.assertEqual(tp["n_samples_test"], 0)
-        self.assertEqual(
-            test.running_parameters["train_indexes"],
-            [
-                0,
-                1,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12,
-                13,
-                14,
-                15,
-                16,
-                20,
-                21,
-                22,
-                23,
-                24,
-                25,
-                26,
-                27,
-                28,
-                29,
-                30,
-                31,
-                32,
-                33,
-                34,
-                35,
-                36,
-                37,
-                38,
-                39,
-                40,
-                41,
-                45,
-                46,
-                50,
-                51,
-                52,
-                53,
-                54,
-                55,
-                56,
-                57,
-                58,
-                59,
-                60,
-                61,
-                65,
-                66,
-                67,
-                68,
-                69,
-                70,
-                71,
-                72,
-                73,
-                74,
-                75,
-                76,
-                77,
-                78,
-                79,
-                80,
-                81,
-                82,
-                83,
-                84,
-                85,
-                86,
-            ],
-        )
-        self.assertEqual(
-            test.running_parameters["val_indexes"],
-            [
-                0,
-                1,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12,
-                13,
-                14,
-                15,
-                16,
-                20,
-                21,
-                22,
-                23,
-                24,
-                25,
-                26,
-                27,
-                28,
-                29,
-                30,
-                31,
-                32,
-                33,
-                34,
-                35,
-                36,
-                37,
-                38,
-                39,
-                40,
-                41,
-                45,
-                46,
-                47,
-                48,
-                49,
-                50,
-                51,
-                52,
-                53,
-                54,
-                55,
-                56,
-                57,
-                58,
-                59,
-                60,
-                61,
-                62,
-                63,
-                64,
-                65,
-                66,
-                67,
-                68,
-                69,
-                70,
-                71,
-                72,
-                73,
-                74,
-                75,
-                76,
-                77,
-                78,
-                79,
-                80,
-                81,
-                82,
-                83,
-                84,
-                85,
-                86,
-            ],
-        )
+    return pd.read_csv(os.path.join(_SAMPLES_DIR, name))
 
-        ## Use all datasets by default
-        test.trainModel(splits=[80, 10, 10], prediction_samples=3)
-        tp = test.getTrainingInfo()
 
-        self.assertEqual(tp["n_samples_train"], 108)  ## (45+45+45) * 0.8
-        self.assertEqual(tp["n_samples_val"], 14)  ## 135 * 0.1
-        self.assertEqual(tp["n_samples_test"], 13)  ## 135 * 0.1
-        self.assertEqual(
-            test.running_parameters["train_indexes"],
-            [
-                0,
-                1,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12,
-                13,
-                14,
-                15,
-                16,
-                20,
-                21,
-                22,
-                23,
-                24,
-                25,
-                26,
-                27,
-                28,
-                29,
-                30,
-                31,
-                32,
-                33,
-                34,
-                35,
-                36,
-                37,
-                38,
-                39,
-                40,
-                41,
-                45,
-                46,
-                50,
-                51,
-                52,
-                53,
-                54,
-                55,
-                56,
-                57,
-                58,
-                59,
-                60,
-                61,
-                65,
-                66,
-                67,
-                68,
-                69,
-                70,
-                71,
-                72,
-                73,
-                74,
-                75,
-                76,
-                77,
-                78,
-                79,
-                80,
-                81,
-                82,
-                83,
-                84,
-                85,
-                86,
-                90,
-                91,
-                92,
-                93,
-                94,
-                95,
-                96,
-                97,
-                98,
-                99,
-                100,
-                101,
-                102,
-                103,
-                104,
-            ],
-        )
-        self.assertEqual(
-            test.running_parameters["val_indexes"], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        )
+def test_get_samples_returns_consecutive_windows_of_one_simulation():
+    data = DataLoader(_samples_model(), source=_SAMPLES_DIR, format=_SAMPLES_FORMAT)
+    raw = _raw("test2.csv")
 
-        ## splits multifile
-        test.trainModel(
-            dataset=["dataset1", "dataset2", "dataset3"],
-            splits=[80, 10, 10],
-            prediction_samples=3,
-        )
-        tp = test.getTrainingInfo()
+    samples = data.get_samples(4, start=2, simulation="test2.csv")
 
-        self.assertEqual(tp["n_samples_train"], 108)  ## (45+45+45) * 0.8
-        self.assertEqual(tp["n_samples_val"], 14)  ## 90 * 0.1
-        self.assertEqual(tp["n_samples_test"], 13)  ## 90 * 0.1
-        self.assertEqual(
-            test.running_parameters["train_indexes"],
-            [
-                0,
-                1,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12,
-                13,
-                14,
-                15,
-                16,
-                20,
-                21,
-                22,
-                23,
-                24,
-                25,
-                26,
-                27,
-                28,
-                29,
-                30,
-                31,
-                32,
-                33,
-                34,
-                35,
-                36,
-                37,
-                38,
-                39,
-                40,
-                41,
-                45,
-                46,
-                50,
-                51,
-                52,
-                53,
-                54,
-                55,
-                56,
-                57,
-                58,
-                59,
-                60,
-                61,
-                65,
-                66,
-                67,
-                68,
-                69,
-                70,
-                71,
-                72,
-                73,
-                74,
-                75,
-                76,
-                77,
-                78,
-                79,
-                80,
-                81,
-                82,
-                83,
-                84,
-                85,
-                86,
-                90,
-                91,
-                92,
-                93,
-                94,
-                95,
-                96,
-                97,
-                98,
-                99,
-                100,
-                101,
-                102,
-                103,
-                104,
-            ],
+    assert set(samples) == set(data.as_dict())
+    assert samples["samples_x"].shape == (4, 1, 3)
+    assert samples["samples_y"].shape == (4, 1, 1)
+    for i in range(4):
+        ## sample i ends on row start + i + 2; its next() is the row after
+        end = 2 + i + 2
+        np.testing.assert_array_equal(
+            samples["samples_x"][i].ravel(), raw["data_1"][end - 2 : end + 1]
         )
-        self.assertEqual(
-            test.running_parameters["val_indexes"], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        )
-
-        ## train one dataset using splits
-        test.trainModel(dataset="dataset1", splits=[80, 10, 10], num_of_epochs=1)
-        tp = test.getTrainingInfo()
+        assert samples["samples_y"][i].ravel()[0] == raw["data_3"][end + 1]
 
-        self.assertEqual(tp["n_samples_train"], 36)  ## 45 * 0.8
-        self.assertEqual(tp["n_samples_val"], 4)  ## 45 * 0.1
-        self.assertEqual(tp["n_samples_test"], 5)  ## 45 * 0.1
-        self.assertEqual(test.running_parameters["train_indexes"], list(range(36)))
-        self.assertEqual(test.running_parameters["val_indexes"], list(range(4)))
 
-        ## train using one dataset for train and one for validation
-        test.trainModel(
-            train_dataset="dataset1", validation_dataset="dataset2", num_of_epochs=1
-        )
-        tp = test.getTrainingInfo()
+def test_get_samples_picks_a_simulation_by_index_or_label():
+    data = DataLoader(_samples_model(), source=_SAMPLES_DIR, format=_SAMPLES_FORMAT)
 
-        self.assertEqual(tp["n_samples_train"], 45)
-        self.assertEqual(tp["n_samples_val"], 45)
-        self.assertEqual(tp["n_samples_test"], 0)
-        self.assertEqual(test.running_parameters["train_indexes"], list(range(45)))
-        self.assertEqual(test.running_parameters["val_indexes"], list(range(45)))
+    by_index = data.get_samples(3, simulation=1)
+    by_label = data.get_samples(3, simulation="test2.csv")
+    first = data.get_samples(3)
 
-        ## train using two dataset for train and one for validation
-        test.trainModel(
-            train_dataset=["dataset1", "dataset2"],
-            validation_dataset="dataset3",
-            num_of_epochs=1,
-        )
-        tp = test.getTrainingInfo()
+    for name in by_index:
+        np.testing.assert_array_equal(by_index[name], by_label[name])
+    ## simulation 0 is the first file read, and starts the concatenated dataset
+    for name, values in data.as_dict().items():
+        np.testing.assert_array_equal(first[name], values[:3])
 
-        self.assertEqual(tp["n_samples_train"], 90)  ## 45 + 45
-        self.assertEqual(tp["n_samples_val"], 45)
-        self.assertEqual(tp["n_samples_test"], 0)
-        self.assertEqual(test.running_parameters["train_indexes"], list(range(90)))
-        self.assertEqual(test.running_parameters["val_indexes"], list(range(45)))
 
-        ## train using two dataset for train and two for validation
-        test.trainModel(
-            train_dataset=["dataset1", "dataset2"],
-            validation_dataset=["dataset2", "dataset3"],
-            num_of_epochs=1,
-        )
-        tp = test.getTrainingInfo()
+def test_get_samples_never_crosses_into_the_next_simulation():
+    data = DataLoader(_samples_model(), source=_SAMPLES_DIR, format=_SAMPLES_FORMAT)
+    ## 10 rows, a 3-sample past window and one future sample leave 7 per file
+    assert len(data) == 14
 
-        self.assertEqual(tp["n_samples_train"], 90)  ## 45 + 45
-        self.assertEqual(tp["n_samples_val"], 90)
-        self.assertEqual(tp["n_samples_test"], 0)
-        self.assertEqual(test.running_parameters["train_indexes"], list(range(90)))
-        self.assertEqual(test.running_parameters["val_indexes"], list(range(90)))
+    assert data.get_samples(7)["samples_x"].shape[0] == 7
+    with pytest.raises(ValueError, match="has 7 samples"):
+        data.get_samples(8)
+    with pytest.raises(ValueError, match="has 7 samples"):
+        data.get_samples(3, start=5)
 
-        ## train using two dataset for train and two for validation (dataset4 is ignored)
-        test.trainModel(
-            train_dataset=["dataset1", "dataset2"],
-            validation_dataset=["dataset2", "dataset3", "dataset4"],
-            num_of_epochs=1,
-        )
-        tp = test.getTrainingInfo()
 
-        self.assertEqual(tp["n_samples_train"], 90)  ## 45 + 45
-        self.assertEqual(tp["n_samples_val"], 90)
-        self.assertEqual(tp["n_samples_test"], 0)
-        self.assertEqual(test.running_parameters["train_indexes"], list(range(90)))
-        self.assertEqual(test.running_parameters["val_indexes"], list(range(90)))
+def test_get_samples_rejects_invalid_requests():
+    data = DataLoader(_samples_model(), source=_SAMPLES_DIR, format=_SAMPLES_FORMAT)
 
-        ## splits multifile
-        test.trainModel(
-            dataset=["dataset1", "dataset2", "dataset3"], splits=[80, 10, 10]
-        )
-        tp = test.getTrainingInfo()
+    with pytest.raises(ValueError, match="positive integer"):
+        data.get_samples(0)
+    with pytest.raises(ValueError, match="missing.csv"):
+        data.get_samples(2, simulation="missing.csv")
+    with pytest.raises(IndexError, match="out of range"):
+        data.get_samples(2, simulation=2)
+    with pytest.raises(ValueError, match="starting at -1"):
+        data.get_samples(2, start=-1)
 
-        self.assertEqual(tp["n_samples_train"], 108)  ## (45+45+45) * 0.8
-        self.assertEqual(tp["n_samples_val"], 14)  ## 90 * 0.1
-        self.assertEqual(tp["n_samples_test"], 13)  ## 90 * 0.1
-        self.assertEqual(test.running_parameters["train_indexes"], list(range(108)))
-        self.assertEqual(test.running_parameters["val_indexes"], list(range(14)))
 
-    def test_multifiles_2(self):
-        NeuObj.clearNames()
-        x = Input("x")
-        y = Input("y")
-        relation = Fir()(x.tw(0.05)) + Fir(y.sw([-2, 2]))
-        relation.closedLoop(x)
-        output = Output("out", relation)
+def test_get_samples_follows_the_loader_step():
+    data = DataLoader(
+        _samples_model(), source=_SAMPLES_DIR, format=_SAMPLES_FORMAT, step=2
+    )
+    raw = _raw("test.csv")
 
-        test = Modely(visualizer=None, log_internal=True)
-        test.addModel("model", output)
-        test.addMinimize("error", output, x.next())
-        test.neuralizeModel(0.01)
+    samples = data.get_samples(3)
 
-        ## The folder contains 3 files with 10, 20 and 30 samples respectively
-        data_struct = ["x", "y"]
-        data_folder = os.path.join(os.path.dirname(__file__), "multifile/")
-        test.loadData(
-            name="dataset", source=data_folder, format=data_struct, skiplines=1
-        )
-        self.assertListEqual(list(test._data["dataset"]["x"].shape), [42, 6, 1])
-        self.assertListEqual(list(test._data["dataset"]["y"].shape), [42, 4, 1])
-        self.assertListEqual(test._multifile["dataset"], [4, 18, 42])
+    ## step=2 keeps every other window: they end on rows 2, 4 and 6
+    np.testing.assert_array_equal(
+        samples["samples_x"][:, 0, -1], raw["data_1"][[2, 4, 6]]
+    )
 
-    def test_dataframe_multidimensional(self):
-        import pandas as pd
 
-        NeuObj.clearNames()
-        x = Input("x", dimensions=4)
-        y = Input("y", dimensions=3)
-        k = Input("k", dimensions=2)
-        w = Input("w")
+def test_inference_on_get_samples_is_a_time_series():
+    model = _samples_model()
+    data = DataLoader(model, source=_SAMPLES_DIR, format=_SAMPLES_FORMAT)
+    raw = _raw("test.csv")
 
-        out = Output("out", Fir(Linear(Linear(3)(x.tw(0.02)) + y.tw(0.02))))
-        out2 = Output("out2", Fir(Linear(k.last() + Fir(2)(w.tw(0.05, offset=-0.02)))))
+    prediction = to_numpy(model(data.get_samples(5, start=1))["samples_pred"])
 
-        test = Modely(visualizer=None)
-        test.addMinimize("out", out, out2)
-        test.neuralizeModel(0.01)
+    ## one prediction per sample, in time order: 2 * x on rows 3 .. 7
+    assert prediction.shape == (5, 1, 1)
+    np.testing.assert_allclose(
+        prediction.ravel(), to_numpy(2.0 * raw["data_1"][3:8]), rtol=1e-6
+    )
 
-        # Create a DataFrame with random values for each input
-        df = pd.DataFrame(
-            {
-                "x": [np.array([1.0, 2.0, 3.0, 4.0]) for _ in range(10)],
-                "y": [np.array([5.0, 6.0, 7.0]) for _ in range(10)],
-                "k": [np.array([8.0, 9.0]) for _ in range(10)],
-                "w": np.array(
-                    [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0]
-                ),
-            }
-        )
 
-        test.loadData(name="dataset", source=df)
-        self.assertEqual((6, 2, 4), test._data["dataset"]["x"].shape)
-        self.assertEqual((6, 2, 3), test._data["dataset"]["y"].shape)
-        self.assertEqual((6, 1, 2), test._data["dataset"]["k"].shape)
-        self.assertEqual((6, 5, 1), test._data["dataset"]["w"].shape)
+# ------------------------------------------------------------------
+# CSV options go to pandas as they are
+# ------------------------------------------------------------------
 
-    def test_dataframe_single_dimension(self):
-        import pandas as pd
 
-        NeuObj.clearNames()
-        x = Input("x")
-        y = Input("y")
-        k = Input("k")
-        w = Input("w")
+def _csv_model():
+    x = Input("csv_x")
+    y = Input("csv_y")
+    return Modely(
+        "csv_model", inputs=[x, y], outputs=[Output("csv_out", x.last() + y.last())]
+    ).build()
 
-        out = Output("out", Fir(x.tw(0.02) + y.tw(0.02)))
-        out2 = Output("out2", Fir(k.last()) + Fir(w.tw(0.05, offset=-0.02)))
 
-        test = Modely(visualizer=None)
-        test.addMinimize("out", out, out2)
-        test.neuralizeModel(0.01)
+def _column_values(data, name):
+    return data.as_dict()[name].ravel().tolist()
 
-        # Create a DataFrame with random values for each input
-        df = pd.DataFrame(
-            {
-                "x": np.linspace(1, 100, 100, dtype=np.float32),
-                "y": np.linspace(1, 100, 100, dtype=np.float32),
-                "k": np.linspace(1, 100, 100, dtype=np.float32),
-                "w": np.linspace(1, 100, 100, dtype=np.float32),
-            }
-        )
 
-        test.loadData(name="dataset", source=df)
-        self.assertEqual((96, 2, 1), test._data["dataset"]["x"].shape)
-        self.assertEqual((96, 2, 1), test._data["dataset"]["y"].shape)
-        self.assertEqual((96, 1, 1), test._data["dataset"]["k"].shape)
-        self.assertEqual((96, 5, 1), test._data["dataset"]["w"].shape)
+def test_csv_delimiter_is_the_pandas_separator(tmp_path):
+    (tmp_path / "semicolon.csv").write_text(
+        "csv_x;csv_y\n1;10\n2;20\n3;30\n", encoding="utf-8"
+    )
 
-    def test_dataframe_resampling(self):
-        import pandas as pd
+    data = DataLoader(_csv_model(), source=tmp_path / "semicolon.csv", delimiter=";")
 
-        NeuObj.clearNames()
-        x = Input("x")
-        y = Input("y")
-        k = Input("k")
-        w = Input("w")
+    assert _column_values(data, "csv_x") == [1.0, 2.0, 3.0]
+    assert _column_values(data, "csv_y") == [10.0, 20.0, 30.0]
 
-        out = Output("out", Fir(x.tw(1.0) + y.tw(1.0)))
-        out2 = Output("out2", Fir(k.last()) + Fir(w.tw(2.5, offset=-1.0)))
 
-        test = Modely(visualizer=None)
-        test.addMinimize("out", out, out2)
-        test.neuralizeModel(0.5)
+def test_csv_without_a_header_row_keeps_its_first_row(tmp_path):
+    # Once read with the default header: the first row named the columns.
+    (tmp_path / "bare.csv").write_text("1,10\n2,20\n3,30\n", encoding="utf-8")
 
-        # Create a DataFrame with random values for each input
-        df = pd.DataFrame(
-            {
-                "time": np.array(
-                    [1.0, 1.5, 2.0, 4.0, 4.5, 5.0, 7.0, 7.5, 8.0, 8.5], dtype=np.float32
-                ),
-                "x": np.linspace(1, 10, 10, dtype=np.float32),
-                "y": np.linspace(1, 10, 10, dtype=np.float32),
-                "k": np.linspace(1, 10, 10, dtype=np.float32),
-                "w": np.linspace(1, 10, 10, dtype=np.float32),
-            }
-        )
+    data = DataLoader(
+        _csv_model(),
+        source=tmp_path / "bare.csv",
+        header=None,
+        format={"csv_x": 0, "csv_y": 1},
+    )
 
-        test.loadData(name="dataset1", source=df, resampling=True)
-        self.assertEqual((12, 2, 1), test._data["dataset1"]["x"].shape)
-        self.assertEqual((12, 2, 1), test._data["dataset1"]["y"].shape)
-        self.assertEqual((12, 1, 1), test._data["dataset1"]["k"].shape)
-        self.assertEqual((12, 5, 1), test._data["dataset1"]["w"].shape)
+    assert _column_values(data, "csv_x") == [1.0, 2.0, 3.0]
+    assert _column_values(data, "csv_y") == [10.0, 20.0, 30.0]
 
-        df["time"] = pd.to_datetime(df["time"], unit="s")
-        df = df.set_index("time", drop=True)
-        test.loadData(name="dataset2", source=df, resampling=True)
-        self.assertEqual((12, 2, 1), test._data["dataset2"]["x"].shape)
-        self.assertEqual((12, 2, 1), test._data["dataset2"]["y"].shape)
-        self.assertEqual((12, 1, 1), test._data["dataset2"]["k"].shape)
-        self.assertEqual((12, 5, 1), test._data["dataset2"]["w"].shape)
 
-        df2 = pd.DataFrame(
-            {
-                "x": np.linspace(1, 10, 10, dtype=np.float32),
-                "y": np.linspace(1, 10, 10, dtype=np.float32),
-                "k": np.linspace(1, 10, 10, dtype=np.float32),
-                "w": np.linspace(1, 10, 10, dtype=np.float32),
-            }
-        )
-        with self.assertRaises(TypeError):
-            test.loadData(name="dataset3", source=df2, resampling=True)
+def test_csv_header_can_follow_a_title_line(tmp_path):
+    (tmp_path / "titled.csv").write_text(
+        "bench run 3\ncsv_x,csv_y\n1,10\n2,20\n", encoding="utf-8"
+    )
 
-    def test_load_data_modalities(self):
-        import pandas as pd
+    data = DataLoader(_csv_model(), source=tmp_path / "titled.csv", header=1)
 
-        NeuObj.clearNames()
-        x = Input("x")
-        relation = Fir()(x.tw(0.05))
-        relation.closedLoop(x)
-        output = Output("out", relation)
+    assert _column_values(data, "csv_x") == [1.0, 2.0]
+    assert _column_values(data, "csv_y") == [10.0, 20.0]
 
-        test = Modely(visualizer=None, log_internal=True)
-        test.addModel("model", output)
-        test.addMinimize("error", output, x.next())
-        test.neuralizeModel(0.01)
 
-        ## Case 1: directory with files
-        data_struct = ["x"]
-        data_folder = os.path.join(os.path.dirname(__file__), "multifile/")
-        test.loadData(
-            name="dataset_directory",
-            source=data_folder,
-            format=data_struct,
-            skiplines=1,
-        )
-        self.assertListEqual(
-            list(test._data["dataset_directory"]["x"].shape), [45, 6, 1]
-        )
-        self.assertListEqual(test._multifile["dataset_directory"], [5, 20, 45])
+def test_na_cells_are_kept_as_nan_with_a_warning(tmp_path):
+    (tmp_path / "holes.csv").write_text(
+        "csv_x,csv_y\n1,10\nn/a,20\n3,\n", encoding="utf-8"
+    )
 
-        ## Case 2: dictionary
-        train_data_x = np.array(10 * [10] + 20 * [20] + 30 * [30], dtype=np.float32)
-        train_dataset = {
-            "x": train_data_x,
-            "time": np.array(range(60), dtype=np.float32),
-        }
-        test.loadData(
-            name="dataset_dictionary",
-            source=train_dataset,
-        )
-        self.assertListEqual(
-            list(test._data["dataset_dictionary"]["x"].shape), [55, 6, 1]
-        )
+    with pytest.warns(UserWarning) as caught:
+        data = DataLoader(_csv_model(), source=tmp_path / "holes.csv")
 
-        ## Case 3: pandas DataFrame
-        df = pd.DataFrame(
-            {
-                "time": np.array(range(60), dtype=np.float32),
-                "x": np.array(10 * [10] + 20 * [20] + 30 * [30], dtype=np.float32),
-            }
-        )
-        test.loadData(name="dataset_pandas", source=df, resampling=True)
-        self.assertListEqual(
-            list(test._data["dataset_pandas"]["x"].shape), [5896, 6, 1]
-        )
+    messages = {str(warning.message) for warning in caught}
+    assert "'holes.csv': input 'csv_x' has 1 n/a values, kept as NaN." in messages
+    assert "'holes.csv': input 'csv_y' has 1 n/a values, kept as NaN." in messages
+    assert np.isnan(_column_values(data, "csv_x")[1])
+    assert np.isnan(_column_values(data, "csv_y")[2])

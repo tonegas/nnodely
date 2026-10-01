@@ -1,7 +1,8 @@
 __pycache__
 .venv
-.idea/
-.vscode
+.idea/*
+.cursor/*
+.vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
 
@@ -9,8 +10,12 @@ results
 dist/
 docs/_build
 docs/out_docs
-experimental/
+html
 
 .DS_Store
 .coverage
 coverage.xml
+
+examples
+
+Claude.md

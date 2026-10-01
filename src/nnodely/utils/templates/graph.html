@@ -1,0 +1,508 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>{{ title }}</title>
+<style>
+    body {
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        margin: 0;
+        padding: 0;
+        background: #ffffff;
+        color: #111;
+    }
+    header {
+        padding: 12px 16px;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .header-left {
+        justify-self: start;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .header-right {
+        justify-self: end;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    header h1 {
+        font-size: 16px;
+        margin: 0;
+        font-weight: 600;
+    }
+    .legend {
+        margin-left: auto;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        font-size: 12px;
+        color: #444;
+        flex-wrap: wrap;
+    }
+    .swatch {
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        display: inline-block;
+        border: 1px solid #2c3e50;
+        margin-right: 6px;
+    }
+    .roll-arrow {
+        color: #e74c3c;
+        display: inline-block;
+        font-size: 17px;
+        font-weight: 700;
+        line-height: 10px;
+        margin-right: 5px;
+        vertical-align: -1px;
+    }
+    .toolbar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 16px;
+        border-bottom: 1px solid #eee;
+        background: #fbfbfb;
+        font-size: 12px;
+        flex-wrap: wrap;
+    }
+    #search {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 5px 9px;
+        font-size: 12px;
+        width: 220px;
+    }
+    #searchInfo {
+        color: #666;
+    }
+    .main {
+        display: flex;
+        width: 100%;
+        height: 86vh;
+    }
+    #network {
+        flex: 1 1 auto;
+        min-width: 0;
+        height: 100%;
+    }
+    #inspector {
+        width: 340px;
+        min-width: 340px;
+        max-width: 340px;
+        border-left: 1px solid #eee;
+        background: #fafafa;
+        overflow: auto;
+        padding: 14px;
+        box-sizing: border-box;
+    }
+    #inspector h2 {
+        font-size: 14px;
+        margin: 0 0 10px 0;
+        font-weight: 600;
+    }
+    #inspector .empty {
+        font-size: 12px;
+        color: #666;
+        line-height: 1.5;
+    }
+    #boundary {
+        border-bottom: 1px solid #e5e7eb;
+        padding-bottom: 12px;
+        margin-bottom: 14px;
+    }
+    .attr-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+        table-layout: fixed;
+    }
+    .attr-table th,
+    .attr-table td {
+        border: 1px solid #e5e7eb;
+        padding: 6px 8px;
+        text-align: left;
+        vertical-align: top;
+        word-break: break-word;
+    }
+    .attr-table th {
+        width: 34%;
+        background: #f3f4f6;
+        font-weight: 600;
+    }
+    .ports {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+        margin: 4px 0 10px 0;
+    }
+    .ports td {
+        border: 1px solid #e5e7eb;
+        padding: 4px 6px;
+        word-break: break-word;
+    }
+    .ports .role {
+        color: #666;
+        white-space: nowrap;
+        width: 1%;
+    }
+    .ports-title {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        color: #666;
+        margin-top: 10px;
+    }
+    .btn {
+        border: 1px solid #ddd;
+        background: #fafafa;
+        padding: 6px 10px;
+        border-radius: 10px;
+        cursor: pointer;
+        font-size: 12px;
+    }
+    .btn:hover {
+        background: #f2f2f2;
+    }
+    .crumb {
+        font-size: 12px;
+        color: #444;
+        text-decoration: none;
+        border-bottom: 1px dashed #bbb;
+    }
+    .crumb:hover {
+        color: #111;
+        border-bottom-color: #111;
+    }
+    .open-link {
+        display: inline-block;
+        margin-top: 10px;
+        font-size: 12px;
+        color: #2563eb;
+        text-decoration: none;
+    }
+    .open-link:hover {
+        text-decoration: underline;
+    }
+    .bottom-bar {
+        height: 4vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: #fff;
+    }
+    .toggle-btn {
+        border: 1px solid #ddd;
+        background: #3498db;
+        padding: 8px 14px 8px 14px;
+        border-radius: 12px;
+        cursor: pointer;
+        font-size: 16px;
+        color: #fafafa;
+        text-decoration: none;
+    }
+    .toggle-btn:hover {
+        background: #2563eb;
+    }
+</style>
+<script src="https://unpkg.com/vis-network@10.1.2/standalone/umd/vis-network.min.js"
+        integrity="sha384-RDdG1CLOxjNlTHh4JYx/rnAueaMHbkBHmeHwrEyljMQw3LF0it4SkuNotIY/FPxD"
+        crossorigin="anonymous"></script>
+</head>
+<body>
+<header>
+    <div class="header-left">
+        {{ logo }}
+        <h1>{{ title }}{{ title_suffix }}</h1>
+        {{ back_button }}
+    </div>
+    <div class="legend">
+        <span><span class="swatch" style="background:#2ecc71"></span>Input</span>
+        <span><span class="swatch" style="background:#e74c3c"></span>Output</span>
+        <span><span class="swatch" style="background:#3498db"></span>Submodel</span>
+        <span><span class="swatch" style="background:#ff9900"></span>Parameter</span>
+        <span><span class="swatch" style="background:#00e5ff"></span>Constant</span>
+        <span><span class="swatch" style="background:#95a5a6"></span>Relation</span>
+        <span><span class="swatch" style="background:#8e44ad"></span>Loss</span>
+        <span><span class="roll-arrow">→</span>Roll</span>
+    </div>
+    <div class="header-right">
+        <div class="bottom-bar">
+            {{ view_toggle }}
+        </div>
+    </div>
+</header>
+
+<div class="toolbar">
+    <input id="search" type="search" placeholder="Find node by name…" autocomplete="off"/>
+    <span id="searchInfo"></span>
+    <button id="layoutBtn" class="btn"></button>
+    <span id="graphInfo"></span>
+</div>
+
+<div class="main">
+    <div id="network"></div>
+    <aside id="inspector">
+        {{ boundary_section }}
+        <h2>Node details</h2>
+        <div id="inspectorContent" class="empty">
+            Click a node to inspect its attributes.
+        </div>
+    </aside>
+</div>
+
+<script>
+    const nodes = new vis.DataSet({{ nodes }});
+    const edges = new vis.DataSet({{ edges }});
+    const nodeDetails = {{ node_details }};
+    const boundary = {{ boundary }};
+
+    const container = document.getElementById('network');
+    const inspectorContent = document.getElementById('inspectorContent');
+    const data = { nodes, edges };
+
+    let hierarchical = {{ hierarchical }};
+    const springPhysics = {{ physics }};
+
+    function layoutOptions() {
+        return {
+            layout: {
+                improvedLayout: !hierarchical,
+                hierarchical: hierarchical
+                    ? {
+                        enabled: true,
+                        direction: 'LR',
+                        sortMethod: 'directed',
+                        nodeSpacing: 110,
+                        levelSeparation: 190,
+                        treeSpacing: 140,
+                        shakeTowards: 'roots'
+                    }
+                    : { enabled: false }
+            },
+            physics: hierarchical ? false : springPhysics,
+            edges: {
+                smooth: hierarchical ? { enabled: true, type: 'cubicBezier',
+                    forceDirection: 'horizontal', roundness: 0.4 } : springPhysics,
+                shadow: hierarchical ? false : springPhysics
+            }
+        };
+    }
+
+    const options = Object.assign({
+        autoResize: true,
+        interaction: {
+            hover: true,
+            tooltipDelay: 80,
+            multiselect: true,
+            navigationButtons: true,
+            keyboard: true
+        },
+        nodes: {
+            borderWidth: 1,
+            shadow: true
+        }
+    }, layoutOptions());
+    options.edges.font = { size: 10, align: "middle" };
+
+    const network = new vis.Network(container, data, options);
+
+    document.getElementById('graphInfo').textContent =
+        nodes.length + ' nodes · ' + edges.length + ' edges';
+
+    function escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function formatValue(value) {
+        if (value === null || value === undefined) return "";
+        if (typeof value === "object") {
+            return `<pre style="margin:0; white-space:pre-wrap;">${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+        }
+        return escapeHtml(String(value));
+    }
+
+    function focusNode(nodeId) {
+        if (!nodes.get(nodeId)) return;
+        network.selectNodes([nodeId]);
+        network.focus(nodeId, { scale: 1.1, animation: true });
+        renderInspector(nodeId);
+    }
+
+    function portRows(rows) {
+        return rows.map(row => `
+            <tr>
+                <td><a href="#" data-node="${escapeHtml(row.node)}">${escapeHtml(row.node)}</a></td>
+                <td>${escapeHtml(row.text)}</td>
+                <td class="role">${escapeHtml(row.role || "")}</td>
+            </tr>`).join("");
+    }
+
+    function portsHtml(ports) {
+        let html = "";
+        const detail = Object.entries(ports.detail || {})
+            .map(([key, value]) => `${escapeHtml(key)}: ${escapeHtml(String(value))}`)
+            .join(" · ");
+        html += `<div class="ports-title">${escapeHtml(ports.block)}${detail ? " — " + detail : ""}</div>`;
+
+        if (ports.inputs.length) {
+            html += '<div class="ports-title">Inputs</div><table class="ports">' +
+                portRows(ports.inputs.map(p => (
+                    { node: p.body, text: "\u2190 " + p.outer, role: p.role }
+                ))) + "</table>";
+        }
+        if (ports.feedback.length) {
+            html += '<div class="ports-title">Feedback</div><table class="ports">' +
+                portRows(ports.feedback.map(p => (
+                    { node: p.from, text: "\u2192 " + p.to, role: "closed" }
+                ))) + "</table>";
+        }
+        if (ports.outputs.length) {
+            html += '<div class="ports-title">Outputs</div><table class="ports">' +
+                portRows(ports.outputs.map(p => (
+                    { node: p.body, text: "\u2192 " + p.outer, role: "" }
+                ))) + "</table>";
+        }
+        return html;
+    }
+
+    function bindPortLinks(root) {
+        root.querySelectorAll('a[data-node]').forEach(link => {
+            link.addEventListener('click', event => {
+                event.preventDefault();
+                focusNode(link.getAttribute('data-node'));
+            });
+        });
+    }
+
+    if (boundary) {
+        const el = document.getElementById('boundaryContent');
+        el.innerHTML =
+            `<div class="empty">Body of <b>${escapeHtml(boundary.node)}</b> in ` +
+            `<a href="${escapeHtml(boundary.parent_rel)}">${escapeHtml(boundary.parent)}</a>.</div>` +
+            portsHtml(boundary.ports);
+        bindPortLinks(el);
+    }
+
+    function renderInspector(nodeId) {
+        const details = nodeDetails[nodeId];
+        const n = nodes.get(nodeId);
+
+        if (!details) {
+            inspectorContent.innerHTML = '<div class="empty">No details available for this node.</div>';
+            return;
+        }
+
+        const rows = Object.entries(details)
+            .filter(([key]) => key !== "block")
+            .map(([key, value]) => {
+            return `
+            <tr>
+                <th>${escapeHtml(key)}</th>
+                <td>${formatValue(value)}</td>
+            </tr>
+            `;
+        }).join("");
+
+        let extra = "";
+        if (n && n.url) {
+            extra = `<a class="open-link" href="${escapeHtml(n.url)}" target="{{ link_target }}">Open nested model</a>`;
+        }
+
+        inspectorContent.innerHTML = `
+            <table class="attr-table">
+                <tbody>${rows}</tbody>
+            </table>
+            ${details.block ? portsHtml(details.block) : ""}
+            ${extra}
+        `;
+        inspectorContent.querySelectorAll('a[data-node]').forEach(link => {
+            link.addEventListener('click', event => {
+                event.preventDefault();
+                focusNode(link.getAttribute('data-node'));
+            });
+        });
+    }
+
+    network.on("click", function(params) {
+        if (!params.nodes || params.nodes.length === 0) return;
+        const nodeId = params.nodes[0];
+        renderInspector(nodeId);
+    });
+
+    network.on("doubleClick", function(params) {
+        if (!params.nodes || params.nodes.length === 0) return;
+        const nodeId = params.nodes[0];
+        const n = nodes.get(nodeId);
+        if (n && n.url) {
+            const target = "{{ link_target }}";
+            if (target === "_blank") {
+                window.open(n.url, "_blank");
+            } else {
+                window.location.href = n.url;
+            }
+        }
+    });
+
+    const searchBox = document.getElementById("search");
+    const searchInfo = document.getElementById("searchInfo");
+    searchBox.addEventListener("input", () => {
+        const query = searchBox.value.trim().toLowerCase();
+        if (!query) {
+            searchInfo.textContent = "";
+            network.unselectAll();
+            return;
+        }
+        const matches = nodes.getIds().filter(
+            id => String(id).toLowerCase().includes(query));
+        searchInfo.textContent = matches.length + (matches.length === 1 ? " match" : " matches");
+        if (matches.length) {
+            network.selectNodes(matches);
+            network.fit({ nodes: matches, animation: true });
+            if (matches.length === 1) renderInspector(matches[0]);
+        }
+    });
+
+    const layoutBtn = document.getElementById("layoutBtn");
+    function refreshLayoutBtn() {
+        layoutBtn.textContent = hierarchical ? "Layout: hierarchical" : "Layout: force";
+    }
+    refreshLayoutBtn();
+    layoutBtn.addEventListener("click", () => {
+        hierarchical = !hierarchical;
+        refreshLayoutBtn();
+        const next = layoutOptions();
+        next.edges.font = { size: 10, align: "middle" };
+        network.setOptions(next);
+        network.fit({ animation: true });
+    });
+
+    const backBtn = document.getElementById("backBtn");
+    if (backBtn) {
+        backBtn.addEventListener("click", () => {
+            const parentUrl = {{ parent_rel }};
+            if (window.history.length > 1) {
+                window.history.back();
+            } else {
+                window.location.href = parentUrl;
+            }
+        });
+    }
+</script>
+</body>
+</html>
