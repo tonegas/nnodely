@@ -23,7 +23,7 @@ Common Stream operators:
   :meth:`~nnodely.basic.relation.Stream.sw` (sample window) and
   :meth:`~nnodely.basic.relation.Stream.tw` (time window). These are the
   primitives used by temporal building blocks (FIR, recurrent windows, etc.).
-  
+
 .. automodule:: nnodely.basic.relation
     :undoc-members:
     :no-inherited-members:

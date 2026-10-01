@@ -8,15 +8,15 @@ Welcome to nnodely's documentation!
 
 .. image:: https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/logo_white_info.png
      :target: https://github.com/tonegas/nnodely
-     :alt: Open 
+     :alt: Open
 
 
-*nnodely* is a framework designed to facilitate the creation and deployment of **Model-Structured Neural Networks** (**MSNNs**). 
-Modeling, control, and estimation of physical systems impose constraints that differ fundamentally from typical 
-deep-learning tasks (e.g., images or text). In engineering applications, models often need to respect 
-known physical laws or constraints, operate in real time, remain interpretable, and generalize reliably 
-even when only limited experimental data are available. MS-NNs combine the learning capabilities of neural 
-networks with structural priors grounded in physics, control and estimation theory, enabling: 
+*nnodely* is a framework designed to facilitate the creation and deployment of **Model-Structured Neural Networks** (**MSNNs**).
+Modeling, control, and estimation of physical systems impose constraints that differ fundamentally from typical
+deep-learning tasks (e.g., images or text). In engineering applications, models often need to respect
+known physical laws or constraints, operate in real time, remain interpretable, and generalize reliably
+even when only limited experimental data are available. MS-NNs combine the learning capabilities of neural
+networks with structural priors grounded in physics, control and estimation theory, enabling:
 
 
 - **Data Efficiency**: By embedding structural priors, MS-NNs can learn effectively from limited data, reducing the need for extensive datasets.
@@ -66,7 +66,7 @@ Overview
 
 
 .. sidebar:: Overview
-   
+
   Overview of the *nnodely* development pipeline. It spans model design (:ref:`PH1 <nnodely-modely>`), dataset construction aligned with the network architecture (:ref:`PH2 <nnodely-dataset-creation>`), training (:ref:`PH3 <nnodely-training>`), domain-specific validation (:ref:`PH4 <nnodely-validation>`), model export (:ref:`PH5 <nnodely-export>`), and composition of complex models (:ref:`PH6 <nnodely-model-composition>`). Ellipses indicate the pipeline phases, while rectangles denote the artifacts produced at each phase.
 
 
@@ -99,4 +99,3 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-
