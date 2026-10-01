@@ -1,7 +1,7 @@
 <a name="readme-top"></a>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/nnodely_console.svg" alt="The nnodely training console" width="820">
+  <img src="https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/logo_white_info.png" alt="The nnodely training console" width="820">
 </p>
 
 <p align="center">
