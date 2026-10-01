@@ -12,7 +12,7 @@ x axis, so zooming into a stretch of the run zooms both.
 from __future__ import annotations
 
 import os
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -223,10 +223,3 @@ def render(
         for _, figure in figures:
             plt.close(figure)
     return saved
-
-
-def close_all(figures: Sequence[Any] = ()) -> None:
-    import matplotlib.pyplot as plt
-
-    for figure in figures:
-        plt.close(figure)

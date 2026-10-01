@@ -457,6 +457,7 @@ class Modely:
         shuffle: bool = True,
         optimizer_kwargs: dict[str, Any] | None = None,
         printer: str | keras.callbacks.Callback | None = "legacy",
+        jit_compile: str = "auto",
     ):
         """Train the model with any Keras optimizer.
 
@@ -503,7 +504,7 @@ class Modely:
             val_x, val_mask = self._training_arrays(val_data)
             validation_data = val_x if val_mask is None else (val_x, val_mask)
 
-        self.model.compile(optimizer=resolved_optimizer, jit_compile="auto")
+        self.model.compile(optimizer=resolved_optimizer, jit_compile=jit_compile)
         history = self.model.fit(
             x=x_data,
             y=mask,

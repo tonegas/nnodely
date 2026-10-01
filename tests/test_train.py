@@ -70,7 +70,7 @@ def test_train_basic():
     data_train = DataLoader(
         model1,
         format={"x": "data_1", "y": "data_2", "x_target": "data_3"},
-        source=os.path.join("tests", "datasets"),
+        source=os.path.join(os.path.dirname(__file__), "datasets"),
     )
 
     # ------ Train the model -------

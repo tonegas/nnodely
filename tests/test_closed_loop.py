@@ -369,46 +369,14 @@ def test_simple_model_loop(tmp_path):
     zs = np.ones(3000, dtype=np.float32)
     dataset = {"x_seq": xs, "z": zs, "x_target": xs + 5.0}
 
-    res = model_in(
-        {
-            "x_seq": dummy_input((1, 1, 1, 4), method="ones") + 7,
-            "z": dummy_input((1, 1, 1), method="ones"),
-            "x_target": dummy_input((1, 1, 1, 4), method="sequential"),
-        }
-    )
-    print("Result of simple model:", res["out"])
     data_train = DataLoader(model_in, source=dataset)
     model_in.train(train_data=data_train, epochs=100, batch_size=64, lr=5e-3)
-    if model_in.model is not None:
-        print("Weights of simple model:", model_in.model.get_weights())
-
-    res = model_in(
-        {
-            "x_seq": dummy_input((1, 1, 1, 4), method="ones") + 7,
-            "z": dummy_input((1, 1, 1), method="ones"),
-            "x_target": dummy_input((1, 1, 1, 4), method="sequential"),
-        }
-    )
-    print("Result of simple model:", res["out"])
 
     if model_in.model is None:
         raise ValueError(
             "Model weights are not available. call model_in.build() before training."
         )
     assert model_in.model.get_weights()[0] == pytest.approx(4.0, rel=1e-2)
-
-    ## Test onnx export and import
-    # inputs = {
-    #     "x_seq": dummy_input((1, 1, 4), method="ones") + 7,
-    #     "z": dummy_input((1, 1), method="ones"),
-    #     "x_target": dummy_input((1, 1, 4), method="sequential"),
-    # }
-    # onnx_path = tmp_path / "simple_loop_model.onnx"
-    # model_in.export_onnx(onnx_path)
-    # result = Modely.validate_onnx(onnx_path, inputs, return_dict=True)
-
-    # assert onnx_path.is_file()
-    # assert "out" in result
 
 
 @pytest.mark.slow
@@ -749,7 +717,3 @@ def test_loop_constant_initial_batched():
             (2, 1, 1, 1),
         ),
     )
-
-
-if __name__ == "__main__":
-    test_nested_closed_loop(tmp_path="html")

@@ -93,15 +93,6 @@ class Shape:
     def seq_rank(self) -> int:
         return len(self.seq)
 
-    def with_dim(self, dim) -> "Shape":
-        return Shape(dim=dim, time=self.time, seq=self.seq)
-
-    def with_time(self, time) -> "Shape":
-        return Shape(dim=self.dim, time=time, seq=self.seq)
-
-    def with_seq(self, seq) -> "Shape":
-        return Shape(dim=self.dim, time=self.time, seq=seq)
-
     def get_config(self):
         return {
             "dim": tuple(self.dim),

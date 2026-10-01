@@ -1,6 +1,5 @@
 # This file contains utility functions for the nnodely library.
 import keras
-import numpy as np
 from typing import Any, Callable
 
 SUPPORTED_OPTIMIZERS = {
@@ -16,22 +15,6 @@ SUPPORTED_OPTIMIZERS = {
     "ftrl",
     "lion",
 }
-
-
-# def _flatten_dict(d):
-#     # Flatten a dictionary of the form {key: value} where value can be a string or a dict of the same form.
-#     if not isinstance(d, dict):
-#         return d
-
-#     result = {}
-#     for key, value in d.items():
-#         if isinstance(value, dict):
-#             nested = _flatten_dict(value)
-#             for nested_key, nested_value in nested.items():
-#                 result[nested_key] = nested_value
-#         else:
-#             result[key] = value
-#     return result
 
 
 def _serialized_initializer(initializer):
@@ -53,16 +36,6 @@ def _resolve_loss(
     if not callable(resolved):
         raise TypeError("loss must resolve to a callable Keras loss.")
     return resolved
-
-
-def _mask_padded_targets(values: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    """Mark the padded rollout steps of a target array with NaN.
-
-    The mask is one row per sample, one column per rollout step; the array it
-    marks is [samples, *dim, time, *seq], whose last axis is that same rollout.
-    """
-    view = mask.reshape(mask.shape[0], *([1] * (values.ndim - 2)), mask.shape[1])
-    return np.where(view, values, np.nan).astype(values.dtype)
 
 
 @keras.saving.register_keras_serializable(package="nnodely")

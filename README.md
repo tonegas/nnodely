@@ -19,7 +19,7 @@
 
 <p align="center">
   <a href="https://nnodely.readthedocs.io/"><b>Documentation</b></a> &nbsp;•&nbsp;
-  <a href="https://nnodely.readthedocs.io/en/latest/getting_started.html"><b>Getting Started</b></a> &nbsp;•&nbsp;
+  <a href="https://nnodely.readthedocs.io/en/stable/getting_started.html"><b>Getting Started</b></a> &nbsp;•&nbsp;
   <a href="https://github.com/tonegas/nnodely-applications"><b>Applications</b></a> &nbsp;•&nbsp;
   <a href="https://github.com/tonegas/nnodely/blob/main/NNODELY_AI_GUIDE.md"><b>Guide for AI assistants</b></a>
 </p>
@@ -107,7 +107,7 @@ system-identification report is read for, and can plot them.
 | **Workflow** | `train` with any Keras optimizer and loss · `validate` with system-identification metrics and plots · model composition · `save`/`load`, Keras and ONNX export, interactive HTML graphs |
 
 Every block is documented, with runnable examples, in the
-[User Guide](https://nnodely.readthedocs.io/en/latest/guide/index.html).
+[User Guide](https://nnodely.readthedocs.io/en/stable/guide/index.html).
 
 <details>
 <summary><b>Structure of the repository</b></summary>

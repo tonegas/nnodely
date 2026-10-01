@@ -1,5 +1,4 @@
-import os
-
+import keras
 import numpy as np
 import pytest
 
@@ -282,7 +281,7 @@ def _linear_field(prefix, values):
 
 
 @pytest.mark.slow
-def test_odenet_trained_field_matches_analytic_solution():
+def test_odenet_trained_field_matches_analytic_solution(tmp_path):
     dt, span, points = 0.05, 10.0, 11
     sample_times = np.arange(0.0, span + dt / 2, dt, dtype=np.float32)
     reference = _analytic(sample_times)
@@ -328,7 +327,7 @@ def test_odenet_trained_field_matches_analytic_solution():
         loss="mse",
     )
     trainer.build()
-    trainer.export_html(os.path.join("html", "spiral_fit.html"))
+    trainer.export_html(tmp_path, "spiral_fit")
 
     # The loader reads a seq-less input at the end of the window it aligns with,
     # so the seeds are shifted by the window to start the trajectory they predict.
@@ -397,22 +396,6 @@ def test_odenet_trained_field_matches_analytic_solution():
         axis=-1,
     )
     np.testing.assert_allclose(solved_trajectory, _analytic(grid), atol=1e-3)
-
-    # # plot 2d solved vs analytic
-    # try:
-    #     import matplotlib.pyplot as plt
-
-    #     plt.figure()
-    #     plt.plot(solved_trajectory[:, 0], solved_trajectory[:, 1], "o-", label="OdeNet")
-    #     plt.plot(reference[:, 0], reference[:, 1], "x--", label="Analytic")
-    #     plt.xlabel("p")
-    #     plt.ylabel("q")
-    #     plt.title("OdeNet vs Analytic Solution")
-    #     plt.legend()
-    #     plt.grid()
-    #     plt.show()
-    # except ImportError:
-    #     pass
 
 
 def test_odenet_fixed_step_matches_analytic_solution():
@@ -609,6 +592,10 @@ def test_odenet_event_bounces_off_the_floor():
 
 
 @pytest.mark.slow
+@pytest.mark.skipif(
+    keras.backend.backend() != "tensorflow",
+    reason="the gradient is read with tf.GradientTape",
+)
 def test_odenet_event_time_reaches_the_gradient():
     # The point of locating the crossing inside the step: gravity moves the
     # impact time, and that term has to show up in the gradient. Resetting at
@@ -646,7 +633,7 @@ def test_odenet_event_time_reaches_the_gradient():
 
 
 @pytest.mark.slow
-def test_odenet_fits_the_event_along_with_the_field():
+def test_odenet_fits_the_event_along_with_the_field(tmp_path):
     """The counterpart of torchdiffeq's bouncing_ball.py, fitted end to end.
 
     Three numbers describe the ball, and each sits in a different part of the
@@ -779,8 +766,7 @@ def test_odenet_fits_the_event_along_with_the_field():
         f"(true {GRAVITY}, {FLOOR}, {RESTITUTION})"
     )
     figure.tight_layout()
-    os.makedirs("html", exist_ok=True)
-    figure.savefig(os.path.join("html", "bouncing_ball.png"), dpi=130)
+    figure.savefig(tmp_path / "bouncing_ball.png", dpi=130)
     plt.close(figure)
 
 
@@ -831,7 +817,3 @@ def test_odenet_reset_must_cover_every_state():
             event="floor_partial",
             reset={velocity: "v_plus_partial"},
         )
-
-
-if __name__ == "__main__":
-    test_odenet_fits_the_event_along_with_the_field()

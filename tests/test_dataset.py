@@ -69,7 +69,7 @@ def test_dataset_creation_and_iteration():
     data_train = DataLoader(
         model,
         format={"x": "data_1", "y": "data_2", "z": "data_3"},
-        source=os.path.join("tests", "datasets"),
+        source=os.path.join(os.path.dirname(__file__), "datasets"),
     )
 
     ## ------ Iterate through the dataset -------
@@ -323,7 +323,7 @@ def test_step_does_not_mix_csv_files():
     stepped = DataLoader(
         model,
         format={"step_csv_x": "data_1"},
-        source=os.path.join("tests", "datasets"),
+        source=os.path.join(os.path.dirname(__file__), "datasets"),
         step=3,
     )
 
@@ -333,7 +333,7 @@ def test_step_does_not_mix_csv_files():
             DataLoader(
                 model,
                 format={"step_csv_x": "data_1"},
-                source=os.path.join("tests", "datasets"),
+                source=os.path.join(os.path.dirname(__file__), "datasets"),
                 csv_glob=csv_name,
                 step=3,
             ).dataset["step_csv_x"]
@@ -368,7 +368,7 @@ def test_format_maps_multiple_columns_to_one_input():
     loader = DataLoader(
         model,
         format={"multi_column_x": ["a", "b", "c"]},
-        source=os.path.join("tests", "datasets", "test.csv"),
+        source=os.path.join(os.path.dirname(__file__), "datasets", "test.csv"),
     )
 
     ## One window per pair of consecutive rows, features in the declared order
@@ -382,7 +382,7 @@ def test_format_maps_multiple_columns_to_one_input():
     by_index = DataLoader(
         model,
         format={"multi_column_x": [3, 4, 5]},
-        source=os.path.join("tests", "datasets", "test.csv"),
+        source=os.path.join(os.path.dirname(__file__), "datasets", "test.csv"),
     )
     np.testing.assert_array_equal(
         by_index.dataset["multi_column_x"], loader.dataset["multi_column_x"]
@@ -401,7 +401,7 @@ def test_format_rejects_a_column_count_that_does_not_match_dim():
         DataLoader(
             model,
             format={"wrong_width_x": ["a", "b"]},
-            source=os.path.join("tests", "datasets", "test.csv"),
+            source=os.path.join(os.path.dirname(__file__), "datasets", "test.csv"),
         )
 
 

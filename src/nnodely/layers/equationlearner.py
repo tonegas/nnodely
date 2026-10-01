@@ -101,7 +101,6 @@ class EquationLearner:
         self.functions = list(functions)
         self.function_specs = [_resolve_function(function) for function in functions]
         self.n_arguments = sum(spec.arity for spec in self.function_specs)
-        self.n_activations = len(self.function_specs)
         self.linear_in_template = linear_in
         self.linear_out_template = linear_out
 

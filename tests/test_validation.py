@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
@@ -277,7 +278,7 @@ def test_a_wide_signal_caps_the_drawn_lines_but_never_the_metrics():
         assert score.metrics["max_error"] == pytest.approx(channels - 1)
         assert f"of {channels} channels" in figure.axes[0].get_title()
     finally:
-        validation_plot.close_all([figure])
+        plt.close(figure)
 
 
 def test_the_response_and_error_panels_share_an_x_axis():
@@ -297,7 +298,7 @@ def test_the_response_and_error_panels_share_an_x_axis():
         response, error = figure.axes[0], figure.axes[1]
         assert error in response.get_shared_x_axes().get_siblings(response)
     finally:
-        validation_plot.close_all([figure])
+        plt.close(figure)
 
 
 def test_the_history_figure_is_skipped_without_curves():
@@ -316,7 +317,7 @@ def test_the_history_figure_draws_every_curve():
             "val_loss",
         }
     finally:
-        validation_plot.close_all([figure])
+        plt.close(figure)
 
 
 def test_validate_prints_its_summary_unless_told_not_to(capsys):

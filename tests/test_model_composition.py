@@ -98,10 +98,6 @@ def test_model_called_twice_keeps_calls_independent():
     assert float(result.ravel()[0]) == pytest.approx(6.0)
 
 
-if __name__ == "__main__":
-    test_model_called_twice_keeps_calls_independent()
-
-
 def test_model_called_twice_shares_weights():
     # Each call inlines its own copy of the body, and those copies carry the
     # body's layer names, so one set of weights has to serve every call.

@@ -26,6 +26,18 @@ def seed():
     nnodely.set_seed(42)
 
 
+@pytest.fixture(autouse=True)
+def torch_on_cpu():
+    # Keras's torch backend picks the Apple GPU (MPS) whenever there is one,
+    # and runs eagerly: each of the many small ops of a model is then its own
+    # GPU kernel launch, which makes the suite about twice as slow as the CPU.
+    if keras.backend.backend() != "torch":
+        yield
+        return
+    with keras.device("cpu"):
+        yield
+
+
 # Keras reaches ONNX from jax through jax2tf, but jax 0.4.36 removed graph
 # serialization, so jax2tf now always emits a single opaque XlaCallModule node
 # that tf2onnx has no converter for. Nothing about the model matters here: the
