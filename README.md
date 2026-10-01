@@ -13,37 +13,32 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-A5D8FF" alt="License: MIT"></a>
 </p>
 
-<p align="center">
-  <b>Model-Structured Neural Networks for the modeling, control and estimation of physical systems.</b>
-</p>
-
-<p align="center">
-  <a href="https://nnodely.readthedocs.io/"><b>Documentation</b></a> &nbsp;•&nbsp;
-  <a href="https://nnodely.readthedocs.io/en/stable/getting_started.html"><b>Getting Started</b></a> &nbsp;•&nbsp;
-  <a href="https://github.com/tonegas/nnodely-applications"><b>Applications</b></a> &nbsp;•&nbsp;
-  <a href="https://github.com/tonegas/nnodely/blob/main/NNODELY_AI_GUIDE.md"><b>Guide for AI assistants</b></a>
-</p>
-
 <img src="https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/rule.svg" width="100%" height="4" alt="">
 
-**nnodely** (read the *nn* as an *m*: *Modely*) builds neural networks whose
-structure *is* the physics. Instead of a black box, you write the model the way
-you would write the equations: FIR filters on past samples, local models
-scheduled by a fuzzy variable, derivatives, integrators, ODE solvers. The data
-only has to find the coefficients.
 
-- **Structure first.** Every block has a physical meaning, so the trained
-  network stays interpretable.
-- **Little data.** Structural priors do the heavy lifting, so a few recordings
-  are often enough.
-- **Generalization.** A model that respects the physics behaves in scenarios it
-  never saw during training.
-- **Real time.** Small networks, exported to Keras or ONNX for deployment.
-- **Any backend.** Built on Keras 3: the same model runs on TensorFlow,
-  PyTorch or JAX.
+# Neural Network Framework for Modelling, Control, and Estimation of Physical Systems
 
-nnodely is not a replacement for general-purpose deep-learning frameworks. It
-is a **structured layer on top of them**, purpose-built for physical systems.
+Modeling, control, and estimation of physical systems are central to many engineering disciplines. While data-driven methods like neural networks offer powerful tools, they often struggle to **incorporate prior domain knowledge**, limiting their interpretability, generalizability, and safety.
+
+We present ***nnodely*** (where "nn" can be read as "m," forming *Modely*) — a framework that facilitates the creation and deployment of **Model-Structured Neural Networks** (**MS-NNs**).
+MS-NNs combine the learning capabilities of neural networks with structural **priors** grounded in **physics, control, and estimation theory**, enabling:
+
+- **Encoding Physics** at the architectural level
+- **Reduced training data** requirements
+- **Generalization** to unseen scenarios
+- **Real time** deployment in real-world applications
+- **Multi-backend** TensorFlow, PyTorch or JAX.
+
+In short:
+
+nnodely is not a replacement for a general purpose deep learning frameworks — it is a **structured layer on top of them**, purpose-built for physical systems.
+
+
+<p align="center">
+  📖 <a href="https://nnodely.readthedocs.io/"><b>Documentation</b></a> •
+  🚀 <a href="https://github.com/tonegas/nnodely-applications"><b>Applications</b></a> •
+  🤖 <a href="https://github.com/tonegas/nnodely/blob/main/NNODELY_AI_GUIDE.md"><b>Guide for AI assistants</b></a>
+</p>
 
 ## Install
 
