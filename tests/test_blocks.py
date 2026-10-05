@@ -10,6 +10,11 @@ from nnodely import (
     Fir,
     Select,
     Tanh,
+    IntegrateStep,
+    Integrate,
+    Loop,
+    DataLoader,
+    Parameter,
 )
 
 from nnodely.core.layer import Add, Identity
@@ -415,3 +420,349 @@ def test_equation_learner_rejects_invalid_configuration():
 
     with pytest.raises(ValueError, match="Unknown EquationLearner function"):
         EquationLearner(["not_a_function"])
+
+
+def test_integrate():
+    # make a simple forward Euler integrator step
+    x = Input("x")
+    x0 = Input("x0")
+    integrate = IntegrateStep(solver="euler", dt=0.1, init=x0)(x)
+    out = Output("x_hat", integrate)
+    model = Modely(name="integrator", inputs=[x, x0], outputs=[out])
+    model.build()
+
+    # make a loop that rolls out the integrator along a sequence of rates
+    x_seq = Input("x_seq", seq=-1)
+    x0_loop = Input("x0_loop")
+    loop = Loop(f=model, callback={x0: out})({x0: x0_loop}, {x: x_seq})
+    out_loop = Output("x_hat_loop", loop)
+    model_loop = Modely(
+        name="integrator_loop", inputs=[x_seq, x0_loop], outputs=[out_loop]
+    ).build()
+
+    dummy = np.array([1.0, 2.0, 3.0]).reshape(1, 1, 1, 3)
+    start = np.array(0.0).reshape(1, 1, 1)
+    by_hand = to_numpy(model_loop({"x_seq": dummy, "x0_loop": start})["x_hat_loop"])
+    np.testing.assert_allclose(by_hand, [[[[0.1, 0.3, 0.6]]]], rtol=1e-6)
+
+    # The block builds the same loop: the horizon is the rate's sequence axis.
+    y = Input("y", seq=-1)
+    y0 = Input("y0")
+    new_integrate = Integrate(solver="euler", dt=0.1, init=y0)(y)
+    out_int = Output("y_hat", new_integrate)
+    new_model = Modely(name="new_integrator", inputs=[y, y0], outputs=[out_int]).build()
+
+    result = to_numpy(new_model({"y": dummy, "y0": start})["y_hat"])
+    assert result.shape == (1, 1, 1, 3)
+    np.testing.assert_allclose(result, by_hand, rtol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Integrate: IntegrateStep rolled out by a Loop along the rate's horizon
+# ---------------------------------------------------------------------------
+
+
+def _integrate_model(name, seq: int | tuple[int, ...] = -1, dim=1, **kwargs):
+    rate = Input(f"{name}_rate", dim=dim, seq=seq)
+    out = Output(f"{name}_out", Integrate(**kwargs)(rate))
+    return Modely(name, inputs=[rate], outputs=[out]).build()
+
+
+@pytest.mark.parametrize("solver", ["euler", "rectangular", "trapezoidal"])
+def test_integrate_matches_integrate_step_over_the_same_samples(solver):
+    # Along a horizon or along a time window, the same rule on the same samples.
+    samples = np.array([1.0, -2.0, 4.0, 0.5, 3.0], dtype=np.float32)
+    horizon = _integrate_model(f"along_{solver}", solver=solver, dt=0.1, init=0.7)
+    w = Input(f"window_{solver}")
+    window = Modely(
+        f"window_{solver}",
+        inputs=[w],
+        outputs=[
+            Output(
+                f"window_{solver}_out",
+                IntegrateStep(solver=solver, dt=0.1, init=0.7)(w.sw(5)),
+            )
+        ],
+    ).build()
+
+    along = to_numpy(
+        horizon({f"along_{solver}_rate": samples.reshape(1, 1, 1, 5)})[
+            f"along_{solver}_out"
+        ]
+    )
+    over = to_numpy(
+        window({f"window_{solver}": samples.reshape(1, 1, 5)})[f"window_{solver}_out"]
+    )
+    np.testing.assert_allclose(along.ravel(), over.ravel(), rtol=1e-5, atol=1e-6)
+
+
+def test_integrate_follows_a_dynamic_horizon_without_rebuilding():
+    model = _integrate_model("dynamic", solver="euler", dt=0.5)
+    for steps in (1, 4, 9):
+        rate = np.ones((2, 1, 1, steps), dtype=np.float32)
+        result = to_numpy(model({"dynamic_rate": rate})["dynamic_out"])
+        assert result.shape == (2, 1, 1, steps)
+        np.testing.assert_allclose(result[0].ravel(), 0.5 * np.arange(1, steps + 1))
+
+
+def test_integrate_over_a_fixed_horizon():
+    model = _integrate_model("fixed", seq=4, solver="euler", dt=1.0)
+    result = to_numpy(
+        model({"fixed_rate": np.array([1.0, 2.0, 3.0, 4.0]).reshape(1, 1, 1, 4)})[
+            "fixed_out"
+        ]
+    )
+    np.testing.assert_allclose(result.ravel(), [1.0, 3.0, 6.0, 10.0])
+
+
+def test_integrate_starts_from_none_a_number_or_a_stream():
+    rate = np.full((1, 1, 1, 3), 2.0, dtype=np.float32)
+    zero = _integrate_model("from_zero", dt=0.1)
+    number = _integrate_model("from_number", dt=0.1, init=5.0)
+    r, r0 = Input("from_stream_rate", seq=-1), Input("from_stream_init")
+    stream = Modely(
+        "from_stream",
+        inputs=[r, r0],
+        outputs=[Output("from_stream_out", Integrate(dt=0.1, init=r0)(r))],
+    ).build()
+
+    np.testing.assert_allclose(
+        to_numpy(zero({"from_zero_rate": rate})["from_zero_out"]).ravel(),
+        [0.2, 0.4, 0.6],
+        rtol=1e-6,
+    )
+    np.testing.assert_allclose(
+        to_numpy(number({"from_number_rate": rate})["from_number_out"]).ravel(),
+        [5.2, 5.4, 5.6],
+        rtol=1e-6,
+    )
+    # One initial value per sample of the batch.
+    result = to_numpy(
+        stream(
+            {
+                "from_stream_rate": np.concatenate([rate, rate]),
+                "from_stream_init": np.array([1.0, -1.0]).reshape(2, 1, 1),
+            }
+        )["from_stream_out"]
+    )
+    np.testing.assert_allclose(result[0].ravel(), [1.2, 1.4, 1.6], rtol=1e-6)
+    np.testing.assert_allclose(result[1].ravel(), [-0.8, -0.6, -0.4], rtol=1e-6)
+
+
+def test_integrate_each_feature_of_a_vector_rate():
+    rate, start = Input("vector_rate", dim=2, seq=-1), Input("vector_init", dim=2)
+    scalar_start = Input("vector_scalar_init")
+    model = Modely(
+        "vector",
+        inputs=[rate, start, scalar_start],
+        outputs=[
+            Output("vector_out", Integrate(dt=1.0, init=start)(rate)),
+            Output("vector_scalar_out", Integrate(dt=1.0, init=scalar_start)(rate)),
+        ],
+    ).build()
+    values = np.array([[1.0, 1.0, 1.0], [10.0, 20.0, 30.0]], dtype=np.float32)
+
+    result = model(
+        {
+            "vector_rate": values.reshape(1, 2, 1, 3),
+            "vector_init": np.array([0.0, 100.0]).reshape(1, 2, 1),
+            "vector_scalar_init": np.array([1.0]).reshape(1, 1, 1),
+        }
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["vector_out"]).reshape(2, 3), [[1, 2, 3], [110, 130, 160]]
+    )
+    # A scalar initial value starts every feature.
+    np.testing.assert_allclose(
+        to_numpy(result["vector_scalar_out"]).reshape(2, 3), [[2, 3, 4], [11, 31, 61]]
+    )
+
+
+def test_integrate_a_rate_with_an_extra_sequence_axis():
+    # The horizon is the last sequence axis; the others are integrated apart.
+    model = _integrate_model("extra_seq", seq=(2, -1), dt=1.0)
+    rate = np.array([[1.0, 1.0, 1.0], [2.0, 0.0, 2.0]], dtype=np.float32)
+    result = to_numpy(
+        model({"extra_seq_rate": rate.reshape(1, 1, 1, 2, 3)})["extra_seq_out"]
+    )
+    assert result.shape == (1, 1, 1, 2, 3)
+    np.testing.assert_allclose(result.reshape(2, 3), [[1, 2, 3], [2, 2, 4]])
+
+
+def test_integrate_twice_from_acceleration_to_position():
+    # Constant acceleration: the trapezoid of a linear velocity is exact.
+    dt, steps, a, v0, x0 = 0.1, 20, 2.0, 1.0, 3.0
+    acc = Input("acc", seq=-1)
+    vel = Integrate(solver="trapezoidal", dt=dt, init=v0)(acc)
+    pos = Integrate(solver="trapezoidal", dt=dt, init=x0)(vel)
+    model = Modely(
+        "kinematics", inputs=[acc], outputs=[Output("vel", vel), Output("pos", pos)]
+    ).build()
+
+    result = model({"acc": np.full((1, 1, 1, steps), a, dtype=np.float32)})
+    t = dt * np.arange(1, steps + 1)
+    np.testing.assert_allclose(to_numpy(result["vel"]).ravel(), v0 + a * t, rtol=1e-5)
+    # The first velocity step is a rectangle, so the position trails the exact
+    # parabola by the area that rectangle adds: dt/2 * (v(dt) - v0) = a*dt^2/2.
+    expected = x0 + v0 * t + a * t**2 / 2 + a * dt**2 / 2
+    np.testing.assert_allclose(to_numpy(result["pos"]).ravel(), expected, rtol=1e-5)
+
+
+def test_integrate_is_trained_through():
+    # x = Integrate(k * u): the gain of the rate is learnt from the trajectory.
+    # (A fixed horizon: arithmetic on a dynamic sequence axis cannot be declared.)
+    steps = 8
+    u = Input("trained_u", seq=steps)
+    k = Parameter("trained_k", value=0.5)
+    x = Output("trained_x", Integrate(dt=0.1)(u * k))
+    model = Modely("trained", inputs=[u], outputs=[x])
+    model.minimize("fit", x, Input("trained_target", seq=steps))
+    model.build()
+    rng = np.random.default_rng(0)
+    rates = rng.uniform(-1.0, 1.0, (64, steps)).astype(np.float32)
+    targets = 0.1 * np.cumsum(2.0 * rates, axis=1)
+    data = DataLoader(
+        model,
+        source=[
+            {"trained_u": rates[i], "trained_target": targets[i]}
+            for i in range(len(rates))
+        ],
+    )
+    assert len(data) == len(rates)  # one trajectory per simulation
+
+    model.train(data, epochs=200, batch_size=16, lr=0.05, printer=None)
+
+    np.testing.assert_allclose(to_numpy(k.param).ravel(), [2.0], atol=1e-2)
+
+
+def test_integrate_round_trips_through_save_and_the_keras_file(tmp_path):
+    import keras
+
+    rate, start = Input("saved_rate", seq=-1), Input("saved_init")
+    model = Modely(
+        "saved_integrator",
+        inputs=[rate, start],
+        outputs=[
+            Output(
+                "saved_out", Integrate(solver="trapezoidal", dt=0.2, init=start)(rate)
+            )
+        ],
+    ).build()
+    data = {
+        "saved_rate": np.array([1.0, 3.0, 2.0, 5.0], dtype=np.float32).reshape(
+            1, 1, 1, 4
+        ),
+        "saved_init": np.array([0.5], dtype=np.float32).reshape(1, 1, 1),
+    }
+    expected = to_numpy(model(data)["saved_out"])
+
+    model.save(tmp_path / "saved")
+    restored = Modely.load(tmp_path / "saved")
+    np.testing.assert_allclose(
+        to_numpy(restored(data)["saved_out"]), expected, rtol=1e-6
+    )
+
+    model.export_keras(tmp_path)
+    exported = Modely.import_keras(str(tmp_path / "saved_integrator.keras"))
+    assert exported is not None
+    np.testing.assert_allclose(
+        to_numpy(exported(data)["saved_out"]),  # type: ignore
+        expected,
+        rtol=1e-6,
+    )
+    assert isinstance(exported, keras.Model)
+
+
+def test_integrate_returns_the_loop_for_further_relations():
+    # The result is the Loop itself, a stream to compute with like any other.
+    acc = Input("further_acc", seq=5)
+    vel = Integrate(dt=0.1)(acc)
+    assert isinstance(vel, Loop)
+    gain = Parameter("further_gain", value=3.0)
+    model = Modely(
+        "further",
+        inputs=[acc],
+        outputs=[Output("further_out", Sin()([vel]) * gain + Integrate(dt=0.1)(vel))],
+    ).build()
+
+    result = to_numpy(
+        model({"further_acc": np.ones((1, 1, 1, 5), dtype=np.float32)})["further_out"]
+    )
+    v = 0.1 * np.arange(1, 6)
+    np.testing.assert_allclose(
+        result.ravel(), 3.0 * np.sin(v) + 0.1 * np.cumsum(v), rtol=1e-5
+    )
+
+
+def test_a_dynamic_integrate_feeds_any_relation():
+    # On a dynamic horizon the result is still a stream to compute with.
+    acc = Input("dynamic_further_acc", seq=-1)
+    vel = Integrate(dt=0.1)(acc)
+    assert vel.seq == (None,)
+    gain = Parameter("dynamic_further_gain", value=3.0)
+    model = Modely(
+        "dynamic_further",
+        inputs=[acc],
+        outputs=[Output("dynamic_further_out", Sin()([vel]) * gain + vel * 2.0)],
+    ).build()
+
+    for steps in (3, 7):
+        result = to_numpy(
+            model({"dynamic_further_acc": np.ones((2, 1, 1, steps), dtype=np.float32)})[
+                "dynamic_further_out"
+            ]
+        )
+        v = 0.1 * np.arange(1, steps + 1)
+        assert result.shape == (2, 1, 1, steps)
+        np.testing.assert_allclose(
+            result[1].ravel(), 3.0 * np.sin(v) + 2.0 * v, rtol=1e-5
+        )
+
+
+def test_a_dynamic_integrate_trains_on_simulations_of_different_lengths():
+    # Every simulation is one trajectory of its own length; the loader pads the
+    # shorter ones, and the padded steps are left out of the loss.
+    u = Input("dynamic_trained_u", seq=-1)
+    k = Parameter("dynamic_trained_k", value=0.5)
+    x = Output("dynamic_trained_x", Integrate(dt=0.1)(u * k))
+    model = Modely("dynamic_trained", inputs=[u], outputs=[x])
+    model.minimize("fit", x, Input("dynamic_trained_target", seq=-1))
+    model.build()
+    rng = np.random.default_rng(1)
+    simulations = []
+    for length in (4, 9, 6, 12) * 8:
+        rates = rng.uniform(-1.0, 1.0, length).astype(np.float32)
+        simulations.append(
+            {
+                "dynamic_trained_u": rates,
+                "dynamic_trained_target": 0.1 * np.cumsum(2.0 * rates),
+            }
+        )
+    data = DataLoader(model, source=simulations, seq_length="full")
+    assert len(data) == len(simulations)
+
+    model.train(data, epochs=200, batch_size=8, lr=0.05, printer=None)
+
+    np.testing.assert_allclose(to_numpy(k.param).ravel(), [2.0], atol=1e-2)
+
+
+def test_integrate_rejects_what_it_cannot_integrate():
+    with pytest.raises(ValueError, match="has none"):
+        Integrate(dt=0.1)(Input("no_seq"))
+    with pytest.raises(ValueError, match="one rate sample per step"):
+        Integrate(dt=0.1)(Input("windowed", seq=-1).sw(3))
+    with pytest.raises(ValueError, match="solver must be one of"):
+        Integrate(solver="rk4", dt=0.1)
+    with pytest.raises(ValueError, match="dt"):
+        Integrate()
+    with pytest.raises(TypeError, match="configured first"):
+        Integrate(Input("misused", seq=-1))  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="integrates one rate"):
+        Integrate(dt=0.1)([Input("first", seq=-1), Input("second", seq=-1)])
+    rate = Input("checked_rate", dim=2, seq=-1)
+    with pytest.raises(ValueError, match="single sample"):
+        Integrate(dt=0.1, init=Input("long_init", dim=2).sw(2))(rate)
+    with pytest.raises(ValueError, match="init has dim"):
+        Integrate(dt=0.1, init=Input("wide_init", dim=3))(rate)
+    with pytest.raises(ValueError, match="init has seq"):
+        Integrate(dt=0.1, init=Input("seq_init", dim=2, seq=4))(rate)

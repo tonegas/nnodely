@@ -1,4 +1,5 @@
 import os
+
 os.environ.setdefault("KERAS_BACKEND", "jax")
 from typing import cast
 
@@ -16,11 +17,10 @@ from nnodely import (
     Output,
     Fir,
     DataLoader,
-    BatchNorm
+    BatchNorm,
 )
 from nnodely.layers.loop import DYNAMIC_BUILD_LENGTH
 import pytest
-
 
 
 def test_loop(tmp_path):
@@ -138,7 +138,9 @@ def test_loop_mechanical_modely(tmp_path):
         callback={"mechanical_state": "next_state"},
         name="mechanical_loop",
         collect=False,
-    )({"mechanical_state": state_seq}, {"external_force": external_force}) # initial and inputs are passed as dicts
+    )(
+        {"mechanical_state": state_seq}, {"external_force": external_force}
+    )  # initial and inputs are passed as dicts
     assert loop.shape.dimensions == ((1,), 1, ())
     model = Modely(
         "closed_mechanical_model",
@@ -687,6 +689,7 @@ def test_loop_collects_output_that_is_not_fed_back():
         np.array([101.0, 102.0, 104.0, 108.0], dtype=np.float32).reshape(1, 1, 1, 4),
     )
 
+
 def test_loop_constant_initial_batched():
     # A constant initial value has no batch axis; the carry still has to match
     # the batched body output.
@@ -717,6 +720,7 @@ def test_loop_constant_initial_batched():
         ),
     )
 
+
 def test_loop_with_batchnorm_train():
     # A BatchNorm in the body updates its moving statistics at every rollout
     # step while training, also on JAX, where the rollout runs through scan.
@@ -729,9 +733,7 @@ def test_loop_with_batchnorm_train():
     driver = Input("bn_u_seq", dim=1, seq=3)
     loop = Loop(f=body, callback={x: body_output}, name="bn_loop")({}, {u: driver})
 
-    model = Modely(
-        "bn_model", inputs=[driver], outputs=[Output("bn_out", loop)]
-    )
+    model = Modely("bn_model", inputs=[driver], outputs=[Output("bn_out", loop)])
     model.minimize(
         "bn_loss",
         source=loop,
@@ -761,6 +763,7 @@ def test_loop_with_batchnorm_train():
         to_numpy(norm._layer.moving_variance), [variance], rtol=1e-4
     )
 
+
 def test_loop_binds_initial_and_inputs_at_call():
     # The dicts are required at call time; a callback input left out of
     # `initial` starts at zero, and one Loop can be bound more than once.
@@ -771,15 +774,15 @@ def test_loop_binds_initial_and_inputs_at_call():
     loop = Loop(f=body, callback={x: body_output}, name="bind_loop")
 
     with pytest.raises(TypeError, match="initial must be a dict"):
-        loop(0.0, {})
+        loop(0.0, {})  # type: ignore
     with pytest.raises(TypeError, match="inputs must be a dict"):
-        loop({}, None)
+        loop({}, None)  # type: ignore
     with pytest.raises(ValueError, match="not callback inputs"):
         loop({u: 1.0}, {})
     with pytest.raises(ValueError, match="is not bound"):
         Output("bind_unbound", loop)
     with pytest.raises(ValueError, match="is not bound"):
-        loop + 1.0
+        loop + 1.0  # type: ignore
 
     driver = Input("bind_u_seq", dim=1, seq=3)
     seed = Input("bind_seed", dim=1)
@@ -802,6 +805,3 @@ def test_loop_binds_initial_and_inputs_at_call():
     np.testing.assert_allclose(
         to_numpy(result["bind_seeded"]).reshape(-1), [11.0, 12.0, 13.0]
     )
-
-if __name__ == "__main__":
-    test_loop_with_batchnorm_train()

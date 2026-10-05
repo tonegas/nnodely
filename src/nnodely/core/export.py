@@ -17,7 +17,7 @@ def _traces_backward_pass(model) -> bool:
 
     Layers declare this themselves, so the export path does not have to know
     which ones they are. The walk is recursive because such a layer can sit
-    inside a nested model - a recurrent body, or the sub-graph a Derivative
+    inside a nested model - a recurrent body, or the sub-graph a Differentiate
     differentiates.
     """
     seen: set[int] = set()
@@ -177,7 +177,7 @@ def export_onnx(
     if _traces_backward_pass(export_model) and keras.backend.backend() == "torch":
         raise NotImplementedError(
             "ONNX export of a model that differentiates a sub-graph - a "
-            "Derivative with respect to an Input - is not supported on the "
+            "Differentiate with respect to an Input - is not supported on the "
             "'torch' backend: its exporter traces a forward pass only and "
             "cannot record the backward pass such a layer evaluates. The "
             "'tensorflow' and 'jax' backends export it, because there the "

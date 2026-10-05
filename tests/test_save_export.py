@@ -11,14 +11,15 @@ from nnodely import (
     Cos,
     DataLoader,
     Deg2Rad,
-    Derivative,
+    Derivate,
+    Differentiate,
     ELU,
     EquationLearner,
     Exp,
     Floor,
     Fuzzify,
     GELU,
-    Integrate,
+    IntegrateStep,
     Interpolation,
     Log,
     Log10,
@@ -824,12 +825,12 @@ def _derivative_model():
     relation = Sin()(Linear(out_features=1, name="derivative_linear")(u.sw(3)))
     mixed = Linear(out_features=2, name="derivative_mix")(window)
     relations = {
-        "d_init_stream": Derivative(order=1, respect_to=dt, init=x0.last())(window),
-        "d_init_number": Derivative(order=2, respect_to=dt, init=0.5)(window),
-        "d_smooth": Derivative(order=1, respect_to=dt, window=3, poly_order=2)(window),
-        "d_of_layer": Derivative(order=1, respect_to=dt)(mixed),
-        "d_wrt_input": Derivative(order=1, respect_to=u)(relation),
-        "d2_wrt_input": Derivative(order=2, respect_to=u)(relation),
+        "d_init_stream": Derivate(order=1, dt=dt, init=x0.last())(window),
+        "d_init_number": Derivate(order=2, dt=dt, init=0.5)(window),
+        "d_smooth": Derivate(order=1, dt=dt, window=3, poly_order=2)(window),
+        "d_of_layer": Derivate(order=1, dt=dt)(mixed),
+        "d_wrt_input": Differentiate(order=1, respect_to=u)(relation),
+        "d2_wrt_input": Differentiate(order=2, respect_to=u)(relation),
     }
     return Modely(
         "derivative_suite",
@@ -846,18 +847,18 @@ def _integrate_model():
     x0 = Input("integrate_x0", dim=1)
     acceleration = Input("integrate_acceleration", dim=1)
     window = rate.sw(3)
-    velocity = Integrate(dt=dt, init=0.2)(acceleration.sw(4))
+    velocity = IntegrateStep(dt=dt, init=0.2)(acceleration.sw(4))
     relations = {
-        "i_euler": Integrate(solver="euler", dt=dt)(window),
-        "i_trapezoidal": Integrate(solver="trapezoidal", dt=dt / 2, init=state.last())(
-            window
-        ),
-        "i_rectangular": Integrate(solver="rectangular", dt=dt, init=1.5)(window),
-        "i_position": Integrate(solver="trapezoidal", dt=dt, init=-0.3)(velocity),
+        "i_euler": IntegrateStep(solver="euler", dt=dt)(window),
+        "i_trapezoidal": IntegrateStep(
+            solver="trapezoidal", dt=dt / 2, init=state.last()
+        )(window),
+        "i_rectangular": IntegrateStep(solver="rectangular", dt=dt, init=1.5)(window),
+        "i_position": IntegrateStep(solver="trapezoidal", dt=dt, init=-0.3)(velocity),
         # Integrating the backward difference with the same initial condition
         # gives the signal back.
-        "i_inverse": Integrate(dt=dt, init=x0.last())(
-            Derivative(respect_to=dt, init=x0.last())(signal.sw(4))
+        "i_inverse": IntegrateStep(dt=dt, init=x0.last())(
+            Derivate(dt=dt, init=x0.last())(signal.sw(4))
         ),
     }
     return Modely(
@@ -893,7 +894,7 @@ def _rollback_mechanical_model():
     force = Input("rollback_force", dim=1)
     stiffness = Parameter("rollback_stiffness", value=[[1.0]])
     # The damping reads the velocity estimated from the position window.
-    estimated_velocity = TimeSelect(idx=-1)(Derivative(respect_to=dt)(position.sw(3)))
+    estimated_velocity = TimeSelect(idx=-1)(Derivate(dt=dt)(position.sw(3)))
     acceleration = (
         Fir(out_features=1, name="rollback_force_fir")(force.sw(3))
         - stiffness * position.last()
@@ -901,10 +902,10 @@ def _rollback_mechanical_model():
             estimated_velocity
         )
     )
-    velocity_next = Integrate(dt=dt, init=velocity.last(), name="rollback_v_next")(
+    velocity_next = IntegrateStep(dt=dt, init=velocity.last(), name="rollback_v_next")(
         acceleration
     )
-    position_next = Integrate(dt=dt, init=position.last(), name="rollback_p_next")(
+    position_next = IntegrateStep(dt=dt, init=position.last(), name="rollback_p_next")(
         velocity_next
     )
     model = Modely(
@@ -930,7 +931,7 @@ def _composition_model():
         "composition_block",
         inputs=[signal],
         outputs=[
-            Output("composition_state", Integrate(dt=0.1, init=signal.last())(rate))
+            Output("composition_state", IntegrateStep(dt=0.1, init=signal.last())(rate))
         ],
     ).build()
 
@@ -981,10 +982,10 @@ def _loop_trajectory_model():
     acceleration = Fir(out_features=1, name="loop_traj_force_fir")(
         force.last()
     ) - Parameter("loop_traj_damping", value=[[0.5]]) * TimeSelect(idx=-1)(
-        Derivative(respect_to=dt)(window)
+        Derivate(dt=dt)(window)
     )
-    velocity_step = Integrate(dt=dt, init=velocity.last())(acceleration)
-    position_step = Integrate(
+    velocity_step = IntegrateStep(dt=dt, init=velocity.last())(acceleration)
+    position_step = IntegrateStep(
         solver="trapezoidal", dt=dt, init=TimeSelect(idx=-1)(window)
     )(velocity_step)
     position_next = Output("loop_traj_position_next", position_step)
@@ -1150,11 +1151,11 @@ def _complete_vehicle_model():
         outputs=[
             Output(
                 "vehicle_speed_next",
-                Integrate(dt=dt, init=speed.last())(acceleration),
+                IntegrateStep(dt=dt, init=speed.last())(acceleration),
             ),
             Output(
                 "vehicle_acceleration_estimate",
-                Derivative(respect_to=dt, window=3, poly_order=2)(speed.sw(3)),
+                Derivate(dt=dt, window=3, poly_order=2)(speed.sw(3)),
             ),
             Output("vehicle_grip_out", grip),
         ],
@@ -1249,7 +1250,7 @@ def test_export_onnx_dynamic_loop_follows_the_data(tmp_path):
         expected = to_numpy(model(inputs)["dyn_onnx_out"])
         actual = Modely.validate_onnx(
             tmp_path / f"{model.name}.onnx", inputs, return_dict=True
-        )["dyn_onnx_out"]
+        )["dyn_onnx_out"]  # type: ignore
         assert expected.shape == (1, 1, 1, steps)
         np.testing.assert_allclose(to_numpy(actual), expected, rtol=1e-5, atol=1e-5)
 

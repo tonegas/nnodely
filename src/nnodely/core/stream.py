@@ -212,7 +212,7 @@ class Stream(Node):
         if isinstance(value, Stream):
             return value
 
-        from nnodely.layers.constant import Constant
+        from nnodely.layers.parameter import Constant
 
         key = Stream._literal_constant_key(value)
         if key is not None:

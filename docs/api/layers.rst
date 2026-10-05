@@ -50,9 +50,13 @@ Time axis
 Calculus
 --------
 
-.. autoclass:: Derivative
+.. autoclass:: Differentiate
+
+.. autoclass:: Derivate
 
 .. autoclass:: Integrate
+
+.. autoclass:: IntegrateStep
 
 .. autofunction:: Ode
 

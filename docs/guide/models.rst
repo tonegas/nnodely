@@ -95,7 +95,8 @@ tables group the available layers.
      - :class:`~nnodely.TimeSelect`, :class:`~nnodely.TimeRange`,
        :class:`~nnodely.TimeConcatenate`.
    * - Calculus
-     - :class:`~nnodely.Derivative`, :class:`~nnodely.Integrate`,
+     - :class:`~nnodely.Differentiate`, :class:`~nnodely.Derivate`,
+       :class:`~nnodely.Integrate`, :class:`~nnodely.IntegrateStep`,
        :func:`~nnodely.Ode`, :class:`~nnodely.OdeNet` (see :doc:`physics`).
    * - Recurrence
      - :class:`~nnodely.Loop`, :class:`~nnodely.Roll` (see :doc:`recurrent`).

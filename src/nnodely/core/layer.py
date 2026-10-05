@@ -65,8 +65,13 @@ class Layer(Stream):
                 "Layers without inputs must implement output_shape()."
             )
 
+        # A dynamic sequence axis (None) is probed with one step, then declared
+        # dynamic again in the shape inferred from it.
         dummy_inputs = [
-            keras.ops.zeros((1, *input_node.shape.tuple)) for input_node in inputs
+            keras.ops.zeros(
+                (1, *(1 if axis is None else axis for axis in input_node.shape.tuple))
+            )
+            for input_node in inputs
         ]
 
         # Some build_layer() implementations need the symbolic input context to
@@ -94,12 +99,39 @@ class Layer(Stream):
         multiple_outputs = isinstance(outputs, (list, tuple))
         output_values = list(outputs) if multiple_outputs else [outputs]
         inferred = [
-            self._shape_from_tensor(
-                output, max(input_node.shape.seq_rank for input_node in inputs)
+            self._restore_dynamic_axes(
+                self._shape_from_tensor(
+                    output, max(input_node.shape.seq_rank for input_node in inputs)
+                ),
+                inputs,
             )
             for output in output_values
         ]
         return inferred if multiple_outputs else inferred[0]
+
+    @staticmethod
+    def _restore_dynamic_axes(shape, inputs):
+        """Declare dynamic again the sequence axes probed with one step.
+
+        A sequence axis of the result is dynamic where an input with as many
+        sequence axes has a dynamic one - the same rule a product of streams
+        follows. A layer that adds or removes sequence axes is left as probed.
+        """
+        dim, time, seq = shape
+        dynamic = {
+            index
+            for input_node in inputs
+            if len(input_node.shape.seq) == len(seq)
+            for index, axis in enumerate(input_node.shape.seq)
+            if axis is None
+        }
+        if not dynamic:
+            return shape
+        return (
+            dim,
+            time,
+            tuple(None if index in dynamic else axis for index, axis in enumerate(seq)),
+        )
 
     def _shape_from_tensor(self, tensor, seq_rank: int):
         shape = tuple(tensor.shape)[1:]

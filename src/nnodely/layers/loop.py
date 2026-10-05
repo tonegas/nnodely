@@ -458,6 +458,11 @@ class Loop(Layer):
     ``n`` steps the window is entirely self-predicted.
     """
 
+    # Set by __call__ on the loop node it returns.
+    initial_values: list[Stream]
+    static_sources: list[Stream]
+    loop_outputs: list[LoopOutput]
+
     def __init__(
         self,
         f: Modely,
@@ -514,7 +519,7 @@ class Loop(Layer):
     def shape(self, value):
         self._shape = value
 
-    def __call__(self, initial: dict, inputs: dict={}):  # type: ignore[override]
+    def __call__(self, initial: dict, inputs: dict = {}):  # type: ignore[override]
         """Bind the loop to its initial values and outer inputs.
 
         Every call returns a new loop node; the body, and so its weights, is
@@ -587,7 +592,7 @@ class Loop(Layer):
             (
                 (index, axis)
                 for index, source, axis in loop_sources
-                if source.seq[-1] is None
+                if source.seq and source.seq[-1] is None
             ),
             (None, None),
         )
@@ -627,7 +632,10 @@ class Loop(Layer):
 
     def _result_sequence(self, output):
         if self.collect:
-            return (*tuple(output.seq), self.horizon)
+            # A rollout as long as its data is declared dynamic, like the
+            # inputs it follows; the length it is built with is a placeholder.
+            dynamic = self.length is None and self.horizon_axis is not None
+            return (*tuple(output.seq), None if dynamic else self.horizon)
         return tuple(output.seq)
 
     # ------------------------------------------------------------------
@@ -748,7 +756,7 @@ class Loop(Layer):
             )
         values = [by_name.get(node.name, 0.0) for node in callback_inputs]
 
-        from nnodely.layers.constant import Constant
+        from nnodely.layers.parameter import Constant
 
         return [
             value if isinstance(value, Stream) else Constant(name=None, value=value)

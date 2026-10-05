@@ -10,8 +10,8 @@ inferred from the data.
 
    import numpy as np
    from nnodely import (
-       DataLoader, Derivative, Input, Integrate, Linear, Loop, Modely, Ode, OdeNet,
-       Output, Parameter, Sin, Tanh, set_seed,
+       DataLoader, Derivate, Differentiate, Input, Integrate, IntegrateStep, Linear, Loop, Modely,
+       Ode, OdeNet, Output, Parameter, set_seed, Sin, Tanh,
    )
 
    set_seed(0)
@@ -19,9 +19,10 @@ inferred from the data.
 Derivatives
 -----------
 
-:class:`~nnodely.Derivative` has two forms, chosen by ``respect_to``.
+Two layers differentiate a stream: :class:`~nnodely.Differentiate` with respect to an
+input, and :class:`~nnodely.Derivate` with respect to time.
 
-**With respect to an input**, the derivative is computed by the backend's
+**With respect to an input**, ``Differentiate`` computes the derivative by the backend's
 automatic differentiation. It accounts for every relation between the input
 and the stream, trainable weights included, and can itself be trained through.
 This is how a physical law becomes a training objective, as in
@@ -32,7 +33,7 @@ physics-informed neural networks. The model below fits
 
    t = Input("t")
    u = Linear(out_features=1)([Tanh()([Linear(out_features=16)([t.last()])])])
-   du_dt = Derivative(respect_to=t)(u)
+   du_dt = Differentiate(respect_to=t)(u)
 
    u_out = Output("u", u)
    decay = Modely("decay", inputs=[t], outputs=[u_out])
@@ -46,8 +47,9 @@ physics-informed neural networks. The model below fits
 
 ``order=2`` gives the second derivative.
 
-**With respect to time**, ``respect_to`` is the time step ``dt``, and the
-derivative is a causal finite difference along the stream's time window. The
+**With respect to time**, ``Derivate`` takes the time step ``dt``, as
+``IntegrateStep`` does, and the derivative is a causal finite difference along the
+stream's time window. The
 window length is preserved. ``init`` is the sample just before the window
 (zero by default). ``window`` and ``poly_order`` turn the plain backward
 difference into a least-squares polynomial fit, which smooths noisy measured
@@ -57,14 +59,14 @@ signals at the price of a delay of about ``(window - 1) / 2`` samples:
 
    dt = 0.01
    position = Input("position")
-   velocity = Derivative(respect_to=dt, init=0.0)(position.sw(10))
-   smooth_velocity = Derivative(respect_to=dt, window=5)(position.sw(10))
+   velocity = Derivate(dt=dt, init=0.0)(position.sw(10))
+   smooth_velocity = Derivate(dt=dt, window=5)(position.sw(10))
    print(velocity.shape)   # (1, 10)
 
 Integrators
 -----------
 
-:class:`~nnodely.Integrate` integrates a rate along its time window, with the
+:class:`~nnodely.IntegrateStep` integrates a rate along its time window, with the
 ``"euler"`` (or ``"rectangular"``) or ``"trapezoidal"`` rule. ``init`` is the
 value before the window. On a one-sample window it is exactly one integration
 step, which is the state update of a recurrent model:
@@ -73,20 +75,39 @@ step, which is the state update of a recurrent model:
 
    acceleration = Input("acceleration")
    v = Input("v")
-   v_next = Integrate(dt=dt, init=v.last())(acceleration.last())   # v + dt * a
+   v_next = IntegrateStep(dt=dt, init=v.last())(acceleration.last())   # v + dt * a
 
 On a longer window it returns the whole integrated trajectory in one pass, so
 position can be obtained from acceleration with no rollout:
 
 .. code-block:: python
 
-   v_window = Integrate(dt=dt)(acceleration.sw(50))
-   x_window = Integrate(dt=dt)(v_window)
+   v_window = IntegrateStep(dt=dt)(acceleration.sw(50))
+   x_window = IntegrateStep(dt=dt)(v_window)
    print(x_window.shape)   # (1, 50)
 
 The Euler rule is the exact inverse of the time derivative with the same
-``init``: ``Integrate(dt=dt, init=x0)(Derivative(respect_to=dt, init=x0)(x))``
+``init``: ``IntegrateStep(dt=dt, init=x0)(Derivate(dt=dt, init=x0)(x))``
 returns ``x``.
+
+:class:`~nnodely.Integrate` integrates along a **horizon** instead: the last
+sequence axis of the rate, one sample per step. It is a block built from an
+``IntegrateStep`` and a :class:`~nnodely.Loop` that feeds each integrated
+value back as the state of the next step. A dynamic horizon (``seq=-1``)
+follows the length of the data at every call, with no rebuild. The rules, and
+the results on the same samples, are those of ``IntegrateStep``:
+
+.. code-block:: python
+
+   acc = Input("acc", seq=-1)                      # one acceleration per step
+   v0 = Input("v0")
+   velocity = Integrate(solver="trapezoidal", dt=dt, init=v0)(acc)
+   position = Integrate(solver="trapezoidal", dt=dt, init=0.0)(velocity)
+   kinematics = Modely("kinematics", inputs=[acc, v0],
+                       outputs=[Output("velocity", velocity), Output("position", position)])
+   kinematics.build()
+   result = kinematics({"acc": np.ones((1, 1, 1, 30)), "v0": np.zeros((1, 1, 1))})
+   print(result["position"].shape)   # (1, 1, 1, 30): one value per step
 
 One ODE step
 ------------

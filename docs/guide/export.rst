@@ -96,7 +96,7 @@ Backend support
      - yes
      - yes
      - no
-   * - ``Derivative`` with respect to an input
+   * - ``Differentiate`` (with respect to an input)
      - yes (batch 1)
      - no
      - no

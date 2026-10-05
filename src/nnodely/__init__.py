@@ -35,16 +35,15 @@ from nnodely.layers.input import Input
 from nnodely.layers.output import Output
 from nnodely.layers.fir import Fir
 from nnodely.layers.linear import Linear
-from nnodely.layers.parameter import Parameter
-from nnodely.layers.constant import Constant
+from nnodely.layers.parameter import Constant, Parameter
 from nnodely.layers.roll import Roll
 from nnodely.layers.loop import Loop
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.fuzzify import Fuzzify
 from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.equationlearner import EquationLearner
-from nnodely.layers.derivative import Derivative
-from nnodely.layers.integrate import Integrate
+from nnodely.layers.derivative import Derivate, Differentiate
+from nnodely.layers.integrate import Integrate, IntegrateStep
 from nnodely.layers.time_ops import (
     Concatenate,
     Range,
@@ -104,8 +103,10 @@ __all__ = [
     "Fuzzify",
     "Interpolation",
     "EquationLearner",
-    "Derivative",
+    "Derivate",
+    "Differentiate",
     "Integrate",
+    "IntegrateStep",
     "Concatenate",
     "TimeConcatenate",
     "TimeSelect",

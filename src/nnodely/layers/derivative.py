@@ -1,18 +1,17 @@
-"""Derivative of a Stream, with respect to an Input or with respect to time.
+"""Derivatives of a Stream: with respect to an Input, or with respect to time.
 
-``Derivative(order=..., respect_to=...)`` is configured first and then called
-on the Stream to differentiate, like every other layer::
+Both are configured first and then called on the Stream to differentiate, like
+every other layer::
 
-    Derivative(order=1, respect_to=x)(fun)     # d fun / d x   (automatic differentiation)
-    Derivative(order=1, respect_to=0.1)(fun)   # d fun / d t   (finite difference, dt = 0.1)
+    Differentiate(order=1, respect_to=x)(fun)   # d fun / d x   (automatic differentiation)
+    Derivate(order=1, dt=0.1)(fun)              # d fun / d t   (finite difference)
 
-With an ``Input`` the derivative is exact: the sub-graph that produces ``fun``
-is differentiated by the backend's automatic differentiation, so any relation
-in between (activations, Fir/Linear weights, a whole sub-network) is taken
-into account. With a float the argument *is* the time step, and the
-derivative is a causal finite difference along ``fun``'s own time axis that
-keeps the window's length: one derivative per sample, the oldest one reading
-the ``init`` condition.
+``Differentiate`` is exact: the sub-graph that produces ``fun`` is differentiated
+by the backend's automatic differentiation, so any relation in between
+(activations, Fir/Linear weights, a whole sub-network) is taken into account.
+``Derivate`` is a causal finite difference along ``fun``'s own time axis
+that keeps the window's length: one derivative per sample, the oldest one
+reading the ``init`` condition. It is the exact inverse of ``IntegrateStep``.
 """
 
 from __future__ import annotations
@@ -160,7 +159,7 @@ def _differentiate(function_model, inputs, wrt_index: int, order: int, training)
         return function(arguments[wrt_index])
 
     raise NotImplementedError(
-        "Derivative with respect to an Input needs automatic differentiation, "
+        "Differentiate with respect to an Input needs automatic differentiation, "
         "which the 'tensorflow', 'torch' and 'jax' Keras backends provide but "
         f"{backend!r} does not. Differentiate with respect to time instead, or "
         "select another backend with KERAS_BACKEND."
@@ -319,35 +318,157 @@ class TimeDerivativeImpl(keras.layers.Layer):
 
 
 # ----------------------------------------------------------------------
-# Symbolic layer
+# Symbolic layers
 # ----------------------------------------------------------------------
-class Derivative(Layer):
+def _check_order(layer: str, order) -> int:
+    if order not in _SUPPORTED_ORDERS:
+        raise ValueError(
+            f"{layer} supports order in {list(_SUPPORTED_ORDERS)}, got {order}."
+        )
+    return int(order)
+
+
+class Differentiate(Layer):
     """
-    Derivative of a Stream, with respect to an Input or with respect to time::
+    Derivative of a Stream with respect to an Input::
 
-        Derivative(order=1|2, respect_to=x)(fun)     # d fun / d x
-        Derivative(order=1|2, respect_to=0.1)(fun)   # d fun / d t, with dt = 0.1
+        Differentiate(order=1|2, respect_to=x)(fun)     # d fun / d x
 
-    ``respect_to`` is an ``Input`` or the time step:
+    ``fun`` is differentiated with respect to the input's whole temporal window
+    by the backend's automatic differentiation, so every relation between the
+    two - including trainable weights - is taken into account, and the result
+    is itself differentiable (it can be nested, and trained through). The
+    output has the shape of the input's window: for a window longer than one
+    sample it is the derivative of the summed relation with respect to each
+    sample, which is the usual reverse-mode (vector-Jacobian) reading. ``fun``
+    must actually depend on the input. For a derivative over time, see
+    :class:`Derivate`.
 
-    * **An Input.** ``fun`` is differentiated with respect to that input's
-      whole temporal window by the backend's automatic differentiation, so
-      every relation between the two - including trainable weights - is taken
-      into account, and the result is itself differentiable (it can be nested,
-      and trained through). The output has the shape of the input's window:
-      for a window longer than one sample it is the derivative of the summed
-      relation with respect to each sample, which is the usual reverse-mode
-      (vector-Jacobian) reading. ``fun`` must actually depend on the input.
+    Two notes:
 
-    * **A float.** The float *is* ``dt``, and the derivative is a causal
-      finite difference along ``fun``'s own time axis. **The window's length is
-      preserved**: a window of n samples gives n derivatives, the i-th one
-      estimated from the samples up to i, so the result stays aligned with the
-      signal and composes with ``Integrate`` (whose cumulative form is its
-      exact inverse: integrating ``Derivative(x)`` with the same ``init``
-      returns ``x``).
+    * It reads the input where it is declared. A model used as a reusable
+      block has its own inputs replaced by the streams it is called with, so
+      a Differentiate inside such a block no longer has an input to read and says
+      so rather than guessing.
 
-    The time derivative takes two further arguments:
+    * ONNX export records the backward pass in the exported graph. Its shape
+      arithmetic only converts with a fixed batch axis, so
+      ``Modely.export_onnx`` fixes it (see its ``batch_size`` argument); and
+      the Torch backend, whose exporter traces a forward pass only, refuses
+      such a model outright - export it under the TensorFlow or JAX backend.
+    """
+
+    def __init__(self, order: int = 1, respect_to: Input | None = None, name=None):
+        self.order = _check_order("Differentiate", order)
+        if not isinstance(respect_to, Input):
+            hint = (
+                " For a derivative over time, use Derivate(dt=...)."
+                if isinstance(respect_to, (int, float))
+                and not isinstance(respect_to, bool)
+                else ""
+            )
+            raise TypeError(
+                "Differentiate: respect_to must be the Input to differentiate against, "
+                f"got {type(respect_to).__name__}.{hint}"
+            )
+        self.respect_to = respect_to
+        self.wrt_name = respect_to.name
+        super().__init__(name=name, order=self.order, respect_to=self.respect_to)
+
+    # ------------------------------------------------------------------
+    # Shape logic
+    # ------------------------------------------------------------------
+    def output_shape(self, *inputs):
+        function = inputs[0]
+        if not isinstance(function, Stream):
+            raise TypeError(
+                f"{self.name}: Differentiate expects a Stream input, got "
+                f"{type(function).__name__}."
+            )
+        if len(inputs) != 1:
+            raise ValueError(
+                f"{self.name}: Differentiate differentiates exactly one Stream, "
+                f"got {len(inputs)}."
+            )
+        # Reverse-mode differentiation yields the shape of the variable, not
+        # of the relation: one derivative per sample of the input's window.
+        wrt = self.respect_to
+        return wrt.shape.dim, wrt.shape.time, wrt.shape.seq
+
+    # ------------------------------------------------------------------
+    # Keras layer logic
+    # ------------------------------------------------------------------
+    def build_layer(self):
+        raise RuntimeError(
+            f"{self.name}: a Differentiate is built from the graph it "
+            "differentiates, not from its input value."
+        )
+
+    def call(self, xs):
+        tensor = xs[0]
+        sources = _source_input_tensors(tensor)
+        names = _source_names(sources)
+        if self.wrt_name not in names:
+            raise ValueError(
+                f"{self.name}: the differentiated relation does not depend on "
+                f"input {self.wrt_name!r} (it reads {names}), so its derivative "
+                "is not defined by the graph. Inside a model used as a reusable "
+                "block this is what binding does: the block's own inputs are "
+                "replaced by the streams it is called with, so differentiate in "
+                "the model where the input is declared."
+            )
+        if self._layer is None:
+            function_model = keras.Model(
+                inputs=sources,
+                outputs=tensor,
+                name=f"{self.name}_function",
+            )
+            self._layer = InputDerivativeImpl(
+                function_model=function_model,
+                wrt_index=names.index(self.wrt_name),
+                order=self.order,
+                name=self.name,
+            )
+        return self._layer(sources)
+
+    # ------------------------------------------------------------------
+    # Serialization
+    # ------------------------------------------------------------------
+    def get_config(self):
+        return {"name": self.name, "order": self.order, "respect_to": self.wrt_name}
+
+    @classmethod
+    def from_config(cls, config: dict, preds=None):
+        if not preds:
+            raise ValueError(
+                "A Differentiate needs the relation it differentiates to be rebuilt first."
+            )
+        respect_to = _find_input(preds[0], config["respect_to"])
+        if respect_to is None:
+            raise ValueError(
+                f"Differentiate {config['name']!r}: input {config['respect_to']!r} was "
+                "not found among the ancestors of the relation it differentiates."
+            )
+        layer = cls(
+            order=config.get("order", 1), respect_to=respect_to, name=config["name"]
+        )
+        return layer(preds[0])
+
+
+class Derivate(Layer):
+    """
+    Derivative of a Stream with respect to time, over its own window::
+
+        Derivate(order=1|2, dt=0.1)(fun)     # d fun / d t
+
+    A causal finite difference along ``fun``'s time axis, with the time step
+    ``dt`` given explicitly as for :class:`IntegrateStep`. **The window's length is
+    preserved**: a window of n samples gives n derivatives, the i-th one
+    estimated from the samples up to i, so the result stays aligned with the
+    signal and composes with ``IntegrateStep``, whose cumulative form is its exact
+    inverse: integrating ``Derivate(...)(x)`` with the same ``init``
+    returns ``x``. For a derivative with respect to an Input, see
+    :class:`Differentiate`.
 
     * ``init`` - the initial condition, the sample(s) just before the window,
       which the oldest derivative needs. A Stream (typically the state the
@@ -374,92 +495,51 @@ class Derivative(Layer):
       amplifies noise about 1.8x more than the plain two-sample difference.
       Smooth simulated signals want the higher degree, measured ones the
       default.
-
-    Two notes on differentiating with respect to an Input:
-
-    * It reads the input where it is declared. A model used as a reusable
-      block has its own inputs replaced by the streams it is called with, so
-      a Derivative inside such a block no longer has an input to read and
-      says so rather than guessing.
-
-    * ONNX export records the backward pass in the exported graph. Its shape
-      arithmetic only converts with a fixed batch axis, so
-      ``Modely.export_onnx`` fixes it (see its ``batch_size`` argument); and
-      the Torch backend, whose exporter traces a forward pass only, refuses
-      such a model outright - export it under the TensorFlow or JAX backend.
     """
 
     def __init__(
         self,
         order: int = 1,
-        respect_to: Input | float | None = None,
+        dt: float | None = None,
         init: Stream | float | None = None,
         window: int | None = None,
         poly_order: int | None = None,
         name=None,
     ):
-        if order not in _SUPPORTED_ORDERS:
-            raise ValueError(
-                f"Derivative supports order in {list(_SUPPORTED_ORDERS)}, got {order}."
-            )
-        if respect_to is None:
-            raise ValueError(
-                "Derivative requires respect_to: an Input to differentiate "
-                "against, or a float with the time step dt."
-            )
-        if isinstance(respect_to, Input):
-            self.respect_to = respect_to
-            self.wrt_name = respect_to.name
-            self.dt = None
-        elif isinstance(respect_to, (int, float)) and not isinstance(respect_to, bool):
-            if respect_to <= 0:
-                raise ValueError(
-                    f"Derivative: the time step dt must be positive, got {respect_to}."
-                )
-            self.respect_to = float(respect_to)
-            self.wrt_name = None
-            self.dt = float(respect_to)
-        else:
-            raise TypeError(
-                "Derivative: respect_to must be an Input or a float (the time "
-                f"step dt), got {type(respect_to).__name__}."
-            )
+        self.order = _check_order("Derivate", order)
+        if dt is None:
+            raise ValueError("Derivate requires dt, the time step.")
+        if not isinstance(dt, (int, float)) or isinstance(dt, bool):
+            raise TypeError(f"Derivate: dt must be a number, got {type(dt).__name__}.")
+        if dt <= 0:
+            raise ValueError(f"Derivate: the time step dt must be positive, got {dt}.")
+        self.dt = float(dt)
 
-        self.order = int(order)
         self.window = self.order + 1 if window is None else int(window)
         # The lowest degree that can represent the derivative at all, so
         # widening the window always buys smoothing; a higher degree buys
         # accuracy back at the cost of noise.
         self.poly_order = self.order if poly_order is None else int(poly_order)
         self.init = init
-
-        if self.dt is None:
-            if init is not None or window is not None or poly_order is not None:
-                raise ValueError(
-                    "Derivative: init, window and poly_order describe a finite "
-                    "difference over time. A derivative with respect to an Input "
-                    "is exact and reads no window of its own."
-                )
-        else:
-            if self.window < self.order + 1:
-                raise ValueError(
-                    f"Derivative: a derivative of order {self.order} reads at least "
-                    f"{self.order + 1} samples, got window={self.window}."
-                )
-            if not self.order <= self.poly_order <= self.window - 1:
-                raise ValueError(
-                    f"Derivative: poly_order must be between the derivative's order "
-                    f"({self.order}) and window - 1 ({self.window - 1}), got "
-                    f"{self.poly_order}."
-                )
+        if self.window < self.order + 1:
+            raise ValueError(
+                f"Derivate: a derivative of order {self.order} reads at least "
+                f"{self.order + 1} samples, got window={self.window}."
+            )
+        if not self.order <= self.poly_order <= self.window - 1:
+            raise ValueError(
+                f"Derivate: poly_order must be between the derivative's order "
+                f"({self.order}) and window - 1 ({self.window - 1}), got "
+                f"{self.poly_order}."
+            )
 
         super().__init__(
             name=name,
             order=self.order,
-            respect_to=self.respect_to,
+            dt=self.dt,
             init=self.init,
-            window=self.window if self.dt is not None else None,
-            poly_order=self.poly_order if self.dt is not None else None,
+            window=self.window,
+            poly_order=self.poly_order,
         )
 
     # ------------------------------------------------------------------
@@ -494,20 +574,9 @@ class Derivative(Layer):
         function = inputs[0]
         if not isinstance(function, Stream):
             raise TypeError(
-                f"{self.name}: Derivative expects a Stream input, got "
+                f"{self.name}: Derivate expects a Stream input, got "
                 f"{type(function).__name__}."
             )
-        if self.dt is None:
-            if len(inputs) != 1:
-                raise ValueError(
-                    f"{self.name}: Derivative differentiates exactly one Stream, "
-                    f"got {len(inputs)}."
-                )
-            # Reverse-mode differentiation yields the shape of the variable, not
-            # of the relation: one derivative per sample of the input's window.
-            wrt = self.respect_to
-            return wrt.shape.dim, wrt.shape.time, wrt.shape.seq  # type: ignore[union-attr]
-
         if len(inputs) > 1:
             self._validate_init(function, inputs[1])
         # One derivative per sample: the window is preserved, so the result
@@ -537,11 +606,6 @@ class Derivative(Layer):
     # Keras layer logic
     # ------------------------------------------------------------------
     def build_layer(self):
-        if self.dt is None:
-            raise RuntimeError(
-                f"{self.name}: a Derivative with respect to an Input is built "
-                "from the graph it differentiates, not from its input value."
-            )
         init_time = 1
         if len(self.preds) > 1:
             init_node = self.preds[1]
@@ -556,77 +620,32 @@ class Derivative(Layer):
         )
 
     def call(self, xs):
-        if self.dt is not None:
-            signature = self.input_signature(xs)
-            stale = (
-                self._layer_signature is not None and self._layer_signature != signature
-            )
-            if self._layer is None or stale:
-                self._layer = self.build_layer()
-            self._layer_signature = signature
-            return self._layer(xs if len(xs) > 1 else xs[0])
-
-        tensor = xs[0]
-        sources = _source_input_tensors(tensor)
-        names = _source_names(sources)
-        if self.wrt_name not in names:
-            raise ValueError(
-                f"{self.name}: the differentiated relation does not depend on "
-                f"input {self.wrt_name!r} (it reads {names}), so its derivative "
-                "is not defined by the graph. Inside a model used as a reusable "
-                "block this is what binding does: the block's own inputs are "
-                "replaced by the streams it is called with, so differentiate in "
-                "the model where the input is declared."
-            )
-        if self._layer is None:
-            function_model = keras.Model(
-                inputs=sources,
-                outputs=tensor,
-                name=f"{self.name}_function",
-            )
-            self._layer = InputDerivativeImpl(
-                function_model=function_model,
-                wrt_index=names.index(self.wrt_name),
-                order=self.order,
-                name=self.name,
-            )
-        return self._layer(sources)
+        signature = self.input_signature(xs)
+        stale = self._layer_signature is not None and self._layer_signature != signature
+        if self._layer is None or stale:
+            self._layer = self.build_layer()
+        self._layer_signature = signature
+        return self._layer(xs if len(xs) > 1 else xs[0])
 
     # ------------------------------------------------------------------
     # Serialization
     # ------------------------------------------------------------------
     def get_config(self):
-        config = {
+        return {
             "name": self.name,
             "order": self.order,
-            "respect_to": self.wrt_name if self.dt is None else self.dt,
+            "dt": self.dt,
+            "window": self.window,
+            "poly_order": self.poly_order,
         }
-        if self.dt is not None:
-            config.update({"window": self.window, "poly_order": self.poly_order})
-        return config
 
     @classmethod
     def from_config(cls, config: dict, preds=None):
-        respect_to = config["respect_to"]
-        if isinstance(respect_to, str):
-            if not preds:
-                raise ValueError(
-                    "A Derivative with respect to an Input needs the relation it "
-                    "differentiates to be rebuilt first."
-                )
-            resolved = _find_input(preds[0], respect_to)
-            if resolved is None:
-                raise ValueError(
-                    f"Derivative {config['name']!r}: input {respect_to!r} was not "
-                    "found among the ancestors of the relation it differentiates."
-                )
-            respect_to = resolved
-
         # The initial condition was serialized as this node's second
         # predecessor, so it is rebuilt with the rest of the graph.
         layer = cls(
             order=config.get("order", 1),
-            respect_to=respect_to,
+            dt=config["dt"],
             init=preds[1] if preds and len(preds) > 1 else None,
             window=config.get("window"),
             poly_order=config.get("poly_order"),

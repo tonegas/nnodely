@@ -168,3 +168,48 @@ def test_division_and_power_keep_the_samples_apart():
         value = to_numpy(result[name])
         assert value.shape == (BATCH, 1, 1, 4), name
         np.testing.assert_allclose(value, expected, rtol=1e-5, err_msg=name)
+
+
+def test_a_dynamic_sequence_axis_survives_shape_inference():
+    # A layer whose shape is probed with dummy zeros - elementwise, arithmetic,
+    # a Parameter, a projection - keeps a dynamic sequence axis dynamic.
+    x = Input("dynamic_shape_x", dim=2, seq=-1)
+    gain = Parameter("dynamic_shape_gain", value=2.0)
+    streams = {
+        "scaled": x * 3.0,
+        "gained": x * gain,
+        "squashed": Exp()([x]),
+        "projected": Linear(out_features=4)([x]),
+    }
+    for stream in streams.values():
+        assert stream.seq == (None,)
+    model = Modely(
+        "dynamic_shape",
+        inputs=[x],
+        outputs=[
+            Output(f"dynamic_shape_{name}", stream) for name, stream in streams.items()
+        ],
+    ).build()
+
+    for steps in (2, 5):
+        values = np.full((1, 2, 1, steps), 0.5, dtype=np.float32)
+        result = model({"dynamic_shape_x": values})
+        np.testing.assert_allclose(
+            to_numpy(result["dynamic_shape_scaled"]), 1.5 * np.ones_like(values)
+        )
+        np.testing.assert_allclose(
+            to_numpy(result["dynamic_shape_gained"]), np.ones_like(values)
+        )
+        np.testing.assert_allclose(
+            to_numpy(result["dynamic_shape_squashed"]), np.exp(values), rtol=1e-6
+        )
+        assert to_numpy(result["dynamic_shape_projected"]).shape == (1, 4, 1, steps)
+
+
+def test_only_the_dynamic_sequence_axes_become_dynamic_again():
+    # A fixed sequence axis next to a dynamic one keeps its size.
+    x = Input("mixed_seq_x", seq=(3, -1))
+    doubled = x * 2.0
+    assert doubled.seq == (3, None)
+    fixed = Input("fixed_seq_x", seq=4) * 2.0
+    assert fixed.seq == (4,)
