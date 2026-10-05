@@ -1138,8 +1138,9 @@ def test_seq_weights_weigh_the_rollout_steps_of_a_loop():
         Input("t_seq", seq=4),
     )
     loop = Loop(
-        f=body, callback={"x": "step"}, initial={"x": x_seq}, inputs={"y": y_seq}
-    )
+        f=body,
+        callback={"x": "step"},
+    )({"x": x_seq}, {"y": y_seq})
     out = Output("rollout", loop)
     model = Modely("model", inputs=[x_seq, y_seq], outputs=[out])
     weights = np.exp(np.arange(4))
@@ -1199,10 +1200,8 @@ def _dynamic_loop_model(seq_weights):
     loop = Loop(
         f=body,
         callback={"x": "step"},
-        initial={"x": x_seq},
-        inputs={"y": y_seq},
         length=3,
-    )
+    )({"x": x_seq}, {"y": y_seq})
     out = Output("rollout", loop)
     model = Modely("model", inputs=[x_seq, y_seq], outputs=[out])
     model.minimize("error", out, t_seq, seq_weights=seq_weights)

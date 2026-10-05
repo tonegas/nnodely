@@ -2,7 +2,12 @@ import keras
 
 from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
-from nnodely.core.stream import Stream
+from nnodely.core.stream import Shape, Stream
+
+
+#: Steps a dynamic rollout is declared with when no ``length`` is given. It
+#: only shapes the graph: the rollout follows the data it is given.
+DYNAMIC_BUILD_LENGTH = 1
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -158,17 +163,25 @@ class LoopImpl(keras.layers.Layer):
         return (outputs,)
 
     def _resolve_horizon(self, inputs):
-        """Number of rollout steps, always a Python int.
+        """Number of rollout steps.
 
-        The loop needs a static trip count, so the horizon is never read
-        symbolically. A rollout axis declared as ``None`` follows the sequence
-        it is actually given, which is what makes a longer input roll out
-        further; a declared width always wins over the tensor.
+        A rollout axis declared as ``None`` follows the sequence it is actually
+        given, which is what makes a longer input roll out further; a declared
+        width always wins over the tensor. Traced without a known width - an
+        export, or a retrace with relaxed shapes - TensorFlow reads it at run
+        time, since ``tf.while_loop`` takes its trip count as a tensor; the
+        other backends trace with concrete shapes and fall back on the build
+        length.
         """
         if self.horizon_index is not None:
-            width = inputs[self.horizon_index].shape[self.horizon_axis]
+            value = inputs[self.horizon_index]
+            width = value.shape[self.horizon_axis]
             if isinstance(width, int):
                 return width
+            if keras.backend.backend() == "tensorflow":
+                import tensorflow as tf
+
+                return tf.shape(value)[self.horizon_axis]
         return self.horizon
 
     def compute_output_spec(self, inputs):
@@ -392,15 +405,26 @@ class LoopImpl(keras.layers.Layer):
 class Loop(Layer):
     """Roll out a Modely by closing one or more of its outputs onto its inputs.
 
+    ::
+
+        Loop(f=body, callback={state: next_state})({state: s0}, {force: F_seq})
+
+    The loop is declared with its body and callback, and bound to the outer
+    graph by calling it with two dicts: ``initial`` (callback input: seed) and
+    ``inputs`` (body input: outer stream). A callback input missing from
+    ``initial`` starts at zero; a body input missing from ``inputs`` keeps its
+    own value at every step.
+
     The rollout axis lives outside the body: every stream that carries it is one
     sequence rank deeper than the body input it feeds, and its last sequence axis
     is the one the rollout consumes. A feedback input takes that stream through
     ``initial`` (step 0 seeds the state), an exogenous one through ``inputs``.
-    Body inputs left unbound keep their own value at every step.
 
-    ``length`` pins the number of steps. It is required when no rollout input
-    declares a concrete width, and a rollout declared dynamic (``seq=-1``)
-    follows the length of the sequence it is actually given.
+    ``length`` pins the number of steps. It is required only when no initial
+    value or input carries a rollout axis. A rollout declared dynamic
+    (``seq=-1``) follows the length of the sequence it is actually given, and
+    without ``length`` its streams are declared with ``DYNAMIC_BUILD_LENGTH``
+    steps.
 
     ``collect`` returns the whole trajectory, with the rollout axis appended as
     the last sequence axis of every output; ``collect=False`` returns only the
@@ -415,8 +439,6 @@ class Loop(Layer):
         self,
         f: Modely,
         callback: dict,
-        initial: Stream | float | int | dict = 0.0,
-        inputs: dict | None = None,
         name=None,
         length: int | None = None,
         collect: bool = True,
@@ -442,35 +464,66 @@ class Loop(Layer):
                 "Loop cannot feed the same output back into more than one input."
             )
 
-        initial_values = self._resolve_initial_values(initial, callback_inputs)
-        static_inputs = [node for node in f.inputs if node not in callback_inputs]
-        static_sources = self._resolve_sources(inputs, static_inputs, callback_inputs)
-
         self.f = f
+        self.callback = callback
         self.callback_inputs = callback_inputs
         self.callback_outputs = callback_outputs
-        self.static_inputs = static_inputs
-        self.static_sources = static_sources
-        self.initial_values = initial_values
+        self.static_inputs = [node for node in f.inputs if node not in callback_inputs]
         self.callback_shift_axes = self._resolve_feedback(callback_pairs)
         self.length = None if length is None else int(length)
         self.collect = bool(collect)
         self.return_all_outputs = False
-        self._configure()
+        super().__init__(name=name)
+        # Unbound until called: it has no shape to be used as a stream with.
+        self._shape = None
 
-        result_sequences = [self._result_sequence(output) for output in f.outputs]
-        first_output = f.outputs[0]
-        super().__init__(
-            name=name,
-            preds=[*initial_values, *static_sources],
-            dim=first_output.dim,
-            time=first_output.time,
+    @property
+    def shape(self):
+        if self._shape is None:
+            raise ValueError(
+                f"Loop {self.name!r} is not bound: call it with its initial and "
+                "inputs dicts, Loop(...)(initial, inputs), before using it as a "
+                "stream."
+            )
+        return self._shape
+
+    @shape.setter
+    def shape(self, value):
+        self._shape = value
+
+    def __call__(self, initial: dict, inputs: dict={}):  # type: ignore[override]
+        """Bind the loop to its initial values and outer inputs.
+
+        Every call returns a new loop node; the body, and so its weights, is
+        the one the loop was declared with.
+        """
+        node = Loop(
+            f=self.f,
+            callback=self.callback,
+            name=self.name,
+            length=self.length,
+            collect=self.collect,
+        )
+        node.initial_values = self._resolve_initial_values(
+            initial, self.callback_inputs
+        )
+        node.static_sources = self._resolve_sources(
+            inputs, self.static_inputs, self.callback_inputs
+        )
+        node._configure()
+
+        result_sequences = [node._result_sequence(output) for output in self.f.outputs]
+        node.preds = [*node.initial_values, *node.static_sources]
+        node.shape = Shape(
+            dim=self.f.outputs[0].dim,
+            time=self.f.outputs[0].time,
             seq=result_sequences[0],
         )
-        self.loop_outputs = [
-            LoopOutput(self, index, output, result_sequences[index])
-            for index, output in enumerate(f.outputs)
+        node.loop_outputs = [
+            LoopOutput(node, index, output, result_sequences[index])
+            for index, output in enumerate(self.f.outputs)
         ]
+        return node
 
     # ------------------------------------------------------------------
     # Axis configuration
@@ -540,10 +593,13 @@ class Loop(Layer):
                 f"Loop rollout inputs declare different lengths {sorted(widths)}; "
                 "pass length= to pin the number of steps."
             )
+        if loop_sources:
+            # Every rollout input is dynamic, so the data decides the number of
+            # steps; the graph is only declared with one.
+            return DYNAMIC_BUILD_LENGTH
         raise ValueError(
-            "Loop cannot determine the rollout length. The rollout needs a "
-            "static number of steps, so either pass length= to Loop or give one of "
-            "its rollout inputs a concrete seq=."
+            "Loop cannot determine the rollout length: no initial value or input "
+            "carries a rollout axis, so pass length= to Loop."
         )
 
     def _result_sequence(self, output):
@@ -610,8 +666,6 @@ class Loop(Layer):
     @staticmethod
     def _resolve_sources(inputs, static_inputs, callback_inputs):
         """Outer stream feeding each body input that is not fed back."""
-        if inputs is None:
-            return list(static_inputs)
         if not isinstance(inputs, dict):
             raise TypeError("Loop inputs must be a dict of body input: outer stream.")
 
@@ -653,22 +707,23 @@ class Loop(Layer):
 
     @staticmethod
     def _resolve_initial_values(initial, callback_inputs):
-        if isinstance(initial, dict):
-            by_name = {
-                key.name if isinstance(key, Stream) else key: value
-                for key, value in initial.items()
-            }
-            expected = {node.name for node in callback_inputs}
-            if set(by_name) != expected:
-                raise ValueError(
-                    "Loop initial keys must match callback inputs; "
-                    f"expected {sorted(expected)}, got {sorted(by_name)}."
-                )
-            values = [by_name[node.name] for node in callback_inputs]
-        elif len(callback_inputs) == 1:
-            values = [initial]
-        else:
-            raise ValueError("Multiple Loop callbacks require an initial value dict.")
+        """Seed of every callback input; the ones not given start at zero."""
+        if not isinstance(initial, dict):
+            raise TypeError(
+                "Loop initial must be a dict of callback input: initial value."
+            )
+        by_name = {
+            key.name if isinstance(key, Stream) else key: value
+            for key, value in initial.items()
+        }
+        expected = {node.name for node in callback_inputs}
+        unknown = set(by_name) - expected
+        if unknown:
+            raise ValueError(
+                f"Loop initial keys {sorted(unknown)} are not callback inputs; "
+                f"expected a subset of {sorted(expected)}."
+            )
+        values = [by_name.get(node.name, 0.0) for node in callback_inputs]
 
         from nnodely.layers.constant import Constant
 
@@ -742,10 +797,7 @@ class Loop(Layer):
         body, callback = config.pop("f"), config.pop("callback")
         preds = list(preds or [])
         static_names = [node.name for node in body.inputs if node.name not in callback]
-        return cls(
-            f=body,
-            callback=callback,
-            initial=dict(zip(callback, preds[: len(callback)])),
-            inputs=dict(zip(static_names, preds[len(callback) :])),
-            **config,
+        return cls(f=body, callback=callback, **config)(
+            dict(zip(callback, preds[: len(callback)])),
+            dict(zip(static_names, preds[len(callback) :])),
         )

@@ -16,6 +16,7 @@ from nnodely import (
     Fir,
     DataLoader,
 )
+from nnodely.layers.loop import DYNAMIC_BUILD_LENGTH
 import pytest
 
 os.environ.setdefault("KERAS_BACKEND", "jax")
@@ -38,9 +39,8 @@ def test_loop(tmp_path):
     loop = Loop(
         f=body,
         callback={input1: body_output},
-        initial={input1: seed},
         collect=False,
-    )
+    )({input1: seed}, {})
     output1 = Output("out1", loop)
 
     model = Modely(
@@ -77,10 +77,9 @@ def test_nested_loop(tmp_path):
     first_loop = Loop(
         f=first_body,
         callback={inner: first_body_output},
-        initial={inner: x},
         name="first_loop",
         collect=False,
-    )
+    )({inner: x}, {})
     assert first_loop.shape.dimensions == ((1,), 1, (5,))
 
     second_input = Input("second_input", dim=1)
@@ -92,10 +91,9 @@ def test_nested_loop(tmp_path):
     second_loop = Loop(
         f=second_body,
         callback={second_input: second_body_output},
-        initial={second_input: first_loop},
         name="second_loop",
         collect=False,
-    )
+    )({second_input: first_loop}, {})
     output = Output("nested_output", second_loop)
     model = Modely("nested_loop_model", inputs=[x], outputs=[output]).build()
     model.export_html(out_dir=tmp_path, filename="test_nested_loop")
@@ -137,10 +135,9 @@ def test_loop_mechanical_modely(tmp_path):
     loop = Loop(
         f=mechanical_model,
         callback={"mechanical_state": "next_state"},
-        initial={"mechanical_state": state_seq},
         name="mechanical_loop",
         collect=False,
-    )
+    )({"mechanical_state": state_seq}, {"external_force": external_force}) # initial and inputs are passed as dicts
     assert loop.shape.dimensions == ((1,), 1, ())
     model = Modely(
         "closed_mechanical_model",
@@ -271,10 +268,8 @@ def test_nested_closed_loop(tmp_path):
     loop_fn = Loop(
         f=model_add,
         callback={"x": "out1"},
-        initial={"x": x_seq},
-        inputs={"y": y_seq},
         name="loop_model_add",
-    )
+    )({"x": x_seq}, {"y": y_seq})
     out = Output("out", loop_fn)
     model_in = Modely(name="model", inputs=[x_seq, y_seq], outputs=[out])
     model_in.build()
@@ -284,9 +279,8 @@ def test_nested_closed_loop(tmp_path):
     loop_fn2 = Loop(
         f=model_in,
         callback={"y_seq": "out"},
-        initial={"y_seq": z},
         name="loop_model_in",
-    )
+    )({"y_seq": z}, {})
     out_w = Output("out_w", loop_fn2)
     model_out = Modely(name="model_with_loop_w", inputs=[x_seq, z], outputs=[out_w])
 
@@ -347,9 +341,8 @@ def test_simple_model_loop(tmp_path):
     loop_fn = Loop(
         f=model_add,
         callback={"x": "y"},
-        initial={"x": x_seq},
         name="loop_model_add",
-    )
+    )({"x": x_seq}, {})
     out = Output("out", loop_fn)
     model_in = Modely(name="simple_loop_model", inputs=[x_seq, z], outputs=[out])
 
@@ -399,9 +392,8 @@ def test_simple_model2(tmp_path):
     loop_out1, loop_out2 = Loop(
         f=model_add,
         callback={"x": "y", "z": "y2"},
-        initial={"x": x_seq, "z": z_seq},
         name="loop_model_add",
-    )
+    )({"x": x_seq, "z": z_seq}, {})
 
     out1 = Output("out1", loop_out1)
     out2 = Output("out2", loop_out2)
@@ -473,10 +465,8 @@ def test_loop_bound_inputs(tmp_path):
     loop = Loop(
         f=body,
         callback={x: body_output},
-        initial={x: initial},
-        inputs={u: driver},
         name="sliced_loop",
-    )
+    )({x: initial}, {u: driver})
     assert loop.horizon == 3
     assert loop.shape.dimensions == ((1,), 1, (3,))
 
@@ -524,30 +514,35 @@ def test_loop_dynamic_length():
     initial = Input("dyn_x0", dim=1, seq=-1)
     driver = Input("dyn_u_seq", dim=1, seq=-1)
 
+    # Without a rollout axis nothing tells the loop how many steps to take.
     with pytest.raises(ValueError, match="cannot determine the rollout length"):
         Loop(
             f=body,
             callback={x: body_output},
-            initial={x: initial},
-            inputs={u: driver},
-            name="dyn_loop_no_length",
-        )
+            name="dyn_loop_no_axis",
+        )({x: Input("dyn_x_plain", dim=1)})
 
     loop = Loop(
         f=body,
         callback={x: body_output},
-        initial={x: initial},
-        inputs={u: driver},
         name="dyn_loop",
         length=3,
-    )
+    )({x: initial}, {u: driver})
     assert loop.horizon == 3
     assert loop.shape.dimensions == ((1,), 1, (3,))
+
+    # A dynamic rollout needs no length: it is only declared with a default one.
+    unpinned = Loop(
+        f=body,
+        callback={x: body_output},
+        name="dyn_loop_unpinned",
+    )({x: initial}, {u: driver})
+    assert unpinned.horizon == DYNAMIC_BUILD_LENGTH
 
     model = Modely(
         "dyn_model",
         inputs=[initial, driver],
-        outputs=[Output("dyn_out", loop)],
+        outputs=[Output("dyn_out", loop), Output("dyn_unpinned", unpinned)],
     ).build()
 
     # The declared length drives the training-time shapes ...
@@ -578,6 +573,9 @@ def test_loop_dynamic_length():
             1, 1, 1, 5
         ),
     )
+    np.testing.assert_allclose(
+        to_numpy(long["dyn_unpinned"]), to_numpy(long["dyn_out"])
+    )
 
 
 def test_loop_window_feedback():
@@ -591,9 +589,8 @@ def test_loop_window_feedback():
     loop = Loop(
         f=body,
         callback={x: body_output},
-        initial={x: initial.sw(3)},
         name="window_loop",
-    )
+    )({x: initial.sw(3)})
     # Loop builds the body when it is handed an unbuilt one
     assert body.built
     assert taps.kernel is not None
@@ -635,11 +632,9 @@ def test_loop_multi_output():
     position_out, velocity_out = Loop(
         f=body,
         callback={position: position_next, velocity: velocity_next},
-        initial={position: p0, velocity: v0},
-        inputs={acceleration: a_seq},
         name="integrator_loop",
         length=3,
-    )
+    )({position: p0, velocity: v0}, {acceleration: a_seq})
     model = Modely(
         "integrator_model",
         inputs=[p0, v0, a_seq],
@@ -671,7 +666,7 @@ def test_loop_collects_output_that_is_not_fed_back():
     body = Modely("extra_body", inputs=[x], outputs=[state, diagnostic]).build()
 
     seed = Input("extra_x0", dim=1, seq=4)
-    loop = Loop(f=body, callback={x: state}, initial={x: seed}, name="extra_loop")
+    loop = Loop(f=body, callback={x: state}, name="extra_loop")({x: seed})
     state_out, diagnostic_out = loop
 
     model = Modely(
@@ -691,7 +686,6 @@ def test_loop_collects_output_that_is_not_fed_back():
         np.array([101.0, 102.0, 104.0, 108.0], dtype=np.float32).reshape(1, 1, 1, 4),
     )
 
-
 def test_loop_constant_initial_batched():
     # A constant initial value has no batch axis; the carry still has to match
     # the batched body output.
@@ -701,7 +695,7 @@ def test_loop_constant_initial_batched():
     body = Modely("cst_body", inputs=[x, u], outputs=[body_output]).build()
 
     driver = Input("cst_u_seq", dim=1, seq=3)
-    loop = Loop(f=body, callback={x: body_output}, inputs={u: driver}, name="cst_loop")
+    loop = Loop(f=body, callback={x: body_output}, name="cst_loop")({}, {u: driver})
 
     model = Modely(
         "cst_model", inputs=[driver], outputs=[Output("cst_out", loop)]
@@ -720,4 +714,47 @@ def test_loop_constant_initial_batched():
             np.array([1.0, 4.0, 11.0], dtype=np.float32).reshape(1, 1, 1, 3),
             (2, 1, 1, 1),
         ),
+    )
+
+
+def test_loop_binds_initial_and_inputs_at_call():
+    # The dicts are required at call time; a callback input left out of
+    # `initial` starts at zero, and one Loop can be bound more than once.
+    x = Input("bind_x", dim=1)
+    u = Input("bind_u", dim=1)
+    body_output = Output("bind_next", x.last() + u.last())
+    body = Modely("bind_body", inputs=[x, u], outputs=[body_output]).build()
+    loop = Loop(f=body, callback={x: body_output}, name="bind_loop")
+
+    with pytest.raises(TypeError, match="initial must be a dict"):
+        loop(0.0, {})
+    with pytest.raises(TypeError, match="inputs must be a dict"):
+        loop({}, None)
+    with pytest.raises(ValueError, match="not callback inputs"):
+        loop({u: 1.0}, {})
+    with pytest.raises(ValueError, match="is not bound"):
+        Output("bind_unbound", loop)
+    with pytest.raises(ValueError, match="is not bound"):
+        loop + 1.0
+
+    driver = Input("bind_u_seq", dim=1, seq=3)
+    seed = Input("bind_seed", dim=1)
+    from_zero = loop({}, {u: driver})
+    from_seed = loop({x: seed}, {u: driver})
+    model = Modely(
+        "bind_model",
+        inputs=[driver, seed],
+        outputs=[Output("bind_zero", from_zero), Output("bind_seeded", from_seed)],
+    ).build()
+    result = model(
+        {
+            "bind_u_seq": np.ones((1, 1, 1, 3), dtype=np.float32),
+            "bind_seed": np.full((1, 1, 1), 10.0, dtype=np.float32),
+        }
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["bind_zero"]).reshape(-1), [1.0, 2.0, 3.0]
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["bind_seeded"]).reshape(-1), [11.0, 12.0, 13.0]
     )

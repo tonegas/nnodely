@@ -962,10 +962,9 @@ def _loop_final_state_model():
     loop = Loop(
         f=body,
         callback={state: next_state},
-        initial={state: seed},
         collect=False,
         name="loop_final",
-    )
+    )({state: seed}, {})
     return Modely(
         "loop_final",
         inputs=[seed, force],
@@ -1003,10 +1002,8 @@ def _loop_trajectory_model():
     position_trajectory, velocity_trajectory = Loop(
         f=body,
         callback={position: position_next, velocity: velocity_next},
-        initial={position: p0.sw(2), velocity: 0.25},
-        inputs={force: force_sequence},
         name="loop_traj",
-    )
+    )({position: p0.sw(2), velocity: 0.25}, {force: force_sequence})
     return Modely(
         "loop_traj",
         inputs=[p0, force_sequence],
@@ -1029,10 +1026,9 @@ def _nested_loop_model():
     first_loop = Loop(
         f=first_body,
         callback={inner: first_output},
-        initial={inner: x},
         name="nested_save_first_loop",
         collect=False,
-    )
+    )({inner: x}, {})
 
     second = Input("nested_save_second", dim=1)
     second_output = Output("nested_save_second_out", second * gain)
@@ -1042,10 +1038,9 @@ def _nested_loop_model():
     second_loop = Loop(
         f=second_body,
         callback={second: second_output},
-        initial={second: first_loop},
         name="nested_save_second_loop",
         collect=False,
-    )
+    )({second: first_loop}, {})
     return Modely(
         "nested_save_loop",
         inputs=[x],
@@ -1069,17 +1064,15 @@ def _shared_body_model():
     first = Loop(
         f=body,
         callback={state: next_state},
-        initial={state: short},
         collect=False,
         name="shared_body_first",
-    )
+    )({state: short}, {})
     second = Loop(
         f=body,
         callback={state: next_state},
-        initial={state: long},
         collect=False,
         name="shared_body_second",
-    )
+    )({state: long}, {})
     return Modely(
         "shared_body_model",
         inputs=[short, long],
@@ -1100,7 +1093,7 @@ def _ode_loop_model():
     body = Modely("ode_loop_body", inputs=[x], outputs=[body_output]).build()
 
     seed = Input("ode_loop_seed", dim=1, seq=6)
-    loop = Loop(f=body, callback={x: body_output}, initial={x: seed}, name="ode_loop")
+    loop = Loop(f=body, callback={x: body_output}, name="ode_loop")({x: seed}, {})
     return Modely(
         "ode_loop", inputs=[seed], outputs=[Output("ode_loop_out", loop)]
     ).build()
@@ -1222,6 +1215,43 @@ def test_export_onnx_loop_model(tmp_path, model_factory):
             rtol=1e-5,
             atol=1e-5,
         )
+
+
+@pytest.mark.skipif(
+    keras.backend.backend() != "tensorflow",
+    reason="only the tensorflow exporter keeps the rollout axis dynamic",
+)
+@requires_onnx_export
+def test_export_onnx_dynamic_loop_follows_the_data(tmp_path):
+    # Exported with an unknown width, the rollout reads its length from the
+    # data instead of the length it was declared with.
+    pytest.importorskip("onnxruntime")
+    x, u = Input("dyn_onnx_x", dim=1), Input("dyn_onnx_u", dim=1)
+    body_output = Output("dyn_onnx_next", x.last() * 0.5 + u.last())
+    body = Modely("dyn_onnx_body", inputs=[x, u], outputs=[body_output]).build()
+    x_seq = Input("dyn_onnx_x_seq", dim=1, seq=-1)
+    u_seq = Input("dyn_onnx_u_seq", dim=1, seq=-1)
+    loop = Loop(f=body, callback={x: body_output})({x: x_seq}, {u: u_seq})
+    model = Modely(
+        "dyn_onnx_model",
+        inputs=[x_seq, u_seq],
+        outputs=[Output("dyn_onnx_out", loop)],
+    ).build()
+    model.export_onnx(tmp_path)
+
+    for steps in (1, 7):
+        inputs = {
+            "dyn_onnx_x_seq": np.ones((1, 1, 1, steps), dtype=np.float32),
+            "dyn_onnx_u_seq": np.arange(steps, dtype=np.float32).reshape(
+                1, 1, 1, steps
+            ),
+        }
+        expected = to_numpy(model(inputs)["dyn_onnx_out"])
+        actual = Modely.validate_onnx(
+            tmp_path / f"{model.name}.onnx", inputs, return_dict=True
+        )["dyn_onnx_out"]
+        assert expected.shape == (1, 1, 1, steps)
+        np.testing.assert_allclose(to_numpy(actual), expected, rtol=1e-5, atol=1e-5)
 
 
 @_LAYER_SUITE
@@ -1587,7 +1617,7 @@ def test_a_loop_closed_over_a_generated_layer_reloads_beside_its_original(tmp_pa
     assert bare.kernel is not None
     bare.kernel.assign(np.full((1, 1), 2.0, dtype=np.float32))
     seed = Input("bare_seed", seq=4)
-    loop = Loop(f=body, callback={s: bare}, initial={s: seed}, collect=False)
+    loop = Loop(f=body, callback={s: bare}, collect=False)({s: seed}, {})
     model = Modely(
         "bare_top", inputs=[seed], outputs=[Output("bare_out", loop)]
     ).build()

@@ -86,7 +86,8 @@ along a sequence axis:
     ``True`` (the default) returns the whole trajectory, with the rollout
     appended as the last sequence axis. ``False`` returns only the last step.
 ``length``
-    fixes the number of steps when no input declares it.
+    fixes the number of steps. It is needed only when no initial value or
+    input carries a rollout axis.
 
 The body below is a linear state-space step, :math:`s[t+1] = A s[t] + B F[t]`,
 on the state :math:`s = (x, \dot x)`:
@@ -107,7 +108,7 @@ on the state :math:`s = (x, \dot x)`:
    F_seq = Input("F_seq", seq=horizon)
    trajectory = Output(
        "trajectory",
-       Loop(f=body, callback={state: next_state}, initial={state: s0}, inputs={F_step: F_seq}),
+       Loop(f=body, callback={state: next_state})({state: s0}, {F_step: F_seq}),
    )
 
    simulator = Modely("msd_loop", inputs=[s0, F_seq], outputs=[trajectory])
@@ -131,7 +132,7 @@ a time window, ``x.sw(n)``, is closed by shifting: after ``n`` steps the window
 contains only predictions.
 
 With a dynamic sequence, ``seq=-1``, the rollout follows the length of the
-data it receives. A ``length`` still has to be given for building. Together
+data it receives, and no ``length`` is needed. Together
 with ``seq_length="full"`` in the :class:`~nnodely.DataLoader`, this trains on
 whole simulations of different lengths (see :doc:`data`).
 

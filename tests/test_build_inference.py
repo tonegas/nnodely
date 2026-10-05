@@ -238,8 +238,10 @@ def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
     # The loop runs the body as declared: its target is not an input of the loop.
     seed = Input("minimized_body_seed", dim=1, seq=4)
     loop = Loop(
-        f=body, callback={state: next_state}, initial={state: seed}, collect=False
-    )
+        f=body,
+        callback={state: next_state},
+        collect=False,
+    )({state: seed}, {})
     model = Modely(
         "minimized_loop", inputs=[seed], outputs=[Output("minimized_loop_out", loop)]
     ).build()
