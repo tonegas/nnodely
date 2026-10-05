@@ -6,6 +6,9 @@ __pycache__
 !.vscode/settings.json
 !.vscode/extensions.json
 
+# Experimental folder for tests
+experimental/
+
 results
 dist/
 docs/_build

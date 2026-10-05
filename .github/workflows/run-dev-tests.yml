@@ -1,8 +1,8 @@
-name: Run Tests
+name: Run Devs Tests
 
 on:
   pull_request:
-    branches: ["main"]
+    branches: ["develop"]
 
 jobs:
   test:
@@ -11,7 +11,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.13"]
         keras-backend: [tensorflow, torch, jax]
     env:
       KERAS_BACKEND: ${{ matrix.keras-backend }}
@@ -29,4 +29,4 @@ jobs:
         run: uv sync --locked --all-extras --dev
 
       - name: Run tests
-        run: uv run pytest tests
+        run: uv run pytest tests -m "not slow"

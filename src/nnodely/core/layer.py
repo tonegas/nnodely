@@ -220,21 +220,30 @@ class BinaryOp(Layer):
             )
         return BinaryOpImpl(operation=self.operation, name=self.name)
 
-    def output_shape(self, *inputs):
-            # A dynamic sequence axis cannot be probed with a dummy tensor, but a
-            # product of streams of one shape keeps that shape. A dynamic axis
-            # matches the build length of the other side (a Loop rollout declared
-            # with `length`), since both follow the data, and stays dynamic.
-            shapes = [input_node.shape.tuple for input_node in inputs]
-            ranks = {input_node.shape.seq_rank for input_node in inputs}
-            if len({len(shape) for shape in shapes}) == 1 and len(ranks) == 1:
-                axes = [{axis for axis in column if axis is not None} for column in zip(*shapes)]
-                if all(len(sizes) <= 1 for sizes in axes):
-                    merged = [None if None in column else sizes.pop() for column, sizes in zip(zip(*shapes), axes)]
-                    seq_rank = ranks.pop()
-                    time_index = len(merged) - seq_rank - 1
-                    return tuple(merged[:time_index]), merged[time_index], tuple(merged[time_index + 1 :])
-            return super().output_shape(*inputs)
+    def output_shape(self, *inputs):  # type: ignore
+        # A dynamic sequence axis cannot be probed with a dummy tensor, but a
+        # product of streams of one shape keeps that shape. A dynamic axis
+        # matches the build length of the other side (a Loop rollout declared
+        # with length), since both follow the data, and stays dynamic.
+        shapes = [input_node.shape.tuple for input_node in inputs]
+        ranks = {input_node.shape.seq_rank for input_node in inputs}
+        if len({len(shape) for shape in shapes}) == 1 and len(ranks) == 1:
+            axes = [
+                {axis for axis in column if axis is not None} for column in zip(*shapes)
+            ]
+            if all(len(sizes) <= 1 for sizes in axes):
+                merged = [
+                    None if None in column else sizes.pop()
+                    for column, sizes in zip(zip(*shapes), axes)
+                ]
+                seq_rank = ranks.pop()
+                time_index = len(merged) - seq_rank - 1
+                return (
+                    tuple(merged[:time_index]),
+                    merged[time_index],
+                    tuple(merged[time_index + 1 :]),
+                )
+        return super().output_shape(*inputs)
 
 
 _BINARY_OPERATIONS = {
