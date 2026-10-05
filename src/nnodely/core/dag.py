@@ -191,7 +191,10 @@ def toposort_outputs(outputs: list[Output]) -> list[Node]:
         order.append(node)
 
     for output in outputs:
-        dfs(output)
+        # An output can also feed another one, e.g. a minimizer source that
+        # an Output exposes: visiting it again would apply its layer twice.
+        if output not in visited:
+            dfs(output)
 
     return order
 

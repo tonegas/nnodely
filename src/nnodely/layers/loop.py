@@ -1,4 +1,7 @@
+import contextlib
+
 import keras
+from keras.src.backend.common import stateless_scope
 
 from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
@@ -330,16 +333,36 @@ class LoopImpl(keras.layers.Layer):
         hand: ``keras.ops.scan`` leaves ``maximum_iterations`` unset, which XLA
         needs to compile the gradient, and requires every per-step output to
         match the carry.
+
+        On JAX the body's non-trainable variables (e.g. BatchNorm moving
+        statistics) travel in the carry: assigning them inside ``scan`` would
+        leak a scan tracer out of its trace. The parent stateless scope is
+        reused, since a nested one would hide the trainer's variable values.
         """
         if keras.backend.backend() != "tensorflow":
+            jax = keras.backend.backend() == "jax"
+            state = self.model.non_trainable_variables if jax else []
+            # Torch assigns in place, so only JAX needs a scope to record them.
+            own_scope = jax and not stateless_scope.in_stateless_scope()
 
             def scan_step(carry, x_step):
+                carry, values = carry
+                for variable, value in zip(state, values):
+                    variable.assign(value)
                 carry = step(carry, x_step)
-                return carry, carry[:output_count] if self.collect else None
+                values = [variable.value for variable in state]
+                return (carry, values), carry[:output_count] if self.collect else None
 
-            return keras.ops.scan(
-                scan_step, init_carry, xs=xs if xs else None, length=horizon
-            )
+            with keras.StatelessScope() if own_scope else contextlib.nullcontext():
+                (carry, values), trajectory = keras.ops.scan(
+                    scan_step,
+                    (init_carry, [variable.value for variable in state]),
+                    xs=xs if xs else None,
+                    length=horizon,
+                )
+            for variable, value in zip(state, values):
+                variable.assign(value)
+            return carry, trajectory
 
         import tensorflow as tf
 

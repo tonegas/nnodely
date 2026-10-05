@@ -1,4 +1,5 @@
 import os
+os.environ.setdefault("KERAS_BACKEND", "jax")
 from typing import cast
 
 import numpy as np
@@ -15,11 +16,11 @@ from nnodely import (
     Output,
     Fir,
     DataLoader,
+    BatchNorm
 )
 from nnodely.layers.loop import DYNAMIC_BUILD_LENGTH
 import pytest
 
-os.environ.setdefault("KERAS_BACKEND", "jax")
 
 
 def test_loop(tmp_path):
@@ -716,6 +717,49 @@ def test_loop_constant_initial_batched():
         ),
     )
 
+def test_loop_with_batchnorm_train():
+    # A BatchNorm in the body updates its moving statistics at every rollout
+    # step while training, also on JAX, where the rollout runs through scan.
+    x = Input("bn_x", dim=1)
+    u = Input("bn_u", dim=1)
+    norm = BatchNorm(name="bn_norm")(x.last())
+    body_output = Output("bn_next", norm + u.last())
+    body = Modely("bn_body", inputs=[x, u], outputs=[body_output]).build()
+
+    driver = Input("bn_u_seq", dim=1, seq=3)
+    loop = Loop(f=body, callback={x: body_output}, name="bn_loop")({}, {u: driver})
+
+    model = Modely(
+        "bn_model", inputs=[driver], outputs=[Output("bn_out", loop)]
+    )
+    model.minimize(
+        "bn_loss",
+        source=loop,
+        target=Input("bn_target", dim=1, seq=3),
+        loss="mse",
+    )
+    model.build()
+
+    # Every sample of a batch is the same, so the batch variance is 0 and the
+    # BatchNorm outputs beta = 0: the rollout feeds x = 0, 1, 1 to it. The loss
+    # and its gradients are then 0 too, and only the moving statistics move.
+    data = {
+        "bn_u_seq": np.ones((10, 1, 1), dtype=np.float32),
+        "bn_target": np.ones((10, 1, 1), dtype=np.float32),
+    }
+    dataset = DataLoader(model, source=data)
+    model.train(train_data=dataset, epochs=1, batch_size=2, lr=1e-3)
+
+    # One update per rollout step of every batch, from mean 0 and variance 1.
+    mean, variance = 0.0, 1.0
+    for _ in range(len(dataset) // 2):
+        for step_mean in (0.0, 1.0, 1.0):
+            mean = 0.99 * mean + 0.01 * step_mean
+            variance = 0.99 * variance
+    np.testing.assert_allclose(to_numpy(norm._layer.moving_mean), [mean], rtol=1e-4)
+    np.testing.assert_allclose(
+        to_numpy(norm._layer.moving_variance), [variance], rtol=1e-4
+    )
 
 def test_loop_binds_initial_and_inputs_at_call():
     # The dicts are required at call time; a callback input left out of
@@ -758,3 +802,6 @@ def test_loop_binds_initial_and_inputs_at_call():
     np.testing.assert_allclose(
         to_numpy(result["bind_seeded"]).reshape(-1), [11.0, 12.0, 13.0]
     )
+
+if __name__ == "__main__":
+    test_loop_with_batchnorm_train()
