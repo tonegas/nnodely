@@ -4,7 +4,7 @@ All notable changes to nnodely are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-10-07
 
 nnodely 2.0 is a rewrite of the library on **Keras 3**. The same model runs on
 TensorFlow, PyTorch or JAX, chosen with the `KERAS_BACKEND` environment
