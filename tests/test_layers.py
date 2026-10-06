@@ -754,3 +754,65 @@ def test_fir_follows_a_dynamic_sequence_length():
             1,
             length,
         )
+
+
+# ---------------------------------------------------------------------------
+# A layer with nothing to configure is applied as it is created: Sin(x)
+# ---------------------------------------------------------------------------
+
+import nnodely  # noqa: E402
+
+_APPLIED_ON_CREATION = [
+    "Abs", "Acos", "Asin", "Atan", "Ceil", "Cos", "Deg2Rad", "Exp", "Floor",
+    "Log", "Log10", "Negative", "Sigmoid", "Sign", "Sin", "Softplus", "Sqrt",
+    "Swish", "Tan", "Tanh",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("layer_name", _APPLIED_ON_CREATION)
+def test_a_layer_without_configuration_is_applied_on_creation(layer_name):
+    layer = getattr(nnodely, layer_name)
+    x = Input(f"direct_{layer_name}_x")
+    window = x.sw(4)
+    direct = layer(window)
+    called = layer()(window)
+    assert isinstance(direct, layer)
+    assert direct.preds == [window]  # applied to the stream it was created with
+    model = Modely(
+        f"direct_{layer_name}",
+        inputs=[x],
+        outputs=[
+            Output(f"direct_{layer_name}_out", direct),
+            Output(f"called_{layer_name}_out", called),
+        ],
+    ).build()
+
+    values = np.array([[[0.1, 0.4, 0.6, 0.9]]], dtype=np.float32)  # in every domain
+    result = model({f"direct_{layer_name}_x": values})
+    np.testing.assert_allclose(
+        to_numpy(result[f"direct_{layer_name}_out"]),
+        to_numpy(result[f"called_{layer_name}_out"]),
+    )
+
+
+def test_time_concatenate_is_applied_on_creation_to_a_list():
+    x = Input("direct_join_x")
+    joined = TimeConcatenate([x.sw(2), x.sw(3)])
+    assert isinstance(joined, TimeConcatenate)
+    assert joined.time == 5
+
+
+def test_a_name_passed_positionally_still_only_configures():
+    configured = Sin("direct_named_sin")
+    assert configured.name == "direct_named_sin"
+    assert configured.preds == []
+    x = Input("direct_named_x")
+    assert configured(x.sw(2)).name == "direct_named_sin"
+
+
+@pytest.mark.parametrize(
+    "layer",
+    [ReLU, LeakyReLU, ELU, GELU, PReLU, Softmax, Linear, Fir, Concatenate],
+)
+def test_a_layer_with_settings_is_configured_before_it_is_called(layer):
+    assert layer._applied_on_creation is False

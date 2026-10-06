@@ -43,8 +43,11 @@ start from a random value. Like every stream they are laid out
 Layers
 ------
 
-Every layer is created with its configuration and then called on streams. The
-tables group the available layers.
+Every layer is created with its configuration and then called on streams. A
+layer with nothing to configure - its constructor takes only ``name``, as
+``Sin``, ``Exp``, ``Sigmoid`` or ``TimeConcatenate`` do - can be applied as it
+is created: ``Sin(x)`` is ``Sin()(x)``. To name it, configure it first:
+``Sin(name="s")(x)``. The tables group the available layers.
 
 .. list-table:: Layers with weights
    :header-rows: 1
@@ -210,9 +213,22 @@ Inspecting a model
    print(vehicle)            # the nodes of the graph, in evaluation order
    vehicle.summary()         # the Keras summary of the built model
 
-   vehicle.export_html("model_html")   # interactive graph, one page per sub-model
-   vehicle.plot("model.png")           # static graph, requires Graphviz
+   vehicle.export_html("model_html")             # interactive graph, one page per sub-model
+   vehicle.plot("figures")                       # figures/vehicle.png, one image per sub-model
+   vehicle.plot("figures", "all", flatten=True)  # figures/all.png, everything in one image
 
 :meth:`~nnodely.Modely.export_html` writes an interactive page you can open in
-a browser. :meth:`~nnodely.Modely.plot` needs the Graphviz executables
-installed on the system.
+a browser. :meth:`~nnodely.Modely.plot` draws static images with Graphviz,
+whose ``dot`` program must be installed on the system. Like ``export_html`` it
+takes a folder and a file name, the model's name by default; a path with an
+image suffix (``"model.svg"``) names the file and its format.
+
+Each node shows its name, coloured by its role - inputs green, outputs red,
+parameters, constants, sub-models and losses as in the legend - and each arrow
+the shape it carries, a dynamic sequence axis written ``dyn``. Without
+``flatten``, every block that wraps a model - a sub-model call, a
+:class:`~nnodely.Loop`, a :class:`~nnodely.Roll` - is one sub-model node, and
+its body is drawn in an image of its own named ``<filename>_<body name>``,
+recursively. With ``flatten=True`` the whole model is one image, each called
+sub-model inside a box. A Loop or a Roll is shown by its arrow alone: an orange
+``loop`` arrow, or a teal ``roll (steps=n)`` one, back to the input it feeds.

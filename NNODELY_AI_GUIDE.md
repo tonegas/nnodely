@@ -184,6 +184,7 @@ Install: `pip install "nnodely[torch]"` (or `[tensorflow]` / `[jax]`); add `onnx
 Configure first, then call on a stream or a list of streams:
 - `Linear(out_features=4)([s])` and `Linear(out_features=4)(s)` are both accepted.
 - Multi-input layers take a list: `Concatenate()([a, b])`.
+- A layer whose constructor takes only `name` (`Sin Cos Tan Asin Acos Atan Exp Log Log10 Sqrt Abs Floor Ceil Deg2Rad Sign Negative Sigmoid Tanh Swish Softplus TimeConcatenate`) can be applied as it is created: `Sin(x)` is `Sin()(x)`, `TimeConcatenate([a, b])` is `TimeConcatenate()([a, b])`. A string first argument is still the name: `Sin("s")` configures. For a named layer write `Sin(name="s")(x)`. Layers with settings (`ReLU`, `Softmax`, `Sum`, `Clamp`, `Linear`, ...) are always configured first.
 - `LocalModel` takes the inputs and a list of activations: `LocalModel(...)(inputs, activations)`.
 
 After build, weights are available on the *returned stream node*: `node.kernel`, `node.bias` (Keras variables; `.assign(np.array(...))` works).
@@ -255,7 +256,7 @@ See §10 (`Loop`, `Roll`, `rollback`) and §11 (`Differentiate`, `Derivate`, `In
 | `flatten()` → Modely | Inlines every composed sub-model. |
 | `summary()` | Keras summary. |
 | `export_html(out_dir, filename=None, *, open_subgraph_in_new_tab=False, physics=True)` | Interactive vis-network graph, one page per sub-model. |
-| `plot(to_file, include_minimizers=True, flatten=False)` | Graphviz image, in the format of the file suffix (`.png` when there is none). Without the Graphviz `dot` program it warns and writes the DOT source to `<file>.gv`. |
+| `plot(out_dir, filename=None, *, flatten=False, include_minimizers=True, format="png")` | Graphviz images in `out_dir`, the root named `filename` (the model name by default); a path or filename with an image suffix (`.png`, `.svg`, `.pdf`) names the file and format. Nodes show only their name, coloured by role (inputs green, outputs red); arrows carry the shape (`dyn` for a dynamic seq axis). Without `flatten`, each block (ModelCall, Loop, Roll) is one SubModel node and its body is drawn as `<filename>_<body name>`, recursively; with `flatten`, one image, each called sub-model boxed. Loop recurrences are an orange `loop` arrow, Roll and rollback a teal `roll (steps=n)` arrow. Every image has the logo and a legend (Input, Output, Parameter, Constant, SubModel, Loss, loop, roll). Without the Graphviz `dot` program it warns and writes each image's DOT source as `.gv`. Returns None. |
 | `save(path, weights=True)`, `Modely.load(path, weights=True)` | nnodely format: a folder with `model.json` and `model.weights.h5`, bodies of Loop, Roll and OdeNet in sub-folders (§1.14). |
 | `export_keras(path, filename=None)`, `Modely.import_keras(filename, safe_mode=True)` → `keras.Model` | Writes `path/<filename or model name>.keras`. The imported object is a plain Keras model; call it with batched float32 dicts. Pass `safe_mode=False` if loading refuses nested or lambda configs. |
 | `export_onnx(path, filename=None, *, input_signature=None, batch_size=None, opset_version=None, verbose=False)` | Writes `path/<filename or model name>.onnx`. Needs the `onnx` extra and the TF or Torch backend (§13). |

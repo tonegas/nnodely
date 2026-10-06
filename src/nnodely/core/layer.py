@@ -1,4 +1,5 @@
 from __future__ import annotations
+import inspect
 from abc import abstractmethod
 
 import keras
@@ -24,7 +25,44 @@ def _claim_keras_name(layer, taken: dict[str, Any]) -> None:
     taken[layer.name] = layer
 
 
-class Layer(Stream):
+def _are_streams(value) -> bool:
+    """A Stream, or a non-empty list or tuple of Streams."""
+    if isinstance(value, Stream):
+        return True
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) > 0
+        and all(isinstance(item, Stream) for item in value)
+    )
+
+
+class _LayerType(type):
+    """Lets a layer that takes no configuration be applied as it is created.
+
+    A layer whose constructor takes nothing but ``name`` - ``Sin``, ``Exp``,
+    ``Sigmoid`` - has nothing to configure, so ``Sin(x)`` is ``Sin()(x)`` and
+    ``Sin(x, name="s")`` is ``Sin(name="s")(x)``. Every other layer is
+    configured first and then called on its streams.
+    """
+
+    def __init__(cls, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        parameters = [
+            parameter.name
+            for parameter in inspect.signature(cls.__init__).parameters.values()
+            if parameter.name != "self"
+            and parameter.kind
+            not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+        ]
+        cls._applied_on_creation = parameters == ["name"]
+
+    def __call__(cls, *args, **kwargs):
+        if cls._applied_on_creation and args and _are_streams(args[0]):
+            return super().__call__(*args[1:], **kwargs)(args[0])
+        return super().__call__(*args, **kwargs)
+
+
+class Layer(Stream, metaclass=_LayerType):
     """
     Symbolic DAG node that can lazily build its concrete Keras layer.
 

@@ -21,6 +21,9 @@ variable, and trains, validates and exports through Keras. Models saved with
   `header` are passed to `pandas.read_csv`; n/a values are reported.
 - `minimize()` with any Keras loss, a `gain` per objective and `seq_weights`
   along a rollout; targets can be computed streams or numbers.
+- A layer with nothing to configure is applied as it is created: `Sin(x)` is
+  `Sin()(x)`, for the math, trigonometric and parameter-free activation layers
+  and `TimeConcatenate`.
 - Early stopping in `train()`: the name of a monitored loss (made into a Keras
   `EarlyStopping` with `early_stopping_kwargs`), its configuration, or any
   callback, Keras's or your own.
@@ -33,7 +36,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   adaptive Dormand-Prince, hybrid events).
 - Recurrence: `Modely.rollback()`, `Loop` and `Roll`.
 - `save(path, weights=True)` / `Modely.load(path, weights=True)`, Keras and
-  ONNX export, interactive HTML graphs and graphviz plots.
+  ONNX export, interactive HTML graphs, and Graphviz drawings: one image per
+  model and per sub-model, or one flattened image, with a legend.
 - Training printers (`"tiny"`, `"legacy"`, `"nnodely"`), `set_seed()` for
   reproducible runs, and `nnodely.__version__`.
 

@@ -128,6 +128,173 @@ def _block_ports(node):
     return None
 
 
+def _safe_attrs(node) -> dict:
+    attrs = {
+        "class": type(node).__name__,
+        "name": getattr(node, "name", None),
+    }
+
+    for attr in ("seq", "time", "dim", "shape"):
+        if hasattr(node, attr):
+            try:
+                attrs[attr] = str(getattr(node, attr))
+            except Exception:
+                pass
+
+    if hasattr(node, "_properties"):
+        try:
+            attrs["properties"] = dict(getattr(node, "_properties"))
+        except Exception:
+            pass
+
+    return attrs
+
+
+def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
+    """Nodes, edges and feedback arrows of a graph, blocks optionally spliced.
+
+    With ``inline`` every block is replaced by the body it wraps, so the
+    flattened view answers what the model actually computes. ``Modely.flatten``
+    cannot do this itself: ``build`` runs the very same pass, and a Loop or a
+    Roll has to survive it as one node to become a single Keras layer. A
+    rollout is spliced once and its recurrence drawn as a feedback arrow, so
+    the picture stays the same size whatever the horizon.
+
+    Body ids are prefixed with the block that owns them, which keeps two
+    calls of one model apart and says on the label where a node came from.
+    """
+    nodes: list = []
+    edges: list = []
+    feedbacks: list = []
+    seen_nodes: set[str] = set()
+    seen_edges: set[tuple[str, str]] = set()
+    alias = alias or {}
+
+    def outer_id(name: str) -> str:
+        """Display id of a node of this graph, by name."""
+        return alias.get(name, prefix + name)
+
+    def ident(node) -> str:
+        """Display id of a node of this graph."""
+        return outer_id(getattr(node, "name", str(node)))
+
+    def add_edge(pred, src: str, dst: str, role: str | None = None) -> None:
+        if (src, dst) in seen_edges:
+            return
+        edges.append((pred, src, dst, role))
+        seen_edges.add((src, dst))
+
+    blocks = {}
+    # How each spliced block hands its results on: the selector nodes that
+    # read one output each, and the body output the block node itself
+    # stands for when something reads it as a value instead.
+    block_results: dict[str, dict] = {}
+    present = {getattr(node, "name", None) for node in model_obj.order}
+    if inline:
+        blocks = {
+            node.name: _block_ports(node)
+            for node in model_obj.order
+            if _block_ports(node) is not None
+        }
+
+    for node in model_obj.order:
+        name = getattr(node, "name", str(node))
+        ports = blocks.get(name)
+
+        if ports is not None:
+            submodel, port_map = ports
+            body_prefix = f"{prefix}{name}/"
+
+            # A Roll wires the body's own inputs, so its ports name the very
+            # same node on both sides: alias those instead of duplicating them.
+            body_alias = {
+                port["body"]: outer_id(port["outer"])
+                for port in port_map["inputs"]
+                if port["body"] == port["outer"]
+            }
+            body_nodes, body_edges, body_feedbacks = _collect_graph(
+                submodel, inline=True, prefix=body_prefix, alias=body_alias
+            )
+
+            def body_id(body_name: str) -> str:
+                return body_alias.get(body_name, body_prefix + body_name)
+
+            for body_node, nid, kind, attrs in body_nodes:
+                if nid in seen_nodes:
+                    continue
+                attrs["inlined_in"] = prefix + name
+                nodes.append((body_node, nid, kind, attrs))
+                seen_nodes.add(nid)
+            for body_pred, src, dst, role in body_edges:
+                add_edge(body_pred, src, dst, role)
+            feedbacks.extend(body_feedbacks)
+
+            # Bind the enclosing graph to the body it now contains.
+            for port in port_map["inputs"]:
+                outer, body = outer_id(port["outer"]), body_id(port["body"])
+                # A block can read another block spliced before it - one
+                # Integrate integrating another - whose node is gone: bind to
+                # the body output that node stood for, as its consumers are.
+                if port["outer"] in block_results:
+                    outer = block_results[port["outer"]]["primary"]
+                if outer != body:
+                    add_edge(None, outer, body, port["role"])
+            block_results[name] = {
+                "selectors": {port["outer"] for port in port_map["outputs"]},
+                "primary": body_id(port_map["outputs"][0]["body"]),
+            }
+            for port in port_map["outputs"]:
+                # A selector absent from this graph means the block is read
+                # as a value: a single-output Loop, or any Roll.
+                if port["outer"] == name or port["outer"] not in present:
+                    continue
+                outer, body = outer_id(port["outer"]), body_id(port["body"])
+                if outer != body:
+                    add_edge(None, body, outer, "output")
+
+            steps = port_map["detail"].get("steps")
+            for pair in port_map["feedback"]:
+                feedbacks.append(
+                    (
+                        body_id(pair["from"]),
+                        body_id(pair["to"]),
+                        f"feedback (x{steps} steps)" if steps else "feedback",
+                        {
+                            "kind": "feedback",
+                            "block": port_map["block"],
+                            "block_node": prefix + name,
+                            "feedback_stream": pair["from"],
+                            "feedback_input": pair["to"],
+                            **port_map["detail"],
+                        },
+                    )
+                )
+            continue
+
+        nid = ident(node)
+        if nid in seen_nodes:
+            continue
+        nodes.append((node, nid, node.__class__.__name__, _safe_attrs(node)))
+        seen_nodes.add(nid)
+
+    for node in model_obj.order:
+        if getattr(node, "name", None) in blocks:
+            continue
+        for pred in getattr(node, "preds", []) or []:
+            pred_name = getattr(pred, "name", None)
+            if pred_name in blocks:
+                # A consumer reads the block either through one of its
+                # selector nodes, already bound above, or straight off the
+                # block node, which now resolves to the body output.
+                results = block_results[pred_name] if pred_name else {}
+                if getattr(node, "name", None) not in results["selectors"]:
+                    add_edge(pred, results["primary"], ident(node))
+                continue
+            add_edge(pred, ident(pred), ident(node))
+
+    return nodes, edges, feedbacks
+
+
 def export_html(
     model: Modely,
     out_dir: str | os.PathLike,
@@ -173,166 +340,6 @@ def export_html(
         if kind == "Constant":
             return "#00e5ff"
         return "#95a5a6"
-
-    def _safe_attrs(node) -> dict:
-        attrs = {
-            "class": type(node).__name__,
-            "name": getattr(node, "name", None),
-        }
-
-        for attr in ("seq", "time", "dim", "shape"):
-            if hasattr(node, attr):
-                try:
-                    attrs[attr] = str(getattr(node, attr))
-                except Exception:
-                    pass
-
-        if hasattr(node, "_properties"):
-            try:
-                attrs["properties"] = dict(getattr(node, "_properties"))
-            except Exception:
-                pass
-
-        return attrs
-
-    def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
-        """Nodes, edges and feedback arrows of a graph, blocks optionally spliced.
-
-        With ``inline`` every block is replaced by the body it wraps, so the
-        flattened view answers what the model actually computes. ``Modely.flatten``
-        cannot do this itself: ``build`` runs the very same pass, and a Loop or a
-        Roll has to survive it as one node to become a single Keras layer. A
-        rollout is spliced once and its recurrence drawn as a feedback arrow, so
-        the picture stays the same size whatever the horizon.
-
-        Body ids are prefixed with the block that owns them, which keeps two
-        calls of one model apart and says on the label where a node came from.
-        """
-        nodes: list = []
-        edges: list = []
-        feedbacks: list = []
-        seen_nodes: set[str] = set()
-        seen_edges: set[tuple[str, str]] = set()
-        alias = alias or {}
-
-        def outer_id(name: str) -> str:
-            """Display id of a node of this graph, by name."""
-            return alias.get(name, prefix + name)
-
-        def ident(node) -> str:
-            """Display id of a node of this graph."""
-            return outer_id(getattr(node, "name", str(node)))
-
-        def add_edge(pred, src: str, dst: str, role: str | None = None) -> None:
-            if (src, dst) in seen_edges:
-                return
-            edges.append((pred, src, dst, role))
-            seen_edges.add((src, dst))
-
-        blocks = {}
-        # How each spliced block hands its results on: the selector nodes that
-        # read one output each, and the body output the block node itself
-        # stands for when something reads it as a value instead.
-        block_results: dict[str, dict] = {}
-        present = {getattr(node, "name", None) for node in model_obj.order}
-        if inline:
-            blocks = {
-                node.name: _block_ports(node)
-                for node in model_obj.order
-                if _block_ports(node) is not None
-            }
-
-        for node in model_obj.order:
-            name = getattr(node, "name", str(node))
-            ports = blocks.get(name)
-
-            if ports is not None:
-                submodel, port_map = ports
-                body_prefix = f"{prefix}{name}/"
-
-                # A Roll wires the body's own inputs, so its ports name the very
-                # same node on both sides: alias those instead of duplicating them.
-                body_alias = {
-                    port["body"]: outer_id(port["outer"])
-                    for port in port_map["inputs"]
-                    if port["body"] == port["outer"]
-                }
-                body_nodes, body_edges, body_feedbacks = _collect_graph(
-                    submodel, inline=True, prefix=body_prefix, alias=body_alias
-                )
-
-                def body_id(body_name: str) -> str:
-                    return body_alias.get(body_name, body_prefix + body_name)
-
-                for body_node, nid, kind, attrs in body_nodes:
-                    if nid in seen_nodes:
-                        continue
-                    attrs["inlined_in"] = prefix + name
-                    nodes.append((body_node, nid, kind, attrs))
-                    seen_nodes.add(nid)
-                for body_pred, src, dst, role in body_edges:
-                    add_edge(body_pred, src, dst, role)
-                feedbacks.extend(body_feedbacks)
-
-                # Bind the enclosing graph to the body it now contains.
-                for port in port_map["inputs"]:
-                    outer, body = outer_id(port["outer"]), body_id(port["body"])
-                    if outer != body:
-                        add_edge(None, outer, body, port["role"])
-                block_results[name] = {
-                    "selectors": {port["outer"] for port in port_map["outputs"]},
-                    "primary": body_id(port_map["outputs"][0]["body"]),
-                }
-                for port in port_map["outputs"]:
-                    # A selector absent from this graph means the block is read
-                    # as a value: a single-output Loop, or any Roll.
-                    if port["outer"] == name or port["outer"] not in present:
-                        continue
-                    outer, body = outer_id(port["outer"]), body_id(port["body"])
-                    if outer != body:
-                        add_edge(None, body, outer, "output")
-
-                steps = port_map["detail"].get("steps")
-                for pair in port_map["feedback"]:
-                    feedbacks.append(
-                        (
-                            body_id(pair["from"]),
-                            body_id(pair["to"]),
-                            f"feedback (x{steps} steps)" if steps else "feedback",
-                            {
-                                "kind": "feedback",
-                                "block": port_map["block"],
-                                "block_node": prefix + name,
-                                "feedback_stream": pair["from"],
-                                "feedback_input": pair["to"],
-                                **port_map["detail"],
-                            },
-                        )
-                    )
-                continue
-
-            nid = ident(node)
-            if nid in seen_nodes:
-                continue
-            nodes.append((node, nid, node.__class__.__name__, _safe_attrs(node)))
-            seen_nodes.add(nid)
-
-        for node in model_obj.order:
-            if getattr(node, "name", None) in blocks:
-                continue
-            for pred in getattr(node, "preds", []) or []:
-                pred_name = getattr(pred, "name", None)
-                if pred_name in blocks:
-                    # A consumer reads the block either through one of its
-                    # selector nodes, already bound above, or straight off the
-                    # block node, which now resolves to the body output.
-                    results = block_results[pred_name] if pred_name else {}
-                    if getattr(node, "name", None) not in results["selectors"]:
-                        add_edge(pred, results["primary"], ident(node))
-                    continue
-                add_edge(pred, ident(pred), ident(node))
-
-        return nodes, edges, feedbacks
 
     def _levels(graph_nodes, graph_edges) -> dict[str, int]:
         """Longest-path layer of every node, so the flow reads left to right.

@@ -594,27 +594,41 @@ class Modely:
             self.model.summary()
 
     def plot(
-        self, to_file: str, include_minimizers: bool = True, flatten: bool = False
-    ):
-        """
-        Render a left-to-right graph of the model DAG to `to_file` using graphviz.
+        self,
+        out_dir: str | os.PathLike,
+        filename: str | None = None,
+        *,
+        flatten: bool = False,
+        include_minimizers: bool = True,
+        format: str = "png",
+    ) -> None:
+        """Draw the model with Graphviz, as images in ``out_dir``.
 
-        Shapes:
-        - Inputs / Outputs: rounded
-        - Intermediate relations: square
-        - Sub-models: folder
-        - Minimizers: hexagon, unique color per loss type
+        ``out_dir`` is the folder the images are written to; a path ending in
+        an image suffix (``.png``, ``.svg``, ``.pdf``, ...) names the root image
+        instead and its parent becomes the folder. The root image is
+        ``filename``, the model name by default, in ``format``.
 
-        If include_minimizers=True, each minimizer is shown as a dedicated node
-        labeled with its loss type and connected from source/target.
+        A node shows its name, coloured by its role; an arrow, the shape it
+        carries. Without ``flatten`` every block that wraps a model
+        (``ModelCall``, ``Loop``, ``Roll``) is one sub-model node, and its body
+        is drawn in an image of its own, ``<filename>_<body name>``,
+        recursively. With ``flatten`` the whole model is one image, each called
+        sub-model inside a box. The recurrence of a Loop or a Roll is a
+        ``loop`` or ``roll (steps=n)`` arrow, minimizers - unless
+        ``include_minimizers`` is False - are loss nodes, and every image
+        carries a legend. Needs the Graphviz ``dot`` program; without it the
+        DOT source of each image is written instead, with a warning.
         """
         from nnodely.utils.graphviz_plot import plot_graphviz
 
-        return plot_graphviz(
+        plot_graphviz(
             model=self,
-            to_file=to_file,
-            include_minimizers=include_minimizers,
+            out_dir=out_dir,
+            filename=filename,
             flatten=flatten,
+            include_minimizers=include_minimizers,
+            format=format,
         )
 
     # -------------------------------------------------------------------------
