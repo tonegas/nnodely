@@ -161,6 +161,15 @@ class Modely:
             return_memo=True,
         )
         self.train_inputs = [node for node in flat.order if isinstance(node, Input)]
+        if not self.train_inputs:
+            # Keras would only say that its outputs are not KerasTensors.
+            raise ValueError(
+                f"Model {self.name!r} reads no Input. A model is evaluated on "
+                "data, and its Inputs are what the data feeds - the batch too: "
+                "a graph of Parameters, Constants and numbers alone, such as a "
+                "Loop seeded and driven by numbers only, has nothing to run on. "
+                "Read at least one Input."
+            )
 
         flat_graph_outputs = [flatten_memo[node] for node in graph_outputs]
         keras_inputs, keras_outputs = self._resolve_graph(

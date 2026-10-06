@@ -118,7 +118,13 @@ class Shape:
         return self.tuple[item]
 
     def __repr__(self):
-        return str(self.tuple)
+        # Named axes: a bare (3, 10) reads as well as three features of ten
+        # samples as ten features of three. A dynamic axis prints as "dyn".
+        def axes(values) -> str:
+            items = ["dyn" if value is None else str(value) for value in values]
+            return "(" + ", ".join(items) + ("," if len(items) == 1 else "") + ")"
+
+        return f"Shape(D={axes(self.dim)}, T={self.time}, S={axes(self.seq)})"
 
 
 class Stream(Node):

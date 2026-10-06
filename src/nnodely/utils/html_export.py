@@ -520,7 +520,10 @@ def export_html(
                 "from": src,
                 "to": dst,
                 "arrows": "to",
-                "label": role if role is not None else str(getattr(pred, "shape", "")),
+                # The arrow carries the bare axes; its tooltip, the named shape.
+                "label": role
+                if role is not None
+                else str(getattr(getattr(pred, "shape", None), "tuple", "")),
                 "font": {"align": "middle", "size": 10},
                 "title": json.dumps(
                     edge_attrs, ensure_ascii=False, indent=2, default=str

@@ -213,3 +213,14 @@ def test_only_the_dynamic_sequence_axes_become_dynamic_again():
     assert doubled.seq == (3, None)
     fixed = Input("fixed_seq_x", seq=4) * 2.0
     assert fixed.seq == (4,)
+
+
+def test_a_shape_prints_its_named_axes():
+    # Once a bare (3, 10): three features of ten samples, or the other way round?
+    assert repr(Input("named_x", dim=3).sw(10).shape) == "Shape(D=(3,), T=10, S=())"
+    assert (
+        repr(Input("named_m", dim=(3, 2), seq=(4, -1)).last().shape)
+        == "Shape(D=(3, 2), T=1, S=(4, dyn))"
+    )
+    window = Input("named_w", dim=2).sw(5)
+    assert "shape=Shape(D=(2,), T=5, S=())" in repr(window)

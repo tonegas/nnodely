@@ -4,12 +4,12 @@ Both are configured first and then called on the Stream to differentiate, like
 every other layer::
 
     Differentiate(order=1, respect_to=x)(fun)   # d fun / d x   (automatic differentiation)
-    Derivate(order=1, dt=0.1)(fun)              # d fun / d t   (finite difference)
+    Derivative(order=1, dt=0.1)(fun)            # d fun / d t   (finite difference)
 
 ``Differentiate`` is exact: the sub-graph that produces ``fun`` is differentiated
 by the backend's automatic differentiation, so any relation in between
 (activations, Fir/Linear weights, a whole sub-network) is taken into account.
-``Derivate`` is a causal finite difference along ``fun``'s own time axis
+``Derivative`` is a causal finite difference along ``fun``'s own time axis
 that keeps the window's length: one derivative per sample, the oldest one
 reading the ``init`` condition. It is the exact inverse of ``IntegrateStep``.
 """
@@ -342,7 +342,7 @@ class Differentiate(Layer):
     sample it is the derivative of the summed relation with respect to each
     sample, which is the usual reverse-mode (vector-Jacobian) reading. ``fun``
     must actually depend on the input. For a derivative over time, see
-    :class:`Derivate`.
+    :class:`Derivative`.
 
     Two notes:
 
@@ -362,7 +362,7 @@ class Differentiate(Layer):
         self.order = _check_order("Differentiate", order)
         if not isinstance(respect_to, Input):
             hint = (
-                " For a derivative over time, use Derivate(dt=...)."
+                " For a derivative over time, use Derivative(dt=...)."
                 if isinstance(respect_to, (int, float))
                 and not isinstance(respect_to, bool)
                 else ""
@@ -455,18 +455,18 @@ class Differentiate(Layer):
         return layer(preds[0])
 
 
-class Derivate(Layer):
+class Derivative(Layer):
     """
     Derivative of a Stream with respect to time, over its own window::
 
-        Derivate(order=1|2, dt=0.1)(fun)     # d fun / d t
+        Derivative(order=1|2, dt=0.1)(fun)     # d fun / d t
 
     A causal finite difference along ``fun``'s time axis, with the time step
     ``dt`` given explicitly as for :class:`IntegrateStep`. **The window's length is
     preserved**: a window of n samples gives n derivatives, the i-th one
     estimated from the samples up to i, so the result stays aligned with the
     signal and composes with ``IntegrateStep``, whose cumulative form is its exact
-    inverse: integrating ``Derivate(...)(x)`` with the same ``init``
+    inverse: integrating ``Derivative(...)(x)`` with the same ``init``
     returns ``x``. For a derivative with respect to an Input, see
     :class:`Differentiate`.
 
@@ -506,13 +506,17 @@ class Derivate(Layer):
         poly_order: int | None = None,
         name=None,
     ):
-        self.order = _check_order("Derivate", order)
+        self.order = _check_order("Derivative", order)
         if dt is None:
-            raise ValueError("Derivate requires dt, the time step.")
+            raise ValueError("Derivative requires dt, the time step.")
         if not isinstance(dt, (int, float)) or isinstance(dt, bool):
-            raise TypeError(f"Derivate: dt must be a number, got {type(dt).__name__}.")
+            raise TypeError(
+                f"Derivative: dt must be a number, got {type(dt).__name__}."
+            )
         if dt <= 0:
-            raise ValueError(f"Derivate: the time step dt must be positive, got {dt}.")
+            raise ValueError(
+                f"Derivative: the time step dt must be positive, got {dt}."
+            )
         self.dt = float(dt)
 
         self.window = self.order + 1 if window is None else int(window)
@@ -523,12 +527,12 @@ class Derivate(Layer):
         self.init = init
         if self.window < self.order + 1:
             raise ValueError(
-                f"Derivate: a derivative of order {self.order} reads at least "
+                f"Derivative: a derivative of order {self.order} reads at least "
                 f"{self.order + 1} samples, got window={self.window}."
             )
         if not self.order <= self.poly_order <= self.window - 1:
             raise ValueError(
-                f"Derivate: poly_order must be between the derivative's order "
+                f"Derivative: poly_order must be between the derivative's order "
                 f"({self.order}) and window - 1 ({self.window - 1}), got "
                 f"{self.poly_order}."
             )
@@ -574,7 +578,7 @@ class Derivate(Layer):
         function = inputs[0]
         if not isinstance(function, Stream):
             raise TypeError(
-                f"{self.name}: Derivate expects a Stream input, got "
+                f"{self.name}: Derivative expects a Stream input, got "
                 f"{type(function).__name__}."
             )
         if len(inputs) > 1:

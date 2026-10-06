@@ -260,3 +260,26 @@ def test_inference_names_the_inputs_missing_from_the_data():
     # The target is only read by a minimizer, so it is not what is missing.
     with pytest.raises(ValueError, match=r"\['missing_input_x'\]"):
         model({"missing_input_target": np.ones((4, 1, 1), dtype=np.float32)})
+
+
+def test_a_model_that_reads_no_input_is_refused_at_build():
+    # Once a bare Keras "All outputs values must be KerasTensors".
+    from nnodely import Parameter
+
+    only_values = Modely(
+        "only_values",
+        inputs=[],
+        outputs=[Output("only_values_out", Parameter("only_gain", value=2.0) * 3.0)],
+    )
+    with pytest.raises(ValueError, match="reads no Input"):
+        only_values.build()
+
+    state = Input("numbers_state")
+    step = Output("numbers_next", Linear(use_bias=False)(state.last()))
+    body = Modely("numbers_body", inputs=[state], outputs=[step]).build()
+    driven_by_numbers = Loop(f=body, callback={state: step}, length=4)({state: 1.0})
+    looped = Modely(
+        "numbers_loop", inputs=[], outputs=[Output("numbers_traj", driven_by_numbers)]
+    )
+    with pytest.raises(ValueError, match="'numbers_loop' reads no Input"):
+        looped.build()

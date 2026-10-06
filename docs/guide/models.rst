@@ -98,7 +98,7 @@ is created: ``Sin(x)`` is ``Sin()(x)``. To name it, configure it first:
      - :class:`~nnodely.TimeSelect`, :class:`~nnodely.TimeRange`,
        :class:`~nnodely.TimeConcatenate`.
    * - Calculus
-     - :class:`~nnodely.Differentiate`, :class:`~nnodely.Derivate`,
+     - :class:`~nnodely.Differentiate`, :class:`~nnodely.Derivative`,
        :class:`~nnodely.Integrate`, :class:`~nnodely.IntegrateStep`,
        :func:`~nnodely.Ode`, :class:`~nnodely.OdeNet` (see :doc:`physics`).
    * - Recurrence
@@ -179,7 +179,7 @@ which the input's ``shape`` reports. Here ``velocity`` is read through
 
 .. code-block:: python
 
-   print(velocity.shape, torque.shape)   # (1, 5) (1, 10)
+   print(velocity.shape, torque.shape)   # Shape(D=(1,), T=5, S=()) Shape(D=(1,), T=10, S=())
 
    sample = {
        "velocity": np.full((1, 1, 5), 15.0),

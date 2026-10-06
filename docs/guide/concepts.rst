@@ -38,7 +38,7 @@ Every stream has a shape made of three parts, without the batch axis:
 .. code-block:: python
 
    u = Input("u", dim=3)
-   print(u.sw(10).shape)   # (3, 10): 3 features, 10 samples
+   print(u.sw(10).shape)   # Shape(D=(3,), T=10, S=()): 3 features, 10 samples
    print(u.dim, u.sw(10).time)
 
 Windows
@@ -63,7 +63,7 @@ physics needs it, as the ``dt`` of :doc:`derivatives and integrators <physics>`.
    x = Input("x")
    past = x.sw(4)          # x[t-3], x[t-2], x[t-1], x[t]
    around = x.sw([2, 1])   # x[t-1], x[t], x[t+1]
-   print(past.shape, around.shape)
+   print(past.shape, around.shape)   # Shape(D=(1,), T=4, S=()) Shape(D=(1,), T=3, S=())
 
 An input can be windowed several times. The data it needs is the union of all
 its windows, and the :class:`~nnodely.DataLoader` builds samples that cover it.

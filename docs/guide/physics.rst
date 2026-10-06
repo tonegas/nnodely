@@ -10,7 +10,7 @@ inferred from the data.
 
    import numpy as np
    from nnodely import (
-       DataLoader, Derivate, Differentiate, Input, Integrate, IntegrateStep, Linear, Loop, Modely,
+       DataLoader, Derivative, Differentiate, Input, Integrate, IntegrateStep, Linear, Loop, Modely,
        Ode, OdeNet, Output, Parameter, set_seed, Sin, Tanh,
    )
 
@@ -20,7 +20,7 @@ Derivatives
 -----------
 
 Two layers differentiate a stream: :class:`~nnodely.Differentiate` with respect to an
-input, and :class:`~nnodely.Derivate` with respect to time.
+input, and :class:`~nnodely.Derivative` with respect to time.
 
 **With respect to an input**, ``Differentiate`` computes the derivative by the backend's
 automatic differentiation. It accounts for every relation between the input
@@ -47,7 +47,7 @@ physics-informed neural networks. The model below fits
 
 ``order=2`` gives the second derivative.
 
-**With respect to time**, ``Derivate`` takes the time step ``dt``, as
+**With respect to time**, ``Derivative`` takes the time step ``dt``, as
 ``IntegrateStep`` does, and the derivative is a causal finite difference along the
 stream's time window. The
 window length is preserved. ``init`` is the sample just before the window
@@ -59,9 +59,9 @@ signals at the price of a delay of about ``(window - 1) / 2`` samples:
 
    dt = 0.01
    position = Input("position")
-   velocity = Derivate(dt=dt, init=0.0)(position.sw(10))
-   smooth_velocity = Derivate(dt=dt, window=5)(position.sw(10))
-   print(velocity.shape)   # (1, 10)
+   velocity = Derivative(dt=dt, init=0.0)(position.sw(10))
+   smooth_velocity = Derivative(dt=dt, window=5)(position.sw(10))
+   print(velocity.shape)   # Shape(D=(1,), T=10, S=())
 
 Integrators
 -----------
@@ -84,10 +84,10 @@ position can be obtained from acceleration with no rollout:
 
    v_window = IntegrateStep(dt=dt)(acceleration.sw(50))
    x_window = IntegrateStep(dt=dt)(v_window)
-   print(x_window.shape)   # (1, 50)
+   print(x_window.shape)   # Shape(D=(1,), T=50, S=())
 
 The Euler rule is the exact inverse of the time derivative with the same
-``init``: ``IntegrateStep(dt=dt, init=x0)(Derivate(dt=dt, init=x0)(x))``
+``init``: ``IntegrateStep(dt=dt, init=x0)(Derivative(dt=dt, init=x0)(x))``
 returns ``x``.
 
 :class:`~nnodely.Integrate` integrates along a **horizon** instead: the last

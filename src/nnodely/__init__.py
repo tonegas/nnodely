@@ -42,7 +42,7 @@ from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.fuzzify import Fuzzify
 from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.equationlearner import EquationLearner
-from nnodely.layers.derivative import Derivate, Differentiate
+from nnodely.layers.derivative import Derivative, Differentiate
 from nnodely.layers.integrate import Integrate, IntegrateStep
 from nnodely.layers.time_ops import (
     Concatenate,
@@ -103,7 +103,7 @@ __all__ = [
     "Fuzzify",
     "Interpolation",
     "EquationLearner",
-    "Derivate",
+    "Derivative",
     "Differentiate",
     "Integrate",
     "IntegrateStep",

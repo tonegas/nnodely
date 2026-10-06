@@ -52,7 +52,7 @@ Calculus
 
 .. autoclass:: Differentiate
 
-.. autoclass:: Derivate
+.. autoclass:: Derivative
 
 .. autoclass:: Integrate
 

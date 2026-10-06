@@ -1,6 +1,6 @@
 """Time integration of a rate signal along its own time axis.
 
-One form, shaped like ``Derivate`` and exactly inverse to it: the rate
+One form, shaped like ``Derivative`` and exactly inverse to it: the rate
 sample of an interval integrates into the value at the end of that interval,
 the window's length is preserved, and ``init`` is the value the signal had
 just before the window.
@@ -25,7 +25,7 @@ _SOLVER_RULE = {
 
 
 def _validate_dt(dt) -> float:
-    """The time step, always given explicitly - as in Derivate."""
+    """The time step, always given explicitly - as in Derivative."""
     if dt is None:
         raise ValueError(
             "IntegrateStep: dt is required. Pass the time step of the signal being "
@@ -146,7 +146,7 @@ class IntegrateStep(Layer):
         IntegrateStep(solver="euler"|"rectangular"|"trapezoidal", dt=0.01, init=None)(rate)
 
     The window's length is preserved: sample ``i`` of the rate is the rate of
-    the interval *ending* at ``i`` - the interval ``Derivate``'s backward
+    the interval *ending* at ``i`` - the interval ``Derivative``'s backward
     difference produced it from - and integrates into the value at ``i``::
 
         y[i] = y[i-1] + dt * rate[i]                   # "euler"/"rectangular"
@@ -159,14 +159,14 @@ class IntegrateStep(Layer):
       ``velocity + dt * acceleration``, so a recurrence needs no separate form
       of this layer and no ``+`` written around it.
 
-    * **It inverts Derivate exactly**, with the same initial condition and
-      no bookkeeping: ``IntegrateStep(dt=dt, init=x0)(Derivate(dt=dt,
+    * **It inverts Derivative exactly**, with the same initial condition and
+      no bookkeeping: ``IntegrateStep(dt=dt, init=x0)(Derivative(dt=dt,
       init=x0)(x))`` is ``x``, because the rectangular rule sums back exactly
       the increments the backward difference took apart. (The trapezoidal rule
       trades that exactness for second-order accuracy on a smooth rate.)
 
     ``init`` is the constant of integration - the value the signal had at the
-    sample *before* the window, the same instant ``Derivate`` reads its own
+    sample *before* the window, the same instant ``Derivative`` reads its own
     ``init`` at. A Stream (typically the state the window continues), a number
     (kept as a Constant), or ``None`` for zero. It is what turns a relative
     increment into the absolute quantity mechanical models are written in::

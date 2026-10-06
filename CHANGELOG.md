@@ -29,7 +29,7 @@ variable, and trains, validates and exports through Keras. Models saved with
   callback, Keras's or your own.
 - `validate()` with system-identification metrics (RMSE, MAE, FIT, R², ...)
   and figures.
-- Calculus blocks `Differentiate` (with respect to an input), `Derivate`
+- Calculus blocks `Differentiate` (with respect to an input), `Derivative`
   (with respect to time),
   `IntegrateStep`, `Integrate` (an `IntegrateStep` rolled out along a
   horizon by a `Loop`), `Ode` (Euler, midpoint, Heun, RK4) and `OdeNet` (neural ODEs,
@@ -72,7 +72,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `Relu` | `ReLU` |
 | `Add`, `Sub`, `Mul`, `Div`, `Pow` | `+`, `-`, `*`, `/`, `**` between streams |
 | `Neg` | `Negative` |
-| `Differentiate` | `Differentiate(respect_to=x)` with respect to an input, `Derivate(dt=...)` with respect to time |
+| `Differentiate` | `Differentiate(respect_to=x)` with respect to an input, `Derivative(dt=...)` with respect to time |
 | `ForwardEuler`, `RK2`, `RK4` | `Ode(f, states, dt, method=...)` |
 | `NeuralODE` | `OdeNet` |
 | `Part`, `SamplePart`, `TimePart`, `SampleSelect` | `Range`, `TimeRange`, `TimeSelect`, `Select` |

@@ -114,7 +114,7 @@ on the state :math:`s = (x, \dot x)`:
    simulator = Modely("msd_loop", inputs=[s0, F_seq], outputs=[trajectory])
    simulator.minimize("trajectory", trajectory, Input("s_next", dim=2, seq=horizon))
    simulator.build()
-   print(trajectory.shape)   # (2, 1, 20): 2 states, 1 sample, 20 steps
+   print(trajectory.shape)   # Shape(D=(2,), T=1, S=(20,)): 2 states, 1 sample, 20 steps
 
 The :class:`~nnodely.DataLoader` cuts the signals into sequences of
 ``horizon`` steps. The target sequence is the state one step ahead:

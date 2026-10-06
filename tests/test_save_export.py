@@ -11,7 +11,7 @@ from nnodely import (
     Cos,
     DataLoader,
     Deg2Rad,
-    Derivate,
+    Derivative,
     Differentiate,
     ELU,
     EquationLearner,
@@ -825,10 +825,10 @@ def _derivative_model():
     relation = Sin()(Linear(out_features=1, name="derivative_linear")(u.sw(3)))
     mixed = Linear(out_features=2, name="derivative_mix")(window)
     relations = {
-        "d_init_stream": Derivate(order=1, dt=dt, init=x0.last())(window),
-        "d_init_number": Derivate(order=2, dt=dt, init=0.5)(window),
-        "d_smooth": Derivate(order=1, dt=dt, window=3, poly_order=2)(window),
-        "d_of_layer": Derivate(order=1, dt=dt)(mixed),
+        "d_init_stream": Derivative(order=1, dt=dt, init=x0.last())(window),
+        "d_init_number": Derivative(order=2, dt=dt, init=0.5)(window),
+        "d_smooth": Derivative(order=1, dt=dt, window=3, poly_order=2)(window),
+        "d_of_layer": Derivative(order=1, dt=dt)(mixed),
         "d_wrt_input": Differentiate(order=1, respect_to=u)(relation),
         "d2_wrt_input": Differentiate(order=2, respect_to=u)(relation),
     }
@@ -858,7 +858,7 @@ def _integrate_model():
         # Integrating the backward difference with the same initial condition
         # gives the signal back.
         "i_inverse": IntegrateStep(dt=dt, init=x0.last())(
-            Derivate(dt=dt, init=x0.last())(signal.sw(4))
+            Derivative(dt=dt, init=x0.last())(signal.sw(4))
         ),
     }
     return Modely(
@@ -894,7 +894,7 @@ def _rollback_mechanical_model():
     force = Input("rollback_force", dim=1)
     stiffness = Parameter("rollback_stiffness", value=[[1.0]])
     # The damping reads the velocity estimated from the position window.
-    estimated_velocity = TimeSelect(idx=-1)(Derivate(dt=dt)(position.sw(3)))
+    estimated_velocity = TimeSelect(idx=-1)(Derivative(dt=dt)(position.sw(3)))
     acceleration = (
         Fir(out_features=1, name="rollback_force_fir")(force.sw(3))
         - stiffness * position.last()
@@ -982,7 +982,7 @@ def _loop_trajectory_model():
     acceleration = Fir(out_features=1, name="loop_traj_force_fir")(
         force.last()
     ) - Parameter("loop_traj_damping", value=[[0.5]]) * TimeSelect(idx=-1)(
-        Derivate(dt=dt)(window)
+        Derivative(dt=dt)(window)
     )
     velocity_step = IntegrateStep(dt=dt, init=velocity.last())(acceleration)
     position_step = IntegrateStep(
@@ -1155,7 +1155,7 @@ def _complete_vehicle_model():
             ),
             Output(
                 "vehicle_acceleration_estimate",
-                Derivate(dt=dt, window=3, poly_order=2)(speed.sw(3)),
+                Derivative(dt=dt, window=3, poly_order=2)(speed.sw(3)),
             ),
             Output("vehicle_grip_out", grip),
         ],

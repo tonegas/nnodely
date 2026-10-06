@@ -95,7 +95,7 @@ generator.save("path/to/fibonacci_model")  # Save the nnodely model
 |---|---|
 | **Signals** | `Input` with sample windows (`sw`, `last`, `next`), `Output`, `Parameter`, `Constant`, arithmetic on streams |
 | **Structured layers** | `Fir` [[1]](#1), `Linear`, `LocalModel` [[1]](#1) [[3]](#3) [[4]](#4) [[5]](#5), `Fuzzify` [[2]](#2), `EquationLearner` [[6]](#6), `Interpolation`, `BatchNorm` |
-| **Calculus** | `Differentiate` w.r.t. inputs and `Derivate` w.r.t. time, for physics-informed [[7]](#7) and Sobolev [[8]](#8) training · `IntegrateStep`, and `Integrate` along a horizon · `Ode` (Euler, midpoint, Heun, RK4) · `OdeNet` (neural ODEs, adaptive Dormand-Prince, hybrid events) |
+| **Calculus** | `Differentiate` w.r.t. inputs and `Derivative` w.r.t. time, for physics-informed [[7]](#7) and Sobolev [[8]](#8) training · `IntegrateStep`, and `Integrate` along a horizon · `Ode` (Euler, midpoint, Heun, RK4) · `OdeNet` (neural ODEs, adaptive Dormand-Prince, hybrid events) |
 | **Recurrence** | `rollback` for multi-step prediction, `Loop` and `Roll` for rollouts over whole trajectories |
 | **Data** | `DataLoader` from dicts, DataFrames or CSV folders, multiple simulations, sequences, masks, normalization |
 | **Workflow** | `train` with any Keras optimizer and loss · `validate` with system-identification metrics and plots · model composition · `save`/`load`, Keras and ONNX export, interactive HTML graphs |
