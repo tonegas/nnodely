@@ -304,6 +304,83 @@ def test_local_model_passes_cell_index():
         np.testing.assert_allclose(to_numpy(result[name]), expected, atol=1e-5)
 
 
+def test_local_model_scalar_input_one_fuzzy_function_by_hand():
+    # ------- y = x * sum_i mu_i(g) * gain_i, centers 0, 1, 2 -------
+    x = Input("x_hand")
+    g = Input("g_hand")
+    mu = Fuzzify(centers=[0.0, 1.0, 2.0], function="Triangular")(g.last())
+    y = LocalModel(Fir(out_features=1))([x.last()], [mu])
+    model = Modely(
+        "local_hand", inputs=[x, g], outputs=[Output("y", y), Output("mu", mu)]
+    ).build()
+
+    gains = np.array([1.0, 10.0, 100.0], dtype=np.float32)
+    assert y.kernel is not None and y.bias is not None
+    y.kernel.assign(gains.reshape(3, 1, 1))
+    y.bias.assign(np.zeros((3, 1), dtype=np.float32))
+
+    g_values = np.array([0.0, 0.5, 1.0, 1.5, 2.0], dtype=np.float32)
+    result = model(
+        {
+            "x_hand": np.full((5, 1, 1), 2.0, dtype=np.float32),
+            "g_hand": g_values.reshape(-1, 1, 1),
+        }
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["mu"]).reshape(5, 3),
+        [[1, 0, 0], [0.5, 0.5, 0], [0, 1, 0], [0, 0.5, 0.5], [0, 0, 1]],
+        atol=1e-6,
+    )
+    # e.g. g = 0.5: y = 2 * (0.5 * 1 + 0.5 * 10) = 11
+    np.testing.assert_allclose(
+        to_numpy(result["y"]).ravel(), [2.0, 11.0, 20.0, 110.0, 200.0], rtol=1e-5
+    )
+
+
+def test_local_model_matrix_input_two_fuzzy_functions_by_hand():
+    # ------- 3 x 2 = 6 cells over a 2x2 matrix, cell (i, j) is i * 2 + j -------
+    X = Input("X_hand", dim=(2, 2))
+    a = Input("a_hand")
+    b = Input("b_hand")
+    mu_a = Fuzzify(centers=[0.0, 1.0, 2.0])(a.last())
+    mu_b = Fuzzify(centers=[0.0, 1.0])(b.last())
+    Y = LocalModel(Fir(out_features=1))([X.last()], [mu_a, mu_b])
+    model = Modely(
+        "local_matrix_hand",
+        inputs=[X, a, b],
+        outputs=[Output("Y", Y), Output("mu_a", mu_a), Output("mu_b", mu_b)],
+    ).build()
+
+    # Cell c weighs every entry of X by c + 1: its local model is (c + 1) * sum(X).
+    assert Y.kernel is not None and Y.bias is not None
+    assert tuple(Y.kernel.shape) == (6, 4, 1)
+    Y.kernel.assign(
+        np.repeat(np.arange(1.0, 7.0), 4).reshape(6, 4, 1).astype(np.float32)
+    )
+    Y.bias.assign(np.zeros((6, 1), dtype=np.float32))
+
+    result = model(
+        {
+            "X_hand": np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32).reshape(
+                1, 2, 2, 1
+            ),
+            "a_hand": np.array([[[0.5]]], dtype=np.float32),
+            "b_hand": np.array([[[0.25]]], dtype=np.float32),
+        }
+    )
+    membership_a = to_numpy(result["mu_a"]).ravel()
+    membership_b = to_numpy(result["mu_b"]).ravel()
+    np.testing.assert_allclose(membership_a, [0.5, 0.5, 0.0], atol=1e-6)
+    np.testing.assert_allclose(membership_b, [0.75, 0.25], atol=1e-6)
+    np.testing.assert_allclose(
+        np.outer(membership_a, membership_b).ravel(),
+        [0.375, 0.125, 0.375, 0.125, 0.0, 0.0],
+        atol=1e-6,
+    )
+    # Y = (0.375*1 + 0.125*2 + 0.375*3 + 0.125*4) * 10 = 22.5
+    np.testing.assert_allclose(to_numpy(result["Y"]).ravel(), [22.5], rtol=1e-5)
+
+
 def test_local_model_rejects_mismatched_inputs():
     x = Input("x_invalid", dim=1)
     k = Input("k_invalid", dim=1)
