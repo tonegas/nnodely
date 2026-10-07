@@ -191,7 +191,8 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
         f=body,
         callback={seed_input: body_output},
         name="loop_block",
-    )({seed_input: seed}, {})
+        init={seed_input: seed},
+    )()
     model = Modely("loop_model", inputs=[seed], outputs=[Output("out1", loop)])
     model.minimize("err", source=model.outputs[0], target=Input("target", seq=5))
     model.build()
@@ -225,7 +226,8 @@ def test_export_html_layout_survives_feedback_cycles(tmp_path):
         f=body,
         callback={seed_input: body_output},
         name="cyc_block",
-    )({seed_input: seed}, {})
+        init={seed_input: seed},
+    )()
     model = Modely("cyc_model", inputs=[seed], outputs=[Output("out1", loop)])
     model.build()
 
@@ -276,7 +278,8 @@ def test_flattened_page_inlines_a_loop_body(tmp_path):
         f=body,
         callback={seed_input: body_output},
         name="inline_block",
-    )({seed_input: seed}, {})
+        init={seed_input: seed},
+    )()
     model = Modely("inline_model", inputs=[seed], outputs=[Output("out1", loop)])
     model.build()
     model.export_html(out_dir=tmp_path, filename="inline_model")
@@ -462,9 +465,9 @@ def _looped_model():
     nxt = Output("loop_next", Linear(use_bias=False)(state.last()) + force.last())
     body = Modely("step_body", inputs=[state, force], outputs=[nxt]).build()
     seed, forces = Input("loop_seed"), Input("loop_forces", seq=-1)
-    trajectory = Loop(f=body, callback={state: nxt}, name="sim_loop")(
-        {state: seed}, {force: forces}
-    )
+    trajectory = Loop(
+        f=body, callback={state: nxt}, name="sim_loop", init={state: seed}
+    )({force: forces})
     return Modely(
         "simulator", inputs=[seed, forces], outputs=[Output("loop_traj", trajectory)]
     ).build()

@@ -436,7 +436,9 @@ class Integrate:
             initial[previous_in] = rate
 
         self.body = body
-        return Loop(f=body, callback=callback, name=call_name)(initial, {rate_in: rate})
+        return Loop(f=body, callback=callback, init=initial, name=call_name)(
+            {rate_in: rate}
+        )
 
     def _validate_init_shape(self, rate, init):
         dim, step_seq = tuple(rate.dim), tuple(rate.seq[:-1])

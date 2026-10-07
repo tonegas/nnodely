@@ -625,7 +625,8 @@ def test_uncollected_loop_warns_on_simulations_of_different_lengths():
         length=4,
         collect=False,
         name="warn_loop",
-    )({body_x: seed}, {})
+        init={body_x: seed},
+    )()
     model = Modely(
         "warn_model", inputs=[seed], outputs=[Output("warn_out", loop)]
     ).build()

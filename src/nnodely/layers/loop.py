@@ -430,18 +430,18 @@ class Loop(Layer):
 
     ::
 
-        Loop(f=body, callback={state: next_state})({state: s0}, {force: F_seq})
+        Loop(f=body, callback={state: next_state}, init={state: s0})({force: F_seq})
 
-    The loop is declared with its body and callback, and bound to the outer
-    graph by calling it with two dicts: ``initial`` (callback input: seed) and
-    ``inputs`` (body input: outer stream). A callback input missing from
-    ``initial`` starts at zero; a body input missing from ``inputs`` keeps its
-    own value at every step.
+    The loop is declared with its body, its callback and ``init`` (callback
+    input: seed), and bound to the outer graph by calling it with ``inputs``
+    (body input: outer stream). A callback input missing from ``init`` starts
+    at zero; a body input missing from ``inputs`` keeps its own value at every
+    step.
 
     The rollout axis lives outside the body: every stream that carries it is one
     sequence rank deeper than the body input it feeds, and its last sequence axis
     is the one the rollout consumes. A feedback input takes that stream through
-    ``initial`` (step 0 seeds the state), an exogenous one through ``inputs``.
+    ``init`` (step 0 seeds the state), an exogenous one through ``inputs``.
 
     ``length`` pins the number of steps. It is required only when no initial
     value or input carries a rollout axis. A rollout declared dynamic
@@ -467,6 +467,7 @@ class Loop(Layer):
         self,
         f: Modely,
         callback: dict,
+        init: dict | None = None,
         name=None,
         length: int | None = None,
         collect: bool = True,
@@ -492,8 +493,13 @@ class Loop(Layer):
                 "Loop cannot feed the same output back into more than one input."
             )
 
+        if init is not None and not isinstance(init, dict):
+            raise TypeError(
+                "Loop init must be a dict of callback input: initial value."
+            )
         self.f = f
         self.callback = callback
+        self.init = {} if init is None else init
         self.callback_inputs = callback_inputs
         self.callback_outputs = callback_outputs
         self.static_inputs = [node for node in f.inputs if node not in callback_inputs]
@@ -510,7 +516,7 @@ class Loop(Layer):
         if self._shape is None:
             raise ValueError(
                 f"Loop {self.name!r} is not bound: call it with its initial and "
-                "inputs dicts, Loop(...)(initial, inputs), before using it as a "
+                "inputs dict, Loop(...)(inputs), before using it as a "
                 "stream."
             )
         return self._shape
@@ -519,8 +525,8 @@ class Loop(Layer):
     def shape(self, value):
         self._shape = value
 
-    def __call__(self, initial: dict, inputs: dict = {}):  # type: ignore[override]
-        """Bind the loop to its initial values and outer inputs.
+    def __call__(self, inputs: dict | None = None):  # type: ignore[override]
+        """Bind the loop to its outer inputs, seeded with its ``init``.
 
         Every call returns a new loop node; the body, and so its weights, is
         the one the loop was declared with.
@@ -528,15 +534,16 @@ class Loop(Layer):
         node = Loop(
             f=self.f,
             callback=self.callback,
+            init=self.init,
             name=self.name,
             length=self.length,
             collect=self.collect,
         )
         node.initial_values = self._resolve_initial_values(
-            initial, self.callback_inputs
+            self.init, self.callback_inputs
         )
         node.static_sources = self._resolve_sources(
-            inputs, self.static_inputs, self.callback_inputs
+            {} if inputs is None else inputs, self.static_inputs, self.callback_inputs
         )
         node._configure()
 
@@ -737,21 +744,17 @@ class Loop(Layer):
         return sources
 
     @staticmethod
-    def _resolve_initial_values(initial, callback_inputs):
+    def _resolve_initial_values(init, callback_inputs):
         """Seed of every callback input; the ones not given start at zero."""
-        if not isinstance(initial, dict):
-            raise TypeError(
-                "Loop initial must be a dict of callback input: initial value."
-            )
         by_name = {
             key.name if isinstance(key, Stream) else key: value
-            for key, value in initial.items()
+            for key, value in init.items()
         }
         expected = {node.name for node in callback_inputs}
         unknown = set(by_name) - expected
         if unknown:
             raise ValueError(
-                f"Loop initial keys {sorted(unknown)} are not callback inputs; "
+                f"Loop init keys {sorted(unknown)} are not callback inputs; "
                 f"expected a subset of {sorted(expected)}."
             )
         values = [by_name.get(node.name, 0.0) for node in callback_inputs]
@@ -828,7 +831,9 @@ class Loop(Layer):
         body, callback = config.pop("f"), config.pop("callback")
         preds = list(preds or [])
         static_names = [node.name for node in body.inputs if node.name not in callback]
-        return cls(f=body, callback=callback, **config)(
-            dict(zip(callback, preds[: len(callback)])),
-            dict(zip(static_names, preds[len(callback) :])),
-        )
+        return cls(
+            f=body,
+            callback=callback,
+            init=dict(zip(callback, preds[: len(callback)])),
+            **config,
+        )(dict(zip(static_names, preds[len(callback) :])))

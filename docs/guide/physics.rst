@@ -141,7 +141,8 @@ body of a :class:`~nnodely.Loop`. Here a pendulum with an unknown ratio
    theta_traj, omega_traj = Loop(
        f=step,
        callback={"theta": "theta_next", "omega": "omega_next"},
-   )({"theta": theta0, "omega": omega0}, {})
+       init={"theta": theta0, "omega": omega0},
+   )()
    simulator = Modely(
        "pendulum",
        inputs=[theta0, omega0],

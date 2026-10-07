@@ -238,10 +238,8 @@ def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
     # The loop runs the body as declared: its target is not an input of the loop.
     seed = Input("minimized_body_seed", dim=1, seq=4)
     loop = Loop(
-        f=body,
-        callback={state: next_state},
-        collect=False,
-    )({state: seed}, {})
+        f=body, callback={state: next_state}, collect=False, init={state: seed}
+    )()
     model = Modely(
         "minimized_loop", inputs=[seed], outputs=[Output("minimized_loop_out", loop)]
     ).build()
@@ -277,7 +275,9 @@ def test_a_model_that_reads_no_input_is_refused_at_build():
     state = Input("numbers_state")
     step = Output("numbers_next", Linear(use_bias=False)(state.last()))
     body = Modely("numbers_body", inputs=[state], outputs=[step]).build()
-    driven_by_numbers = Loop(f=body, callback={state: step}, length=4)({state: 1.0})
+    driven_by_numbers = Loop(
+        f=body, callback={state: step}, length=4, init={state: 1.0}
+    )()
     looped = Modely(
         "numbers_loop", inputs=[], outputs=[Output("numbers_traj", driven_by_numbers)]
     )

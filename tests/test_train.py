@@ -517,15 +517,11 @@ def test_training_values_fir_and_linear_closed_loop():
     seed1 = Input("seed1", seq=6)
     seed2 = Input("seed2", seq=6)
     loop1 = Loop(
-        f=body1,
-        callback={input1: output1},
-        name="loop1",
-    )({input1: seed1}, {})
+        f=body1, callback={input1: output1}, name="loop1", init={input1: seed1}
+    )()
     loop2 = Loop(
-        f=body2,
-        callback={input2: output2},
-        name="loop2",
-    )({input2: seed2}, {})
+        f=body2, callback={input2: output2}, name="loop2", init={input2: seed2}
+    )()
     rollout = Modely(
         "rollout",
         inputs=[seed1, seed2],
@@ -922,11 +918,8 @@ def test_train_with_loop():
     body.build()
     # x carries the five rollout steps and seeds the state with x[0]
     loop = Loop(
-        f=body,
-        callback={state: output},
-        name="loop",
-        collect=False,
-    )({state: x}, {})
+        f=body, callback={state: output}, name="loop", collect=False, init={state: x}
+    )()
     out_loop = Output("out_loop", loop)
     model = Modely("model", inputs=[x], outputs=[out_loop])
     model.minimize("error", source=out_loop, target=target.last(), loss="mse")
@@ -1007,7 +1000,7 @@ def test_train_with_loop_under_xla(monkeypatch):
     relation = Linear(out_features=1, initializer="ones")(state.last())
     output = Output("out", relation)
     body = Modely("body", inputs=[state], outputs=[output]).build()
-    loop = Loop(f=body, callback={state: output}, name="loop")({state: x}, {})
+    loop = Loop(f=body, callback={state: output}, name="loop", init={state: x})()
     out_loop = Output("out_loop", loop)
     model = Modely("model", inputs=[x, target], outputs=[out_loop])
     model.minimize("error", source=out_loop, target=target.last(), loss="mse")
@@ -1170,7 +1163,8 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
         callback={body_x: body_out},
         length=6,
         name="pad_loop",
-    )({body_x: seed}, {})
+        init={body_x: seed},
+    )()
     output = Output("pad_out", loop)
     model = Modely("pad_loop_model", inputs=[seed], outputs=[output])
     model.minimize("pad_error", output, Input("pad_target", dim=1, seq=-1), loss="mse")

@@ -78,7 +78,7 @@ data = DataLoader(model, source={"x": np.random.uniform(-1.0, 1.0, 200)})
 model.train(data, epochs=50, batch_size=32, lr=0.05)  # Train the model
 
 # Run it closed loop: each prediction is fed back into x, for 10 steps
-loop = Loop(f=model, callback={x: out}, length=10)({x: window})
+loop = Loop(f=model, callback={x: out}, init={x: window}, length=10)()
 fib = Output("fib", loop)
 generator = Modely("FibonacciGenerator", inputs=[x], outputs=[fib]).build()
 

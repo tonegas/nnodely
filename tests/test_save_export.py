@@ -965,7 +965,8 @@ def _loop_final_state_model():
         callback={state: next_state},
         collect=False,
         name="loop_final",
-    )({state: seed}, {})
+        init={state: seed},
+    )()
     return Modely(
         "loop_final",
         inputs=[seed, force],
@@ -1004,7 +1005,8 @@ def _loop_trajectory_model():
         f=body,
         callback={position: position_next, velocity: velocity_next},
         name="loop_traj",
-    )({position: p0.sw(2), velocity: 0.25}, {force: force_sequence})
+        init={position: p0.sw(2), velocity: 0.25},
+    )({force: force_sequence})
     return Modely(
         "loop_traj",
         inputs=[p0, force_sequence],
@@ -1029,7 +1031,8 @@ def _nested_loop_model():
         callback={inner: first_output},
         name="nested_save_first_loop",
         collect=False,
-    )({inner: x}, {})
+        init={inner: x},
+    )()
 
     second = Input("nested_save_second", dim=1)
     second_output = Output("nested_save_second_out", second * gain)
@@ -1041,7 +1044,8 @@ def _nested_loop_model():
         callback={second: second_output},
         name="nested_save_second_loop",
         collect=False,
-    )({second: first_loop}, {})
+        init={second: first_loop},
+    )()
     return Modely(
         "nested_save_loop",
         inputs=[x],
@@ -1067,13 +1071,15 @@ def _shared_body_model():
         callback={state: next_state},
         collect=False,
         name="shared_body_first",
-    )({state: short}, {})
+        init={state: short},
+    )()
     second = Loop(
         f=body,
         callback={state: next_state},
         collect=False,
         name="shared_body_second",
-    )({state: long}, {})
+        init={state: long},
+    )()
     return Modely(
         "shared_body_model",
         inputs=[short, long],
@@ -1094,7 +1100,7 @@ def _ode_loop_model():
     body = Modely("ode_loop_body", inputs=[x], outputs=[body_output]).build()
 
     seed = Input("ode_loop_seed", dim=1, seq=6)
-    loop = Loop(f=body, callback={x: body_output}, name="ode_loop")({x: seed}, {})
+    loop = Loop(f=body, callback={x: body_output}, name="ode_loop", init={x: seed})()
     return Modely(
         "ode_loop", inputs=[seed], outputs=[Output("ode_loop_out", loop)]
     ).build()
@@ -1232,7 +1238,7 @@ def test_export_onnx_dynamic_loop_follows_the_data(tmp_path):
     body = Modely("dyn_onnx_body", inputs=[x, u], outputs=[body_output]).build()
     x_seq = Input("dyn_onnx_x_seq", dim=1, seq=-1)
     u_seq = Input("dyn_onnx_u_seq", dim=1, seq=-1)
-    loop = Loop(f=body, callback={x: body_output})({x: x_seq}, {u: u_seq})
+    loop = Loop(f=body, callback={x: body_output}, init={x: x_seq})({u: u_seq})
     model = Modely(
         "dyn_onnx_model",
         inputs=[x_seq, u_seq],
@@ -1618,7 +1624,7 @@ def test_a_loop_closed_over_a_generated_layer_reloads_beside_its_original(tmp_pa
     assert bare.kernel is not None
     bare.kernel.assign(np.full((1, 1), 2.0, dtype=np.float32))
     seed = Input("bare_seed", seq=4)
-    loop = Loop(f=body, callback={s: bare}, collect=False)({s: seed}, {})
+    loop = Loop(f=body, callback={s: bare}, collect=False, init={s: seed})()
     model = Modely(
         "bare_top", inputs=[seed], outputs=[Output("bare_out", loop)]
     ).build()

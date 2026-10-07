@@ -72,14 +72,15 @@ Loop
 ----
 
 A :class:`~nnodely.Loop` takes a **built** model, the *body*, and rolls it out
-along a sequence axis:
+along a sequence axis. It is configured with the body and its recurrence, then
+called on the streams that drive it, ``Loop(f, callback, init=...)(inputs)``:
 
 ``callback``
     maps a body input to the body output that feeds it at the next step.
-``initial``
+``init``
     maps a fed-back input to the stream that seeds it. Step 0 reads the first
-    element of that stream's sequence.
-``inputs``
+    element of that stream's sequence. A fed-back input left out starts at zero.
+``inputs`` (the call)
     maps the other body inputs to streams that carry one value per step
     (exogenous signals). Body inputs left out keep a constant value.
 ``collect``
@@ -108,7 +109,7 @@ on the state :math:`s = (x, \dot x)`:
    F_seq = Input("F_seq", seq=horizon)
    trajectory = Output(
        "trajectory",
-       Loop(f=body, callback={state: next_state})({state: s0}, {F_step: F_seq}),
+       Loop(f=body, callback={state: next_state}, init={state: s0})({F_step: F_seq}),
    )
 
    simulator = Modely("msd_loop", inputs=[s0, F_seq], outputs=[trajectory])

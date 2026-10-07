@@ -335,20 +335,20 @@ Reproducibility: call `set_seed(int)` before creating layers and data. It seeds 
 - Several feedbacks at once: `rollback({"x": "x_next", "v": "v_next"}, steps=10)`.
 - Supports `save` / `load`.
 
-### 10.2 `Loop(f, callback, name=None, length=None, collect=True)(initial, inputs)`
+### 10.2 `Loop(f, callback, init=None, name=None, length=None, collect=True)(inputs=None)`
 - `f`: the body `Modely` (built automatically if needed). Its own objectives are ignored (§1.11).
 - `callback`: `{body_input: body_output}`, as objects or names. The output dim must equal the input dim, and the output time must either equal the input time (the state is replaced) or be 1 when the input window is longer than 1 (the window is shifted, and after n steps it holds only predictions).
-- The loop is bound by calling it with two dicts, both required: `Loop(f, callback)(initial, inputs)`.
-- `initial`: `{body_input: stream | number}` seeding the fed-back inputs. A fed-back input missing from the dict starts at zero.
+- The seeds are configured with the loop, and the loop is bound by calling it on its exogenous inputs: `Loop(f, callback, init={...})({...})`. `Loop(...)()` when there are none.
+- `init`: `{body_input: stream | number}` seeding the fed-back inputs. A fed-back input missing from the dict starts at zero; a non-dict raises `TypeError`.
   - A stream with **one extra trailing seq axis** relative to the body input (e.g. `Input("s0", dim=2, seq=H)` for body input `dim=2`): step 0 reads element 0 of the sequence.
   - A stream of the same shape: used directly.
   - A number: broadcast.
   - For a windowed feedback input use a window of the seq Input: `{x: x0_seq.sw(3)}`.
-- `inputs`: `{body_input: outer_stream}` for exogenous signals (`{}` when there are none). The outer stream must match dim and time. Its seq is either the same as the body input (held constant) or one axis longer (consumed one element per step).
+- `inputs`: `{body_input: outer_stream}` for exogenous signals, given in the call (`Loop(...)()` when there are none). The outer stream must match dim and time. Its seq is either the same as the body input (held constant) or one axis longer (consumed one element per step).
 - Body inputs that are neither fed back nor bound are held constant, and become inputs of the outer model under their own names.
 - Horizon: taken from the concrete seq length of the rollout streams. Pass `length=` when their lengths differ, or when no stream carries a rollout axis. With `seq=-1`, the rollout follows the length of the tensor given at call time (also in a TensorFlow ONNX export), so `length` is optional: without it the streams are declared with `DYNAMIC_BUILD_LENGTH` (1) steps.
 - At least one source must derive from an `Input`, so that there is a batch axis.
-- Timing: at step k (0-based) the body sees state `s_k` (with `s_0` from `initial`) and exogenous `u_k`. Every body output at step k is computed from `s_k`, and the callback output becomes `s_{k+1}`. With `collect=True` the result stacks steps `0..H-1` as a new **last seq axis**, giving shape `(*dim, time, *seq, H)`. So the fed-back trajectory is `s_1..s_H`: with `initial` = states window `[t..t+H-1]`, the target must be states `[t+1..t+H]`, i.e. data `{"s_seq": S[:-1], "s_target": S[1:]}` (recipe R3). A non-fed-back output (for example a measurement `y(s_k)`) aligns with the unshifted window. `collect=False` returns only the last step.
+- Timing: at step k (0-based) the body sees state `s_k` (with `s_0` from `init`) and exogenous `u_k`. Every body output at step k is computed from `s_k`, and the callback output becomes `s_{k+1}`. With `collect=True` the result stacks steps `0..H-1` as a new **last seq axis**, giving shape `(*dim, time, *seq, H)`. So the fed-back trajectory is `s_1..s_H`: with `initial` = states window `[t..t+H-1]`, the target must be states `[t+1..t+H]`, i.e. data `{"s_seq": S[:-1], "s_target": S[1:]}` (recipe R3). A non-fed-back output (for example a measurement `y(s_k)`) aligns with the unshifted window. `collect=False` returns only the last step.
 - Multiple outputs: `a, b = Loop(...)` yields one stream per body output, in `f.outputs` order.
 - Loops can be nested; the body of a Loop can itself contain a Loop.
 - Supports `save` / `load`, `export_keras` and ONNX (on TensorFlow the rollout is an ONNX `Loop` node).
@@ -458,7 +458,7 @@ JAX cannot export ONNX at all: jax2tf emits an unconvertible XlaCallModule. `exp
 | `Loop cannot determine the rollout length` | No initial value or input carries a rollout axis | Pass `length=H`. |
 | `Loop rollout inputs declare different lengths` | Mixed seq lengths | Pass `length=` or make the lengths equal. |
 | `All outputs values must be KerasTensors` at build | The model reads no Input, e.g. a Loop seeded and driven only by numbers | Seed or drive it from an `Input`. |
-| `Loop initial must be a dict` | Scalar or stream passed as `initial` | `Loop(...)({inp1: s1, inp2: s2}, {})`. |
+| `Loop init must be a dict` | Scalar or stream passed as `init` | `Loop(..., init={inp1: s1, inp2: s2})(...)`. |
 | `the output must either cover the whole time window of the input ... or a single step` | Callback output time is incompatible | The output time must be 1 or equal to the input time. |
 | `has two different outputs named ...` | A block called twice exposes same-named outputs | Wrap each call's output in a distinctly named `Output`. |
 | `the differentiated relation does not depend on input ...` | `Differentiate` w.r.t. an Input inside a composed block, or no real dependency | Move the derivative to the model that declares the Input. |
@@ -534,8 +534,8 @@ step_out = Output("state_next",
 body = Modely("step", inputs=[state, force], outputs=[step_out]).build()
 # 2) outer: sequences of H steps
 s_seq, f_seq = Input("s_seq", dim=2, seq=H), Input("f_seq", seq=H)
-traj = Output("traj", Loop(f=body, callback={state: step_out})(
-                           {state: s_seq}, {force: f_seq}))
+traj = Output("traj", Loop(f=body, callback={state: step_out}, init={state: s_seq})(
+                           {force: f_seq}))
 sim = Modely("simulator", inputs=[s_seq, f_seq], outputs=[traj])
 sim.minimize("sim_error", traj, Input("s_target", dim=2, seq=H))
 sim.build()
@@ -545,7 +545,7 @@ data = DataLoader(sim, source={"s_seq": states[:-1], "f_seq": tq[:-1], "s_target
 sim.train(data, epochs=5, batch_size=32, lr=1e-2, printer=None)
 # body weights are trained too; body(...) can now be used for one-step prediction
 ```
-To use a physical step inside the body, build the body from `Ode(...)` as in R2, feeding back both states (`callback={"theta": "theta_next", "omega": "omega_next"}`, `initial` `{"theta": th_seq, "omega": om_seq}`). For whole simulations of different lengths use `Input(seq=-1)`, `Loop(...)` and `DataLoader(..., seq_length="full")`.
+To use a physical step inside the body, build the body from `Ode(...)` as in R2, feeding back both states (`callback={"theta": "theta_next", "omega": "omega_next"}`, `init={"theta": th_seq, "omega": om_seq}`). For whole simulations of different lengths use `Input(seq=-1)`, `Loop(...)` and `DataLoader(..., seq_length="full")`.
 
 ### R4. Physics-informed network (Differentiate w.r.t. an Input + residual)
 ```python
