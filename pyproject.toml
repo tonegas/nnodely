@@ -78,7 +78,13 @@ dev = [
 # onnxruntime 1.24.1-1.24.3 declare Python >=3.10 but ship no 3.10 wheels, so
 # a lock shared by every Python picks one that 3.10 cannot install. pip skips
 # them on its own; this only steers the lock.
-constraint-dependencies = ["onnxruntime<1.24; python_version < '3.11'"]
+# scipy 1.15.3, the last release for 3.10, ships macOS wheels whose extensions
+# macOS 27's dyld refuses to load (a __thread_bss section with a file offset),
+# so every newer Python is steered to a release that loads.
+constraint-dependencies = [
+  "onnxruntime<1.24; python_version < '3.11'",
+  "scipy>=1.16; python_version >= '3.11'",
+]
 
 [tool.uv.build-backend]
 # Finder writes .DS_Store files into the folders it opens, and the build takes

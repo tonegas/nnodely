@@ -55,6 +55,7 @@ from nnodely.layers.time_ops import (
 )
 from nnodely.layers.batchnorm import BatchNorm
 from nnodely.layers.ode import Ode, OdeNet
+from nnodely.layers.torch_module import TorchModule
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -115,6 +116,7 @@ __all__ = [
     "BatchNorm",
     "Ode",
     "OdeNet",
+    "TorchModule",
     "ReLU",
     "LeakyReLU",
     "ELU",

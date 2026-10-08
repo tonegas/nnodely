@@ -140,6 +140,21 @@ def export_onnx(
             "(set KERAS_BACKEND before importing keras)."
         )
 
+    from nnodely.layers.torch_module import TorchModuleImpl
+
+    if keras.backend.backend() == "tensorflow" and any(
+        isinstance(layer, TorchModuleImpl)
+        for layer in model.inference_model._flatten_layers()
+    ):
+        # There a TorchModule is a host callback, which tf2onnx writes as a
+        # PyFunc node that no ONNX runtime can execute.
+        raise NotImplementedError(
+            "ONNX export of a model with a TorchModule is not available on the "
+            "tensorflow backend, where the module runs as a Python callback. "
+            "Export from the torch backend instead (set KERAS_BACKEND before "
+            "importing keras)."
+        )
+
     file = _export_file(path, filename, model.name, ".onnx")
 
     inference_model = model.inference_model
