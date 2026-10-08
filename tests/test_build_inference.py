@@ -72,7 +72,8 @@ def test_model_inference_with_composed_model(batch_size, window_size):
 
     result2 = model2({"z": dummy_input_z})
     assert "z_pred" in result2
-    assert result2["z_pred"].shape == (batch_size, 1, 1)
+    # The outer Fir filters each of the 2 features of model1 alone.
+    assert result2["z_pred"].shape == (batch_size, 2, 1)
 
 
 def test_inference_accepts_a_backend_tensor():

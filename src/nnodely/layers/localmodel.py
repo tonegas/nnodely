@@ -360,7 +360,13 @@ class LocalModel:
         )
         final_name = self.name if self.output_function is None else f"{self.name}_cells"
 
-        if once and type(self.input_function) is Fir and len(inputs) == 1:
+        # LocalFir mixes every element of its input: a Fir only on a scalar.
+        if (
+            once
+            and type(self.input_function) is Fir
+            and len(inputs) == 1
+            and inputs[0].dim == (1,)
+        ):
             fir = cast(Fir, self.input_function)
             cells = LocalFir(
                 out_features=fir.out_features,

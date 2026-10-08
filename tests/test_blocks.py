@@ -108,11 +108,9 @@ def _cell_weights(model, layer_name, cells):
     """Read the per-cell Fir weights of an explicitly built local model."""
     layers = {layer.name: layer for layer in model.model.layers}
     kernel = np.stack(
-        [to_numpy(layers[f"{layer_name}{i}"].proj.kernel) for i in range(cells)]
+        [to_numpy(layers[f"{layer_name}{i}"].kernel) for i in range(cells)]
     )
-    bias = np.stack(
-        [to_numpy(layers[f"{layer_name}{i}"].proj.bias) for i in range(cells)]
-    )
+    bias = np.stack([to_numpy(layers[f"{layer_name}{i}"].bias) for i in range(cells)])
     return kernel, bias
 
 
@@ -252,8 +250,8 @@ def test_local_model_generic_and_elementwise_paths_agree():
     assert len(stacked_names) == 20
     for names in (stacked_names, [f"p_cell_in{i}" for i in range(20)]):
         for i, name in enumerate(names):
-            layers[name].proj.kernel.assign(kernel[i])
-            layers[name].proj.bias.assign(bias[i])
+            layers[name].kernel.assign(kernel[i])
+            layers[name].bias.assign(bias[i])
 
     result = model(dict(data))
     assert result["fused"].shape == (6, 2, 1)
@@ -344,20 +342,24 @@ def test_local_model_matrix_input_two_fuzzy_functions_by_hand():
     b = Input("b_hand")
     mu_a = Fuzzify(centers=[0.0, 1.0, 2.0])(a.last())
     mu_b = Fuzzify(centers=[0.0, 1.0])(b.last())
-    Y = LocalModel(Fir(out_features=1))([X.last()], [mu_a, mu_b])
+    Y = LocalModel(Fir(out_features=1), name="local_matrix_hand")(
+        [X.last()], [mu_a, mu_b]
+    )
     model = Modely(
         "local_matrix_hand",
         inputs=[X, a, b],
         outputs=[Output("Y", Y), Output("mu_a", mu_a), Output("mu_b", mu_b)],
     ).build()
 
-    # Cell c weighs every entry of X by c + 1: its local model is (c + 1) * sum(X).
-    assert Y.kernel is not None and Y.bias is not None
-    assert tuple(Y.kernel.shape) == (6, 4, 1)
-    Y.kernel.assign(
-        np.repeat(np.arange(1.0, 7.0), 4).reshape(6, 4, 1).astype(np.float32)
-    )
-    Y.bias.assign(np.zeros((6, 1), dtype=np.float32))
+    # A Fir filters every entry of X alone: one kernel per entry and per cell.
+    # Cell c weighs every entry by c + 1: its local model is (c + 1) * X.
+    assert Y.dim == (2, 2)
+    layers = {layer.name: layer for layer in model.model.layers}
+    for c in range(6):
+        cell = layers[f"local_matrix_hand_in{c}"]
+        assert tuple(cell.kernel.shape) == (2, 2, 1, 1)
+        cell.kernel.assign(np.full((2, 2, 1, 1), c + 1.0, dtype=np.float32))
+        cell.bias.assign(np.zeros((2, 2, 1), dtype=np.float32))
 
     result = model(
         {
@@ -377,8 +379,10 @@ def test_local_model_matrix_input_two_fuzzy_functions_by_hand():
         [0.375, 0.125, 0.375, 0.125, 0.0, 0.0],
         atol=1e-6,
     )
-    # Y = (0.375*1 + 0.125*2 + 0.375*3 + 0.125*4) * 10 = 22.5
-    np.testing.assert_allclose(to_numpy(result["Y"]).ravel(), [22.5], rtol=1e-5)
+    # Y = (0.375*1 + 0.125*2 + 0.375*3 + 0.125*4) * X = 2.25 * X
+    np.testing.assert_allclose(
+        to_numpy(result["Y"]).ravel(), [2.25, 4.5, 6.75, 9.0], rtol=1e-5
+    )
 
 
 def test_local_model_rejects_mismatched_inputs():

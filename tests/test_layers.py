@@ -689,16 +689,114 @@ def test_softmax_normalizes_every_value_of_each_sample():
 
 
 # ---------------------------------------------------------------------------
-# Fir compresses dim and time, one sequence step at a time
+# Fir filters the time axis of every element alone, one sequence step at a time
 # ---------------------------------------------------------------------------
 
 
-def _fir_kernel(fir, in_features, out_features):
-    kernel = np.arange(in_features * out_features, dtype=np.float32)
-    kernel = kernel.reshape(in_features, out_features) / 10.0
+def _fir_weights(fir, kernel_shape, bias_shape):
+    kernel = np.arange(np.prod(kernel_shape), dtype=np.float32)
+    kernel = kernel.reshape(kernel_shape) / 10.0
     fir.kernel.assign(kernel)
-    fir.bias.assign(np.full(out_features, 0.5, dtype=np.float32))
+    fir.bias.assign(np.full(bias_shape, 0.5, dtype=np.float32))
     return kernel
+
+
+def _fir_expected(values, kernel, bias=0.5):
+    """``values [batch, *dim, time]`` filtered by ``kernel [*dim, time, out]``
+    (or ``[time, out]``, shared), as ``[batch, out, *dim]``."""
+    out = np.einsum(
+        "b...t,...to->bo...",
+        values,
+        np.broadcast_to(kernel, values.shape[1:] + kernel.shape[-1:]),
+    )
+    return out + bias
+
+
+@pytest.mark.parametrize(
+    "dim, out_features, expected",
+    [
+        ((1,), 1, (1,)),
+        ((1,), 4, (4,)),
+        ((2,), 1, (2,)),
+        ((2,), 3, (3, 2)),
+        ((2, 3), 1, (2, 3)),
+        ((2, 3), 4, (4, 2, 3)),
+    ],
+)
+@pytest.mark.parametrize("shared_kernel", [False, True])
+def test_fir_adds_a_channel_axis_in_front_of_the_dim(
+    dim, out_features, expected, shared_kernel
+):
+    x = Input("fir_dim_x", dim=dim)
+    fir = Fir(out_features=out_features, shared_kernel=shared_kernel)([x.sw(3)])
+    model = Modely("fir_dim_model", inputs=[x], outputs=[Output("fir_dim_out", fir)])
+    model.build()
+    assert fir.shape.dimensions == (expected, 1, ())
+
+    values = np.ones((2, *dim, 3), dtype=np.float32)
+    result = to_numpy(model({"fir_dim_x": values})["fir_dim_out"])
+    assert result.shape == (2, *expected, 1)
+
+
+def test_fir_filters_every_element_with_its_own_kernel():
+    x = Input("fir_own_x", dim=(2, 3))
+    fir = Fir(out_features=4, name="fir_own")([x.sw(5)])
+    model = Modely("fir_own_model", inputs=[x], outputs=[Output("fir_own_out", fir)])
+    model.build()
+    assert fir.kernel is not None and fir.bias is not None
+    assert tuple(fir.kernel.shape) == (2, 3, 5, 4)
+    assert tuple(fir.bias.shape) == (2, 3, 4)
+
+    kernel = _fir_weights(fir, (2, 3, 5, 4), (2, 3, 4))
+    values = np.random.default_rng(3).normal(size=(2, 2, 3, 5)).astype(np.float32)
+    result = to_numpy(model({"fir_own_x": values})["fir_own_out"])
+
+    assert result.shape == (2, 4, 2, 3, 1)
+    np.testing.assert_allclose(
+        result[..., 0], _fir_expected(values, kernel), rtol=1e-5, atol=1e-5
+    )
+    # Elements are never mixed: element (0, 0) depends on its own window only.
+    changed = values.copy()
+    changed[:, 1, 2] += 1.0
+    changed_result = to_numpy(model({"fir_own_x": changed})["fir_own_out"])
+    np.testing.assert_allclose(changed_result[:, :, 0, 0], result[:, :, 0, 0])
+
+
+def test_fir_with_a_shared_kernel_filters_every_element_alike():
+    x = Input("fir_shared_x", dim=(2, 3))
+    fir = Fir(out_features=4, shared_kernel=True, name="fir_shared")([x.sw(5)])
+    model = Modely(
+        "fir_shared_model", inputs=[x], outputs=[Output("fir_shared_out", fir)]
+    )
+    model.build()
+    assert fir.kernel is not None and fir.bias is not None
+    assert tuple(fir.kernel.shape) == (5, 4)
+    assert tuple(fir.bias.shape) == (4,)
+
+    kernel = _fir_weights(fir, (5, 4), (4,))
+    values = np.random.default_rng(4).normal(size=(2, 2, 3, 5)).astype(np.float32)
+    result = to_numpy(model({"fir_shared_x": values})["fir_shared_out"])
+
+    assert result.shape == (2, 4, 2, 3, 1)
+    np.testing.assert_allclose(
+        result[..., 0], _fir_expected(values, kernel), rtol=1e-5, atol=1e-5
+    )
+
+
+def test_fir_with_one_channel_keeps_the_dim():
+    x = Input("fir_one_x", dim=(2, 3))
+    fir = Fir(out_features=1, name="fir_one")([x.sw(4)])
+    model = Modely("fir_one_model", inputs=[x], outputs=[Output("fir_one_out", fir)])
+    model.build()
+
+    kernel = _fir_weights(fir, (2, 3, 4, 1), (2, 3, 1))
+    values = np.random.default_rng(5).normal(size=(2, 2, 3, 4)).astype(np.float32)
+    result = to_numpy(model({"fir_one_x": values})["fir_one_out"])
+
+    assert result.shape == (2, 2, 3, 1)
+    np.testing.assert_allclose(
+        result[..., 0], _fir_expected(values, kernel)[:, 0], rtol=1e-5, atol=1e-5
+    )
 
 
 def test_fir_keeps_the_sequence_axes():
@@ -708,28 +806,32 @@ def test_fir_keeps_the_sequence_axes():
     fir = Fir(out_features=3, name="fir_seq")([x.sw(3)])
     model = Modely("fir_seq_model", inputs=[x], outputs=[Output("fir_seq_out", fir)])
     model.build()
-    assert fir.shape.dimensions == ((3,), 1, (4,))
+    assert fir.shape.dimensions == ((3, 2), 1, (4,))
 
-    kernel = _fir_kernel(fir, 2 * 3, 3)
+    kernel = _fir_weights(fir, (2, 3, 3), (2, 3))
     values = np.random.default_rng(1).normal(size=(2, 2, 3, 4)).astype(np.float32)
     result = to_numpy(model({"fir_seq_x": values})["fir_seq_out"])
 
-    assert result.shape == (2, 3, 1, 4)
+    assert result.shape == (2, 3, 2, 1, 4)
     for step in range(4):
-        expected = values[..., step].reshape(2, -1) @ kernel + 0.5
-        np.testing.assert_allclose(result[:, :, 0, step], expected, rtol=1e-5)
+        np.testing.assert_allclose(
+            result[:, :, :, 0, step],
+            _fir_expected(values[..., step], kernel),
+            rtol=1e-5,
+            atol=1e-5,
+        )
 
 
-def test_fir_without_sequence_axes_projects_the_whole_window():
-    x = Input("fir_plain_x", dim=2)
+def test_fir_without_sequence_axes_filters_the_whole_window():
+    x = Input("fir_plain_x")
     fir = Fir(out_features=3, name="fir_plain")([x.sw(3)])
     model = Modely(
         "fir_plain_model", inputs=[x], outputs=[Output("fir_plain_out", fir)]
     )
     model.build()
 
-    kernel = _fir_kernel(fir, 2 * 3, 3)
-    values = np.random.default_rng(2).normal(size=(2, 2, 3)).astype(np.float32)
+    kernel = _fir_weights(fir, (3, 3), (3,))
+    values = np.random.default_rng(2).normal(size=(2, 1, 3)).astype(np.float32)
     result = to_numpy(model({"fir_plain_x": values})["fir_plain_out"])
 
     assert result.shape == (2, 3, 1)
@@ -738,22 +840,45 @@ def test_fir_without_sequence_axes_projects_the_whole_window():
     )
 
 
-def test_fir_follows_a_dynamic_sequence_length():
-    x = Input("fir_dynamic_x", seq=-1)
-    fir = Fir(out_features=2, name="fir_dynamic")([x.sw(2)])
+@pytest.mark.parametrize(
+    "dim, out_features, expected",
+    [((1,), 2, (2,)), ((2, 3), 2, (2, 2, 3)), ((2, 3), 1, (2, 3))],
+)
+def test_fir_follows_a_dynamic_sequence_length(dim, out_features, expected):
+    x = Input("fir_dynamic_x", dim=dim, seq=-1)
+    fir = Fir(out_features=out_features, name="fir_dynamic")([x.sw(2)])
     model = Modely(
         "fir_dynamic_model", inputs=[x], outputs=[Output("fir_dynamic_out", fir)]
     )
     model.build()
 
     for length in (3, 5):
-        values = np.ones((1, 1, 2, length), dtype=np.float32)
-        assert to_numpy(model({"fir_dynamic_x": values})["fir_dynamic_out"]).shape == (
-            1,
-            2,
-            1,
-            length,
-        )
+        values = np.ones((1, *dim, 2, length), dtype=np.float32)
+        result = to_numpy(model({"fir_dynamic_x": values})["fir_dynamic_out"])
+        assert result.shape == (1, *expected, 1, length)
+
+
+def test_fir_shared_kernel_is_saved_with_the_architecture(tmp_path):
+    x = Input("fir_saved_x", dim=(2, 3))
+    fir = Fir(out_features=4, shared_kernel=True, name="fir_saved")([x.sw(3)])
+    model = Modely(
+        "fir_saved", inputs=[x], outputs=[Output("fir_saved_out", fir)]
+    ).build()
+    values = np.random.default_rng(6).normal(size=(2, 2, 3, 3)).astype(np.float32)
+    before = to_numpy(model({"fir_saved_x": values})["fir_saved_out"])
+
+    model.save(tmp_path / "fir_saved")
+    restored = Modely.load(tmp_path / "fir_saved")
+    restored_fir = {node.name: node for node in restored.order}["fir_saved"]
+
+    assert isinstance(restored_fir, Fir) and restored_fir.shared_kernel
+    assert tuple(restored_fir.kernel.shape) == (3, 4)
+    np.testing.assert_allclose(
+        to_numpy(restored({"fir_saved_x": values})["fir_saved_out"]),
+        before,
+        rtol=1e-5,
+        atol=1e-5,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -34,19 +34,19 @@ def test_model_composition():
 
     model2 = Modely("composed_model", inputs=[z], outputs=[z_out])
     model2.build()
-    z_fir.kernel.assign(np.ones((2, 1), dtype=np.float32))
-    z_fir.bias.assign(np.zeros((1,), dtype=np.float32))
+    z_fir.kernel.assign(np.ones((2, 1, 1), dtype=np.float32))
+    z_fir.bias.assign(np.zeros((2, 1), dtype=np.float32))
 
     dummy_z = np.ones((3, 1, 10), dtype=np.float32)
     result = model2({"z": dummy_z})
 
     assert "z_pred" in result
-    assert result["z_pred"].shape == (3, 1, 1)
+    assert result["z_pred"].shape == (3, 2, 1)
     # The body sums 10 samples of (z + z) into each of its 2 features, and the
-    # outer Fir sums those: 10 * 2 = 20 per feature, 40 in total.
+    # outer Fir passes each feature on alone: 10 * 2 = 20 per feature.
     np.testing.assert_allclose(
         to_numpy(result["z_pred"]),
-        np.full((3, 1, 1), 40.0, dtype=np.float32),
+        np.full((3, 2, 1), 20.0, dtype=np.float32),
         rtol=1e-5,
         atol=1e-5,
     )
@@ -401,7 +401,7 @@ def test_composition_rebuilds_a_block_whose_input_shape_changes():
     ).build()
 
     result = composed({"fit_wide": np.ones((1, 3, 1), dtype=np.float32)})
-    assert to_numpy(result["o"]).shape == (1, 1, 1)
+    assert to_numpy(result["o"]).shape == (1, 3, 1)
 
     # The block still evaluates with the weights it had.
     np.testing.assert_allclose(
