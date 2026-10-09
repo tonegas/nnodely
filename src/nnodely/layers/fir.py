@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import math
-
 import keras
 
-from nnodely.core.layer import Layer
+from nnodely.layers.parameter import Parameter, _ParameterWeights
+from nnodely.utils.utils import _per_slice_initializer
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -20,6 +19,13 @@ class FirImpl(keras.layers.Layer):
     mixed. ``(batch, *dim, time, *seq)`` becomes
     ``(batch, out_features, *dim, 1, *seq)``, the channel axis dropped when
     there is one channel and a scalar dim ``(1,)`` dropped when there are more.
+
+    The initializers draw the ``(time, out_features)`` filter and the
+    ``(out_features,)`` bias of each element alone, as if it were a scalar.
+
+    With ``external_kernel`` or ``external_bias`` the layer is called on
+    ``[x, kernel, bias]`` (those given), batched values of the kernel's and
+    the bias's size, and owns no weight for them.
     """
 
     def __init__(
@@ -28,6 +34,10 @@ class FirImpl(keras.layers.Layer):
         use_bias=True,
         shared_kernel=False,
         seq_rank=0,
+        kernel_initializer="glorot_uniform",
+        bias_initializer="zeros",
+        external_kernel=False,
+        external_bias=False,
         name=None,
         **kwargs,
     ):
@@ -36,6 +46,10 @@ class FirImpl(keras.layers.Layer):
         self.use_bias = bool(use_bias)
         self.shared_kernel = bool(shared_kernel)
         self.seq_rank = int(seq_rank)
+        self.kernel_initializer = keras.initializers.get(kernel_initializer)
+        self.bias_initializer = keras.initializers.get(bias_initializer)
+        self.external_kernel = bool(external_kernel)
+        self.external_bias = bool(external_bias)
 
     def get_config(self):
         config = super().get_config()
@@ -45,33 +59,59 @@ class FirImpl(keras.layers.Layer):
                 "use_bias": self.use_bias,
                 "shared_kernel": self.shared_kernel,
                 "seq_rank": self.seq_rank,
+                "kernel_initializer": keras.initializers.serialize(
+                    self.kernel_initializer
+                ),
+                "bias_initializer": keras.initializers.serialize(self.bias_initializer),
+                "external_kernel": self.external_kernel,
+                "external_bias": self.external_bias,
             }
         )
         return config
 
     def build(self, input_shape):
-        first_seq = len(input_shape) - self.seq_rank
-        dim = tuple(int(axis) for axis in input_shape[1 : first_seq - 1])
-        time = int(input_shape[first_seq - 1])
+        x_shape = (
+            input_shape[0]
+            if self.external_kernel or self.external_bias
+            else input_shape
+        )
+        first_seq = len(x_shape) - self.seq_rank
+        dim = tuple(int(axis) for axis in x_shape[1 : first_seq - 1])
+        time = int(x_shape[first_seq - 1])
         # A scalar has a single element: its kernel is the shared one.
         elements = () if self.shared_kernel or dim == (1,) else dim
-        # Glorot over the (time, out_features) map of one element.
-        limit = math.sqrt(6.0 / (time + self.out_features))
-        self.kernel = self.add_weight(
-            shape=(*elements, time, self.out_features),
-            initializer=keras.initializers.RandomUniform(-limit, limit),
-            name="kernel",
+        self.kernel_shape = (*elements, time, self.out_features)
+        self.bias_shape = (*elements, self.out_features)
+        self.kernel = (
+            None
+            if self.external_kernel
+            else self.add_weight(
+                shape=self.kernel_shape,
+                initializer=_per_slice_initializer(self.kernel_initializer, rank=2),
+                name="kernel",
+            )
         )
         self.bias = (
             self.add_weight(
-                shape=(*elements, self.out_features), initializer="zeros", name="bias"
+                shape=self.bias_shape,
+                initializer=_per_slice_initializer(self.bias_initializer, rank=1),
+                name="bias",
             )
-            if self.use_bias
+            if self.use_bias and not self.external_bias
             else None
         )
         super().build(input_shape)
 
-    def call(self, x):
+    def call(self, inputs):
+        x, kernel, bias = inputs, self.kernel, self.bias
+        if self.external_kernel or self.external_bias:
+            x, *values = inputs
+            # A Parameter comes batched, the same value for every sample.
+            if self.external_kernel:
+                kernel = keras.ops.reshape(values.pop(0)[0], self.kernel_shape)
+            if self.external_bias:
+                bias = keras.ops.reshape(values.pop(0)[0], self.bias_shape)
+
         rank = len(x.shape)
         first_seq = rank - self.seq_rank
         dim = tuple(int(axis) for axis in x.shape[1 : first_seq - 1])
@@ -80,10 +120,10 @@ class FirImpl(keras.layers.Layer):
         # axis of every element is multiplied by its kernel, so neither the
         # batch nor a sequence left dynamic has to be reshaped.
         x = keras.ops.transpose(x, [0, *range(first_seq, rank), *range(1, first_seq)])
-        y = keras.ops.matmul(keras.ops.expand_dims(x, -2), self.kernel)
+        y = keras.ops.matmul(keras.ops.expand_dims(x, -2), kernel)
         y = keras.ops.squeeze(y, -2)
-        if self.bias is not None:
-            y = y + self.bias
+        if bias is not None:
+            y = y + bias
 
         # [batch, *seq, *dim, out] -> [batch, out, *dim, 1, *seq]
         seq_end = 1 + self.seq_rank
@@ -99,7 +139,7 @@ class FirImpl(keras.layers.Layer):
         return y
 
 
-class Fir(Layer):
+class Fir(_ParameterWeights):
     """
     Filter over the time axis of every element of a window: each element is
     projected onto ``out_features`` channels, one time step long. Elements
@@ -116,22 +156,38 @@ class Fir(Layer):
         Fir(out_features=1)  on D=(2, 3) -> D=(2, 3)
         Fir(out_features=4)  on D=(2, 3) -> D=(4, 2, 3)
         Fir(out_features=4)  on D=(1,)   -> D=(4,)
+
+    ``kernel`` is ``[*dim, time, out_features]`` and ``bias``
+    ``[*dim, out_features]`` (without ``*dim`` for a scalar input or a shared
+    kernel). Each is either a Keras initializer, by name or object, that
+    draws a weight of the layer's own - the filter and the bias of each
+    element alone, as if it were a scalar - or a :class:`Parameter` the layer
+    computes with instead: it becomes a predecessor of the layer, and
+    assigning or training it changes the filter. A Parameter must have the
+    shape of the weight, axes of size 1 aside. ``bias=True`` makes a bias of
+    zeros, and ``bias=False`` leaves it out::
+
+        W = Parameter("W", dim=(3, 5, 4))   # (*dim, time, out_features)
+        Fir(out_features=4, kernel=W, bias=False)([x.sw(5)])  # x with dim=3
     """
 
     def __init__(
         self,
         out_features: int,
-        use_bias: bool = True,
+        kernel: Parameter | str | keras.initializers.Initializer = "glorot_uniform",
+        bias: Parameter | str | keras.initializers.Initializer | bool = True,
         shared_kernel: bool = False,
         name=None,
     ):
         self.out_features = int(out_features)
-        self.use_bias = bool(use_bias)
         self.shared_kernel = bool(shared_kernel)
+        self._kernel = kernel
+        self._bias = bias
         super().__init__(
             name=name,
             out_features=self.out_features,
-            use_bias=self.use_bias,
+            kernel=kernel,
+            bias=bias,
             shared_kernel=self.shared_kernel,
         )
 
@@ -139,6 +195,11 @@ class Fir(Layer):
         # Declared rather than probed with a dummy tensor, which a sequence
         # axis left dynamic cannot be given.
         dim = tuple(inputs[0].dim)
+        elements = () if self.shared_kernel or dim == (1,) else dim
+        self._check_parameters(
+            (*elements, inputs[0].time, self.out_features),
+            (*elements, self.out_features),
+        )
         if self.out_features == 1:
             out_dim = dim
         elif dim == (1,):
@@ -148,26 +209,17 @@ class Fir(Layer):
         return out_dim, 1, tuple(inputs[0].seq)
 
     def build_layer(self):
+        kernel, bias = self._kernel, self._bias
         return FirImpl(
             out_features=self.out_features,
-            use_bias=self.use_bias,
+            use_bias=bias is not False,
             shared_kernel=self.shared_kernel,
             seq_rank=len(self.preds[0].seq),  # type: ignore
+            kernel_initializer=(
+                "glorot_uniform" if isinstance(kernel, Parameter) else kernel
+            ),
+            bias_initializer=("zeros" if isinstance(bias, (bool, Parameter)) else bias),
+            external_kernel=isinstance(kernel, Parameter),
+            external_bias=isinstance(bias, Parameter),
             name=self.name,
         )
-
-    @property
-    def kernel(self):
-        """``[*dim, time, out_features]``, or ``[time, out_features]`` for a
-        scalar input or a shared kernel."""
-        if self._layer is not None:
-            return self._layer.kernel
-        return None
-
-    @property
-    def bias(self):
-        """``[*dim, out_features]``, or ``[out_features]`` for a scalar input
-        or a shared kernel."""
-        if self._layer is not None and self._layer.use_bias:
-            return self._layer.bias
-        return None

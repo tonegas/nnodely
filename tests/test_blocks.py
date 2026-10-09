@@ -342,25 +342,23 @@ def test_local_model_matrix_input_two_fuzzy_functions_by_hand():
     b = Input("b_hand")
     mu_a = Fuzzify(centers=[0.0, 1.0, 2.0])(a.last())
     mu_b = Fuzzify(centers=[0.0, 1.0])(b.last())
-    Y = LocalModel(Fir(out_features=1), name="local_matrix_hand")(
-        [X.last()], [mu_a, mu_b]
-    )
+    # A Fir filters every entry of X alone, so its kernel holds one tap per
+    # entry. Cell c weighs every entry by c + 1: its local model is (c + 1) * X.
+    cells = [
+        Fir(
+            out_features=1,
+            kernel=Parameter(f"hand_cell{c}", value=np.full((2, 2), c + 1.0)),
+            bias=False,
+        )
+        for c in range(6)
+    ]
+    Y = LocalModel(cells, name="local_matrix_hand")([X.last()], [mu_a, mu_b])
     model = Modely(
         "local_matrix_hand",
         inputs=[X, a, b],
         outputs=[Output("Y", Y), Output("mu_a", mu_a), Output("mu_b", mu_b)],
     ).build()
-
-    # A Fir filters every entry of X alone: one kernel per entry and per cell.
-    # Cell c weighs every entry by c + 1: its local model is (c + 1) * X.
     assert Y.dim == (2, 2)
-    assert model.model is not None
-    layers = {layer.name: layer for layer in model.model.layers}
-    for c in range(6):
-        cell = layers[f"local_matrix_hand_in{c}"]
-        assert tuple(cell.kernel.shape) == (2, 2, 1, 1)
-        cell.kernel.assign(np.full((2, 2, 1, 1), c + 1.0, dtype=np.float32))
-        cell.bias.assign(np.zeros((2, 2, 1), dtype=np.float32))
 
     result = model(
         {
@@ -384,6 +382,28 @@ def test_local_model_matrix_input_two_fuzzy_functions_by_hand():
     np.testing.assert_allclose(
         to_numpy(result["Y"]).ravel(), [2.25, 4.5, 6.75, 9.0], rtol=1e-5
     )
+
+
+def test_local_model_cells_share_a_fir_given_its_kernel_as_a_parameter():
+    # Each cell copies the Fir, Parameter included: every cell filters with
+    # the same kernel, and memberships summing to one give that Fir back.
+    x = Input("x_shared_w")
+    g = Input("g_shared_w")
+    w = Parameter("shared_w", value=[[1.0], [2.0], [3.0]])
+    mu = Fuzzify(centers=[0.0, 1.0, 2.0], function="Triangular")(g.last())
+    blended = LocalModel(Fir(out_features=1, kernel=w, bias=False))([x.sw(3)], [mu])
+    model = Modely(
+        "local_shared_w", inputs=[x, g], outputs=[Output("blended", blended)]
+    ).build()
+
+    result = model(
+        {
+            "x_shared_w": np.array([[[1.0, 1.0, 2.0]]], dtype=np.float32),
+            "g_shared_w": np.array([[[0.7]]], dtype=np.float32),
+        }
+    )
+    # 1 * 1 + 2 * 1 + 3 * 2 = 9
+    np.testing.assert_allclose(to_numpy(result["blended"]).ravel(), [9.0], rtol=1e-5)
 
 
 def test_local_model_rejects_mismatched_inputs():
@@ -419,14 +439,16 @@ def test_equation_learner_composes_symbolic_functions_and_multiple_inputs():
         functions=["identity", (lambda left, right: left * right, 2), Sin],
         linear_in=Linear(
             out_features=4,
-            use_bias=False,
-            initializer="zeros",
+            kernel=Parameter(
+                "equation_in_matrix", value=[[1.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 1.0]]
+            ),
+            bias=False,
             name="equation_linear_in",
         ),
         linear_out=Linear(
             out_features=1,
-            use_bias=False,
-            initializer="zeros",
+            kernel=Parameter("equation_out_weights", value=[[2.0], [3.0], [4.0]]),
+            bias=False,
             name="equation_linear_out",
         ),
         name="equation",
@@ -437,15 +459,6 @@ def test_equation_learner_composes_symbolic_functions_and_multiple_inputs():
         inputs=[x, y],
         outputs=[Output("result", learned)],
     ).build()
-
-    assert equation.linear_in is not None
-    assert equation.linear_out is not None
-    assert equation.linear_in.kernel is not None
-    assert equation.linear_out.kernel is not None
-    equation.linear_in.kernel.assign(
-        np.array([[1.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 1.0]], dtype=np.float32)
-    )
-    equation.linear_out.kernel.assign(np.array([[2.0], [3.0], [4.0]], dtype=np.float32))
 
     inputs = {
         "equation_x": np.array([[[2.0]]], dtype=np.float32),
@@ -465,11 +478,7 @@ def test_equation_learner_supports_layer_classes_and_basis_output():
     x = Input("basis_x")
     equation = EquationLearner(
         functions=[Sin, Cos, "add"],
-        linear_in=Linear(
-            out_features=4,
-            use_bias=False,
-            initializer="ones",
-        ),
+        linear_in=Linear(out_features=4, kernel="ones", bias=False),
         name="basis_equation",
     )
     basis = equation(x.last())

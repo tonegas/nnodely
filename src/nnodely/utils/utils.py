@@ -1,6 +1,8 @@
 # This file contains utility functions for the nnodely library.
+import math
+
 import keras
-from typing import Any, Callable, Collection
+from typing import Any, Callable, Collection, cast
 
 SUPPORTED_OPTIMIZERS = {
     "sgd",
@@ -22,6 +24,35 @@ def _serialized_initializer(initializer):
     if isinstance(initializer, str):
         return initializer
     return keras.initializers.serialize(initializer)
+
+
+def _per_slice_initializer(initializer, rank: int):
+    """Draw every slice of the last ``rank`` axes from ``initializer`` as if
+    it owned its own tensor.
+
+    Variance scaling reads the fans from the whole tensor, so initialising
+    ``[cells, features, out_features]`` in one shot would divide the scale by
+    the number of cells: a cell only ever sees ``features`` inputs.
+    """
+    base = cast(keras.initializers.Initializer, keras.initializers.get(initializer))
+
+    def initialize(shape, dtype=None):
+        # A random initializer draws its seed once and then repeats itself, so
+        # reusing one instance would give every slice the same values.
+        config = base.get_config()
+        slices = []
+        for index in range(math.prod(shape[: len(shape) - rank])):
+            slice_config = dict(config)
+            if slice_config.get("seed") is not None:
+                slice_config["seed"] = config["seed"] + index
+            slices.append(
+                type(base).from_config(slice_config)(
+                    shape[len(shape) - rank :], dtype=dtype
+                )
+            )
+        return keras.ops.reshape(keras.ops.stack(slices, axis=0), shape)
+
+    return initialize
 
 
 def _resolve_loss(

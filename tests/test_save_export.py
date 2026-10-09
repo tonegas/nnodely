@@ -81,8 +81,8 @@ def test_save_load_simple_model(tmp_path):
     ## simple model
     x = Input(name="x")
     y = Input(name="y")
-    x_fir = Fir(out_features=1, use_bias=True, name="fir_x")([x.sw(5)])
-    y_fir = Fir(out_features=1, use_bias=True, name="fir_y")([y.sw(5)])
+    x_fir = Fir(out_features=1, bias=True, name="fir_x")([x.sw(5)])
+    y_fir = Fir(out_features=1, bias=True, name="fir_y")([y.sw(5)])
     out = Output("accelleration", x_fir + y_fir)
     model = Modely(name="vehicle", inputs=[x, y], outputs=[out])
     model.build()
@@ -170,15 +170,12 @@ def _equation_learner_model():
     equation = EquationLearner(
         functions=["identity", Sin, Cos],
         linear_in=Linear(
-            out_features=3,
-            use_bias=False,
-            initializer="ones",
-            name="equation_export_linear_in",
+            out_features=3, kernel="ones", bias=False, name="equation_export_linear_in"
         ),
         linear_out=Linear(
             out_features=1,
-            use_bias=False,
-            initializer="zeros",
+            kernel=Parameter("equation_export_weights", value=[[2.0], [3.0], [4.0]]),
+            bias=False,
             name="equation_export_linear_out",
         ),
         name="equation_export",
@@ -189,9 +186,6 @@ def _equation_learner_model():
         inputs=[x],
         outputs=[Output("equation_export_output", relation)],
     ).build()
-    assert equation.linear_out is not None
-    assert equation.linear_out.kernel is not None
-    equation.linear_out.kernel.assign(np.array([[2.0], [3.0], [4.0]], dtype=np.float32))
     return model
 
 
@@ -550,12 +544,12 @@ def test_local_model_with_fuzzy_product_round_trips(tmp_path):
 
 def _roll_model():
     x = Input("roll_x")
-    fir = Fir(out_features=1, use_bias=False, name="roll_fir")(x.sw(5))
+    taps = Parameter("roll_taps", value=np.ones((5, 1)))
+    fir = Fir(out_features=1, kernel=taps, bias=False, name="roll_fir")(x.sw(5))
     output = Output("roll_out", fir + x.last())
     model = Modely("roll_model", inputs=[x], outputs=[output])
     model.rollback({x: fir}, steps=3, name="rollout")
     model.build()
-    fir.kernel.assign(np.ones((5, 1), dtype=np.float32))
     return model
 
 
@@ -729,7 +723,7 @@ def _weighted_layers_model():
     past = shared_fir(x.sw(4))
     around = shared_fir(x.sw([3, 1]))
     projected = Linear(out_features=2, name="weighted_linear")(y.sw(2))
-    mixed = Fir(out_features=2, use_bias=False, name="weighted_fir")(projected)
+    mixed = Fir(out_features=2, bias=False, name="weighted_fir")(projected)
     gain = Parameter("weighted_gain", dim=2)
     offset = Constant("weighted_offset", value=[[1.0], [2.0]])
     return Modely(
@@ -898,7 +892,7 @@ def _rollback_mechanical_model():
     acceleration = (
         Fir(out_features=1, name="rollback_force_fir")(force.sw(3))
         - stiffness * position.last()
-        - Linear(out_features=1, use_bias=False, name="rollback_damping")(
+        - Linear(out_features=1, bias=False, name="rollback_damping")(
             estimated_velocity
         )
     )
@@ -1367,7 +1361,7 @@ def test_save_load_odenet(tmp_path, method):
         outputs=[
             Output(
                 f"odenet_save_{method}_dx",
-                Linear(out_features=2, use_bias=False)(x.last()),
+                Linear(out_features=2, bias=False)(x.last()),
             )
         ],
     ).build()
@@ -1528,7 +1522,7 @@ def test_export_onnx_leaves_minimizers_out(tmp_path):
 def _fir_model(name, gain):
     """``out = Fir(x.sw(2))`` with every kernel entry equal to ``gain``."""
     x = Input(f"{name}_x")
-    fir = Fir(out_features=1, use_bias=False)(x.sw(2))  # left unnamed
+    fir = Fir(out_features=1, bias=False)(x.sw(2))  # left unnamed
     model = Modely(name, inputs=[x], outputs=[Output(f"{name}_out", fir)]).build()
     assert fir.kernel is not None
     fir.kernel.assign(np.full((2, 1), gain, dtype=np.float32))
@@ -1619,10 +1613,10 @@ def test_a_loop_closed_over_a_generated_layer_reloads_beside_its_original(tmp_pa
     # Once a failure: a load renamed the body's layer while the Loop still
     # named it as the output it feeds back.
     s = Input("bare_s")
-    bare = Fir(out_features=1, use_bias=False)(s.last())  # a body output, unnamed
+    gain = Parameter("bare_gain", value=[[2.0]])
+    # A body output, unnamed.
+    bare = Fir(out_features=1, kernel=gain, bias=False)(s.last())
     body = Modely("bare_body", inputs=[s], outputs=[bare]).build()
-    assert bare.kernel is not None
-    bare.kernel.assign(np.full((1, 1), 2.0, dtype=np.float32))
     seed = Input("bare_seed", seq=4)
     loop = Loop(f=body, callback={s: bare}, collect=False, init={s: seed})()
     model = Modely(
@@ -1680,7 +1674,7 @@ def test_names_generated_after_a_load_avoid_the_loaded_ones(tmp_path):
 def test_a_model_saved_without_weights_loads_as_freshly_built(tmp_path):
     x = Input("architecture_x")
     gain = Parameter("architecture_gain", value=[2.0])
-    fir = Fir(out_features=1, use_bias=False, name="architecture_fir")(x.sw(2))
+    fir = Fir(out_features=1, bias=False, name="architecture_fir")(x.sw(2))
     model = Modely(
         "architecture", inputs=[x], outputs=[Output("architecture_out", fir * gain)]
     ).build()
@@ -1708,8 +1702,8 @@ def test_a_linear_initializer_object_is_saved_as_its_config(tmp_path):
     x = Input("initializer_x")
     linear = Linear(
         out_features=2,
-        initializer=keras.initializers.Constant(0.5),
-        bias_initializer=keras.initializers.Constant(-1.0),
+        kernel=keras.initializers.Constant(0.5),
+        bias=keras.initializers.Constant(-1.0),
         name="initializer_linear",
     )([x.last()])
     model = Modely(
@@ -1722,3 +1716,100 @@ def test_a_linear_initializer_object_is_saved_as_its_config(tmp_path):
 
     np.testing.assert_allclose(to_numpy(restored_linear.kernel), np.full((1, 2), 0.5))
     np.testing.assert_allclose(to_numpy(restored_linear.bias), [-1.0, -1.0])
+
+
+# ---------------------------------------------------------------------------
+# Fir and Linear computing with Parameters as kernel and bias
+# ---------------------------------------------------------------------------
+
+
+def _parameter_weights_model():
+    """A Fir and a Linear whose kernels and biases are all Parameters."""
+    x = Input("weights_x", dim=2)
+    parameters = [
+        Parameter("weights_fir_kernel", value=[[1.0, 2.0, 3.0], [-1.0, 0.5, 2.0]]),
+        Parameter("weights_fir_bias", value=[0.1, -0.2]),
+        Parameter("weights_linear_kernel", value=[[1.0, 2.0], [3.0, 4.0]]),
+        Parameter("weights_linear_bias", value=[0.5, -0.5]),
+    ]
+    fir = Fir(
+        out_features=1, kernel=parameters[0], bias=parameters[1], name="weights_fir"
+    )([x.sw(3)])
+    linear = Linear(
+        out_features=2,
+        kernel=parameters[2],
+        bias=parameters[3],
+        name="weights_linear",
+    )([fir])
+    model = Modely(
+        "weights_model", inputs=[x], outputs=[Output("weights_out", linear)]
+    ).build()
+    return model, parameters
+
+
+# Two elements of three samples each: [[0, 0.25, 0.5], [0.75, 1, 1.25]].
+_WEIGHTS_INPUTS = {"weights_x": np.arange(6, dtype=np.float32).reshape(1, 2, 3) / 4.0}
+
+
+def _as_if_trained(parameters):
+    """Move every Parameter away from its declared value, as training would."""
+    for parameter in parameters:
+        assert parameter.param is not None
+        parameter.param.assign(to_numpy(parameter.param) * 2.0 + 0.1)
+
+
+def test_fir_and_linear_computing_with_parameters_save_load_and_export(tmp_path):
+    model, parameters = _parameter_weights_model()
+    declared = to_numpy(model(_WEIGHTS_INPUTS)["weights_out"])
+    # Fir: [2.0 + 0.1, 2.25 - 0.2]; Linear: [2.1, 2.05] @ [[1, 2], [3, 4]] + bias.
+    np.testing.assert_allclose(declared, [[[8.75], [11.9]]], rtol=1e-5)
+    _as_if_trained(parameters)
+    trained = to_numpy(model(_WEIGHTS_INPUTS)["weights_out"])
+    assert not np.allclose(trained, declared)
+
+    model.save(tmp_path / "weights")
+    restored = Modely.load(tmp_path / "weights")
+    assert graph_signature(restored) == graph_signature(model)
+    np.testing.assert_allclose(
+        to_numpy(restored(_WEIGHTS_INPUTS)["weights_out"]),
+        trained,
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+    # Saved as the architecture alone, the Parameters come back as declared.
+    model.save(tmp_path / "weights_architecture", weights=False)
+    fresh = Modely.load(tmp_path / "weights_architecture")
+    np.testing.assert_allclose(
+        to_numpy(fresh(_WEIGHTS_INPUTS)["weights_out"]),
+        declared,
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+    model.export_keras(tmp_path, "weights")
+    imported = Modely.import_keras(tmp_path / "weights.keras")
+    np.testing.assert_allclose(
+        to_numpy(imported(_WEIGHTS_INPUTS)["weights_out"]),  # type: ignore
+        trained,
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+
+@requires_onnx_export
+def test_fir_and_linear_computing_with_parameters_export_to_onnx(tmp_path):
+    pytest.importorskip("onnxruntime")
+    model, parameters = _parameter_weights_model()
+    _as_if_trained(parameters)
+    expected = to_numpy(model(_WEIGHTS_INPUTS)["weights_out"])
+
+    model.export_onnx(tmp_path, "weights")
+    result = Modely.validate_onnx(
+        tmp_path / "weights.onnx", _WEIGHTS_INPUTS, return_dict=True
+    )
+
+    assert isinstance(result, dict)
+    np.testing.assert_allclose(
+        to_numpy(result["weights_out"]), expected, rtol=1e-5, atol=1e-5
+    )

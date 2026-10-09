@@ -120,14 +120,15 @@ def test_linear_and_fir_project_a_parameter_like_an_input():
     x = Input("project_x")
     vector = Parameter("project_vector", value=[[1.0], [2.0], [3.0]])
     window = Parameter("project_window", value=[[1.0, 2.0, 3.0, 4.0]])
-    linear = Linear(out_features=2, use_bias=False, name="project_linear")([vector])
-    fir = Fir(out_features=1, use_bias=False, name="project_fir")([window])
+    matrix = Parameter("project_matrix", value=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+    linear = Linear(out_features=2, kernel=matrix, bias=False, name="project_linear")(
+        [vector]
+    )
+    taps = Parameter("project_taps", value=np.ones((4, 1)))
+    fir = Fir(out_features=1, kernel=taps, bias=False, name="project_fir")([window])
     exp = Exp()([vector])
 
     model, _ = _evaluate("project", {"linear": linear, "fir": fir, "exp": exp}, x)
-    assert linear.kernel is not None and fir.kernel is not None
-    linear.kernel.assign(np.array([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], "float32"))
-    fir.kernel.assign(np.ones((4, 1), dtype="float32"))
     values = np.zeros((BATCH, 1, 1), dtype=np.float32)
     result = {
         key: to_numpy(value) for key, value in model({"project_x": values}).items()

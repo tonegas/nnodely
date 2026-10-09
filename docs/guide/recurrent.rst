@@ -100,8 +100,8 @@ on the state :math:`s = (x, \dot x)`:
    F_step = Input("F_step")
    next_state = Output(
        "next_state",
-       Linear(out_features=2, use_bias=False)([state.last()])
-       + Linear(out_features=2, use_bias=False)([F_step.last()]),
+       Linear(out_features=2, bias=False)([state.last()])
+       + Linear(out_features=2, bias=False)([F_step.last()]),
    )
    body = Modely("step", inputs=[state, F_step], outputs=[next_state]).build()
 

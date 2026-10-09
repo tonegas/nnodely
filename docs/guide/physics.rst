@@ -170,7 +170,7 @@ sequence axis. The field must be autonomous (all its inputs are states).
    field = Modely(
        "field",
        inputs=[z],
-       outputs=[Output("dz", Linear(out_features=2, use_bias=False)([z.last()]))],
+       outputs=[Output("dz", Linear(out_features=2, bias=False)([z.last()]))],
    ).build()
 
    report_times = Input("report_times", seq=50)

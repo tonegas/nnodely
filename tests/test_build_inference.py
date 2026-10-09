@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from conftest import to_numpy
-from nnodely import DataLoader, Modely, Input, Output, Fir, Linear, Loop
+from nnodely import DataLoader, Modely, Input, Output, Fir, Linear, Loop, Parameter
 
 
 @pytest.fixture
@@ -201,13 +201,15 @@ def test_inference_runs_with_the_trained_weights():
 def test_rollback_inference_does_not_need_minimizer_inputs():
     x = Input("rollback_inference_x", dim=1)
     target = Input("rollback_inference_target", dim=1)
-    fir = Fir(out_features=1, use_bias=False, name="rollback_inference_fir")(x.sw(5))
+    taps = Parameter("rollback_inference_taps", value=np.ones((5, 1)))
+    fir = Fir(out_features=1, kernel=taps, bias=False, name="rollback_inference_fir")(
+        x.sw(5)
+    )
     output = Output("rollback_inference_out", fir + x.last())
     model = Modely("rollback_inference", inputs=[x, target], outputs=[output])
     model.minimize("rollback_inference_fit", source=output, target=target.last())
     model.rollback({x: fir}, steps=3)
     model.build()
-    fir.kernel.assign(np.ones((5, 1), dtype=np.float32))
 
     result = model(
         {"rollback_inference_x": np.arange(1, 6, dtype=np.float32).reshape(1, 1, 5)}
@@ -222,9 +224,10 @@ def test_rollback_inference_does_not_need_minimizer_inputs():
 
 def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
     state = Input("minimized_body_state", dim=1)
-    relation = Linear(out_features=1, use_bias=False, name="minimized_body_linear")(
-        state.last()
-    )
+    gain = Parameter("minimized_body_gain", value=[[2.0]])
+    relation = Linear(
+        out_features=1, kernel=gain, bias=False, name="minimized_body_linear"
+    )(state.last())
     next_state = Output("minimized_body_next", relation)
     body = Modely("minimized_body", inputs=[state], outputs=[next_state])
     body.minimize(
@@ -233,8 +236,6 @@ def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
         target=Input("minimized_body_target", dim=1).last(),
     )
     body.build()
-    assert relation.kernel is not None
-    relation.kernel.assign(np.full((1, 1), 2.0, dtype=np.float32))
 
     # The loop runs the body as declared: its target is not an input of the loop.
     seed = Input("minimized_body_seed", dim=1, seq=4)
@@ -274,7 +275,7 @@ def test_a_model_that_reads_no_input_is_refused_at_build():
         only_values.build()
 
     state = Input("numbers_state")
-    step = Output("numbers_next", Linear(use_bias=False)(state.last()))
+    step = Output("numbers_next", Linear(bias=False)(state.last()))
     body = Modely("numbers_body", inputs=[state], outputs=[step]).build()
     driven_by_numbers = Loop(
         f=body, callback={state: step}, length=4, init={state: 1.0}

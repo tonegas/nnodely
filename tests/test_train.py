@@ -168,10 +168,9 @@ def test_training_values_fir_linear():
     input1 = Input("in1")
     target = Input("target1").last()
 
-    fir_out = Fir(out_features=1, use_bias=False)(input1.last())
-    linear_out = Linear(out_features=1, initializer="ones", bias_initializer="ones")(
-        fir_out
-    )
+    fir_kernel = Parameter("fir_kernel", value=[[1.0]])
+    fir_out = Fir(out_features=1, kernel=fir_kernel, bias=False)(input1.last())
+    linear_out = Linear(out_features=1, kernel="ones", bias="ones")(fir_out)
 
     output1 = Output("out1", fir_out)
     output2 = Output("out2", linear_out)
@@ -180,12 +179,13 @@ def test_training_values_fir_linear():
     model.minimize("error", source=output2, target=target, loss="mse")
     model.build()
 
-    assert fir_out.kernel is not None
+    fir_weight = fir_kernel.param
+    assert fir_weight is not None
     assert linear_out.kernel is not None
     assert linear_out.bias is not None
 
     def reset_weights():
-        fir_out.kernel.assign([[1.0]])
+        fir_weight.assign([[1.0]])
         linear_out.kernel.assign([[1.0]])
         linear_out.bias.assign([1.0])
 
@@ -247,10 +247,9 @@ def test_training_values_fir_linear_only_model():
     input1 = Input("in1")
     target = Input("target1").last()
 
-    fir_out = Fir(out_features=1, use_bias=False)(input1.last())
-    linear_out = Linear(out_features=1, initializer="ones", bias_initializer="ones")(
-        fir_out
-    )
+    fir_kernel = Parameter("fir_kernel", value=[[1.0]])
+    fir_out = Fir(out_features=1, kernel=fir_kernel, bias=False)(input1.last())
+    linear_out = Linear(out_features=1, kernel="ones", bias="ones")(fir_out)
 
     output1 = Output("out1", fir_out)
     output2 = Output("out2", linear_out)
@@ -259,12 +258,13 @@ def test_training_values_fir_linear_only_model():
     model.minimize("error", source=output2, target=target, loss="mse")
     model.build()
 
-    assert fir_out.kernel is not None
+    fir_weight = fir_kernel.param
+    assert fir_weight is not None
     assert linear_out.kernel is not None
     assert linear_out.bias is not None
 
     def reset_weights():
-        fir_out.kernel.assign([[1.0]])
+        fir_weight.assign([[1.0]])
         linear_out.kernel.assign([[1.0]])
         linear_out.bias.assign([1.0])
 
@@ -313,7 +313,9 @@ def test_training_values_fir_linear_only_model():
     # ------- Only the Linear block trainable -------
     reset_weights()
     linear_out._layer.trainable = True
-    fir_out._layer.trainable = False
+    # The Fir's kernel is the Parameter's: freezing it freezes the Fir.
+    assert fir_kernel._layer is not None
+    fir_kernel._layer.trainable = False
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
     assert_weights([[1.0]], [[3.0]], [3.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
@@ -324,10 +326,9 @@ def test_training_values_fir_linear_more_samples():
     input1 = Input("in1")
     target = Input("out1").last()
 
-    fir_out = Fir(out_features=1, use_bias=False)(input1.last())
-    linear_out = Linear(out_features=1, initializer="ones", bias_initializer="ones")(
-        fir_out
-    )
+    fir_kernel = Parameter("fir_kernel", value=[[1.0]])
+    fir_out = Fir(out_features=1, kernel=fir_kernel, bias=False)(input1.last())
+    linear_out = Linear(out_features=1, kernel="ones", bias="ones")(fir_out)
 
     output1 = Output("out1-net", fir_out)
     output2 = Output("out2-net", linear_out)
@@ -336,12 +337,13 @@ def test_training_values_fir_linear_more_samples():
     model.minimize("error", source=output2, target=target, loss="mse")
     model.build()
 
-    assert fir_out.kernel is not None
+    fir_weight = fir_kernel.param
+    assert fir_weight is not None
     assert linear_out.kernel is not None
     assert linear_out.bias is not None
 
     def reset_weights():
-        fir_out.kernel.assign([[1.0]])
+        fir_weight.assign([[1.0]])
         linear_out.kernel.assign([[1.0]])
         linear_out.bias.assign([1.0])
 
@@ -406,7 +408,8 @@ def test_training_values_linear_fir_window():
     target = Input("target").last()
 
     lin_out = Linear(out_features=1)(input1.sw(2))
-    fir_out = Fir(out_features=1, use_bias=False)(lin_out)
+    fir_kernel = Parameter("fir_kernel", value=[[4.0], [5.0]])
+    fir_out = Fir(out_features=1, kernel=fir_kernel, bias=False)(lin_out)
 
     output1 = Output("out1", lin_out)
     output2 = Output("out2", fir_out)
@@ -417,12 +420,13 @@ def test_training_values_linear_fir_window():
 
     assert lin_out.kernel is not None
     assert lin_out.bias is not None
-    assert fir_out.kernel is not None
+    fir_weight = fir_kernel.param
+    assert fir_weight is not None
 
     def reset_weights():
         lin_out.kernel.assign([[-1.0], [-5.0]])
         lin_out.bias.assign([1.0])
-        fir_out.kernel.assign([[4.0], [5.0]])
+        fir_weight.assign([[4.0], [5.0]])
 
     def assert_weights(kernel, bias, fir_kernel):
         np.testing.assert_allclose(
@@ -482,10 +486,9 @@ def test_training_values_fir_and_linear_closed_loop():
     target1 = Input("target1").last()
     target2 = Input("target2").last()
 
-    fir_out = Fir(out_features=1, use_bias=False)(input1.last())
-    lin_out = Linear(out_features=1, initializer="ones", bias_initializer="ones")(
-        input2.last()
-    )
+    fir_kernel = Parameter("fir_kernel", value=[[1.0]])
+    fir_out = Fir(out_features=1, kernel=fir_kernel, bias=False)(input1.last())
+    lin_out = Linear(out_features=1, kernel="ones", bias="ones")(input2.last())
     output1 = Output("out1", fir_out)
     output2 = Output("out2", lin_out)
 
@@ -493,12 +496,13 @@ def test_training_values_fir_and_linear_closed_loop():
     body1 = Modely("body1", inputs=[input1], outputs=[output1]).build()
     body2 = Modely("body2", inputs=[input2], outputs=[output2]).build()
 
-    assert fir_out.kernel is not None
+    fir_weight = fir_kernel.param
+    assert fir_weight is not None
     assert lin_out.kernel is not None
     assert lin_out.bias is not None
 
     def reset_weights():
-        fir_out.kernel.assign([[1.0]])
+        fir_weight.assign([[1.0]])
         lin_out.kernel.assign([[1.0]])
         lin_out.bias.assign([1.0])
 
@@ -590,7 +594,7 @@ def test_training_values_fir_and_linear_closed_loop():
 def test_training_values_linear():
     input1 = Input("in1")
     target = Input("out1").last()
-    linear_out = Linear(initializer="ones", bias_initializer="ones")(input1.last())
+    linear_out = Linear(kernel="ones", bias="ones")(input1.last())
     output1 = Output("out", linear_out)
 
     model = Modely("test_model", inputs=[input1], outputs=[output1])
@@ -680,7 +684,7 @@ def test_resolve_optimizer_instance_and_config():
 def test_train_with_custom_optimizer():
     input_node = Input("custom_optimizer_input")
     target = Input("custom_optimizer_target").last()
-    linear = Linear(initializer="ones", bias_initializer="ones")(input_node.last())
+    linear = Linear(kernel="ones", bias="ones")(input_node.last())
 
     model = Modely(
         "custom_optimizer_model",
@@ -717,16 +721,8 @@ def test_train_equation_learner_updates_symbolic_coefficients():
     target = Input("equation_train_target").last()
     equation = EquationLearner(
         functions=["identity"],
-        linear_in=Linear(
-            out_features=1,
-            use_bias=False,
-            initializer="ones",
-        ),
-        linear_out=Linear(
-            out_features=1,
-            use_bias=False,
-            initializer="ones",
-        ),
+        linear_in=Linear(out_features=1, kernel="ones", bias=False),
+        linear_out=Linear(out_features=1, kernel="ones", bias=False),
         name="train_equation",
     )
     prediction = equation(input_node.last())
@@ -814,7 +810,7 @@ def test_resolve_loss_instance_and_config():
 def test_train_with_named_loss(loss_name):
     input_node = Input(f"{loss_name}_input")
     target = Input(f"{loss_name}_target").last()
-    linear = Linear(initializer="ones", bias_initializer="zeros")(input_node.last())
+    linear = Linear(kernel="ones", bias="zeros")(input_node.last())
     output = Output(f"{loss_name}_output", linear)
     model = Modely(f"{loss_name}_model", inputs=[input_node], outputs=[output])
     model.minimize(f"{loss_name}_error", output, target, loss=loss_name)
@@ -841,8 +837,8 @@ def test_train_with_multiple_minimizer_losses():
     input_node = Input("multi_loss_input")
     mse_target = Input("mse_target").last()
     mae_target = Input("mae_target").last()
-    mse_linear = Linear(initializer="ones", bias_initializer="zeros")(input_node.last())
-    mae_linear = Linear(initializer="ones", bias_initializer="zeros")(input_node.last())
+    mse_linear = Linear(kernel="ones", bias="zeros")(input_node.last())
+    mae_linear = Linear(kernel="ones", bias="zeros")(input_node.last())
     mse_output = Output("mse_output", mse_linear)
     mae_output = Output("mae_output", mae_linear)
 
@@ -877,7 +873,7 @@ def test_train_with_multiple_minimizer_losses():
 def test_train_with_custom_loss_function():
     input_node = Input("custom_loss_input")
     target = Input("custom_loss_target").last()
-    linear = Linear(initializer="ones", bias_initializer="ones")(input_node.last())
+    linear = Linear(kernel="ones", bias="ones")(input_node.last())
     output = Output("custom_loss_output", linear)
     model = Modely("custom_loss_model", inputs=[input_node], outputs=[output])
     model.minimize("custom_error", output, target, loss=custom_quartic_loss)
@@ -907,12 +903,7 @@ def test_train_with_loop():
     state = Input("state")
     x = Input("x", seq=5)
     target = Input("target")
-    relation = Linear(
-        out_features=1,
-        use_bias=True,
-        initializer="ones",
-        bias_initializer="zeros",
-    )(state.last())
+    relation = Linear(out_features=1, kernel="ones", bias="zeros")(state.last())
     output = Output("out", relation)
     body = Modely("body", inputs=[state], outputs=[output])
     body.build()
@@ -997,7 +988,7 @@ def test_train_with_loop_under_xla(monkeypatch):
     state = Input("state")
     x = Input("x", seq=5)
     target = Input("target", seq=5)
-    relation = Linear(out_features=1, initializer="ones")(state.last())
+    relation = Linear(out_features=1, kernel="ones")(state.last())
     output = Output("out", relation)
     body = Modely("body", inputs=[state], outputs=[output]).build()
     loop = Loop(f=body, callback={state: output}, name="loop", init={state: x})()
@@ -1019,12 +1010,7 @@ def test_train_with_loop_under_xla(monkeypatch):
 def test_train_with_roll():
     x = Input("x")
     target = Input("target")
-    relation = Linear(
-        out_features=1,
-        use_bias=True,
-        initializer="ones",
-        bias_initializer="zeros",
-    )(x.last())
+    relation = Linear(out_features=1, kernel="ones", bias="zeros")(x.last())
     output = Output("out", relation)
     body = Modely("body", inputs=[x], outputs=[output])
     body.build()
@@ -1091,10 +1077,7 @@ def test_train_with_model_rollback_uses_final_value_only():
     x = Input("closed_train_x")
     target = Input("closed_train_target")
     relation = Linear(
-        out_features=1,
-        use_bias=False,
-        initializer="ones",
-        name="closed_train_linear",
+        out_features=1, kernel="ones", bias=False, name="closed_train_linear"
     )(x.last())
     output = Output("closed_train_output", relation)
     model = Modely("closed_train_model", inputs=[x], outputs=[output])
@@ -1149,10 +1132,7 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
     ratio = 0.8
     body_x = Input("pad_body_x", dim=1)
     relation = Linear(
-        out_features=1,
-        use_bias=False,
-        initializer="ones",
-        name="pad_body_linear",
+        out_features=1, kernel="ones", bias=False, name="pad_body_linear"
     )(body_x.last())
     body_out = Output("pad_body_out", relation)
     body = Modely("pad_body", inputs=[body_x], outputs=[body_out]).build()
@@ -1228,7 +1208,7 @@ def test_masked_loss_survives_a_diverging_padded_rollout():
 def test_train_with_val_data_reports_validation_loss():
     x = Input("val_data_x")
     relation = Linear(
-        out_features=1, use_bias=False, initializer="ones", name="val_data_linear"
+        out_features=1, kernel="ones", bias=False, name="val_data_linear"
     )(x.last())
     output = Output("val_data_output", relation)
     model = Modely("val_data_model", inputs=[x], outputs=[output])
@@ -1260,13 +1240,14 @@ def test_train_target_window_of_an_input_with_a_wider_window():
     # x feeds the model through sw(3) and is its own target through next(), so
     # the data column of x is four samples wide while the target is the last.
     x = Input("wide_target_x")
-    fir = Fir(out_features=1, use_bias=False, name="wide_target_fir")([x.sw(3)])
+    taps = Parameter("wide_target_taps", value=np.ones((3, 1)))
+    fir = Fir(out_features=1, kernel=taps, bias=False, name="wide_target_fir")(
+        [x.sw(3)]
+    )
     output = Output("wide_target_output", fir)
     model = Modely("wide_target_model", inputs=[x], outputs=[output])
     model.minimize("wide_target_error", output, x.next())
     model.build()
-    assert fir.kernel is not None
-    fir.kernel.assign(np.ones((3, 1), dtype=np.float32))
 
     data = DataLoader(model, source={"wide_target_x": np.arange(6.0)})
     # Windows end at t = 2, 3, 4: sums 3, 6, 9 against x[t+1] = 3, 4, 5, so the

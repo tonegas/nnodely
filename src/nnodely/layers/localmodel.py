@@ -26,6 +26,7 @@ from nnodely.layers.arithmetic import Arithmetic, Clamp
 from nnodely.layers.fir import Fir
 from nnodely.layers.time_ops import Select
 from nnodely.layers.trigonometric import Trigonometric
+from nnodely.utils.utils import _per_slice_initializer
 
 # Weightless layers that act on every element alone: applying one of them to
 # all the cells stacked together is the same as applying it cell by cell.
@@ -43,30 +44,6 @@ _ELEMENTWISE = (
     GELU,
     Softplus,
 )
-
-
-def _per_cell_initializer(initializer):
-    """Draw every cell from ``initializer`` as if it owned its own matrix.
-
-    Variance scaling reads the fans from the whole tensor, so initialising
-    ``[cells, features, out_features]`` in one shot would divide the scale by
-    the number of cells: a cell only ever sees ``features`` inputs.
-    """
-    base = cast(keras.initializers.Initializer, keras.initializers.get(initializer))
-
-    def initialize(shape, dtype=None):
-        # A random initializer draws its seed once and then repeats itself, so
-        # reusing one instance would give every cell the same matrix.
-        config = base.get_config()
-        cells = []
-        for index in range(shape[0]):
-            cell_config = dict(config)
-            if cell_config.get("seed") is not None:
-                cell_config["seed"] = config["seed"] + index
-            cells.append(type(base).from_config(cell_config)(shape[1:], dtype=dtype))
-        return keras.ops.stack(cells, axis=0)
-
-    return initialize
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -133,7 +110,7 @@ class LocalFirImpl(keras.layers.Layer):
         self.cells = int(mu_shape[1])
         self.kernel = self.add_weight(
             shape=(self.cells, self.features, self.out_features),
-            initializer=_per_cell_initializer("glorot_uniform"),
+            initializer=_per_slice_initializer("glorot_uniform", rank=2),
             name="kernel",
         )
         self.bias = (
@@ -361,17 +338,20 @@ class LocalModel:
         )
         final_name = self.name if self.output_function is None else f"{self.name}_cells"
 
-        # LocalFir mixes every element of its input: a Fir only on a scalar.
+        # LocalFir mixes every element of its input: a Fir only on a scalar,
+        # and only with the default weights, which LocalFir draws alike.
         if (
             once
             and type(self.input_function) is Fir
             and len(inputs) == 1
             and inputs[0].dim == (1,)
+            and cast(Fir, self.input_function)._kernel == "glorot_uniform"
+            and isinstance(cast(Fir, self.input_function)._bias, bool)
         ):
             fir = cast(Fir, self.input_function)
             cells = LocalFir(
                 out_features=fir.out_features,
-                use_bias=fir.use_bias,
+                use_bias=fir._bias is not False,
                 reduce=self.output_function is None,
                 name=final_name,
             )([inputs[0], mu])

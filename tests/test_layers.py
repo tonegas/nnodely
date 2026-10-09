@@ -1,5 +1,6 @@
 from nnodely import (
     BatchNorm,
+    DataLoader,
     Linear,
     Constant,
     Concatenate,
@@ -602,10 +603,7 @@ def test_a_frozen_linear_stays_frozen_through_a_keras_file(tmp_path):
 def test_linear_initializers_are_saved_with_the_architecture(tmp_path):
     x = Input("initialized_x", dim=2)
     linear = Linear(
-        out_features=3,
-        initializer="ones",
-        bias_initializer="zeros",
-        name="initialized_linear",
+        out_features=3, kernel="ones", bias="zeros", name="initialized_linear"
     )(x.last())
     model = Modely(
         "initialized", inputs=[x], outputs=[Output("initialized_out", linear)]
@@ -618,6 +616,84 @@ def test_linear_initializers_are_saved_with_the_architecture(tmp_path):
     assert isinstance(restored_linear, Linear)
     np.testing.assert_allclose(to_numpy(restored_linear.kernel), np.ones((2, 3)))
     np.testing.assert_allclose(to_numpy(restored_linear.bias), np.zeros(3))
+
+
+def test_linear_takes_its_kernel_and_bias_from_parameters():
+    x = Input("linear_param_x", dim=3)
+    w = Parameter("linear_param_w", value=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+    b = Parameter("linear_param_b", value=[0.5, -1.0])
+    linear = Linear(out_features=2, kernel=w, bias=b)([x.sw(2)])
+    unbiased = Linear(out_features=2, kernel=w, bias=False)([x.sw(2)])
+    model = Modely(
+        "linear_param_model",
+        inputs=[x],
+        outputs=[
+            Output("linear_param_out", linear),
+            Output("linear_param_unbiased", unbiased),
+        ],
+    ).build()
+
+    # The Parameters are predecessors of the Linear, and the only weights.
+    assert linear.preds[1] is w and linear.preds[2] is b
+    assert linear.kernel is w.param and linear.bias is b.param
+    assert unbiased.bias is None
+    assert model.model is not None
+    assert {id(weight) for weight in model.model.trainable_weights} == {
+        id(w.param),
+        id(b.param),
+    }
+
+    values = np.array([[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]], dtype=np.float32)
+    result = model({"linear_param_x": values})
+    # Each sample [a, b, c] -> [a + c, b + c], plus the bias.
+    np.testing.assert_allclose(
+        to_numpy(result["linear_param_unbiased"]), [[[6.0, 8.0], [8.0, 10.0]]]
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["linear_param_out"]), [[[6.5, 8.5], [7.0, 9.0]]]
+    )
+
+
+def test_linear_rejects_parameters_of_the_wrong_shape():
+    x = Input("linear_bad_x", dim=3)
+    with pytest.raises(ValueError, match=r"kernel must have the shape \(3, 2\)"):
+        Linear(out_features=2, kernel=Parameter("linear_bad_w", dim=(2, 3)))([x.last()])
+    with pytest.raises(ValueError, match=r"bias must have the shape \(2,\)"):
+        Linear(out_features=2, bias=Parameter("linear_bad_b", dim=3))([x.last()])
+
+
+def test_linear_with_parameters_round_trips_through_save_and_keras(tmp_path):
+    x = Input("linear_kept_x", dim=2)
+    w = Parameter("linear_kept_w", dim=(2, 3))
+    linear = Linear(out_features=3, kernel=w, bias="ones", name="linear_kept")(
+        [x.last()]
+    )
+    model = Modely(
+        "linear_kept", inputs=[x], outputs=[Output("linear_kept_out", linear)]
+    ).build()
+    values = np.random.default_rng(11).normal(size=(2, 2, 1)).astype(np.float32)
+    before = to_numpy(model({"linear_kept_x": values})["linear_kept_out"])
+
+    model.save(tmp_path / "linear_kept")
+    restored = Modely.load(tmp_path / "linear_kept")
+    restored_linear = {node.name: node for node in restored.order}["linear_kept"]
+    assert isinstance(restored_linear, Linear)
+    assert [pred.name for pred in restored_linear.preds[1:]] == ["linear_kept_w"]
+    np.testing.assert_allclose(
+        to_numpy(restored({"linear_kept_x": values})["linear_kept_out"]),
+        before,
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+    model.export_keras(tmp_path, "linear_kept")
+    imported = Modely.import_keras(tmp_path / "linear_kept.keras")
+    np.testing.assert_allclose(
+        to_numpy(imported({"linear_kept_x": values})["linear_kept_out"]),  # type: ignore
+        before,
+        rtol=1e-5,
+        atol=1e-5,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -876,6 +952,211 @@ def test_fir_shared_kernel_is_saved_with_the_architecture(tmp_path):
     assert tuple(restored_fir.kernel.shape) == (3, 4)
     np.testing.assert_allclose(
         to_numpy(restored({"fir_saved_x": values})["fir_saved_out"]),
+        before,
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+
+def test_fir_draws_the_filter_of_each_element_alone():
+    # Glorot takes its fans from the (time, out_features) filter of one
+    # element: 4 + 2 here, a bound of 1. Drawn as one (10, 10, 4, 2) tensor,
+    # the fans would count the 100 elements too, a bound of about 0.14.
+    x = Input("fir_draw_x", dim=(10, 10))
+    fir = Fir(out_features=2, name="fir_draw")([x.sw(4)])
+    Modely("fir_draw", inputs=[x], outputs=[Output("fir_draw_out", fir)]).build()
+
+    kernel = to_numpy(fir.kernel)
+    assert np.abs(kernel).max() <= 1.0
+    assert np.abs(kernel).max() > 0.5
+    assert not np.allclose(kernel[0, 0], kernel[0, 1])
+    np.testing.assert_allclose(to_numpy(fir.bias), np.zeros((10, 10, 2)))
+
+
+def test_fir_initializers_are_saved_with_the_architecture(tmp_path):
+    x = Input("fir_init_x", dim=2)
+    fir = Fir(
+        out_features=3,
+        kernel="ones",
+        bias=keras.initializers.Constant(0.5),
+        name="fir_init",
+    )([x.sw(4)])
+    model = Modely(
+        "fir_init", inputs=[x], outputs=[Output("fir_init_out", fir)]
+    ).build()
+    np.testing.assert_allclose(to_numpy(fir.kernel), np.ones((2, 4, 3)))
+    np.testing.assert_allclose(to_numpy(fir.bias), np.full((2, 3), 0.5))
+
+    model.save(tmp_path / "fir_init", weights=False)
+    restored = {node.name: node for node in Modely.load(tmp_path / "fir_init").order}
+    restored_fir = restored["fir_init"]
+
+    assert isinstance(restored_fir, Fir)
+    np.testing.assert_allclose(to_numpy(restored_fir.kernel), np.ones((2, 4, 3)))
+    np.testing.assert_allclose(to_numpy(restored_fir.bias), np.full((2, 3), 0.5))
+
+
+# ---------------------------------------------------------------------------
+# Fir with its kernel and bias given as Parameters
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "shared_kernel, kernel_dim, bias_dim",
+    [(False, (3, 3, 4), (3, 4)), (True, (3, 4), (4,))],
+)
+def test_fir_takes_its_kernel_and_bias_from_parameters(
+    shared_kernel, kernel_dim, bias_dim
+):
+    x = Input("fir_param_x", dim=3)
+    w = Parameter("fir_param_w", dim=kernel_dim)
+    b = Parameter("fir_param_b", dim=bias_dim)
+    fir = Fir(out_features=4, kernel=w, bias=b, shared_kernel=shared_kernel)([x.sw(3)])
+    model = Modely(
+        "fir_param_model", inputs=[x], outputs=[Output("fir_param_out", fir)]
+    ).build()
+
+    # The Parameters are predecessors of the Fir, and the only weights.
+    assert fir.preds[1] is w and fir.preds[2] is b
+    assert fir.kernel is w.param and fir.bias is b.param
+    assert model.model is not None
+    assert {id(weight) for weight in model.model.trainable_weights} == {
+        id(w.param),
+        id(b.param),
+    }
+
+    # Assigning the Parameters sets the filter.
+    assert w.param is not None and b.param is not None
+    kernel = np.arange(np.prod(kernel_dim), dtype=np.float32).reshape(kernel_dim)
+    w.param.assign(kernel.reshape(w.param.shape) / 10.0)
+    b.param.assign(np.full(b.param.shape, 0.5, dtype=np.float32))
+    values = np.random.default_rng(8).normal(size=(2, 3, 3)).astype(np.float32)
+    result = to_numpy(model({"fir_param_x": values})["fir_param_out"])
+
+    assert result.shape == (2, 4, 3, 1)
+    np.testing.assert_allclose(
+        result[..., 0], _fir_expected(values, kernel / 10.0), rtol=1e-5, atol=1e-5
+    )
+
+
+def test_fir_takes_a_parameter_whose_shape_differs_only_by_axes_of_size_one():
+    x = Input("fir_ones_x")
+    # A matrix value is (dim, time): (3, 2) here, the (time, out) kernel.
+    w = Parameter("fir_ones_w", value=[[1.0, 0.0], [0.0, 0.0], [0.0, 2.0]])
+    fir = Fir(out_features=2, kernel=w, bias=False)([x.sw(3)])
+    model = Modely(
+        "fir_ones_model", inputs=[x], outputs=[Output("fir_ones_out", fir)]
+    ).build()
+    assert fir.bias is None
+
+    values = np.array([[[1.0, 2.0, 3.0]]], dtype=np.float32)
+    result = to_numpy(model({"fir_ones_x": values})["fir_ones_out"])
+    # Channel 0 reads the oldest sample, channel 1 twice the newest.
+    np.testing.assert_allclose(result.ravel(), [1.0, 6.0], rtol=1e-5)
+
+
+def test_firs_given_one_parameter_share_its_weight(tmp_path):
+    x = Input("fir_twin_x")
+    y = Input("fir_twin_y")
+    w = Parameter("fir_twin_w", value=np.ones((3, 1)))
+    first = Fir(out_features=1, kernel=w, bias=False)([x.sw(3)])
+    second = Fir(out_features=1, kernel=w, bias=False)([y.sw(3)])
+    model = Modely(
+        "fir_twin_model",
+        inputs=[x, y],
+        outputs=[Output("fir_twin_first", first), Output("fir_twin_second", second)],
+    ).build()
+    data = {
+        "fir_twin_x": np.array([[[1.0, 2.0, 3.0]]], dtype=np.float32),
+        "fir_twin_y": np.array([[[10.0, 20.0, 30.0]]], dtype=np.float32),
+    }
+
+    # One variable, held by the Parameter, behind both Firs.
+    assert first.kernel is w.param and second.kernel is w.param
+    assert model.model is not None and len(model.model.trainable_weights) == 1
+
+    # Changed through one Fir, the kernel changes for the other as well.
+    first.kernel.assign(np.array([[0.0], [0.0], [2.0]], dtype=np.float32))
+    result = model(data)
+    np.testing.assert_allclose(to_numpy(result["fir_twin_first"]).ravel(), [6.0])
+    np.testing.assert_allclose(to_numpy(result["fir_twin_second"]).ravel(), [60.0])
+
+    # Still one weight once saved and loaded.
+    model.save(tmp_path / "fir_twin")
+    restored = Modely.load(tmp_path / "fir_twin")
+    assert restored.model is not None
+    assert len(restored.model.trainable_weights) == 1
+    restored_result = restored(data)
+    for name in ("fir_twin_first", "fir_twin_second"):
+        np.testing.assert_allclose(
+            to_numpy(restored_result[name]), to_numpy(result[name])
+        )
+
+
+def test_fir_rejects_parameters_it_cannot_use():
+    x = Input("fir_bad_x", dim=3)
+    # (time, out) is the kernel shared by every element, not one per element.
+    with pytest.raises(ValueError, match=r"kernel must have the shape \(3, 3, 4\)"):
+        Fir(out_features=4, kernel=Parameter("fir_bad_w", dim=(3, 4)))([x.sw(3)])
+    with pytest.raises(ValueError, match=r"bias must have the shape \(3, 4\)"):
+        Fir(out_features=4, bias=Parameter("fir_bad_b", dim=(4,)))([x.sw(3)])
+
+
+@pytest.mark.slow
+def test_fir_trains_the_parameters_it_is_given():
+    x = Input("fir_train_x")
+    w = Parameter("fir_train_w", value=np.zeros((3, 1)))
+    b = Parameter("fir_train_b", value=[0.0])
+    fir = Fir(out_features=1, kernel=w, bias=b)([x.sw(3)])
+    model = Modely(
+        "fir_train_model", inputs=[x], outputs=[Output("fir_train_out", fir)]
+    )
+    model.minimize("fit", fir, Input("fir_train_y").last())
+    model.build()
+
+    signal = np.random.default_rng(9).normal(size=100).astype(np.float32)
+    data = DataLoader(model, source={"fir_train_x": signal, "fir_train_y": signal})
+    model.train(data, epochs=1, batch_size=16, lr=1e-2, printer=None)
+
+    assert not np.allclose(to_numpy(w.param), 0.0)
+    assert not np.allclose(to_numpy(b.param), 0.0)
+
+
+@pytest.mark.parametrize("given", [("kernel",), ("bias",), ("kernel", "bias")])
+def test_fir_with_parameters_round_trips_through_save_and_keras(tmp_path, given):
+    x = Input("fir_kept_x", dim=2)
+    w = Parameter("fir_kept_w", dim=(2, 3, 4)) if "kernel" in given else None
+    b = Parameter("fir_kept_b", dim=(2, 4)) if "bias" in given else None
+    fir = Fir(
+        out_features=4,
+        kernel="glorot_uniform" if w is None else w,
+        bias=True if b is None else b,
+        name="fir_kept",
+    )([x.sw(3)])
+    model = Modely(
+        "fir_kept", inputs=[x], outputs=[Output("fir_kept_out", fir)]
+    ).build()
+    values = np.random.default_rng(10).normal(size=(2, 2, 3)).astype(np.float32)
+    before = to_numpy(model({"fir_kept_x": values})["fir_kept_out"])
+
+    model.save(tmp_path / "fir_kept")
+    restored = Modely.load(tmp_path / "fir_kept")
+    restored_fir = {node.name: node for node in restored.order}["fir_kept"]
+    assert isinstance(restored_fir, Fir)
+    assert [pred.name for pred in restored_fir.preds[1:]] == [
+        p.name for p in (w, b) if p is not None
+    ]
+    np.testing.assert_allclose(
+        to_numpy(restored({"fir_kept_x": values})["fir_kept_out"]),
+        before,
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+    model.export_keras(tmp_path, "fir_kept")
+    imported = Modely.import_keras(tmp_path / "fir_kept.keras")
+    np.testing.assert_allclose(
+        to_numpy(imported({"fir_kept_x": values})["fir_kept_out"]),  # type: ignore
         before,
         rtol=1e-5,
         atol=1e-5,

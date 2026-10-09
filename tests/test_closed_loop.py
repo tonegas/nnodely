@@ -25,15 +25,10 @@ import pytest
 
 def test_loop(tmp_path):
     input1 = Input("in1")
-    relation = Linear(
-        out_features=1,
-        use_bias=False,
-        initializer="ones",
-    )(input1.last())
+    gain = Parameter("loop_gain", value=[[2.0]])
+    relation = Linear(out_features=1, kernel=gain, bias=False)(input1.last())
     body_output = Output("body_out", relation)
     body = Modely("loop_body", inputs=[input1], outputs=[body_output]).build()
-    assert relation.kernel is not None
-    relation.kernel.assign(np.full((1, 1), 2.0, dtype=np.float32))
 
     # The rollout axis lives outside the body: five steps, seeded by in1_seq[0].
     seed = Input("in1_seq", seq=5)
@@ -115,11 +110,8 @@ def test_nested_loop(tmp_path):
 def test_loop_mechanical_modely(tmp_path):
     state = Input("mechanical_state", dim=1)
     external_force = Input("external_force", dim=1)
-    state_transition = Linear(
-        out_features=1,
-        initializer="ones",
-        bias_initializer="zeros",
-    )(state.last())
+    gain = Parameter("mechanical_gain", value=[[2.0]])
+    state_transition = Linear(out_features=1, kernel=gain, bias="zeros")(state.last())
     next_state_stream = state_transition + 1.0
     next_state = Output("next_state", next_state_stream)
     diagnostic = Output("diagnostic", external_force + 10.0)
@@ -129,8 +121,6 @@ def test_loop_mechanical_modely(tmp_path):
         outputs=[next_state, diagnostic],
     ).build()
     mechanical_model.export_html(out_dir=tmp_path, filename="mechanical_model")
-    assert state_transition.kernel is not None
-    state_transition.kernel.assign(np.full((1, 1), 2.0, dtype=np.float32))
 
     state_seq = Input("mechanical_state_seq", dim=1, seq=5)
     loop = Loop(
@@ -164,11 +154,11 @@ def test_loop_mechanical_modely(tmp_path):
 
 def test_model_roll():
     x = Input("x")
-    fir = Fir(out_features=1, use_bias=False)(x.sw(5))
+    taps = Parameter("roll_taps", value=np.ones((5, 1)))
+    fir = Fir(out_features=1, kernel=taps, bias=False)(x.sw(5))
     out = Output("out", fir)
     test = Modely("body", inputs=[x], outputs=[out])
     test.build()
-    fir.kernel.assign(np.full((5, 1), 1.0, dtype=np.float32))
     roll = Roll(f=test, callback={x: out}, name="roll")
     roll_3 = Roll(f=test, callback={x: out}, steps=3, name="roll_3")
     assert roll.steps == x.time == 5
@@ -208,12 +198,12 @@ def dummy_input(shape, method="random"):
 
 def test_model_rollback():
     x = Input("x")
-    fir = Fir(out_features=1, use_bias=False, name="fir")(x.sw(5))
+    taps = Parameter("rollback_taps", value=np.ones((5, 1)))
+    fir = Fir(out_features=1, kernel=taps, bias=False, name="fir")(x.sw(5))
     out = Output("out", fir + x.last())
     test = Modely("body", inputs=[x], outputs=[out])
     test.rollback({"x": "fir"}, steps=3)
     test.build()
-    fir.kernel.assign(np.full((5, 1), 1.0, dtype=np.float32))
 
     result = test(inputs={"x": np.arange(1, 6, dtype=np.float32).reshape(1, 1, 5)})
     assert result["out"].shape == (1, 1, 1)
@@ -228,12 +218,12 @@ def test_model_rollback():
 def test_model_multi_rollback(tmp_path):
     x = Input("x")
     y = Input("y")
-    fir = Fir(out_features=1, use_bias=False, name="fir")(x.sw(5))
+    taps = Parameter("rollback_taps", value=np.ones((5, 1)))
+    fir = Fir(out_features=1, kernel=taps, bias=False, name="fir")(x.sw(5))
     out = Output("out", fir + y.last())
     test = Modely("body", inputs=[x, y], outputs=[out])
     test.rollback({"x": "fir", "y": "out"}, steps=3)
     test.build()
-    fir.kernel.assign(np.full((5, 1), 1.0, dtype=np.float32))
 
     result = test(
         inputs={
@@ -572,7 +562,8 @@ def test_loop_dynamic_length():
 def test_loop_window_feedback():
     # A feedback input with a time window is closed by shifting the window.
     x = Input("window_x", dim=1)
-    taps = Fir(out_features=1, use_bias=False)([x.sw(3)])
+    ones = Parameter("window_taps", value=np.ones((3, 1)))
+    taps = Fir(out_features=1, kernel=ones, bias=False)([x.sw(3)])
     body_output = Output("window_next", taps)
     body = Modely("window_body", inputs=[x], outputs=[body_output])
 
@@ -582,8 +573,6 @@ def test_loop_window_feedback():
     )()
     # Loop builds the body when it is handed an unbuilt one
     assert body.built
-    assert taps.kernel is not None
-    taps.kernel.assign(np.ones((3, 1), dtype=np.float32))
     assert loop.callback_shift_axes == [2]
     assert loop.shape.dimensions == ((1,), 1, (3,))
 

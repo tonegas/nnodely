@@ -40,6 +40,12 @@ variable, and trains, validates and exports through Keras. Models saved with
   `shared_kernel=True`, one for all. `out_features > 1` adds the channels as
   a leading dim axis: `D=(2, 3)` becomes `D=(4, 2, 3)` with 4 channels, and a
   scalar becomes `D=(4,)` as in 1.x.
+- `Fir(out_features, kernel=..., bias=...)` and `Linear(out_features,
+  kernel=..., bias=...)`: each of `kernel` and `bias` is a Keras initializer,
+  by name or object, or a `Parameter` the layer computes with, of the shape
+  of `layer.kernel` or `layer.bias`. Assigning or training the Parameter
+  changes the layer, and layers given one Parameter share it. `bias=False`
+  leaves the bias out. A Fir draws the filter of each element alone.
 - `save(path, weights=True)` / `Modely.load(path, weights=True)`, Keras and
   ONNX export, interactive HTML graphs, and Graphviz drawings: one image per
   model and per sub-model, or one flattened image, with a legend.
@@ -74,6 +80,8 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `saveModel` / `loadModel` | `model.save(path)` / `Modely.load(path)` |
 | `exportPythonModel`, `saveTorchModel` | `model.export_keras(path)` |
 | `exportONNX` / `onnxInference` | `model.export_onnx(path)` / `Modely.validate_onnx(file, inputs)` |
+| `Fir(output_dimension, W=..., b=..., W_init=..., b_init=...)` | `Fir(out_features, kernel=..., bias=...)`: each a `Parameter` or an initializer, and `bias` also `True` or `False` |
+| `Linear(output_dimension, W=..., b=..., W_init=..., b_init=...)` | `Linear(out_features, kernel=..., bias=...)`: each a `Parameter` or an initializer, and `bias` also `True` or `False` |
 | `Relu` | `ReLU` |
 | `Add`, `Sub`, `Mul`, `Div`, `Pow` | `+`, `-`, `*`, `/`, `**` between streams |
 | `Neg` | `Negative` |

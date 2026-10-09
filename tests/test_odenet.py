@@ -36,11 +36,11 @@ def _analytic(times):
 
 def _spiral_field(name):
     x = Input(f"x_{name}", dim=2)
-    relation = Linear(out_features=2, use_bias=False)(x.last())
+    A = Parameter(f"A_{name}", value=TRUE_A)
+    relation = Linear(out_features=2, kernel=A, bias=False)(x.last())
     field = Modely(
         f"field_{name}", inputs=[x], outputs=[Output(f"dx_{name}", relation)]
     ).build()
-    relation.kernel.assign(TRUE_A)
     return x, field
 
 
@@ -458,7 +458,7 @@ def test_odenet_trains_a_field_holding_a_shared_layer():
     reference = _analytic(sample_times)
 
     x = Input("x_shared", dim=2)
-    relation = Linear(out_features=2, use_bias=False)(x.last())
+    relation = Linear(out_features=2, bias=False)(x.last())
     field = Modely(
         "field_shared", inputs=[x], outputs=[Output("dx_shared", relation)]
     ).build()

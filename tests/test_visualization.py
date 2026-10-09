@@ -100,7 +100,7 @@ def test_visualize_roll(tmp_path):
     model1.build()
 
     z = Input(name="z", dim=1)
-    r2 = Fir(out_features=1, use_bias=False)(z.sw(5))
+    r2 = Fir(out_features=1, bias=False)(z.sw(5))
     roll_body_output = Output("roll_body_output", r2)
     roll_body = Modely(name="roll_body", inputs=[z], outputs=[roll_body_output]).build()
     roll_fn = Roll(
@@ -127,7 +127,7 @@ def test_visualize_roll(tmp_path):
 
 def test_visualize_model_roll(tmp_path):
     x = Input("closed_x")
-    feedback = Fir(out_features=1, use_bias=False, name="closed_fir")(x.sw(5))
+    feedback = Fir(out_features=1, bias=False, name="closed_fir")(x.sw(5))
     output = Output("closed_out", feedback + x.last())
     model = Modely("closed_model", inputs=[x], outputs=[output])
     model.rollback({x: feedback}, steps=3)
@@ -307,7 +307,7 @@ def test_flattened_page_inlines_a_loop_body(tmp_path):
 
 def test_flattened_page_inlines_a_roll_body(tmp_path):
     z = Input("z2")
-    roll_out = Output("roll_out", Fir(out_features=1, use_bias=False)(z.sw(5)))
+    roll_out = Output("roll_out", Fir(out_features=1, bias=False)(z.sw(5)))
     roll_body = Modely("inline_roll_body", inputs=[z], outputs=[roll_out]).build()
     roll = Roll(f=roll_body, callback={z: roll_out}, name="inline_roll")
     model = Modely("inline_roll_model", inputs=[z], outputs=[Output("out", roll)])
@@ -462,7 +462,7 @@ def _nested_models():
 
 def _looped_model():
     state, force = Input("loop_state"), Input("loop_force")
-    nxt = Output("loop_next", Linear(use_bias=False)(state.last()) + force.last())
+    nxt = Output("loop_next", Linear(bias=False)(state.last()) + force.last())
     body = Modely("step_body", inputs=[state, force], outputs=[nxt]).build()
     seed, forces = Input("loop_seed"), Input("loop_forces", seq=-1)
     trajectory = Loop(
@@ -555,7 +555,7 @@ def test_flattened_plot_draws_a_loop_by_its_arrow_alone(tmp_path, monkeypatch):
 
 def test_plot_draws_roll_and_rollback_recurrences(tmp_path, monkeypatch):
     z = Input("rolled_z")
-    out = Output("rolled_out", Fir(out_features=1, use_bias=False)(z.sw(5)))
+    out = Output("rolled_out", Fir(out_features=1, bias=False)(z.sw(5)))
     body = Modely("rolled_body", inputs=[z], outputs=[out]).build()
     rolled = Modely(
         "rolled",
@@ -563,7 +563,7 @@ def test_plot_draws_roll_and_rollback_recurrences(tmp_path, monkeypatch):
         outputs=[Output("rolled_result", Roll(f=body, callback={z: out}))],
     ).build()
     x = Input("closed_x")
-    fir = Fir(out_features=1, use_bias=False, name="closed_fir")(x.sw(5))
+    fir = Fir(out_features=1, bias=False, name="closed_fir")(x.sw(5))
     closed = Modely(
         "closed", inputs=[x], outputs=[Output("closed_out", fir + x.last())]
     )

@@ -741,7 +741,7 @@ def test_train_through_a_derivative():
     For a single-sample Fir the derivative *is* the weight, so it must
     converge to the target."""
     x = Input("dtrain_x", dim=1)
-    fun = Fir(out_features=1, use_bias=False, name="dtrain_fir")([x.last()])
+    fun = Fir(out_features=1, bias=False, name="dtrain_fir")([x.last()])
     derivative = Output("dx", Differentiate(order=1, respect_to=x)(fun))
 
     model = Modely("derivative_train_model", inputs=[x], outputs=[derivative])
@@ -1498,7 +1498,7 @@ def test_train_a_rate_through_an_integrated_trajectory():
     target = Input("traj_train_target", dim=1)
 
     # Linear projects along dim, so the rate keeps one sample per step.
-    rate = Linear(out_features=1, use_bias=False)([u.sw(steps)])
+    rate = Linear(out_features=1, bias=False)([u.sw(steps)])
     trajectory = Output(
         "trajectory", IntegrateStep(solver="euler", dt=dt, init=v0.last())(rate)
     )

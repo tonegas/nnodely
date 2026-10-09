@@ -1,4 +1,5 @@
 import warnings
+from typing import Any
 
 import numpy as np
 import keras
@@ -228,3 +229,106 @@ class Constant(_Value):
     @classmethod
     def from_config(cls, config: dict, preds=None):
         return cls(name=config["name"], value=config["value"])
+
+
+class _ParameterWeights(Layer):
+    """A layer whose kernel and bias may be given as Parameters.
+
+    A subclass keeps the two settings as ``self._kernel`` and ``self._bias``
+    and builds a Keras layer with ``kernel`` and ``bias`` attributes. A
+    Parameter given as either becomes a predecessor of the layer, after its
+    input, and stands in for that weight: the layer computes with its value,
+    and the graph saves it.
+    """
+
+    _kernel: Any
+    _bias: Any
+
+    def _parameters(self) -> list[Parameter]:
+        """The Parameters given as kernel and bias, in this order."""
+        return [p for p in (self._kernel, self._bias) if isinstance(p, Parameter)]
+
+    def _check_parameters(self, kernel_shape, bias_shape):
+        """Raise unless each Parameter has the shape of the weight it stands
+        for. Axes of size 1 leave the layout of the values as it is, so they
+        do not count."""
+        for label, value, expected in (
+            ("kernel", self._kernel, kernel_shape),
+            ("bias", self._bias, bias_shape),
+        ):
+            if not isinstance(value, Parameter):
+                continue
+            if _without_ones(value.shape.tuple) != _without_ones(expected):
+                raise ValueError(
+                    f"{self.name}: {label} must have the shape {tuple(expected)}, "
+                    f"axes of size 1 aside, got {value.shape.tuple}."
+                )
+
+    def __call__(self, inputs):
+        if not isinstance(inputs, (list, tuple)):
+            inputs = [inputs]
+        # The Parameters are predecessors like the input, but configured on
+        # the layer, so they are appended here and reconnected the same way
+        # when reloading.
+        if inputs and all(isinstance(value, Stream) for value in inputs):
+            inputs = [inputs[0], *self._parameters()]
+        return super().__call__(inputs)
+
+    def get_config(self):
+        return {
+            **super().get_config(),
+            "kernel": _weight_config(self._kernel),
+            "bias": _weight_config(self._bias),
+        }
+
+    @classmethod
+    def from_config(cls, config: dict, preds=None):
+        # The Parameters named in the config follow the input among the
+        # predecessors, kernel first.
+        given = iter((preds or [])[1:])
+        config = {
+            **config,
+            **{
+                key: next(given)
+                for key in ("kernel", "bias")
+                if isinstance(config.get(key), dict) and "parameter" in config[key]
+            },
+        }
+        layer = cls(**config)
+        return layer(preds[0]) if preds else layer
+
+    @property
+    def kernel(self):
+        """The kernel the layer computes with: the variable of the Parameter
+        given as kernel, in the Parameter's shape, or the layer's own weight
+        once built."""
+        if isinstance(self._kernel, Parameter):
+            return self._kernel.param
+        return None if self._layer is None else self._layer.kernel
+
+    @property
+    def bias(self):
+        """The bias the layer computes with: the variable of the Parameter
+        given as bias, in the Parameter's shape, or the layer's own weight
+        once built; None without a bias."""
+        if isinstance(self._bias, Parameter):
+            return self._bias.param
+        return None if self._layer is None else self._layer.bias
+
+
+def _weight_config(value):
+    """A kernel or bias setting as a saved config holds it.
+
+    A Parameter is saved with the graph, as a predecessor of the layer, so
+    the config only names it; an initializer is kept by its name or config.
+    """
+    if isinstance(value, Parameter):
+        return {"parameter": value.name}
+    if value is None or isinstance(value, bool):
+        return value
+    return _serialized_initializer(value)
+
+
+def _without_ones(shape):
+    """``shape`` without its axes of size 1."""
+    return tuple(axis for axis in shape if axis != 1)

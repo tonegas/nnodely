@@ -188,8 +188,8 @@ Configure first, then call on a stream or a list of streams:
 - `LocalModel` takes the inputs and a list of activations: `LocalModel(...)(inputs, activations)`.
 
 After build, weights are available on the *returned stream node*: `node.kernel`, `node.bias` (Keras variables; `.assign(np.array(...))` works).
-- `Fir.kernel` has shape `(*dim, time, out_features)`, one filter per element, or `(time, out_features)` for a scalar input or `shared_kernel=True`; `Fir.bias` is `(*dim, out_features)` or `(out_features,)`. Along `time`, row k is window sample k, oldest first.
-- `Linear.kernel` has shape `(in_features, out_features)`.
+- `Fir.kernel` has shape `(*dim, time, out_features)`, one filter per element, or `(time, out_features)` for a scalar input or `shared_kernel=True`; `Fir.bias` is `(*dim, out_features)` or `(out_features,)`. Along `time`, row k is window sample k, oldest first. Given as Parameters (`kernel=`, `bias=`) they are those Parameters' variables, in the Parameters' shape; with `bias=False`, `Fir.bias` is None.
+- `Linear.kernel` has shape `(in_features, out_features)` and `Linear.bias` `(out_features,)`; given as Parameters, they are those Parameters' variables, in the Parameters' shape.
 - `LocalModel(Fir(...))` without output function (or the `"{name}_cells"` layer with an elementwise one) exposes `kernel` `[cells, time, out_features]` and `bias` `[cells, out_features]` (the one-matmul path, taken only for a single scalar input).
 
 ---
@@ -201,8 +201,8 @@ Legend: **in → out** gives semantic shapes. `d` = dim, `T` = time, `S` = seq.
 ### 6.1 With weights
 | Signature | in → out | Notes |
 |---|---|---|
-| `Linear(out_features=1, use_bias=True, name=None, initializer="glorot_uniform", bias_initializer="glorot_uniform")` | `(d, T, *S)` → `(out, T, *S)` | Dense on the first dim axis, applied per time/seq element. The bias initializer is glorot, not zeros. |
-| `Fir(out_features, use_bias=True, shared_kernel=False, name=None)` | `(*d, T, *S)` → `(out, *d, 1, *S)` | Filters the time window of every element of the dim alone (elements are never mixed), applied at every seq step. The `out` axis is added only for `out_features > 1`, and replaces a scalar dim `(1,)`: `(1,)` → `(out,)`, `(2, 3)` → `(2, 3)` with `out_features=1` or `(4, 2, 3)` with 4. Each element has its own kernel; `shared_kernel=True` uses one for all. `out_features` is required. |
+| `Linear(out_features=1, kernel="glorot_uniform", bias=True, name=None)` | `(d, T, *S)` → `(out, T, *S)` | `x @ kernel + bias` on the first dim axis, applied per time/seq element. `kernel` `(d, out)` and `bias` `(out,)` are each a Keras initializer (name or object) drawing a weight of the layer's own, or a `Parameter` the layer computes with instead (appended to its preds; the weight's shape, axes of size 1 aside, else `ValueError`). `bias=True` draws the bias with `"glorot_uniform"` (not zeros), `bias=False` leaves it out. |
+| `Fir(out_features, kernel="glorot_uniform", bias=True, shared_kernel=False, name=None)` | `(*d, T, *S)` → `(out, *d, 1, *S)` | Filters the time window of every element of the dim alone (elements are never mixed), applied at every seq step. The `out` axis is added only for `out_features > 1`, and replaces a scalar dim `(1,)`: `(1,)` → `(out,)`, `(2, 3)` → `(2, 3)` with `out_features=1` or `(4, 2, 3)` with 4. Each element has its own kernel; `shared_kernel=True` uses one for all. `kernel` and `bias` are each a Keras initializer (name or object) drawing a weight of the layer's own - the filter and bias of each element alone, as for a scalar, so Glorot reads its fans from `(T, out)` - or a `Parameter`; `bias=True` is a bias of zeros, `bias=False` none. Parameters are appended to the Fir's preds, and assigning or training them changes the filter; they must have the kernel / bias shape, axes of size 1 aside (`ValueError` otherwise). `out_features` is required. |
 | `LocalModel(input_function=None, output_function=None, pass_index=False, name=None)` called as `(inputs, activations: list)` | `a_k: (n_k, 1)` → shape of one cell | The activations are multiplied into `N = Π n_k` joint memberships `mu`, row-major (cell `(i1, i2)` is `i1*n2 + i2`). Computes `Σ_i output_function_i(mu_i * input_function_i([x...]))`. Functions receive a **list** of streams and are one callable (a new instance per cell: a `Layer` instance is copied as `"{name}_in{i}"` / `"{name}_out{i}"`, a plain function is called once per cell) or a list of `N` callables used as given; all cells must return the same shape. `input_function` defaults to `Fir(out_features=1)`. With `pass_index=True` a plain function is a factory `f((i1, i2, ...)) -> callable`. Fast paths: a `Fir` instance as input on a single scalar input evaluates all cells in one matmul (inputs must not carry seq); a weightless elementwise layer instance (`ReLU()`, `Tanh()`, `Sin()`, ...) as output is applied once to all cells. Anything else builds one subgraph per cell. |
 | `EquationLearner(functions: list, *, linear_in: Linear \| None = None, linear_out: Linear \| None = None, name=None)` called on `stream` or `[streams]` | `(d, T)` → `(n_functions, T)`, or `linear_out`'s output | `functions` items can be a name (`identity sin cos tan asin acos atan relu leaky_relu elu prelu sigmoid tanh swish gelu softplus add subtract multiply divide power`), a Layer class or instance, a callable over streams (arity inferred), or `(callable, arity)`. `linear_in` projects to Σarity arguments; its `out_features` must equal that sum. Inputs must have dim rank 1 (several inputs are concatenated). Internally it is a composed `Modely`. |
 | `BatchNorm(axis=1, momentum=0.99, epsilon=1e-3, center=True, scale=True, name=None)` | unchanged | Per-feature statistics. Uses the inference branch in `validate` / `_predict`. |
@@ -529,8 +529,8 @@ H = 20
 # 1) body: one step, no objectives
 state, force = Input("state", dim=2), Input("force")
 step_out = Output("state_next",
-    Linear(out_features=2, use_bias=False)([state.last()])
-    + Linear(out_features=2, use_bias=False)([force.last()]))
+    Linear(out_features=2, bias=False)([state.last()])
+    + Linear(out_features=2, bias=False)([force.last()]))
 body = Modely("step", inputs=[state, force], outputs=[step_out]).build()
 # 2) outer: sequences of H steps
 s_seq, f_seq = Input("s_seq", dim=2, seq=H), Input("f_seq", seq=H)
@@ -639,7 +639,7 @@ Caution: `v0` and `x0` are read at the current sample, which is the **end** of `
 
 ## 16. Custom layers
 
-Pattern: a symbolic `Layer` subclass returns a serializable Keras layer from `build_layer()`. The output shape is inferred automatically by running the Keras layer on zeros; a dynamic sequence axis (`seq=-1`) is probed with one step and declared dynamic again when the layer keeps the number of sequence axes. Override `output_shape(self, *inputs) -> (dim, time, seq)` only when that cannot work (a layer that adds or removes sequence axes of a dynamic stream, value-dependent shapes). The saved config is derived from the arguments passed to `super().__init__`, so `get_config` needs no override unless an argument is not JSON-serializable as given (`Linear` serializes its initializer objects).
+Pattern: a symbolic `Layer` subclass returns a serializable Keras layer from `build_layer()`. The output shape is inferred automatically by running the Keras layer on zeros; a dynamic sequence axis (`seq=-1`) is probed with one step and declared dynamic again when the layer keeps the number of sequence axes. Override `output_shape(self, *inputs) -> (dim, time, seq)` only when that cannot work (a layer that adds or removes sequence axes of a dynamic stream, value-dependent shapes). The saved config is derived from the arguments passed to `super().__init__`, so `get_config` needs no override unless an argument is not JSON-serializable as given (`Fir` and `Linear` save a Parameter given as kernel or bias by name, and an initializer object as its config).
 ```python
 import keras
 from nnodely.core.layer import Layer
