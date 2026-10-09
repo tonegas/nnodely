@@ -26,14 +26,16 @@ def _serialized_initializer(initializer):
     return keras.initializers.serialize(initializer)
 
 
-def _per_slice_initializer(initializer, rank: int):
-    """Draw every slice of the last ``rank`` axes from ``initializer`` as if
-    it owned its own tensor.
+def _per_slice_initializer(initializer, draw_shape):
+    """Fill a tensor with draws of ``initializer`` of shape ``draw_shape``,
+    each as if it owned its own tensor, laid out one after the other.
 
-    Variance scaling reads the fans from the whole tensor, so initialising
+    Variance scaling reads the fans from the shape it draws, so initialising
     ``[cells, features, out_features]`` in one shot would divide the scale by
-    the number of cells: a cell only ever sees ``features`` inputs.
+    the number of cells: a cell only ever sees ``features`` inputs. Drawn as
+    ``[features, out_features]`` each, every cell gets the scale of its own.
     """
+    draw_shape = tuple(int(axis) for axis in draw_shape)
     base = cast(keras.initializers.Initializer, keras.initializers.get(initializer))
 
     def initialize(shape, dtype=None):
@@ -41,15 +43,11 @@ def _per_slice_initializer(initializer, rank: int):
         # reusing one instance would give every slice the same values.
         config = base.get_config()
         slices = []
-        for index in range(math.prod(shape[: len(shape) - rank])):
+        for index in range(math.prod(shape) // math.prod(draw_shape)):
             slice_config = dict(config)
             if slice_config.get("seed") is not None:
                 slice_config["seed"] = config["seed"] + index
-            slices.append(
-                type(base).from_config(slice_config)(
-                    shape[len(shape) - rank :], dtype=dtype
-                )
-            )
+            slices.append(type(base).from_config(slice_config)(draw_shape, dtype=dtype))
         return keras.ops.reshape(keras.ops.stack(slices, axis=0), shape)
 
     return initialize

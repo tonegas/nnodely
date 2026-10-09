@@ -700,6 +700,117 @@ def test_linear_with_parameters_round_trips_through_save_and_keras(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Linear on a multi-dimensional input: the whole dim, or one axis of it
+# ---------------------------------------------------------------------------
+
+
+def _linear_values(shape, seed):
+    return np.random.default_rng(seed).normal(size=shape).astype(np.float32)
+
+
+def test_linear_projects_the_whole_dim_by_default():
+    # (batch, 2, 3, time, seq) -> (batch, out_features, time, seq): every one
+    # of the 6 features of a sample feeds every output.
+    x = Input("lin_dim_x", dim=(2, 3), seq=2)
+    summed = Linear(out_features=2, kernel="ones", bias=False, name="lin_dim_sum")(
+        x.sw(4)
+    )
+    drawn = Linear(out_features=2, name="lin_dim_drawn")(x.sw(4))
+    model = Modely(
+        "lin_dim_model",
+        inputs=[x],
+        outputs=[Output("lin_dim_sum", summed), Output("lin_dim_drawn", drawn)],
+    ).build()
+    assert summed.shape.dimensions == ((2,), 4, (2,))
+    assert drawn.kernel is not None and drawn.bias is not None
+    assert tuple(drawn.kernel.shape) == (2, 3, 2)
+    assert tuple(drawn.bias.shape) == (2,)
+
+    values = _linear_values((5, 2, 3, 4, 2), seed=12)
+    result = model({"lin_dim_x": values})
+
+    # With a kernel of ones, both outputs are the sum of the 6 features.
+    total = values.sum(axis=(1, 2))
+    np.testing.assert_allclose(
+        to_numpy(result["lin_dim_sum"]), np.stack([total, total], axis=1), rtol=1e-5
+    )
+    expected = np.einsum("bijts,ijo->bots", values, to_numpy(drawn.kernel)) + to_numpy(
+        drawn.bias
+    ).reshape(1, 2, 1, 1)
+    np.testing.assert_allclose(
+        to_numpy(result["lin_dim_drawn"]), expected, rtol=1e-5, atol=1e-5
+    )
+
+
+@pytest.mark.parametrize(
+    "axis, out_dim, kernel_shape, subscripts",
+    [
+        (0, (2, 3), (2, 2), "bijts,io->bojts"),
+        (1, (2, 2), (3, 2), "bijts,jo->biots"),
+        (-1, (2, 2), (3, 2), "bijts,jo->biots"),
+    ],
+)
+def test_linear_with_an_axis_projects_that_axis_alone(
+    tmp_path, axis, out_dim, kernel_shape, subscripts
+):
+    # The same matrix along the axis, at every position of the other one;
+    # out_features takes the place of the axis.
+    x = Input("lin_axis_x", dim=(2, 3), seq=2)
+    linear = Linear(out_features=2, axis=axis, name="lin_axis")(x.sw(4))
+    model = Modely(
+        "lin_axis_model", inputs=[x], outputs=[Output("lin_axis_out", linear)]
+    ).build()
+    assert linear.shape.dimensions == (out_dim, 4, (2,))
+    assert linear.kernel is not None and linear.bias is not None
+    assert tuple(linear.kernel.shape) == kernel_shape
+
+    values = _linear_values((5, 2, 3, 4, 2), seed=13)
+    result = to_numpy(model({"lin_axis_x": values})["lin_axis_out"])
+    bias_shape = [1] * result.ndim
+    bias_shape[1 + axis % 2] = 2
+    expected = np.einsum(subscripts, values, to_numpy(linear.kernel)) + to_numpy(
+        linear.bias
+    ).reshape(bias_shape)
+    np.testing.assert_allclose(result, expected, rtol=1e-5, atol=1e-5)
+
+    # The axis is part of the architecture: saved and loaded with it.
+    model.save(tmp_path / "lin_axis")
+    restored = Modely.load(tmp_path / "lin_axis")
+    np.testing.assert_allclose(
+        to_numpy(restored({"lin_axis_x": values})["lin_axis_out"]),
+        result,
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+
+def test_linear_rejects_an_axis_its_input_does_not_have():
+    x = Input("lin_bad_axis_x", dim=(2, 3))
+    for axis in (2, -3):
+        with pytest.raises(ValueError, match=f"axis {axis} is not an axis"):
+            Linear(out_features=2, axis=axis)(x.last())
+
+
+def test_linear_draws_a_whole_dim_kernel_as_one_matrix():
+    # fan_out of the (50, 2, 1) kernel is the 1 output, a bound of sqrt(3).
+    # Read as a (2, 1) kernel of a 50-wide convolution, Keras would count
+    # 50 outputs instead, a bound of about 0.24.
+    x = Input("lin_draw_x", dim=(50, 2))
+    linear = Linear(
+        out_features=1,
+        kernel=keras.initializers.VarianceScaling(
+            mode="fan_out", distribution="uniform"
+        ),
+        bias=False,
+    )(x.last())
+    Modely("lin_draw", inputs=[x], outputs=[Output("lin_draw_out", linear)]).build()
+
+    kernel = np.abs(to_numpy(linear.kernel))
+    assert kernel.max() <= np.sqrt(3.0)
+    assert kernel.max() > 0.5
+
+
+# ---------------------------------------------------------------------------
 # Select only takes an index its dim axis has
 # ---------------------------------------------------------------------------
 

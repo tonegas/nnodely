@@ -56,7 +56,8 @@ is created: ``Sin(x)`` is ``Sin()(x)``. To name it, configure it first:
    * - Layer
      - What it does
    * - :class:`~nnodely.Linear`
-     - Affine map ``W x + b`` over the feature axis, applied to every sample.
+     - Affine map ``W x + b`` over all the features of a sample (the dim
+       axes), or over one dim axis with ``axis``, applied to every sample.
    * - :class:`~nnodely.Fir`
      - Finite impulse response filter: a learned weighted sum over the time
        window of every feature alone, returning one sample.

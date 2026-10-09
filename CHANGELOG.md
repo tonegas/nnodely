@@ -4,7 +4,7 @@ All notable changes to nnodely are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [2.0.0] - 2026-10-07
+## [2.0.0] - 2026-10-09
 
 nnodely 2.0 is a rewrite of the library on **Keras 3**. The same model runs on
 TensorFlow, PyTorch or JAX, chosen with the `KERAS_BACKEND` environment
@@ -48,6 +48,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   `"<layer>_bias"`). Assigning, training or freezing the Parameter changes
   the layer, and layers given one Parameter share it. `bias=False` leaves the
   bias out. A Fir draws the filter of each element alone.
+- `Linear` maps the whole dim of a multi-dimensional input, `(*dim, T)` to
+  `(out_features, T)`, or only one dim axis with `axis=k`.
 - `save(path, weights=True)` / `Modely.load(path, weights=True)`, Keras and
   ONNX export, interactive HTML graphs, and Graphviz drawings: one image per
   model and per sub-model, or one flattened image, with a legend.

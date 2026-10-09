@@ -237,25 +237,27 @@ class WeightImpl(ParameterImpl):
     """A layer's weight: a variable of the weight's own shape.
 
     The layer reads it whole, not one value per sample, so it comes out with
-    a batch axis of one: ``(1, *weight_shape, 1)``. The initializer draws
-    every slice of its last ``rank`` axes alone.
+    a batch axis of one: ``(1, *weight_shape, 1)``. The initializer fills it
+    with draws of ``draw_shape``.
     """
 
-    def __init__(self, value_shape, weight_shape, rank, name=None, **kwargs):
+    def __init__(self, value_shape, weight_shape, draw_shape, name=None, **kwargs):
         super().__init__(value_shape=value_shape, name=name, **kwargs)
         self.weight_shape = tuple(int(axis) for axis in weight_shape)
-        self.rank = int(rank)
+        self.draw_shape = tuple(int(axis) for axis in draw_shape)
 
     def get_config(self):
         config = super().get_config()
-        config.update({"weight_shape": self.weight_shape, "rank": self.rank})
+        config.update(
+            {"weight_shape": self.weight_shape, "draw_shape": self.draw_shape}
+        )
         return config
 
     def build(self, input_shape=None):
         self.variable = self.add_weight(
             name="value",
             shape=self.weight_shape,
-            initializer=_per_slice_initializer(self.initializer, self.rank),
+            initializer=_per_slice_initializer(self.initializer, self.draw_shape),
             trainable=True,
             dtype="float32",
         )
@@ -272,10 +274,11 @@ class Weight(Parameter):
 
     A layer given an initializer rather than a Parameter makes one of these
     when it is first called. Its dim is the shape of the weight, and its
-    variable has exactly that shape; ``initializer`` draws every slice of its
-    last ``rank`` axes alone (all of them by default). The layer reads it
-    whole rather than one value per sample, so its stream has a batch axis of
-    one.
+    variable has exactly that shape. ``initializer`` fills it with draws of
+    shape ``draw``: by default the whole weight, read as a matrix of its last
+    axis by all the others, as a dense layer reads its kernel. The layer
+    reads it whole rather than one value per sample, so its stream has a
+    batch axis of one.
     """
 
     def __init__(
@@ -284,17 +287,23 @@ class Weight(Parameter):
         *,
         shape,
         initializer="glorot_uniform",
-        rank: int | None = None,
+        draw=None,
     ):
         self.weight_shape = tuple(int(axis) for axis in shape)
-        self.slice_rank = len(self.weight_shape) if rank is None else int(rank)
+        if draw is None:
+            draw = (
+                self.weight_shape
+                if len(self.weight_shape) <= 2
+                else (math.prod(self.weight_shape[:-1]), self.weight_shape[-1])
+            )
+        self.draw_shape = tuple(int(axis) for axis in draw)
         super().__init__(name, initializer=initializer, dim=self.weight_shape, time=1)
 
     def build_layer(self):
         return WeightImpl(
             value_shape=self.shape.tuple,
             weight_shape=self.weight_shape,
-            rank=self.slice_rank,
+            draw_shape=self.draw_shape,
             initializer=self.initializer,
             name=self.name,
         )
@@ -304,7 +313,7 @@ class Weight(Parameter):
             "name": self.name,
             "shape": self.weight_shape,
             "initializer": _serialized_initializer(self.initializer),
-            "rank": self.slice_rank,
+            "draw": self.draw_shape,
         }
 
 
@@ -319,8 +328,9 @@ class _ParameterWeights(Layer):
     initializer, and ``bias=False`` leaves the bias out.
 
     A subclass gives the kernel and bias shapes for an input with
-    :meth:`_weight_shapes`, and its Keras layer is called on ``[x, kernel]``
-    or ``[x, kernel, bias]``.
+    :meth:`_weight_shapes`, and the shapes their initializers draw with
+    :meth:`_draw_shapes`. Its Keras layer is called on ``[x, kernel]`` or
+    ``[x, kernel, bias]``.
     """
 
     _bias_initializer = "zeros"
@@ -335,16 +345,24 @@ class _ParameterWeights(Layer):
     def _weight_shapes(self, x) -> tuple[tuple[int, ...], tuple[int, ...]]:
         raise NotImplementedError
 
+    def _draw_shapes(self, kernel_shape, bias_shape):
+        """The shapes the kernel and bias initializers draw; None for the
+        Weight's own default."""
+        return None, None
+
     def _parameters(self, x) -> list[Parameter]:
         """The kernel and the bias for the input ``x``, made on the first
         call. Each must have the shape of its weight, axes of size 1 aside:
         they leave the layout of the values as it is."""
         kernel_shape, bias_shape = self._weight_shapes(x)
         if self._weights is None:
-            self._weights = [self._weight("kernel", self._kernel, kernel_shape, 2)]
+            kernel_draw, bias_draw = self._draw_shapes(kernel_shape, bias_shape)
+            self._weights = [
+                self._weight("kernel", self._kernel, kernel_shape, kernel_draw)
+            ]
             if self._bias is not False:
                 bias = self._bias_initializer if self._bias is True else self._bias
-                self._weights.append(self._weight("bias", bias, bias_shape, 1))
+                self._weights.append(self._weight("bias", bias, bias_shape, bias_draw))
         for label, weight, expected in zip(
             ("kernel", "bias"), self._weights, (kernel_shape, bias_shape)
         ):
@@ -355,11 +373,11 @@ class _ParameterWeights(Layer):
                 )
         return self._weights
 
-    def _weight(self, label, setting, shape, rank) -> Parameter:
+    def _weight(self, label, setting, shape, draw) -> Parameter:
         if isinstance(setting, Parameter):
             return setting
         return Weight(
-            f"{self.name}_{label}", shape=shape, initializer=setting, rank=rank
+            f"{self.name}_{label}", shape=shape, initializer=setting, draw=draw
         )
 
     def __call__(self, inputs):

@@ -144,6 +144,10 @@ class Fir(_ParameterWeights):
         elements = () if self.shared_kernel or dim == (1,) else dim
         return (*elements, x.time, self.out_features), (*elements, self.out_features)
 
+    def _draw_shapes(self, kernel_shape, bias_shape):
+        # The filter and the bias of each element alone, as for a scalar.
+        return kernel_shape[-2:], bias_shape[-1:]
+
     def output_shape(self, *inputs):
         # Declared rather than probed with a dummy tensor, which a sequence
         # axis left dynamic cannot be given.

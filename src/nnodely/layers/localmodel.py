@@ -110,7 +110,9 @@ class LocalFirImpl(keras.layers.Layer):
         self.cells = int(mu_shape[1])
         self.kernel = self.add_weight(
             shape=(self.cells, self.features, self.out_features),
-            initializer=_per_slice_initializer("glorot_uniform", rank=2),
+            initializer=_per_slice_initializer(
+                "glorot_uniform", (self.features, self.out_features)
+            ),
             name="kernel",
         )
         self.bias = (
