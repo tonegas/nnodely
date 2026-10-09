@@ -1,12 +1,13 @@
+import math
 import warnings
-from typing import Any
+from typing import cast
 
 import numpy as np
 import keras
 
 from nnodely.core.layer import Layer
 from nnodely.core.stream import Shape, Stream
-from nnodely.utils.utils import _serialized_initializer
+from nnodely.utils.utils import _per_slice_initializer, _serialized_initializer
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -231,104 +232,197 @@ class Constant(_Value):
         return cls(name=config["name"], value=config["value"])
 
 
-class _ParameterWeights(Layer):
-    """A layer whose kernel and bias may be given as Parameters.
+@keras.saving.register_keras_serializable(package="nnodely")
+class WeightImpl(ParameterImpl):
+    """A layer's weight: a variable of the weight's own shape.
 
-    A subclass keeps the two settings as ``self._kernel`` and ``self._bias``
-    and builds a Keras layer with ``kernel`` and ``bias`` attributes. A
-    Parameter given as either becomes a predecessor of the layer, after its
-    input, and stands in for that weight: the layer computes with its value,
-    and the graph saves it.
+    The layer reads it whole, not one value per sample, so it comes out with
+    a batch axis of one: ``(1, *weight_shape, 1)``. The initializer draws
+    every slice of its last ``rank`` axes alone.
     """
 
-    _kernel: Any
-    _bias: Any
+    def __init__(self, value_shape, weight_shape, rank, name=None, **kwargs):
+        super().__init__(value_shape=value_shape, name=name, **kwargs)
+        self.weight_shape = tuple(int(axis) for axis in weight_shape)
+        self.rank = int(rank)
 
-    def _parameters(self) -> list[Parameter]:
-        """The Parameters given as kernel and bias, in this order."""
-        return [p for p in (self._kernel, self._bias) if isinstance(p, Parameter)]
+    def get_config(self):
+        config = super().get_config()
+        config.update({"weight_shape": self.weight_shape, "rank": self.rank})
+        return config
 
-    def _check_parameters(self, kernel_shape, bias_shape):
-        """Raise unless each Parameter has the shape of the weight it stands
-        for. Axes of size 1 leave the layout of the values as it is, so they
-        do not count."""
-        for label, value, expected in (
-            ("kernel", self._kernel, kernel_shape),
-            ("bias", self._bias, bias_shape),
+    def build(self, input_shape=None):
+        self.variable = self.add_weight(
+            name="value",
+            shape=self.weight_shape,
+            initializer=_per_slice_initializer(self.initializer, self.rank),
+            trainable=True,
+            dtype="float32",
+        )
+        keras.layers.Layer.build(self, input_shape)
+
+    def call(self, anchor):
+        return keras.ops.expand_dims(
+            keras.ops.reshape(self.variable, self.value_shape), axis=0
+        )
+
+
+class Weight(Parameter):
+    """A layer's kernel or bias held as a Parameter.
+
+    A layer given an initializer rather than a Parameter makes one of these
+    when it is first called. Its dim is the shape of the weight, and its
+    variable has exactly that shape; ``initializer`` draws every slice of its
+    last ``rank`` axes alone (all of them by default). The layer reads it
+    whole rather than one value per sample, so its stream has a batch axis of
+    one.
+    """
+
+    def __init__(
+        self,
+        name: str | None = None,
+        *,
+        shape,
+        initializer="glorot_uniform",
+        rank: int | None = None,
+    ):
+        self.weight_shape = tuple(int(axis) for axis in shape)
+        self.slice_rank = len(self.weight_shape) if rank is None else int(rank)
+        super().__init__(name, initializer=initializer, dim=self.weight_shape, time=1)
+
+    def build_layer(self):
+        return WeightImpl(
+            value_shape=self.shape.tuple,
+            weight_shape=self.weight_shape,
+            rank=self.slice_rank,
+            initializer=self.initializer,
+            name=self.name,
+        )
+
+    def get_config(self):
+        return {
+            "name": self.name,
+            "shape": self.weight_shape,
+            "initializer": _serialized_initializer(self.initializer),
+            "rank": self.slice_rank,
+        }
+
+
+class _ParameterWeights(Layer):
+    """A layer computing with a kernel and a bias held by Parameters, its
+    predecessors after its input.
+
+    ``kernel`` and ``bias`` are each a Parameter, used as given, or an
+    initializer, by name or object: the layer then makes a :class:`Weight`
+    of the shape its input asks for, the first time it is called, and shares
+    it with every later call. ``bias=True`` takes the layer's default bias
+    initializer, and ``bias=False`` leaves the bias out.
+
+    A subclass gives the kernel and bias shapes for an input with
+    :meth:`_weight_shapes`, and its Keras layer is called on ``[x, kernel]``
+    or ``[x, kernel, bias]``.
+    """
+
+    _bias_initializer = "zeros"
+
+    def __init__(self, name, kernel, bias, **properties):
+        self._kernel = kernel
+        self._bias = bias
+        # Made, or taken as given, on the first call.
+        self._weights: list[Parameter] | None = None
+        super().__init__(name=name, kernel=kernel, bias=bias, **properties)
+
+    def _weight_shapes(self, x) -> tuple[tuple[int, ...], tuple[int, ...]]:
+        raise NotImplementedError
+
+    def _parameters(self, x) -> list[Parameter]:
+        """The kernel and the bias for the input ``x``, made on the first
+        call. Each must have the shape of its weight, axes of size 1 aside:
+        they leave the layout of the values as it is."""
+        kernel_shape, bias_shape = self._weight_shapes(x)
+        if self._weights is None:
+            self._weights = [self._weight("kernel", self._kernel, kernel_shape, 2)]
+            if self._bias is not False:
+                bias = self._bias_initializer if self._bias is True else self._bias
+                self._weights.append(self._weight("bias", bias, bias_shape, 1))
+        for label, weight, expected in zip(
+            ("kernel", "bias"), self._weights, (kernel_shape, bias_shape)
         ):
-            if not isinstance(value, Parameter):
-                continue
-            if _without_ones(value.shape.tuple) != _without_ones(expected):
+            if _without_ones(weight.shape.tuple) != _without_ones(expected):
                 raise ValueError(
                     f"{self.name}: {label} must have the shape {tuple(expected)}, "
-                    f"axes of size 1 aside, got {value.shape.tuple}."
+                    f"axes of size 1 aside, got {weight.shape.tuple}."
                 )
+        return self._weights
+
+    def _weight(self, label, setting, shape, rank) -> Parameter:
+        if isinstance(setting, Parameter):
+            return setting
+        return Weight(
+            f"{self.name}_{label}", shape=shape, initializer=setting, rank=rank
+        )
 
     def __call__(self, inputs):
         if not isinstance(inputs, (list, tuple)):
             inputs = [inputs]
-        # The Parameters are predecessors like the input, but configured on
-        # the layer, so they are appended here and reconnected the same way
-        # when reloading.
+        # The weights are predecessors like the input, but configured on the
+        # layer, so they are appended here and reconnected when reloading.
         if inputs and all(isinstance(value, Stream) for value in inputs):
-            inputs = [inputs[0], *self._parameters()]
+            inputs = [inputs[0], *self._parameters(inputs[0])]
         return super().__call__(inputs)
 
     def get_config(self):
-        return {
-            **super().get_config(),
-            "kernel": _weight_config(self._kernel),
-            "bias": _weight_config(self._bias),
-        }
+        # The weights are saved with the graph, as the predecessors they are:
+        # the config only says whether one of them is a bias.
+        config = super().get_config()
+        del config["kernel"]
+        config["bias"] = config["bias"] is not False
+        return config
 
     @classmethod
     def from_config(cls, config: dict, preds=None):
-        # The Parameters named in the config follow the input among the
-        # predecessors, kernel first.
-        given = iter((preds or [])[1:])
-        config = {
-            **config,
+        preds = preds or []
+        weights = iter(preds[1:])
+        layer = cls(
             **{
-                key: next(given)
-                for key in ("kernel", "bias")
-                if isinstance(config.get(key), dict) and "parameter" in config[key]
-            },
-        }
-        layer = cls(**config)
-        return layer(preds[0]) if preds else layer
+                **config,
+                "kernel": next(weights),
+                "bias": next(weights) if config["bias"] else False,
+            }
+        )
+        return layer(preds[0])
+
+    def _weight_nodes(self) -> list[Parameter]:
+        return cast(list[Parameter], self.preds[1:]) if self.preds else []
 
     @property
     def kernel(self):
-        """The kernel the layer computes with: the variable of the Parameter
-        given as kernel, in the Parameter's shape, or the layer's own weight
-        once built."""
-        if isinstance(self._kernel, Parameter):
-            return self._kernel.param
-        return None if self._layer is None else self._layer.kernel
+        """The variable of the Parameter holding the kernel, in that
+        Parameter's shape; None before the model is built."""
+        weights = self._weight_nodes()
+        return weights[0].param if weights else None
 
     @property
     def bias(self):
-        """The bias the layer computes with: the variable of the Parameter
-        given as bias, in the Parameter's shape, or the layer's own weight
-        once built; None without a bias."""
-        if isinstance(self._bias, Parameter):
-            return self._bias.param
-        return None if self._layer is None else self._layer.bias
-
-
-def _weight_config(value):
-    """A kernel or bias setting as a saved config holds it.
-
-    A Parameter is saved with the graph, as a predecessor of the layer, so
-    the config only names it; an initializer is kept by its name or config.
-    """
-    if isinstance(value, Parameter):
-        return {"parameter": value.name}
-    if value is None or isinstance(value, bool):
-        return value
-    return _serialized_initializer(value)
+        """The variable of the Parameter holding the bias, in that
+        Parameter's shape; None without a bias or before the model is
+        built."""
+        weights = self._weight_nodes()
+        return weights[1].param if len(weights) > 1 else None
 
 
 def _without_ones(shape):
     """``shape`` without its axes of size 1."""
     return tuple(axis for axis in shape if axis != 1)
+
+
+def _check_weight_size(layer_name, label, weight_shape, expected):
+    """Raise unless a weight tensor ``(batch, ...)`` holds the values of a
+    weight of shape ``expected``."""
+    held = math.prod(int(axis) for axis in weight_shape[1:])
+    if held != math.prod(expected):
+        raise ValueError(
+            f"{layer_name}: its {label} holds {held} values where the input asks "
+            f"for {tuple(expected)}. The weights of a layer fit the input shape "
+            "they were made for."
+        )

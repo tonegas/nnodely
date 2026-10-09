@@ -105,12 +105,15 @@ def test_local_model_with_user_functions():
 
 
 def _cell_weights(model, layer_name, cells):
-    """Read the per-cell Fir weights of an explicitly built local model."""
+    """Read the per-cell Fir weights of an explicitly built local model:
+    the Parameters "<cell>_kernel" and "<cell>_bias" each Fir made."""
     layers = {layer.name: layer for layer in model.model.layers}
     kernel = np.stack(
-        [to_numpy(layers[f"{layer_name}{i}"].kernel) for i in range(cells)]
+        [to_numpy(layers[f"{layer_name}{i}_kernel"].variable) for i in range(cells)]
     )
-    bias = np.stack([to_numpy(layers[f"{layer_name}{i}"].bias) for i in range(cells)])
+    bias = np.stack(
+        [to_numpy(layers[f"{layer_name}{i}_bias"].variable) for i in range(cells)]
+    )
     return kernel, bias
 
 
@@ -250,8 +253,8 @@ def test_local_model_generic_and_elementwise_paths_agree():
     assert len(stacked_names) == 20
     for names in (stacked_names, [f"p_cell_in{i}" for i in range(20)]):
         for i, name in enumerate(names):
-            layers[name].kernel.assign(kernel[i])
-            layers[name].bias.assign(bias[i])
+            layers[f"{name}_kernel"].variable.assign(kernel[i])
+            layers[f"{name}_bias"].variable.assign(bias[i])
 
     result = model(dict(data))
     assert result["fused"].shape == (6, 2, 1)
@@ -762,6 +765,25 @@ def test_integrate_round_trips_through_save_and_the_keras_file(tmp_path):
         rtol=1e-6,
     )
     assert isinstance(exported, keras.Model)
+
+
+@pytest.mark.parametrize("layer", [Fir, Linear])
+def test_integrate_a_rate_from_a_layer_with_parameter_weights(layer):
+    # rate = 2u + 1 on [1, 2, 3, 4] is [3, 5, 7, 9]; Euler with dt = 1 sums it.
+    name = f"prate_{layer.__name__.lower()}"
+    u = Input(f"{name}_u", seq=4)
+    gain = Parameter(f"{name}_gain", value=[[2.0]])
+    offset = Parameter(f"{name}_offset", value=[1.0])
+    rate = layer(out_features=1, kernel=gain, bias=offset)(u.last())
+    model = Modely(
+        name,
+        inputs=[u],
+        outputs=[Output(f"{name}_out", Integrate(solver="euler", dt=1.0)(rate))],
+    ).build()
+
+    values = np.array([1.0, 2.0, 3.0, 4.0]).reshape(1, 1, 1, 4)
+    result = to_numpy(model({f"{name}_u": values})[f"{name}_out"])
+    np.testing.assert_allclose(result.ravel(), [3.0, 8.0, 15.0, 24.0])
 
 
 def test_integrate_returns_the_loop_for_further_relations():

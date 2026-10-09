@@ -783,3 +783,43 @@ def test_loop_binds_initial_and_inputs_at_call():
     np.testing.assert_allclose(
         to_numpy(result["bind_seeded"]).reshape(-1), [11.0, 12.0, 13.0]
     )
+
+
+def test_a_parameter_is_one_weight_for_a_loop_body_and_the_outer_model():
+    # The gain g is the kernel of a Linear in the body and of one outside it.
+    q = Input("shared_q")
+    g = Parameter("shared_g", value=[[2.0]])
+    body = Modely(
+        "shared_body",
+        inputs=[q],
+        outputs=[Output("shared_next", Linear(kernel=g, bias=False)(q.last()))],
+    ).build()
+    seed = Input("shared_seed", seq=3)
+    loop = Loop(f=body, callback={q: "shared_next"}, init={q: seed})()
+    outer = Linear(kernel=g, bias=False)(seed.last())
+    model = Modely(
+        "shared_model",
+        inputs=[seed],
+        outputs=[Output("shared_loop", loop), Output("shared_outer", outer)],
+    ).build()
+
+    assert model.model is not None and len(model.model.trainable_weights) == 1
+    seed_values = np.zeros((1, 1, 1, 3), dtype=np.float32)
+    seed_values[..., 0] = 1.0
+    # From 1, the loop doubles at every step; outside, g scales the seed.
+    result = model({"shared_seed": seed_values})
+    np.testing.assert_allclose(to_numpy(result["shared_loop"]).ravel(), [2.0, 4.0, 8.0])
+    np.testing.assert_allclose(
+        to_numpy(result["shared_outer"]).ravel(), [2.0, 0.0, 0.0]
+    )
+
+    # Assigned once, the gain changes inside the loop and outside alike.
+    assert g.param is not None
+    g.param.assign([[3.0]])
+    result = model({"shared_seed": seed_values})
+    np.testing.assert_allclose(
+        to_numpy(result["shared_loop"]).ravel(), [3.0, 9.0, 27.0]
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["shared_outer"]).ravel(), [3.0, 0.0, 0.0]
+    )

@@ -15,6 +15,7 @@ from nnodely import (
     Linear,
     Modely,
     Output,
+    Parameter,
     Sin,
 )
 from nnodely.core.export import _traces_backward_pass
@@ -208,6 +209,70 @@ def test_derivative_wrt_input_through_a_trainable_layer():
 
     assert result.shape == (1, 1, 3)
     np.testing.assert_allclose(result, weights, rtol=1e-5, atol=1e-5)
+
+
+def test_differentiate_through_a_linear_with_parameter_weights():
+    # z = W^T s + b, so d(z0 + z1)/ds is the sum of each row of W.
+    s = Input("dlin_s", dim=3)
+    W = Parameter("dlin_W", value=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+    b = Parameter("dlin_b", value=[5.0, 6.0])
+    z = Linear(out_features=2, kernel=W, bias=b)(s.last())
+    derivative = Differentiate(respect_to=s)(z)
+    model = Modely(
+        "dlin_model", inputs=[s], outputs=[Output("dlin_dz", derivative)]
+    ).build()
+
+    assert derivative.shape.tuple == (3, 1)
+    values = np.array([1.0, 2.0, 3.0], dtype=np.float32).reshape(1, 3, 1)
+    result = to_numpy(model({"dlin_s": values})["dlin_dz"])
+    np.testing.assert_allclose(result.ravel(), [1.0, 1.0, 2.0], rtol=1e-5)
+
+
+@pytest.mark.slow
+def test_differentiate_trains_a_parameter_kernel():
+    # The derivative of k * x is k: one SGD step on (k - 3)^2 at lr 0.25 moves
+    # the Parameter from 1 to 1 - 0.25 * 2 * (1 - 3) = 2.
+    x = Input("dk_x")
+    k = Parameter("dk_k", value=[[1.0]])
+    derivative = Output(
+        "dk_dx",
+        Differentiate(respect_to=x)(
+            Fir(out_features=1, kernel=k, bias=False)(x.last())
+        ),
+    )
+    model = Modely("dk_model", inputs=[x], outputs=[derivative])
+    model.minimize("dk_slope", derivative, 3.0, loss="mse")
+    model.build()
+
+    data = DataLoader(model, source={"dk_x": np.ones((1, 1), dtype=np.float32)})
+    model.train(data, epochs=1, batch_size=1, optimizer="sgd", lr=0.25, printer=None)
+
+    assert k.param is not None
+    np.testing.assert_allclose(to_numpy(k.param).ravel(), [2.0], rtol=1e-5)
+
+
+def test_derivative_between_layers_with_parameter_weights():
+    # A Linear with Parameter weights before the derivative, a Fir after it:
+    # 2x + 1 on [0, 1, 3, 6] is [1, 3, 7, 13], its slope over dt = 0.5 from a
+    # zero start [2, 4, 8, 12], and the Fir keeps the newest slope.
+    x = Input("dlay_x")
+    gain = Parameter("dlay_gain", value=[[2.0]])
+    offset = Parameter("dlay_offset", value=[1.0])
+    line = Linear(out_features=1, kernel=gain, bias=offset)(x.sw(4))
+    slope = Derivative(dt=0.5)(line)
+    newest = Parameter("dlay_newest", value=[[0.0], [0.0], [0.0], [1.0]])
+    last_slope = Fir(out_features=1, kernel=newest, bias=False)(slope)
+    model = Modely(
+        "dlay_model",
+        inputs=[x],
+        outputs=[Output("dlay_slope", slope), Output("dlay_last", last_slope)],
+    ).build()
+
+    result = model({"dlay_x": np.array([0.0, 1.0, 3.0, 6.0]).reshape(1, 1, 4)})
+    np.testing.assert_allclose(
+        to_numpy(result["dlay_slope"]).ravel(), [2.0, 4.0, 8.0, 12.0], rtol=1e-5
+    )
+    np.testing.assert_allclose(to_numpy(result["dlay_last"]).ravel(), [12.0])
 
 
 def test_derivative_wrt_input_the_relation_does_not_read_raises():

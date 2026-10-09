@@ -302,9 +302,15 @@ def test_training_values_fir_linear_only_model():
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
     assert_weights([[-51.0]], [[-51.0]], [-15.0])
 
+    def set_trainable(layer, trainable):
+        # A layer's weights are the Parameters among its predecessors.
+        for weight in layer.preds[1:]:
+            assert isinstance(weight, Parameter) and weight._layer is not None
+            weight._layer.trainable = trainable
+
     # ------- Only the Fir block trainable -------
     reset_weights()
-    linear_out._layer.trainable = False
+    set_trainable(linear_out, False)
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
     assert_weights([[3.0]], [[1.0]], [1.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
@@ -312,10 +318,8 @@ def test_training_values_fir_linear_only_model():
 
     # ------- Only the Linear block trainable -------
     reset_weights()
-    linear_out._layer.trainable = True
-    # The Fir's kernel is the Parameter's: freezing it freezes the Fir.
-    assert fir_kernel._layer is not None
-    fir_kernel._layer.trainable = False
+    set_trainable(linear_out, True)
+    set_trainable(fir_out, False)
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
     assert_weights([[1.0]], [[3.0]], [3.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)

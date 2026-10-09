@@ -41,11 +41,13 @@ variable, and trains, validates and exports through Keras. Models saved with
   a leading dim axis: `D=(2, 3)` becomes `D=(4, 2, 3)` with 4 channels, and a
   scalar becomes `D=(4,)` as in 1.x.
 - `Fir(out_features, kernel=..., bias=...)` and `Linear(out_features,
-  kernel=..., bias=...)`: each of `kernel` and `bias` is a Keras initializer,
-  by name or object, or a `Parameter` the layer computes with, of the shape
-  of `layer.kernel` or `layer.bias`. Assigning or training the Parameter
-  changes the layer, and layers given one Parameter share it. `bias=False`
-  leaves the bias out. A Fir draws the filter of each element alone.
+  kernel=..., bias=...)`: their weights are `Parameter`s, predecessors of the
+  layer in the graph. Each of `kernel` and `bias` is a `Parameter`, of the
+  shape of `layer.kernel` or `layer.bias`, or a Keras initializer, by name or
+  object, from which the layer makes one (`"<layer>_kernel"`,
+  `"<layer>_bias"`). Assigning, training or freezing the Parameter changes
+  the layer, and layers given one Parameter share it. `bias=False` leaves the
+  bias out. A Fir draws the filter of each element alone.
 - `save(path, weights=True)` / `Modely.load(path, weights=True)`, Keras and
   ONNX export, interactive HTML graphs, and Graphviz drawings: one image per
   model and per sub-model, or one flattened image, with a legend.

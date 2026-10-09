@@ -387,10 +387,10 @@ def test_rebuilding_a_model_keeps_its_weights():
     )
 
 
-def test_composition_rebuilds_a_block_whose_input_shape_changes():
-    """Weights fit the shape they were made for. A block called with an input
-    of a different shape cannot share them, so it is rebuilt where it lands -
-    and the block's own weights are left alone."""
+def test_composition_rejects_a_block_whose_input_shape_changes():
+    """Weights fit the shape they were made for, and they are Parameters of
+    the block's graph: a block called with an input of a different shape
+    cannot use them - and its own weights are left alone."""
     u = Input("fit_u", dim=1)
     body_fir = Fir(out_features=1, bias=False)([u.last()])
     body = Modely("fit_body", inputs=[u], outputs=[Output("fit_out", body_fir)]).build()
@@ -398,12 +398,10 @@ def test_composition_rebuilds_a_block_whose_input_shape_changes():
 
     # Three features where the block was built for one: its kernel does not fit.
     wide = Input("fit_wide", dim=3)
-    composed = Modely(
-        "fit_composed", inputs=[wide], outputs=[Output("o", body([wide.last()]))]
-    ).build()
-
-    result = composed({"fit_wide": np.ones((1, 3, 1), dtype=np.float32)})
-    assert to_numpy(result["o"]).shape == (1, 3, 1)
+    with pytest.raises(ValueError, match="fit the input shape they were made for"):
+        Modely(
+            "fit_composed", inputs=[wide], outputs=[Output("o", body([wide.last()]))]
+        ).build()
 
     # The block still evaluates with the weights it had.
     np.testing.assert_allclose(

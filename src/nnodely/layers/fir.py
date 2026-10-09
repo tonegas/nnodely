@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import keras
 
-from nnodely.layers.parameter import Parameter, _ParameterWeights
-from nnodely.utils.utils import _per_slice_initializer
+from nnodely.layers.parameter import Parameter, _check_weight_size, _ParameterWeights
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -20,61 +19,32 @@ class FirImpl(keras.layers.Layer):
     ``(batch, out_features, *dim, 1, *seq)``, the channel axis dropped when
     there is one channel and a scalar dim ``(1,)`` dropped when there are more.
 
-    The initializers draw the ``(time, out_features)`` filter and the
-    ``(out_features,)`` bias of each element alone, as if it were a scalar.
-
-    With ``external_kernel`` or ``external_bias`` the layer is called on
-    ``[x, kernel, bias]`` (those given), batched values of the kernel's and
-    the bias's size, and owns no weight for them.
+    It owns no weight: it is called on ``[x, kernel]`` or ``[x, kernel,
+    bias]``, the values of the Parameters holding them, and reads their first
+    sample.
     """
 
     def __init__(
-        self,
-        out_features,
-        use_bias=True,
-        shared_kernel=False,
-        seq_rank=0,
-        kernel_initializer="glorot_uniform",
-        bias_initializer="zeros",
-        external_kernel=False,
-        external_bias=False,
-        name=None,
-        **kwargs,
+        self, out_features, shared_kernel=False, seq_rank=0, name=None, **kwargs
     ):
         super().__init__(name=name, **kwargs)
         self.out_features = int(out_features)
-        self.use_bias = bool(use_bias)
         self.shared_kernel = bool(shared_kernel)
         self.seq_rank = int(seq_rank)
-        self.kernel_initializer = keras.initializers.get(kernel_initializer)
-        self.bias_initializer = keras.initializers.get(bias_initializer)
-        self.external_kernel = bool(external_kernel)
-        self.external_bias = bool(external_bias)
 
     def get_config(self):
         config = super().get_config()
         config.update(
             {
                 "out_features": self.out_features,
-                "use_bias": self.use_bias,
                 "shared_kernel": self.shared_kernel,
                 "seq_rank": self.seq_rank,
-                "kernel_initializer": keras.initializers.serialize(
-                    self.kernel_initializer
-                ),
-                "bias_initializer": keras.initializers.serialize(self.bias_initializer),
-                "external_kernel": self.external_kernel,
-                "external_bias": self.external_bias,
             }
         )
         return config
 
     def build(self, input_shape):
-        x_shape = (
-            input_shape[0]
-            if self.external_kernel or self.external_bias
-            else input_shape
-        )
+        x_shape = input_shape[0]
         first_seq = len(x_shape) - self.seq_rank
         dim = tuple(int(axis) for axis in x_shape[1 : first_seq - 1])
         time = int(x_shape[first_seq - 1])
@@ -82,35 +52,15 @@ class FirImpl(keras.layers.Layer):
         elements = () if self.shared_kernel or dim == (1,) else dim
         self.kernel_shape = (*elements, time, self.out_features)
         self.bias_shape = (*elements, self.out_features)
-        self.kernel = (
-            None
-            if self.external_kernel
-            else self.add_weight(
-                shape=self.kernel_shape,
-                initializer=_per_slice_initializer(self.kernel_initializer, rank=2),
-                name="kernel",
-            )
-        )
-        self.bias = (
-            self.add_weight(
-                shape=self.bias_shape,
-                initializer=_per_slice_initializer(self.bias_initializer, rank=1),
-                name="bias",
-            )
-            if self.use_bias and not self.external_bias
-            else None
-        )
+        for label, shape, expected in zip(
+            ("kernel", "bias"), input_shape[1:], (self.kernel_shape, self.bias_shape)
+        ):
+            _check_weight_size(self.name, label, shape, expected)
         super().build(input_shape)
 
     def call(self, inputs):
-        x, kernel, bias = inputs, self.kernel, self.bias
-        if self.external_kernel or self.external_bias:
-            x, *values = inputs
-            # A Parameter comes batched, the same value for every sample.
-            if self.external_kernel:
-                kernel = keras.ops.reshape(values.pop(0)[0], self.kernel_shape)
-            if self.external_bias:
-                bias = keras.ops.reshape(values.pop(0)[0], self.bias_shape)
+        x, kernel, *bias = inputs
+        kernel = keras.ops.reshape(kernel[0], self.kernel_shape)
 
         rank = len(x.shape)
         first_seq = rank - self.seq_rank
@@ -122,8 +72,8 @@ class FirImpl(keras.layers.Layer):
         x = keras.ops.transpose(x, [0, *range(first_seq, rank), *range(1, first_seq)])
         y = keras.ops.matmul(keras.ops.expand_dims(x, -2), kernel)
         y = keras.ops.squeeze(y, -2)
-        if bias is not None:
-            y = y + bias
+        if bias:
+            y = y + keras.ops.reshape(bias[0][0], self.bias_shape)
 
         # [batch, *seq, *dim, out] -> [batch, out, *dim, 1, *seq]
         seq_end = 1 + self.seq_rank
@@ -159,13 +109,13 @@ class Fir(_ParameterWeights):
 
     ``kernel`` is ``[*dim, time, out_features]`` and ``bias``
     ``[*dim, out_features]`` (without ``*dim`` for a scalar input or a shared
-    kernel). Each is either a Keras initializer, by name or object, that
-    draws a weight of the layer's own - the filter and the bias of each
-    element alone, as if it were a scalar - or a :class:`Parameter` the layer
-    computes with instead: it becomes a predecessor of the layer, and
-    assigning or training it changes the filter. A Parameter must have the
-    shape of the weight, axes of size 1 aside. ``bias=True`` makes a bias of
-    zeros, and ``bias=False`` leaves it out::
+    kernel). Both are Parameters, predecessors of the layer: assigning or
+    training them changes the filter. Each is given as a :class:`Parameter`,
+    of the shape of the weight (axes of size 1 aside), or as a Keras
+    initializer, by name or object, from which the layer makes one, named
+    ``"<name>_kernel"`` or ``"<name>_bias"``, drawing the filter and the bias
+    of each element alone, as if it were a scalar. ``bias=True`` makes a bias
+    of zeros, and ``bias=False`` leaves it out::
 
         W = Parameter("W", dim=(3, 5, 4))   # (*dim, time, out_features)
         Fir(out_features=4, kernel=W, bias=False)([x.sw(5)])  # x with dim=3
@@ -181,25 +131,23 @@ class Fir(_ParameterWeights):
     ):
         self.out_features = int(out_features)
         self.shared_kernel = bool(shared_kernel)
-        self._kernel = kernel
-        self._bias = bias
         super().__init__(
-            name=name,
+            name,
+            kernel,
+            bias,
             out_features=self.out_features,
-            kernel=kernel,
-            bias=bias,
             shared_kernel=self.shared_kernel,
         )
+
+    def _weight_shapes(self, x):
+        dim = tuple(x.dim)
+        elements = () if self.shared_kernel or dim == (1,) else dim
+        return (*elements, x.time, self.out_features), (*elements, self.out_features)
 
     def output_shape(self, *inputs):
         # Declared rather than probed with a dummy tensor, which a sequence
         # axis left dynamic cannot be given.
         dim = tuple(inputs[0].dim)
-        elements = () if self.shared_kernel or dim == (1,) else dim
-        self._check_parameters(
-            (*elements, inputs[0].time, self.out_features),
-            (*elements, self.out_features),
-        )
         if self.out_features == 1:
             out_dim = dim
         elif dim == (1,):
@@ -209,17 +157,9 @@ class Fir(_ParameterWeights):
         return out_dim, 1, tuple(inputs[0].seq)
 
     def build_layer(self):
-        kernel, bias = self._kernel, self._bias
         return FirImpl(
             out_features=self.out_features,
-            use_bias=bias is not False,
             shared_kernel=self.shared_kernel,
             seq_rank=len(self.preds[0].seq),  # type: ignore
-            kernel_initializer=(
-                "glorot_uniform" if isinstance(kernel, Parameter) else kernel
-            ),
-            bias_initializer=("zeros" if isinstance(bias, (bool, Parameter)) else bias),
-            external_kernel=isinstance(kernel, Parameter),
-            external_bias=isinstance(bias, Parameter),
             name=self.name,
         )

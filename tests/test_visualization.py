@@ -78,7 +78,7 @@ def test_multiple_model_composed_visualization(tmp_path):
     model2.build()
 
     z = Input("z", dim=1)
-    const_z = Constant("const_z", value=[1.0, 2.0, 3.0, 4.0, 5.0])
+    const_z = Constant("const_z", value=[[1.0, 2.0, 3.0, 4.0, 5.0]])
     z_fir = Fir(out_features=1)([model2([z.sw(5) + const_z])])
     z_out = Output("z_out", z_fir)
     model3 = Modely("model3", inputs=[z], outputs=[z_out])
@@ -218,7 +218,8 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
 
 def test_export_html_layout_survives_feedback_cycles(tmp_path):
     seed_input = Input("in1")
-    body_output = Output("body_out", Linear(out_features=1)(seed_input.last()))
+    # Without weights: their Parameters would branch off the chain.
+    body_output = Output("body_out", Sin(seed_input.last()))
     body = Modely("cyc_body", inputs=[seed_input], outputs=[body_output]).build()
 
     seed = Input("in1_seq", seq=5)

@@ -678,7 +678,10 @@ def test_linear_with_parameters_round_trips_through_save_and_keras(tmp_path):
     restored = Modely.load(tmp_path / "linear_kept")
     restored_linear = {node.name: node for node in restored.order}["linear_kept"]
     assert isinstance(restored_linear, Linear)
-    assert [pred.name for pred in restored_linear.preds[1:]] == ["linear_kept_w"]
+    assert [pred.name for pred in restored_linear.preds[1:]] == [
+        "linear_kept_w",
+        "linear_kept_bias",
+    ]
     np.testing.assert_allclose(
         to_numpy(restored({"linear_kept_x": values})["linear_kept_out"]),
         before,
@@ -1144,7 +1147,7 @@ def test_fir_with_parameters_round_trips_through_save_and_keras(tmp_path, given)
     restored_fir = {node.name: node for node in restored.order}["fir_kept"]
     assert isinstance(restored_fir, Fir)
     assert [pred.name for pred in restored_fir.preds[1:]] == [
-        p.name for p in (w, b) if p is not None
+        pred.name for pred in fir.preds[1:]
     ]
     np.testing.assert_allclose(
         to_numpy(restored({"fir_kept_x": values})["fir_kept_out"]),
