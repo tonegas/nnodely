@@ -59,7 +59,7 @@ is created: ``Sin(x)`` is ``Sin()(x)``. To name it, configure it first:
      - Affine map ``W x + b`` over the feature axis, applied to every sample.
    * - :class:`~nnodely.Fir`
      - Finite impulse response filter: a learned weighted sum over the time
-       window, returning one sample.
+       window of every feature alone, returning one sample.
    * - :class:`~nnodely.LocalModel`
      - Local models blended by membership degrees (for example the output of
        :class:`~nnodely.Fuzzify`).
@@ -138,8 +138,8 @@ models, cell ``(i, j)`` being number ``i * 5 + j``. Its ``input_function`` and
 ``output_function`` are a callable, instantiated anew for every cell, or a list
 of one callable per cell; with ``pass_index=True`` a function receives the cell
 index ``(i, j)`` and returns the callable of that cell. A ``Fir`` instance as
-input function and a weightless elementwise layer such as ``ReLU()`` as output
-function are evaluated for all the cells at once. Functions passed to ``EquationLearner`` can be names,
+input function on a single scalar input and a weightless elementwise layer such
+as ``ReLU()`` as output function are evaluated for all the cells at once. Functions passed to ``EquationLearner`` can be names,
 *nnodely* layer classes, or Python callables that take streams, such as
 ``lambda a, b: a * b``.
 

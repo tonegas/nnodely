@@ -354,6 +354,7 @@ def test_local_model_matrix_input_two_fuzzy_functions_by_hand():
     # A Fir filters every entry of X alone: one kernel per entry and per cell.
     # Cell c weighs every entry by c + 1: its local model is (c + 1) * X.
     assert Y.dim == (2, 2)
+    assert model.model is not None
     layers = {layer.name: layer for layer in model.model.layers}
     for c in range(6):
         cell = layers[f"local_matrix_hand_in{c}"]

@@ -103,7 +103,7 @@ The Input's own window is the union of all requested windows: `past = max p`, `f
 
 | Expression | Output shape |
 |---|---|
-| `Fir(out_features=2)([v.sw(4)])` | `(2, 1)`: projects the whole dim×time window, one output sample; seq axes are kept, `(2, 1, *seq)` |
+| `Fir(out_features=2)([v.sw(4)])` | `((2, 3), 1)`: each of the 3 features filtered alone over its 4 samples onto 2 channels, a new leading dim axis; one output sample; seq axes are kept. `Fir(out_features=1)` keeps the dim, `(3, 1)`; on a scalar the channels replace it, `Fir(out_features=2)([x.sw(4)])` is `(2, 1)` |
 | `Linear(out_features=5)([v.sw(4)])` | `(5, 4)`: per-sample map on the first dim axis, time kept |
 | `Sum()([v.sw(4)])` | `(1, 4)`: sums dim axes (keepdims) |
 | `Select(1)([v.sw(4)])` | `(1, 4)` |
@@ -188,9 +188,9 @@ Configure first, then call on a stream or a list of streams:
 - `LocalModel` takes the inputs and a list of activations: `LocalModel(...)(inputs, activations)`.
 
 After build, weights are available on the *returned stream node*: `node.kernel`, `node.bias` (Keras variables; `.assign(np.array(...))` works).
-- `Fir.kernel` has shape `(prod(dim)*time, out_features)`; rows follow C order over `(*dim, time)`, so for `dim=1` row k is window sample k, oldest first.
+- `Fir.kernel` has shape `(*dim, time, out_features)`, one filter per element, or `(time, out_features)` for a scalar input or `shared_kernel=True`; `Fir.bias` is `(*dim, out_features)` or `(out_features,)`. Along `time`, row k is window sample k, oldest first.
 - `Linear.kernel` has shape `(in_features, out_features)`.
-- `LocalModel(Fir(...))` without output function (or the `"{name}_cells"` layer with an elementwise one) exposes `kernel` `[cells, features, out_features]` and `bias` `[cells, out_features]`.
+- `LocalModel(Fir(...))` without output function (or the `"{name}_cells"` layer with an elementwise one) exposes `kernel` `[cells, time, out_features]` and `bias` `[cells, out_features]` (the one-matmul path, taken only for a single scalar input).
 
 ---
 
@@ -202,8 +202,8 @@ Legend: **in → out** gives semantic shapes. `d` = dim, `T` = time, `S` = seq.
 | Signature | in → out | Notes |
 |---|---|---|
 | `Linear(out_features=1, use_bias=True, name=None, initializer="glorot_uniform", bias_initializer="glorot_uniform")` | `(d, T, *S)` → `(out, T, *S)` | Dense on the first dim axis, applied per time/seq element. The bias initializer is glorot, not zeros. |
-| `Fir(out_features, use_bias=True, name=None)` | `(d, T, *S)` → `(out, 1, *S)` | One dense projection of the whole dim×time window, applied at every seq step. `out_features` is required. |
-| `LocalModel(input_function=None, output_function=None, pass_index=False, name=None)` called as `(inputs, activations: list)` | `a_k: (n_k, 1)` → shape of one cell | The activations are multiplied into `N = Π n_k` joint memberships `mu`, row-major (cell `(i1, i2)` is `i1*n2 + i2`). Computes `Σ_i output_function_i(mu_i * input_function_i([x...]))`. Functions receive a **list** of streams and are one callable (a new instance per cell: a `Layer` instance is copied as `"{name}_in{i}"` / `"{name}_out{i}"`, a plain function is called once per cell) or a list of `N` callables used as given; all cells must return the same shape. `input_function` defaults to `Fir(out_features=1)`. With `pass_index=True` a plain function is a factory `f((i1, i2, ...)) -> callable`. Fast paths: a `Fir` instance as input evaluates all cells in one matmul (inputs must not carry seq); a weightless elementwise layer instance (`ReLU()`, `Tanh()`, `Sin()`, ...) as output is applied once to all cells. Anything else builds one subgraph per cell. |
+| `Fir(out_features, use_bias=True, shared_kernel=False, name=None)` | `(*d, T, *S)` → `(out, *d, 1, *S)` | Filters the time window of every element of the dim alone (elements are never mixed), applied at every seq step. The `out` axis is added only for `out_features > 1`, and replaces a scalar dim `(1,)`: `(1,)` → `(out,)`, `(2, 3)` → `(2, 3)` with `out_features=1` or `(4, 2, 3)` with 4. Each element has its own kernel; `shared_kernel=True` uses one for all. `out_features` is required. |
+| `LocalModel(input_function=None, output_function=None, pass_index=False, name=None)` called as `(inputs, activations: list)` | `a_k: (n_k, 1)` → shape of one cell | The activations are multiplied into `N = Π n_k` joint memberships `mu`, row-major (cell `(i1, i2)` is `i1*n2 + i2`). Computes `Σ_i output_function_i(mu_i * input_function_i([x...]))`. Functions receive a **list** of streams and are one callable (a new instance per cell: a `Layer` instance is copied as `"{name}_in{i}"` / `"{name}_out{i}"`, a plain function is called once per cell) or a list of `N` callables used as given; all cells must return the same shape. `input_function` defaults to `Fir(out_features=1)`. With `pass_index=True` a plain function is a factory `f((i1, i2, ...)) -> callable`. Fast paths: a `Fir` instance as input on a single scalar input evaluates all cells in one matmul (inputs must not carry seq); a weightless elementwise layer instance (`ReLU()`, `Tanh()`, `Sin()`, ...) as output is applied once to all cells. Anything else builds one subgraph per cell. |
 | `EquationLearner(functions: list, *, linear_in: Linear \| None = None, linear_out: Linear \| None = None, name=None)` called on `stream` or `[streams]` | `(d, T)` → `(n_functions, T)`, or `linear_out`'s output | `functions` items can be a name (`identity sin cos tan asin acos atan relu leaky_relu elu prelu sigmoid tanh swish gelu softplus add subtract multiply divide power`), a Layer class or instance, a callable over streams (arity inferred), or `(callable, arity)`. `linear_in` projects to Σarity arguments; its `out_features` must equal that sum. Inputs must have dim rank 1 (several inputs are concatenated). Internally it is a composed `Modely`. |
 | `BatchNorm(axis=1, momentum=0.99, epsilon=1e-3, center=True, scale=True, name=None)` | unchanged | Per-feature statistics. Uses the inference branch in `validate` / `_predict`. |
 | `Parameter(...)` | – | See §5. |

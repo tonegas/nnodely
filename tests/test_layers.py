@@ -800,8 +800,8 @@ def test_fir_with_one_channel_keeps_the_dim():
 
 
 def test_fir_keeps_the_sequence_axes():
-    # Once flattened into the projection as well: every output mixed every
-    # step of the sequence, and the seq axis was gone from the result.
+    # Once flattened into the projection: every output mixed every step of
+    # the sequence, and the seq axis was gone from the result.
     x = Input("fir_seq_x", dim=2, seq=4)
     fir = Fir(out_features=3, name="fir_seq")([x.sw(3)])
     model = Modely("fir_seq_model", inputs=[x], outputs=[Output("fir_seq_out", fir)])
@@ -872,6 +872,7 @@ def test_fir_shared_kernel_is_saved_with_the_architecture(tmp_path):
     restored_fir = {node.name: node for node in restored.order}["fir_saved"]
 
     assert isinstance(restored_fir, Fir) and restored_fir.shared_kernel
+    assert restored_fir.kernel is not None
     assert tuple(restored_fir.kernel.shape) == (3, 4)
     np.testing.assert_allclose(
         to_numpy(restored({"fir_saved_x": values})["fir_saved_out"]),

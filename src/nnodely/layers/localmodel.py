@@ -300,10 +300,11 @@ class LocalModel:
     ``pass_index=True`` a plain function is a factory instead: it receives the
     cell index ``(i_1, i_2, ...)`` and returns the callable of that cell.
 
-    A :class:`Fir` instance as ``input_function`` evaluates every cell with a
-    single matmul, and a weightless elementwise layer instance (``ReLU()``,
-    ``Tanh()``, ``Sin()``...) as ``output_function`` is applied once to all
-    the cells together. Anything else builds one explicit subgraph per cell.
+    A :class:`Fir` instance as ``input_function`` on a single scalar input
+    evaluates every cell with a single matmul, and a weightless elementwise
+    layer instance (``ReLU()``, ``Tanh()``, ``Sin()``...) as
+    ``output_function`` is applied once to all the cells together. Anything
+    else builds one explicit subgraph per cell.
     """
 
     def __init__(

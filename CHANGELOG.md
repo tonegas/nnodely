@@ -35,6 +35,11 @@ variable, and trains, validates and exports through Keras. Models saved with
   horizon by a `Loop`), `Ode` (Euler, midpoint, Heun, RK4) and `OdeNet` (neural ODEs,
   adaptive Dormand-Prince, hybrid events).
 - Recurrence: `Modely.rollback()`, `Loop` and `Roll`.
+- `Fir` on a multi-dimensional input (1.x took scalars only): every element
+  is filtered over its window alone, with a kernel of its own or, with
+  `shared_kernel=True`, one for all. `out_features > 1` adds the channels as
+  a leading dim axis: `D=(2, 3)` becomes `D=(4, 2, 3)` with 4 channels, and a
+  scalar becomes `D=(4,)` as in 1.x.
 - `save(path, weights=True)` / `Modely.load(path, weights=True)`, Keras and
   ONNX export, interactive HTML graphs, and Graphviz drawings: one image per
   model and per sub-model, or one flattened image, with a legend.
