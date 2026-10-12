@@ -66,3 +66,22 @@ class Atan(Trigonometric):
     """Wrapper for inverse tangent transform."""
 
     operation = "arctan"
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class Atan2Impl(keras.layers.Layer):
+    def call(self, xs):
+        y, x = xs
+        return keras.ops.arctan2(y, x)
+
+
+class Atan2(Layer):
+    """``atan2(y, x)``, called on ``[y, x]``: the angle of the point ``(x, y)``
+    in ``[-pi, pi]``, its quadrant told by the signs of both. With nothing to
+    configure, ``Atan2([y, x])`` is ``Atan2()([y, x])``."""
+
+    def __init__(self, name=None):
+        super().__init__(name=name)
+
+    def build_layer(self):
+        return Atan2Impl(name=self.name)

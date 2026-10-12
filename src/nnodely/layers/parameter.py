@@ -147,6 +147,7 @@ class _Value(Layer):
     """
 
     _impl: type[ParameterImpl] = ParameterImpl
+    _trainable = True
 
     def __init__(self, name, value, initializer, dim, time, seq):
         if value is not None:
@@ -171,6 +172,7 @@ class _Value(Layer):
             value_shape=self.shape.tuple,
             value=self.value,
             initializer=self.initializer,
+            trainable=self._trainable,
             name=self.name,
         )
 
@@ -217,6 +219,10 @@ class Parameter(_Value):
         Parameter("p", value=np.ones((2, 3, 2)), dim=0, time=1, seq=2)  # D=(2,), T=3, S=(2,)
         Parameter("p", value=[[1.0, 2.0, 3.0]], time=1)                 # D=(1,), T=3
 
+    ``trainable=False`` keeps the value as it is through training, as
+    :meth:`freeze` does, before or after the model is built; the flag is
+    saved with the model.
+
     Like every stream it is laid out with a batch axis first, the same value
     for every sample::
 
@@ -232,8 +238,34 @@ class Parameter(_Value):
         seq=None,
         time=None,
         dim=None,
+        trainable: bool = True,
     ):
+        self._trainable = bool(trainable)
         super().__init__(name, value, initializer, dim, time, seq)
+
+    @property
+    def trainable(self) -> bool:
+        """Whether training changes the value. Set before the model is built
+        or after: the next training follows it. A Parameter shared by several
+        models is one value, frozen or trained for all of them."""
+        return self._trainable
+
+    @trainable.setter
+    def trainable(self, trainable: bool):
+        self._trainable = bool(trainable)
+        if self._layer is not None:
+            self._layer.trainable = self._trainable
+
+    def freeze(self):
+        """Keep the value as it is through training; :meth:`unfreeze` undoes
+        it. Returns the Parameter."""
+        self.trainable = False
+        return self
+
+    def unfreeze(self):
+        """Let training change the value again. Returns the Parameter."""
+        self.trainable = True
+        return self
 
     def get_config(self):
         config = super().get_config()
@@ -241,6 +273,7 @@ class Parameter(_Value):
             {
                 "value": None if self.value is None else self.value.tolist(),
                 "initializer": _serialized_initializer(self.initializer),
+                "trainable": self._trainable,
             }
         )
         return config
@@ -248,6 +281,50 @@ class Parameter(_Value):
     @property
     def param(self):
         return self._variable
+
+
+class Parameters(list):
+    """The Parameters of a model, as :attr:`Modely.parameters` lists them: a
+    list of the Parameter objects, printed as a table of their names, shapes,
+    numbers of values and whether training changes them."""
+
+    def __init__(self, parameters, title: str = ""):
+        super().__init__(parameters)
+        self.title = title
+
+    def __str__(self):
+        header = ("name", "dim", "time", "seq", "values", "trainable")
+        rows = [
+            (
+                parameter.name,
+                str(tuple(parameter.shape.dim)),
+                str(parameter.shape.time),
+                str(tuple(parameter.shape.seq)) if parameter.shape.seq else "-",
+                str(math.prod(parameter.shape.tuple)),
+                "yes" if parameter.trainable else "no",
+            )
+            for parameter in self
+        ]
+        widths = [
+            max(len(row[column]) for row in (header, *rows)) for column in range(6)
+        ]
+
+        def line(row):
+            return "  ".join(cell.ljust(width) for cell, width in zip(row, widths))
+
+        values = [int(row[4]) for row in rows]
+        trainable = sum(v for v, p in zip(values, self) if p.trainable)
+        return "\n".join(
+            [
+                *([self.title] if self.title else []),
+                line(header).rstrip(),
+                line(tuple("-" * width for width in widths)).rstrip(),
+                *(line(row).rstrip() for row in rows),
+                f"{len(self)} parameters, {sum(values)} values, {trainable} trainable",
+            ]
+        )
+
+    __repr__ = __str__
 
 
 class Constant(_Value):
@@ -270,6 +347,7 @@ class Constant(_Value):
     """
 
     _impl = ConstantImpl
+    _trainable = False
 
     def __init__(
         self, name: str | None = None, *, value, seq=None, time=None, dim=None
@@ -349,6 +427,7 @@ class Weight(Parameter):
         shape,
         initializer="glorot_uniform",
         draw=None,
+        trainable: bool = True,
     ):
         self.weight_shape = tuple(int(axis) for axis in shape)
         if draw is None:
@@ -358,7 +437,13 @@ class Weight(Parameter):
                 else (math.prod(self.weight_shape[:-1]), self.weight_shape[-1])
             )
         self.draw_shape = tuple(int(axis) for axis in draw)
-        super().__init__(name, initializer=initializer, dim=self.weight_shape, time=1)
+        super().__init__(
+            name,
+            initializer=initializer,
+            dim=self.weight_shape,
+            time=1,
+            trainable=trainable,
+        )
 
     def build_layer(self):
         return WeightImpl(
@@ -366,6 +451,7 @@ class Weight(Parameter):
             weight_shape=self.weight_shape,
             draw_shape=self.draw_shape,
             initializer=self.initializer,
+            trainable=self._trainable,
             name=self.name,
         )
 
@@ -375,6 +461,7 @@ class Weight(Parameter):
             "shape": self.weight_shape,
             "initializer": _serialized_initializer(self.initializer),
             "draw": self.draw_shape,
+            "trainable": self._trainable,
         }
 
 

@@ -107,6 +107,8 @@ Trigonometric
 
 .. autoclass:: Atan
 
+.. autoclass:: Atan2
+
 Arithmetic
 ----------
 

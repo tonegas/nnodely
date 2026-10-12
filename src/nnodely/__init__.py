@@ -66,7 +66,7 @@ from nnodely.layers.activations import (
     Swish,
     Tanh,
 )
-from nnodely.layers.trigonometric import Acos, Asin, Atan, Cos, Sin, Tan
+from nnodely.layers.trigonometric import Acos, Asin, Atan, Atan2, Cos, Sin, Tan
 from nnodely.layers.arithmetic import (
     Abs,
     Ceil,
@@ -132,6 +132,7 @@ __all__ = [
     "Asin",
     "Acos",
     "Atan",
+    "Atan2",
     "Exp",
     "Log",
     "Log10",

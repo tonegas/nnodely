@@ -2,7 +2,19 @@ import numpy as np
 import pytest
 from conftest import to_numpy
 
-from nnodely import Input, Output, Modely, Parameter, Constant, Exp
+from nnodely.core.dag import _parameters
+from nnodely import (
+    Constant,
+    DataLoader,
+    Exp,
+    Fir,
+    Input,
+    Linear,
+    Loop,
+    Modely,
+    Output,
+    Parameter,
+)
 
 
 def test_parameter_constant_shapes():
@@ -254,3 +266,188 @@ def test_values_given_their_axes_round_trip_through_save(tmp_path):
     after = restored(data)
     for name in ("axes_parameter_out", "axes_constant_out"):
         np.testing.assert_array_equal(to_numpy(after[name]), to_numpy(before[name]))
+
+
+# ---------------------------------------------------------------------------
+# Freezing: a Parameter, or every Parameter of a model
+# ---------------------------------------------------------------------------
+
+
+def _trainable_ids(model):
+    assert model.model is not None
+    return {id(weight) for weight in model.model.trainable_weights}
+
+
+def test_freeze_and_unfreeze_a_parameter_or_a_whole_model():
+    x = Input("freeze_x", dim=(2, 3))
+    a = Parameter(
+        "freeze_a", value=np.array([0.5] * 12).reshape(2, 3, 2), dim=(0, 1), time=2
+    )
+    b = Parameter("freeze_b", dim=(2, 3, 2))
+    fir1 = Fir(features=1, kernel=a, bias=False)([x.sw(2)])
+    fir2 = Fir(features=1, kernel=b, bias=False)([x.sw(2)])
+    model = Modely(
+        "freeze_model", inputs=[x], outputs=[Output("freeze_out", fir1 + fir2)]
+    ).build()
+    both = {id(a.param), id(b.param)}
+
+    assert model.freeze() is model
+    assert (a.trainable, b.trainable) == (False, False)
+    assert _trainable_ids(model) == set()
+    model.unfreeze()
+    assert (a.trainable, b.trainable) == (True, True)
+    assert _trainable_ids(model) == both
+
+    assert a.freeze() is a
+    assert _trainable_ids(model) == {id(b.param)}
+    b.freeze()
+    assert _trainable_ids(model) == set()
+    a.unfreeze()
+    assert (a.trainable, b.trainable) == (True, False)
+    assert _trainable_ids(model) == {id(a.param)}
+
+
+def test_a_parameter_frozen_before_build_is_built_frozen():
+    x = Input("prebuild_x")
+    a = Parameter("prebuild_a", value=[1.0]).freeze()
+    b = Parameter("prebuild_b", value=[1.0], trainable=False)
+    c = Parameter("prebuild_c", value=[1.0])
+    model = Modely(
+        "prebuild_model",
+        inputs=[x],
+        outputs=[Output("prebuild_out", x.last() * a + x.last() * b + c)],
+    ).build()
+
+    assert _trainable_ids(model) == {id(c.param)}
+
+
+@pytest.mark.slow
+def test_a_frozen_parameter_keeps_its_value_through_training():
+    # out = a x + b x against 5 on x = 1: the gradient of (a + b - 5)^2 is
+    # 2 (a + b - 5) for either, so one SGD step at lr 0.1 from a = b = 1
+    # moves the trainable one by 0.6.
+    x = Input("frozen_x")
+    a = Parameter("frozen_a", value=[1.0])
+    b = Parameter("frozen_b", value=[1.0])
+    out = Output("frozen_out", x.last() * a + x.last() * b)
+    model = Modely("frozen_model", inputs=[x], outputs=[out])
+    model.minimize("frozen_fit", out, Input("frozen_y").last())
+    model.build()
+    data = DataLoader(
+        model,
+        source={"frozen_x": np.ones(4), "frozen_y": np.full(4, 5.0)},
+    )
+
+    def step():
+        model.train(data, epochs=1, batch_size=4, optimizer="sgd", lr=0.1, printer=None)
+
+    a.freeze()
+    step()
+    np.testing.assert_allclose(to_numpy(a.param).ravel(), [1.0])
+    np.testing.assert_allclose(to_numpy(b.param).ravel(), [1.6], rtol=1e-5)
+
+    # Now the other way round: 2 (1 + 1.6 - 5) = -4.8, so a goes to 1.48.
+    a.unfreeze()
+    b.freeze()
+    step()
+    np.testing.assert_allclose(to_numpy(a.param).ravel(), [1.48], rtol=1e-5)
+    np.testing.assert_allclose(to_numpy(b.param).ravel(), [1.6], rtol=1e-5)
+
+
+def test_model_freeze_reaches_layer_weights_called_models_and_loop_bodies():
+    # A block called as a model, with a Parameter of its own.
+    u = Input("reach_u")
+    gain = Parameter("reach_gain", value=[2.0])
+    block = Modely(
+        "reach_block", inputs=[u], outputs=[Output("reach_block_out", u.last() * gain)]
+    ).build()
+    # A Loop body whose Linear makes its own weights.
+    q = Input("reach_q")
+    body = Modely(
+        "reach_body",
+        inputs=[q],
+        outputs=[Output("reach_next", Linear(features=1)(q.last()))],
+    ).build()
+    seed = Input("reach_seed", seq=3)
+    loop = Loop(f=body, callback={q: "reach_next"}, init={q: seed})()
+
+    x = Input("reach_x")
+    model = Modely(
+        "reach_model",
+        inputs=[x, seed],
+        outputs=[
+            Output("reach_fir", Fir(features=1)([x.sw(2)])),
+            Output("reach_called", block([x.last()])),
+            Output("reach_loop", loop),
+        ],
+    ).build()
+    weights = _trainable_ids(model)
+    # The Fir kernel and bias, the gain, the Linear kernel and bias.
+    assert len(weights) == 5
+
+    model.freeze()
+    assert _trainable_ids(model) == set()
+    assert not gain.trainable
+    model.unfreeze()
+    assert _trainable_ids(model) == weights
+
+
+def test_the_trainable_flag_is_saved_with_the_model(tmp_path):
+    x = Input("saved_flag_x")
+    frozen = Parameter("saved_frozen", value=[2.0]).freeze()
+    free = Parameter("saved_free", value=[3.0])
+    fir = Fir(features=1, name="saved_flag_fir")([x.sw(2)])
+    fir.preds[2].freeze()  # its bias, a Parameter it made
+    model = Modely(
+        "saved_flag_model",
+        inputs=[x],
+        outputs=[Output("saved_flag_out", x.last() * frozen + free + fir)],
+    ).build()
+
+    model.save(tmp_path / "saved_flag")
+    restored = Modely.load(tmp_path / "saved_flag")
+    parameters = {p.name: p for p in _parameters(restored)}
+
+    assert not parameters["saved_frozen"].trainable
+    assert parameters["saved_free"].trainable
+    assert parameters["saved_flag_fir_kernel"].trainable
+    assert not parameters["saved_flag_fir_bias"].trainable
+    assert len(_trainable_ids(restored)) == 2
+
+
+def test_model_parameters_lists_every_parameter_and_prints_a_table():
+    x = Input("table_x", dim=(2, 3))
+    a = Parameter("a", value=np.full((2, 3, 2), 0.5), dim=(0, 1), time=2)
+    b = Parameter("b", dim=(2, 3, 2)).freeze()
+    c = Parameter("c", value=np.ones((1, 4)), seq=1)
+    fir1 = Fir(features=1, kernel=a, bias=False)([x.sw(2)])
+    fir2 = Fir(features=1, kernel=b, bias=False)([x.sw(2)])
+    linear = Linear(features=2, name="lin")([fir1 + fir2])
+    model = Modely(
+        "table_model",
+        inputs=[x],
+        outputs=[Output("table_out", linear), Output("table_c", c)],
+    )
+
+    # A list of the Parameter objects, in the order the graph reaches them -
+    # before the model is built too.
+    parameters = model.parameters
+    assert isinstance(parameters, list)
+    assert parameters[:2] == [a, b]
+    assert [p.name for p in parameters] == ["a", "b", "lin_kernel", "lin_bias", "c"]
+
+    model.build()
+    assert str(model.parameters) == "\n".join(
+        [
+            "Parameters of table_model",
+            "name        dim        time  seq   values  trainable",
+            "----------  ---------  ----  ----  ------  ---------",
+            "a           (2, 3)     2     -     12      yes",
+            "b           (2, 3, 2)  1     -     12      no",
+            "lin_kernel  (2, 3, 2)  1     -     12      yes",
+            "lin_bias    (2,)       1     -     2       yes",
+            "c           (1,)       1     (4,)  4       yes",
+            "5 parameters, 42 values, 30 trainable",
+        ]
+    )
+    assert repr(model.parameters) == str(model.parameters)

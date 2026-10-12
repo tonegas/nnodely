@@ -9,5 +9,6 @@ Inputs, Outputs and Parameters
 .. autoclass:: Output
 
 .. autoclass:: Parameter
+   :members: trainable, freeze, unfreeze
 
 .. autoclass:: Constant

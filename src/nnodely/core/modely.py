@@ -8,6 +8,7 @@ from nnodely.core.dag import (
     toposort,
     flatten,
     _flatten_graph,
+    _parameters,
     _source_input_tensors,
     _source_names,
 )
@@ -28,7 +29,7 @@ from nnodely.utils.utils import (
 from nnodely.utils.printers import _resolve_printer
 from nnodely.core.registry import ModelSerializer
 from nnodely.core.stream import Stream, Node
-from nnodely.layers.parameter import Constant
+from nnodely.layers.parameter import Constant, Parameters
 from nnodely.core.dataloader import DataLoader
 
 import numpy as np
@@ -402,6 +403,37 @@ class Modely:
             )
             return
         self.minimizers = [m for m in self.minimizers if m["name"] != name]
+
+    # -------------------------------------------------------------------------
+    # Parameters and freezing
+    # -------------------------------------------------------------------------
+
+    @property
+    def parameters(self) -> Parameters:
+        """Every Parameter the model computes with: those of its relations and
+        the weights of its layers, of the models it calls and of the bodies of
+        its Loops, Rolls and OdeNets, in the order the graph reaches them. A
+        list of the Parameter objects, printed as a table of their names,
+        shapes, numbers of values and whether training changes them."""
+        return Parameters(_parameters(self), title=f"Parameters of {self.name}")
+
+    def freeze(self):
+        """Keep every Parameter of the model as it is through training: those
+        of its relations and of the weights of its layers, of the models it
+        calls and of the bodies of its Loops, Rolls and OdeNets.
+        :meth:`unfreeze` undoes it; one :meth:`Parameter.freeze` freezes a
+        single one. A Parameter shared with another model is frozen for that
+        model too. Returns the model."""
+        for parameter in _parameters(self):
+            parameter.freeze()
+        return self
+
+    def unfreeze(self):
+        """Let training change every Parameter of the model again, as
+        :meth:`freeze` finds them. Returns the model."""
+        for parameter in _parameters(self):
+            parameter.unfreeze()
+        return self
 
     # -------------------------------------------------------------------------
     # Validation API

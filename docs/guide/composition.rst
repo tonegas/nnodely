@@ -29,8 +29,9 @@ Weights
 
 A block brings its weights along. A model trained on its own can be inserted in
 a larger one, and the larger model starts from the trained weights. Training
-the outer model trains the block too. To keep a block fixed, set its Keras
-layers to non-trainable before training (``block.model.trainable = False``).
+the outer model trains the block too. To keep a block fixed, freeze it:
+``block.freeze()`` keeps every Parameter it computes with as it is through
+training, until ``block.unfreeze()``.
 
 Calling the same block several times shares its weights between the calls, as
 reusing a layer does:

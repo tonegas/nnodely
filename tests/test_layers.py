@@ -15,7 +15,7 @@ from nnodely import (
     TimeRange,
     TimeSelect,
 )
-from nnodely.layers.trigonometric import Sin, Cos, Tan, Asin, Acos, Atan
+from nnodely.layers.trigonometric import Sin, Cos, Tan, Asin, Acos, Atan, Atan2
 from nnodely.layers.fir import Fir
 from nnodely.core.layer import Layer
 import keras
@@ -281,6 +281,42 @@ def test_trigonometric():
         np.arctan(dummy_input_x[:, :, -2:]),
         rtol=1e-5,
         atol=1e-5,
+    )
+
+
+def test_atan2_gives_the_angle_of_the_point_in_every_quadrant(tmp_path):
+    y = Input("atan2_y")
+    x = Input("atan2_x")
+    angle = Atan2([y.last(), x.last()])  # applied as it is created
+    called = Atan2()([y.last(), x.last()])
+    model = Modely(
+        "atan2_model",
+        inputs=[y, x],
+        outputs=[Output("atan2_angle", angle), Output("atan2_called", called)],
+    ).build()
+    assert isinstance(angle, Atan2)
+
+    # (x, y) = (1, 1), (-1, 1), (-1, -1), (1, -1), (-1, 0), (0, 1)
+    ys = np.array([1.0, 1.0, -1.0, -1.0, 0.0, 1.0], dtype=np.float32)
+    xs = np.array([1.0, -1.0, -1.0, 1.0, -1.0, 0.0], dtype=np.float32)
+    data = {"atan2_y": ys.reshape(6, 1, 1), "atan2_x": xs.reshape(6, 1, 1)}
+    expected = np.pi * np.array([0.25, 0.75, -0.75, -0.25, 1.0, 0.5])
+    result = model(data)
+    for name in ("atan2_angle", "atan2_called"):
+        np.testing.assert_allclose(to_numpy(result[name]).ravel(), expected, rtol=1e-6)
+
+    # Saved and loaded, and exported to a Keras file.
+    model.save(tmp_path / "atan2")
+    restored = Modely.load(tmp_path / "atan2")
+    np.testing.assert_allclose(
+        to_numpy(restored(data)["atan2_angle"]).ravel(), expected, rtol=1e-6
+    )
+    model.export_keras(tmp_path, "atan2")
+    imported = Modely.import_keras(tmp_path / "atan2.keras")
+    np.testing.assert_allclose(
+        to_numpy(imported(data)["atan2_angle"]).ravel(),  # type: ignore
+        expected,
+        rtol=1e-6,
     )
 
 

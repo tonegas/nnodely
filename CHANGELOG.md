@@ -24,6 +24,15 @@ variable, and trains, validates and exports through Keras. Models saved with
 - A layer with nothing to configure is applied as it is created: `Sin(x)` is
   `Sin()(x)`, for the math, trigonometric and parameter-free activation layers
   and `TimeConcatenate`.
+- `Atan2([y, x])`, the two-argument arctangent: the angle of the point
+  `(x, y)` in `[-pi, pi]`, with its quadrant.
+- Freezing: `Parameter.freeze()` / `unfreeze()` (or `trainable`, also a
+  constructor argument) keep one Parameter fixed through training or release
+  it, and `Modely.freeze()` / `unfreeze()` do it for every Parameter a model
+  computes with, those of the models it calls and of its Loop, Roll and
+  OdeNet bodies included. Before or after `build()`; saved with the model.
+  `Modely.parameters` lists them all, and prints as a table of their names,
+  shapes, numbers of values and trainable flags.
 - Early stopping in `train()`: the name of a monitored loss (made into a Keras
   `EarlyStopping` with `early_stopping_kwargs`), its configuration, or any
   callback, Keras's or your own.

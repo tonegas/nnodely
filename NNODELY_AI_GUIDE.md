@@ -143,7 +143,7 @@ from nnodely import (
     # activations
     ReLU, LeakyReLU, ELU, PReLU, Sigmoid, Tanh, Softmax, Swish, GELU, Softplus,
     # math
-    Sin, Cos, Tan, Asin, Acos, Atan, Exp, Log, Log10, Sqrt, Abs, Floor, Ceil,
+    Sin, Cos, Tan, Asin, Acos, Atan, Atan2, Exp, Log, Log10, Sqrt, Abs, Floor, Ceil,
     Deg2Rad, Sign, Negative, Clamp,
     # training printers (callbacks)
     TinyPrinter, LegacyPrinter, NNodelyPrinter,
@@ -171,11 +171,12 @@ Install: `pip install "nnodely[torch]"` (or `[tensorflow]` / `[jax]`); add `onnx
 `Output(name: str, stream: Stream)`: gives a stream a public name. It is the key in results, history and `rollback` / `Loop` mappings.
 
 ### Parameter (trainable)
-`Parameter(name=None, *, value=None, initializer="random_normal", seq=None, time=None, dim=None)`
+`Parameter(name=None, *, value=None, initializer="random_normal", seq=None, time=None, dim=None, trainable=True)`
 - With `value`: the shape comes from the value, all its axes in the dim unless `dim` / `time` / `seq` name which axes of the value play each part (see §3).
 - Without `value`: `dim` / `time` / `seq` are the sizes, and `initializer` draws the value.
 - `initializer` is any Keras initializer name or object.
 - After build: `.param` (a Keras variable) and `.value_numpy`.
+- `p.freeze()` / `p.unfreeze()` (each returns `p`), or `p.trainable = False`, keep the value fixed through training or release it; `trainable=False` creates it frozen. Before or after build: the next `train()` follows. The flag is saved with the model. A Parameter shared by several models is frozen for all of them.
 - At runtime it has a batch axis like any stream, the same value for every sample.
 
 ### Constant (fixed)
@@ -185,11 +186,11 @@ Install: `pip install "nnodely[torch]"` (or `[tensorflow]` / `[jax]`); add `onnx
 Configure first, then call on a stream or a list of streams:
 - `Linear(features=4)([s])` and `Linear(features=4)(s)` are both accepted.
 - Multi-input layers take a list: `Concatenate()([a, b])`.
-- A layer whose constructor takes only `name` (`Sin Cos Tan Asin Acos Atan Exp Log Log10 Sqrt Abs Floor Ceil Deg2Rad Sign Negative Sigmoid Tanh Swish Softplus TimeConcatenate`) can be applied as it is created: `Sin(x)` is `Sin()(x)`, `TimeConcatenate([a, b])` is `TimeConcatenate()([a, b])`. A string first argument is still the name: `Sin("s")` configures. For a named layer write `Sin(name="s")(x)`. Layers with settings (`ReLU`, `Softmax`, `Sum`, `Clamp`, `Linear`, ...) are always configured first.
+- A layer whose constructor takes only `name` (`Sin Cos Tan Asin Acos Atan Atan2 Exp Log Log10 Sqrt Abs Floor Ceil Deg2Rad Sign Negative Sigmoid Tanh Swish Softplus TimeConcatenate`) can be applied as it is created: `Sin(x)` is `Sin()(x)`, `TimeConcatenate([a, b])` is `TimeConcatenate()([a, b])`, `Atan2([y, x])` is `Atan2()([y, x])`. A string first argument is still the name: `Sin("s")` configures. For a named layer write `Sin(name="s")(x)`. Layers with settings (`ReLU`, `Softmax`, `Sum`, `Clamp`, `Linear`, ...) are always configured first.
 - `LocalModel` takes the inputs and a list of activations: `LocalModel(...)(inputs, activations)`.
 
 After build, weights are available on the *returned stream node*: `node.kernel`, `node.bias` (Keras variables; `.assign(np.array(...))` works).
-- The weights of `Fir` and `Linear` are always `Parameter`s, the layer's predecessors after its input (`node.preds[1:]`: kernel, then bias). Given as initializers, the layer makes them on its first call - `Parameter` subclasses named `"<layer>_kernel"` / `"<layer>_bias"`, whose variable has the weight's exact shape - and every later call of the same layer object shares them. To freeze a layer, freeze its Parameters: `for w in node.preds[1:]: w._layer.trainable = False`. A built model used as a block keeps the weights it was made for, so calling it on an input of another shape raises `ValueError`.
+- The weights of `Fir` and `Linear` are always `Parameter`s, the layer's predecessors after its input (`node.preds[1:]`: kernel, then bias). Given as initializers, the layer makes them on its first call - `Parameter` subclasses named `"<layer>_kernel"` / `"<layer>_bias"`, whose variable has the weight's exact shape - and every later call of the same layer object shares them. To freeze a layer, freeze its Parameters: `for w in node.preds[1:]: w.freeze()`, or the whole model with `model.freeze()`. A built model used as a block keeps the weights it was made for, so calling it on an input of another shape raises `ValueError`.
 - `Fir.kernel` has shape `(*dim, time, features)`, one filter per element, or `(time, features)` for a scalar input or `shared_kernel=True`; `Fir.bias` is `(*dim, features)` or `(features,)`. Along `time`, row k is window sample k, oldest first. Given as Parameters (`kernel=`, `bias=`) they are those Parameters' variables, in the Parameters' shape; with `bias=False`, `Fir.bias` is None.
 - `Linear.kernel` has shape `(*dim, features)` - `(in_features, features)` on a vector - or with `axis` `(*other_dims, dim[axis], features)` - one matrix per position of the other dim axes - and `(dim[axis], features)` with `shared_kernel=True`; `Linear.bias` is `(features,)`, `(*other_dims, features)` per position; given as Parameters, they are those Parameters' variables, in the Parameters' shape.
 - `LocalModel(Fir(...))` without output function (or the `"{name}_cells"` layer with an elementwise one) exposes `kernel` `[cells, time, features]` and `bias` `[cells, features]` (the one-matmul path, taken only for a single scalar input).
@@ -220,7 +221,7 @@ Legend: **in → out** gives semantic shapes. `d` = dim, `T` = time, `S` = seq.
 `ReLU(max_value=None, negative_slope=0.0, threshold=0.0)`, `LeakyReLU(negative_slope=0.3)`, `ELU(alpha=1.0)`, `PReLU(shared_axes=None)` (trainable), `Sigmoid()`, `Tanh()`, `Swish()`, `GELU(approximate=True)`, `Softplus()`, `Softmax(axis=None)` (the whole sample; `axis=1` for features, §1.15). All accept `name=`.
 
 ### 6.4 Math (elementwise)
-`Sin Cos Tan Asin Acos Atan Exp Log Log10 Sqrt Abs Floor Ceil Deg2Rad Sign Negative` take no arguments except `name=`. `Clamp(min=None, max=None)`: a `None` bound is unbounded. `Sum(axis=None)` sums the dim axes and keeps them with length 1 (`axis=None` sums all dim axes, an int picks one). `Floor`, `Ceil` and `Sign` have zero gradient.
+`Sin Cos Tan Asin Acos Atan Exp Log Log10 Sqrt Abs Floor Ceil Deg2Rad Sign Negative` take no arguments except `name=`. Neither does `Atan2`, called on `[y, x]`: `atan2(y, x)`, the angle of the point `(x, y)` in `[-pi, pi]`, with its quadrant. `Clamp(min=None, max=None)`: a `None` bound is unbounded. `Sum(axis=None)` sums the dim axes and keeps them with length 1 (`axis=None` sums all dim axes, an int picks one). `Floor`, `Ceil` and `Sign` have zero gradient.
 
 ### 6.5 Axis manipulation
 | Signature | Effect |
@@ -249,6 +250,8 @@ See §10 (`Loop`, `Roll`, `rollback`) and §11 (`Differentiate`, `Derivative`, `
 |---|---|
 | `minimize(name, source, target=None, loss="mse", gain=1.0, seq_weights=None)` | Registers an objective (§8). Call before build. |
 | `remove_minimizer(name)` | Removes an objective by name. |
+| `parameters` (property) | Every `Parameter` the model computes with (relations, layer weights, called models, Loop/Roll/OdeNet bodies), in graph order: a list of the Parameter objects; `print(model.parameters)` shows a table of name, dim, time, seq, number of values and trainable, with totals. Before or after build. |
+| `freeze()` / `unfreeze()` → self | Freezes or releases every `Parameter` the model computes with: its relations, the weights of its layers, the models it calls and the bodies of its Loops, Rolls and OdeNets. Before or after build. |
 | `rollback({input: stream}, steps: int, name=None)` → self | k-step feedback unrolling (§10). Call before build. |
 | `build()` → self | Creates the `keras.Model` (`model.model`) and its weights. Can be called again; weights are kept. |
 | `model(inputs_dict)` | Inference. Takes `{input_name: array (batch, *dim, time, *seq)}`, the batch axis always included (§1.24). Reads `model.inference_inputs`, ignores other keys, and raises `ValueError` when one is missing. Returns `{output_name: backend tensor}` for the declared outputs; convert with `keras.ops.convert_to_numpy`. |
@@ -289,7 +292,7 @@ Properties: `built`, `model` (the training keras.Model), `inference_model` (the 
 - Returns a history dict: `loss` (the total) and `<minimizer name>_loss` for each objective, plus their `val_` versions with `val_data` [verified: one objective named `one` gives `['loss', 'one_loss', 'val_loss', 'val_one_loss']`].
 - Each `train` call continues from the current weights.
 - Padded rollout steps (`seq_length="full"`) are masked automatically.
-- To freeze a composed block, set `block.model.trainable = False` before training the outer model.
+- To freeze a composed block, call `block.freeze()` before training the outer model; `block.unfreeze()` releases it. `p.freeze()` freezes one Parameter.
 
 Reproducibility: call `set_seed(int)` before creating layers and data. It seeds Python, NumPy and the backend, and sets `NNODELY_SEED` so child processes inherit it; two runs with the same seed give identical results on each backend. `get_seed()` returns the current seed.
 
@@ -411,7 +414,7 @@ Orders 1 and 2 are supported by both. Passing a number to `Differentiate` raises
 ## 12. Model composition
 
 - `block = Modely("b", inputs=[a, c], outputs=[o1, o2]).build()`. Then `o1s, o2s = block([stream_for_a, stream_for_c])`. The streams go in the order of `block.inputs`, exactly one per input (another count raises `ValueError`), and a single output returns a single stream.
-- The block brings its weights along (trained weights are reused while input shapes match), and training the outer model also trains the block. To freeze it: `block.model.trainable = False`.
+- The block brings its weights along (trained weights are reused while input shapes match), and training the outer model also trains the block. To freeze it: `block.freeze()`.
 - Calling the same block twice shares its weights (§1.22 covers naming).
 - `EquationLearner` uses composition internally.
 - `Differentiate(respect_to=Input)` inside a block does not work once the block's inputs are rebound. Put the derivative in the outer model instead, where the Input is declared.

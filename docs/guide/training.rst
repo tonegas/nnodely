@@ -49,6 +49,36 @@ The **loss** is anything Keras accepts: a name (``"mse"``, ``"mae"``,
 ``loss(y_true, y_pred)``. :meth:`~nnodely.Modely.remove_minimizer` removes an
 objective by name.
 
+Every weight is a :class:`~nnodely.Parameter`, the weights of ``Fir`` and
+``Linear`` included, so freezing is done on Parameters. ``p.freeze()`` keeps
+one as it is through training and ``p.unfreeze()`` releases it;
+:meth:`~nnodely.Modely.freeze` and :meth:`~nnodely.Modely.unfreeze` do it for
+every Parameter a model computes with, those of the models it calls and of
+its Loop bodies included. Both work before or after ``build()``, and the next
+``train()`` follows them:
+
+.. code-block:: python
+
+   model.freeze()     # every weight kept as it is: training changes nothing
+   model.unfreeze()   # trained again
+
+:attr:`~nnodely.Modely.parameters` lists them, in the order the graph reaches
+them, and prints as a table:
+
+.. code-block:: python
+
+   print(model.parameters)
+   # Parameters of first_order
+   # name         dim     time  seq  values  trainable
+   # -----------  ------  ----  ---  ------  ---------
+   # Fir1_kernel  (1, 1)  1     -    1       yes
+   # Fir1_bias    (1,)    1     -    1       yes
+   # ...
+   # 4 parameters, 4 values, 4 trainable
+
+A model used as a block is frozen the same way, ``block.freeze()``, to train
+the rest of a larger model around it.
+
 Training
 --------
 

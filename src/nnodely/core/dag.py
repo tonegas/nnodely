@@ -12,7 +12,11 @@ import keras
 
 from nnodely.core.stream import NODE_NAMES, Node, Stream, reserve_name
 from nnodely.layers.output import Output
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from nnodely.core.modely import Modely
+    from nnodely.layers.parameter import Parameter
 
 _node_counter = 0
 
@@ -217,3 +221,45 @@ def _streams_from(roots) -> list[Stream]:
             streams[id(node)] = node
         stack.extend(node.preds)
     return list(streams.values())
+
+
+def _parameters(model: "Modely") -> list["Parameter"]:
+    """Every Parameter ``model`` computes with, each once: reached from its
+    outputs and minimizers, through the models it calls and the bodies of its
+    Loops, Rolls and OdeNets, in the order the graph reaches them - inputs
+    before the nodes they feed, the model's own before its bodies'."""
+    from nnodely.core.modely import Modely
+    from nnodely.layers.parameter import Parameter
+
+    found: dict[int, Parameter] = {}
+    models: list[Modely] = [model]
+    seen: set[int] = set()
+    while models:
+        current = models.pop(0)
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        roots: list[Any] = [
+            *current.outputs,
+            *(
+                side
+                for minimizer in current.minimizers
+                for side in (minimizer["source"], minimizer["target"])
+            ),
+        ]
+        # Depth first, each node's predecessors in order.
+        stack = roots[::-1]
+        visited = set()
+        while stack:
+            node = stack.pop()
+            if not isinstance(node, Node) or id(node) in visited:
+                continue
+            visited.add(id(node))
+            if isinstance(node, Parameter):
+                found[id(node)] = node
+            # A called model, or the body a block rolls out.
+            for inner in (getattr(node, "model", None), getattr(node, "f", None)):
+                if isinstance(inner, Modely):
+                    models.append(inner)
+            stack.extend(reversed(node.preds))
+    return list(found.values())
