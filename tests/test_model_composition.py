@@ -28,7 +28,7 @@ def test_model_composition():
     model1.build()
 
     z = Input("z", dim=1)
-    z_taps = Parameter("z_taps", value=np.ones((2, 1)))
+    z_taps = Parameter("z_taps", value=np.ones(2))
     z_fir = Fir(out_features=1, kernel=z_taps)([model1([z.sw(10), z.sw(10)])])
     z_out = Output("z_pred", z_fir)
 
@@ -181,7 +181,7 @@ def test_model_saving_loading_and_compose(tmp_path):
     x = Input("x", dim=1)
     y = Input("y", dim=1)
 
-    result_taps = Parameter("result_taps", value=np.ones((3, 1)))
+    result_taps = Parameter("result_taps", value=np.ones(3))
     result_fir = Fir(out_features=1, kernel=result_taps, bias=False)(
         [x.sw(3) + y.sw(3)]
     )
@@ -214,7 +214,7 @@ def test_model_saving_loading_and_compose(tmp_path):
     )
 
     z = Input("z", dim=1)
-    z_gain = Parameter("z_gain", value=[[1.0]])
+    z_gain = Parameter("z_gain", value=[1.0])
     z_offset = Parameter("z_offset", value=[5.0])
     z_fir = Fir(out_features=1, kernel=z_gain, bias=z_offset)(
         [model_loaded([z.sw(3), z.sw(3)])]
@@ -283,7 +283,7 @@ def test_training_a_composed_model_trains_the_block():
     """The consequence of sharing: fitting the composed graph moves the
     block's own weights, and the block evaluates with them afterwards."""
     u = Input("train_u", dim=1)
-    gain = Parameter("train_gain", value=[[0.5]])
+    gain = Parameter("train_gain", value=[0.5])
     body_fir = Fir(out_features=1, kernel=gain, bias=False)([u.last()])
     body = Modely(
         "train_body", inputs=[u], outputs=[Output("train_out", body_fir)]
@@ -314,7 +314,7 @@ def test_training_a_composed_model_trains_the_block():
 def test_composition_shares_parameters_and_constants():
     """Every kind of stored value travels with the block, and the symbolic
     nodes keep pointing at the layer the composed graph runs."""
-    gain = Parameter(name="pc_gain", value=[[4.0]])
+    gain = Parameter(name="pc_gain", value=[4.0])
     offset = Constant(name="pc_offset", value=[1.0])
     u = Input("pc_u", dim=1)
     body = Modely(

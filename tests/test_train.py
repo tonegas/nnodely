@@ -168,7 +168,7 @@ def test_training_values_fir_linear():
     input1 = Input("in1")
     target = Input("target1").last()
 
-    fir_kernel = Parameter("fir_kernel", value=[[1.0]])
+    fir_kernel = Parameter("fir_kernel", value=[1.0])
     fir_out = Fir(out_features=1, kernel=fir_kernel, bias=False)(input1.last())
     linear_out = Linear(out_features=1, kernel="ones", bias="ones")(fir_out)
 
@@ -247,7 +247,7 @@ def test_training_values_fir_linear_only_model():
     input1 = Input("in1")
     target = Input("target1").last()
 
-    fir_kernel = Parameter("fir_kernel", value=[[1.0]])
+    fir_kernel = Parameter("fir_kernel", value=[1.0])
     fir_out = Fir(out_features=1, kernel=fir_kernel, bias=False)(input1.last())
     linear_out = Linear(out_features=1, kernel="ones", bias="ones")(fir_out)
 
@@ -330,7 +330,7 @@ def test_training_values_fir_linear_more_samples():
     input1 = Input("in1")
     target = Input("out1").last()
 
-    fir_kernel = Parameter("fir_kernel", value=[[1.0]])
+    fir_kernel = Parameter("fir_kernel", value=[1.0])
     fir_out = Fir(out_features=1, kernel=fir_kernel, bias=False)(input1.last())
     linear_out = Linear(out_features=1, kernel="ones", bias="ones")(fir_out)
 
@@ -412,7 +412,7 @@ def test_training_values_linear_fir_window():
     target = Input("target").last()
 
     lin_out = Linear(out_features=1)(input1.sw(2))
-    fir_kernel = Parameter("fir_kernel", value=[[4.0], [5.0]])
+    fir_kernel = Parameter("fir_kernel", value=[4.0, 5.0])
     fir_out = Fir(out_features=1, kernel=fir_kernel, bias=False)(lin_out)
 
     output1 = Output("out1", lin_out)
@@ -490,7 +490,7 @@ def test_training_values_fir_and_linear_closed_loop():
     target1 = Input("target1").last()
     target2 = Input("target2").last()
 
-    fir_kernel = Parameter("fir_kernel", value=[[1.0]])
+    fir_kernel = Parameter("fir_kernel", value=[1.0])
     fir_out = Fir(out_features=1, kernel=fir_kernel, bias=False)(input1.last())
     lin_out = Linear(out_features=1, kernel="ones", bias="ones")(input2.last())
     output1 = Output("out1", fir_out)
@@ -1244,7 +1244,7 @@ def test_train_target_window_of_an_input_with_a_wider_window():
     # x feeds the model through sw(3) and is its own target through next(), so
     # the data column of x is four samples wide while the target is the last.
     x = Input("wide_target_x")
-    taps = Parameter("wide_target_taps", value=np.ones((3, 1)))
+    taps = Parameter("wide_target_taps", value=np.ones(3))
     fir = Fir(out_features=1, kernel=taps, bias=False, name="wide_target_fir")(
         [x.sw(3)]
     )

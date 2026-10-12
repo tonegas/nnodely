@@ -18,7 +18,8 @@ class LinearImpl(keras.layers.Layer):
         [batch, out_features, time, *seq]
 
     With ``axis=k`` only dim axis ``k`` is projected, and ``out_features``
-    takes its place among the dim axes.
+    takes its place among the dim axes: with a matrix of its own at every
+    position of the other dim axes, or with ``shared_kernel`` one for all.
 
     It owns no weight: it is called on ``[x, kernel]`` or ``[x, kernel,
     bias]``, the values of the Parameters holding them, and reads their first
@@ -26,12 +27,19 @@ class LinearImpl(keras.layers.Layer):
     """
 
     def __init__(
-        self, out_features: int = 1, dim_rank: int = 1, axis=None, name=None, **kwargs
+        self,
+        out_features: int = 1,
+        dim_rank: int = 1,
+        axis=None,
+        shared_kernel: bool = False,
+        name=None,
+        **kwargs,
     ):
         super().__init__(name=name, **kwargs)
         self.out_features = int(out_features)
         self.dim_rank = int(dim_rank)
         self.axis = None if axis is None else int(axis)
+        self.shared_kernel = bool(shared_kernel)
 
     def get_config(self):
         config = super().get_config()
@@ -40,42 +48,68 @@ class LinearImpl(keras.layers.Layer):
                 "out_features": self.out_features,
                 "dim_rank": self.dim_rank,
                 "axis": self.axis,
+                "shared_kernel": self.shared_kernel,
             }
         )
         return config
 
     def build(self, input_shape):
         dim = tuple(int(axis) for axis in input_shape[0][1 : 1 + self.dim_rank])
-        projected = dim if self.axis is None else (dim[self.axis],)
-        self.kernel_shape = (*projected, self.out_features)
+        self.kernel_shape, self.bias_shape = _linear_weight_shapes(
+            dim, self.out_features, self.axis, self.shared_kernel
+        )
         for label, shape, expected in zip(
-            ("kernel", "bias"),
-            input_shape[1:],
-            (self.kernel_shape, (self.out_features,)),
+            ("kernel", "bias"), input_shape[1:], (self.kernel_shape, self.bias_shape)
         ):
             _check_weight_size(self.name, label, shape, expected)
         super().build(input_shape)
 
     def call(self, inputs):
         x, kernel, *bias = inputs
+        kernel = keras.ops.reshape(kernel[0], self.kernel_shape)
         rank = len(x.shape)
-        dim_axes = list(range(1, 1 + self.dim_rank))
-        projected = dim_axes if self.axis is None else [1 + self.axis]
-        kept = [axis for axis in dim_axes if axis not in projected]
+        steps = list(range(1 + self.dim_rank, rank))  # time and seq
 
-        # [batch, *dim, time, *seq] -> [batch, *kept, time, *seq, *projected]:
-        # the projected axes last, contracted with the first of the kernel.
-        x = keras.ops.transpose(
-            x, [0, *kept, *range(1 + self.dim_rank, rank), *projected]
-        )
-        x = keras.ops.tensordot(
-            x, keras.ops.reshape(kernel[0], self.kernel_shape), axes=len(projected)
-        )
+        if self.axis is None:
+            # [batch, *dim, time, *seq] -> [batch, time, *seq, *dim], the dim
+            # contracted with the first axes of the kernel.
+            x = keras.ops.transpose(x, [0, *steps, *range(1, 1 + self.dim_rank)])
+            y = keras.ops.tensordot(x, kernel, axes=self.dim_rank)
+            if bias:
+                y = y + keras.ops.reshape(bias[0][0], self.bias_shape)
+            return keras.ops.moveaxis(y, -1, 1)
+
+        # [batch, *dim, time, *seq] -> [batch, time, *seq, *kept, 1, projected]:
+        # every position of the kept axes times its matrix, or the shared one.
+        kept = [1 + axis for axis in range(self.dim_rank) if axis != self.axis]
+        x = keras.ops.transpose(x, [0, *steps, *kept, 1 + self.axis])
+        y = keras.ops.matmul(keras.ops.expand_dims(x, -2), kernel)
+        y = keras.ops.squeeze(y, -2)
         if bias:
-            x = x + keras.ops.reshape(bias[0][0], (self.out_features,))
+            y = y + keras.ops.reshape(bias[0][0], self.bias_shape)
 
-        # out_features back among the dim axes: first, or where axis was.
-        return keras.ops.moveaxis(x, -1, 1 + (self.axis or 0))
+        # [batch, time, *seq, *kept, out] -> [batch, *dim with out at axis,
+        # time, *seq]
+        first_kept = 1 + len(steps)
+        kept_axes = list(range(first_kept, first_kept + len(kept)))
+        return keras.ops.transpose(
+            y,
+            [
+                0,
+                *kept_axes[: self.axis],
+                len(y.shape) - 1,
+                *kept_axes[self.axis :],
+                *range(1, first_kept),
+            ],
+        )
+
+
+def _linear_weight_shapes(dim, out_features, axis, shared_kernel):
+    """The kernel and bias shapes of a Linear on ``dim``."""
+    if axis is None:
+        return (*dim, out_features), (out_features,)
+    kept = () if shared_kernel else (*dim[:axis], *dim[axis + 1 :])
+    return (*kept, dim[axis], out_features), (*kept, out_features)
 
 
 class Linear(_ParameterWeights):
@@ -89,20 +123,25 @@ class Linear(_ParameterWeights):
         input:  (batch, *dim, time, *seq)
         output: (batch, out_features, time, *seq)
         kernel: (*dim, out_features)
+        bias:   (out_features,)
 
-    With ``axis=k`` only dim axis ``k`` is projected, the same matrix applied
-    along it at every position of the other dim axes, and ``out_features``
-    takes its place: on ``D=(2, 3)``, ``axis=1`` gives ``D=(2, out_features)``
-    with a kernel ``(3, out_features)``.
+    With ``axis=k`` only dim axis ``k`` is projected, and ``out_features``
+    takes its place. Like the elements of a :class:`Fir`, every position of
+    the other dim axes has a matrix and a bias of its own, or with
+    ``shared_kernel=True`` they all share one. On ``D=(2, 3)`` with
+    ``axis=1``, the output is ``D=(2, out_features)`` with a kernel
+    ``(2, 3, out_features)`` and a bias ``(2, out_features)``, or with a
+    shared kernel ``(3, out_features)`` and ``(out_features,)``.
+    ``shared_kernel`` needs an ``axis``: without one, the whole dim is
+    projected at once.
 
-    ``bias`` is ``(out_features,)``. ``kernel`` and ``bias`` are Parameters,
-    predecessors of the layer: assigning or training them changes the
-    projection. Each is given as a :class:`Parameter`, of the shape of the
-    weight (axes of size 1 aside), or as a Keras initializer, by name or
-    object, from which the layer makes one, named ``"<name>_kernel"`` or
-    ``"<name>_bias"``; the kernel is drawn as a matrix of the projected
-    features by ``out_features``. ``bias=True`` draws the bias with
-    ``"glorot_uniform"``, and ``bias=False`` leaves it out::
+    ``kernel`` and ``bias`` are Parameters, predecessors of the layer:
+    assigning or training them changes the projection. Each is given as a
+    :class:`Parameter`, of the shape of the weight (axes of size 1 aside), or
+    as a Keras initializer, by name or object, from which the layer makes
+    one, named ``"<name>_kernel"`` or ``"<name>_bias"``; each matrix is drawn
+    as one of the projected features by ``out_features``. ``bias=True`` draws
+    the bias with ``"glorot_uniform"``, and ``bias=False`` leaves it out::
 
         W = Parameter("W", value=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
         Linear(out_features=2, kernel=W, bias=False)([v.last()])  # v with dim=3
@@ -116,12 +155,25 @@ class Linear(_ParameterWeights):
         kernel: Parameter | str | keras.initializers.Initializer = "glorot_uniform",
         bias: Parameter | str | keras.initializers.Initializer | bool = True,
         axis: int | None = None,
+        shared_kernel: bool = False,
         name=None,
     ):
+        if shared_kernel and axis is None:
+            raise ValueError(
+                "Linear shared_kernel shares the kernel along the dim axes it "
+                "does not project, so it needs an axis: without one, the whole "
+                "dim is projected at once."
+            )
         self.out_features = int(out_features)
         self.axis = None if axis is None else int(axis)
+        self.shared_kernel = bool(shared_kernel)
         super().__init__(
-            name, kernel, bias, out_features=self.out_features, axis=self.axis
+            name,
+            kernel,
+            bias,
+            out_features=self.out_features,
+            axis=self.axis,
+            shared_kernel=self.shared_kernel,
         )
 
     def _axis(self, dim) -> int | None:
@@ -136,9 +188,16 @@ class Linear(_ParameterWeights):
 
     def _weight_shapes(self, x):
         dim = tuple(x.dim)
-        axis = self._axis(dim)
-        projected = dim if axis is None else (dim[axis],)
-        return (*projected, self.out_features), (self.out_features,)
+        return _linear_weight_shapes(
+            dim, self.out_features, self._axis(dim), self.shared_kernel
+        )
+
+    def _draw_shapes(self, kernel_shape, bias_shape):
+        # Along an axis, the matrix and the bias of each position alone; the
+        # whole-dim kernel as the Weight's default, one matrix.
+        if self.axis is None:
+            return None, None
+        return kernel_shape[-2:], bias_shape[-1:]
 
     def output_shape(self, *inputs):
         # Declared rather than probed with dummy tensors, which would have to
@@ -158,5 +217,6 @@ class Linear(_ParameterWeights):
             out_features=self.out_features,
             dim_rank=len(dim),
             axis=self._axis(dim),
+            shared_kernel=self.shared_kernel,
             name=self.name,
         )

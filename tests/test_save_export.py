@@ -116,8 +116,8 @@ def _single_input_model(name, transform, *, dim=1, time=3):
 
 
 def _arithmetic_model():
-    parameter = Parameter("onnx_parameter", value=[[2.0]])
-    constant = Constant("onnx_constant", value=[[0.5]])
+    parameter = Parameter("onnx_parameter", value=[2.0])
+    constant = Constant("onnx_constant", value=[0.5])
     return _single_input_model(
         "onnx_arithmetic",
         lambda stream: (((stream * parameter) + constant - 0.25) / 2.0) ** 2,
@@ -174,7 +174,7 @@ def _equation_learner_model():
         ),
         linear_out=Linear(
             out_features=1,
-            kernel=Parameter("equation_export_weights", value=[[2.0], [3.0], [4.0]]),
+            kernel=Parameter("equation_export_weights", value=[2.0, 3.0, 4.0]),
             bias=False,
             name="equation_export_linear_out",
         ),
@@ -544,7 +544,7 @@ def test_local_model_with_fuzzy_product_round_trips(tmp_path):
 
 def _roll_model():
     x = Input("roll_x")
-    taps = Parameter("roll_taps", value=np.ones((5, 1)))
+    taps = Parameter("roll_taps", value=np.ones(5))
     fir = Fir(out_features=1, kernel=taps, bias=False, name="roll_fir")(x.sw(5))
     output = Output("roll_out", fir + x.last())
     model = Modely("roll_model", inputs=[x], outputs=[output])
@@ -725,7 +725,7 @@ def _weighted_layers_model():
     projected = Linear(out_features=2, name="weighted_linear")(y.sw(2))
     mixed = Fir(out_features=2, bias=False, name="weighted_fir")(projected)
     gain = Parameter("weighted_gain", dim=2)
-    offset = Constant("weighted_offset", value=[[1.0], [2.0]])
+    offset = Constant("weighted_offset", value=[1.0, 2.0])
     return Modely(
         "weighted_layers",
         inputs=[x, y],
@@ -865,8 +865,8 @@ def _integrate_model():
 def _ode_step_model():
     position = Input("ode_step_p", dim=1)
     velocity = Input("ode_step_v", dim=1)
-    stiffness = Parameter("ode_step_k", value=[[2.0]])
-    damping = Constant("ode_step_c", value=[[0.3]])
+    stiffness = Parameter("ode_step_k", value=[2.0])
+    damping = Constant("ode_step_c", value=[0.3])
 
     def field(p, v):
         return [v, -1.0 * stiffness * p - damping * v]
@@ -886,7 +886,7 @@ def _rollback_mechanical_model():
     position = Input("rollback_position", dim=1)
     velocity = Input("rollback_velocity", dim=1)
     force = Input("rollback_force", dim=1)
-    stiffness = Parameter("rollback_stiffness", value=[[1.0]])
+    stiffness = Parameter("rollback_stiffness", value=[1.0])
     # The damping reads the velocity estimated from the position window.
     estimated_velocity = TimeSelect(idx=-1)(Derivative(dt=dt)(position.sw(3)))
     acceleration = (
@@ -976,7 +976,7 @@ def _loop_trajectory_model():
     window = position.sw(2)
     acceleration = Fir(out_features=1, name="loop_traj_force_fir")(
         force.last()
-    ) - Parameter("loop_traj_damping", value=[[0.5]]) * TimeSelect(idx=-1)(
+    ) - Parameter("loop_traj_damping", value=[0.5]) * TimeSelect(idx=-1)(
         Derivative(dt=dt)(window)
     )
     velocity_step = IntegrateStep(dt=dt, init=velocity.last())(acceleration)
@@ -1049,7 +1049,7 @@ def _nested_loop_model():
 
 def _shared_body_model():
     state = Input("shared_body_state", dim=1)
-    gain = Parameter("shared_body_gain", value=[[0.5]])
+    gain = Parameter("shared_body_gain", value=[0.5])
     next_state = Output(
         "shared_body_next",
         Linear(out_features=1, name="shared_body_linear")(state.last()) * gain,
@@ -1086,7 +1086,7 @@ def _shared_body_model():
 
 def _ode_loop_model():
     x = Input("ode_loop_x", dim=1)
-    rate = Parameter("ode_loop_rate", value=[[1.0]])
+    rate = Parameter("ode_loop_rate", value=[1.0])
     body_output = Output(
         "ode_loop_next",
         Ode(lambda state: -1.0 * rate * state, x.last(), 0.05, method="rk4"),
@@ -1137,8 +1137,8 @@ def _complete_vehicle_model():
     slope = Interpolation(
         x_points=[0.0, 0.5, 1.0], y_points=[0.0, 0.2, 0.1], name="vehicle_slope"
     )(speed.last())
-    drag = Parameter("vehicle_drag", value=[[0.1]]) * speed.last() ** 2
-    gravity = Constant("vehicle_gravity", value=[[9.81]])
+    drag = Parameter("vehicle_drag", value=[0.1]) * speed.last() ** 2
+    gravity = Constant("vehicle_gravity", value=[9.81])
     acceleration = (
         engine * grip
         - drag
@@ -1613,7 +1613,7 @@ def test_a_loop_closed_over_a_generated_layer_reloads_beside_its_original(tmp_pa
     # Once a failure: a load renamed the body's layer while the Loop still
     # named it as the output it feeds back.
     s = Input("bare_s")
-    gain = Parameter("bare_gain", value=[[2.0]])
+    gain = Parameter("bare_gain", value=[2.0])
     # A body output, unnamed.
     bare = Fir(out_features=1, kernel=gain, bias=False)(s.last())
     body = Modely("bare_body", inputs=[s], outputs=[bare]).build()

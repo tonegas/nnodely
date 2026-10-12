@@ -49,7 +49,9 @@ variable, and trains, validates and exports through Keras. Models saved with
   the layer, and layers given one Parameter share it. `bias=False` leaves the
   bias out. A Fir draws the filter of each element alone.
 - `Linear` maps the whole dim of a multi-dimensional input, `(*dim, T)` to
-  `(out_features, T)`, or only one dim axis with `axis=k`.
+  `(out_features, T)`, or only one dim axis with `axis=k`: with a matrix and a
+  bias for each position of the other dim axes, as the elements of a `Fir`, or
+  with `shared_kernel=True` one for all.
 - `save(path, weights=True)` / `Modely.load(path, weights=True)`, Keras and
   ONNX export, interactive HTML graphs, and Graphviz drawings: one image per
   model and per sub-model, or one flattened image, with a legend.
@@ -60,6 +62,10 @@ variable, and trains, validates and exports through Keras. Models saved with
 
 - Every stream is laid out `(batch, *dim, time, *seq)`, a `Parameter` or a
   `Constant` included: their value is repeated for every sample.
+- A `Parameter` or `Constant` `value` is all dim by default, one time step:
+  an array of shape `(2, 3, 2)` is `D=(2, 3, 2)`. Given with a value, `dim`,
+  `time` and `seq` name its axes (`dim=0, time=1, seq=2` makes it
+  `D=(2,), T=3, S=(2,)`); without one, they are sizes.
 - A layer is identified by the Python object it comes from: applying one layer
   object several times shares its weights, and layers created apart never
   share them, whatever their names.
@@ -93,6 +99,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `ForwardEuler`, `RK2`, `RK4` | `Ode(f, states, dt, method=...)` |
 | `NeuralODE` | `OdeNet` |
 | `Part`, `SamplePart`, `TimePart`, `SampleSelect` | `Range`, `TimeRange`, `TimeSelect`, `Select` |
+| `Parameter(name, dimensions, sw=..., values=..., init=...)`, `Constant(name, values, sw=...)` | `Parameter(name, value=..., time=...)` or `Parameter(name, dim=..., time=..., initializer=...)`, `Constant(name, value=..., time=...)` |
 | `ParamFun` | the function written with streams and `Parameter`s, or a custom `Layer` |
 | `clearNames` | not needed: names never decide which layers share weights |
 

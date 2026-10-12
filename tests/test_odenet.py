@@ -464,7 +464,9 @@ def test_odenet_trains_a_field_holding_a_shared_layer():
     ).build()
 
     # Two reported times one sample apart: the trajectory is [x(t), x(t + dt)].
-    t = Constant("t_shared", value=np.array([[[0.0, dt]]], dtype=np.float32))
+    t = Constant(
+        "t_shared", value=np.array([[[0.0, dt]]], dtype=np.float32), time=1, seq=2
+    )
     trajectory = OdeNet(
         f=field, states={x: "dx_shared"}, t=t, method="rk4", steps=1, name="shared_ode"
     )

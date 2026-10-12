@@ -201,7 +201,7 @@ def test_inference_runs_with_the_trained_weights():
 def test_rollback_inference_does_not_need_minimizer_inputs():
     x = Input("rollback_inference_x", dim=1)
     target = Input("rollback_inference_target", dim=1)
-    taps = Parameter("rollback_inference_taps", value=np.ones((5, 1)))
+    taps = Parameter("rollback_inference_taps", value=np.ones(5))
     fir = Fir(out_features=1, kernel=taps, bias=False, name="rollback_inference_fir")(
         x.sw(5)
     )
@@ -224,7 +224,7 @@ def test_rollback_inference_does_not_need_minimizer_inputs():
 
 def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
     state = Input("minimized_body_state", dim=1)
-    gain = Parameter("minimized_body_gain", value=[[2.0]])
+    gain = Parameter("minimized_body_gain", value=[2.0])
     relation = Linear(
         out_features=1, kernel=gain, bias=False, name="minimized_body_linear"
     )(state.last())

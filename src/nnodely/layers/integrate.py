@@ -426,7 +426,7 @@ class Integrate:
             self._validate_init_shape(rate, self.init)
             seed = self.init
             if tuple(seed.dim) != dim:  # a scalar init, spread over the rate's dim
-                seed = seed * Constant(value=np.ones((*dim, 1)))
+                seed = seed * Constant(value=np.ones(dim))
             initial[state_in] = seed
         elif self.init is not None:
             initial[state_in] = float(self.init)

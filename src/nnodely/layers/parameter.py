@@ -1,12 +1,11 @@
 import math
-import warnings
 from typing import cast
 
 import numpy as np
 import keras
 
 from nnodely.core.layer import Layer
-from nnodely.core.stream import Shape, Stream
+from nnodely.core.stream import Stream
 from nnodely.utils.utils import _per_slice_initializer, _serialized_initializer
 
 
@@ -78,16 +77,66 @@ class ConstantImpl(ParameterImpl):
     trainable_value = False
 
 
-def _value_array(value, owner: str) -> np.ndarray:
-    """``value`` laid out ``(dim, time, *seq)``.
+def _value_layout(value, dim, time, seq, owner: str):
+    """``value`` laid out ``(*dim, time, *seq)``, and the sizes of those axes.
 
-    A number or a vector is one time step of its dim, a matrix gives the dim
-    and time axes, and any further axis is a sequence axis.
+    Without ``dim``, ``time`` and ``seq``, every axis of ``value`` is a dim
+    axis and the value holds one time step. Otherwise they name the axes of
+    ``value`` that play each part: ``dim`` and ``seq`` an axis or a tuple of
+    axes, ``time`` one axis. The axes ``time`` and ``seq`` leave are the dim
+    axes, unless ``dim`` names them; a value with none keeps a dim of one.
     """
     array = np.atleast_1d(np.asarray(value, dtype=np.float32))
     if array.size == 0:
         raise ValueError(f"{owner}: value must not be empty.")
-    return array[:, np.newaxis] if array.ndim == 1 else array
+
+    def axes(spec, label):
+        items = (
+            ()
+            if spec is None
+            else (spec,)
+            if isinstance(spec, (int, np.integer))
+            else tuple(spec)
+        )
+        for axis in items:
+            if not -array.ndim <= axis < array.ndim:
+                raise ValueError(
+                    f"{owner}: {label} axis {axis} is not an axis of a value of "
+                    f"shape {array.shape}."
+                )
+        return tuple(int(axis) % array.ndim for axis in items)
+
+    time_axes = axes(time, "time")
+    if len(time_axes) > 1:
+        raise ValueError(f"{owner}: time is one axis of value, got {time}.")
+    seq_axes = axes(seq, "seq")
+    dim_axes = (
+        axes(dim, "dim")
+        if dim is not None
+        else tuple(
+            axis for axis in range(array.ndim) if axis not in time_axes + seq_axes
+        )
+    )
+    order = dim_axes + time_axes + seq_axes
+    if sorted(order) != list(range(array.ndim)):
+        raise ValueError(
+            f"{owner}: dim, time and seq must take each axis of a value of shape "
+            f"{array.shape} once, got dim={dim_axes}, time={time_axes}, "
+            f"seq={seq_axes}."
+        )
+
+    array = np.transpose(array, order)
+    if not dim_axes:
+        array = array[np.newaxis]
+    dim_rank = max(1, len(dim_axes))
+    if not time_axes:
+        array = np.expand_dims(array, axis=dim_rank)
+    return (
+        array,
+        array.shape[:dim_rank],
+        array.shape[dim_rank],
+        array.shape[dim_rank + 1 :],
+    )
 
 
 class _Value(Layer):
@@ -100,18 +149,10 @@ class _Value(Layer):
     _impl: type[ParameterImpl] = ParameterImpl
 
     def __init__(self, name, value, initializer, dim, time, seq):
-        overridden = []
         if value is not None:
-            value = _value_array(value, self.__class__.__name__)
-            shape = Shape(dim=value.shape[0], time=value.shape[1], seq=value.shape[2:])
-            given = {"dim": dim, "time": time, "seq": seq}
-            overridden = [
-                axis
-                for axis, size in given.items()
-                if size is not None
-                and getattr(Shape(**{axis: size}), axis) != getattr(shape, axis)
-            ]
-            dim, time, seq = shape.dimensions
+            value, dim, time, seq = _value_layout(
+                value, dim, time, seq, self.__class__.__name__
+            )
 
         self.value = value
         self.initializer = initializer
@@ -124,13 +165,6 @@ class _Value(Layer):
             value=None if value is None else value.tolist(),
             initializer=initializer,
         )
-        if overridden:
-            warnings.warn(
-                f"{self.name}: the shape of value is {self.shape.tuple}, which "
-                f"overrides the {', '.join(overridden)} given with it.",
-                UserWarning,
-                stacklevel=3,
-            )
 
     def build_layer(self):
         return self._impl(
@@ -142,8 +176,20 @@ class _Value(Layer):
 
     def get_config(self):
         # Read from no stream, a value keeps its shape in its config rather
-        # than taking it from its inputs as other layers do.
-        return Stream.get_config(self)
+        # than taking it from its inputs as other layers do. A value is saved
+        # laid out (*dim, time, *seq), with the axes that play each part.
+        config = Stream.get_config(self)
+        if self.value is not None:
+            dim_rank, seq_rank = len(self.shape.dim), len(self.shape.seq)
+            config.update(
+                {
+                    "dim": list(range(dim_rank)),
+                    "time": dim_rank,
+                    "seq": list(range(dim_rank + 1, dim_rank + 1 + seq_rank)),
+                    "value": self.value.tolist(),
+                }
+            )
+        return config
 
     @property
     def _variable(self):
@@ -158,11 +204,18 @@ class Parameter(_Value):
     """
     Trainable symbolic parameter.
 
-    ``value`` sets its shape and initial value: a number or a vector is one
-    time step of its ``dim``, a matrix is ``(dim, time)``, and further axes
-    are ``seq`` axes. Without ``value`` the shape is given by ``dim``, ``time``
-    and ``seq``, and ``initializer``, any Keras initializer, draws the initial
-    value. A ``value`` overrides the ``dim``, ``time`` and ``seq`` given with it.
+    Without ``value``, ``dim``, ``time`` and ``seq`` are the sizes of its
+    axes, and ``initializer``, any Keras initializer, draws its initial value.
+
+    ``value`` sets the shape and the initial value. Every axis of the value is
+    a dim axis, and the value holds one time step, unless ``dim``, ``time``
+    and ``seq`` say otherwise: given with a value they are axes of the value
+    - ``dim`` and ``seq`` an axis or a tuple of axes, ``time`` one axis - and
+    the axes ``time`` and ``seq`` leave are the dim axes::
+
+        Parameter("p", value=np.ones((2, 3, 2)))                       # D=(2, 3, 2), T=1
+        Parameter("p", value=np.ones((2, 3, 2)), dim=0, time=1, seq=2)  # D=(2,), T=3, S=(2,)
+        Parameter("p", value=[[1.0, 2.0, 3.0]], time=1)                 # D=(1,), T=3
 
     Like every stream it is laid out with a batch axis first, the same value
     for every sample::
@@ -201,8 +254,13 @@ class Constant(_Value):
     """
     Non-trainable symbolic constant layer.
 
-    ``value`` sets its shape: a number or a vector is one time step of its
-    ``dim``, a matrix is ``(dim, time)``, and further axes are ``seq`` axes.
+    ``value`` sets its shape as for a :class:`Parameter`: every axis of the
+    value is a dim axis, and the value holds one time step, unless ``dim``,
+    ``time`` and ``seq`` name the axes of the value that play each part::
+
+        Constant("c", value=[1.0, 2.0, 3.0])                 # D=(3,), T=1
+        Constant("c", value=[[1.0, 2.0, 3.0]], time=1)       # D=(1,), T=3
+
     Numbers used in arithmetic with a stream become constants automatically.
 
     Like every stream it is laid out with a batch axis first, the same value
@@ -213,23 +271,26 @@ class Constant(_Value):
 
     _impl = ConstantImpl
 
-    def __init__(self, name: str | None = None, *, value):
+    def __init__(
+        self, name: str | None = None, *, value, seq=None, time=None, dim=None
+    ):
         if value is None:
             raise ValueError("Constant requires a value.")
-        super().__init__(name, value, None, None, None, None)
+        super().__init__(name, value, None, dim, time, seq)
 
     @property
     def constant(self):
         return self._variable
 
-    def get_config(self):
-        config = super().get_config()
-        config.update({"value": self.value.tolist()})  # type: ignore
-        return config
-
     @classmethod
     def from_config(cls, config: dict, preds=None):
-        return cls(name=config["name"], value=config["value"])
+        return cls(
+            name=config["name"],
+            value=config["value"],
+            dim=config.get("dim"),
+            time=config.get("time"),
+            seq=config.get("seq"),
+        )
 
 
 @keras.saving.register_keras_serializable(package="nnodely")

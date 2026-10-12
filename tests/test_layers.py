@@ -743,37 +743,52 @@ def test_linear_projects_the_whole_dim_by_default():
 
 
 @pytest.mark.parametrize(
-    "axis, out_dim, kernel_shape, subscripts",
+    "axis, shared_kernel, kernel_shape, bias_shape, out_dim, subscripts, bias_terms",
     [
-        (0, (2, 3), (2, 2), "bijts,io->bojts"),
-        (1, (2, 2), (3, 2), "bijts,jo->biots"),
-        (-1, (2, 2), (3, 2), "bijts,jo->biots"),
+        # A matrix and a bias per position of the other axis, as the
+        # elements of a Fir: the default.
+        (0, False, (3, 2, 2), (3, 2), (2, 3), "bijts,jio->bojts", "jo->oj"),
+        (1, False, (2, 3, 2), (2, 2), (2, 2), "bijts,ijo->biots", "io->io"),
+        (-1, False, (2, 3, 2), (2, 2), (2, 2), "bijts,ijo->biots", "io->io"),
+        # One matrix and one bias for every position.
+        (0, True, (2, 2), (2,), (2, 3), "bijts,io->bojts", "o->o"),
+        (1, True, (3, 2), (2,), (2, 2), "bijts,jo->biots", "o->o"),
     ],
 )
 def test_linear_with_an_axis_projects_that_axis_alone(
-    tmp_path, axis, out_dim, kernel_shape, subscripts
+    tmp_path,
+    axis,
+    shared_kernel,
+    kernel_shape,
+    bias_shape,
+    out_dim,
+    subscripts,
+    bias_terms,
 ):
-    # The same matrix along the axis, at every position of the other one;
     # out_features takes the place of the axis.
     x = Input("lin_axis_x", dim=(2, 3), seq=2)
-    linear = Linear(out_features=2, axis=axis, name="lin_axis")(x.sw(4))
+    linear = Linear(
+        out_features=2, axis=axis, shared_kernel=shared_kernel, name="lin_axis"
+    )(x.sw(4))
     model = Modely(
         "lin_axis_model", inputs=[x], outputs=[Output("lin_axis_out", linear)]
     ).build()
     assert linear.shape.dimensions == (out_dim, 4, (2,))
     assert linear.kernel is not None and linear.bias is not None
     assert tuple(linear.kernel.shape) == kernel_shape
+    assert tuple(linear.bias.shape) == bias_shape
 
     values = _linear_values((5, 2, 3, 4, 2), seed=13)
     result = to_numpy(model({"lin_axis_x": values})["lin_axis_out"])
-    bias_shape = [1] * result.ndim
-    bias_shape[1 + axis % 2] = 2
-    expected = np.einsum(subscripts, values, to_numpy(linear.kernel)) + to_numpy(
-        linear.bias
-    ).reshape(bias_shape)
+    bias = np.einsum(bias_terms, to_numpy(linear.bias))
+    if shared_kernel:  # one bias per output, along the axis
+        bias = bias.reshape([2 if index == axis % 2 else 1 for index in range(2)])
+    expected = np.einsum(subscripts, values, to_numpy(linear.kernel)) + bias.reshape(
+        1, *bias.shape, 1, 1
+    )
     np.testing.assert_allclose(result, expected, rtol=1e-5, atol=1e-5)
 
-    # The axis is part of the architecture: saved and loaded with it.
+    # The axis and the sharing are the architecture: saved and loaded with it.
     model.save(tmp_path / "lin_axis")
     restored = Modely.load(tmp_path / "lin_axis")
     np.testing.assert_allclose(
@@ -782,6 +797,11 @@ def test_linear_with_an_axis_projects_that_axis_alone(
         rtol=1e-5,
         atol=1e-5,
     )
+
+
+def test_linear_shared_kernel_needs_an_axis():
+    with pytest.raises(ValueError, match="needs an axis"):
+        Linear(out_features=2, shared_kernel=True)
 
 
 def test_linear_rejects_an_axis_its_input_does_not_have():
@@ -1172,7 +1192,7 @@ def test_fir_takes_a_parameter_whose_shape_differs_only_by_axes_of_size_one():
 def test_firs_given_one_parameter_share_its_weight(tmp_path):
     x = Input("fir_twin_x")
     y = Input("fir_twin_y")
-    w = Parameter("fir_twin_w", value=np.ones((3, 1)))
+    w = Parameter("fir_twin_w", value=np.ones(3))
     first = Fir(out_features=1, kernel=w, bias=False)([x.sw(3)])
     second = Fir(out_features=1, kernel=w, bias=False)([y.sw(3)])
     model = Modely(
@@ -1219,7 +1239,7 @@ def test_fir_rejects_parameters_it_cannot_use():
 @pytest.mark.slow
 def test_fir_trains_the_parameters_it_is_given():
     x = Input("fir_train_x")
-    w = Parameter("fir_train_w", value=np.zeros((3, 1)))
+    w = Parameter("fir_train_w", value=np.zeros(3))
     b = Parameter("fir_train_b", value=[0.0])
     fir = Fir(out_features=1, kernel=w, bias=b)([x.sw(3)])
     model = Modely(

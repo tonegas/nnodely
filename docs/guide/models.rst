@@ -23,10 +23,12 @@ Parameters and constants
 ------------------------
 
 A :class:`~nnodely.Parameter` is a trainable tensor used directly in the graph,
-and a :class:`~nnodely.Constant` is a fixed one. A ``value`` sets the shape: a
-number or a vector is one time step of its ``dim``, a matrix is ``(dim, time)``
-and further axes are ``seq`` axes. A constant always takes its shape from its
-``value``; a parameter can be given ``dim``, ``time`` and ``seq`` instead, and
+and a :class:`~nnodely.Constant` is a fixed one. A ``value`` sets the shape:
+every axis of the value is a ``dim`` axis and the value holds one time step,
+unless ``dim``, ``time`` and ``seq`` name the axes of the value that play each
+part - ``Parameter("w", value=np.ones((2, 3)), time=1)`` is a 2-feature window
+of 3 samples. A constant always takes its shape from its ``value``; a
+parameter can be given ``dim``, ``time`` and ``seq`` as sizes instead, and
 start from a random value. Like every stream they are laid out
 ``(batch, *dim, time, *seq)``, the same value for every sample:
 
@@ -57,7 +59,9 @@ is created: ``Sin(x)`` is ``Sin()(x)``. To name it, configure it first:
      - What it does
    * - :class:`~nnodely.Linear`
      - Affine map ``W x + b`` over all the features of a sample (the dim
-       axes), or over one dim axis with ``axis``, applied to every sample.
+       axes), or over one dim axis with ``axis`` - with a matrix per position
+       of the other axes, or one for all with ``shared_kernel`` - applied to
+       every sample.
    * - :class:`~nnodely.Fir`
      - Finite impulse response filter: a learned weighted sum over the time
        window of every feature alone, returning one sample.

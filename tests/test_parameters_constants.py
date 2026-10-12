@@ -1,5 +1,3 @@
-import warnings
-
 import numpy as np
 import pytest
 from conftest import to_numpy
@@ -19,18 +17,22 @@ def test_parameter_shape_is_inferred_like_constant():
     parameter = Parameter(
         "parameter_sequence", value=np.ones((2, 3, 4), dtype=np.float32)
     )
-    parameter_with_dim = Parameter(
-        "parameter_with_dim", value=np.ones((1, 3, 4), dtype=np.float32), dim=1
+    parameter_with_axes = Parameter(
+        "parameter_with_axes",
+        value=np.ones((1, 3, 4), dtype=np.float32),
+        dim=0,
+        time=1,
+        seq=2,
     )
 
-    assert parameter.shape.dimensions == ((2,), 3, (4,))
-    assert parameter_with_dim.shape.dimensions == ((1,), 3, (4,))
+    assert parameter.shape.dimensions == ((2, 3, 4), 1, ())
+    assert parameter_with_axes.shape.dimensions == ((1,), 3, (4,))
 
 
 def test_parameter_constant_model_inference():
     x = Input("x", dim=1)
-    parameter = Parameter("param1", value=[[1.0]])
-    constant = Constant("const1", value=[[1.0]])
+    parameter = Parameter("param1", value=[1.0])
+    constant = Constant("const1", value=[1.0])
 
     y = x.sw(1) * parameter + constant
     out = Output("x_out", y)
@@ -79,7 +81,7 @@ def test_parameter_constant_model_inference():
 
 def test_parameter_through_a_layer_keeps_the_batch_axis():
     x = Input("x", dim=4)
-    parameter = Parameter("param_exp", value=np.zeros((4, 1), dtype=np.float32))
+    parameter = Parameter("param_exp", value=np.zeros(4, dtype=np.float32))
 
     y = x.last() * Exp()([parameter])
     model = Modely("model_param_exp", inputs=[x], outputs=[Output("x_out", y)])
@@ -97,18 +99,49 @@ def test_parameter_through_a_layer_keeps_the_batch_axis():
     [
         (2.0, ((1,), 1, ())),
         ([1.0, 2.0, 3.0], ((3,), 1, ())),
-        (np.ones((2, 4)), ((2,), 4, ())),
-        (np.ones((2, 4, 3)), ((2,), 4, (3,))),
+        (np.ones((2, 4)), ((2, 4), 1, ())),
+        (np.ones((2, 4, 3)), ((2, 4, 3), 1, ())),
     ],
-    ids=["number", "vector", "matrix", "sequence"],
+    ids=["number", "vector", "matrix", "three_axes"],
 )
 def test_a_value_is_laid_out_dim_time_seq(value, dimensions):
-    # A number or a vector is one time step of its dim, a matrix is (dim,
-    # time), and further axes are sequence axes - for both classes alike.
+    # Unless told otherwise, every axis of a value is a dim axis and the value
+    # holds one time step - for both classes alike.
     for node in (Constant(value=value), Parameter(value=value)):
         assert node.shape.dimensions == dimensions
         assert node.value is not None
         assert node.value.shape == node.shape.tuple
+
+
+@pytest.mark.parametrize(
+    "axes, dimensions, order",
+    [
+        ({"dim": 0, "time": 1, "seq": 2}, ((2,), 3, (4,)), (0, 1, 2)),
+        # The axes time and seq leave are the dim axes.
+        ({"time": 1}, ((2, 4), 3, ()), (0, 2, 1)),
+        ({"seq": (1, 2)}, ((2,), 1, (3, 4)), (0, 1, 2)),
+        # dim names its axes in the order it wants them.
+        ({"dim": (2, 0), "time": 1}, ((4, 2), 3, ()), (2, 0, 1)),
+        ({"dim": -1, "time": 0, "seq": 1}, ((4,), 2, (3,)), (2, 0, 1)),
+    ],
+    ids=["all_three", "time_only", "seq_only", "dim_reordered", "negative"],
+)
+def test_dim_time_and_seq_name_the_axes_of_a_value(axes, dimensions, order):
+    values = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
+    for node in (Constant(value=values, **axes), Parameter(value=values, **axes)):
+        assert node.shape.dimensions == dimensions
+        # The value is laid out (*dim, time, *seq): the axes moved into place,
+        # and a time step of one added where the value has no time axis.
+        assert node.value is not None
+        np.testing.assert_array_equal(
+            node.value, np.transpose(values, order).reshape(node.shape.tuple)
+        )
+
+
+def test_a_value_without_dim_axes_keeps_a_dim_of_one():
+    window = Parameter("window", value=[1.0, 2.0, 3.0, 4.0], time=0)
+
+    assert window.shape.dimensions == ((1,), 4, ())
 
 
 def test_a_vector_value_becomes_a_column():
@@ -133,24 +166,24 @@ def test_a_parameter_without_value_is_drawn_with_the_shape_it_is_given():
     np.testing.assert_allclose(to_numpy(result), np.ones((2, 3, 2, 4, 5)))
 
 
-def test_a_value_overrides_the_shape_given_with_it():
-    with pytest.warns(UserWarning, match="overrides the dim, time"):
-        overridden = Parameter("overridden", value=np.ones((2, 3)), dim=4, time=1)
-    assert overridden.shape.dimensions == ((2,), 3, ())
+def test_dim_time_and_seq_must_name_each_axis_of_a_value_once():
+    values = np.ones((2, 3, 4))
+    with pytest.raises(ValueError, match="time is one axis"):
+        Parameter("two_times", value=values, time=(1, 2))
+    with pytest.raises(ValueError, match="dim axis 3 is not an axis"):
+        Parameter("out_of_range", value=values, dim=3)
+    # Axis 2 is left out, and then axis 1 taken twice.
+    with pytest.raises(ValueError, match="must take each axis"):
+        Parameter("left_out", value=values, dim=0, time=1)
+    with pytest.raises(ValueError, match="must take each axis"):
+        Constant("taken_twice", value=values, dim=(0, 1), time=1, seq=2)
 
-    # An axis given the size the value has is not overridden: no warning.
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        agreeing = Parameter("agreeing", value=np.ones((2, 3)), dim=2)
-    assert agreeing.shape.dimensions == ((2,), 3, ())
 
-
-def test_a_matrix_value_given_with_its_dim_is_a_dim_by_time_stream():
-    # dim=3 was once read as a number of axes: the stream became (3, 1) and
-    # the model failed to reshape its twelve values.
+def test_a_matrix_value_given_its_time_axis_is_a_dim_by_time_stream():
+    # time=1: the columns of the matrix are its time steps, the rows its dim.
     x = Input("matrix_x", dim=3)
     values = np.arange(12, dtype=np.float32).reshape(3, 4)
-    parameter = Parameter("matrix_parameter", value=values, dim=3)
+    parameter = Parameter("matrix_parameter", value=values, time=1)
     model = Modely(
         "matrix_model", inputs=[x], outputs=[Output("matrix_out", x.sw(4) + parameter)]
     ).build()
@@ -179,10 +212,45 @@ def test_only_a_parameter_is_trained():
     assert any(weight is constant.constant for weight in fixed)
 
 
-def test_a_constant_takes_its_shape_from_its_value_only():
+def test_a_constant_requires_a_value_and_names_its_axes_like_a_parameter():
     with pytest.raises(ValueError, match="requires a value"):
         Constant("no_value", value=None)
     with pytest.raises(ValueError, match="must not be empty"):
         Constant("empty_value", value=[])
-    with pytest.raises(TypeError):
-        Constant("given_dim", value=[1.0], dim=1)  # type: ignore[call-arg]
+    # With a value, dim is an axis of it, not a size.
+    with pytest.raises(ValueError, match="dim axis 1 is not an axis"):
+        Constant("given_dim", value=[1.0], dim=1)
+
+
+def test_values_given_their_axes_round_trip_through_save(tmp_path):
+    x = Input("axes_x")
+    values = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
+    parameter = Parameter("axes_parameter", value=values, dim=(2, 0), time=1)
+    constant = Constant("axes_constant", value=[[1.0, 2.0, 3.0]], time=1)
+    model = Modely(
+        "axes_model",
+        inputs=[x],
+        outputs=[
+            Output("axes_x_out", x.last()),
+            Output("axes_parameter_out", parameter),
+            Output("axes_constant_out", constant),
+        ],
+    ).build()
+    data = {"axes_x": np.zeros((1, 1, 1), dtype=np.float32)}
+    before = model(data)
+
+    model.save(tmp_path / "axes", weights=False)
+    restored = Modely.load(tmp_path / "axes")
+    nodes = {node.name: node for node in restored.order}
+
+    restored_parameter, restored_constant = (
+        nodes["axes_parameter"],
+        nodes["axes_constant"],
+    )
+    assert isinstance(restored_parameter, Parameter)
+    assert isinstance(restored_constant, Constant)
+    assert restored_parameter.shape.dimensions == ((4, 2), 3, ())
+    assert restored_constant.shape.dimensions == ((1,), 3, ())
+    after = restored(data)
+    for name in ("axes_parameter_out", "axes_constant_out"):
+        np.testing.assert_array_equal(to_numpy(after[name]), to_numpy(before[name]))

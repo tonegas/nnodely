@@ -48,8 +48,8 @@ def _repeated(sample):
 
 def test_a_parameter_and_a_constant_are_repeated_for_every_sample():
     x = Input("repeat_x")
-    parameter = Parameter("repeat_parameter", value=[[1.0], [2.0], [3.0]])
-    constant = Constant("repeat_constant", value=[[4.0, 5.0]])
+    parameter = Parameter("repeat_parameter", value=[1.0, 2.0, 3.0])
+    constant = Constant("repeat_constant", value=[[4.0, 5.0]], time=1)
 
     _, result = _evaluate("repeat", {"parameter": parameter, "constant": constant}, x)
 
@@ -59,7 +59,7 @@ def test_a_parameter_and_a_constant_are_repeated_for_every_sample():
 
 def test_dim_slicing_of_a_parameter_selects_along_its_dim_axis():
     x = Input("dim_slice_x")
-    parameter = Parameter("dim_slice_parameter", value=[[1.0], [2.0], [3.0]])
+    parameter = Parameter("dim_slice_parameter", value=[1.0, 2.0, 3.0])
 
     _, result = _evaluate(
         "dim_slice",
@@ -78,7 +78,7 @@ def test_dim_slicing_of_a_parameter_selects_along_its_dim_axis():
 
 def test_time_slicing_of_a_constant_selects_along_its_time_axis():
     x = Input("time_slice_x")
-    constant = Constant("time_slice_constant", value=[[1.0, 2.0, 3.0, 4.0]])
+    constant = Constant("time_slice_constant", value=[[1.0, 2.0, 3.0, 4.0]], time=1)
 
     _, result = _evaluate(
         "time_slice",
@@ -95,8 +95,8 @@ def test_time_slicing_of_a_constant_selects_along_its_time_axis():
 
 def test_concatenation_joins_a_parameter_with_an_input_sample_by_sample():
     x = Input("join_x")
-    parameter = Parameter("join_parameter", value=[[1.0], [2.0]])
-    window = Constant("join_window", value=[[5.0, 6.0]])
+    parameter = Parameter("join_parameter", value=[1.0, 2.0])
+    window = Constant("join_window", value=[[5.0, 6.0]], time=1)
 
     _, result = _evaluate(
         "join",
@@ -118,13 +118,13 @@ def test_concatenation_joins_a_parameter_with_an_input_sample_by_sample():
 
 def test_linear_and_fir_project_a_parameter_like_an_input():
     x = Input("project_x")
-    vector = Parameter("project_vector", value=[[1.0], [2.0], [3.0]])
-    window = Parameter("project_window", value=[[1.0, 2.0, 3.0, 4.0]])
+    vector = Parameter("project_vector", value=[1.0, 2.0, 3.0])
+    window = Parameter("project_window", value=[[1.0, 2.0, 3.0, 4.0]], time=1)
     matrix = Parameter("project_matrix", value=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
     linear = Linear(out_features=2, kernel=matrix, bias=False, name="project_linear")(
         [vector]
     )
-    taps = Parameter("project_taps", value=np.ones((4, 1)))
+    taps = Parameter("project_taps", value=np.ones(4))
     fir = Fir(out_features=1, kernel=taps, bias=False, name="project_fir")([window])
     exp = Exp()([vector])
 

@@ -25,7 +25,7 @@ import pytest
 
 def test_loop(tmp_path):
     input1 = Input("in1")
-    gain = Parameter("loop_gain", value=[[2.0]])
+    gain = Parameter("loop_gain", value=[2.0])
     relation = Linear(out_features=1, kernel=gain, bias=False)(input1.last())
     body_output = Output("body_out", relation)
     body = Modely("loop_body", inputs=[input1], outputs=[body_output]).build()
@@ -110,7 +110,7 @@ def test_nested_loop(tmp_path):
 def test_loop_mechanical_modely(tmp_path):
     state = Input("mechanical_state", dim=1)
     external_force = Input("external_force", dim=1)
-    gain = Parameter("mechanical_gain", value=[[2.0]])
+    gain = Parameter("mechanical_gain", value=[2.0])
     state_transition = Linear(out_features=1, kernel=gain, bias="zeros")(state.last())
     next_state_stream = state_transition + 1.0
     next_state = Output("next_state", next_state_stream)
@@ -154,7 +154,7 @@ def test_loop_mechanical_modely(tmp_path):
 
 def test_model_roll():
     x = Input("x")
-    taps = Parameter("roll_taps", value=np.ones((5, 1)))
+    taps = Parameter("roll_taps", value=np.ones(5))
     fir = Fir(out_features=1, kernel=taps, bias=False)(x.sw(5))
     out = Output("out", fir)
     test = Modely("body", inputs=[x], outputs=[out])
@@ -198,7 +198,7 @@ def dummy_input(shape, method="random"):
 
 def test_model_rollback():
     x = Input("x")
-    taps = Parameter("rollback_taps", value=np.ones((5, 1)))
+    taps = Parameter("rollback_taps", value=np.ones(5))
     fir = Fir(out_features=1, kernel=taps, bias=False, name="fir")(x.sw(5))
     out = Output("out", fir + x.last())
     test = Modely("body", inputs=[x], outputs=[out])
@@ -218,7 +218,7 @@ def test_model_rollback():
 def test_model_multi_rollback(tmp_path):
     x = Input("x")
     y = Input("y")
-    taps = Parameter("rollback_taps", value=np.ones((5, 1)))
+    taps = Parameter("rollback_taps", value=np.ones(5))
     fir = Fir(out_features=1, kernel=taps, bias=False, name="fir")(x.sw(5))
     out = Output("out", fir + y.last())
     test = Modely("body", inputs=[x, y], outputs=[out])
@@ -246,8 +246,8 @@ def test_nested_closed_loop(tmp_path):
     # Define a simple model to be used in the loop
     x = Input(name="x", dim=1)
     y = Input(name="y", dim=1)
-    c = Parameter("c", dim=1, value=1.0)
-    d = Parameter("d", dim=1, value=1.0)
+    c = Parameter("c", value=1.0)
+    d = Parameter("d", value=1.0)
     r1 = x * c + y * d
     out1 = Output("out1", r1)
     model_add = Modely(name="model1", inputs=[x, y], outputs=[out1])
@@ -319,7 +319,7 @@ def test_simple_model_loop(tmp_path):
     # Define a simple model to be used in the loop
     x = Input(name="x", dim=1)
     z = Input(name="z", dim=1)
-    w = Parameter("w", dim=1, value=3.5)
+    w = Parameter("w", value=3.5)
     out1 = Output("y", x + w + z)
     model_add = Modely(name="model1", inputs=[x, z], outputs=[out1])
     model_add.build()
@@ -562,7 +562,7 @@ def test_loop_dynamic_length():
 def test_loop_window_feedback():
     # A feedback input with a time window is closed by shifting the window.
     x = Input("window_x", dim=1)
-    ones = Parameter("window_taps", value=np.ones((3, 1)))
+    ones = Parameter("window_taps", value=np.ones(3))
     taps = Fir(out_features=1, kernel=ones, bias=False)([x.sw(3)])
     body_output = Output("window_next", taps)
     body = Modely("window_body", inputs=[x], outputs=[body_output])
@@ -788,7 +788,7 @@ def test_loop_binds_initial_and_inputs_at_call():
 def test_a_parameter_is_one_weight_for_a_loop_body_and_the_outer_model():
     # The gain g is the kernel of a Linear in the body and of one outside it.
     q = Input("shared_q")
-    g = Parameter("shared_g", value=[[2.0]])
+    g = Parameter("shared_g", value=[2.0])
     body = Modely(
         "shared_body",
         inputs=[q],

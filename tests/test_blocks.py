@@ -392,7 +392,7 @@ def test_local_model_cells_share_a_fir_given_its_kernel_as_a_parameter():
     # the same kernel, and memberships summing to one give that Fir back.
     x = Input("x_shared_w")
     g = Input("g_shared_w")
-    w = Parameter("shared_w", value=[[1.0], [2.0], [3.0]])
+    w = Parameter("shared_w", value=[1.0, 2.0, 3.0])
     mu = Fuzzify(centers=[0.0, 1.0, 2.0], function="Triangular")(g.last())
     blended = LocalModel(Fir(out_features=1, kernel=w, bias=False))([x.sw(3)], [mu])
     model = Modely(
@@ -450,7 +450,7 @@ def test_equation_learner_composes_symbolic_functions_and_multiple_inputs():
         ),
         linear_out=Linear(
             out_features=1,
-            kernel=Parameter("equation_out_weights", value=[[2.0], [3.0], [4.0]]),
+            kernel=Parameter("equation_out_weights", value=[2.0, 3.0, 4.0]),
             bias=False,
             name="equation_linear_out",
         ),
@@ -772,7 +772,7 @@ def test_integrate_a_rate_from_a_layer_with_parameter_weights(layer):
     # rate = 2u + 1 on [1, 2, 3, 4] is [3, 5, 7, 9]; Euler with dt = 1 sums it.
     name = f"prate_{layer.__name__.lower()}"
     u = Input(f"{name}_u", seq=4)
-    gain = Parameter(f"{name}_gain", value=[[2.0]])
+    gain = Parameter(f"{name}_gain", value=[2.0])
     offset = Parameter(f"{name}_offset", value=[1.0])
     rate = layer(out_features=1, kernel=gain, bias=offset)(u.last())
     model = Modely(

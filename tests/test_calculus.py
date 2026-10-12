@@ -233,7 +233,7 @@ def test_differentiate_trains_a_parameter_kernel():
     # The derivative of k * x is k: one SGD step on (k - 3)^2 at lr 0.25 moves
     # the Parameter from 1 to 1 - 0.25 * 2 * (1 - 3) = 2.
     x = Input("dk_x")
-    k = Parameter("dk_k", value=[[1.0]])
+    k = Parameter("dk_k", value=[1.0])
     derivative = Output(
         "dk_dx",
         Differentiate(respect_to=x)(
@@ -256,11 +256,11 @@ def test_derivative_between_layers_with_parameter_weights():
     # 2x + 1 on [0, 1, 3, 6] is [1, 3, 7, 13], its slope over dt = 0.5 from a
     # zero start [2, 4, 8, 12], and the Fir keeps the newest slope.
     x = Input("dlay_x")
-    gain = Parameter("dlay_gain", value=[[2.0]])
+    gain = Parameter("dlay_gain", value=[2.0])
     offset = Parameter("dlay_offset", value=[1.0])
     line = Linear(out_features=1, kernel=gain, bias=offset)(x.sw(4))
     slope = Derivative(dt=0.5)(line)
-    newest = Parameter("dlay_newest", value=[[0.0], [0.0], [0.0], [1.0]])
+    newest = Parameter("dlay_newest", value=[0.0, 0.0, 0.0, 1.0])
     last_slope = Fir(out_features=1, kernel=newest, bias=False)(slope)
     model = Modely(
         "dlay_model",
