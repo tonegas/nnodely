@@ -13,7 +13,7 @@ from nnodely import Input, Linear, Modely, Output
 def _initialized_linear_weights(seed: int, suffix: str):
     nnodely.set_seed(seed)
     x = Input(f"seed_x_{suffix}", dim=3)
-    linear = Linear(out_features=2, name=f"seed_linear_{suffix}")(x.last())
+    linear = Linear(features=2, name=f"seed_linear_{suffix}")(x.last())
     Modely(
         f"seed_model_{suffix}",
         inputs=[x],

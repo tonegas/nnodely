@@ -121,17 +121,17 @@ Some examples:
    # a gain scheduled by the gear: one FIR filter per gear, blended
    torque = Input("torque")
    gear_membership = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function="Triangular")([gear.last()])
-   engine_force = LocalModel(Fir(out_features=1))([torque.sw(10)], [gear_membership])
+   engine_force = LocalModel(Fir(features=1))([torque.sw(10)], [gear_membership])
 
    # a lookup table
    rolling = Interpolation(x_points=[0.0, 10.0, 30.0], y_points=[0.0, 0.2, 0.3])([velocity.last()])
 
    # slope force from the three altitude features
-   slope = Linear(out_features=1)([altitude.last()])
+   slope = Linear(features=1)([altitude.last()])
    first_altitude = Select(idx=0)([altitude.last()])
 
    # symbolic regression over velocity: sin(a), a * b, relu(c)
-   learner = EquationLearner(["sin", "multiply", "relu"], linear_out=Linear(out_features=1))
+   learner = EquationLearner(["sin", "multiply", "relu"], linear_out=Linear(features=1))
    learned = learner([velocity.last()])
 
    # the oldest sample of a window

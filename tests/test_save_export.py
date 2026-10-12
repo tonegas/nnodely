@@ -81,8 +81,8 @@ def test_save_load_simple_model(tmp_path):
     ## simple model
     x = Input(name="x")
     y = Input(name="y")
-    x_fir = Fir(out_features=1, bias=True, name="fir_x")([x.sw(5)])
-    y_fir = Fir(out_features=1, bias=True, name="fir_y")([y.sw(5)])
+    x_fir = Fir(features=1, bias=True, name="fir_x")([x.sw(5)])
+    y_fir = Fir(features=1, bias=True, name="fir_y")([y.sw(5)])
     out = Output("accelleration", x_fir + y_fir)
     model = Modely(name="vehicle", inputs=[x, y], outputs=[out])
     model.build()
@@ -170,10 +170,10 @@ def _equation_learner_model():
     equation = EquationLearner(
         functions=["identity", Sin, Cos],
         linear_in=Linear(
-            out_features=3, kernel="ones", bias=False, name="equation_export_linear_in"
+            features=3, kernel="ones", bias=False, name="equation_export_linear_in"
         ),
         linear_out=Linear(
-            out_features=1,
+            features=1,
             kernel=Parameter("equation_export_weights", value=[2.0, 3.0, 4.0]),
             bias=False,
             name="equation_export_linear_out",
@@ -225,13 +225,13 @@ def _local_model():
         (_arithmetic_model, {"onnx_arithmetic_input": [[[1.0]]]}),
         (
             lambda: _single_input_model(
-                "onnx_fir", lambda stream: Fir(out_features=2)(stream)
+                "onnx_fir", lambda stream: Fir(features=2)(stream)
             ),
             {"onnx_fir_input": [[[1.0, 2.0, 3.0]]]},
         ),
         (
             lambda: _single_input_model(
-                "onnx_linear", lambda stream: Linear(out_features=2)(stream)
+                "onnx_linear", lambda stream: Linear(features=2)(stream)
             ),
             {"onnx_linear_input": [[[1.0, 2.0, 3.0]]]},
         ),
@@ -515,10 +515,10 @@ def test_local_model_with_fuzzy_product_round_trips(tmp_path):
         Fuzzify(centers=[0.0, 1.0, 2.0], function="Triangular")([j]),
         Fuzzify(centers=[0.0, 1.0], function="Triangular")([k]),
     ]
-    fused = LocalModel(Fir(out_features=2), output_function=Tanh(), name="save_fused")(
+    fused = LocalModel(Fir(features=2), output_function=Tanh(), name="save_fused")(
         [x.sw(3)], activations
     )
-    stacked = LocalModel(lambda s: Fir(out_features=2)(s), name="save_stacked")(
+    stacked = LocalModel(lambda s: Fir(features=2)(s), name="save_stacked")(
         [x.sw(3)], activations
     )
     model = Modely(
@@ -545,7 +545,7 @@ def test_local_model_with_fuzzy_product_round_trips(tmp_path):
 def _roll_model():
     x = Input("roll_x")
     taps = Parameter("roll_taps", value=np.ones(5))
-    fir = Fir(out_features=1, kernel=taps, bias=False, name="roll_fir")(x.sw(5))
+    fir = Fir(features=1, kernel=taps, bias=False, name="roll_fir")(x.sw(5))
     output = Output("roll_out", fir + x.last())
     model = Modely("roll_model", inputs=[x], outputs=[output])
     model.rollback({x: fir}, steps=3, name="rollout")
@@ -719,11 +719,11 @@ def _weighted_layers_model():
     x = Input("weighted_x", dim=1)
     y = Input("weighted_y", dim=3)
     # One Fir applied to two windows: both applications share its weights.
-    shared_fir = Fir(out_features=2, name="weighted_shared_fir")
+    shared_fir = Fir(features=2, name="weighted_shared_fir")
     past = shared_fir(x.sw(4))
     around = shared_fir(x.sw([3, 1]))
-    projected = Linear(out_features=2, name="weighted_linear")(y.sw(2))
-    mixed = Fir(out_features=2, bias=False, name="weighted_fir")(projected)
+    projected = Linear(features=2, name="weighted_linear")(y.sw(2))
+    mixed = Fir(features=2, bias=False, name="weighted_fir")(projected)
     gain = Parameter("weighted_gain", dim=2)
     offset = Constant("weighted_offset", value=[1.0, 2.0])
     return Modely(
@@ -790,12 +790,12 @@ def _fuzzy_local_model():
         speed.last()
     )
     # Two fuzzifications combined into joint memberships, one Fir per cell.
-    affine = LocalModel(Fir(out_features=2), name="fuzzy_affine")(
+    affine = LocalModel(Fir(features=2), name="fuzzy_affine")(
         [x.sw(3)], [triangular, gaussian]
     )
     # One explicit cell per membership, built from ordinary layers.
     expanded = LocalModel(
-        input_function=lambda stream: Fir(out_features=1)(stream),
+        input_function=lambda stream: Fir(features=1)(stream),
         output_function=lambda stream: ReLU()(stream),
         name="fuzzy_expanded",
     )([x.sw(3)], [rectangular])
@@ -816,8 +816,8 @@ def _derivative_model():
     x0 = Input("derivative_x0", dim=2)
     u = Input("derivative_u", dim=1)
     window = x.sw(4)
-    relation = Sin()(Linear(out_features=1, name="derivative_linear")(u.sw(3)))
-    mixed = Linear(out_features=2, name="derivative_mix")(window)
+    relation = Sin()(Linear(features=1, name="derivative_linear")(u.sw(3)))
+    mixed = Linear(features=2, name="derivative_mix")(window)
     relations = {
         "d_init_stream": Derivative(order=1, dt=dt, init=x0.last())(window),
         "d_init_number": Derivative(order=2, dt=dt, init=0.5)(window),
@@ -890,11 +890,9 @@ def _rollback_mechanical_model():
     # The damping reads the velocity estimated from the position window.
     estimated_velocity = TimeSelect(idx=-1)(Derivative(dt=dt)(position.sw(3)))
     acceleration = (
-        Fir(out_features=1, name="rollback_force_fir")(force.sw(3))
+        Fir(features=1, name="rollback_force_fir")(force.sw(3))
         - stiffness * position.last()
-        - Linear(out_features=1, bias=False, name="rollback_damping")(
-            estimated_velocity
-        )
+        - Linear(features=1, bias=False, name="rollback_damping")(estimated_velocity)
     )
     velocity_next = IntegrateStep(dt=dt, init=velocity.last(), name="rollback_v_next")(
         acceleration
@@ -920,7 +918,7 @@ def _rollback_mechanical_model():
 
 def _composition_model():
     signal = Input("composition_signal", dim=1)
-    rate = Fir(out_features=1, name="composition_fir")(signal.sw(3))
+    rate = Fir(features=1, name="composition_fir")(signal.sw(3))
     block = Modely(
         "composition_block",
         inputs=[signal],
@@ -947,7 +945,7 @@ def _loop_final_state_model():
     force = Input("loop_final_force", dim=1)
     next_state = Output(
         "loop_final_next",
-        Linear(out_features=1, name="loop_final_linear")(state.last()) + force.last(),
+        Linear(features=1, name="loop_final_linear")(state.last()) + force.last(),
     )
     body = Modely(
         "loop_final_body", inputs=[state, force], outputs=[next_state]
@@ -974,7 +972,7 @@ def _loop_trajectory_model():
     velocity = Input("loop_traj_velocity", dim=1)
     force = Input("loop_traj_force", dim=1)
     window = position.sw(2)
-    acceleration = Fir(out_features=1, name="loop_traj_force_fir")(
+    acceleration = Fir(features=1, name="loop_traj_force_fir")(
         force.last()
     ) - Parameter("loop_traj_damping", value=[0.5]) * TimeSelect(idx=-1)(
         Derivative(dt=dt)(window)
@@ -1052,7 +1050,7 @@ def _shared_body_model():
     gain = Parameter("shared_body_gain", value=[0.5])
     next_state = Output(
         "shared_body_next",
-        Linear(out_features=1, name="shared_body_linear")(state.last()) * gain,
+        Linear(features=1, name="shared_body_linear")(state.last()) * gain,
     )
     body = Modely("shared_body", inputs=[state], outputs=[next_state]).build()
 
@@ -1105,8 +1103,8 @@ def _roll_layer_model():
     u = Input("roll_layer_u", dim=1)
     feedback = Output(
         "roll_layer_next",
-        Fir(out_features=1, name="roll_layer_fir")(x.sw(4))
-        + Linear(out_features=1, name="roll_layer_linear")(u.last()),
+        Fir(features=1, name="roll_layer_fir")(x.sw(4))
+        + Linear(features=1, name="roll_layer_linear")(u.last()),
     )
     body = Modely("roll_layer_body", inputs=[x, u], outputs=[feedback]).build()
     roll = Roll(f=body, callback={x: feedback}, steps=3, name="roll_layer")
@@ -1129,7 +1127,7 @@ def _complete_vehicle_model():
     engine = LocalModel(name="vehicle_engine")([throttle.sw(5)], [gear_membership])
     grip = Sigmoid()(
         PReLU()(
-            Linear(out_features=1, name="vehicle_grip")(
+            Linear(features=1, name="vehicle_grip")(
                 BatchNorm(name="vehicle_wheels_norm")(wheels.last())
             )
         )
@@ -1143,7 +1141,7 @@ def _complete_vehicle_model():
         engine * grip
         - drag
         - gravity * Sin()(slope)
-        + Fir(out_features=1, name="vehicle_throttle_fir")(throttle.sw(3))
+        + Fir(features=1, name="vehicle_throttle_fir")(throttle.sw(3))
     )
     return Modely(
         "vehicle",
@@ -1295,9 +1293,7 @@ def test_loaded_model_rebuilt_with_new_minimizers_keeps_its_weights(
 def test_fine_tune_a_loaded_model_with_its_own_minimizers(tmp_path):
     samples = np.linspace(0.0, 1.0, 64, dtype=np.float32)
     x = Input("fine_tune_x", dim=1)
-    prediction = Output(
-        "fine_tune_out", Fir(out_features=1, name="fine_tune_fir")(x.sw(3))
-    )
+    prediction = Output("fine_tune_out", Fir(features=1, name="fine_tune_fir")(x.sw(3)))
     model = Modely("fine_tune", inputs=[x], outputs=[prediction])
     model.minimize(
         "pretrain", source=prediction, target=Input("pretrain_target", dim=1).last()
@@ -1361,7 +1357,7 @@ def test_save_load_odenet(tmp_path, method):
         outputs=[
             Output(
                 f"odenet_save_{method}_dx",
-                Linear(out_features=2, bias=False)(x.last()),
+                Linear(features=2, bias=False)(x.last()),
             )
         ],
     ).build()
@@ -1442,13 +1438,11 @@ def _minimized_model():
     """A model whose minimizers read a target and a layer of their own."""
     x = Input("minimized_x", dim=1)
     target = Input("minimized_target", dim=1)
-    prediction = Output(
-        "minimized_out", Fir(out_features=1, name="minimized_fir")(x.sw(3))
-    )
+    prediction = Output("minimized_out", Fir(features=1, name="minimized_fir")(x.sw(3)))
     model = Modely("minimized", inputs=[x, target], outputs=[prediction])
     model.minimize("minimized_fit", source=prediction, target=target.last())
     # A stream only a minimizer reads, computed by a weight of its own.
-    auxiliary = Linear(out_features=1, name="minimized_auxiliary")(x.last())
+    auxiliary = Linear(features=1, name="minimized_auxiliary")(x.last())
     model.minimize("minimized_auxiliary_fit", source=auxiliary, target=target.last())
     return _randomize_trainable_weights(model.build())
 
@@ -1522,7 +1516,7 @@ def test_export_onnx_leaves_minimizers_out(tmp_path):
 def _fir_model(name, gain):
     """``out = Fir(x.sw(2))`` with every kernel entry equal to ``gain``."""
     x = Input(f"{name}_x")
-    fir = Fir(out_features=1, bias=False)(x.sw(2))  # left unnamed
+    fir = Fir(features=1, bias=False)(x.sw(2))  # left unnamed
     model = Modely(name, inputs=[x], outputs=[Output(f"{name}_out", fir)]).build()
     assert fir.kernel is not None
     fir.kernel.assign(np.full((2, 1), gain, dtype=np.float32))
@@ -1615,7 +1609,7 @@ def test_a_loop_closed_over_a_generated_layer_reloads_beside_its_original(tmp_pa
     s = Input("bare_s")
     gain = Parameter("bare_gain", value=[2.0])
     # A body output, unnamed.
-    bare = Fir(out_features=1, kernel=gain, bias=False)(s.last())
+    bare = Fir(features=1, kernel=gain, bias=False)(s.last())
     body = Modely("bare_body", inputs=[s], outputs=[bare]).build()
     seed = Input("bare_seed", seq=4)
     loop = Loop(f=body, callback={s: bare}, collect=False, init={s: seed})()
@@ -1653,7 +1647,7 @@ def test_names_generated_after_a_load_avoid_the_loaded_ones(tmp_path):
     from nnodely.core import dag
 
     x = Input("upcoming_x")
-    fir = Fir(out_features=1, name="upcoming_fir")(x.sw(2))
+    fir = Fir(features=1, name="upcoming_fir")(x.sw(2))
     model = Modely("upcoming", inputs=[x], outputs=[Output("upcoming_out", fir)])
     model.build().save(tmp_path / "upcoming")
     # Saved by a process that ran further: its Fir has the name this one makes next.
@@ -1668,13 +1662,13 @@ def test_names_generated_after_a_load_avoid_the_loaded_ones(tmp_path):
     loaded = Modely.load(tmp_path / "upcoming")
 
     assert upcoming in {node.name for node in loaded.order}
-    assert Fir(out_features=1).name != upcoming
+    assert Fir(features=1).name != upcoming
 
 
 def test_a_model_saved_without_weights_loads_as_freshly_built(tmp_path):
     x = Input("architecture_x")
     gain = Parameter("architecture_gain", value=[2.0])
-    fir = Fir(out_features=1, bias=False, name="architecture_fir")(x.sw(2))
+    fir = Fir(features=1, bias=False, name="architecture_fir")(x.sw(2))
     model = Modely(
         "architecture", inputs=[x], outputs=[Output("architecture_out", fir * gain)]
     ).build()
@@ -1701,7 +1695,7 @@ def test_a_model_saved_without_weights_loads_as_freshly_built(tmp_path):
 def test_a_linear_initializer_object_is_saved_as_its_config(tmp_path):
     x = Input("initializer_x")
     linear = Linear(
-        out_features=2,
+        features=2,
         kernel=keras.initializers.Constant(0.5),
         bias=keras.initializers.Constant(-1.0),
         name="initializer_linear",
@@ -1732,11 +1726,11 @@ def _parameter_weights_model():
         Parameter("weights_linear_kernel", value=[[1.0, 2.0], [3.0, 4.0]]),
         Parameter("weights_linear_bias", value=[0.5, -0.5]),
     ]
-    fir = Fir(
-        out_features=1, kernel=parameters[0], bias=parameters[1], name="weights_fir"
-    )([x.sw(3)])
+    fir = Fir(features=1, kernel=parameters[0], bias=parameters[1], name="weights_fir")(
+        [x.sw(3)]
+    )
     linear = Linear(
-        out_features=2,
+        features=2,
         kernel=parameters[2],
         bias=parameters[3],
         name="weights_linear",

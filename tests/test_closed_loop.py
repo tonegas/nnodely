@@ -26,7 +26,7 @@ import pytest
 def test_loop(tmp_path):
     input1 = Input("in1")
     gain = Parameter("loop_gain", value=[2.0])
-    relation = Linear(out_features=1, kernel=gain, bias=False)(input1.last())
+    relation = Linear(features=1, kernel=gain, bias=False)(input1.last())
     body_output = Output("body_out", relation)
     body = Modely("loop_body", inputs=[input1], outputs=[body_output]).build()
 
@@ -111,7 +111,7 @@ def test_loop_mechanical_modely(tmp_path):
     state = Input("mechanical_state", dim=1)
     external_force = Input("external_force", dim=1)
     gain = Parameter("mechanical_gain", value=[2.0])
-    state_transition = Linear(out_features=1, kernel=gain, bias="zeros")(state.last())
+    state_transition = Linear(features=1, kernel=gain, bias="zeros")(state.last())
     next_state_stream = state_transition + 1.0
     next_state = Output("next_state", next_state_stream)
     diagnostic = Output("diagnostic", external_force + 10.0)
@@ -155,7 +155,7 @@ def test_loop_mechanical_modely(tmp_path):
 def test_model_roll():
     x = Input("x")
     taps = Parameter("roll_taps", value=np.ones(5))
-    fir = Fir(out_features=1, kernel=taps, bias=False)(x.sw(5))
+    fir = Fir(features=1, kernel=taps, bias=False)(x.sw(5))
     out = Output("out", fir)
     test = Modely("body", inputs=[x], outputs=[out])
     test.build()
@@ -199,7 +199,7 @@ def dummy_input(shape, method="random"):
 def test_model_rollback():
     x = Input("x")
     taps = Parameter("rollback_taps", value=np.ones(5))
-    fir = Fir(out_features=1, kernel=taps, bias=False, name="fir")(x.sw(5))
+    fir = Fir(features=1, kernel=taps, bias=False, name="fir")(x.sw(5))
     out = Output("out", fir + x.last())
     test = Modely("body", inputs=[x], outputs=[out])
     test.rollback({"x": "fir"}, steps=3)
@@ -219,7 +219,7 @@ def test_model_multi_rollback(tmp_path):
     x = Input("x")
     y = Input("y")
     taps = Parameter("rollback_taps", value=np.ones(5))
-    fir = Fir(out_features=1, kernel=taps, bias=False, name="fir")(x.sw(5))
+    fir = Fir(features=1, kernel=taps, bias=False, name="fir")(x.sw(5))
     out = Output("out", fir + y.last())
     test = Modely("body", inputs=[x, y], outputs=[out])
     test.rollback({"x": "fir", "y": "out"}, steps=3)
@@ -563,7 +563,7 @@ def test_loop_window_feedback():
     # A feedback input with a time window is closed by shifting the window.
     x = Input("window_x", dim=1)
     ones = Parameter("window_taps", value=np.ones(3))
-    taps = Fir(out_features=1, kernel=ones, bias=False)([x.sw(3)])
+    taps = Fir(features=1, kernel=ones, bias=False)([x.sw(3)])
     body_output = Output("window_next", taps)
     body = Modely("window_body", inputs=[x], outputs=[body_output])
 

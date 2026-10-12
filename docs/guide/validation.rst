@@ -37,7 +37,7 @@ The model below is trained on part of a signal and validated on the rest:
    y_data = np.convolve(u_data, np.exp(-np.arange(20) / 5.0) / 5.0)[: len(t)]
 
    u = Input("u")
-   y = Output("y", Fir(out_features=1)([u.sw(20)]))
+   y = Output("y", Fir(features=1)([u.sw(20)]))
    model = Modely("filter", inputs=[u], outputs=[y])
    model.minimize("response", y, Input("y_target").last())
    model.build()

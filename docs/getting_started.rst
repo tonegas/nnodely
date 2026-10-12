@@ -98,7 +98,7 @@ five samples of ``x``, and ``F.last()`` is the current sample of ``F``.
 
    x = Input("x")
    F = Input("F")
-   x_next = Fir(out_features=1)([x.sw(5)]) + Fir(out_features=1)([F.last()])
+   x_next = Fir(features=1)([x.sw(5)]) + Fir(features=1)([F.last()])
    x_next_est = Output("x_next_est", x_next)
 
    model = Modely("mass_spring_damper", inputs=[x, F], outputs=[x_next_est])

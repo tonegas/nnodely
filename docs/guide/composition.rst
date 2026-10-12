@@ -11,12 +11,12 @@ its outputs as streams of the outer graph:
    from nnodely import Fir, Input, Linear, Modely, Output, ReLU
 
    signal = Input("signal")
-   filtered = Output("filtered", Fir(out_features=1)([signal.sw(10)]))
+   filtered = Output("filtered", Fir(features=1)([signal.sw(10)]))
    smoother = Modely("smoother", inputs=[signal], outputs=[filtered]).build()
 
    raw = Input("raw")
    smoothed = smoother([raw.sw(10)])
-   command = Output("command", ReLU()([Linear(out_features=1)([smoothed])]))
+   command = Output("command", ReLU()([Linear(features=1)([smoothed])]))
 
    controller = Modely("controller", inputs=[raw], outputs=[command]).build()
    print(controller({"raw": np.ones((1, 1, 10))})["command"].shape)   # (1, 1, 1)

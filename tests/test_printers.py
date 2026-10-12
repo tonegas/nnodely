@@ -16,7 +16,7 @@ from nnodely.utils.printers import (
 def _single_minimizer_model():
     x = Input("printer_x", dim=1)
     t = Input("printer_t", dim=1)
-    out = Output("printer_pred", Fir(out_features=1)([x.sw(5)]))
+    out = Output("printer_pred", Fir(features=1)([x.sw(5)]))
     model = Modely("printer_model", inputs=[x, t], outputs=[out])
     model.minimize("curv_error", source=out, target=t.last())
     model.build()

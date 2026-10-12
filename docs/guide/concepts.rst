@@ -16,8 +16,8 @@ model, and only then are the weights created.
    from nnodely import Input, Linear, Modely, Output, ReLU
 
    x = Input("x")
-   hidden = ReLU()([Linear(out_features=8)([x.last()])])
-   y = Output("y", Linear(out_features=1)([hidden]))
+   hidden = ReLU()([Linear(features=8)([x.last()])])
+   y = Output("y", Linear(features=1)([hidden]))
 
    model = Modely("regressor", inputs=[x], outputs=[y])
    model.build()
@@ -79,13 +79,13 @@ or a list of streams:
 
    from nnodely import Fir
 
-   filtered = Fir(out_features=1)([x.sw(10)])
+   filtered = Fir(features=1)([x.sw(10)])
 
 Calling the **same layer object** twice applies the same weights twice:
 
 .. code-block:: python
 
-   shared = Linear(out_features=1)
+   shared = Linear(features=1)
    a = shared([x.last()])
    b = shared([x.last() * 2.0])   # same kernel and bias as a
 

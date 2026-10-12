@@ -124,13 +124,13 @@ def test_local_model_matches_explicit_cells():
     centers = [0.0, 1.0, 2.0]
 
     activation = Fuzzify(centers=centers, function="Triangular")([k])
-    fused = LocalModel(Fir(out_features=2), name="fused_local")([x.sw(4)], [activation])
+    fused = LocalModel(Fir(features=2), name="fused_local")([x.sw(4)], [activation])
     fused_model = Modely(
         "fused_local_model", inputs=[x, k], outputs=[Output("fused", fused)]
     ).build()
 
     cells = [
-        Fir(out_features=2, name=f"cell{i}")([x.sw(4)]) * Select(idx=i)([activation])
+        Fir(features=2, name=f"cell{i}")([x.sw(4)]) * Select(idx=i)([activation])
         for i in range(len(centers))
     ]
     explicit_model = Modely(
@@ -177,7 +177,7 @@ def test_local_model_multiplies_fuzzifications_row_major():
     # ------- Two fuzzifications with 4 and 5 centers give 20 cells -------
     x, j, k, activation_j, activation_k, data = _two_fuzzy_inputs("product")
 
-    fused = LocalModel(Fir(out_features=2), name="product_local")(
+    fused = LocalModel(Fir(features=2), name="product_local")(
         [x.sw(5)], [activation_j, activation_k]
     )
     fused_model = Modely(
@@ -188,7 +188,7 @@ def test_local_model_multiplies_fuzzifications_row_major():
 
     # Cell (a, b) is number a * 5 + b and weighs mu_j[a] * mu_k[b].
     cells = [
-        Fir(out_features=2, name=f"product_cell{a * 5 + b}")([x.sw(5)])
+        Fir(features=2, name=f"product_cell{a * 5 + b}")([x.sw(5)])
         * Select(idx=a)([activation_j])
         * Select(idx=b)([activation_k])
         for a in range(4)
@@ -217,14 +217,14 @@ def test_local_model_generic_and_elementwise_paths_agree():
     x, j, k, activation_j, activation_k, data = _two_fuzzy_inputs("paths")
     activations = [activation_j, activation_k]
 
-    fused = LocalModel(Fir(out_features=2), output_function=Tanh(), name="p_fused")(
+    fused = LocalModel(Fir(features=2), output_function=Tanh(), name="p_fused")(
         [x.sw(5)], activations
     )
     stacked = LocalModel(
-        lambda s: Fir(out_features=2)(s), output_function=Tanh(), name="p_stacked"
+        lambda s: Fir(features=2)(s), output_function=Tanh(), name="p_stacked"
     )([x.sw(5)], activations)
     per_cell = LocalModel(
-        Fir(out_features=2), output_function=lambda s: Tanh()(s), name="p_cell"
+        Fir(features=2), output_function=lambda s: Tanh()(s), name="p_cell"
     )([x.sw(5)], activations)
     model = Modely(
         "paths_model",
@@ -310,7 +310,7 @@ def test_local_model_scalar_input_one_fuzzy_function_by_hand():
     x = Input("x_hand")
     g = Input("g_hand")
     mu = Fuzzify(centers=[0.0, 1.0, 2.0], function="Triangular")(g.last())
-    y = LocalModel(Fir(out_features=1))([x.last()], [mu])
+    y = LocalModel(Fir(features=1))([x.last()], [mu])
     model = Modely(
         "local_hand", inputs=[x, g], outputs=[Output("y", y), Output("mu", mu)]
     ).build()
@@ -349,7 +349,7 @@ def test_local_model_matrix_input_two_fuzzy_functions_by_hand():
     # entry. Cell c weighs every entry by c + 1: its local model is (c + 1) * X.
     cells = [
         Fir(
-            out_features=1,
+            features=1,
             kernel=Parameter(f"hand_cell{c}", value=np.full((2, 2), c + 1.0)),
             bias=False,
         )
@@ -394,7 +394,7 @@ def test_local_model_cells_share_a_fir_given_its_kernel_as_a_parameter():
     g = Input("g_shared_w")
     w = Parameter("shared_w", value=[1.0, 2.0, 3.0])
     mu = Fuzzify(centers=[0.0, 1.0, 2.0], function="Triangular")(g.last())
-    blended = LocalModel(Fir(out_features=1, kernel=w, bias=False))([x.sw(3)], [mu])
+    blended = LocalModel(Fir(features=1, kernel=w, bias=False))([x.sw(3)], [mu])
     model = Modely(
         "local_shared_w", inputs=[x, g], outputs=[Output("blended", blended)]
     ).build()
@@ -415,18 +415,18 @@ def test_local_model_rejects_mismatched_inputs():
     activation = Fuzzify(centers=[0.0, 1.0], function="Triangular")([k.sw(1)])
 
     with pytest.raises(ValueError, match="got 3 input functions for 2 cells"):
-        LocalModel([Fir(out_features=1)] * 3, name="unpaired_local")(
+        LocalModel([Fir(features=1)] * 3, name="unpaired_local")(
             [x.sw(2)], [activation]
         )
 
     with pytest.raises(ValueError, match="same shape"):
-        LocalModel([Fir(out_features=1), Fir(out_features=2)], name="uneven_local")(
+        LocalModel([Fir(features=1), Fir(features=2)], name="uneven_local")(
             [x.sw(2)], [activation]
         )
 
     with pytest.raises(ValueError, match="every output function must return"):
         LocalModel(
-            output_function=[lambda s: s[0], lambda s: Fir(out_features=2)(s)],
+            output_function=[lambda s: s[0], lambda s: Fir(features=2)(s)],
             name="uneven_output_local",
         )([x.sw(2)], [activation])
 
@@ -441,7 +441,7 @@ def test_equation_learner_composes_symbolic_functions_and_multiple_inputs():
     equation = EquationLearner(
         functions=["identity", (lambda left, right: left * right, 2), Sin],
         linear_in=Linear(
-            out_features=4,
+            features=4,
             kernel=Parameter(
                 "equation_in_matrix", value=[[1.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 1.0]]
             ),
@@ -449,7 +449,7 @@ def test_equation_learner_composes_symbolic_functions_and_multiple_inputs():
             name="equation_linear_in",
         ),
         linear_out=Linear(
-            out_features=1,
+            features=1,
             kernel=Parameter("equation_out_weights", value=[2.0, 3.0, 4.0]),
             bias=False,
             name="equation_linear_out",
@@ -481,7 +481,7 @@ def test_equation_learner_supports_layer_classes_and_basis_output():
     x = Input("basis_x")
     equation = EquationLearner(
         functions=[Sin, Cos, "add"],
-        linear_in=Linear(out_features=4, kernel="ones", bias=False),
+        linear_in=Linear(features=4, kernel="ones", bias=False),
         name="basis_equation",
     )
     basis = equation(x.last())
@@ -509,7 +509,7 @@ def test_equation_learner_rejects_invalid_configuration():
     with pytest.raises(ValueError, match="total number of function arguments"):
         EquationLearner(
             [Sin, "add"],
-            linear_in=Linear(out_features=2),
+            linear_in=Linear(features=2),
         )
 
     with pytest.raises(ValueError, match="Unknown EquationLearner function"):
@@ -774,7 +774,7 @@ def test_integrate_a_rate_from_a_layer_with_parameter_weights(layer):
     u = Input(f"{name}_u", seq=4)
     gain = Parameter(f"{name}_gain", value=[2.0])
     offset = Parameter(f"{name}_offset", value=[1.0])
-    rate = layer(out_features=1, kernel=gain, bias=offset)(u.last())
+    rate = layer(features=1, kernel=gain, bias=offset)(u.last())
     model = Modely(
         name,
         inputs=[u],

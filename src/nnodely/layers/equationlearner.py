@@ -109,10 +109,10 @@ class EquationLearner:
         self.model: Modely | None = None
         self._calls = 0
 
-        if linear_in is not None and linear_in.out_features != self.n_arguments:
+        if linear_in is not None and linear_in.features != self.n_arguments:
             raise ValueError(
-                "linear_in.out_features must equal the total number of function "
-                f"arguments ({self.n_arguments}), got {linear_in.out_features}."
+                "linear_in.features must equal the total number of function "
+                f"arguments ({self.n_arguments}), got {linear_in.features}."
             )
 
     def __call__(self, inputs):
@@ -151,7 +151,7 @@ class EquationLearner:
         )
 
         linear_in_template = self.linear_in_template or Linear(
-            out_features=self.n_arguments,
+            features=self.n_arguments,
             name=f"{call_name}_linear_in",
         )
         projected = linear_in_template([combined])

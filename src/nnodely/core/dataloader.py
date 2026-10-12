@@ -57,7 +57,7 @@ class DataLoader:
     Example::
 
         x = Input("x")
-        y = Output("y", Fir(out_features=1)([x.sw(5)]))
+        y = Output("y", Fir(features=1)([x.sw(5)]))
         model = Modely("model", inputs=[x], outputs=[y]).build()
 
         loader = DataLoader(model, source={"x": np.arange(10.0)})

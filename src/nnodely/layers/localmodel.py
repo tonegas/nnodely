@@ -262,7 +262,7 @@ class LocalModel:
 
     ::
 
-        LocalModel(Fir(out_features=1))(torque.sw(25), [gear_mu, speed_mu])
+        LocalModel(Fir(features=1))(torque.sw(25), [gear_mu, speed_mu])
 
     The activations ``a_k: [n_k, 1]`` are combined into ``N = n_1 * n_2 * ...``
     joint memberships ``mu`` (their outer product, flattened row-major: cell
@@ -275,7 +275,7 @@ class LocalModel:
     ``input_function`` and ``output_function`` take the list of input streams
     and are either one callable, instantiated anew for every cell, or a list of
     ``N`` callables used as given; every cell must return the same shape.
-    ``input_function`` defaults to ``Fir(out_features=1)``. With
+    ``input_function`` defaults to ``Fir(features=1)``. With
     ``pass_index=True`` a plain function is a factory instead: it receives the
     cell index ``(i_1, i_2, ...)`` and returns the callable of that cell.
 
@@ -294,7 +294,7 @@ class LocalModel:
         name: str | None = None,
     ):
         self.input_function = (
-            Fir(out_features=1) if input_function is None else input_function
+            Fir(features=1) if input_function is None else input_function
         )
         self.output_function = output_function
         self.pass_index = bool(pass_index)
@@ -352,7 +352,7 @@ class LocalModel:
         ):
             fir = cast(Fir, self.input_function)
             cells = LocalFir(
-                out_features=fir.out_features,
+                out_features=fir.features,
                 use_bias=fir._bias is not False,
                 reduce=self.output_function is None,
                 name=final_name,

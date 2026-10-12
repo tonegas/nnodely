@@ -121,11 +121,11 @@ def test_linear_and_fir_project_a_parameter_like_an_input():
     vector = Parameter("project_vector", value=[1.0, 2.0, 3.0])
     window = Parameter("project_window", value=[[1.0, 2.0, 3.0, 4.0]], time=1)
     matrix = Parameter("project_matrix", value=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
-    linear = Linear(out_features=2, kernel=matrix, bias=False, name="project_linear")(
+    linear = Linear(features=2, kernel=matrix, bias=False, name="project_linear")(
         [vector]
     )
     taps = Parameter("project_taps", value=np.ones(4))
-    fir = Fir(out_features=1, kernel=taps, bias=False, name="project_fir")([window])
+    fir = Fir(features=1, kernel=taps, bias=False, name="project_fir")([window])
     exp = Exp()([vector])
 
     model, _ = _evaluate("project", {"linear": linear, "fir": fir, "exp": exp}, x)
@@ -180,7 +180,7 @@ def test_a_dynamic_sequence_axis_survives_shape_inference():
         "scaled": x * 3.0,
         "gained": x * gain,
         "squashed": Exp()([x]),
-        "projected": Linear(out_features=4)([x]),
+        "projected": Linear(features=4)([x]),
     }
     for stream in streams.values():
         assert stream.seq == (None,)

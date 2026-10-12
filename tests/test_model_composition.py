@@ -21,7 +21,7 @@ def test_model_composition():
     # Pinned: the body's weights have to survive being inlined, which is the
     # whole point of calling a built model. The biases start at zero.
     result_taps = Parameter("result_taps", value=np.ones((10, 2)))
-    result_fir = Fir(out_features=2, kernel=result_taps)([x.sw(10) + y.sw(10)])
+    result_fir = Fir(features=2, kernel=result_taps)([x.sw(10) + y.sw(10)])
     x_out = Output("x_pred", result_fir)
 
     model1 = Modely("model1", inputs=[x, y], outputs=[x_out])
@@ -29,7 +29,7 @@ def test_model_composition():
 
     z = Input("z", dim=1)
     z_taps = Parameter("z_taps", value=np.ones(2))
-    z_fir = Fir(out_features=1, kernel=z_taps)([model1([z.sw(10), z.sw(10)])])
+    z_fir = Fir(features=1, kernel=z_taps)([model1([z.sw(10), z.sw(10)])])
     z_out = Output("z_pred", z_fir)
 
     model2 = Modely("composed_model", inputs=[z], outputs=[z_out])
@@ -54,7 +54,7 @@ def test_layer_reuse_shares_weights():
     # Applying one layer twice must share its weights, as it does in Keras: the
     # two applications are separate graph nodes that carry the same name.
     x = Input("reuse_x", dim=1)
-    linear = Linear(out_features=1, kernel="ones", bias=False)
+    linear = Linear(features=1, kernel="ones", bias=False)
     first, second = linear(x.last()), linear(x.last() * 2.0)
     model = Modely(
         "reuse", inputs=[x], outputs=[Output("reuse_out", first + second)]
@@ -100,7 +100,7 @@ def test_model_called_twice_shares_weights():
     # Each call inlines its own copy of the body, and those copies carry the
     # body's layer names, so one set of weights has to serve every call.
     u = Input("shared_u", dim=1)
-    scaled = Linear(out_features=1, kernel="ones", bias=False)(u.last())
+    scaled = Linear(features=1, kernel="ones", bias=False)(u.last())
     body = Modely(
         "shared_body", inputs=[u], outputs=[Output("shared_scaled", scaled)]
     ).build()
@@ -182,9 +182,7 @@ def test_model_saving_loading_and_compose(tmp_path):
     y = Input("y", dim=1)
 
     result_taps = Parameter("result_taps", value=np.ones(3))
-    result_fir = Fir(out_features=1, kernel=result_taps, bias=False)(
-        [x.sw(3) + y.sw(3)]
-    )
+    result_fir = Fir(features=1, kernel=result_taps, bias=False)([x.sw(3) + y.sw(3)])
     x_out = Output("x_pred", result_fir)
 
     model1 = Modely("model1", inputs=[x, y], outputs=[x_out])
@@ -216,7 +214,7 @@ def test_model_saving_loading_and_compose(tmp_path):
     z = Input("z", dim=1)
     z_gain = Parameter("z_gain", value=[1.0])
     z_offset = Parameter("z_offset", value=[5.0])
-    z_fir = Fir(out_features=1, kernel=z_gain, bias=z_offset)(
+    z_fir = Fir(features=1, kernel=z_gain, bias=z_offset)(
         [model_loaded([z.sw(3), z.sw(3)])]
     )
     z_out = Output("z_pred", z_fir)
@@ -252,7 +250,7 @@ def test_composition_shares_the_body_weights():
     rather than re-initializing, so weights set - or loaded - before the
     composition are the ones the composed graph runs with."""
     u = Input("share_u", dim=1)
-    body_fir = Fir(out_features=1, bias=False)([u.sw(2)])
+    body_fir = Fir(features=1, bias=False)([u.sw(2)])
     body = Modely(
         "share_body", inputs=[u], outputs=[Output("share_out", body_fir)]
     ).build()
@@ -284,7 +282,7 @@ def test_training_a_composed_model_trains_the_block():
     block's own weights, and the block evaluates with them afterwards."""
     u = Input("train_u", dim=1)
     gain = Parameter("train_gain", value=[0.5])
-    body_fir = Fir(out_features=1, kernel=gain, bias=False)([u.last()])
+    body_fir = Fir(features=1, kernel=gain, bias=False)([u.last()])
     body = Modely(
         "train_body", inputs=[u], outputs=[Output("train_out", body_fir)]
     ).build()
@@ -373,7 +371,7 @@ def test_rebuilding_a_model_keeps_its_weights():
     """build() is idempotent for the values: a second build reuses the layers
     it already made instead of re-initializing them."""
     u = Input("rebuild_u", dim=1)
-    fir = Fir(out_features=1, bias=False)([u.last()])
+    fir = Fir(features=1, bias=False)([u.last()])
     model = Modely("rebuild_model", inputs=[u], outputs=[Output("o", fir)]).build()
     fir.kernel.assign(np.full((1, 1), 7.0, dtype=np.float32))
 
@@ -392,7 +390,7 @@ def test_composition_rejects_a_block_whose_input_shape_changes():
     the block's graph: a block called with an input of a different shape
     cannot use them - and its own weights are left alone."""
     u = Input("fit_u", dim=1)
-    body_fir = Fir(out_features=1, bias=False)([u.last()])
+    body_fir = Fir(features=1, bias=False)([u.last()])
     body = Modely("fit_body", inputs=[u], outputs=[Output("fit_out", body_fir)]).build()
     body_fir.kernel.assign(np.full((1, 1), 5.0, dtype=np.float32))
 
@@ -449,9 +447,9 @@ def test_a_model_used_as_a_block_takes_one_stream_per_input():
 def test_layers_created_apart_have_their_own_weights_whatever_their_names():
     # Once shared by name: two Fir named alike were one layer.
     x = Input("twins_x")
-    first = Fir(out_features=1, bias=False, name="twin")([x.sw(2)])
-    second = Fir(out_features=1, bias=False, name="twin")([x.sw(2)])
-    shared = Fir(out_features=1, bias=False, name="shared_fir")
+    first = Fir(features=1, bias=False, name="twin")([x.sw(2)])
+    second = Fir(features=1, bias=False, name="twin")([x.sw(2)])
+    shared = Fir(features=1, bias=False, name="shared_fir")
     model = Modely(
         "twins",
         inputs=[x],

@@ -20,7 +20,7 @@ The examples on this page use a small first-order system, :math:`y[t+1] =
 
    y = Input("y")
    u = Input("u")
-   y_next = Output("y_next", Fir(out_features=1)([y.last()]) + Fir(out_features=1)([u.last()]))
+   y_next = Output("y_next", Fir(features=1)([y.last()]) + Fir(features=1)([u.last()]))
    model = Modely("first_order", inputs=[y, u], outputs=[y_next])
 
 Objectives

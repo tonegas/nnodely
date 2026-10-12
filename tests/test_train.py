@@ -46,8 +46,8 @@ def test_train_basic():
     # ------- Model definition and training -------
     x = Input("x", dim=1)
     y = Input("y", dim=1)
-    x_fir = Fir(out_features=1)([x.sw(5)])
-    y_fir = Fir(out_features=1)([y.sw(5)])
+    x_fir = Fir(features=1)([x.sw(5)])
+    y_fir = Fir(features=1)([y.sw(5)])
 
     x_out = Output("fir_pred", x_fir + y_fir)
     model1 = Modely("linear_fit", inputs=[x, y], outputs=[x_out])
@@ -169,8 +169,8 @@ def test_training_values_fir_linear():
     target = Input("target1").last()
 
     fir_kernel = Parameter("fir_kernel", value=[1.0])
-    fir_out = Fir(out_features=1, kernel=fir_kernel, bias=False)(input1.last())
-    linear_out = Linear(out_features=1, kernel="ones", bias="ones")(fir_out)
+    fir_out = Fir(features=1, kernel=fir_kernel, bias=False)(input1.last())
+    linear_out = Linear(features=1, kernel="ones", bias="ones")(fir_out)
 
     output1 = Output("out1", fir_out)
     output2 = Output("out2", linear_out)
@@ -248,8 +248,8 @@ def test_training_values_fir_linear_only_model():
     target = Input("target1").last()
 
     fir_kernel = Parameter("fir_kernel", value=[1.0])
-    fir_out = Fir(out_features=1, kernel=fir_kernel, bias=False)(input1.last())
-    linear_out = Linear(out_features=1, kernel="ones", bias="ones")(fir_out)
+    fir_out = Fir(features=1, kernel=fir_kernel, bias=False)(input1.last())
+    linear_out = Linear(features=1, kernel="ones", bias="ones")(fir_out)
 
     output1 = Output("out1", fir_out)
     output2 = Output("out2", linear_out)
@@ -331,8 +331,8 @@ def test_training_values_fir_linear_more_samples():
     target = Input("out1").last()
 
     fir_kernel = Parameter("fir_kernel", value=[1.0])
-    fir_out = Fir(out_features=1, kernel=fir_kernel, bias=False)(input1.last())
-    linear_out = Linear(out_features=1, kernel="ones", bias="ones")(fir_out)
+    fir_out = Fir(features=1, kernel=fir_kernel, bias=False)(input1.last())
+    linear_out = Linear(features=1, kernel="ones", bias="ones")(fir_out)
 
     output1 = Output("out1-net", fir_out)
     output2 = Output("out2-net", linear_out)
@@ -411,9 +411,9 @@ def test_training_values_linear_fir_window():
     input1 = Input("in1", dim=2)
     target = Input("target").last()
 
-    lin_out = Linear(out_features=1)(input1.sw(2))
+    lin_out = Linear(features=1)(input1.sw(2))
     fir_kernel = Parameter("fir_kernel", value=[4.0, 5.0])
-    fir_out = Fir(out_features=1, kernel=fir_kernel, bias=False)(lin_out)
+    fir_out = Fir(features=1, kernel=fir_kernel, bias=False)(lin_out)
 
     output1 = Output("out1", lin_out)
     output2 = Output("out2", fir_out)
@@ -491,8 +491,8 @@ def test_training_values_fir_and_linear_closed_loop():
     target2 = Input("target2").last()
 
     fir_kernel = Parameter("fir_kernel", value=[1.0])
-    fir_out = Fir(out_features=1, kernel=fir_kernel, bias=False)(input1.last())
-    lin_out = Linear(out_features=1, kernel="ones", bias="ones")(input2.last())
+    fir_out = Fir(features=1, kernel=fir_kernel, bias=False)(input1.last())
+    lin_out = Linear(features=1, kernel="ones", bias="ones")(input2.last())
     output1 = Output("out1", fir_out)
     output2 = Output("out2", lin_out)
 
@@ -725,8 +725,8 @@ def test_train_equation_learner_updates_symbolic_coefficients():
     target = Input("equation_train_target").last()
     equation = EquationLearner(
         functions=["identity"],
-        linear_in=Linear(out_features=1, kernel="ones", bias=False),
-        linear_out=Linear(out_features=1, kernel="ones", bias=False),
+        linear_in=Linear(features=1, kernel="ones", bias=False),
+        linear_out=Linear(features=1, kernel="ones", bias=False),
         name="train_equation",
     )
     prediction = equation(input_node.last())
@@ -907,7 +907,7 @@ def test_train_with_loop():
     state = Input("state")
     x = Input("x", seq=5)
     target = Input("target")
-    relation = Linear(out_features=1, kernel="ones", bias="zeros")(state.last())
+    relation = Linear(features=1, kernel="ones", bias="zeros")(state.last())
     output = Output("out", relation)
     body = Modely("body", inputs=[state], outputs=[output])
     body.build()
@@ -992,7 +992,7 @@ def test_train_with_loop_under_xla(monkeypatch):
     state = Input("state")
     x = Input("x", seq=5)
     target = Input("target", seq=5)
-    relation = Linear(out_features=1, kernel="ones")(state.last())
+    relation = Linear(features=1, kernel="ones")(state.last())
     output = Output("out", relation)
     body = Modely("body", inputs=[state], outputs=[output]).build()
     loop = Loop(f=body, callback={state: output}, name="loop", init={state: x})()
@@ -1014,7 +1014,7 @@ def test_train_with_loop_under_xla(monkeypatch):
 def test_train_with_roll():
     x = Input("x")
     target = Input("target")
-    relation = Linear(out_features=1, kernel="ones", bias="zeros")(x.last())
+    relation = Linear(features=1, kernel="ones", bias="zeros")(x.last())
     output = Output("out", relation)
     body = Modely("body", inputs=[x], outputs=[output])
     body.build()
@@ -1081,7 +1081,7 @@ def test_train_with_model_rollback_uses_final_value_only():
     x = Input("closed_train_x")
     target = Input("closed_train_target")
     relation = Linear(
-        out_features=1, kernel="ones", bias=False, name="closed_train_linear"
+        features=1, kernel="ones", bias=False, name="closed_train_linear"
     )(x.last())
     output = Output("closed_train_output", relation)
     model = Modely("closed_train_model", inputs=[x], outputs=[output])
@@ -1135,9 +1135,9 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
     ## x[t + 1] = w * x[t], rolled out over the whole simulation
     ratio = 0.8
     body_x = Input("pad_body_x", dim=1)
-    relation = Linear(
-        out_features=1, kernel="ones", bias=False, name="pad_body_linear"
-    )(body_x.last())
+    relation = Linear(features=1, kernel="ones", bias=False, name="pad_body_linear")(
+        body_x.last()
+    )
     body_out = Output("pad_body_out", relation)
     body = Modely("pad_body", inputs=[body_x], outputs=[body_out]).build()
 
@@ -1211,9 +1211,9 @@ def test_masked_loss_survives_a_diverging_padded_rollout():
 
 def test_train_with_val_data_reports_validation_loss():
     x = Input("val_data_x")
-    relation = Linear(
-        out_features=1, kernel="ones", bias=False, name="val_data_linear"
-    )(x.last())
+    relation = Linear(features=1, kernel="ones", bias=False, name="val_data_linear")(
+        x.last()
+    )
     output = Output("val_data_output", relation)
     model = Modely("val_data_model", inputs=[x], outputs=[output])
     model.minimize("val_data_error", output, Input("val_data_target").last())
@@ -1245,9 +1245,7 @@ def test_train_target_window_of_an_input_with_a_wider_window():
     # the data column of x is four samples wide while the target is the last.
     x = Input("wide_target_x")
     taps = Parameter("wide_target_taps", value=np.ones(3))
-    fir = Fir(out_features=1, kernel=taps, bias=False, name="wide_target_fir")(
-        [x.sw(3)]
-    )
+    fir = Fir(features=1, kernel=taps, bias=False, name="wide_target_fir")([x.sw(3)])
     output = Output("wide_target_output", fir)
     model = Modely("wide_target_model", inputs=[x], outputs=[output])
     model.minimize("wide_target_error", output, x.next())

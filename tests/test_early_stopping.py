@@ -15,7 +15,7 @@ NEVER_BETTER = 1e9
 def _fit():
     """y = 2x, to fit with one linear layer under the minimizer "fit"."""
     x = Input("es_x")
-    y = Output("es_y", Linear(out_features=1)(x.last()))
+    y = Output("es_y", Linear(features=1)(x.last()))
     model = Modely("early_stopping", inputs=[x], outputs=[y])
     model.minimize("fit", y, Input("es_target").last())
     model.build()

@@ -22,7 +22,7 @@ from nnodely import (
 
 def test_plot_and_export_html(tmp_path):
     x = Input("x", dim=1)
-    out = Output("out", Fir(out_features=1)([x.sw(3)]))
+    out = Output("out", Fir(features=1)([x.sw(3)]))
     model = Modely("plot_model", inputs=[x], outputs=[out])
     model.build()
 
@@ -38,7 +38,7 @@ def test_model_composed_visualization(tmp_path):
     x_stream = x.sw(10)
     y_stream = y.sw(10)
 
-    fir = Fir(out_features=2)
+    fir = Fir(features=2)
     result_fir = fir([x_stream + y_stream])
 
     x_out = Output("x_pred", result_fir)
@@ -48,7 +48,7 @@ def test_model_composed_visualization(tmp_path):
     # ------- Model composition -------
     z = Input("z", dim=1)
     z_stream = z.sw(10)
-    z_fir = Fir(out_features=1)([model1([z_stream, z_stream])])
+    z_fir = Fir(features=1)([model1([z_stream, z_stream])])
     z_out = Output("z_pred", z_fir)
     model2 = Modely("composed_model", inputs=[z], outputs=[z_out])
     model2.build()
@@ -72,14 +72,14 @@ def test_multiple_model_composed_visualization(tmp_path):
     model1.build()
 
     y = Input("y", dim=1)
-    y_fir = Fir(out_features=1)([model1([y.sw(5)])])
+    y_fir = Fir(features=1)([model1([y.sw(5)])])
     y_out = Output("y_out", y_fir)
     model2 = Modely("model2", inputs=[y], outputs=[y_out])
     model2.build()
 
     z = Input("z", dim=1)
     const_z = Constant("const_z", value=[[1.0, 2.0, 3.0, 4.0, 5.0]], time=1)
-    z_fir = Fir(out_features=1)([model2([z.sw(5) + const_z])])
+    z_fir = Fir(features=1)([model2([z.sw(5) + const_z])])
     z_out = Output("z_out", z_fir)
     model3 = Modely("model3", inputs=[z], outputs=[z_out])
     model3.build()
@@ -100,7 +100,7 @@ def test_visualize_roll(tmp_path):
     model1.build()
 
     z = Input(name="z", dim=1)
-    r2 = Fir(out_features=1, bias=False)(z.sw(5))
+    r2 = Fir(features=1, bias=False)(z.sw(5))
     roll_body_output = Output("roll_body_output", r2)
     roll_body = Modely(name="roll_body", inputs=[z], outputs=[roll_body_output]).build()
     roll_fn = Roll(
@@ -127,7 +127,7 @@ def test_visualize_roll(tmp_path):
 
 def test_visualize_model_roll(tmp_path):
     x = Input("closed_x")
-    feedback = Fir(out_features=1, bias=False, name="closed_fir")(x.sw(5))
+    feedback = Fir(features=1, bias=False, name="closed_fir")(x.sw(5))
     output = Output("closed_out", feedback + x.last())
     model = Modely("closed_model", inputs=[x], outputs=[output])
     model.rollback({x: feedback}, steps=3)
@@ -171,7 +171,7 @@ def test_visualize_high_level_blocks(tmp_path):
 
 def test_export_html_accepts_a_file_path(tmp_path):
     x = Input("x", dim=1)
-    out = Output("out", Fir(out_features=1)([x.sw(3)]))
+    out = Output("out", Fir(features=1)([x.sw(3)]))
     model = Modely("path_model", inputs=[x], outputs=[out])
     model.build()
 
@@ -183,7 +183,7 @@ def test_export_html_accepts_a_file_path(tmp_path):
 
 def test_export_html_describes_the_loop_boundary(tmp_path):
     seed_input = Input("in1")
-    body_output = Output("body_out", Linear(out_features=1)(seed_input.last()))
+    body_output = Output("body_out", Linear(features=1)(seed_input.last()))
     body = Modely("loop_body", inputs=[seed_input], outputs=[body_output]).build()
 
     seed = Input("in1_seq", seq=5)
@@ -271,7 +271,7 @@ def _assert_no_dangling(page):
 
 def test_flattened_page_inlines_a_loop_body(tmp_path):
     seed_input = Input("in1")
-    body_output = Output("body_out", Linear(out_features=1)(seed_input.last()))
+    body_output = Output("body_out", Linear(features=1)(seed_input.last()))
     body = Modely("inline_body", inputs=[seed_input], outputs=[body_output]).build()
 
     seed = Input("in1_seq", seq=4)
@@ -308,7 +308,7 @@ def test_flattened_page_inlines_a_loop_body(tmp_path):
 
 def test_flattened_page_inlines_a_roll_body(tmp_path):
     z = Input("z2")
-    roll_out = Output("roll_out", Fir(out_features=1, bias=False)(z.sw(5)))
+    roll_out = Output("roll_out", Fir(features=1, bias=False)(z.sw(5)))
     roll_body = Modely("inline_roll_body", inputs=[z], outputs=[roll_out]).build()
     roll = Roll(f=roll_body, callback={z: roll_out}, name="inline_roll")
     model = Modely("inline_roll_model", inputs=[z], outputs=[Output("out", roll)])
@@ -331,7 +331,7 @@ def test_flattened_page_inlines_a_roll_body(tmp_path):
 def _minimized_plot_model(name):
     x = Input(f"{name}_x", dim=1)
     y = Input(f"{name}_y", dim=1)
-    out = Output(f"{name}_out", Fir(out_features=1)([x.sw(3)]))
+    out = Output(f"{name}_out", Fir(features=1)([x.sw(3)]))
     model = Modely(name, inputs=[x, y], outputs=[out])
     model.minimize(f"{name}_fit", out, y.last())
     return model.build()
@@ -404,7 +404,7 @@ def test_plot_without_graphviz_writes_the_dot_source_and_warns(tmp_path, monkeyp
 def test_export_html_escapes_the_names_it_shows(tmp_path):
     # Once inserted raw: a name could close the page's <script>, or run its own.
     x = Input("escaped_x")
-    out = Output("o</script><script>alert(2)//", Fir(out_features=1)([x.sw(2)]))
+    out = Output("o</script><script>alert(2)//", Fir(features=1)([x.sw(2)]))
     model = Modely("<img src=x onerror=alert(1)>", inputs=[x], outputs=[out]).build()
 
     model.export_html(tmp_path, filename="escaped")
@@ -421,7 +421,7 @@ def test_export_html_loads_a_pinned_vis_network(tmp_path):
     model = Modely(
         "pinned",
         inputs=[x],
-        outputs=[Output("pinned_out", Fir(out_features=1)([x.sw(2)]))],
+        outputs=[Output("pinned_out", Fir(features=1)([x.sw(2)]))],
     ).build()
 
     model.export_html(tmp_path)
@@ -451,13 +451,13 @@ def _nested_models():
     model2 = Modely(
         "model2",
         inputs=[y],
-        outputs=[Output("nest_y_out", Fir(out_features=1)([model1([y.sw(5)])]))],
+        outputs=[Output("nest_y_out", Fir(features=1)([model1([y.sw(5)])]))],
     ).build()
     z = Input("nest_z")
     return Modely(
         "model3",
         inputs=[z],
-        outputs=[Output("nest_z_out", Fir(out_features=1)([model2([z.sw(5)])]))],
+        outputs=[Output("nest_z_out", Fir(features=1)([model2([z.sw(5)])]))],
     ).build()
 
 
@@ -556,7 +556,7 @@ def test_flattened_plot_draws_a_loop_by_its_arrow_alone(tmp_path, monkeypatch):
 
 def test_plot_draws_roll_and_rollback_recurrences(tmp_path, monkeypatch):
     z = Input("rolled_z")
-    out = Output("rolled_out", Fir(out_features=1, bias=False)(z.sw(5)))
+    out = Output("rolled_out", Fir(features=1, bias=False)(z.sw(5)))
     body = Modely("rolled_body", inputs=[z], outputs=[out]).build()
     rolled = Modely(
         "rolled",
@@ -564,7 +564,7 @@ def test_plot_draws_roll_and_rollback_recurrences(tmp_path, monkeypatch):
         outputs=[Output("rolled_result", Roll(f=body, callback={z: out}))],
     ).build()
     x = Input("closed_x")
-    fir = Fir(out_features=1, bias=False, name="closed_fir")(x.sw(5))
+    fir = Fir(features=1, bias=False, name="closed_fir")(x.sw(5))
     closed = Modely(
         "closed", inputs=[x], outputs=[Output("closed_out", fir + x.last())]
     )
@@ -653,7 +653,7 @@ def test_plot_draws_names_graphviz_would_misread(tmp_path):
     model = Modely(
         "odd<&>names",
         inputs=[x],
-        outputs=[Output("out&<1>", Fir(out_features=1)([x.sw(2)]))],
+        outputs=[Output("out&<1>", Fir(features=1)([x.sw(2)]))],
     ).build()
 
     model.plot(tmp_path, "odd")

@@ -48,7 +48,7 @@ are those of the last evaluation. It is declared before ``build()``.
    steps = 5
    x = Input("x")
    F = Input("F")
-   x_pred = Output("x_pred", Fir(out_features=1)([x.sw(5)]) + Fir(out_features=1)([F.last()]))
+   x_pred = Output("x_pred", Fir(features=1)([x.sw(5)]) + Fir(features=1)([F.last()]))
 
    model = Modely("msd_rollback", inputs=[x, F], outputs=[x_pred])
    model.rollback({x: x_pred}, steps=steps)
@@ -100,8 +100,8 @@ on the state :math:`s = (x, \dot x)`:
    F_step = Input("F_step")
    next_state = Output(
        "next_state",
-       Linear(out_features=2, bias=False)([state.last()])
-       + Linear(out_features=2, bias=False)([F_step.last()]),
+       Linear(features=2, bias=False)([state.last()])
+       + Linear(features=2, bias=False)([F_step.last()]),
    )
    body = Modely("step", inputs=[state, F_step], outputs=[next_state]).build()
 
@@ -147,7 +147,7 @@ inputs, and returns a window of the same length. With the default ``steps``
 .. code-block:: python
 
    x = Input("x_roll")
-   out = Output("out", Fir(out_features=1)([x.sw(5)]))
+   out = Output("out", Fir(features=1)([x.sw(5)]))
    one_step = Modely("one_step", inputs=[x], outputs=[out]).build()
 
    rolled = Roll(f=one_step, callback={x: out})

@@ -14,7 +14,7 @@ created.
 
    x = Input("x")
    u = Input("u", dim=2)
-   y = Output("y", Fir(out_features=1)([x.sw(3)]) + Fir(out_features=1)([u.last()]))
+   y = Output("y", Fir(features=1)([x.sw(3)]) + Fir(features=1)([u.last()]))
    model = Modely("example", inputs=[x, u], outputs=[y])
    model.minimize("fit", y, Input("y_target").last())
    model.build()

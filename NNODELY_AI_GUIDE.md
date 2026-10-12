@@ -31,7 +31,7 @@ Use this order:
 7. **Per-objective weights:** `minimize(..., gain=0.5)` weighs an objective in the total loss; its logged loss stays unweighted [verified]. `seq_weights=` weighs the steps of a rollout or window (§8).
 8. **Numbers as targets:** `target=0` and `target=0.0` are the same; a number becomes a `Constant` shaped like the source.
 9. **Names are keys, not identities.** Input and Output names must be unique within a model: they are the keys of data dicts, results and history. Layer names do not decide weight sharing: two layer objects are two layers with their own weights, even when created with the **same explicit `name=`**; Keras then receives them as `twin` and `twin_1` [verified]. Pass `name=` to look a layer up later (`model.model.get_layer(name)`). Auto names are `Linear1`, `Fir2`, ... from a global counter that skips names in use.
-10. **Weight sharing means reusing the same layer object:** `lin = Linear(out_features=4)`, then `lin([a])` and `lin([b])` share weights. A `Linear(...)` created *inside* a function that runs several times (for example the `f` of `Ode`, which runs once per RK stage) creates new weights on every call. Create weight-bearing layers and `Parameter`s outside `f` and call them inside.
+10. **Weight sharing means reusing the same layer object:** `lin = Linear(features=4)`, then `lin([a])` and `lin([b])` share weights. A `Linear(...)` created *inside* a function that runs several times (for example the `f` of `Ode`, which runs once per RK stage) creates new weights on every call. Create weight-bearing layers and `Parameter`s outside `f` and call them inside.
 11. **Body models** passed to `Loop`, `Roll` or `OdeNet` keep their own objectives to themselves: the outer model neither trains them nor needs their target inputs [verified]. Put the objectives on the outer model.
 12. **Inference reads only what the outputs need:** `model(data)` takes the Inputs in `model.inference_inputs`. Target-only Inputs can be left out and extra keys are ignored [verified]. A missing needed input raises `ValueError` naming it.
 13. **`validate()` scores every objective**, including residual (`target=None`) and number targets [verified].
@@ -57,8 +57,8 @@ Use this order:
 | Current sample `x[t]` | `x.last()` |
 | Past n samples `x[t-n+1..t]` | `x.sw(n)` |
 | Next sample `x[t+1]` (typical one-step target) | `x.next()` |
-| Linear combination of past samples (ARX / FIR term) | `Fir(out_features=1)([x.sw(n)])` |
-| Static affine map / MLP layer on features | `Linear(out_features=k)([s])` plus an activation |
+| Linear combination of past samples (ARX / FIR term) | `Fir(features=1)([x.sw(n)])` |
+| Static affine map / MLP layer on features | `Linear(features=k)([s])` plus an activation |
 | Unknown physical constant (mass, stiffness, g/l) | `Parameter("m", value=guess)` |
 | Known constant | `Constant("g", value=9.81)`, or just a number in arithmetic |
 | Nonlinearity `sin`, `exp`, `abs`, saturation | `Sin()(s)`, `Exp()(s)`, `Abs()(s)`, `Clamp(min, max)(s)` |
@@ -103,8 +103,8 @@ The Input's own window is the union of all requested windows: `past = max p`, `f
 
 | Expression | Output shape |
 |---|---|
-| `Fir(out_features=2)([v.sw(4)])` | `((2, 3), 1)`: each of the 3 features filtered alone over its 4 samples onto 2 channels, a new leading dim axis; one output sample; seq axes are kept. `Fir(out_features=1)` keeps the dim, `(3, 1)`; on a scalar the channels replace it, `Fir(out_features=2)([x.sw(4)])` is `(2, 1)` |
-| `Linear(out_features=5)([v.sw(4)])` | `(5, 4)`: per-sample map of the whole dim, time kept; a `D=(2, 3)` input gives `(5, 4)` too, and `axis=k` maps only dim axis `k` (`Linear(5, axis=1)` on `D=(2, 3)` gives `((2, 5), 4)`), with a matrix per row unless `shared_kernel=True` |
+| `Fir(features=2)([v.sw(4)])` | `((2, 3), 1)`: each of the 3 features filtered alone over its 4 samples onto 2 channels, a new leading dim axis; one output sample; seq axes are kept. `Fir(features=1)` keeps the dim, `(3, 1)`; on a scalar the channels replace it, `Fir(features=2)([x.sw(4)])` is `(2, 1)` |
+| `Linear(features=5)([v.sw(4)])` | `(5, 4)`: per-sample map of the whole dim, time kept; a `D=(2, 3)` input gives `(5, 4)` too, and `axis=k` maps only dim axis `k` (`Linear(5, axis=1)` on `D=(2, 3)` gives `((2, 5), 4)`), with a matrix per row unless `shared_kernel=True` |
 | `Sum()([v.sw(4)])` | `(1, 4)`: sums dim axes (keepdims) |
 | `Select(1)([v.sw(4)])` | `(1, 4)` |
 | `Range(0, 2)([v.sw(4)])` | `(2, 4)` |
@@ -114,7 +114,7 @@ The Input's own window is the union of all requested windows: `past = max p`, `f
 | `TimeConcatenate()([v.sw(2), v.sw(3)])` | `(3, 5)` |
 | `Fuzzify(centers=[0,1,2])([g.last()])` | `(3, 1)`: one feature per center |
 | `Fuzzify(centers=[0,1,2])([g.sw(4)])` | `(3, 4)` |
-| `LocalModel(Fir(out_features=1))([t.sw(10)], [Fuzzify(...)([g.last()])])` | `(1, 1)` |
+| `LocalModel(Fir(features=1))([t.sw(10)], [Fuzzify(...)([g.last()])])` | `(1, 1)` |
 | `Derivative(dt=dt)(x.sw(n))` | `(1, n)`: window length preserved |
 | `Differentiate(respect_to=t_input)(u)` | shape of `t_input`'s full window |
 | `IntegrateStep(dt=dt)(a.sw(n))` | `(1, n)` |
@@ -183,16 +183,16 @@ Install: `pip install "nnodely[torch]"` (or `[tensorflow]` / `[jax]`); add `onnx
 
 ### Layer calling convention
 Configure first, then call on a stream or a list of streams:
-- `Linear(out_features=4)([s])` and `Linear(out_features=4)(s)` are both accepted.
+- `Linear(features=4)([s])` and `Linear(features=4)(s)` are both accepted.
 - Multi-input layers take a list: `Concatenate()([a, b])`.
 - A layer whose constructor takes only `name` (`Sin Cos Tan Asin Acos Atan Exp Log Log10 Sqrt Abs Floor Ceil Deg2Rad Sign Negative Sigmoid Tanh Swish Softplus TimeConcatenate`) can be applied as it is created: `Sin(x)` is `Sin()(x)`, `TimeConcatenate([a, b])` is `TimeConcatenate()([a, b])`. A string first argument is still the name: `Sin("s")` configures. For a named layer write `Sin(name="s")(x)`. Layers with settings (`ReLU`, `Softmax`, `Sum`, `Clamp`, `Linear`, ...) are always configured first.
 - `LocalModel` takes the inputs and a list of activations: `LocalModel(...)(inputs, activations)`.
 
 After build, weights are available on the *returned stream node*: `node.kernel`, `node.bias` (Keras variables; `.assign(np.array(...))` works).
 - The weights of `Fir` and `Linear` are always `Parameter`s, the layer's predecessors after its input (`node.preds[1:]`: kernel, then bias). Given as initializers, the layer makes them on its first call - `Parameter` subclasses named `"<layer>_kernel"` / `"<layer>_bias"`, whose variable has the weight's exact shape - and every later call of the same layer object shares them. To freeze a layer, freeze its Parameters: `for w in node.preds[1:]: w._layer.trainable = False`. A built model used as a block keeps the weights it was made for, so calling it on an input of another shape raises `ValueError`.
-- `Fir.kernel` has shape `(*dim, time, out_features)`, one filter per element, or `(time, out_features)` for a scalar input or `shared_kernel=True`; `Fir.bias` is `(*dim, out_features)` or `(out_features,)`. Along `time`, row k is window sample k, oldest first. Given as Parameters (`kernel=`, `bias=`) they are those Parameters' variables, in the Parameters' shape; with `bias=False`, `Fir.bias` is None.
-- `Linear.kernel` has shape `(*dim, out_features)` - `(in_features, out_features)` on a vector - or with `axis` `(*other_dims, dim[axis], out_features)` - one matrix per position of the other dim axes - and `(dim[axis], out_features)` with `shared_kernel=True`; `Linear.bias` is `(out_features,)`, `(*other_dims, out_features)` per position; given as Parameters, they are those Parameters' variables, in the Parameters' shape.
-- `LocalModel(Fir(...))` without output function (or the `"{name}_cells"` layer with an elementwise one) exposes `kernel` `[cells, time, out_features]` and `bias` `[cells, out_features]` (the one-matmul path, taken only for a single scalar input).
+- `Fir.kernel` has shape `(*dim, time, features)`, one filter per element, or `(time, features)` for a scalar input or `shared_kernel=True`; `Fir.bias` is `(*dim, features)` or `(features,)`. Along `time`, row k is window sample k, oldest first. Given as Parameters (`kernel=`, `bias=`) they are those Parameters' variables, in the Parameters' shape; with `bias=False`, `Fir.bias` is None.
+- `Linear.kernel` has shape `(*dim, features)` - `(in_features, features)` on a vector - or with `axis` `(*other_dims, dim[axis], features)` - one matrix per position of the other dim axes - and `(dim[axis], features)` with `shared_kernel=True`; `Linear.bias` is `(features,)`, `(*other_dims, features)` per position; given as Parameters, they are those Parameters' variables, in the Parameters' shape.
+- `LocalModel(Fir(...))` without output function (or the `"{name}_cells"` layer with an elementwise one) exposes `kernel` `[cells, time, features]` and `bias` `[cells, features]` (the one-matmul path, taken only for a single scalar input).
 
 ---
 
@@ -203,10 +203,10 @@ Legend: **in → out** gives semantic shapes. `d` = dim, `T` = time, `S` = seq.
 ### 6.1 With weights
 | Signature | in → out | Notes |
 |---|---|---|
-| `Linear(out_features=1, kernel="glorot_uniform", bias=True, axis=None, shared_kernel=False, name=None)` | `(*d, T, *S)` → `(out, T, *S)` | `x @ kernel + bias` over the whole dim, applied per time/seq element: every feature feeds every output, kernel `(*d, out)`. With `axis=k` only dim axis `k` is mapped and `out` takes its place: `(2, 3)` → `(2, out)` with `axis=1`. As the elements of a `Fir`, every position of the other dim axes has its own matrix and bias - kernel `(2, 3, out)`, bias `(2, out)` - or with `shared_kernel=True` one for all - `(3, out)`, `(out,)`; `shared_kernel` without `axis` is a `ValueError`. `kernel` and `bias` are each a `Parameter` (the weight's shape, axes of size 1 aside, else `ValueError`) or a Keras initializer (name or object) from which the layer makes one; either way a predecessor of the layer. `bias=True` draws the bias with `"glorot_uniform"` (not zeros), `bias=False` leaves it out. |
-| `Fir(out_features, kernel="glorot_uniform", bias=True, shared_kernel=False, name=None)` | `(*d, T, *S)` → `(out, *d, 1, *S)` | Filters the time window of every element of the dim alone (elements are never mixed), applied at every seq step. The `out` axis is added only for `out_features > 1`, and replaces a scalar dim `(1,)`: `(1,)` → `(out,)`, `(2, 3)` → `(2, 3)` with `out_features=1` or `(4, 2, 3)` with 4. Each element has its own kernel; `shared_kernel=True` uses one for all. `kernel` and `bias` are each a `Parameter` (the kernel / bias shape, axes of size 1 aside, else `ValueError`) or a Keras initializer (name or object) from which the layer makes one, drawing the filter and bias of each element alone, as for a scalar, so Glorot reads its fans from `(T, out)`; either way a predecessor of the layer, and assigning or training it changes the filter. `bias=True` is a bias of zeros, `bias=False` none. `out_features` is required. |
-| `LocalModel(input_function=None, output_function=None, pass_index=False, name=None)` called as `(inputs, activations: list)` | `a_k: (n_k, 1)` → shape of one cell | The activations are multiplied into `N = Π n_k` joint memberships `mu`, row-major (cell `(i1, i2)` is `i1*n2 + i2`). Computes `Σ_i output_function_i(mu_i * input_function_i([x...]))`. Functions receive a **list** of streams and are one callable (a new instance per cell: a `Layer` instance is copied as `"{name}_in{i}"` / `"{name}_out{i}"`, a plain function is called once per cell) or a list of `N` callables used as given; all cells must return the same shape. `input_function` defaults to `Fir(out_features=1)`. With `pass_index=True` a plain function is a factory `f((i1, i2, ...)) -> callable`. Fast paths: a `Fir` instance as input on a single scalar input evaluates all cells in one matmul (inputs must not carry seq); a weightless elementwise layer instance (`ReLU()`, `Tanh()`, `Sin()`, ...) as output is applied once to all cells. Anything else builds one subgraph per cell. |
-| `EquationLearner(functions: list, *, linear_in: Linear \| None = None, linear_out: Linear \| None = None, name=None)` called on `stream` or `[streams]` | `(d, T)` → `(n_functions, T)`, or `linear_out`'s output | `functions` items can be a name (`identity sin cos tan asin acos atan relu leaky_relu elu prelu sigmoid tanh swish gelu softplus add subtract multiply divide power`), a Layer class or instance, a callable over streams (arity inferred), or `(callable, arity)`. `linear_in` projects to Σarity arguments; its `out_features` must equal that sum. Inputs must have dim rank 1 (several inputs are concatenated). Internally it is a composed `Modely`. |
+| `Linear(features=1, kernel="glorot_uniform", bias=True, axis=None, shared_kernel=False, name=None)` | `(*d, T, *S)` → `(out, T, *S)` | `x @ kernel + bias` over the whole dim, applied per time/seq element: every feature feeds every output, kernel `(*d, out)`. With `axis=k` only dim axis `k` is mapped and `out` takes its place: `(2, 3)` → `(2, out)` with `axis=1`. As the elements of a `Fir`, every position of the other dim axes has its own matrix and bias - kernel `(2, 3, out)`, bias `(2, out)` - or with `shared_kernel=True` one for all - `(3, out)`, `(out,)`; `shared_kernel` without `axis` is a `ValueError`. `kernel` and `bias` are each a `Parameter` (the weight's shape, axes of size 1 aside, else `ValueError`) or a Keras initializer (name or object) from which the layer makes one; either way a predecessor of the layer. `bias=True` draws the bias with `"glorot_uniform"` (not zeros), `bias=False` leaves it out. |
+| `Fir(features, kernel="glorot_uniform", bias=True, shared_kernel=False, name=None)` | `(*d, T, *S)` → `(out, *d, 1, *S)` | Filters the time window of every element of the dim alone (elements are never mixed), applied at every seq step. The `out` axis is added only for `features > 1`, and replaces a scalar dim `(1,)`: `(1,)` → `(out,)`, `(2, 3)` → `(2, 3)` with `features=1` or `(4, 2, 3)` with 4. Each element has its own kernel; `shared_kernel=True` uses one for all. `kernel` and `bias` are each a `Parameter` (the kernel / bias shape, axes of size 1 aside, else `ValueError`) or a Keras initializer (name or object) from which the layer makes one, drawing the filter and bias of each element alone, as for a scalar, so Glorot reads its fans from `(T, out)`; either way a predecessor of the layer, and assigning or training it changes the filter. `bias=True` is a bias of zeros, `bias=False` none. `features` is required. |
+| `LocalModel(input_function=None, output_function=None, pass_index=False, name=None)` called as `(inputs, activations: list)` | `a_k: (n_k, 1)` → shape of one cell | The activations are multiplied into `N = Π n_k` joint memberships `mu`, row-major (cell `(i1, i2)` is `i1*n2 + i2`). Computes `Σ_i output_function_i(mu_i * input_function_i([x...]))`. Functions receive a **list** of streams and are one callable (a new instance per cell: a `Layer` instance is copied as `"{name}_in{i}"` / `"{name}_out{i}"`, a plain function is called once per cell) or a list of `N` callables used as given; all cells must return the same shape. `input_function` defaults to `Fir(features=1)`. With `pass_index=True` a plain function is a factory `f((i1, i2, ...)) -> callable`. Fast paths: a `Fir` instance as input on a single scalar input evaluates all cells in one matmul (inputs must not carry seq); a weightless elementwise layer instance (`ReLU()`, `Tanh()`, `Sin()`, ...) as output is applied once to all cells. Anything else builds one subgraph per cell. |
+| `EquationLearner(functions: list, *, linear_in: Linear \| None = None, linear_out: Linear \| None = None, name=None)` called on `stream` or `[streams]` | `(d, T)` → `(n_functions, T)`, or `linear_out`'s output | `functions` items can be a name (`identity sin cos tan asin acos atan relu leaky_relu elu prelu sigmoid tanh swish gelu softplus add subtract multiply divide power`), a Layer class or instance, a callable over streams (arity inferred), or `(callable, arity)`. `linear_in` projects to Σarity arguments; its `features` must equal that sum. Inputs must have dim rank 1 (several inputs are concatenated). Internally it is a composed `Modely`. |
 | `BatchNorm(axis=1, momentum=0.99, epsilon=1e-3, center=True, scale=True, name=None)` | unchanged | Per-feature statistics. Uses the inference branch in `validate` / `_predict`. |
 | `Parameter(...)` | – | See §5. |
 
@@ -486,7 +486,7 @@ for t in range(N - 1):
     y_data[t + 1] = 0.9 * y_data[t] - 0.2 * y_data[t - 1] + 0.5 * u_data[t]
 
 y, u = Input("y"), Input("u")
-y_next = Output("y_next", Fir(out_features=1)([y.sw(2)]) + Fir(out_features=1)([u.sw(2)]))
+y_next = Output("y_next", Fir(features=1)([y.sw(2)]) + Fir(features=1)([u.sw(2)]))
 model = Modely("arx", inputs=[y, u], outputs=[y_next])
 model.minimize("one_step", y_next, y.next(), loss="mse")
 model.build()
@@ -531,8 +531,8 @@ H = 20
 # 1) body: one step, no objectives
 state, force = Input("state", dim=2), Input("force")
 step_out = Output("state_next",
-    Linear(out_features=2, bias=False)([state.last()])
-    + Linear(out_features=2, bias=False)([force.last()]))
+    Linear(features=2, bias=False)([state.last()])
+    + Linear(features=2, bias=False)([force.last()]))
 body = Modely("step", inputs=[state, force], outputs=[step_out]).build()
 # 2) outer: sequences of H steps
 s_seq, f_seq = Input("s_seq", dim=2, seq=H), Input("f_seq", seq=H)
@@ -553,7 +553,7 @@ To use a physical step inside the body, build the body from `Ode(...)` as in R2,
 ```python
 from nnodely import Differentiate, Input, Linear, Modely, Output, Tanh, DataLoader
 t_in = Input("t")
-u_hat = Linear(out_features=1)([Tanh()([Linear(out_features=16)([t_in.last()])])])
+u_hat = Linear(features=1)([Tanh()([Linear(features=16)([t_in.last()])])])
 du_dt = Differentiate(order=1, respect_to=t_in)(u_hat)
 u_out = Output("u", u_hat)
 pinn = Modely("decay", inputs=[t_in], outputs=[u_out])
@@ -572,7 +572,7 @@ from nnodely import Input, Linear, Modely, OdeNet, Output, Tanh, DataLoader
 N = 25
 z = Input("z", dim=2)
 field = Modely("field", inputs=[z], outputs=[Output("dz",
-    Linear(out_features=2)([Tanh()([Linear(out_features=32)([z.last()])])]))]).build()
+    Linear(features=2)([Tanh()([Linear(features=32)([z.last()])])]))]).build()
 t_rep = Input("t_rep", seq=N)
 z_traj = Output("z_traj", OdeNet(f=field, states={z: "dz"}, t=t_rep, method="rk4", steps=2, name="node"))
 node = Modely("neural_ode", inputs=[z, t_rep], outputs=[z_traj])
@@ -592,7 +592,7 @@ node.model.get_layer("node").set_method("dopri5")               # adaptive for i
 from nnodely import Fir, Fuzzify, Input, LocalModel, Modely, Output
 trq, gear = Input("trq"), Input("gear")
 mu = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function="Triangular")([gear.last()])   # (4, 1)
-engine = LocalModel(Fir(out_features=1))([trq.sw(10)], [mu])                         # (1, 1)
+engine = LocalModel(Fir(features=1))([trq.sw(10)], [mu])                         # (1, 1)
 m = Modely("sched", inputs=[trq, gear], outputs=[Output("force", engine)]).build()
 m({"trq": np.ones((1, 1, 10)), "gear": np.full((1, 1, 1), 2.5)})
 # engine.kernel.shape == (4, 10, 1): one 10-tap FIR per gear cell
@@ -602,9 +602,9 @@ m({"trq": np.ones((1, 1, 10)), "gear": np.full((1, 1, 1), 2.5)})
 ```python
 from nnodely import Fir, Input, Linear, Modely, Output, ReLU
 sig = Input("sig")
-smoother = Modely("smoother", inputs=[sig], outputs=[Output("smooth", Fir(out_features=1)([sig.sw(10)]))]).build()
+smoother = Modely("smoother", inputs=[sig], outputs=[Output("smooth", Fir(features=1)([sig.sw(10)]))]).build()
 raw = Input("raw")
-cmd = Output("cmd", ReLU()([Linear(out_features=1)([smoother([raw.sw(10)])])]))
+cmd = Output("cmd", ReLU()([Linear(features=1)([smoother([raw.sw(10)])])]))
 controller = Modely("controller", inputs=[raw], outputs=[cmd]).build()
 controller({"raw": np.ones((1, 1, 10))})
 ```
@@ -614,7 +614,7 @@ controller({"raw": np.ones((1, 1, 10))})
 from nnodely import Fir, Input, Modely, Output, DataLoader
 K = 5
 x, F = Input("x"), Input("F")
-x_pred = Output("x_pred", Fir(out_features=1)([x.sw(5)]) + Fir(out_features=1)([F.last()]))
+x_pred = Output("x_pred", Fir(features=1)([x.sw(5)]) + Fir(features=1)([F.last()]))
 rb = Modely("rb", inputs=[x, F], outputs=[x_pred])
 rb.rollback({x: x_pred}, steps=K)
 rb.minimize("ahead", x_pred, Input("x_ahead").last())
@@ -628,7 +628,7 @@ rb.train(data, epochs=20, batch_size=64, lr=1e-2, printer=None)
 from nnodely import Input, IntegrateStep, Linear, Modely, Output
 dt, n = 0.01, 50
 F, v0, x0 = Input("F"), Input("v0"), Input("x0")
-acc = Linear(out_features=1)([F.sw(n)])                   # (1, n): per-sample force -> acceleration
+acc = Linear(features=1)([F.sw(n)])                   # (1, n): per-sample force -> acceleration
 vel = IntegrateStep(dt=dt, init=v0.last())(acc)                # (1, n)
 pos = IntegrateStep(dt=dt, init=x0.last())(vel)                # (1, n)
 m = Modely("mech", inputs=[F, v0, x0], outputs=[Output("pos", pos)])

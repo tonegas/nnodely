@@ -192,7 +192,7 @@ def test_derivative_wrt_input_through_a_trainable_layer():
     a window is a weighted sum, so its derivative is the weight of each sample
     and the result has the shape of the input's window."""
     x = Input("fir_x", dim=1)
-    fun = Fir(out_features=1)([x.sw(3)])
+    fun = Fir(features=1)([x.sw(3)])
     derivative = Differentiate(order=1, respect_to=x)(fun)
 
     assert derivative.shape.tuple == (1, 3)
@@ -216,7 +216,7 @@ def test_differentiate_through_a_linear_with_parameter_weights():
     s = Input("dlin_s", dim=3)
     W = Parameter("dlin_W", value=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
     b = Parameter("dlin_b", value=[5.0, 6.0])
-    z = Linear(out_features=2, kernel=W, bias=b)(s.last())
+    z = Linear(features=2, kernel=W, bias=b)(s.last())
     derivative = Differentiate(respect_to=s)(z)
     model = Modely(
         "dlin_model", inputs=[s], outputs=[Output("dlin_dz", derivative)]
@@ -236,9 +236,7 @@ def test_differentiate_trains_a_parameter_kernel():
     k = Parameter("dk_k", value=[1.0])
     derivative = Output(
         "dk_dx",
-        Differentiate(respect_to=x)(
-            Fir(out_features=1, kernel=k, bias=False)(x.last())
-        ),
+        Differentiate(respect_to=x)(Fir(features=1, kernel=k, bias=False)(x.last())),
     )
     model = Modely("dk_model", inputs=[x], outputs=[derivative])
     model.minimize("dk_slope", derivative, 3.0, loss="mse")
@@ -258,10 +256,10 @@ def test_derivative_between_layers_with_parameter_weights():
     x = Input("dlay_x")
     gain = Parameter("dlay_gain", value=[2.0])
     offset = Parameter("dlay_offset", value=[1.0])
-    line = Linear(out_features=1, kernel=gain, bias=offset)(x.sw(4))
+    line = Linear(features=1, kernel=gain, bias=offset)(x.sw(4))
     slope = Derivative(dt=0.5)(line)
     newest = Parameter("dlay_newest", value=[0.0, 0.0, 0.0, 1.0])
-    last_slope = Fir(out_features=1, kernel=newest, bias=False)(slope)
+    last_slope = Fir(features=1, kernel=newest, bias=False)(slope)
     model = Modely(
         "dlay_model",
         inputs=[x],
@@ -646,7 +644,7 @@ def _build_mixed_derivative_model(name):
     survive a round trip like any other layer state."""
     x = Input(f"{name}_x", dim=1)
     init = Input(f"{name}_init", dim=1)
-    fir = Fir(out_features=1, name=f"{name}_fir")
+    fir = Fir(features=1, name=f"{name}_fir")
     fun = Sin()(fir([x.sw(2)]) * x.sw(2))
     return (
         x,
@@ -806,7 +804,7 @@ def test_train_through_a_derivative():
     For a single-sample Fir the derivative *is* the weight, so it must
     converge to the target."""
     x = Input("dtrain_x", dim=1)
-    fun = Fir(out_features=1, bias=False, name="dtrain_fir")([x.last()])
+    fun = Fir(features=1, bias=False, name="dtrain_fir")([x.last()])
     derivative = Output("dx", Differentiate(order=1, respect_to=x)(fun))
 
     model = Modely("derivative_train_model", inputs=[x], outputs=[derivative])
@@ -1563,7 +1561,7 @@ def test_train_a_rate_through_an_integrated_trajectory():
     target = Input("traj_train_target", dim=1)
 
     # Linear projects along dim, so the rate keeps one sample per step.
-    rate = Linear(out_features=1, bias=False)([u.sw(steps)])
+    rate = Linear(features=1, bias=False)([u.sw(steps)])
     trajectory = Output(
         "trajectory", IntegrateStep(solver="euler", dt=dt, init=v0.last())(rate)
     )

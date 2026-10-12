@@ -4,7 +4,7 @@ All notable changes to nnodely are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [2.0.0] - 2026-10-09
+## [2.0.0] - 2026-10-12
 
 nnodely 2.0 is a rewrite of the library on **Keras 3**. The same model runs on
 TensorFlow, PyTorch or JAX, chosen with the `KERAS_BACKEND` environment
@@ -37,10 +37,10 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Recurrence: `Modely.rollback()`, `Loop` and `Roll`.
 - `Fir` on a multi-dimensional input (1.x took scalars only): every element
   is filtered over its window alone, with a kernel of its own or, with
-  `shared_kernel=True`, one for all. `out_features > 1` adds the channels as
+  `shared_kernel=True`, one for all. `features > 1` adds the channels as
   a leading dim axis: `D=(2, 3)` becomes `D=(4, 2, 3)` with 4 channels, and a
   scalar becomes `D=(4,)` as in 1.x.
-- `Fir(out_features, kernel=..., bias=...)` and `Linear(out_features,
+- `Fir(features, kernel=..., bias=...)` and `Linear(features,
   kernel=..., bias=...)`: their weights are `Parameter`s, predecessors of the
   layer in the graph. Each of `kernel` and `bias` is a `Parameter`, of the
   shape of `layer.kernel` or `layer.bias`, or a Keras initializer, by name or
@@ -49,7 +49,7 @@ variable, and trains, validates and exports through Keras. Models saved with
   the layer, and layers given one Parameter share it. `bias=False` leaves the
   bias out. A Fir draws the filter of each element alone.
 - `Linear` maps the whole dim of a multi-dimensional input, `(*dim, T)` to
-  `(out_features, T)`, or only one dim axis with `axis=k`: with a matrix and a
+  `(features, T)`, or only one dim axis with `axis=k`: with a matrix and a
   bias for each position of the other dim axes, as the elements of a `Fir`, or
   with `shared_kernel=True` one for all.
 - `save(path, weights=True)` / `Modely.load(path, weights=True)`, Keras and
@@ -90,8 +90,8 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `saveModel` / `loadModel` | `model.save(path)` / `Modely.load(path)` |
 | `exportPythonModel`, `saveTorchModel` | `model.export_keras(path)` |
 | `exportONNX` / `onnxInference` | `model.export_onnx(path)` / `Modely.validate_onnx(file, inputs)` |
-| `Fir(output_dimension, W=..., b=..., W_init=..., b_init=...)` | `Fir(out_features, kernel=..., bias=...)`: each a `Parameter` or an initializer, and `bias` also `True` or `False` |
-| `Linear(output_dimension, W=..., b=..., W_init=..., b_init=...)` | `Linear(out_features, kernel=..., bias=...)`: each a `Parameter` or an initializer, and `bias` also `True` or `False` |
+| `Fir(output_dimension, W=..., b=..., W_init=..., b_init=...)` | `Fir(features, kernel=..., bias=...)`: each a `Parameter` or an initializer, and `bias` also `True` or `False` |
+| `Linear(output_dimension, W=..., b=..., W_init=..., b_init=...)` | `Linear(features, kernel=..., bias=...)`: each a `Parameter` or an initializer, and `bias` also `True` or `False` |
 | `Relu` | `ReLU` |
 | `Add`, `Sub`, `Mul`, `Div`, `Pow` | `+`, `-`, `*`, `/`, `**` between streams |
 | `Neg` | `Negative` |

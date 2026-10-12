@@ -326,7 +326,7 @@ def test_layers():
     sub = param - const
     div = param / const
 
-    Fir_out = Fir(out_features=1)([x.sw(2)])
+    Fir_out = Fir(features=1)([x.sw(2)])
     out_add = Output("out_add", add)
     out_mul = Output("out_mul", mul)
     out_sub = Output("out_sub", sub)
@@ -456,7 +456,7 @@ def test_concatenate_rejects_incompatible_shapes():
 
 def test_fir_simple():
     input1 = Input("in1")
-    rel1 = Fir(out_features=1)([input1.last()])
+    rel1 = Fir(features=1)([input1.last()])
     fun = Output("out", rel1)
 
     test = Modely(name="test_model", inputs=[input1], outputs=[fun])
@@ -465,8 +465,8 @@ def test_fir_simple():
 
 def test_double_fir_simple():
     input1 = Input("in1")
-    rel1 = Fir(out_features=1)([input1.sw(5)])
-    rel2 = Fir(out_features=1)([input1.sw(1)])
+    rel1 = Fir(features=1)([input1.sw(5)])
+    rel2 = Fir(features=1)([input1.sw(1)])
     fun = Output("out", rel1 + rel2)
 
     test = Modely(name="test_model", inputs=[input1], outputs=[fun])
@@ -476,10 +476,10 @@ def test_double_fir_simple():
 def test_fir_tw():
     input1 = Input("in1")
     input2 = Input("in2")
-    rel1 = Fir(out_features=1)([input1.sw(5)])
-    rel2 = Fir(out_features=1)([input1.sw(1)])
-    rel3 = Fir(out_features=1)([input2.sw(1)])
-    rel4 = Fir(out_features=1)([input2.sw([2, 2])])
+    rel1 = Fir(features=1)([input1.sw(5)])
+    rel2 = Fir(features=1)([input1.sw(1)])
+    rel3 = Fir(features=1)([input2.sw(1)])
+    rel4 = Fir(features=1)([input2.sw([2, 2])])
     fun = Output("out", rel1 + rel2 + rel3 + rel4)
 
     test = Modely(name="test_model", inputs=[input1, input2], outputs=[fun])
@@ -488,11 +488,11 @@ def test_fir_tw():
 
 def test_fir_tw2():
     input1 = Input("in1")
-    rel3 = Fir(out_features=1)([input1.sw(5)])
-    rel4 = Fir(out_features=1)([input1.sw([2, 2])])
-    rel5 = Fir(out_features=1)([input1.sw([3, 3])])
-    rel6 = Fir(out_features=1)([input1.sw([3, 0])])
-    rel7 = Fir(out_features=1)([input1.sw(3)])
+    rel3 = Fir(features=1)([input1.sw(5)])
+    rel4 = Fir(features=1)([input1.sw([2, 2])])
+    rel5 = Fir(features=1)([input1.sw([3, 3])])
+    rel6 = Fir(features=1)([input1.sw([3, 0])])
+    rel7 = Fir(features=1)([input1.sw(3)])
     fun = Output("out", rel3 + rel4 + rel5 + rel6 + rel7)
 
     test = Modely(name="test_model", inputs=[input1], outputs=[fun])
@@ -501,9 +501,9 @@ def test_fir_tw2():
 
 def test_fir_tw3():
     input1 = Input("in1")
-    rel3 = Fir(out_features=1)([input1.sw(5)])
-    rel4 = Fir(out_features=1)([input1.sw([1, 3])])
-    rel5 = Fir(out_features=1)([input1.sw([4, 1])])
+    rel3 = Fir(features=1)([input1.sw(5)])
+    rel4 = Fir(features=1)([input1.sw([1, 3])])
+    rel5 = Fir(features=1)([input1.sw([4, 1])])
     fun = Output("out", rel3 + rel4 + rel5)
 
     test = Modely(name="test_model", inputs=[input1], outputs=[fun])
@@ -588,7 +588,7 @@ def test_a_frozen_linear_stays_frozen_through_a_keras_file(tmp_path):
         "frozen",
         inputs=[x],
         outputs=[
-            Output("frozen_out", Linear(out_features=3, name="frozen_linear")(x.last()))
+            Output("frozen_out", Linear(features=3, name="frozen_linear")(x.last()))
         ],
     ).build()
     assert model.inference_model is not None
@@ -602,9 +602,9 @@ def test_a_frozen_linear_stays_frozen_through_a_keras_file(tmp_path):
 
 def test_linear_initializers_are_saved_with_the_architecture(tmp_path):
     x = Input("initialized_x", dim=2)
-    linear = Linear(
-        out_features=3, kernel="ones", bias="zeros", name="initialized_linear"
-    )(x.last())
+    linear = Linear(features=3, kernel="ones", bias="zeros", name="initialized_linear")(
+        x.last()
+    )
     model = Modely(
         "initialized", inputs=[x], outputs=[Output("initialized_out", linear)]
     ).build()
@@ -622,8 +622,8 @@ def test_linear_takes_its_kernel_and_bias_from_parameters():
     x = Input("linear_param_x", dim=3)
     w = Parameter("linear_param_w", value=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
     b = Parameter("linear_param_b", value=[0.5, -1.0])
-    linear = Linear(out_features=2, kernel=w, bias=b)([x.sw(2)])
-    unbiased = Linear(out_features=2, kernel=w, bias=False)([x.sw(2)])
+    linear = Linear(features=2, kernel=w, bias=b)([x.sw(2)])
+    unbiased = Linear(features=2, kernel=w, bias=False)([x.sw(2)])
     model = Modely(
         "linear_param_model",
         inputs=[x],
@@ -657,17 +657,15 @@ def test_linear_takes_its_kernel_and_bias_from_parameters():
 def test_linear_rejects_parameters_of_the_wrong_shape():
     x = Input("linear_bad_x", dim=3)
     with pytest.raises(ValueError, match=r"kernel must have the shape \(3, 2\)"):
-        Linear(out_features=2, kernel=Parameter("linear_bad_w", dim=(2, 3)))([x.last()])
+        Linear(features=2, kernel=Parameter("linear_bad_w", dim=(2, 3)))([x.last()])
     with pytest.raises(ValueError, match=r"bias must have the shape \(2,\)"):
-        Linear(out_features=2, bias=Parameter("linear_bad_b", dim=3))([x.last()])
+        Linear(features=2, bias=Parameter("linear_bad_b", dim=3))([x.last()])
 
 
 def test_linear_with_parameters_round_trips_through_save_and_keras(tmp_path):
     x = Input("linear_kept_x", dim=2)
     w = Parameter("linear_kept_w", dim=(2, 3))
-    linear = Linear(out_features=3, kernel=w, bias="ones", name="linear_kept")(
-        [x.last()]
-    )
+    linear = Linear(features=3, kernel=w, bias="ones", name="linear_kept")([x.last()])
     model = Modely(
         "linear_kept", inputs=[x], outputs=[Output("linear_kept_out", linear)]
     ).build()
@@ -709,13 +707,11 @@ def _linear_values(shape, seed):
 
 
 def test_linear_projects_the_whole_dim_by_default():
-    # (batch, 2, 3, time, seq) -> (batch, out_features, time, seq): every one
+    # (batch, 2, 3, time, seq) -> (batch, features, time, seq): every one
     # of the 6 features of a sample feeds every output.
     x = Input("lin_dim_x", dim=(2, 3), seq=2)
-    summed = Linear(out_features=2, kernel="ones", bias=False, name="lin_dim_sum")(
-        x.sw(4)
-    )
-    drawn = Linear(out_features=2, name="lin_dim_drawn")(x.sw(4))
+    summed = Linear(features=2, kernel="ones", bias=False, name="lin_dim_sum")(x.sw(4))
+    drawn = Linear(features=2, name="lin_dim_drawn")(x.sw(4))
     model = Modely(
         "lin_dim_model",
         inputs=[x],
@@ -765,10 +761,10 @@ def test_linear_with_an_axis_projects_that_axis_alone(
     subscripts,
     bias_terms,
 ):
-    # out_features takes the place of the axis.
+    # features takes the place of the axis.
     x = Input("lin_axis_x", dim=(2, 3), seq=2)
     linear = Linear(
-        out_features=2, axis=axis, shared_kernel=shared_kernel, name="lin_axis"
+        features=2, axis=axis, shared_kernel=shared_kernel, name="lin_axis"
     )(x.sw(4))
     model = Modely(
         "lin_axis_model", inputs=[x], outputs=[Output("lin_axis_out", linear)]
@@ -801,14 +797,14 @@ def test_linear_with_an_axis_projects_that_axis_alone(
 
 def test_linear_shared_kernel_needs_an_axis():
     with pytest.raises(ValueError, match="needs an axis"):
-        Linear(out_features=2, shared_kernel=True)
+        Linear(features=2, shared_kernel=True)
 
 
 def test_linear_rejects_an_axis_its_input_does_not_have():
     x = Input("lin_bad_axis_x", dim=(2, 3))
     for axis in (2, -3):
         with pytest.raises(ValueError, match=f"axis {axis} is not an axis"):
-            Linear(out_features=2, axis=axis)(x.last())
+            Linear(features=2, axis=axis)(x.last())
 
 
 def test_linear_draws_a_whole_dim_kernel_as_one_matrix():
@@ -817,7 +813,7 @@ def test_linear_draws_a_whole_dim_kernel_as_one_matrix():
     # 50 outputs instead, a bound of about 0.24.
     x = Input("lin_draw_x", dim=(50, 2))
     linear = Linear(
-        out_features=1,
+        features=1,
         kernel=keras.initializers.VarianceScaling(
             mode="fan_out", distribution="uniform"
         ),
@@ -923,7 +919,7 @@ def _fir_expected(values, kernel, bias=0.5):
 
 
 @pytest.mark.parametrize(
-    "dim, out_features, expected",
+    "dim, features, expected",
     [
         ((1,), 1, (1,)),
         ((1,), 4, (4,)),
@@ -935,10 +931,10 @@ def _fir_expected(values, kernel, bias=0.5):
 )
 @pytest.mark.parametrize("shared_kernel", [False, True])
 def test_fir_adds_a_channel_axis_in_front_of_the_dim(
-    dim, out_features, expected, shared_kernel
+    dim, features, expected, shared_kernel
 ):
     x = Input("fir_dim_x", dim=dim)
-    fir = Fir(out_features=out_features, shared_kernel=shared_kernel)([x.sw(3)])
+    fir = Fir(features=features, shared_kernel=shared_kernel)([x.sw(3)])
     model = Modely("fir_dim_model", inputs=[x], outputs=[Output("fir_dim_out", fir)])
     model.build()
     assert fir.shape.dimensions == (expected, 1, ())
@@ -950,7 +946,7 @@ def test_fir_adds_a_channel_axis_in_front_of_the_dim(
 
 def test_fir_filters_every_element_with_its_own_kernel():
     x = Input("fir_own_x", dim=(2, 3))
-    fir = Fir(out_features=4, name="fir_own")([x.sw(5)])
+    fir = Fir(features=4, name="fir_own")([x.sw(5)])
     model = Modely("fir_own_model", inputs=[x], outputs=[Output("fir_own_out", fir)])
     model.build()
     assert fir.kernel is not None and fir.bias is not None
@@ -974,7 +970,7 @@ def test_fir_filters_every_element_with_its_own_kernel():
 
 def test_fir_with_a_shared_kernel_filters_every_element_alike():
     x = Input("fir_shared_x", dim=(2, 3))
-    fir = Fir(out_features=4, shared_kernel=True, name="fir_shared")([x.sw(5)])
+    fir = Fir(features=4, shared_kernel=True, name="fir_shared")([x.sw(5)])
     model = Modely(
         "fir_shared_model", inputs=[x], outputs=[Output("fir_shared_out", fir)]
     )
@@ -995,7 +991,7 @@ def test_fir_with_a_shared_kernel_filters_every_element_alike():
 
 def test_fir_with_one_channel_keeps_the_dim():
     x = Input("fir_one_x", dim=(2, 3))
-    fir = Fir(out_features=1, name="fir_one")([x.sw(4)])
+    fir = Fir(features=1, name="fir_one")([x.sw(4)])
     model = Modely("fir_one_model", inputs=[x], outputs=[Output("fir_one_out", fir)])
     model.build()
 
@@ -1013,7 +1009,7 @@ def test_fir_keeps_the_sequence_axes():
     # Once flattened into the projection: every output mixed every step of
     # the sequence, and the seq axis was gone from the result.
     x = Input("fir_seq_x", dim=2, seq=4)
-    fir = Fir(out_features=3, name="fir_seq")([x.sw(3)])
+    fir = Fir(features=3, name="fir_seq")([x.sw(3)])
     model = Modely("fir_seq_model", inputs=[x], outputs=[Output("fir_seq_out", fir)])
     model.build()
     assert fir.shape.dimensions == ((3, 2), 1, (4,))
@@ -1034,7 +1030,7 @@ def test_fir_keeps_the_sequence_axes():
 
 def test_fir_without_sequence_axes_filters_the_whole_window():
     x = Input("fir_plain_x")
-    fir = Fir(out_features=3, name="fir_plain")([x.sw(3)])
+    fir = Fir(features=3, name="fir_plain")([x.sw(3)])
     model = Modely(
         "fir_plain_model", inputs=[x], outputs=[Output("fir_plain_out", fir)]
     )
@@ -1051,12 +1047,12 @@ def test_fir_without_sequence_axes_filters_the_whole_window():
 
 
 @pytest.mark.parametrize(
-    "dim, out_features, expected",
+    "dim, features, expected",
     [((1,), 2, (2,)), ((2, 3), 2, (2, 2, 3)), ((2, 3), 1, (2, 3))],
 )
-def test_fir_follows_a_dynamic_sequence_length(dim, out_features, expected):
+def test_fir_follows_a_dynamic_sequence_length(dim, features, expected):
     x = Input("fir_dynamic_x", dim=dim, seq=-1)
-    fir = Fir(out_features=out_features, name="fir_dynamic")([x.sw(2)])
+    fir = Fir(features=features, name="fir_dynamic")([x.sw(2)])
     model = Modely(
         "fir_dynamic_model", inputs=[x], outputs=[Output("fir_dynamic_out", fir)]
     )
@@ -1070,7 +1066,7 @@ def test_fir_follows_a_dynamic_sequence_length(dim, out_features, expected):
 
 def test_fir_shared_kernel_is_saved_with_the_architecture(tmp_path):
     x = Input("fir_saved_x", dim=(2, 3))
-    fir = Fir(out_features=4, shared_kernel=True, name="fir_saved")([x.sw(3)])
+    fir = Fir(features=4, shared_kernel=True, name="fir_saved")([x.sw(3)])
     model = Modely(
         "fir_saved", inputs=[x], outputs=[Output("fir_saved_out", fir)]
     ).build()
@@ -1093,11 +1089,11 @@ def test_fir_shared_kernel_is_saved_with_the_architecture(tmp_path):
 
 
 def test_fir_draws_the_filter_of_each_element_alone():
-    # Glorot takes its fans from the (time, out_features) filter of one
+    # Glorot takes its fans from the (time, features) filter of one
     # element: 4 + 2 here, a bound of 1. Drawn as one (10, 10, 4, 2) tensor,
     # the fans would count the 100 elements too, a bound of about 0.14.
     x = Input("fir_draw_x", dim=(10, 10))
-    fir = Fir(out_features=2, name="fir_draw")([x.sw(4)])
+    fir = Fir(features=2, name="fir_draw")([x.sw(4)])
     Modely("fir_draw", inputs=[x], outputs=[Output("fir_draw_out", fir)]).build()
 
     kernel = to_numpy(fir.kernel)
@@ -1110,7 +1106,7 @@ def test_fir_draws_the_filter_of_each_element_alone():
 def test_fir_initializers_are_saved_with_the_architecture(tmp_path):
     x = Input("fir_init_x", dim=2)
     fir = Fir(
-        out_features=3,
+        features=3,
         kernel="ones",
         bias=keras.initializers.Constant(0.5),
         name="fir_init",
@@ -1145,7 +1141,7 @@ def test_fir_takes_its_kernel_and_bias_from_parameters(
     x = Input("fir_param_x", dim=3)
     w = Parameter("fir_param_w", dim=kernel_dim)
     b = Parameter("fir_param_b", dim=bias_dim)
-    fir = Fir(out_features=4, kernel=w, bias=b, shared_kernel=shared_kernel)([x.sw(3)])
+    fir = Fir(features=4, kernel=w, bias=b, shared_kernel=shared_kernel)([x.sw(3)])
     model = Modely(
         "fir_param_model", inputs=[x], outputs=[Output("fir_param_out", fir)]
     ).build()
@@ -1177,7 +1173,7 @@ def test_fir_takes_a_parameter_whose_shape_differs_only_by_axes_of_size_one():
     x = Input("fir_ones_x")
     # A matrix value is (dim, time): (3, 2) here, the (time, out) kernel.
     w = Parameter("fir_ones_w", value=[[1.0, 0.0], [0.0, 0.0], [0.0, 2.0]])
-    fir = Fir(out_features=2, kernel=w, bias=False)([x.sw(3)])
+    fir = Fir(features=2, kernel=w, bias=False)([x.sw(3)])
     model = Modely(
         "fir_ones_model", inputs=[x], outputs=[Output("fir_ones_out", fir)]
     ).build()
@@ -1193,8 +1189,8 @@ def test_firs_given_one_parameter_share_its_weight(tmp_path):
     x = Input("fir_twin_x")
     y = Input("fir_twin_y")
     w = Parameter("fir_twin_w", value=np.ones(3))
-    first = Fir(out_features=1, kernel=w, bias=False)([x.sw(3)])
-    second = Fir(out_features=1, kernel=w, bias=False)([y.sw(3)])
+    first = Fir(features=1, kernel=w, bias=False)([x.sw(3)])
+    second = Fir(features=1, kernel=w, bias=False)([y.sw(3)])
     model = Modely(
         "fir_twin_model",
         inputs=[x, y],
@@ -1231,9 +1227,9 @@ def test_fir_rejects_parameters_it_cannot_use():
     x = Input("fir_bad_x", dim=3)
     # (time, out) is the kernel shared by every element, not one per element.
     with pytest.raises(ValueError, match=r"kernel must have the shape \(3, 3, 4\)"):
-        Fir(out_features=4, kernel=Parameter("fir_bad_w", dim=(3, 4)))([x.sw(3)])
+        Fir(features=4, kernel=Parameter("fir_bad_w", dim=(3, 4)))([x.sw(3)])
     with pytest.raises(ValueError, match=r"bias must have the shape \(3, 4\)"):
-        Fir(out_features=4, bias=Parameter("fir_bad_b", dim=(4,)))([x.sw(3)])
+        Fir(features=4, bias=Parameter("fir_bad_b", dim=(4,)))([x.sw(3)])
 
 
 @pytest.mark.slow
@@ -1241,7 +1237,7 @@ def test_fir_trains_the_parameters_it_is_given():
     x = Input("fir_train_x")
     w = Parameter("fir_train_w", value=np.zeros(3))
     b = Parameter("fir_train_b", value=[0.0])
-    fir = Fir(out_features=1, kernel=w, bias=b)([x.sw(3)])
+    fir = Fir(features=1, kernel=w, bias=b)([x.sw(3)])
     model = Modely(
         "fir_train_model", inputs=[x], outputs=[Output("fir_train_out", fir)]
     )
@@ -1262,7 +1258,7 @@ def test_fir_with_parameters_round_trips_through_save_and_keras(tmp_path, given)
     w = Parameter("fir_kept_w", dim=(2, 3, 4)) if "kernel" in given else None
     b = Parameter("fir_kept_b", dim=(2, 4)) if "bias" in given else None
     fir = Fir(
-        out_features=4,
+        features=4,
         kernel="glorot_uniform" if w is None else w,
         bias=True if b is None else b,
         name="fir_kept",

@@ -318,7 +318,7 @@ def test_minimize_rejects_a_name_the_model_does_not_have(side):
 def test_minimize_rejects_a_name_shared_by_several_streams():
     # One named layer applied twice gives two streams that carry its name.
     x = Input("x")
-    shared = Linear(out_features=1, name="shared_linear")
+    shared = Linear(features=1, name="shared_linear")
     first = Output("first", shared(x.last()))
     second = Output("second", shared(x.sw(2)))
     model = Modely("model", inputs=[x], outputs=[first, second])

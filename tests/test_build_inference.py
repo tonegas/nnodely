@@ -23,7 +23,7 @@ def test_basic_model_build_and_inference(batch_size, window_size):
     x_stream = x.sw(window_size)
     y_stream = y.sw(window_size)
 
-    result_fir = Fir(out_features=2)([x_stream + y_stream])
+    result_fir = Fir(features=2)([x_stream + y_stream])
     x_out = Output("x_pred", result_fir)
 
     model = Modely("model1", inputs=[x, y], outputs=[x_out])
@@ -46,7 +46,7 @@ def test_model_inference_with_composed_model(batch_size, window_size):
     x_stream = x.sw(window_size)
     y_stream = y.sw(window_size)
 
-    fir = Fir(out_features=2)
+    fir = Fir(features=2)
     result_fir = fir([x_stream + y_stream])
 
     x_out = Output("x_pred", result_fir)
@@ -56,7 +56,7 @@ def test_model_inference_with_composed_model(batch_size, window_size):
     # ------- Model composition -------
     z = Input("z", dim=1)
     z_stream = z.sw(window_size)
-    z_fir = Fir(out_features=1)(model1([z_stream, z_stream]))
+    z_fir = Fir(features=1)(model1([z_stream, z_stream]))
     z_out = Output("z_pred", z_fir)
     model2 = Modely("composed_model", inputs=[z], outputs=[z_out])
     model2.build()
@@ -104,9 +104,9 @@ def _minimized_model(name):
     """
     x = Input(f"{name}_x", dim=1)
     target = Input(f"{name}_target", dim=1)
-    hidden = Linear(out_features=1, name=f"{name}_hidden")(x.last())
+    hidden = Linear(features=1, name=f"{name}_hidden")(x.last())
     prediction = Output(
-        f"{name}_pred", Fir(out_features=1, name=f"{name}_fir")(x.sw(3)) + hidden
+        f"{name}_pred", Fir(features=1, name=f"{name}_fir")(x.sw(3)) + hidden
     )
     model = Modely(name, inputs=[x, target], outputs=[prediction])
     model.minimize(f"{name}_fit", source=prediction, target=target.last())
@@ -166,7 +166,7 @@ def test_inference_returns_only_declared_outputs():
 def test_inference_keeps_an_input_that_outputs_and_minimizers_both_read():
     # A reconstruction: the input is both what the model reads and its target.
     x = Input("reconstruct_x", dim=1)
-    rebuilt = Output("reconstruct_out", Linear(out_features=1)(x.last()))
+    rebuilt = Output("reconstruct_out", Linear(features=1)(x.last()))
     model = Modely("reconstruct", inputs=[x], outputs=[rebuilt])
     model.minimize("reconstruct_fit", source=rebuilt, target=x.last())
     model.build()
@@ -202,7 +202,7 @@ def test_rollback_inference_does_not_need_minimizer_inputs():
     x = Input("rollback_inference_x", dim=1)
     target = Input("rollback_inference_target", dim=1)
     taps = Parameter("rollback_inference_taps", value=np.ones(5))
-    fir = Fir(out_features=1, kernel=taps, bias=False, name="rollback_inference_fir")(
+    fir = Fir(features=1, kernel=taps, bias=False, name="rollback_inference_fir")(
         x.sw(5)
     )
     output = Output("rollback_inference_out", fir + x.last())
@@ -226,7 +226,7 @@ def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
     state = Input("minimized_body_state", dim=1)
     gain = Parameter("minimized_body_gain", value=[2.0])
     relation = Linear(
-        out_features=1, kernel=gain, bias=False, name="minimized_body_linear"
+        features=1, kernel=gain, bias=False, name="minimized_body_linear"
     )(state.last())
     next_state = Output("minimized_body_next", relation)
     body = Modely("minimized_body", inputs=[state], outputs=[next_state])

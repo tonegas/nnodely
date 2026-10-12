@@ -32,7 +32,7 @@ physics-informed neural networks. The model below fits
 .. code-block:: python
 
    t = Input("t")
-   u = Linear(out_features=1)([Tanh()([Linear(out_features=16)([t.last()])])])
+   u = Linear(features=1)([Tanh()([Linear(features=16)([t.last()])])])
    du_dt = Differentiate(respect_to=t)(u)
 
    u_out = Output("u", u)
@@ -170,7 +170,7 @@ sequence axis. The field must be autonomous (all its inputs are states).
    field = Modely(
        "field",
        inputs=[z],
-       outputs=[Output("dz", Linear(out_features=2, bias=False)([z.last()]))],
+       outputs=[Output("dz", Linear(features=2, bias=False)([z.last()]))],
    ).build()
 
    report_times = Input("report_times", seq=50)
