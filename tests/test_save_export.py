@@ -515,14 +515,14 @@ def test_local_model_with_fuzzy_product_round_trips(tmp_path):
         Fuzzify(centers=[0.0, 1.0, 2.0], function="Triangular")([j]),
         Fuzzify(centers=[0.0, 1.0], function="Triangular")([k]),
     ]
-    cloned = LocalModel(Fir(out_features=2), output_function=Tanh(), name="save_cloned")(
+    cloned = LocalModel(Fir(features=2), output_function=Tanh(), name="save_cloned")(
         [x.sw(3)], activations
     )
-    factory = LocalModel(lambda index: Fir(out_features=2), name="save_factory")(
+    factory = LocalModel(lambda index: Fir(features=2), name="save_factory")(
         [x.sw(3)], activations
     )
     vectorized = LocalModel(
-        lambda streams: Fir(out_features=6)(streams),
+        lambda streams: Fir(features=6)(streams),
         output_function=lambda streams: Tanh()(streams),
         vectorized=True,
         name="save_vectorized",
@@ -799,13 +799,13 @@ def _fuzzy_local_model():
     gaussian = Fuzzify(centers=[0.2, 0.8], function="Gaussian", name="fuzzy_gaussian")(
         speed.last()
     )
-    # Two fuzzifications combined into joint memberships, one Fir per cell.
+    # Two fuzzifications combined into joint memberships, one Fir for every cell.
     affine = LocalModel(Fir(features=2), name="fuzzy_affine")(
         [x.sw(3)], [triangular, gaussian]
     )
     # One explicit cell per membership, built from ordinary layers.
     expanded = LocalModel(
-        input_function=lambda index: Fir(out_features=1),
+        input_function=lambda index: Fir(features=1),
         output_function=lambda index: ReLU(),
         name="fuzzy_expanded",
     )([x.sw(3)], [rectangular])
@@ -1134,7 +1134,7 @@ def _complete_vehicle_model():
     gear_membership = Fuzzify(centers=[0.0, 0.5, 1.0], name="vehicle_gear_fuzzy")(
         gear.last()
     )
-    engine = LocalModel(Fir(out_features=1), name="vehicle_engine")(
+    engine = LocalModel(Fir(features=1), name="vehicle_engine")(
         [throttle.sw(5)], [gear_membership]
     )
     grip = Sigmoid()(

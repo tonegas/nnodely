@@ -63,7 +63,7 @@ Use this order:
 | Known constant | `Constant("g", value=9.81)`, or just a number in arithmetic |
 | Nonlinearity `sin`, `exp`, `abs`, saturation | `Sin()(s)`, `Exp()(s)`, `Abs()(s)`, `Clamp(min, max)(s)` |
 | Lookup table / characteristic curve (fixed) | `Interpolation(x_points, y_points)(s)` |
-| Gain scheduling / operating regimes | `Fuzzify(centers)` → `LocalModel(Fir(out_features=1))([x.sw(n)], [membership])` |
+| Gain scheduling / operating regimes | `Fuzzify(centers)` → `LocalModel(lambda i: Fir(features=1))([x.sw(n)], [membership])` |
 | Symbolic regression of an unknown law | `EquationLearner(["sin", "multiply", ...], linear_out=Linear(1))` |
 | `du/dx` exact (PINN residual, Sobolev) | `Differentiate(order=1, respect_to=x_input)(u)` |
 | `dx/dt` from a sampled window | `Derivative(dt=dt, init=..., window=...)(x.sw(n))` |
@@ -189,10 +189,13 @@ Configure first, then call on a stream or a list of streams:
 - A layer whose constructor takes only `name` (`Sin Cos Tan Asin Acos Atan Atan2 Exp Log Log10 Sqrt Abs Floor Ceil Deg2Rad Sign Negative Sigmoid Tanh Swish Softplus TimeConcatenate`) can be applied as it is created: `Sin(x)` is `Sin()(x)`, `TimeConcatenate([a, b])` is `TimeConcatenate()([a, b])`, `Atan2([y, x])` is `Atan2()([y, x])`. A string first argument is still the name: `Sin("s")` configures. For a named layer write `Sin(name="s")(x)`. Layers with settings (`ReLU`, `Softmax`, `Sum`, `Clamp`, `Linear`, ...) are always configured first.
 - `LocalModel` takes the inputs and a list of activations: `LocalModel(...)(inputs, activations)`.
 
-After build, weights are available on the *returned stream node*: `node.kernel`, `node.bias` (Keras variables; `.assign(np.array(...))` works).
-- `Fir.kernel` has shape `(prod(dim)*time, out_features)`; rows follow C order over `(*dim, time)`, so for `dim=1` row k is window sample k, oldest first.
-- `Linear.kernel` has shape `(in_features, out_features)`.
-- `LocalModel(Fir(...))` copies the Fir once per cell as the Keras layers `"{name}_in{i}"` (`"{name}_out{i}"` for the output function); the returned stream has no `kernel`.
+The weights of `Fir` and `Linear` are `Parameter`s, predecessors of the layer in the graph:
+- Pass them as `kernel=` / `bias=`: a `Parameter` (of the weight's shape, axes of size 1 aside), or a Keras initializer by name or object, from which the layer makes one named `"<layer>_kernel"` / `"<layer>_bias"`. `bias=False` leaves the bias out. Known weights are set when declaring, with no assign after build: `Fir(features=1, kernel=Parameter(value=K), bias=False)`.
+- Layers given the same Parameter share it. Freezing it (`p.freeze()`, or `model.freeze()`) fixes the layer; `model.parameters` lists the made ones too.
+- After build, `node.kernel` / `node.bias` on the *returned stream node* are the Keras variables of those Parameters, in the Parameter's shape (`.assign(np.array(...))` works); `bias` is None without a bias.
+- `Fir` kernel `(*dim, time, features)`, bias `(*dim, features)`; without the `*dim` for a scalar input or `shared_kernel=True`. Time rows are window samples, oldest first: `Fir(features=2)([x.sw(4)])` has kernel `(4, 2)`, on `D=(2, 3)` `(2, 3, 4, 2)`.
+- `Linear` kernel `(*dim, features)`, bias `(features,)`. With `axis=k`: kernel `(*other_dim_axes, dim[k], features)`, bias `(*other_dim_axes, features)`, the other axes dropped with `shared_kernel=True`. On `D=(2, 3)`: `axis=1` gives `(2, 3, 5)` / `(2, 5)`, `axis=0` gives `(3, 2, 5)` / `(3, 5)`.
+- `LocalModel` cells with known weights: a factory giving each cell its Parameters, `LocalModel(lambda i: Fir(features=1, kernel=Parameter(value=K[i])))`; the returned stream has no `kernel`.
 
 ---
 
@@ -203,10 +206,10 @@ Legend: **in → out** gives semantic shapes. `d` = dim, `T` = time, `S` = seq.
 ### 6.1 With weights
 | Signature | in → out | Notes |
 |---|---|---|
-| `Linear(out_features=1, use_bias=True, name=None, initializer="glorot_uniform", bias_initializer="glorot_uniform")` | `(d, T, *S)` → `(out, T, *S)` | Dense on the first dim axis, applied per time/seq element. The bias initializer is glorot, not zeros. |
-| `Fir(out_features, use_bias=True, name=None)` | `(d, T, *S)` → `(out, 1, *S)` | One dense projection of the whole dim×time window, applied at every seq step. `out_features` is required. |
-| `LocalModel(input_function=None, output_function=None, vectorized=False, name=None)` called as `(inputs, activations: list)` | `a_k: (n_k, 1)` → shape of one output cell | The activations are multiplied into `N = Π n_k` joint memberships `mu`, row-major (cell `(i1, i2)` is `i1*n2 + i2`). Computes `Σ_i output_function_i(mu_i * input_function_i([x...]))`. Each function is: `None` (no function: one input weighted as it is / the weighted cells only summed); a weightless elementwise layer instance (`Sin()`, `Tanh()`, `ReLU()`, ...), applied once; any other `Layer` instance, copied per cell as `"{name}_in{i}"` / `"{name}_out{i}"`; or a callable, which is a factory `f((i1, i2, ...)) -> layer` called once per cell. With `vectorized=True` a callable is instead called once on all cells and must return `(N, *cell)` (`(N,)` for scalar cells), e.g. `lambda xs: Fir(out_features=N)(xs)`. Functions receive a **list** of streams; all cells must have the same shape. Lists of functions are not accepted. |
-| `EquationLearner(functions: list, *, linear_in: Linear \| None = None, linear_out: Linear \| None = None, name=None)` called on `stream` or `[streams]` | `(d, T)` → `(n_functions, T)`, or `linear_out`'s output | `functions` items can be a name (`identity sin cos tan asin acos atan relu leaky_relu elu prelu sigmoid tanh swish gelu softplus add subtract multiply divide power`), a Layer class or instance, a callable over streams (arity inferred), or `(callable, arity)`. `linear_in` projects to Σarity arguments; its `out_features` must equal that sum. Inputs must have dim rank 1 (several inputs are concatenated). Internally it is a composed `Modely`. |
+| `Linear(features=1, kernel="glorot_uniform", bias=True, axis=None, shared_kernel=False, name=None)` | `(*d, T, *S)` → `(features, T, *S)`; with `axis=k`, dim axis `k` becomes `features` | Per time/seq step. Without `axis` the whole dim is mapped (every feature feeds every output). With `axis=k` only that axis is mapped, with a matrix and bias per position of the other dim axes, or one for all with `shared_kernel=True` (which requires `axis`). `bias=True` draws the bias with glorot, not zeros. Weights: §5. |
+| `Fir(features, kernel="glorot_uniform", bias=True, shared_kernel=False, name=None)` | `(*d, T, *S)` → `(features, *d, 1, *S)` | Each dim element is filtered alone over its time window (elements never mixed), with a kernel of its own or one for all with `shared_kernel=True`; applied at every seq step. `features=1` keeps the dim (`(*d, 1)`); on a scalar the channels replace it (`(features, 1)`). `bias=True` is zeros. `features` is required. Weights: §5. |
+| `LocalModel(input_function=None, output_function=None, vectorized=False, name=None)` called as `(inputs, activations: list)` | `a_k: (n_k, T)` (T the cells' time, or 1) → shape of one output cell | The activations are multiplied into `N = Π n_k` joint memberships `mu`, row-major (cell `(i1, i2)` is `i1*n2 + i2`). Computes `Σ_i output_function_i(mu_i * input_function_i([x...]))`. Each function is: `None` (no function: one input weighted as it is / the weighted cells only summed); a weightless elementwise layer instance (`Sin()`, `Tanh()`, `ReLU()`, ...), applied once; any other `Layer` instance, applied to every cell with the same weights; or a callable, which is a factory `f((i1, i2, ...)) -> layer` called once per cell. With `vectorized=True` a callable or a layer (other than a weightless elementwise one) is instead called once on all cells and must return `(N, *cell)` (`(N,)` for scalar cells), e.g. `Fir(features=N)`: its N channels are the N cells. Functions receive a **list** of streams; all cells must have the same shape. Lists of functions are not accepted. |
+| `EquationLearner(functions: list, *, linear_in: Linear \| None = None, linear_out: Linear \| None = None, name=None)` called on `stream` or `[streams]` | `(d, T)` → `(n_functions, T)`, or `linear_out`'s output | `functions` items can be a name (`identity sin cos tan asin acos atan relu leaky_relu elu prelu sigmoid tanh swish gelu softplus add subtract multiply divide power`), a Layer class or instance, a callable over streams (arity inferred), or `(callable, arity)`. `linear_in` projects to Σarity arguments; its `features` must equal that sum. Inputs must have dim rank 1 (several inputs are concatenated). Internally it is a composed `Modely`. |
 | `BatchNorm(axis=1, momentum=0.99, epsilon=1e-3, center=True, scale=True, name=None)` | unchanged | Per-feature statistics. Uses the inference branch in `validate` / `_predict`. |
 | `Parameter(...)` | – | See §5. |
 
@@ -594,10 +597,10 @@ node.model.get_layer("node").set_method("dopri5")               # adaptive for i
 from nnodely import Fir, Fuzzify, Input, LocalModel, Modely, Output
 trq, gear = Input("trq"), Input("gear")
 mu = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function="Triangular")([gear.last()])   # (4, 1)
-engine = LocalModel(Fir(features=1))([trq.sw(10)], [mu])                         # (1, 1)
+engine = LocalModel(lambda i: Fir(features=1))([trq.sw(10)], [mu])              # (1, 1)
 m = Modely("sched", inputs=[trq, gear], outputs=[Output("force", engine)]).build()
 m({"trq": np.ones((1, 1, 10)), "gear": np.full((1, 1, 1), 2.5)})
-# one 10-tap FIR per gear cell, the Keras layers "{name}_in0" ... "{name}_in3"
+# one 10-tap FIR per gear cell, each with weights of its own
 ```
 
 ### R7. Composition (reuse a trained block)
@@ -670,7 +673,7 @@ Rules:
 - Every constructor argument must be passed to `super().__init__(name=name, **kwargs)`, because the node is re-instantiated as `cls(name=..., **properties)` when it is called, and saved as `{"name": ..., **properties}`.
 - Use `keras.ops` only, never backend-specific ops.
 - Register the Impl for `export_keras`.
-- Weights go in the Impl's `build()` through `add_weight`.
+- Weights go in the Impl's `build()` through `add_weight`. To expose them as Parameters that can be given, shared and frozen, follow `Fir` / `Linear`: subclass `_ParameterWeights` in `nnodely/layers/parameter.py`.
 - A multi-input layer receives a list of tensors in `call`.
 - Classes register themselves for `save` / `load` by class name, so class names must be unique.
 - Example of a layer with its own `output_shape`: `Fir` in `nnodely/layers/fir.py`.

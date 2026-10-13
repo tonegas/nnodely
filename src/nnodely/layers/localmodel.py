@@ -24,7 +24,6 @@ from nnodely.layers.activations import (
 )
 from nnodely.layers.arithmetic import Arithmetic, Clamp
 from nnodely.layers.trigonometric import Trigonometric
-from nnodely.utils.utils import _per_slice_initializer
 
 # Weightless layers that act on every element alone: applying one of them to
 # all the cells stacked together is the same as applying it cell by cell.
@@ -52,31 +51,52 @@ def _cell_dim(dim) -> tuple[int, ...]:
 @keras.saving.register_keras_serializable(package="nnodely")
 class FuzzyProductImpl(keras.layers.Layer):
     """
-    Joint membership of several fuzzifications.
+    Joint membership of several fuzzifications, laid out to weigh a stack of
+    cells with ``cell_rank`` dim axes.
 
-    Inputs:  a_k: [batch, n_k, 1]
-    Output:  [batch, n_1 * n_2 * ..., 1], row-major: the last input varies fastest.
+    Inputs:  a_k: [batch, n_k, time]
+    Output:  [batch, n_1 * n_2 * ..., 1 x cell_rank, time], row-major: the
+             last input varies fastest.
     """
 
+    def __init__(self, cell_rank=0, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.cell_rank = int(cell_rank)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"cell_rank": self.cell_rank})
+        return config
+
     def call(self, xs):
-        result = keras.ops.reshape(xs[0], (-1, xs[0].shape[1]))
+        xs = list(xs) if isinstance(xs, (list, tuple)) else [xs]
+        result = xs[0]
         for activation in xs[1:]:
-            cells = activation.shape[1]
-            result = keras.ops.expand_dims(result, -1) * keras.ops.reshape(
-                activation, (-1, 1, cells)
+            cells = result.shape[1] * activation.shape[1]
+            result = keras.ops.expand_dims(result, 2) * keras.ops.expand_dims(
+                activation, 1
             )
-            result = keras.ops.reshape(result, (-1, result.shape[1] * cells))
-        return keras.ops.expand_dims(result, -1)
+            result = keras.ops.reshape(result, (-1, cells, result.shape[-1]))
+        for _ in range(self.cell_rank):
+            result = keras.ops.expand_dims(result, 2)
+        return result
 
 
 class FuzzyProduct(Layer):
-    """Outer product of membership vectors, flattened row-major into ``[N, 1]``."""
+    """Outer product of membership vectors, flattened row-major into
+    ``[N, 1 x cell_rank, T]``."""
+
+    def __init__(self, cell_rank: int = 0, name=None):
+        self.cell_rank = int(cell_rank)
+        super().__init__(name=name, cell_rank=self.cell_rank)
 
     def output_shape(self, *inputs):
-        return (prod(activation.dim[0] for activation in inputs),), 1, ()
+        cells = prod(activation.dim[0] for activation in inputs)
+        time = max(activation.time for activation in inputs)
+        return (cells, *(1,) * self.cell_rank), time, ()
 
     def build_layer(self):
-        return FuzzyProductImpl(name=self.name)
+        return FuzzyProductImpl(cell_rank=self.cell_rank, name=self.name)
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -202,9 +222,10 @@ class LocalModel:
 
         LocalModel(input_function, output_function, vectorized=False)(inputs, activations)
 
-    The activations ``a_k: [n_k, 1]`` are combined into ``N = n_1 * n_2 * ...``
+    The activations ``a_k: [n_k, T]`` are combined into ``N = n_1 * n_2 * ...``
     joint memberships ``mu`` (their outer product, flattened row-major: cell
-    ``(i_1, i_2)`` is number ``i_1 * n_2 + i_2``). The result is::
+    ``(i_1, i_2)`` is number ``i_1 * n_2 + i_2``). Their time axis is the
+    cells' one, or 1 to weigh every sample alike. The result is::
 
         sum_i output_function_i(mu_i * input_function_i(inputs))
 
@@ -215,14 +236,16 @@ class LocalModel:
       cells are only summed.
     * A weightless elementwise layer (``Sin()``, ``Tanh()``, ``ReLU()``...):
       applied once - to the inputs, or to all the weighted cells together.
-    * Any other layer (``Fir(out_features=1)``...): copied for every cell as
-      ``"{name}_in{i}"`` / ``"{name}_out{i}"``, so each cell has its own weights.
+    * Any other layer (``Fir(features=1)``...): applied to every cell, which
+      all share its weights. For weights of its own in each cell, pass a
+      factory.
     * A callable, which is a factory ``f((i_1, i_2, ...)) -> layer`` called once
       per cell; what it returns is applied to that cell alone.
-    * With ``vectorized=True``, a callable is instead called once on all the
-      cells: the input function on ``inputs``, the output function on the
-      weighted cells. It returns all the cells at once, on a first dim axis of
-      ``N`` entries: ``(N, *cell)``, or ``(N,)`` for scalar cells.
+    * With ``vectorized=True``, a callable or a layer (other than a weightless
+      elementwise one) is instead called once on all the cells: the input
+      function on ``inputs``, the output function on the weighted cells. It
+      returns all the cells at once, on a first dim axis of ``N`` entries:
+      ``(N, *cell)``, or ``(N,)`` for scalar cells - e.g. ``Fir(features=N)``.
 
     Functions are called with a list of streams. Every cell must have the same
     shape; the result has the shape of one output cell.
@@ -268,11 +291,6 @@ class LocalModel:
                 )
 
         indices = list(np.ndindex(*(activation.dim[0] for activation in activations)))
-        mu = (
-            activations[0]
-            if len(activations) == 1
-            else FuzzyProduct(name=f"{self.name}_mu")(activations)
-        )
 
         # The input functions of every cell, stacked on the first dim axis.
         function = self.input_function
@@ -294,6 +312,21 @@ class LocalModel:
                     for i, index in enumerate(indices)
                 ]
             stack = CellStack(name=f"{self.name}_inputs")(values)
+
+        # The memberships, with a 1 for every dim axis of a cell: multiplied
+        # with the stack, they line up on the cell axis and on the time axis.
+        times = {activation.time for activation in activations} | {stack.time}
+        if len(times - {1}) > 1:
+            raise ValueError(
+                f"{self.name}: the activations and the cells have time axes of "
+                f"{sorted(times)} samples; they must match, or be 1."
+            )
+        cell_rank = len(stack.dim) - 1
+        mu = (
+            activations[0]
+            if len(activations) == 1 and cell_rank == 0
+            else FuzzyProduct(cell_rank=cell_rank, name=f"{self.name}_mu")(activations)
+        )
         weighted = stack * mu
 
         function = self.output_function
@@ -315,7 +348,7 @@ class LocalModel:
         return (
             self.vectorized
             and function is not None
-            and not isinstance(function, Layer)
+            and not isinstance(function, _ELEMENTWISE)
         )
 
     def _check_cells(self, stack, cells, role):
@@ -333,6 +366,8 @@ class LocalModel:
             if isinstance(function, Layer):
                 # # A single layer repeated over the cells is copied, so each
                 # # cell has weights of its own.
+                # # (A kernel or bias given as a Parameter is copied as the
+                # # same Parameter, and stays shared by every cell.)
                 # self._cells[(role, i)] = type(function)(
                 #     name=f"{self.name}_{role}{i}", **function._properties
                 # )
