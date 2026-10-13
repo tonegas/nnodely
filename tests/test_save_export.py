@@ -1,4 +1,7 @@
 from nnodely import (
+    Gaussian,
+    Rectangular,
+    Triangular,
     Abs,
     Acos,
     BatchNorm,
@@ -208,7 +211,7 @@ def _concatenate_model():
 def _local_model():
     x = Input("onnx_local_x", dim=1)
     activation_input = Input("onnx_local_activation", dim=1)
-    activations = Fuzzify(centers=[0.0, 0.5, 1.0], function="Rectangular")(
+    activations = Fuzzify(centers=[0.0, 0.5, 1.0], function=Rectangular)(
         activation_input.sw(1)
     )
     result = LocalModel(name="onnx_local_function")([x.sw(1)], [activations])
@@ -248,7 +251,7 @@ def _local_model():
         (
             lambda: _single_input_model(
                 "onnx_fuzzify",
-                lambda stream: Fuzzify(centers=[-1.0, 0.0, 1.0], function="Gaussian")(
+                lambda stream: Fuzzify(centers=[-1.0, 0.0, 1.0], function=Gaussian)(
                     stream
                 ),
                 time=1,
@@ -512,8 +515,8 @@ def test_local_model_with_fuzzy_product_round_trips(tmp_path):
     j = Input("save_local_j", dim=1)
     k = Input("save_local_k", dim=1)
     activations = [
-        Fuzzify(centers=[0.0, 1.0, 2.0], function="Triangular")([j]),
-        Fuzzify(centers=[0.0, 1.0], function="Triangular")([k]),
+        Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)([j]),
+        Fuzzify(centers=[0.0, 1.0], function=Triangular)([k]),
     ]
     fused = LocalModel(Fir(features=2), output_function=Tanh(), name="save_fused")(
         [x.sw(3)], activations
@@ -781,12 +784,12 @@ def _fuzzy_local_model():
     gear = Input("fuzzy_gear", dim=1)
     speed = Input("fuzzy_speed", dim=1)
     triangular = Fuzzify(
-        centers=[0.0, 0.5, 1.0], function="Triangular", name="fuzzy_triangular"
+        centers=[0.0, 0.5, 1.0], function=Triangular, name="fuzzy_triangular"
     )(gear.last())
     rectangular = Fuzzify(
-        centers=[0.0, 0.5, 1.0], function="Rectangular", name="fuzzy_rectangular"
+        centers=[0.0, 0.5, 1.0], function=Rectangular, name="fuzzy_rectangular"
     )(speed.last())
-    gaussian = Fuzzify(centers=[0.2, 0.8], function="Gaussian", name="fuzzy_gaussian")(
+    gaussian = Fuzzify(centers=[0.2, 0.8], function=Gaussian, name="fuzzy_gaussian")(
         speed.last()
     )
     # Two fuzzifications combined into joint memberships, one Fir per cell.
@@ -1807,3 +1810,137 @@ def test_fir_and_linear_computing_with_parameters_export_to_onnx(tmp_path):
     np.testing.assert_allclose(
         to_numpy(result["weights_out"]), expected, rtol=1e-5, atol=1e-5
     )
+
+
+# ---------------------------------------------------------------------------
+# Fuzzify with any layer, and the membership functions on their own
+# ---------------------------------------------------------------------------
+
+
+def _generalized_fuzzify_model():
+    # Custom functions defined here, as a user would, not registered by hand.
+    class Square(keras.layers.Layer):
+        def call(self, x):
+            return x * x
+
+    class SquarePlus(keras.layers.Layer):
+        def call(self, x, y):
+            return x * x + y
+
+    x = Input("general_fuzzy_x")
+    y = Input("general_fuzzy_y")
+    squares = Fuzzify([0.0, 1.0], function=Square, name="general_fuzzy_square")(
+        [x.last()]
+    )
+    shifted = Fuzzify([0.0, 1.0], function=SquarePlus, name="general_fuzzy_shift")(
+        [x.last(), y.last()]
+    )
+    mixed = Fuzzify(
+        [0.0, 0.5, 1.0],
+        function=[Rectangular, Triangular, Gaussian],
+        name="general_fuzzy_mixed",
+    )([x.last()])
+    waves = Fuzzify([0.0, 1.0], function=Sin, name="general_fuzzy_sin")([x.last()])
+    bell = Gaussian(center=0.2, sigma=0.3, name="general_bell")([x.last()])
+    leaning = Triangular(center=0.5, radius=(0.5, 1.0), name="general_leaning")(
+        [x.last()]
+    )
+    return Modely(
+        "general_fuzzy",
+        inputs=[x, y],
+        outputs=[
+            Output("general_mixed", mixed),
+            Output("general_waves", waves),
+            Output("general_bell_out", bell),
+            Output("general_leaning_out", leaning),
+            Output("general_square", squares),
+            Output("general_shift", shifted),
+        ],
+    ).build()
+
+
+_GENERAL_OUTPUTS = (
+    "general_mixed",
+    "general_waves",
+    "general_bell_out",
+    "general_leaning_out",
+    "general_square",
+    "general_shift",
+)
+
+
+def test_generalized_fuzzify_saves_loads_and_exports_to_keras(tmp_path):
+    model = _generalized_fuzzify_model()
+    data = {
+        "general_fuzzy_x": np.linspace(-0.5, 1.5, 9, dtype=np.float32).reshape(
+            -1, 1, 1
+        ),
+        "general_fuzzy_y": np.linspace(2.0, -2.0, 9, dtype=np.float32).reshape(
+            -1, 1, 1
+        ),
+    }
+    before = model(data)
+
+    model.save(tmp_path / "general_fuzzy")
+    restored = Modely.load(tmp_path / "general_fuzzy")
+    assert graph_signature(restored) == graph_signature(model)
+    after = restored(data)
+    model.export_keras(tmp_path, "general_fuzzy")
+    imported = Modely.import_keras(tmp_path / "general_fuzzy.keras")
+    exported = imported(data)  # type: ignore
+    for name in _GENERAL_OUTPUTS:
+        for result in (after, exported):
+            np.testing.assert_allclose(
+                to_numpy(result[name]), to_numpy(before[name]), rtol=1e-6, atol=1e-7
+            )
+
+
+@requires_onnx_export
+def test_generalized_fuzzify_exports_to_onnx(tmp_path):
+    pytest.importorskip("onnxruntime")
+    model = _generalized_fuzzify_model()
+    data = {
+        "general_fuzzy_x": np.full((1, 1, 1), 0.8, dtype=np.float32),
+        "general_fuzzy_y": np.full((1, 1, 1), 0.5, dtype=np.float32),
+    }
+    before = model(data)
+
+    model.export_onnx(tmp_path, "general_fuzzy")
+    result = Modely.validate_onnx(
+        tmp_path / "general_fuzzy.onnx", data, return_dict=True
+    )
+
+    assert isinstance(result, dict)
+    for name in _GENERAL_OUTPUTS:
+        np.testing.assert_allclose(
+            to_numpy(result[name]), to_numpy(before[name]), rtol=1e-5, atol=1e-6
+        )
+
+
+@requires_onnx_export
+def test_onnx_outputs_of_one_shape_keep_their_names(tmp_path):
+    # Once swapped on torch: its exporter drops the names and writes the
+    # outputs in the order of their names, which were paired off in the order
+    # they were declared.
+    pytest.importorskip("onnxruntime")
+    x = Input("same_shape_x")
+    names = ["zeta", "alpha", "mid", "beta"]
+    model = Modely(
+        "same_shape",
+        inputs=[x],
+        outputs=[
+            Output(name, x.last() * float(index + 1))
+            for index, name in enumerate(names)
+        ],
+    ).build()
+
+    model.export_onnx(tmp_path, "same_shape")
+    result = Modely.validate_onnx(
+        tmp_path / "same_shape.onnx",
+        {"same_shape_x": np.ones((1, 1, 1), dtype=np.float32)},
+        return_dict=True,
+    )
+
+    assert isinstance(result, dict)
+    for index, name in enumerate(names):
+        np.testing.assert_allclose(to_numpy(result[name]).ravel(), [index + 1.0])

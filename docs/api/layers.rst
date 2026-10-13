@@ -25,7 +25,18 @@ Fuzzy and lookup
 
 .. autoclass:: Fuzzify
 
+.. autoclass:: Triangular
+
+.. autoclass:: Rectangular
+
+.. autoclass:: Gaussian
+
 .. autoclass:: Interpolation
+
+Custom functions
+----------------
+
+.. autoclass:: KerasFunction
 
 Feature axis
 ------------

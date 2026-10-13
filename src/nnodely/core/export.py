@@ -33,13 +33,15 @@ def _traces_backward_pass(model) -> bool:
     return False
 
 
-def _pair_onnx_names(values, expected):
+def _pair_onnx_names(values, expected, by_name: bool = False):
     """Map each exported tensor to the Modely name it stands for.
 
     An exporter that renames the graph also reorders it, so position alone is
     not evidence of identity. A tensor whose shape matches exactly one expected
     name is that one whatever its position; only tensors left ambiguous - two
-    outputs of the same shape - fall back to pairing in order.
+    outputs of the same shape - fall back to pairing in order: the order of
+    the names with ``by_name``, as Keras flattens a dict of outputs, else the
+    order given.
     """
 
     def graph_shape(value):
@@ -62,6 +64,8 @@ def _pair_onnx_names(values, expected):
             pairs[index] = matches[0]
             pending_graph.remove(index)
             pending_expected.remove(matches[0])
+    if by_name:
+        pending_expected.sort(key=lambda other: expected[other][0])
     for index, other in zip(pending_graph, pending_expected):
         pairs[index] = other
 
@@ -223,14 +227,16 @@ def _set_onnx_io_names(model, path: Path) -> None:
     # exporter sort their outputs - and pairing those off by position would
     # rename each tensor after a different one, silently swapping two
     # outputs' values.
-    for values, expected in (
-        (graph.input, expected_inputs),
-        (graph.output, expected_outputs),
+    # The inputs are exported in their order, the outputs - a dict to Keras -
+    # in the order of their names.
+    for values, expected, by_name in (
+        (graph.input, expected_inputs, False),
+        (graph.output, expected_outputs, True),
     ):
         names = [value.name for value in values]
         if len(names) != len(expected) or set(names) == {name for name, _ in expected}:
             continue
-        rename.update(_pair_onnx_names(values, expected))
+        rename.update(_pair_onnx_names(values, expected, by_name=by_name))
     if not rename:
         return
 

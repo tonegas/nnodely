@@ -20,7 +20,8 @@ from nnodely import (
 from nnodely.core.layer import Add, Identity
 from nnodely.layers.fir import FirImpl
 from nnodely.layers.localmodel import LocalModel
-from nnodely.layers.fuzzify import Fuzzify
+from nnodely.layers.fuzzify import Fuzzify, Gaussian, Rectangular, Triangular
+import keras
 import numpy as np
 from conftest import to_numpy
 
@@ -28,17 +29,67 @@ import pytest
 
 
 def test_fuzzify():
+    from nnodely.layers.trigonometric import Sin, Cos
+    from nnodely.layers.fuzzify import Rectangular, Triangular, Gaussian
+    import keras
+
+    def gaussian(distance, sigma=1.0 / 6.0):
+        # With centers 0, 0.5 and 1 every sigma is (0.5 + 0.5) / 6: three
+        # sigmas reach the next centers.
+        return np.exp(-0.5 * (distance / sigma) ** 2)
+
+    class CustomFunction(keras.layers.Layer):
+        def call(self, x):
+            return keras.ops.power(x, 2)
+
+    class CustomFunctionMultiInputs(keras.layers.Layer):
+        def call(self, x, y):
+            return keras.ops.power(x, 2) + y
+
     x = Input("x", dim=1)
-    fuzzy_rectangular = Fuzzify(centers=[0.0, 0.5, 1.0], function="rectangular")
-    fuzzy_triangular = Fuzzify(centers=[0.0, 0.5, 1.0], function="triangular")
+    y = Input("y", dim=1)
+    fuzzy_rectangular = Fuzzify(centers=[0.0, 0.5, 1.0], function=Rectangular)
+    fuzzy_triangular = Fuzzify(centers=[0.0, 0.5, 1.0], function=Triangular)
+    fuzzy_gaussian = Fuzzify(centers=[0.0, 0.5, 1.0], function=Gaussian)
+    fuzzy_sin = Fuzzify(centers=[0.0, 0.5, 1.0], function=Sin)
+    fuzzy_cos = Fuzzify(centers=[0.0, 0.5, 1.0], function=Cos)
+    fuzzy_multiple = Fuzzify(
+        centers=[0.0, 0.5, 1.0], function=[Rectangular, Triangular, Gaussian]
+    )
+    fuzzy_custom = Fuzzify(centers=[0.0, 0.5, 1.0], function=CustomFunction)
+    fuzzy_custom_multi = Fuzzify(
+        centers=[0.0, 0.5, 1.0], function=CustomFunctionMultiInputs
+    )
     x_out_rectangular = Output("x_pred_rectangular", fuzzy_rectangular([x.sw(1)]))
     x_out_triangular = Output("x_pred_triangular", fuzzy_triangular([x.sw(1)]))
-    model1 = Modely("model1", inputs=[x], outputs=[x_out_rectangular, x_out_triangular])
+    x_out_gaussian = Output("x_pred_gaussian", fuzzy_gaussian([x.sw(1)]))
+    x_out_sin = Output("x_pred_sin", fuzzy_sin([x.sw(1)]))
+    x_out_cos = Output("x_pred_cos", fuzzy_cos([x.sw(1)]))
+    x_out_multiple = Output("x_pred_multiple", fuzzy_multiple([x.sw(1)]))
+    x_out_custom = Output("x_pred_custom", fuzzy_custom([x.sw(1)]))
+    x_out_custom_multi = Output(
+        "x_pred_custom_multi", fuzzy_custom_multi([x.sw(1), y.sw(1)])
+    )
+    model1 = Modely(
+        "model1",
+        inputs=[x],
+        outputs=[
+            x_out_rectangular,
+            x_out_triangular,
+            x_out_gaussian,
+            x_out_sin,
+            x_out_cos,
+            x_out_multiple,
+            x_out_custom,
+            x_out_custom_multi,
+        ],
+    )
     model1.build()
 
     # ------- Model inference -------
     dummy_input_x = np.array([[[-7]], [[0.5]], [[0.8]], [[5.0]]], dtype=np.float32)
-    result1 = model1({"x": dummy_input_x})
+    dummy_input_y = np.array([[[1.0]], [[0.5]], [[0.0]], [[-3.0]]], dtype=np.float32)
+    result1 = model1({"x": dummy_input_x, "y": dummy_input_y})
 
     assert "x_pred_rectangular" in result1
     assert result1["x_pred_rectangular"].shape == (4, 3, 1)
@@ -70,6 +121,532 @@ def test_fuzzify():
         rtol=1e-5,
         atol=1e-5,
     )
+    assert "x_pred_gaussian" in result1
+    assert result1["x_pred_gaussian"].shape == (4, 3, 1)
+    np.testing.assert_allclose(
+        to_numpy(result1["x_pred_gaussian"]),
+        np.array(
+            [
+                [[gaussian(x - c)] for c in (0.0, 0.5, 1.0)]
+                for x in (-7.0, 0.5, 0.8, 5.0)
+            ]
+        ),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    assert "x_pred_sin" in result1
+    assert result1["x_pred_sin"].shape == (4, 3, 1)
+    np.testing.assert_allclose(
+        to_numpy(result1["x_pred_sin"]),
+        np.array(
+            [
+                [[np.sin(-7.0)], [np.sin(-7.0 - 0.5)], [np.sin(-7.0 - 1.0)]],
+                [[np.sin(0.5)], [np.sin(0.5 - 0.5)], [np.sin(0.5 - 1.0)]],
+                [[np.sin(0.8)], [np.sin(0.8 - 0.5)], [np.sin(0.8 - 1.0)]],
+                [[np.sin(5.0)], [np.sin(5.0 - 0.5)], [np.sin(5.0 - 1.0)]],
+            ]
+        ),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    assert "x_pred_cos" in result1
+    assert result1["x_pred_cos"].shape == (4, 3, 1)
+    np.testing.assert_allclose(
+        to_numpy(result1["x_pred_cos"]),
+        np.array(
+            [
+                [[np.cos(-7.0)], [np.cos(-7.0 - 0.5)], [np.cos(-7.0 - 1.0)]],
+                [[np.cos(0.5)], [np.cos(0.5 - 0.5)], [np.cos(0.5 - 1.0)]],
+                [[np.cos(0.8)], [np.cos(0.8 - 0.5)], [np.cos(0.8 - 1.0)]],
+                [[np.cos(5.0)], [np.cos(5.0 - 0.5)], [np.cos(5.0 - 1.0)]],
+            ]
+        ),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    assert "x_pred_multiple" in result1
+    assert result1["x_pred_multiple"].shape == (4, 3, 1)
+    np.testing.assert_allclose(
+        to_numpy(result1["x_pred_multiple"]),
+        np.array(
+            [
+                [[0.0], [0.0], [0.0]],
+                [[0.0], [1.0], [gaussian(-0.5)]],
+                [[0.0], [0.4], [gaussian(-0.2)]],
+                [[0.0], [0.0], [0.0]],
+            ]
+        ),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    assert "x_pred_custom" in result1
+    assert result1["x_pred_custom"].shape == (4, 3, 1)
+    np.testing.assert_allclose(
+        to_numpy(result1["x_pred_custom"]),
+        np.array(
+            [
+                [[np.power(-7.0, 2)], [np.power(-7.5, 2)], [np.power(-8.0, 2)]],
+                [[np.power(0.5, 2)], [np.power(0.0, 2)], [np.power(-0.5, 2)]],
+                [[np.power(0.8, 2)], [np.power(0.3, 2)], [np.power(-0.2, 2)]],
+                [[np.power(5.0, 2)], [np.power(4.5, 2)], [np.power(4.0, 2)]],
+            ]
+        ),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    assert "x_pred_custom_multi" in result1
+    assert result1["x_pred_custom_multi"].shape == (4, 3, 1)
+    # On every center c: (x - c)^2 + y.
+    np.testing.assert_allclose(
+        to_numpy(result1["x_pred_custom_multi"]),
+        np.array(
+            [
+                [[(x - c) ** 2 + y] for c in (0.0, 0.5, 1.0)]
+                for x, y in ((-7.0, 1.0), (0.5, 0.5), (0.8, 0.0), (5.0, -3.0))
+            ]
+        ),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+
+def test_fuzzify_multi_temporal():
+    from nnodely.layers.trigonometric import Sin, Cos
+    from nnodely.layers.fuzzify import Rectangular, Triangular, Gaussian
+    import keras
+
+    def gaussian(distance, sigma=1.0 / 6.0):
+        # With centers 0, 0.5 and 1 every sigma is (0.5 + 0.5) / 6: three
+        # sigmas reach the next centers.
+        return np.exp(-0.5 * (distance / sigma) ** 2)
+
+    class CustomFunction(keras.layers.Layer):
+        def call(self, x):
+            return keras.ops.power(x, 2)
+
+    class CustomFunctionMultiInputs(keras.layers.Layer):
+        def call(self, x, y):
+            return keras.ops.power(x, 2) + y
+
+    x = Input("x", dim=1)
+    y = Input("y", dim=1)
+    x_window = x.sw(2)  # temporal window of length 2
+    y_window = y.sw(2)  # temporal window of length 2
+    fuzzy_rectangular = Fuzzify(centers=[0.0, 0.5, 1.0], function=Rectangular)
+    fuzzy_triangular = Fuzzify(centers=[0.0, 0.5, 1.0], function=Triangular)
+    fuzzy_gaussian = Fuzzify(centers=[0.0, 0.5, 1.0], function=Gaussian)
+    fuzzy_sin = Fuzzify(centers=[0.0, 0.5, 1.0], function=Sin)
+    fuzzy_cos = Fuzzify(centers=[0.0, 0.5, 1.0], function=Cos)
+    fuzzy_multiple = Fuzzify(
+        centers=[0.0, 0.5, 1.0], function=[Rectangular, Triangular, Gaussian]
+    )
+    fuzzy_custom = Fuzzify(centers=[0.0, 0.5, 1.0], function=CustomFunction)
+    fuzzy_custom_multi = Fuzzify(
+        centers=[0.0, 0.5, 1.0], function=CustomFunctionMultiInputs
+    )
+    x_out_rectangular = Output("x_pred_rectangular", fuzzy_rectangular([x_window]))
+    x_out_triangular = Output("x_pred_triangular", fuzzy_triangular([x_window]))
+    x_out_gaussian = Output("x_pred_gaussian", fuzzy_gaussian([x_window]))
+    x_out_sin = Output("x_pred_sin", fuzzy_sin([x_window]))
+    x_out_cos = Output("x_pred_cos", fuzzy_cos([x_window]))
+    x_out_multiple = Output("x_pred_multiple", fuzzy_multiple([x_window]))
+    x_out_custom = Output("x_pred_custom", fuzzy_custom([x_window]))
+    x_out_custom_multi = Output(
+        "x_pred_custom_multi", fuzzy_custom_multi([x_window, y_window])
+    )
+    model1 = Modely(
+        "model1",
+        inputs=[x],
+        outputs=[
+            x_out_rectangular,
+            x_out_triangular,
+            x_out_gaussian,
+            x_out_sin,
+            x_out_cos,
+            x_out_multiple,
+            x_out_custom,
+            x_out_custom_multi,
+        ],
+    )
+    model1.build()
+
+    # ------- Model inference -------
+    # Two samples of a two-step window, oldest first: the first far from every
+    # center, the second in a different set at each step.
+    samples_x = ((-7.0, -6.0), (0.5, 0.8))
+    samples_y = ((1.0, 3.0), (0.5, -1.0))
+    centers = (0.0, 0.5, 1.0)
+    dummy_input_x = np.array(samples_x, dtype=np.float32).reshape(2, 1, 2)
+    dummy_input_y = np.array(samples_y, dtype=np.float32).reshape(2, 1, 2)
+    result1 = model1({"x": dummy_input_x, "y": dummy_input_y})
+
+    def rectangular(distance):
+        # Each rectangle reaches halfway to the next center: 0.25 either side.
+        return float(abs(distance) < 0.25)
+
+    def triangular(distance):
+        # Each triangle reaches the next centers, 0.5 away.
+        return max(0.0, 1.0 - abs(distance) / 0.5)
+
+    def matrix(function):
+        """function(x_t - c, y_t) on every center (rows) at every step
+        (columns), for each sample: (batch, centers, time)."""
+        return np.array(
+            [
+                [[function(x_t - c, y_t) for x_t, y_t in zip(xs, ys)] for c in centers]
+                for xs, ys in zip(samples_x, samples_y)
+            ]
+        )
+
+    expected = {
+        "x_pred_rectangular": matrix(lambda d, _: rectangular(d)),
+        "x_pred_triangular": matrix(lambda d, _: triangular(d)),
+        "x_pred_gaussian": matrix(lambda d, _: gaussian(d)),
+        "x_pred_sin": matrix(lambda d, _: np.sin(d)),
+        "x_pred_cos": matrix(lambda d, _: np.cos(d)),
+        "x_pred_custom": matrix(lambda d, _: d**2),
+        # On every center c: (x - c)^2 + y.
+        "x_pred_custom_multi": matrix(lambda d, y_t: d**2 + y_t),
+    }
+    # One function per center: Rectangular on 0, Triangular on 0.5, Gaussian on 1.
+    expected["x_pred_multiple"] = np.stack(
+        [
+            expected["x_pred_rectangular"][:, 0],
+            expected["x_pred_triangular"][:, 1],
+            expected["x_pred_gaussian"][:, 2],
+        ],
+        axis=1,
+    )
+    # The second sample at a glance: x = 0.5 is the middle set, x = 0.8 the
+    # last one's rectangle and 0.4 / 0.6 of the middle and last triangles.
+    np.testing.assert_allclose(
+        expected["x_pred_rectangular"][1], [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]
+    )
+    np.testing.assert_allclose(
+        expected["x_pred_triangular"][1],
+        [[0.0, 0.0], [1.0, 0.4], [0.0, 0.6]],
+        atol=1e-12,
+    )
+
+    for name, values in expected.items():
+        assert name in result1
+        # A matrix per sample: 3 centers x 2 time steps.
+        assert result1[name].shape == (2, 3, 2)
+        np.testing.assert_allclose(
+            to_numpy(result1[name]), values, rtol=1e-5, atol=1e-5
+        )
+
+
+# def test_custom_fuzzify():
+#     from nnodely.layers.trigonometric import Sin, Cos
+#     import keras
+
+#     def custom_function(x):
+#         return keras.ops.power(x, 2)
+
+#     x = Input("x", dim=1).sw(3)
+
+#     def user_fun(x):
+#         k = Parameter("k", dim=1)
+#         return k * x
+#     fuzzy_sen = Fuzzify(centers=[0.0, 0.5, 1.0, 1.5], function=gen_fun)(x)
+#     fuzzy_sen = Fuzzify(centers=Parameter([0.0, 0.5]), function=[user_fun])(x)
+
+#     fuzzy_sen = Fuzzify(centers=[0.0, 0.5, 1.0, 1.5], function=Triangular)
+
+#     fuzzy_sen = Fuzzify(centers=[0.0, 0.5, 1.0, 1.5], function=Sin)
+#     fuzzy_custom = Fuzzify(centers=[0.0, 0.5, 1.0, 1.5], function=custom_function)
+#     fuzzy_multiple_custom = Fuzzify(
+#         centers=[0.0, 0.5, 1.0, 1.5],
+#         function=["Triangular", Cos, custom_function, "Rectangular"],
+#     )
+
+#     x_out_sen = Output("out_sen", fuzzy_sen(x))
+#     x_out_multiple = Output("out_multiple", fuzzy_multiple(x))
+#     x_out_custom = Output("out_custom", fuzzy_custom(x))
+#     x_out_multiple_custom = Output("out_multiple_custom", fuzzy_multiple_custom(x))
+
+#     model1 = Modely(
+#         "model1",
+#         inputs=[x],
+#         outputs=[x_out_sen, x_out_multiple, x_out_custom, x_out_multiple_custom],
+#     )
+#     model1.build()
+
+#     # ------- Model inference -------
+#     dummy_input_x = np.array([[[-7]], [[0.5]], [[1.2]]], dtype=np.float32)
+#     result1 = model1({"x": dummy_input_x})
+
+#     assert "x_pred_rectangular" in result1
+#     assert result1["x_pred_rectangular"].shape == (4, 3, 1)
+#     np.testing.assert_allclose(
+#         to_numpy(result1["x_pred_rectangular"]),
+#         np.array(
+#             [
+#                 [[0.0], [0.0], [0.0]],
+#                 [[0.0], [1.0], [0.0]],
+#                 [[0.0], [0.0], [1.0]],
+#                 [[0.0], [0.0], [0.0]],
+#             ]
+#         ),
+#         rtol=1e-5,
+#         atol=1e-5,
+#     )
+#     assert "x_pred_triangular" in result1
+#     assert result1["x_pred_triangular"].shape == (4, 3, 1)
+#     np.testing.assert_allclose(
+#         to_numpy(result1["x_pred_triangular"]),
+#         np.array(
+#             [
+#                 [[0.0], [0.0], [0.0]],
+#                 [[0.0], [1.0], [0.0]],
+#                 [[0.0], [0.4], [0.6]],
+#                 [[0.0], [0.0], [0.0]],
+#             ]
+#         ),
+#         rtol=1e-5,
+#         atol=1e-5,
+#     )
+
+
+# ---------------------------------------------------------------------------
+# The membership functions, layers of their own, and the Fuzzify edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_membership_functions_are_layers_of_their_own():
+    x = Input("member_x")
+    window = x.sw(5)
+    layers = {
+        "triangle": Triangular(center=0.5, radius=0.5),
+        "leaning": Triangular(center=1.0, radius=(1.0, 2.0)),
+        "rectangle": Rectangular(center=0.5, radius=0.25),
+        "lopsided": Rectangular(center=0.5, radius=(0.25, 1.0)),
+        "bell": Gaussian(center=0.5, sigma=0.25),
+    }
+    outputs = {key: layer([window]) for key, layer in layers.items()}
+    model = Modely(
+        "member_model",
+        inputs=[x],
+        outputs=[Output(f"member_{key}", node) for key, node in outputs.items()],
+    ).build()
+    assert all(node.shape.dimensions == ((1,), 5, ()) for node in outputs.values())
+
+    samples = np.array([0.0, 0.25, 0.5, 1.4, 2.0], dtype=np.float32)
+    result = model({"member_x": samples.reshape(1, 1, 5)})
+    expected = {
+        "triangle": [0.0, 0.5, 1.0, 0.0, 0.0],
+        # Up from 0 to 1 at 1, down to 0 at 3.
+        "leaning": [0.0, 0.25, 0.5, 0.8, 0.5],
+        # 1 strictly inside (0.25, 0.75), then (0.25, 1.5).
+        "rectangle": [0.0, 0.0, 1.0, 0.0, 0.0],
+        "lopsided": [0.0, 0.0, 1.0, 1.0, 0.0],
+        "bell": np.exp(-0.5 * ((samples - 0.5) / 0.25) ** 2),
+    }
+    for key, values in expected.items():
+        np.testing.assert_allclose(
+            to_numpy(result[f"member_{key}"]).ravel(), values, rtol=1e-5, atol=1e-6
+        )
+
+
+def test_membership_functions_keep_the_shape_of_any_stream():
+    x = Input("member_shape_x", dim=(2, 3), seq=-1)
+    bell = Gaussian()([x.sw(2)])
+    for node in (Triangular()([x.sw(2)]), Rectangular()([x.sw(2)]), bell):
+        assert node.shape.dimensions == ((2, 3), 2, (None,))
+    model = Modely(
+        "member_shape", inputs=[x], outputs=[Output("member_shape_bell", bell)]
+    ).build()
+
+    for length in (3, 5):
+        values = np.random.default_rng(length).normal(size=(1, 2, 3, 2, length))
+        result = to_numpy(model({"member_shape_x": values})["member_shape_bell"])
+        np.testing.assert_allclose(result, np.exp(-0.5 * values**2), rtol=1e-5)
+
+
+def test_membership_functions_reject_widths_they_cannot_have():
+    with pytest.raises(ValueError, match="must not be negative"):
+        Triangular(radius=-1.0)
+    with pytest.raises(ValueError, match="number or a \\(left, right\\) pair"):
+        Rectangular(radius=(1.0, 2.0, 3.0))  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="must be positive"):
+        Gaussian(sigma=0.0)
+
+
+def test_fuzzify_with_uneven_centers_leans_its_triangles_and_adds_up_to_one():
+    x = Input("uneven_x")
+    fuzzy = Fuzzify([0.0, 1.0, 3.0], function=Triangular)([x.last()])
+    model = Modely(
+        "uneven_model", inputs=[x], outputs=[Output("uneven_out", fuzzy)]
+    ).build()
+
+    values = np.linspace(0.0, 3.0, 13, dtype=np.float32)
+    result = to_numpy(model({"uneven_x": values.reshape(-1, 1, 1)})["uneven_out"])
+    result = result[..., 0]
+    np.testing.assert_allclose(result.sum(axis=1), 1.0, rtol=1e-6)
+    # x = 2, halfway from 1 to 3: the triangle of 1 reaches 3, that of 3 reaches 1.
+    np.testing.assert_allclose(result[8], [0.0, 0.5, 0.5], atol=1e-6)
+
+
+def test_fuzzify_sorts_its_centers_with_their_functions():
+    x = Input("sorted_x")
+    fuzzy = Fuzzify([1.0, 0.0], function=[Gaussian, Rectangular])([x.last()])
+    model = Modely(
+        "sorted_model", inputs=[x], outputs=[Output("sorted_out", fuzzy)]
+    ).build()
+
+    # Sorted, center 0 keeps its Rectangular and center 1 its Gaussian, whose
+    # sigma is (1 + 1) / 6: at x = 0, three sigmas away.
+    result = to_numpy(model({"sorted_x": np.zeros((1, 1, 1))})["sorted_out"])
+    np.testing.assert_allclose(result.ravel(), [1.0, np.exp(-4.5)], rtol=1e-5)
+
+
+def test_fuzzify_with_a_single_center():
+    x = Input("single_x")
+    fuzzy = Fuzzify([0.0], name="single_fuzzy")([x.last()])
+    model = Modely(
+        "single_model", inputs=[x], outputs=[Output("single_out", fuzzy)]
+    ).build()
+    assert fuzzy.name == "single_fuzzy"
+    assert fuzzy.shape.dimensions == ((1,), 1, ())
+
+    # A lone triangle reaches 1 on either side.
+    values = np.array([-0.5, 0.0, 0.5, 1.5], dtype=np.float32).reshape(-1, 1, 1)
+    result = to_numpy(model({"single_x": values})["single_out"])
+    np.testing.assert_allclose(result.ravel(), [0.5, 1.0, 0.5, 0.0], atol=1e-6)
+
+
+def test_fuzzify_with_a_layer_instance_or_a_weighted_layer_class():
+    x = Input("instance_x")
+    # An instance is shared by every center and reads x - center.
+    bell = Fuzzify([0.0, 1.0], function=Gaussian(sigma=0.5))([x.last()])
+    # A class is made anew for each center: two Linear, with their own weights,
+    # shared again by a second call of the same Fuzzify.
+    linear = Fuzzify([0.0, 1.0], function=Linear, name="linear_fuzzy")
+    first, second = linear([x.last()]), linear([x.last()])
+    model = Modely(
+        "instance_model",
+        inputs=[x],
+        outputs=[
+            Output("instance_bell", bell),
+            Output("instance_first", first),
+            Output("instance_second", second),
+        ],
+    ).build()
+
+    assert [parameter.name for parameter in model.parameters] == [
+        "linear_fuzzy_0_kernel",
+        "linear_fuzzy_0_bias",
+        "linear_fuzzy_1_kernel",
+        "linear_fuzzy_1_bias",
+    ]
+    result = model({"instance_x": np.full((1, 1, 1), 0.5, dtype=np.float32)})
+    np.testing.assert_allclose(
+        to_numpy(result["instance_bell"]).ravel(),
+        np.exp(-0.5 * (np.array([0.5, -0.5]) / 0.5) ** 2),
+        rtol=1e-5,
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["instance_first"]), to_numpy(result["instance_second"])
+    )
+
+
+def test_fuzzify_follows_a_time_window_and_a_dynamic_sequence():
+    x = Input("dynamic_fuzzy_x", seq=-1)
+    placed = Fuzzify([0.0, 1.0])([x.sw(4)])
+    waves = Fuzzify([0.0, 1.0], function=Sin)([x.sw(4)])
+    assert placed.shape.dimensions == ((2,), 4, (None,))
+    assert waves.shape.dimensions == ((2,), 4, (None,))
+    model = Modely(
+        "dynamic_fuzzy",
+        inputs=[x],
+        outputs=[Output("dynamic_placed", placed), Output("dynamic_waves", waves)],
+    ).build()
+
+    for length in (3, 5):
+        values = np.random.default_rng(length).uniform(-1, 2, size=(1, 1, 4, length))
+        result = model({"dynamic_fuzzy_x": values.astype(np.float32)})
+        np.testing.assert_allclose(
+            to_numpy(result["dynamic_waves"]),
+            np.concatenate([np.sin(values - 0.0), np.sin(values - 1.0)], axis=1),
+            rtol=1e-5,
+            atol=1e-6,
+        )
+        assert to_numpy(result["dynamic_placed"]).shape == (1, 2, 4, length)
+
+
+def test_fuzzify_takes_a_membership_name_for_its_class():
+    x = Input("named_x")
+    named = Fuzzify([0.0, 0.5, 1.0], function=["triangular", "Rectangular", "GAUSSIAN"])
+    classes = Fuzzify([0.0, 0.5, 1.0], function=[Triangular, Rectangular, Gaussian])
+    model = Modely(
+        "named_model",
+        inputs=[x],
+        outputs=[
+            Output("named_out", named([x.last()])),
+            Output("classes_out", classes([x.last()])),
+        ],
+    ).build()
+
+    values = np.linspace(-0.5, 1.5, 9, dtype=np.float32).reshape(-1, 1, 1)
+    result = model({"named_x": values})
+    np.testing.assert_array_equal(
+        to_numpy(result["named_out"]), to_numpy(result["classes_out"])
+    )
+
+
+def test_fuzzify_rejects_what_it_cannot_use():
+    x = Input("bad_fuzzy_x")
+    v = Input("bad_fuzzy_v", dim=2)
+    with pytest.raises(ValueError, match="at least one center"):
+        Fuzzify([])
+    with pytest.raises(ValueError, match="2 functions for 3 centers"):
+        Fuzzify([0.0, 1.0, 2.0], function=[Triangular, Gaussian])
+    with pytest.raises(ValueError, match="Unsupported fuzzify function"):
+        Fuzzify([0.0], function="Trapezoidal")
+    with pytest.raises(TypeError, match="layer class or instance"):
+        Fuzzify([0.0], function=np.sin)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="cannot be made without arguments"):
+        Fuzzify([0.0, 1.0], function=Fir)([x.last()])
+    with pytest.raises(ValueError, match="scalar signal"):
+        Fuzzify([0.0, 1.0])([v.last()])
+    # Further streams are for the functions that read them, not a membership.
+    with pytest.raises(ValueError, match="reads the signal alone"):
+        Fuzzify([0.0, 1.0])([x.last(), x.last()])
+    with pytest.raises(TypeError, match="reads its signal"):
+        Fuzzify([0.0, 1.0])([])
+
+    class NeedsArguments(keras.layers.Layer):
+        def __init__(self, power):
+            super().__init__()
+            self.power = power
+
+    with pytest.raises(TypeError, match="cannot be made without arguments"):
+        Fuzzify([0.0, 1.0], function=NeedsArguments)([x.last()])
+
+
+def test_fuzzify_shares_a_keras_layer_instance_between_its_centers():
+    class Scaled(keras.layers.Layer):
+        def build(self, input_shape):
+            self.gain = self.add_weight(shape=(), initializer="ones", name="gain")
+
+        def call(self, x):
+            return self.gain * x
+
+    x = Input("keras_instance_x")
+    scaled = Scaled()
+    fuzzy = Fuzzify([0.0, 1.0, 2.0], function=scaled)([x.last()])
+    model = Modely(
+        "keras_instance", inputs=[x], outputs=[Output("keras_instance_out", fuzzy)]
+    ).build()
+
+    # One gain for every center: (x - c) times the same weight.
+    assert model.model is not None and len(model.model.trainable_weights) == 1
+    scaled.gain.assign(3.0)
+    result = model({"keras_instance_x": np.full((1, 1, 1), 2.0, dtype=np.float32)})
+    np.testing.assert_allclose(
+        to_numpy(result["keras_instance_out"]).ravel(), [6.0, 3.0, 0.0], rtol=1e-6
+    )
 
 
 def test_local_model_with_user_functions():
@@ -77,7 +654,7 @@ def test_local_model_with_user_functions():
     x = Input("x", dim=1)
     k = Input("k", dim=1)
 
-    fuzzy_k = Fuzzify(centers=[0.0, 0.5, 1.0], function="rectangular")([k.sw(1)])
+    fuzzy_k = Fuzzify(centers=[0.0, 0.5, 1.0], function=Rectangular)([k.sw(1)])
     local_model = LocalModel(
         input_function=lambda x: Identity()(x),
         output_function=lambda x: ReLU()(x),
@@ -123,7 +700,7 @@ def test_local_model_matches_explicit_cells():
     k = Input("k_local", dim=1)
     centers = [0.0, 1.0, 2.0]
 
-    activation = Fuzzify(centers=centers, function="Triangular")([k])
+    activation = Fuzzify(centers=centers, function=Triangular)([k])
     fused = LocalModel(Fir(features=2), name="fused_local")([x.sw(4)], [activation])
     fused_model = Modely(
         "fused_local_model", inputs=[x, k], outputs=[Output("fused", fused)]
@@ -161,10 +738,8 @@ def _two_fuzzy_inputs(prefix):
     x = Input(f"{prefix}_x", dim=1)
     j = Input(f"{prefix}_j", dim=1)
     k = Input(f"{prefix}_k", dim=1)
-    activation_j = Fuzzify(centers=[0.0, 1.0, 2.0, 3.0], function="Triangular")([j])
-    activation_k = Fuzzify(centers=[0.0, 1.0, 2.0, 3.0, 4.0], function="Triangular")(
-        [k]
-    )
+    activation_j = Fuzzify(centers=[0.0, 1.0, 2.0, 3.0], function=Triangular)([j])
+    activation_k = Fuzzify(centers=[0.0, 1.0, 2.0, 3.0, 4.0], function=Triangular)([k])
     data = {
         f"{prefix}_x": np.arange(30, dtype=np.float32).reshape(6, 1, 5) / 10.0 - 1.0,
         f"{prefix}_j": np.linspace(-0.5, 3.5, 6, dtype=np.float32).reshape(6, 1, 1),
@@ -269,8 +844,8 @@ def test_local_model_passes_cell_index():
     x = Input("index_x", dim=1)
     j = Input("index_j", dim=1)
     k = Input("index_k", dim=1)
-    activation_j = Fuzzify(centers=[0.0, 1.0], function="Rectangular")([j])
-    activation_k = Fuzzify(centers=[0.0, 1.0, 2.0], function="Rectangular")([k])
+    activation_j = Fuzzify(centers=[0.0, 1.0], function=Rectangular)([j])
+    activation_k = Fuzzify(centers=[0.0, 1.0, 2.0], function=Rectangular)([k])
 
     seen = []
 
@@ -309,7 +884,7 @@ def test_local_model_scalar_input_one_fuzzy_function_by_hand():
     # ------- y = x * sum_i mu_i(g) * gain_i, centers 0, 1, 2 -------
     x = Input("x_hand")
     g = Input("g_hand")
-    mu = Fuzzify(centers=[0.0, 1.0, 2.0], function="Triangular")(g.last())
+    mu = Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)(g.last())
     y = LocalModel(Fir(features=1))([x.last()], [mu])
     model = Modely(
         "local_hand", inputs=[x, g], outputs=[Output("y", y), Output("mu", mu)]
@@ -393,7 +968,7 @@ def test_local_model_cells_share_a_fir_given_its_kernel_as_a_parameter():
     x = Input("x_shared_w")
     g = Input("g_shared_w")
     w = Parameter("shared_w", value=[1.0, 2.0, 3.0])
-    mu = Fuzzify(centers=[0.0, 1.0, 2.0], function="Triangular")(g.last())
+    mu = Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)(g.last())
     blended = LocalModel(Fir(features=1, kernel=w, bias=False))([x.sw(3)], [mu])
     model = Modely(
         "local_shared_w", inputs=[x, g], outputs=[Output("blended", blended)]
@@ -412,7 +987,7 @@ def test_local_model_cells_share_a_fir_given_its_kernel_as_a_parameter():
 def test_local_model_rejects_mismatched_inputs():
     x = Input("x_invalid", dim=1)
     k = Input("k_invalid", dim=1)
-    activation = Fuzzify(centers=[0.0, 1.0], function="Triangular")([k.sw(1)])
+    activation = Fuzzify(centers=[0.0, 1.0], function=Triangular)([k.sw(1)])
 
     with pytest.raises(ValueError, match="got 3 input functions for 2 cells"):
         LocalModel([Fir(features=1)] * 3, name="unpaired_local")(
@@ -430,7 +1005,7 @@ def test_local_model_rejects_mismatched_inputs():
             name="uneven_output_local",
         )([x.sw(2)], [activation])
 
-    windowed_activation = Fuzzify(centers=[0.0, 1.0], function="Triangular")([k.sw(2)])
+    windowed_activation = Fuzzify(centers=[0.0, 1.0], function=Triangular)([k.sw(2)])
     with pytest.raises(ValueError, match="activation 0 must have shape"):
         LocalModel(name="windowed_local")([x.sw(2)], [windowed_activation])
 

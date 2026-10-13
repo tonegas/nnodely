@@ -135,7 +135,7 @@ from nnodely import (
     # layers with weights
     Linear, Fir, LocalModel, EquationLearner, BatchNorm,
     # fuzzy / lookup
-    Fuzzify, Interpolation,
+    Fuzzify, Triangular, Rectangular, Gaussian, Interpolation, KerasFunction,
     # feature axis / time axis
     Select, Range, Concatenate, Sum, TimeSelect, TimeRange, TimeConcatenate,
     # calculus / recurrence
@@ -214,7 +214,11 @@ Legend: **in → out** gives semantic shapes. `d` = dim, `T` = time, `S` = seq.
 ### 6.2 Fuzzy and lookup (no weights)
 | Signature | in → out | Notes |
 |---|---|---|
-| `Fuzzify(centers: list[float], function="Triangular", name=None)` | `(1, T)` → `(len(centers), T)` | `function` is one of `"Triangular" \| "Rectangular" \| "Gaussian"`. Centers are sorted. The outer sets extend one spacing beyond the end centers. Triangular memberships sum to 1 inside the center range. |
+| `Fuzzify(centers: list[float], function=Triangular, name=None)` called on a scalar stream | `(1, T, *S)` → `(len(centers), T, *S)` | `function` is one function for every center or a list of one per center (paired before the centers are sorted). A membership class `Triangular` / `Rectangular` / `Gaussian` (or its name as a string) is placed on each center and sized by its neighbors, as before: triangles reach the neighboring centers (lopsided for uneven centers) and sum to 1 inside the center range, rectangles reach halfway to the next center, Gaussians have sigma = (left gap + right gap) / 6; the outer sets reuse the one gap they have. Any other nnodely layer class (made anew per center) or instance (shared) is applied to `x - center`: `function=Sin` gives `sin(x - c)`. So is a custom function, a `keras.layers.Layer` subclass (made anew per center) or instance (shared), wrapped in a `KerasFunction` so the model saves, loads and exports; its class is registered with Keras for this session - in another, define it (with `@keras.saving.register_keras_serializable()`) before loading. Called on further streams, `Fuzzify(...)([x, y])`, it passes them after `x - center`: a Keras layer with `call(self, x, y)` gives `f(x - c, y)` on every center; a membership function reads the signal alone (`ValueError`). Not a Layer itself: it builds the memberships and a `Concatenate` named after it; a repeated call reuses its layers. |
+| `KerasFunction(function, name=None)` called on `stream` or `[streams]` | shape read off the Keras layer's result | A custom function: `function` is a `keras.layers.Layer` subclass (made here, no arguments) or instance (its weights shared wherever it is used). The streams, laid out `(batch, *dim, time, *seq)`, are passed to `call` as separate arguments: `call(self, x, y)` takes two. Saves, loads and exports (the class is registered with Keras for this session; in another, define it with `@keras.saving.register_keras_serializable()` before loading). Its weights are Keras weights, trained with the model but not `Parameter`s: `model.freeze()` / `model.parameters` do not reach them - set the layer's `trainable`. |
+| `Triangular(center=0.0, radius=1.0, name=None)` | unchanged | 1 at `center`, linear down to 0 at `radius` (a number or `(left, right)`), 0 beyond. Elementwise on any stream. |
+| `Rectangular(center=0.0, radius=1.0, name=None)` | unchanged | 1 strictly inside `(center - left, center + right)`, 0 elsewhere; `radius` a number or `(left, right)`. |
+| `Gaussian(center=0.0, sigma=1.0, name=None)` | unchanged | `exp(-((x - center) / sigma)^2 / 2)`. |
 | `Interpolation(x_points, y_points, mode="linear", name=None)` | elementwise | `mode` is `"linear"` (piecewise) or `"polynomial"` (the unique global polynomial). Queries are clamped to `[x_min, x_max]`. Not trainable. |
 
 ### 6.3 Activations (elementwise, no weights except PReLU)
@@ -592,9 +596,9 @@ node.model.get_layer("node").set_method("dopri5")               # adaptive for i
 
 ### R6. Gain scheduling with Fuzzify + LocalModel
 ```python
-from nnodely import Fir, Fuzzify, Input, LocalModel, Modely, Output
+from nnodely import Fir, Fuzzify, Input, LocalModel, Modely, Output, Triangular
 trq, gear = Input("trq"), Input("gear")
-mu = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function="Triangular")([gear.last()])   # (4, 1)
+mu = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function=Triangular)([gear.last()])   # (4, 1)
 engine = LocalModel(Fir(features=1))([trq.sw(10)], [mu])                         # (1, 1)
 m = Modely("sched", inputs=[trq, gear], outputs=[Output("force", engine)]).build()
 m({"trq": np.ones((1, 1, 10)), "gear": np.full((1, 1, 1), 2.5)})

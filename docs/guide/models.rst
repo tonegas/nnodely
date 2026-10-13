@@ -81,7 +81,13 @@ is created: ``Sin(x)`` is ``Sin()(x)``. To name it, configure it first:
    * - Layer
      - What it does
    * - :class:`~nnodely.Fuzzify`
-     - Membership functions (triangular, rectangular or Gaussian) on given centers.
+     - Memberships of a scalar signal to sets placed on given centers, one
+       feature per center: a membership function on each, or any layer of
+       ``x - center``.
+   * - Membership functions
+     - :class:`~nnodely.Triangular`, :class:`~nnodely.Rectangular`,
+       :class:`~nnodely.Gaussian`: layers of their own, applied to every value
+       of a stream.
    * - :class:`~nnodely.Interpolation`
      - One-dimensional lookup table, linear or polynomial.
    * - Activations
@@ -116,12 +122,12 @@ Some examples:
 
    from nnodely import (
        EquationLearner, Fir, Fuzzify, Interpolation, Linear, LocalModel, ReLU,
-       Select, TimeSelect,
+       Select, TimeSelect, Triangular,
    )
 
    # a gain scheduled by the gear: one FIR filter per gear, blended
    torque = Input("torque")
-   gear_membership = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function="Triangular")([gear.last()])
+   gear_membership = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function=Triangular)([gear.last()])
    engine_force = LocalModel(Fir(features=1))([torque.sw(10)], [gear_membership])
 
    # a lookup table
@@ -137,6 +143,46 @@ Some examples:
 
    # the oldest sample of a window
    oldest = TimeSelect(idx=0)([velocity.sw(5)])
+
+``Fuzzify`` places a membership function on each center: a
+:class:`~nnodely.Triangular`, :class:`~nnodely.Rectangular` or
+:class:`~nnodely.Gaussian` (the default is ``Triangular``), sized by the
+centers next to it - the triangles reach the neighboring centers and add up to
+one between them. Its ``function`` can also be any other layer class, made
+anew for each center, or a layer instance, shared by all of them: they read
+``x - center``, so ``Fuzzify(centers, function=Sin)`` gives ``sin(x - c)``. A
+list gives one function per center, such as
+``[Rectangular, Triangular, Gaussian]``. A custom function is a Keras layer,
+evaluated on every center like any layer and saved and exported with the
+model; further streams given after the signal reach its ``call``:
+
+.. code-block:: python
+
+   class Shifted(keras.layers.Layer):
+       def call(self, x, y):
+           return x * x + y
+
+   shifted = Fuzzify([0.0, 0.5, 1.0], function=Shifted)([x.last(), y.last()])
+   # (x - c)^2 + y on every center c
+
+To load such a model in another session, define the class first, decorated
+with ``@keras.saving.register_keras_serializable()``.
+
+The same wrapping works anywhere in a model: :class:`~nnodely.KerasFunction`
+makes any Keras layer an nnodely layer, its streams passed to ``call`` as
+separate arguments and its output shape read off the result:
+
+.. code-block:: python
+
+   from nnodely import KerasFunction
+
+   length = KerasFunction(Norm)([v.sw(2)])          # a class, made here
+   shifted = KerasFunction(Shifted())([a.last(), b.last()])  # an instance
+
+Weights of such a layer are Keras weights, trained with the model, but not
+:class:`~nnodely.Parameter` objects: freeze them with the layer's
+``trainable``. The membership functions are layers of
+their own too: ``Triangular(center=0.5, radius=0.5)([x.last()])``.
 
 ``LocalModel`` takes the inputs and a list of activations. Several activations
 are multiplied together, so memberships over 4 gears and 5 speeds give 20 local

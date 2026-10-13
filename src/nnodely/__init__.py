@@ -39,7 +39,8 @@ from nnodely.layers.parameter import Constant, Parameter
 from nnodely.layers.roll import Roll
 from nnodely.layers.loop import Loop
 from nnodely.layers.localmodel import LocalModel
-from nnodely.layers.fuzzify import Fuzzify
+from nnodely.layers.function import KerasFunction
+from nnodely.layers.fuzzify import Fuzzify, Gaussian, Rectangular, Triangular
 from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.equationlearner import EquationLearner
 from nnodely.layers.derivative import Derivative, Differentiate
@@ -101,6 +102,10 @@ __all__ = [
     "Loop",
     "LocalModel",
     "Fuzzify",
+    "KerasFunction",
+    "Triangular",
+    "Rectangular",
+    "Gaussian",
     "Interpolation",
     "EquationLearner",
     "Derivative",

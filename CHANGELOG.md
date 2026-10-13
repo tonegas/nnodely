@@ -26,6 +26,19 @@ variable, and trains, validates and exports through Keras. Models saved with
   and `TimeConcatenate`.
 - `Atan2([y, x])`, the two-argument arctangent: the angle of the point
   `(x, y)` in `[-pi, pi]`, with its quadrant.
+- `KerasFunction(function)`: any Keras layer, class or instance, as an
+  nnodely layer - a custom function in the graph, its streams passed to
+  `call` as separate arguments. The model saves, loads and exports with it.
+- Membership functions as layers of their own: `Triangular(center, radius)`,
+  `Rectangular(center, radius)` (a `radius` can be a `(left, right)` pair)
+  and `Gaussian(center, sigma)`.
+- `Fuzzify(centers, function=...)` takes any nnodely layer: a membership class
+  placed on each center as before, any other layer class or instance applied
+  to `x - center` (`function=Sin` gives `sin(x - c)`), or a list of one
+  function per center. The membership names (`"Triangular"`, ...) still work.
+  A custom function is a Keras layer, class or instance, evaluated on every
+  center and saved and exported with the model; streams given after the
+  signal reach it too: `call(self, x, y)` gives `f(x - c, y)`.
 - Freezing: `Parameter.freeze()` / `unfreeze()` (or `trainable`, also a
   constructor argument) keep one Parameter fixed through training or release
   it, and `Modely.freeze()` / `unfreeze()` do it for every Parameter a model
