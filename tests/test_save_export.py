@@ -515,16 +515,26 @@ def test_local_model_with_fuzzy_product_round_trips(tmp_path):
         Fuzzify(centers=[0.0, 1.0, 2.0], function="Triangular")([j]),
         Fuzzify(centers=[0.0, 1.0], function="Triangular")([k]),
     ]
-    fused = LocalModel(Fir(features=2), output_function=Tanh(), name="save_fused")(
+    cloned = LocalModel(Fir(out_features=2), output_function=Tanh(), name="save_cloned")(
         [x.sw(3)], activations
     )
-    stacked = LocalModel(lambda s: Fir(features=2)(s), name="save_stacked")(
+    factory = LocalModel(lambda index: Fir(out_features=2), name="save_factory")(
         [x.sw(3)], activations
     )
+    vectorized = LocalModel(
+        lambda streams: Fir(out_features=6)(streams),
+        output_function=lambda streams: Tanh()(streams),
+        vectorized=True,
+        name="save_vectorized",
+    )([x.sw(3)], activations)
     model = Modely(
         "save_local_model",
         inputs=[x, j, k],
-        outputs=[Output("save_fused_out", fused), Output("save_stacked_out", stacked)],
+        outputs=[
+            Output("save_cloned_out", cloned),
+            Output("save_factory_out", factory),
+            Output("save_vectorized_out", vectorized),
+        ],
     ).build()
     inputs = {
         "save_local_x": np.arange(12, dtype=np.float32).reshape(4, 1, 3) / 5.0,
@@ -536,7 +546,7 @@ def test_local_model_with_fuzzy_product_round_trips(tmp_path):
     path = tmp_path / "local_product.nnodely"
     model.save(path)
     restored = Modely.load(path)(dict(inputs))
-    for name in ("save_fused_out", "save_stacked_out"):
+    for name in ("save_cloned_out", "save_factory_out", "save_vectorized_out"):
         np.testing.assert_allclose(
             to_numpy(restored[name]), to_numpy(expected[name]), rtol=1e-5, atol=1e-5
         )
@@ -795,8 +805,8 @@ def _fuzzy_local_model():
     )
     # One explicit cell per membership, built from ordinary layers.
     expanded = LocalModel(
-        input_function=lambda stream: Fir(features=1)(stream),
-        output_function=lambda stream: ReLU()(stream),
+        input_function=lambda index: Fir(out_features=1),
+        output_function=lambda index: ReLU(),
         name="fuzzy_expanded",
     )([x.sw(3)], [rectangular])
     return Modely(
@@ -1124,7 +1134,9 @@ def _complete_vehicle_model():
     gear_membership = Fuzzify(centers=[0.0, 0.5, 1.0], name="vehicle_gear_fuzzy")(
         gear.last()
     )
-    engine = LocalModel(name="vehicle_engine")([throttle.sw(5)], [gear_membership])
+    engine = LocalModel(Fir(out_features=1), name="vehicle_engine")(
+        [throttle.sw(5)], [gear_membership]
+    )
     grip = Sigmoid()(
         PReLU()(
             Linear(features=1, name="vehicle_grip")(

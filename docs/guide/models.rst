@@ -141,11 +141,13 @@ Some examples:
 ``LocalModel`` takes the inputs and a list of activations. Several activations
 are multiplied together, so memberships over 4 gears and 5 speeds give 20 local
 models, cell ``(i, j)`` being number ``i * 5 + j``. Its ``input_function`` and
-``output_function`` are a callable, instantiated anew for every cell, or a list
-of one callable per cell; with ``pass_index=True`` a function receives the cell
-index ``(i, j)`` and returns the callable of that cell. A ``Fir`` instance as
-input function on a single scalar input and a weightless elementwise layer such
-as ``ReLU()`` as output function are evaluated for all the cells at once. Functions passed to ``EquationLearner`` can be names,
+``output_function`` are optional: without them the input is only weighted by
+the memberships and the cells summed. A weightless elementwise layer such as
+``Sin()`` or ``ReLU()`` is applied once, any other layer such as ``Fir`` is
+copied for every cell, and a plain function is a factory that receives the cell
+index ``(i, j)`` and returns the layer of that cell. With ``vectorized=True`` a
+function is called once on all the cells instead, and returns them on a first
+dim axis of 20 entries. Functions passed to ``EquationLearner`` can be names,
 *nnodely* layer classes, or Python callables that take streams, such as
 ``lambda a, b: a * b``.
 

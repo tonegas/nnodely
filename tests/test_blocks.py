@@ -17,7 +17,7 @@ from nnodely import (
     Parameter,
 )
 
-from nnodely.core.layer import Add, Identity
+from nnodely.core.layer import Add
 from nnodely.layers.fir import FirImpl
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.fuzzify import Fuzzify
@@ -73,17 +73,15 @@ def test_fuzzify():
 
 
 def test_local_model_with_user_functions():
-    # ------- Local Model with user functions (one explicit cell per center) ----
+    # ------- No input function: the input itself, weighted cell by cell ----
     x = Input("x", dim=1)
     k = Input("k", dim=1)
 
     fuzzy_k = Fuzzify(centers=[0.0, 0.5, 1.0], function="rectangular")([k.sw(1)])
-    local_model = LocalModel(
-        input_function=lambda x: Identity()(x),
-        output_function=lambda x: ReLU()(x),
-        name="local_model",
-    )([x.sw(1)], [fuzzy_k])
-
+    local_model = LocalModel(output_function=ReLU(), name="local_model")(
+        [x.sw(1)], [fuzzy_k]
+    )
+ 
     out = Output("out", local_model)
     model = Modely("model_with_local", inputs=[x, k], outputs=[out])
     model.build()
@@ -104,10 +102,14 @@ def test_local_model_with_user_functions():
     )
 
 
+def _layers(model):
+    assert model.model is not None
+    return {layer.name: layer for layer in model.model.layers}
+
+
 def _cell_weights(model, layer_name, cells):
-    """Read the per-cell Fir weights of an explicitly built local model:
-    the Parameters "<cell>_kernel" and "<cell>_bias" each Fir made."""
-    layers = {layer.name: layer for layer in model.model.layers}
+    """Read the per-cell Fir weights of an explicitly built local model."""
+    layers = _layers(model)
     kernel = np.stack(
         [to_numpy(layers[f"{layer_name}{i}_kernel"].variable) for i in range(cells)]
     )
@@ -117,16 +119,26 @@ def _cell_weights(model, layer_name, cells):
     return kernel, bias
 
 
+def _set_cell_weights(model, layer_name, kernel, bias):
+    """Give the per-cell Firs named ``{layer_name}{i}`` the weights of cell i."""
+    layers = _layers(model)
+    for i in range(len(kernel)):
+        layers[f"{layer_name}{i}"].proj.kernel.assign(kernel[i])
+        layers[f"{layer_name}{i}"].proj.bias.assign(bias[i])
+
+
 def test_local_model_matches_explicit_cells():
-    # ------- The fused matmul must equal one Fir per membership -------
+    # ------- A layer is copied once per membership -------
     x = Input("x_local", dim=1)
     k = Input("k_local", dim=1)
     centers = [0.0, 1.0, 2.0]
 
     activation = Fuzzify(centers=centers, function="Triangular")([k])
-    fused = LocalModel(Fir(features=2), name="fused_local")([x.sw(4)], [activation])
-    fused_model = Modely(
-        "fused_local_model", inputs=[x, k], outputs=[Output("fused", fused)]
+    local = LocalModel(Fir(out_features=2), name="cloned_local")(
+        [x.sw(4)], [activation]
+    )
+    local_model = Modely(
+        "cloned_local_model", inputs=[x, k], outputs=[Output("local", local)]
     ).build()
 
     cells = [
@@ -138,22 +150,22 @@ def test_local_model_matches_explicit_cells():
         inputs=[x, k],
         outputs=[Output("explicit", cells[0] + cells[1] + cells[2])],
     ).build()
-
-    kernel, bias = _cell_weights(explicit_model, "cell", len(centers))
-    assert fused.kernel is not None and fused.bias is not None
-    fused.kernel.assign(kernel)
-    fused.bias.assign(bias)
+    _set_cell_weights(
+        local_model,
+        "cloned_local_in",
+        *_cell_weights(explicit_model, "cell", len(centers)),
+    )
 
     dummy_input = {
         "x_local": np.arange(20, dtype=np.float32).reshape(5, 1, 4) / 10.0,
         "k_local": np.linspace(-0.5, 2.5, 5, dtype=np.float32).reshape(5, 1, 1),
     }
-    fused_result = fused_model(dict(dummy_input))["fused"]
+    local_result = local_model(dict(dummy_input))["local"]
     explicit_result = explicit_model(dict(dummy_input))["explicit"]
 
-    assert fused_result.shape == (5, 2, 1)
+    assert local_result.shape == (5, 2, 1)
     np.testing.assert_allclose(
-        to_numpy(fused_result), to_numpy(explicit_result), rtol=1e-5, atol=1e-5
+        to_numpy(local_result), to_numpy(explicit_result), rtol=1e-5, atol=1e-5
     )
 
 
@@ -177,14 +189,12 @@ def test_local_model_multiplies_fuzzifications_row_major():
     # ------- Two fuzzifications with 4 and 5 centers give 20 cells -------
     x, j, k, activation_j, activation_k, data = _two_fuzzy_inputs("product")
 
-    fused = LocalModel(Fir(features=2), name="product_local")(
+    local = LocalModel(Fir(out_features=2), name="product_local")(
         [x.sw(5)], [activation_j, activation_k]
     )
-    fused_model = Modely(
-        "product_local_model", inputs=[x, j, k], outputs=[Output("fused", fused)]
+    local_model = Modely(
+        "product_local_model", inputs=[x, j, k], outputs=[Output("local", local)]
     ).build()
-    assert tuple(fused.kernel.shape) == (20, 5, 2)
-    assert tuple(fused.bias.shape) == (20, 2)
 
     # Cell (a, b) is number a * 5 + b and weighs mu_j[a] * mu_k[b].
     cells = [
@@ -199,68 +209,62 @@ def test_local_model_multiplies_fuzzifications_row_major():
         inputs=[x, j, k],
         outputs=[Output("explicit", Add()(cells))],
     ).build()
-    kernel, bias = _cell_weights(explicit_model, "product_cell", 20)
-    assert fused.kernel is not None and fused.bias is not None
-    fused.kernel.assign(kernel)
-    fused.bias.assign(bias)
+    _set_cell_weights(
+        local_model,
+        "product_local_in",
+        *_cell_weights(explicit_model, "product_cell", 20),
+    )
 
     np.testing.assert_allclose(
-        to_numpy(fused_model(dict(data))["fused"]),
+        to_numpy(local_model(dict(data))["local"]),
         to_numpy(explicit_model(dict(data))["explicit"]),
         rtol=1e-5,
         atol=1e-5,
     )
 
 
-def test_local_model_generic_and_elementwise_paths_agree():
-    # ------- Batched and per-cell evaluation must give the same model -------
+def test_local_model_per_cell_once_and_vectorized_paths_agree():
+    # ------- Copied layers, factories and one vectorized call: one model -------
     x, j, k, activation_j, activation_k, data = _two_fuzzy_inputs("paths")
     activations = [activation_j, activation_k]
 
-    fused = LocalModel(Fir(features=2), output_function=Tanh(), name="p_fused")(
+    cloned = LocalModel(Fir(out_features=1), output_function=Tanh(), name="p_cloned")(
         [x.sw(5)], activations
     )
-    stacked = LocalModel(
-        lambda s: Fir(features=2)(s), output_function=Tanh(), name="p_stacked"
+    factory = LocalModel(
+        lambda index: Fir(out_features=1, name=f"p_factory{index[0] * 5 + index[1]}"),
+        output_function=lambda index: Tanh(),
+        name="p_factory",
     )([x.sw(5)], activations)
-    per_cell = LocalModel(
-        Fir(features=2), output_function=lambda s: Tanh()(s), name="p_cell"
+    vectorized = LocalModel(
+        lambda streams: Fir(out_features=20, name="p_vectorized_fir")(streams),
+        output_function=lambda streams: Tanh()(streams),
+        vectorized=True,
+        name="p_vectorized",
     )([x.sw(5)], activations)
     model = Modely(
         "paths_model",
         inputs=[x, j, k],
         outputs=[
-            Output("fused", fused),
-            Output("stacked", stacked),
-            Output("per_cell", per_cell),
+            Output("cloned", cloned),
+            Output("factory", factory),
+            Output("vectorized", vectorized),
         ],
     ).build()
 
-    # Give the explicit cells the fused weights.
-    assert model.model is not None
-    layers = {layer.name: layer for layer in model.model.layers}
-    kernel = to_numpy(layers["p_fused_cells"].kernel)
-    bias = to_numpy(layers["p_fused_cells"].bias)
-    # The stacked cells are the only auto-named Firs, in creation order.
-    stacked_names = sorted(
-        (
-            name
-            for name, layer in layers.items()
-            if isinstance(layer, FirImpl) and not name.startswith("p_cell")
-        ),
-        key=lambda name: int(name[3:]),
-    )
-    assert len(stacked_names) == 20
-    for names in (stacked_names, [f"p_cell_in{i}" for i in range(20)]):
-        for i, name in enumerate(names):
-            layers[f"{name}_kernel"].variable.assign(kernel[i])
-            layers[f"{name}_bias"].variable.assign(bias[i])
+    # Give every form the weights of the copied cells.
+    kernel, bias = _cell_weights(model, "p_cloned_in", 20)
+    _set_cell_weights(model, "p_factory", kernel, bias)
+    # One Fir with an output per cell: column i is the kernel of cell i.
+    fir = _layers(model)["p_vectorized_fir"]
+    fir.proj.kernel.assign(kernel[:, :, 0].T)
+    fir.proj.bias.assign(bias[:, 0])
 
     result = model(dict(data))
-    assert result["fused"].shape == (6, 2, 1)
-    for name in ("stacked", "per_cell"):
+    assert result["cloned"].shape == (6, 1, 1)
+    for name in ("factory", "vectorized"):
         np.testing.assert_allclose(
-            to_numpy(result[name]), to_numpy(result["fused"]), rtol=1e-5, atol=1e-5
+            to_numpy(result[name]), to_numpy(result["cloned"]), rtol=1e-5, atol=1e-5
         )
 
 
@@ -278,17 +282,14 @@ def test_local_model_passes_cell_index():
         seen.append(index)
         return lambda s: s[0] * float(10 * index[0] + index[1])
 
-    by_index = LocalModel(factory, pass_index=True, name="index_local")(
-        [x.last()], [activation_j, activation_k]
-    )
-    by_list = LocalModel(
-        [lambda s, c=c: s[0] * float(c) for c in (0, 1, 2, 10, 11, 12)],
-        name="list_local",
-    )([x.last()], [activation_j, activation_k])
+    local = LocalModel(factory, name="index_local")
+    first = local([x.last()], [activation_j, activation_k])
+    # A second call applies the cells of the first: the factory is not called again.
+    second = local([x.last()], [activation_j, activation_k])
     model = Modely(
         "index_model",
         inputs=[x, j, k],
-        outputs=[Output("by_index", by_index), Output("by_list", by_list)],
+        outputs=[Output("first", first), Output("second", second)],
     ).build()
     assert seen == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
 
@@ -301,8 +302,34 @@ def test_local_model_passes_cell_index():
         }
     )
     expected = np.array([2.0 * 2, 2.0 * 10, 2.0 * 11]).reshape(3, 1, 1)
-    for name in ("by_index", "by_list"):
+    for name in ("first", "second"):
         np.testing.assert_allclose(to_numpy(result[name]), expected, atol=1e-5)
+
+
+def test_local_model_repeated_call_shares_weights():
+    x = Input("shared_local_x")
+    g = Input("shared_local_g")
+    mu = Fuzzify(centers=[0.0, 1.0])(g.last())
+    local = LocalModel(Fir(out_features=1), name="shared_local")
+    model = Modely(
+        "shared_local_model",
+        inputs=[x, g],
+        outputs=[
+            Output("first", local([x.sw(3)], [mu])),
+            Output("second", local([x.sw(3)], [mu])),
+        ],
+    ).build()
+
+    assert sum(isinstance(layer, FirImpl) for layer in _layers(model).values()) == 2
+    result = model(
+        {
+            "shared_local_x": np.random.rand(4, 1, 3).astype(np.float32),
+            "shared_local_g": np.random.rand(4, 1, 1).astype(np.float32),
+        }
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["first"]), to_numpy(result["second"]), atol=1e-6
+    )
 
 
 def test_local_model_scalar_input_one_fuzzy_function_by_hand():
@@ -310,15 +337,13 @@ def test_local_model_scalar_input_one_fuzzy_function_by_hand():
     x = Input("x_hand")
     g = Input("g_hand")
     mu = Fuzzify(centers=[0.0, 1.0, 2.0], function="Triangular")(g.last())
-    y = LocalModel(Fir(features=1))([x.last()], [mu])
+    y = LocalModel(Fir(out_features=1), name="hand_local")([x.last()], [mu])
     model = Modely(
         "local_hand", inputs=[x, g], outputs=[Output("y", y), Output("mu", mu)]
     ).build()
 
     gains = np.array([1.0, 10.0, 100.0], dtype=np.float32)
-    assert y.kernel is not None and y.bias is not None
-    y.kernel.assign(gains.reshape(3, 1, 1))
-    y.bias.assign(np.zeros((3, 1), dtype=np.float32))
+    _set_cell_weights(model, "hand_local_in", gains.reshape(3, 1, 1), np.zeros((3, 1)))
 
     g_values = np.array([0.0, 0.5, 1.0, 1.5, 2.0], dtype=np.float32)
     result = model(
@@ -345,23 +370,22 @@ def test_local_model_matrix_input_two_fuzzy_functions_by_hand():
     b = Input("b_hand")
     mu_a = Fuzzify(centers=[0.0, 1.0, 2.0])(a.last())
     mu_b = Fuzzify(centers=[0.0, 1.0])(b.last())
-    # A Fir filters every entry of X alone, so its kernel holds one tap per
-    # entry. Cell c weighs every entry by c + 1: its local model is (c + 1) * X.
-    cells = [
-        Fir(
-            features=1,
-            kernel=Parameter(f"hand_cell{c}", value=np.full((2, 2), c + 1.0)),
-            bias=False,
-        )
-        for c in range(6)
-    ]
-    Y = LocalModel(cells, name="local_matrix_hand")([X.last()], [mu_a, mu_b])
+    Y = LocalModel(Fir(out_features=1), name="matrix_hand_local")(
+        [X.last()], [mu_a, mu_b]
+    )
     model = Modely(
         "local_matrix_hand",
         inputs=[X, a, b],
         outputs=[Output("Y", Y), Output("mu_a", mu_a), Output("mu_b", mu_b)],
     ).build()
-    assert Y.dim == (2, 2)
+
+    # Cell c weighs every entry of X by c + 1: its local model is (c + 1) * sum(X).
+    _set_cell_weights(
+        model,
+        "matrix_hand_local_in",
+        np.repeat(np.arange(1.0, 7.0), 4).reshape(6, 4, 1),
+        np.zeros((6, 1)),
+    )
 
     result = model(
         {
@@ -381,32 +405,45 @@ def test_local_model_matrix_input_two_fuzzy_functions_by_hand():
         [0.375, 0.125, 0.375, 0.125, 0.0, 0.0],
         atol=1e-6,
     )
-    # Y = (0.375*1 + 0.125*2 + 0.375*3 + 0.125*4) * X = 2.25 * X
-    np.testing.assert_allclose(
-        to_numpy(result["Y"]).ravel(), [2.25, 4.5, 6.75, 9.0], rtol=1e-5
-    )
+    # Y = (0.375*1 + 0.125*2 + 0.375*3 + 0.125*4) * 10 = 22.5
+    np.testing.assert_allclose(to_numpy(result["Y"]).ravel(), [22.5], rtol=1e-5)
 
 
-def test_local_model_cells_share_a_fir_given_its_kernel_as_a_parameter():
-    # Each cell copies the Fir, Parameter included: every cell filters with
-    # the same kernel, and memberships summing to one give that Fir back.
-    x = Input("x_shared_w")
-    g = Input("g_shared_w")
-    w = Parameter("shared_w", value=[1.0, 2.0, 3.0])
-    mu = Fuzzify(centers=[0.0, 1.0, 2.0], function="Triangular")(g.last())
-    blended = LocalModel(Fir(features=1, kernel=w, bias=False))([x.sw(3)], [mu])
+def test_local_model_matrix_input_without_input_function_by_hand():
+    # ------- Y = sum_c sin(mu_c * X), the output applied to the (6, 2, 2) stack ----
+    X = Input("X_plain", dim=(2, 2))
+    a = Input("a_plain")
+    b = Input("b_plain")
+    mu_a = Fuzzify(centers=[0.0, 1.0, 2.0])(a.last())
+    mu_b = Fuzzify(centers=[0.0, 1.0])(b.last())
+    weighted = LocalModel()([X.sw(3)], [mu_a, mu_b])
+    vectorized = LocalModel(
+        output_function=lambda streams: Sin()(streams), vectorized=True
+    )([X.sw(3)], [mu_a, mu_b])
     model = Modely(
-        "local_shared_w", inputs=[x, g], outputs=[Output("blended", blended)]
+        "local_matrix_plain",
+        inputs=[X, a, b],
+        outputs=[Output("weighted", weighted), Output("vectorized", vectorized)],
     ).build()
 
+    values = np.arange(12, dtype=np.float32).reshape(1, 2, 2, 3) / 4.0
     result = model(
         {
-            "x_shared_w": np.array([[[1.0, 1.0, 2.0]]], dtype=np.float32),
-            "g_shared_w": np.array([[[0.7]]], dtype=np.float32),
+            "X_plain": values,
+            "a_plain": np.array([[[0.5]]], dtype=np.float32),
+            "b_plain": np.array([[[0.25]]], dtype=np.float32),
         }
     )
-    # 1 * 1 + 2 * 1 + 3 * 2 = 9
-    np.testing.assert_allclose(to_numpy(result["blended"]).ravel(), [9.0], rtol=1e-5)
+    mu = np.array([0.375, 0.125, 0.375, 0.125, 0.0, 0.0], dtype=np.float32)
+    assert result["vectorized"].shape == (1, 2, 2, 3)
+    # The memberships sum to one, so weighting alone gives the input back.
+    np.testing.assert_allclose(to_numpy(result["weighted"]), values, rtol=1e-5)
+    np.testing.assert_allclose(
+        to_numpy(result["vectorized"]),
+        np.sin(mu.reshape(6, 1, 1, 1, 1) * values).sum(axis=0),
+        rtol=1e-5,
+        atol=1e-6,
+    )
 
 
 def test_local_model_rejects_mismatched_inputs():
@@ -414,21 +451,29 @@ def test_local_model_rejects_mismatched_inputs():
     k = Input("k_invalid", dim=1)
     activation = Fuzzify(centers=[0.0, 1.0], function="Triangular")([k.sw(1)])
 
-    with pytest.raises(ValueError, match="got 3 input functions for 2 cells"):
-        LocalModel([Fir(features=1)] * 3, name="unpaired_local")(
+    with pytest.raises(TypeError, match=r"pass a factory f\(index\)"):
+        LocalModel([Fir(out_features=1)] * 2, name="list_local")
+
+    with pytest.raises(ValueError, match="every cell must have the same shape"):
+        LocalModel(lambda index: Fir(out_features=index[0] + 1), name="uneven_local")(
             [x.sw(2)], [activation]
         )
 
-    with pytest.raises(ValueError, match="same shape"):
-        LocalModel([Fir(features=1), Fir(features=2)], name="uneven_local")(
-            [x.sw(2)], [activation]
-        )
-
-    with pytest.raises(ValueError, match="every output function must return"):
+    with pytest.raises(ValueError, match="every cell must have the same shape"):
         LocalModel(
-            output_function=[lambda s: s[0], lambda s: Fir(features=2)(s)],
+            output_function=lambda index: Fir(out_features=index[0] + 1),
             name="uneven_output_local",
         )([x.sw(2)], [activation])
+
+    with pytest.raises(ValueError, match="one entry per cell"):
+        LocalModel(
+            lambda streams: Fir(out_features=3)(streams),
+            vectorized=True,
+            name="vectorized_local",
+        )([x.sw(2)], [activation])
+
+    with pytest.raises(ValueError, match="there must be one"):
+        LocalModel(name="two_inputs_local")([x.sw(2), k.sw(2)], [activation])
 
     windowed_activation = Fuzzify(centers=[0.0, 1.0], function="Triangular")([k.sw(2)])
     with pytest.raises(ValueError, match="activation 0 must have shape"):
@@ -879,3 +924,28 @@ def test_integrate_rejects_what_it_cannot_integrate():
         Integrate(dt=0.1, init=Input("wide_init", dim=3))(rate)
     with pytest.raises(ValueError, match="init has seq"):
         Integrate(dt=0.1, init=Input("seq_init", dim=2, seq=4))(rate)
+
+def test_my_localmodel():
+    x = Input("x_local", dim=(2, 2)).sw(4)
+    g = Input("g_local", dim=1).sw(4)
+    mu = Fuzzify(centers=[0.0, 1.0, 2.0])(g)
+    local = LocalModel(lambda i: Fir(out_features=1), name="local_model")
+    local_output = local([x], [mu])
+    print(local_output.shape)
+
+    model = Modely(
+        "local_model_test",
+        inputs=[x, g],
+        outputs=[Output("local_output", local_output)],
+    ).build()
+    print(model.summary())
+
+    dummy_x = np.ones([1, 2, 2, 4]).astype(np.float32)
+    dummy_g = np.array([1, 1, 2, 3]).reshape([1, 1, 4]).astype(np.float32)
+    result = model({"x_local": dummy_x, "g_local": dummy_g})
+    print("res shape:", result["local_output"].shape)
+    print("res:", result["local_output"])
+
+
+if __name__ == "__main__":
+    test_my_localmodel()
