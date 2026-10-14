@@ -44,6 +44,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   horizon by a `Loop`), `Ode` (Euler, midpoint, Heun, RK4) and `OdeNet` (neural ODEs,
   adaptive Dormand-Prince, hybrid events).
 - Recurrence: `Modely.rollback()`, `Loop` and `Roll`.
+- Sequence-axis layers `SeqSelect`, `SeqRange`, `SeqConcatenate`, `SeqStack`
+  and `SeqReverse`, on fixed and dynamic seq axes. `SeqSelect` removes the
+  axis, so `SeqSelect(-1)` of a collected trajectory, its last step, can
+  close a `Loop` callback on an input without that axis.
 - `Fir` on a multi-dimensional input (1.x took scalars only): every element
   is filtered over its window alone, with a kernel of its own or, with
   `shared_kernel=True`, one for all. `features > 1` adds the channels as

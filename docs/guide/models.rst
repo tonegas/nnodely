@@ -103,6 +103,10 @@ is created: ``Sin(x)`` is ``Sin()(x)``. To name it, configure it first:
    * - Time axis
      - :class:`~nnodely.TimeSelect`, :class:`~nnodely.TimeRange`,
        :class:`~nnodely.TimeConcatenate`.
+   * - Sequence axes
+     - :class:`~nnodely.SeqSelect` (one element, the axis removed),
+       :class:`~nnodely.SeqRange`, :class:`~nnodely.SeqConcatenate`,
+       :class:`~nnodely.SeqStack` (a new axis), :class:`~nnodely.SeqReverse`.
    * - Calculus
      - :class:`~nnodely.Differentiate`, :class:`~nnodely.Derivative`,
        :class:`~nnodely.Integrate`, :class:`~nnodely.IntegrateStep`,

@@ -136,8 +136,9 @@ from nnodely import (
     Linear, Fir, LocalModel, EquationLearner, BatchNorm,
     # fuzzy / lookup
     Fuzzify, Interpolation,
-    # feature axis / time axis
+    # feature axis / time axis / sequence axes
     Select, Range, Concatenate, Sum, TimeSelect, TimeRange, TimeConcatenate,
+    SeqSelect, SeqRange, SeqConcatenate, SeqStack, SeqReverse,
     # calculus / recurrence
     Differentiate, Derivative, Integrate, IntegrateStep, Ode, OdeNet, Loop, Roll,
     # activations
@@ -232,8 +233,13 @@ Legend: **in → out** gives semantic shapes. `d` = dim, `T` = time, `S` = seq.
 | `TimeSelect(idx)` | One time sample, kept with length 1 (`-1` = newest). |
 | `TimeRange(start, end)` | Slice `[start, end)` on the time axis. |
 | `TimeConcatenate()([a, b, ...])` | Concatenates along time; dim and seq must match. |
+| `SeqSelect(idx, axis=-1)` | One element of a seq axis, **the axis removed**: `(dyn,)` → `()`. Negative idx counts from the end of the data, also on a dynamic axis, so `SeqSelect(-1)` is the last step of a rollout of any length. |
+| `SeqRange(start, end, axis=-1)` | Slice `[start, end)` on a seq axis; `None` leaves a bound open. On a dynamic axis a negative bound or an open end gives a dynamic axis. |
+| `SeqConcatenate(axis=-1)([a, b, ...])` | Joins along an existing seq axis; dim, time and the other seq axes must match. A dynamic input makes the axis dynamic. |
+| `SeqStack(axis=-1)([a, b, ...])` | Stacks equal-shape streams into a new seq axis: 4 × `()` → `(4,)`. |
+| `SeqReverse(axis=-1)` | Reverses the elements of a seq axis. |
 
-There is **no layer that selects along a seq axis**, and none that reshapes or transposes. Write a custom layer (§16) if one is needed.
+The `axis` of the `Seq*` layers counts the seq axes only; `-1` is the last one, the rollout axis of the innermost `Loop`. `SeqSelect(-1)` on a collected trajectory gives a stream that can close a `Loop` callback on an input without that seq axis. There is no layer that reshapes or transposes. Write a custom layer (§16) if one is needed.
 
 ### 6.6 Calculus and recurrence
 See §10 (`Loop`, `Roll`, `rollback`) and §11 (`Differentiate`, `Derivative`, `IntegrateStep`, `Integrate`, `Ode`, `OdeNet`).
@@ -712,6 +718,7 @@ src/nnodely/
   core/validation.py     validate, score_signal, SignalScore, ValidationResult
   layers/input.py        Input (+ sw/last/next → SampleWindow)
   layers/time_ops.py     SampleWindow, Select, Range, TimeSelect, TimeRange, Concatenate, TimeConcatenate
+  layers/seq_ops.py      SeqSelect, SeqRange, SeqConcatenate, SeqStack, SeqReverse
   layers/{linear,fir,localmodel,fuzzify,interpolation,equationlearner,batchnorm,activations,arithmetic,trigonometric}.py
   layers/{parameter,output}.py   parameter.py: _Value, Parameter, Constant
   layers/derivative.py   Differentiate (autodiff dispatch per backend), Derivative (Savitzky–Golay banded operator)

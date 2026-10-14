@@ -52,6 +52,13 @@ from nnodely.layers.time_ops import (
     TimeRange,
     TimeSelect,
 )
+from nnodely.layers.seq_ops import (
+    SeqConcatenate,
+    SeqRange,
+    SeqReverse,
+    SeqSelect,
+    SeqStack,
+)
 from nnodely.layers.batchnorm import BatchNorm
 from nnodely.layers.ode import Ode, OdeNet
 from nnodely.layers.activations import (
@@ -112,6 +119,11 @@ __all__ = [
     "TimeSelect",
     "Select",
     "TimeRange",
+    "SeqSelect",
+    "SeqRange",
+    "SeqConcatenate",
+    "SeqStack",
+    "SeqReverse",
     "Range",
     "BatchNorm",
     "Ode",
