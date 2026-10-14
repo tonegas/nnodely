@@ -18,6 +18,7 @@ from nnodely import (
     Fir,
     DataLoader,
     BatchNorm,
+    SeqSelect
 )
 from nnodely.layers.loop import DYNAMIC_BUILD_LENGTH
 import pytest
@@ -824,7 +825,7 @@ def test_a_parameter_is_one_weight_for_a_loop_body_and_the_outer_model():
         to_numpy(result["shared_outer"]).ravel(), [3.0, 0.0, 0.0]
     )
 
-def test_issue_209():
+def test_callback_from_nested_loop_with_seq_select():
     vx0 = Input("vx0")
     px0 = Input("px0")
     ax = Input("ax")
@@ -847,8 +848,8 @@ def test_issue_209():
         Loop(f=model, callback={"px0_init": "int_loop1"}, init={"px0_init": px0_init_sq})
 
     # Returning only the last step drops that axis, so it can be fed back.
-    last = Loop(f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init}, collect=False)
-    model_last = Modely("IntLast", inputs=[ax_sq, px0_init], outputs=[Output("int_last", last({"ax": ax_sq}))]).build()
+    last = Loop(f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init})
+    model_last = Modely("IntLast", inputs=[ax_sq, px0_init], outputs=[Output("int_last", SeqSelect(-1)(last({"ax": ax_sq})))]).build() #type: ignore
     outer = Loop(f=model_last, callback={"px0_init": "int_last"}, init={"px0_init": px0_init_sq})
     model22 = Modely("Int22", inputs=[ax_sq_sq, px0_init_sq],
                     outputs=[Output("int_loop1_sq", outer({"ax_sq": ax_sq_sq}))]).build()
