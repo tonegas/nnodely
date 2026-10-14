@@ -152,21 +152,36 @@ one between them. Its ``function`` can also be any other layer class, made
 anew for each center, or a layer instance, shared by all of them: they read
 ``x - center``, so ``Fuzzify(centers, function=Sin)`` gives ``sin(x - c)``. A
 list gives one function per center, such as
-``[Rectangular, Triangular, Gaussian]``. A custom function is a Keras layer,
-evaluated on every center like any layer and saved and exported with the
-model; further streams given after the signal reach its ``call``:
+``[Rectangular, Triangular, Gaussian]``. A custom function is a Keras layer
+whose ``call`` reads one argument, ``x - center``, evaluated on every center
+like any layer and saved and exported with the model; a ``call`` that needs
+more arguments is refused:
 
 .. code-block:: python
 
-   class Shifted(keras.layers.Layer):
-       def call(self, x, y):
-           return x * x + y
+   class Square(keras.layers.Layer):
+       def call(self, x):
+           return x * x
 
-   shifted = Fuzzify([0.0, 0.5, 1.0], function=Shifted)([x.last(), y.last()])
-   # (x - c)^2 + y on every center c
+   squares = Fuzzify([0.0, 0.5, 1.0], function=Square)([x.last()])
+   # (x - c)^2 on every center c
 
 To load such a model in another session, define the class first, decorated
 with ``@keras.saving.register_keras_serializable()``.
+
+The centers can also move with the model. A :class:`~nnodely.Parameter`
+vector of shape ``(n,)`` trains them; a stream computed from the inputs, such
+as a ``Fir`` with ``features=n``, gives every sample its own; a list mixes
+scalar streams with fixed numbers. They are used in the order given, which
+should be ascending, and the memberships are placed on them and sized by their
+neighbors as they are computed, so the gradient reaches them (a
+``Rectangular`` has none):
+
+.. code-block:: python
+
+   centers = Parameter("centers", value=[0.0, 0.5, 1.0])
+   trained = Fuzzify(centers)([x.last()])          # where the triangles sit, learned
+   middle = Fuzzify([0.0, Parameter("middle", value=[0.5]), 1.0])([x.last()])
 
 The same wrapping works anywhere in a model: :class:`~nnodely.KerasFunction`
 makes any Keras layer an nnodely layer, its streams passed to ``call`` as
@@ -175,6 +190,10 @@ separate arguments and its output shape read off the result:
 .. code-block:: python
 
    from nnodely import KerasFunction
+
+   class Shifted(keras.layers.Layer):
+       def call(self, x, y):
+           return x * x + y
 
    length = KerasFunction(Norm)([v.sw(2)])          # a class, made here
    shifted = KerasFunction(Shifted())([a.last(), b.last()])  # an instance

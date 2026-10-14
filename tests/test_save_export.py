@@ -1823,17 +1823,9 @@ def _generalized_fuzzify_model():
         def call(self, x):
             return x * x
 
-    class SquarePlus(keras.layers.Layer):
-        def call(self, x, y):
-            return x * x + y
-
     x = Input("general_fuzzy_x")
-    y = Input("general_fuzzy_y")
     squares = Fuzzify([0.0, 1.0], function=Square, name="general_fuzzy_square")(
         [x.last()]
-    )
-    shifted = Fuzzify([0.0, 1.0], function=SquarePlus, name="general_fuzzy_shift")(
-        [x.last(), y.last()]
     )
     mixed = Fuzzify(
         [0.0, 0.5, 1.0],
@@ -1847,14 +1839,13 @@ def _generalized_fuzzify_model():
     )
     return Modely(
         "general_fuzzy",
-        inputs=[x, y],
+        inputs=[x],
         outputs=[
             Output("general_mixed", mixed),
             Output("general_waves", waves),
             Output("general_bell_out", bell),
             Output("general_leaning_out", leaning),
             Output("general_square", squares),
-            Output("general_shift", shifted),
         ],
     ).build()
 
@@ -1865,7 +1856,6 @@ _GENERAL_OUTPUTS = (
     "general_bell_out",
     "general_leaning_out",
     "general_square",
-    "general_shift",
 )
 
 
@@ -1873,9 +1863,6 @@ def test_generalized_fuzzify_saves_loads_and_exports_to_keras(tmp_path):
     model = _generalized_fuzzify_model()
     data = {
         "general_fuzzy_x": np.linspace(-0.5, 1.5, 9, dtype=np.float32).reshape(
-            -1, 1, 1
-        ),
-        "general_fuzzy_y": np.linspace(2.0, -2.0, 9, dtype=np.float32).reshape(
             -1, 1, 1
         ),
     }
@@ -1901,7 +1888,6 @@ def test_generalized_fuzzify_exports_to_onnx(tmp_path):
     model = _generalized_fuzzify_model()
     data = {
         "general_fuzzy_x": np.full((1, 1, 1), 0.8, dtype=np.float32),
-        "general_fuzzy_y": np.full((1, 1, 1), 0.5, dtype=np.float32),
     }
     before = model(data)
 
@@ -1912,6 +1898,68 @@ def test_generalized_fuzzify_exports_to_onnx(tmp_path):
 
     assert isinstance(result, dict)
     for name in _GENERAL_OUTPUTS:
+        np.testing.assert_allclose(
+            to_numpy(result[name]), to_numpy(before[name]), rtol=1e-5, atol=1e-6
+        )
+
+
+def _moving_centers_model():
+    x = Input("moving_x")
+    u = Input("moving_u")
+    centers = Parameter("moving_centers", value=[0.0, 0.5, 1.0])
+    computed = Fir(features=3, bias=False)(u.sw(2))  # each sample its own
+    middle = Parameter("moving_middle", value=[0.4])
+    model = Modely(
+        "moving",
+        inputs=[x, u],
+        outputs=[
+            Output("moving_triangles", Fuzzify(centers)([x.last()])),
+            Output("moving_bells", Fuzzify(centers, function=Gaussian)([x.last()])),
+            Output("moving_waves", Fuzzify(computed, function=Sin)([x.last()])),
+            Output("moving_listed", Fuzzify([0.0, middle, 1.0])([x.last()])),
+        ],
+    ).build()
+    # As if trained: the centers moved from where they started.
+    centers.param.assign(np.array([[-0.2], [0.6], [1.3]], dtype=np.float32))  # type: ignore
+    return model
+
+
+_MOVING_OUTPUTS = ("moving_triangles", "moving_bells", "moving_waves", "moving_listed")
+_MOVING_DATA = {
+    "moving_x": np.linspace(-0.5, 1.5, 5, dtype=np.float32).reshape(-1, 1, 1),
+    "moving_u": np.linspace(-1.0, 1.0, 10, dtype=np.float32).reshape(5, 1, 2),
+}
+
+
+def test_moving_fuzzify_centers_save_load_and_export_to_keras(tmp_path):
+    model = _moving_centers_model()
+    before = model(_MOVING_DATA)
+
+    model.save(tmp_path / "moving")
+    restored = Modely.load(tmp_path / "moving")
+    assert graph_signature(restored) == graph_signature(model)
+    model.export_keras(tmp_path, "moving")
+    imported = Modely.import_keras(tmp_path / "moving.keras")
+    for result in (restored(_MOVING_DATA), imported(_MOVING_DATA)):  # type: ignore
+        for name in _MOVING_OUTPUTS:
+            np.testing.assert_allclose(
+                to_numpy(result[name]), to_numpy(before[name]), rtol=1e-6, atol=1e-7
+            )
+
+
+@pytest.mark.slow
+@requires_onnx_export
+def test_moving_fuzzify_centers_export_to_onnx(tmp_path):
+    pytest.importorskip("onnxruntime")
+    model = _moving_centers_model()
+    data = {name: values[1:2] for name, values in _MOVING_DATA.items()}
+    before = model(data)
+
+    model.export_onnx(tmp_path, "moving")
+    result = Modely.validate_onnx(tmp_path / "moving.onnx", data, return_dict=True)
+
+    assert isinstance(result, dict)
+    for name in _MOVING_OUTPUTS:
         np.testing.assert_allclose(
             to_numpy(result[name]), to_numpy(before[name]), rtol=1e-5, atol=1e-6
         )

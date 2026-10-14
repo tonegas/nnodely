@@ -37,8 +37,17 @@ variable, and trains, validates and exports through Keras. Models saved with
   to `x - center` (`function=Sin` gives `sin(x - c)`), or a list of one
   function per center. The membership names (`"Triangular"`, ...) still work.
   A custom function is a Keras layer, class or instance, evaluated on every
-  center and saved and exported with the model; streams given after the
-  signal reach it too: `call(self, x, y)` gives `f(x - c, y)`.
+  center and saved and exported with the model; its `call` reads one
+  argument, `x - c`, and one needing more is refused. The layer of each
+  center is named after its class, such as `Fuzzify1_Triangular_0`.
+- Trainable `Fuzzify` centers: besides numbers, `centers` is one stream of
+  shape `(n,)` - a `Parameter` vector, trained with the model, or a stream
+  computed from the inputs, such as a `Fir` with `features=n`, which gives
+  every sample its own centers - or a list of scalar streams and numbers.
+  The memberships are placed on them and sized by their neighbors as they are
+  computed, so the gradient reaches them; they are used in the order given,
+  ascending. A matrix, a time window or a list item that is not a scalar is
+  refused.
 - Freezing: `Parameter.freeze()` / `unfreeze()` (or `trainable`, also a
   constructor argument) keep one Parameter fixed through training or release
   it, and `Modely.freeze()` / `unfreeze()` do it for every Parameter a model

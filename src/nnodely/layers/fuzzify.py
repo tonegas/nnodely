@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import inspect
+
 import keras
 
 from nnodely.core.dag import next_name
 from nnodely.core.layer import Layer
 from nnodely.core.stream import Stream
 from nnodely.layers.function import KerasFunction, _is_keras_layer
-from nnodely.layers.time_ops import Concatenate
+from nnodely.layers.parameter import Constant
+from nnodely.layers.time_ops import Concatenate, Select
 
 _EPS = 1e-7
 
@@ -30,6 +33,31 @@ def _radius(radius, owner: str) -> tuple[float, float]:
     return left, right
 
 
+# The membership formulas, on a center and widths that are numbers for a
+# membership of its own and tensors for one on a moving center of a Fuzzify.
+def _floor(width):
+    """``width`` kept above zero, so that it can divide."""
+    if isinstance(width, (int, float)):
+        return max(width, _EPS)
+    return keras.ops.maximum(width, _EPS)
+
+
+def _triangle(x, center, left, right):
+    rise = (x - (center - left)) / _floor(left)
+    fall = ((center + right) - x) / _floor(right)
+    return keras.ops.maximum(keras.ops.minimum(rise, fall), 0.0)
+
+
+def _box(x, center, left, right):
+    inside = keras.ops.logical_and(x > center - left, x < center + right)
+    return keras.ops.cast(inside, x.dtype)
+
+
+def _bell(x, center, sigma):
+    scaled = (x - center) / _floor(sigma)
+    return keras.ops.exp(-0.5 * scaled * scaled)
+
+
 @keras.saving.register_keras_serializable(package="nnodely")
 class TriangularImpl(keras.layers.Layer):
     def __init__(self, center=0.0, left=1.0, right=1.0, name=None, **kwargs):
@@ -39,9 +67,7 @@ class TriangularImpl(keras.layers.Layer):
         self.right = float(right)
 
     def call(self, inputs):
-        rise = (inputs - (self.center - self.left)) / max(self.left, _EPS)
-        fall = ((self.center + self.right) - inputs) / max(self.right, _EPS)
-        return keras.ops.maximum(keras.ops.minimum(rise, fall), 0.0)
+        return _triangle(inputs, self.center, self.left, self.right)
 
     def get_config(self):
         config = super().get_config()
@@ -58,10 +84,7 @@ class RectangularImpl(keras.layers.Layer):
         self.right = float(right)
 
     def call(self, inputs):
-        inside = keras.ops.logical_and(
-            inputs > self.center - self.left, inputs < self.center + self.right
-        )
-        return keras.ops.cast(inside, inputs.dtype)
+        return _box(inputs, self.center, self.left, self.right)
 
     def get_config(self):
         config = super().get_config()
@@ -77,8 +100,7 @@ class GaussianImpl(keras.layers.Layer):
         self.sigma = float(sigma)
 
     def call(self, inputs):
-        scaled = (inputs - self.center) / max(self.sigma, _EPS)
-        return keras.ops.exp(-0.5 * scaled * scaled)
+        return _bell(inputs, self.center, self.sigma)
 
     def get_config(self):
         config = super().get_config()
@@ -89,7 +111,8 @@ class GaussianImpl(keras.layers.Layer):
 class _Membership(Layer):
     """A membership function: applied to every value of a stream, it keeps
     the stream's shape. :class:`Fuzzify` places one on each of its centers,
-    sized by the centers next to it, with :meth:`_placed`."""
+    sized by the centers next to it, with :meth:`_placed` - or, on centers
+    that move, evaluates it with :meth:`_moving`."""
 
     def output_shape(self, *inputs):
         # Elementwise: every axis kept, a dynamic sequence axis included.
@@ -99,6 +122,12 @@ class _Membership(Layer):
     def _placed(cls, center, left, right, name):
         """The membership on ``center``, whose neighbors are ``left`` and
         ``right`` away."""
+        raise NotImplementedError
+
+    @staticmethod
+    def _moving(x, center, left, right):
+        """:meth:`_placed` evaluated on ``x``, the center and the distances
+        to its neighbors given as tensors."""
         raise NotImplementedError
 
 
@@ -138,6 +167,10 @@ class Triangular(_Membership):
     def _placed(cls, center, left, right, name):
         return cls(center=center, radius=(left, right), name=name)
 
+    @staticmethod
+    def _moving(x, center, left, right):
+        return _triangle(x, center, left, right)
+
 
 class Rectangular(_Membership):
     """
@@ -172,6 +205,10 @@ class Rectangular(_Membership):
     def _placed(cls, center, left, right, name):
         return cls(center=center, radius=right / 2.0, name=name)
 
+    @staticmethod
+    def _moving(x, center, left, right):
+        return _box(x, center, right / 2.0, right / 2.0)
+
 
 class Gaussian(_Membership):
     """
@@ -198,6 +235,10 @@ class Gaussian(_Membership):
     def _placed(cls, center, left, right, name):
         return cls(center=center, sigma=max((left + right) / 6.0, _EPS), name=name)
 
+    @staticmethod
+    def _moving(x, center, left, right):
+        return _bell(x, center, (left + right) / 6.0)
+
 
 _MEMBERSHIPS = {
     "triangular": Triangular,
@@ -219,6 +260,66 @@ def _neighbor_distances(centers):
     ]
 
 
+def _neighbors(centers, index, rank):
+    """Center ``index`` of a tensor of centers ``(batch, n, 1, *seq)``, and
+    its distances to the centers on its left and on its right, read as
+    :func:`_neighbor_distances` reads fixed centers; each laid out with
+    ``rank`` axes, to broadcast against the signal."""
+
+    def center(k):
+        value = centers[:, k : k + 1]
+        while len(value.shape) < rank:
+            value = keras.ops.expand_dims(value, axis=-1)
+        return value
+
+    def gap(k):
+        return center(k + 1) - center(k)
+
+    count = centers.shape[1]
+    if count == 1:
+        return center(0), 1.0, 1.0
+    return center(index), gap(max(index - 1, 0)), gap(min(index, count - 2))
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class MovingMembershipImpl(keras.layers.Layer):
+    def __init__(self, membership="Triangular", index=0, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.membership = membership
+        self.index = int(index)
+
+    def call(self, inputs):
+        x, centers = inputs
+        center, left, right = _neighbors(centers, self.index, len(x.shape))
+        function = _MEMBERSHIPS[self.membership.lower()]
+        return function._moving(x, center, left, right)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"membership": self.membership, "index": self.index})
+        return config
+
+
+class MovingMembership(Layer):
+    """The ``membership`` of :class:`Fuzzify` on center ``index`` of a
+    stream of centers, read with the signal as ``[x, centers]``: sized by
+    the centers next to it as on fixed centers, but as they are computed, so
+    that a gradient reaches them."""
+
+    def __init__(self, membership: str = "Triangular", index: int = 0, name=None):
+        self.membership = membership
+        self.index = int(index)
+        super().__init__(name=name, membership=membership, index=self.index)
+
+    def output_shape(self, *inputs):
+        return inputs[0].shape.dimensions
+
+    def build_layer(self):
+        return MovingMembershipImpl(
+            membership=self.membership, index=self.index, name=self.name
+        )
+
+
 class Fuzzify:
     """
     Membership degrees of a scalar signal to fuzzy sets placed on
@@ -226,6 +327,15 @@ class Fuzzify:
     On a time window every step is evaluated alone, so a window of ``T``
     samples gives a ``(len(centers), T)`` matrix. It is typically the
     activation of a :class:`LocalModel`.
+
+    ``centers`` are fixed numbers, or move with the model: one stream of
+    shape ``(n,)`` - a :class:`Parameter` vector, which trains, or a stream
+    computed from the inputs, such as a :class:`Fir` with ``features=n``,
+    which gives every sample its own centers - or a list of scalar streams,
+    numbers among them for centers kept fixed. Centers that move are used in
+    the order given, which should be ascending: the memberships are placed
+    on them and sized by the centers next to them as they are computed, so
+    the gradient reaches them (a :class:`Rectangular` has none).
 
     ``function`` is the membership of every center, or a list of one per
     center (paired with ``centers`` as given, before they are sorted). Each is
@@ -235,14 +345,10 @@ class Fuzzify:
       next to it;
     - any other nnodely layer class, made anew for each center, or a layer
       instance, shared by all of them: applied to ``x - center``;
-    - a custom function, a Keras layer: likewise, a ``keras.layers.Layer``
-      subclass made anew for each center or an instance shared by all, each
-      wrapped in a :class:`KerasFunction` so the model still saves and
-      exports.
-
-    Called on further streams after the signal, ``Fuzzify(...)([x, y])``, it
-    passes them to the functions after ``x - center``: a Keras layer with
-    ``call(self, x, y)`` gives ``f(x - center, y)`` on every center.
+    - a custom function, a Keras layer whose ``call`` reads one argument,
+      ``x - center``: likewise, a ``keras.layers.Layer`` subclass made anew
+      for each center or an instance shared by all, each wrapped in a
+      :class:`KerasFunction` so the model still saves and exports.
 
     ::
 
@@ -250,7 +356,9 @@ class Fuzzify:
         Fuzzify([0.0, 0.5, 1.0], function=Sin)([x.last()])           # sin(x - c)
         Fuzzify([0.0, 0.5, 1.0], function=Gaussian(sigma=0.1))       # x - c, alike
         Fuzzify([0.0, 0.5, 1.0], function=[Rectangular, Triangular, Gaussian])
-        Fuzzify([0.0, 0.5, 1.0], function=MyKerasLayer)([x.last(), y.last()])
+        Fuzzify([0.0, 0.5, 1.0], function=MyKerasLayer)([x.last()])
+        Fuzzify(Parameter("c", value=[0.0, 0.5, 1.0]))([x.last()])  # trained
+        Fuzzify([0.0, Parameter("m", value=[0.5]), 1.0])([x.last()])
 
     The result is a :class:`Concatenate` of the memberships, named after the
     Fuzzify; calling one Fuzzify again reuses the layers it made.
@@ -267,32 +375,36 @@ class Fuzzify:
         | list = Triangular,
         name=None,
     ):
-        centers = [float(center) for center in centers]
-        if not centers:
-            raise ValueError("Fuzzify requires at least one center.")
+        self.name = next_name("Fuzzify") if name is None else name
+        centers = _centers(centers, self.name)
+        count = centers.shape.dim[0] if isinstance(centers, Stream) else len(centers)
         functions = (
             list(function)
             if isinstance(function, (list, tuple))
-            else [function] * len(centers)
+            else [function] * count
         )
-        if len(functions) != len(centers):
+        if len(functions) != count:
             raise ValueError(
-                f"Fuzzify: {len(functions)} functions for {len(centers)} centers; "
+                f"Fuzzify: {len(functions)} functions for {count} centers; "
                 "give one function, or one per center."
             )
-        self.name = next_name("Fuzzify") if name is None else name
         functions = [_membership_function(item) for item in functions]
         # A Keras layer instance is shared by the centers, as a layer is.
         functions = [
-            KerasFunction(item, name=f"{self.name}_function")
+            KerasFunction(item, name=f"{self.name}_{type(item).__name__}")
             if isinstance(item, keras.layers.Layer)
             else item
             for item in functions
         ]
 
-        order = sorted(range(len(centers)), key=lambda index: centers[index])
-        self.centers = [centers[index] for index in order]
-        self.functions = [functions[index] for index in order]
+        self.centers: list[float] | Stream
+        if isinstance(centers, Stream):
+            # Not sorted: their values are known only once computed.
+            self.centers, self.functions = centers, functions
+        else:
+            order = sorted(range(len(centers)), key=lambda index: centers[index])
+            self.centers = [centers[index] for index in order]
+            self.functions = [functions[index] for index in order]
         # The layers of each center, made on the first call and shared by
         # every later one.
         self._layers: list[tuple[Layer, bool]] | None = None
@@ -301,16 +413,24 @@ class Fuzzify:
         """For each center its layer, and whether it is placed on the center
         (or reads ``x - center``)."""
         layers = []
-        distances = _neighbor_distances(self.centers)
-        for index, (center, function, (left, right)) in enumerate(
-            zip(self.centers, self.functions, distances)
-        ):
-            # A lone membership is the result itself, so it takes the name.
-            name = self.name if len(self.centers) == 1 else f"{self.name}_{index}"
+        for index, function in enumerate(self.functions):
             if isinstance(function, Layer):
                 layers.append((function, False))
-            elif issubclass(function, _Membership):
-                layers.append((function._placed(center, left, right, name), True))
+                continue
+            # Named after its class; a lone layer is the result itself, so it
+            # takes the name of the Fuzzify.
+            name = (
+                self.name
+                if len(self.functions) == 1
+                else f"{self.name}_{function.__name__}_{index}"
+            )
+            if issubclass(function, _Membership):
+                if isinstance(self.centers, Stream):
+                    layer = MovingMembership(function.__name__, index, name=name)
+                else:
+                    left, right = _neighbor_distances(self.centers)[index]
+                    layer = function._placed(self.centers[index], left, right, name)
+                layers.append((layer, True))
             elif issubclass(function, keras.layers.Layer):
                 layers.append((KerasFunction(function, name=name), False))
             else:
@@ -326,31 +446,77 @@ class Fuzzify:
 
     def __call__(self, inputs) -> Stream:
         streams = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
-        if not streams or not all(isinstance(stream, Stream) for stream in streams):
-            raise TypeError(
-                f"{self.name}: Fuzzify reads its signal, and then any further "
-                "streams for its functions."
-            )
-        x, extra = streams[0], streams[1:]
+        if len(streams) != 1 or not isinstance(streams[0], Stream):
+            raise TypeError(f"{self.name}: Fuzzify reads one stream, its signal.")
+        x = streams[0]
         if tuple(x.shape.dim) != (1,):
             raise ValueError(
                 f"{self.name}: Fuzzify reads a scalar signal, got dim {x.shape.dim}."
             )
+        # A membership placed on centers that move reads them with the signal.
+        placed_inputs: list[Stream] = [x]
+        if isinstance(self.centers, Stream):
+            if self.centers.shape.seq not in ((), x.shape.seq):
+                raise ValueError(
+                    f"{self.name}: centers with a sequence axis have the "
+                    f"signal's, {x.shape.seq}; got {self.centers.shape.seq}."
+                )
+            placed_inputs = [x, self.centers]
         if self._layers is None:
             self._layers = self._make_layers()
-        if extra and any(placed for _, placed in self._layers):
-            raise ValueError(
-                f"{self.name}: a membership function reads the signal alone; "
-                "further streams are for the other functions."
-            )
 
         memberships = [
-            layer([x] if placed else [x - center, *extra])
-            for (layer, placed), center in zip(self._layers, self.centers)
+            layer(placed_inputs if placed else [x - center])
+            for (layer, placed), center in zip(self._layers, self._each_center())
         ]
         if len(memberships) == 1:
             return memberships[0]
         return Concatenate(axis=0, name=self.name)(memberships)
+
+    def _each_center(self):
+        """Every center as a function reads it: a number, or a scalar
+        selected from the stream of centers."""
+        if not isinstance(self.centers, Stream):
+            return list(self.centers)
+        return [
+            Select(idx=index, axis=0, name=f"{self.name}_center_{index}")(
+                [self.centers]
+            )
+            for index in range(len(self.functions))
+        ]
+
+
+def _centers(centers, owner: str) -> list[float] | Stream:
+    """``centers`` checked: fixed, a list of numbers; or moving, one stream
+    of shape ``(n,)``, given as it is or concatenated from a list of scalar
+    streams and numbers."""
+    if isinstance(centers, Stream):
+        if centers.shape.dim_rank != 1 or centers.shape.time != 1:
+            raise ValueError(
+                f"{owner}: a stream of centers is a vector of shape (n,), one "
+                f"time step; got dim {centers.shape.dim}, time {centers.shape.time}."
+            )
+        return centers
+    items = list(centers)
+    if not items:
+        raise ValueError("Fuzzify requires at least one center.")
+    if not any(isinstance(item, Stream) for item in items):
+        return [float(item) for item in items]
+
+    streams = []
+    for index, item in enumerate(items):
+        if not isinstance(item, Stream):
+            item = Constant(f"{owner}_center_{index}", value=[float(item)])
+        elif tuple(item.shape.dim) != (1,) or item.shape.time != 1:
+            raise ValueError(
+                f"{owner}: in a list every center is a number or a scalar "
+                f"stream, dim (1,) and one time step; center {index} has dim "
+                f"{item.shape.dim}, time {item.shape.time}."
+            )
+        streams.append(item)
+    if len(streams) == 1:
+        return streams[0]
+    return Concatenate(axis=0, name=f"{owner}_centers")(streams)
 
 
 def _membership_function(function):
@@ -365,13 +531,35 @@ def _membership_function(function):
                 f"Unsupported fuzzify function: {function!r}. Supported names: "
                 "'Triangular', 'Rectangular', 'Gaussian'; or any nnodely layer."
             ) from None
-    if (
-        isinstance(function, Layer)
-        or (isinstance(function, type) and issubclass(function, Layer))
-        or _is_keras_layer(function)
+    if _is_keras_layer(function):
+        _check_one_argument(function)
+        return function
+    if isinstance(function, Layer) or (
+        isinstance(function, type) and issubclass(function, Layer)
     ):
         return function
     raise TypeError(
         "Fuzzify: a function is an nnodely or Keras layer class or instance, "
         f"or a membership name, got {function!r}."
     )
+
+
+def _check_one_argument(function) -> None:
+    """Refuse a Keras layer whose ``call`` needs more than one argument: a
+    function of :class:`Fuzzify` reads ``x - center`` alone. Arguments with a
+    default, such as ``training=None``, are left to Keras."""
+    layer_class = function if isinstance(function, type) else type(function)
+    parameters = list(inspect.signature(layer_class.call).parameters.values())[1:]
+    required = [
+        parameter.name
+        for parameter in parameters
+        if parameter.default is inspect.Parameter.empty
+        and parameter.kind
+        not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+    ]
+    if len(required) > 1:
+        raise TypeError(
+            f"Fuzzify: a custom function reads one argument, x - center; "
+            f"{layer_class.__name__}.call needs {len(required)}: "
+            f"{', '.join(required)}."
+        )
