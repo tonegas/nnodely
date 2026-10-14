@@ -689,6 +689,17 @@ class Loop(Layer):
                     f"{tuple(output.dim)} does not match the input dim "
                     f"{tuple(node.dim)}."
                 )
+            # The output becomes the input at the next step, so it must carry
+            # the same sequence axes; a dynamic one is only known at run time.
+            output_seq, node_seq = tuple(output.seq), tuple(node.seq)
+            if len(output_seq) != len(node_seq) or any(
+                None not in (size, node_size) and size != node_size
+                for size, node_size in zip(output_seq, node_seq)
+            ):
+                raise ValueError(
+                    f"Loop callback {node.name!r} -> {output.name!r}: seq "
+                    f"{output_seq} does not match the input seq {node_seq}."
+                )
             if output.time == node.time:
                 shift_axes.append(None)
             elif output.time == 1 and node.time > 1:

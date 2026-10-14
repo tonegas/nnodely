@@ -39,6 +39,11 @@ from nnodely import (
     Range,
     ReLU,
     Roll,
+    SeqConcatenate,
+    SeqRange,
+    SeqReverse,
+    SeqSelect,
+    SeqStack,
     Sigmoid,
     Sign,
     Sin,
@@ -219,6 +224,34 @@ def _local_model():
     ).build()
 
 
+def _seq_ops_model():
+    x = Input("seq_ops_x", dim=2, seq=(4, 3))
+    window = x.sw(2)
+    return Modely(
+        "seq_ops",
+        inputs=[x],
+        # Declared in name order until the TODO in _set_onnx_io_names is done.
+        outputs=[
+            Output(
+                "seq_ops_joined",
+                SeqConcatenate(axis=0, name="seq_ops_concat")(
+                    [
+                        SeqRange(1, 3, axis=0, name="seq_ops_range")([window]),
+                        SeqReverse(axis=0, name="seq_ops_reverse")([window]),
+                    ]
+                ),
+            ),
+            Output("seq_ops_last", SeqSelect(-1, name="seq_ops_select")([window])),
+            Output(
+                "seq_ops_stacked",
+                SeqStack(name="seq_ops_stack")(
+                    [SeqSelect(0)([window]), SeqSelect(-1)([window])]
+                ),
+            ),
+        ],
+    ).build()
+
+
 @pytest.mark.parametrize(
     ("model_factory", "inputs"),
     [
@@ -274,6 +307,10 @@ def _local_model():
         (
             _equation_learner_model,
             {"equation_export_input": [[[0.25]]]},
+        ),
+        (
+            _seq_ops_model,
+            {"seq_ops_x": np.arange(48, dtype=np.float32).reshape(1, 2, 2, 4, 3)},
         ),
         (
             _local_model,
@@ -1170,6 +1207,7 @@ _LAYER_SUITE = pytest.mark.parametrize(
         _weighted_layers_model,
         _shared_activation_model,
         _time_ops_model,
+        _seq_ops_model,
         _fuzzy_local_model,
         _derivative_model,
         _integrate_model,
@@ -1251,6 +1289,41 @@ def test_export_onnx_dynamic_loop_follows_the_data(tmp_path):
         )["dyn_onnx_out"]  # type: ignore
         assert expected.shape == (1, 1, 1, steps)
         np.testing.assert_allclose(to_numpy(actual), expected, rtol=1e-5, atol=1e-5)
+
+
+@pytest.mark.skipif(
+    keras.backend.backend() != "tensorflow",
+    reason="only the tensorflow exporter keeps the sequence axis dynamic",
+)
+@requires_onnx_export
+def test_export_onnx_seq_ops_follow_the_data(tmp_path):
+    # Counted from the end, the selected elements are those of the data, not
+    # of the length the graph was declared with.
+    pytest.importorskip("onnxruntime")
+    x = Input("dyn_seq_ops_x", dim=1, seq=-1)
+    model = Modely(
+        "dyn_seq_ops",
+        inputs=[x],
+        outputs=[
+            Output("dyn_seq_ops_last", SeqSelect(-1)([x])),
+            Output("dyn_seq_ops_tail", SeqReverse()(SeqRange(-2, None)([x]))),
+        ],
+    ).build()
+    model.export_onnx(tmp_path)
+
+    for steps in (2, 6):
+        inputs = {
+            "dyn_seq_ops_x": np.arange(steps, dtype=np.float32).reshape(1, 1, 1, steps)
+        }
+        expected = model(inputs)
+        actual = Modely.validate_onnx(
+            tmp_path / f"{model.name}.onnx", inputs, return_dict=True
+        )
+        for name in expected:
+            np.testing.assert_allclose(to_numpy(actual[name]), to_numpy(expected[name]))
+        np.testing.assert_allclose(
+            to_numpy(expected["dyn_seq_ops_tail"]).ravel(), [steps - 1, steps - 2]
+        )
 
 
 @_LAYER_SUITE
