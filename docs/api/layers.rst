@@ -58,6 +58,19 @@ Time axis
 
 .. autoclass:: TimeConcatenate
 
+Sequence axes
+-------------
+
+.. autoclass:: SeqSelect
+
+.. autoclass:: SeqRange
+
+.. autoclass:: SeqConcatenate
+
+.. autoclass:: SeqStack
+
+.. autoclass:: SeqReverse
+
 Calculus
 --------
 

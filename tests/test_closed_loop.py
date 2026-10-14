@@ -18,6 +18,7 @@ from nnodely import (
     Fir,
     DataLoader,
     BatchNorm,
+    SeqSelect
 )
 from nnodely.layers.loop import DYNAMIC_BUILD_LENGTH
 import pytest
@@ -823,3 +824,35 @@ def test_a_parameter_is_one_weight_for_a_loop_body_and_the_outer_model():
     np.testing.assert_allclose(
         to_numpy(result["shared_outer"]).ravel(), [3.0, 0.0, 0.0]
     )
+
+def test_callback_from_nested_loop_with_seq_select():
+    vx0 = Input("vx0")
+    px0 = Input("px0")
+    ax = Input("ax")
+    outvx = Output("outvx", vx0.last()+ax.last())
+    outpx = Output("outpx", px0.last())
+    modelStep = Modely("Step", inputs=[ax, vx0, px0], outputs=[outvx, outpx]).build()
+
+    # inner: rollout of an integrator over a sequence
+    ax_sq = Input("ax_sq", seq=-1)
+    px0_init = Input("px0_init")
+    loop = Loop(f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init})
+    model = Modely("Int", inputs=[ax_sq, px0_init], outputs=[Output("int_loop1", loop({"ax": ax_sq}))]).build()
+
+    # outer: chain the chunks, the last position of a chunk seeds the next one
+    ax_sq_sq = Input("ax_sq_sq", seq=(-1, -1))
+    px0_init_sq = Input("px0_init_sq")
+    # The collected trajectory has a sequence axis the scalar px0_init has not,
+    # so it cannot be fed back: the loop is refused when it is declared.
+    with pytest.raises(ValueError, match="seq"):
+        Loop(f=model, callback={"px0_init": "int_loop1"}, init={"px0_init": px0_init_sq})
+
+    # Returning only the last step drops that axis, so it can be fed back.
+    last = Loop(f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init})
+    model_last = Modely("IntLast", inputs=[ax_sq, px0_init], outputs=[Output("int_last", SeqSelect(-1)(last({"ax": ax_sq})))]).build() #type: ignore
+    outer = Loop(f=model_last, callback={"px0_init": "int_last"}, init={"px0_init": px0_init_sq})
+    model22 = Modely("Int22", inputs=[ax_sq_sq, px0_init_sq],
+                    outputs=[Output("int_loop1_sq", outer({"ax_sq": ax_sq_sq}))]).build()
+
+    result = model22({"ax_sq_sq": np.ones((1, 1, 1, 125, 8)), "px0_init_sq": np.zeros((1, 1, 1))})
+    np.testing.assert_allclose(to_numpy(result["int_loop1_sq"]), np.full((1, 1, 1, 8), 125.0))

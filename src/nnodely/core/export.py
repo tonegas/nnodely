@@ -227,8 +227,9 @@ def _set_onnx_io_names(model, path: Path) -> None:
     # exporter sort their outputs - and pairing those off by position would
     # rename each tensor after a different one, silently swapping two
     # outputs' values.
-    # The inputs are exported in their order, the outputs - a dict to Keras -
-    # in the order of their names.
+    # TODO: an output order sorted by the exporter is left as it is, so the
+    # ONNX outputs do not follow model.outputs (seen with tf2onnx: outputs
+    # "b", "a" are exported as "a", "b"). Reorder graph.output by name here.
     for values, expected, by_name in (
         (graph.input, expected_inputs, False),
         (graph.output, expected_outputs, True),
