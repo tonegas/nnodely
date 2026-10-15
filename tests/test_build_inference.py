@@ -285,3 +285,41 @@ def test_a_model_that_reads_no_input_is_refused_at_build():
     )
     with pytest.raises(ValueError, match="'numbers_loop' reads no Input"):
         looped.build()
+
+
+def test_two_inputs_of_one_name_are_refused():
+    # The data is keyed by input name: two Inputs named alike read one array,
+    # and a model with them once ran silently on the wrong values.
+    a, b = Input("twin_name"), Input("twin_name")
+    model = Modely(
+        "twin_names", inputs=[a, b], outputs=[Output("twin_out", a.last() + b.last())]
+    )
+    with pytest.raises(ValueError, match="two different Inputs named 'twin_name'"):
+        model.build()
+
+
+def test_a_file_that_is_not_an_nnodely_2_model_is_refused(tmp_path):
+    import json
+
+    x = Input("file_check_x")
+    Modely(
+        "file_check", inputs=[x], outputs=[Output("file_check_out", x.last() * 2.0)]
+    ).build().save(tmp_path / "model")
+    config = tmp_path / "model" / "model.json"
+    saved = json.loads(config.read_text())
+
+    for edit, message in (
+        ({"version": 99}, "format version 99"),
+        ({"format": "keras"}, "not a model saved by nnodely 2"),
+    ):
+        config.write_text(json.dumps({**saved, **edit}))
+        with pytest.raises(ValueError, match=message):
+            Modely.load(tmp_path / "model")
+
+    unknown = {**saved, "nodes": [{**saved["nodes"][0], "class_name": "Unknown"}]}
+    config.write_text(json.dumps(unknown))
+    with pytest.raises(ValueError, match="'Unknown' node"):
+        Modely.load(tmp_path / "model")
+    config.write_text("{ not json")
+    with pytest.raises(ValueError, match="not a valid model file"):
+        Modely.load(tmp_path / "model")

@@ -11,7 +11,7 @@ from nnodely.core.layer import Layer
 from nnodely.core.stream import Stream
 from nnodely.layers.function import KerasFunction, _is_keras_layer
 from nnodely.layers.parameter import Constant
-from nnodely.layers.time_ops import Concatenate, Select
+from nnodely.layers.partitions import Concatenate, Select
 
 _EPS = 1e-7
 
@@ -49,7 +49,8 @@ def _triangle(x, center, left, right):
 
 
 def _box(x, center, left, right):
-    inside = keras.ops.logical_and(x > center - left, x < center + right)
+    # Half-open, so that boxes side by side cover their common edge once.
+    inside = keras.ops.logical_and(x >= center - left, x < center + right)
     return keras.ops.cast(inside, x.dtype)
 
 
@@ -114,6 +115,8 @@ class _Membership(Layer):
     sized by the centers next to it, with :meth:`_placed` - or, on centers
     that move, evaluates it with :meth:`_moving`."""
 
+    _one_stream = True
+
     def output_shape(self, *inputs):
         # Elementwise: every axis kept, a dynamic sequence axis included.
         return inputs[0].shape.dimensions
@@ -174,12 +177,14 @@ class Triangular(_Membership):
 
 class Rectangular(_Membership):
     """
-    Rectangular membership: 1 strictly within ``radius`` of ``center``, 0
-    elsewhere. ``radius`` is a number, or a ``(left, right)`` pair::
+    Rectangular membership: 1 on ``[center - left, center + right)``, 0
+    elsewhere. ``radius`` is a number for both sides, or a ``(left, right)``
+    pair::
 
-        Rectangular(center=0.5, radius=0.25)([x.last()])   # 1 on (0.25, 0.75)
+        Rectangular(center=0.5, radius=0.25)([x.last()])   # 1 on [0.25, 0.75)
 
-    In a :class:`Fuzzify`, each rectangle reaches halfway to the next center.
+    In a :class:`Fuzzify`, each rectangle reaches halfway to the centers next
+    to it, so between the centers exactly one set holds every value.
     """
 
     def __init__(
@@ -203,11 +208,11 @@ class Rectangular(_Membership):
 
     @classmethod
     def _placed(cls, center, left, right, name):
-        return cls(center=center, radius=right / 2.0, name=name)
+        return cls(center=center, radius=(left / 2.0, right / 2.0), name=name)
 
     @staticmethod
     def _moving(x, center, left, right):
-        return _box(x, center, right / 2.0, right / 2.0)
+        return _box(x, center, left / 2.0, right / 2.0)
 
 
 class Gaussian(_Membership):
@@ -354,7 +359,7 @@ class Fuzzify:
 
         Fuzzify([0.0, 0.5, 1.0], function=Triangular)([x.last()])
         Fuzzify([0.0, 0.5, 1.0], function=Sin)([x.last()])           # sin(x - c)
-        Fuzzify([0.0, 0.5, 1.0], function=Gaussian(sigma=0.1))       # x - c, alike
+        Fuzzify([0.0, 0.5, 1.0], function=Gaussian(sigma=0.1))       # one instance, of x - c
         Fuzzify([0.0, 0.5, 1.0], function=[Rectangular, Triangular, Gaussian])
         Fuzzify([0.0, 0.5, 1.0], function=MyKerasLayer)([x.last()])
         Fuzzify(Parameter("c", value=[0.0, 0.5, 1.0]))([x.last()])  # trained
@@ -389,13 +394,16 @@ class Fuzzify:
                 "give one function, or one per center."
             )
         functions = [_membership_function(item) for item in functions]
-        # A Keras layer instance is shared by the centers, as a layer is.
-        functions = [
-            KerasFunction(item, name=f"{self.name}_{type(item).__name__}")
-            if isinstance(item, keras.layers.Layer)
-            else item
-            for item in functions
-        ]
+        # A Keras layer instance is shared by the centers, as a layer is: it is
+        # wrapped once, however many centers it is given to.
+        wrappers: dict[int, KerasFunction] = {}
+        for index, item in enumerate(functions):
+            if isinstance(item, keras.layers.Layer):
+                if id(item) not in wrappers:
+                    wrappers[id(item)] = KerasFunction(
+                        item, name=f"{self.name}_{type(item).__name__}"
+                    )
+                functions[index] = wrappers[id(item)]
 
         self.centers: list[float] | Stream
         if isinstance(centers, Stream):

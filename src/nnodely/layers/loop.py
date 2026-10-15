@@ -1,4 +1,5 @@
 import contextlib
+import copy
 
 import keras
 from keras.src.backend.common import stateless_scope
@@ -507,6 +508,8 @@ class Loop(Layer):
         self.length = None if length is None else int(length)
         self.collect = bool(collect)
         self.return_all_outputs = False
+        # The twin of this node that returns every output, made on unpacking.
+        self._unpacked: Loop | None = None
         super().__init__(name=name)
         # Unbound until called: it has no shape to be used as a stream with.
         self._shape = None
@@ -515,9 +518,8 @@ class Loop(Layer):
     def shape(self):
         if self._shape is None:
             raise ValueError(
-                f"Loop {self.name!r} is not bound: call it with its initial and "
-                "inputs dict, Loop(...)(inputs), before using it as a "
-                "stream."
+                f"Loop {self.name!r} is not bound: call it with its inputs "
+                "dict, Loop(...)(inputs), before using it as a stream."
             )
         return self._shape
 
@@ -549,10 +551,12 @@ class Loop(Layer):
 
         result_sequences = [node._result_sequence(output) for output in self.f.outputs]
         node.preds = [*node.initial_values, *node.static_sources]
+        # The node is the stream of the first fed-back output, as it returns.
+        primary = self.f.outputs.index(self.callback_outputs[0])
         node.shape = Shape(
-            dim=self.f.outputs[0].dim,
-            time=self.f.outputs[0].time,
-            seq=result_sequences[0],
+            dim=self.f.outputs[primary].dim,
+            time=self.f.outputs[primary].time,
+            seq=result_sequences[primary],
         )
         node.loop_outputs = [
             LoopOutput(node, index, output, result_sequences[index])
@@ -591,14 +595,20 @@ class Loop(Layer):
             for index, (source, axis) in enumerate(zip(sources, loop_axes))
             if axis is not None
         ]
-        self.horizon = self._resolve_length(loop_sources)
+        # The inputs that drive the rollout set its number of steps. An initial
+        # value is read at its first step only, so it sets them only when no
+        # input carries a rollout axis.
+        driving = [
+            item for item in loop_sources if item[0] >= len(self.initial_values)
+        ] or loop_sources
+        self.horizon = self._resolve_length(driving)
 
         # The rollout needs a static number of steps, so a dynamic rollout axis
         # is only read from the tensor that carries it, at call time.
         self.horizon_index, self.horizon_axis = next(
             (
                 (index, axis)
-                for index, source, axis in loop_sources
+                for index, source, axis in driving
                 if source.seq and source.seq[-1] is None
             ),
             (None, None),
@@ -733,7 +743,7 @@ class Loop(Layer):
             if key_name in callback_names:
                 raise ValueError(
                     f"Loop input {key_name!r} is a callback input; its rollout source "
-                    "comes from initial, not from inputs."
+                    "comes from init, not from inputs."
                 )
             if key_name not in static_names:
                 raise ValueError(
@@ -792,8 +802,20 @@ class Loop(Layer):
         return value
 
     def __iter__(self):
-        self.return_all_outputs = True
-        return iter(self.loop_outputs)
+        # Unpacking reads every output from a twin of this node that returns
+        # them all: this node, used as a stream, still gives its one output.
+        if self._unpacked is None:
+            twin = copy.copy(self)
+            twin._source = twin
+            twin._layer = twin._layer_signature = None
+            twin.return_all_outputs = True
+            twin.loop_outputs = [
+                LoopOutput(twin, index, output, self._result_sequence(output))
+                for index, output in enumerate(self.f.outputs)
+            ]
+            twin._unpacked = twin
+            self._unpacked = twin
+        return iter(self._unpacked.loop_outputs)
 
     def build_layer(self):
         return LoopImpl(

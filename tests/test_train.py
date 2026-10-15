@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 from nnodely import (
     Input,
@@ -484,6 +485,7 @@ def test_training_values_linear_fir_window():
     assert_weights([[12779.0], [11678.5]], [3142.0], [[-7682.0], [-7457.5]])
 
 
+@pytest.mark.slow
 def test_training_values_fir_and_linear_closed_loop():
     input1 = Input("in1")
     input2 = Input("in2")
@@ -1011,6 +1013,7 @@ def test_train_with_loop_under_xla(monkeypatch):
     assert history["loss"][-1] < history["loss"][0]
 
 
+@pytest.mark.slow
 def test_train_with_roll():
     x = Input("x")
     target = Input("target")
@@ -1267,3 +1270,36 @@ def test_train_target_window_of_an_input_with_a_wider_window():
     np.testing.assert_allclose(
         result["wide_target_error"].metrics["loss"], 20.0 / 3.0, rtol=1e-5
     )
+
+
+def test_train_refuses_arguments_it_cannot_use():
+    x, y = Input("args_x"), Input("args_y")
+    out = Output("args_out", Linear(features=1)(x.last()))
+    model = Modely("args_model", inputs=[x], outputs=[out])
+    model.minimize("args_fit", out, y.last())
+    model.build()
+    data = DataLoader(
+        model,
+        source={
+            "args_x": np.ones((4, 1), np.float32),
+            "args_y": np.ones((4, 1), np.float32),
+        },
+    )
+
+    cases: list[tuple[dict[str, Any], type[Exception], str]] = [
+        ({"epochs": 0}, ValueError, "epochs is a positive integer"),
+        ({"batch_size": 0}, ValueError, "batch_size is a positive integer"),
+        ({"lr": -1.0}, ValueError, "lr is a non-negative number"),
+        ({"shuffle": "no"}, TypeError, "shuffle is True or False"),
+        ({"optimizer_kwargs": {"learning_rate": 0.5}}, ValueError, "lr argument"),
+    ]
+    for kwargs, error, message in cases:
+        with pytest.raises(error, match=message):
+            model.train(data, printer=None, **kwargs)
+    with pytest.raises(TypeError, match="train_data is a DataLoader"):
+        model.train({"args_x": np.ones((4, 1, 1))}, printer=None)  # type: ignore[arg-type]
+
+    # The validation loss of args_fit is logged as val_args_fit_loss, the
+    # training loss of a minimizer named val_args_fit.
+    with pytest.raises(ValueError, match="cannot both be declared"):
+        model.minimize("val_args_fit", out, y.last())

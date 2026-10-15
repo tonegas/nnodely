@@ -1,8 +1,8 @@
 # Contributing
 
 Thanks for your interest in **nnodely**! 🎉
-We're just getting started and welcome contributions of all kinds — bug
-reports, documentation fixes, examples, and new features.
+We welcome contributions of all kinds — bug reports, documentation fixes,
+examples, and new features.
 
 ## Setup
 
@@ -181,8 +181,8 @@ What the function returns.
 Public classes and methods are documented: their docstrings are the API
 reference.
 
-I strongly suggest you to **not** write docstrings by hand, but rather use one
-of the many editor plugins. Hereafter some examples for each editor we use.
+We suggest **not** writing docstrings by hand, but using one of the many
+editor plugins. Here are the ones we use for each editor.
 
 > We do not put types in the docstrings! You **have** to put type hints
 > whenever you can.

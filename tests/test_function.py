@@ -224,3 +224,26 @@ def test_keras_functions_export_to_onnx(tmp_path):
         np.testing.assert_allclose(
             to_numpy(result[name]), to_numpy(before[name]), rtol=1e-5, atol=1e-6
         )
+
+
+def test_one_keras_layer_wrapped_twice_saves_and_loads_as_one(tmp_path):
+    # Two wrappers of one instance once saved its weights once and loaded two
+    # layers: "expected 1 variables, but received 0".
+    x = Input("kf_twice_x")
+    gain = Gain()
+    model = Modely(
+        "kf_twice",
+        inputs=[x],
+        outputs=[
+            Output("kf_twice_a", KerasFunction(gain)([x.last()])),
+            Output("kf_twice_b", KerasFunction(gain)([x.last()])),
+        ],
+    ).build()
+    gain.gain.assign(3.0)
+    data = {"kf_twice_x": np.full((1, 1, 1), 2.0, dtype=np.float32)}
+
+    model.save(tmp_path / "kf_twice")
+    restored = Modely.load(tmp_path / "kf_twice")
+    assert restored.model is not None and len(restored.model.trainable_weights) == 1
+    for name in ("kf_twice_a", "kf_twice_b"):
+        np.testing.assert_allclose(to_numpy(restored(data)[name]).ravel(), [6.0])

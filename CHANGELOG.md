@@ -21,16 +21,23 @@ variable, and trains, validates and exports through Keras. Models saved with
   `header` are passed to `pandas.read_csv`; n/a values are reported.
 - `minimize()` with any Keras loss, a `gain` per objective and `seq_weights`
   along a rollout; targets can be computed streams or numbers.
-- A layer with nothing to configure is applied as it is created: `Sin(x)` is
-  `Sin()(x)`, for the math, trigonometric and parameter-free activation layers
-  and `TimeConcatenate`.
+- A layer whose constructor takes only `name` is applied as it is created:
+  `Sin(x)` is `Sin()(x)`. These are `Sin`, `Cos`, `Tan`, `Asin`, `Acos`,
+  `Atan`, `Atan2`, `Exp`, `Log`, `Log10`, `Sqrt`, `Abs`, `Floor`, `Ceil`,
+  `Deg2Rad`, `Sign`, `Negative`, `Sigmoid`, `Tanh`, `Swish`, `Softplus` and
+  `TimeConcatenate`; layers with settings (`ReLU`, `GELU`, `Clamp`, `Sum`,
+  ...) are configured first.
+- An activation, a math or trigonometric layer, `Clamp` or a membership
+  function called on a list of streams is applied to each and returns a list:
+  `Sin([a, b])` gives `[sin(a), sin(b)]`.
 - `Atan2([y, x])`, the two-argument arctangent: the angle of the point
   `(x, y)` in `[-pi, pi]`, with its quadrant.
 - `KerasFunction(function)`: any Keras layer, class or instance, as an
   nnodely layer - a custom function in the graph, its streams passed to
   `call` as separate arguments. The model saves, loads and exports with it.
 - Membership functions as layers of their own: `Triangular(center, radius)`,
-  `Rectangular(center, radius)` (a `radius` can be a `(left, right)` pair)
+  `Rectangular(center, radius)`, 1 on `[center - left, center + right)` (a
+  `radius` can be a `(left, right)` pair),
   and `Gaussian(center, sigma)`.
 - `Fuzzify(centers, function=...)` takes any nnodely layer: a membership class
   placed on each center as before, any other layer class or instance applied
@@ -66,6 +73,14 @@ variable, and trains, validates and exports through Keras. Models saved with
   horizon by a `Loop`), `Ode` (Euler, midpoint, Heun, RK4) and `OdeNet` (neural ODEs,
   adaptive Dormand-Prince, hybrid events).
 - Recurrence: `Modely.rollback()`, `Loop` and `Roll`.
+- `LocalModel(input_function, output_function, vectorized=False)(inputs,
+  activations)`: several activations are multiplied into joint memberships; a
+  function is a factory of the cell index, giving each cell a layer of its
+  own, a layer instance is shared by every cell, and `vectorized=True` calls
+  it once on all the cells.
+- Layers new in 2.0: `BatchNorm`, `LeakyReLU`, `PReLU`, `Swish`, `GELU`,
+  `Softplus`, `Asin`, `Acos`, `Atan`, `Exp`, `Log`, `Log10`, `Sqrt`, `Abs`,
+  `Floor`, `Ceil`, `Deg2Rad`, `Clamp`, and `DataLoader.get_samples(n)`.
 - Sequence-axis layers `SeqSelect`, `SeqRange`, `SeqConcatenate`, `SeqStack`
   and `SeqReverse`, on fixed and dynamic seq axes. `SeqSelect` removes the
   axis, so `SeqSelect(-1)` of a collected trajectory, its last step, can
@@ -133,11 +148,18 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `Differentiate` | `Differentiate(respect_to=x)` with respect to an input, `Derivative(dt=...)` with respect to time |
 | `ForwardEuler`, `RK2`, `RK4` | `Ode(f, states, dt, method=...)` |
 | `NeuralODE` | `OdeNet` |
-| `Part`, `SamplePart`, `TimePart`, `SampleSelect` | `Range`, `TimeRange`, `TimeSelect`, `Select` |
+| `Part` | `Range` |
+| `SamplePart`, `TimePart` | `TimeRange` (in samples) |
+| `SampleSelect` | `TimeSelect` (`Select` is the same in both) |
+| `Integrate(stream, method=...)` | `IntegrateStep(dt=..., init=...)`; 2.0's `Integrate` integrates along a horizon |
+| `LocalModel(input_function, output_function, pass_indexes=...)` | `LocalModel(input_function, output_function, vectorized=False)(inputs, activations)`: a function is a factory of the cell index, a layer instance is shared by every cell |
+| `Fuzzify(output_dimension, range=..., functions=...)` | `Fuzzify(centers, function=...)`: the centers listed explicitly |
+| `Optimizer`, `SGD`, `Adam` | `train(optimizer="sgd" / "adam" / a Keras optimizer)` |
 | `Parameter(name, dimensions, sw=..., values=..., init=...)`, `Constant(name, values, sw=...)` | `Parameter(name, value=..., time=...)` or `Parameter(name, dim=..., time=..., initializer=...)`, `Constant(name, value=..., time=...)` |
 | `ParamFun` | the function written with streams and `Parameter`s, or a custom `Layer` |
 | `clearNames` | not needed: names never decide which layers share weights |
 
-`Cosh`, `Sech`, `SampleTime` and `Identity` have no 2.0 counterpart.
+`Cosh`, `Sech` and `SampleTime` have no 2.0 counterpart; `Identity` is not
+exported (it is `nnodely.core.layer.Identity`).
 
 [2.0.0]: https://github.com/tonegas/nnodely/compare/v1.5.4...v2.0.0

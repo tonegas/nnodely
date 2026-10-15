@@ -1,8 +1,9 @@
-from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
+from importlib.metadata import version as _version
 
 try:
-    __version__ = version("nnodely")
-except PackageNotFoundError:  # a source tree used without being installed
+    __version__ = _version("nnodely")
+except _PackageNotFoundError:  # a source tree used without being installed
     __version__ = "unknown"
 
 # Keras imports its backend on import, and names only the missing module when
@@ -45,20 +46,18 @@ from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.equationlearner import EquationLearner
 from nnodely.layers.derivative import Derivative, Differentiate
 from nnodely.layers.integrate import Integrate, IntegrateStep
-from nnodely.layers.time_ops import (
+from nnodely.layers.partitions import (
     Concatenate,
     Range,
     Select,
-    TimeConcatenate,
-    TimeRange,
-    TimeSelect,
-)
-from nnodely.layers.seq_ops import (
     SeqConcatenate,
     SeqRange,
     SeqReverse,
     SeqSelect,
     SeqStack,
+    TimeConcatenate,
+    TimeRange,
+    TimeSelect,
 )
 from nnodely.layers.batchnorm import BatchNorm
 from nnodely.layers.ode import Ode, OdeNet

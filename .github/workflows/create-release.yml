@@ -38,12 +38,23 @@ jobs:
       - name: Build
         run: uv build
 
-      # Check that basic features work and we didn't miss to include crucial files
-      - name: Basic test (wheel)
-        run: KERAS_BACKEND=numpy uv run --isolated --no-project --with dist/*.whl python -c "import nnodely"
-
-      - name: Basic test (source distribution)
-        run: KERAS_BACKEND=numpy uv run --isolated --no-project --with dist/*.tar.gz python -c "import nnodely"
+      # Install each artifact with a real backend and run a small model through
+      # it, exporting its HTML page from the packaged template, so a file left
+      # out of the package fails here, before anything is published.
+      - name: Smoke test (wheel and source distribution)
+        env:
+          KERAS_BACKEND: jax
+          SMOKE: |
+            import tempfile, numpy as np
+            from nnodely import Fir, Input, Modely, Output
+            x = Input("x")
+            model = Modely("smoke", inputs=[x], outputs=[Output("y", Fir(features=1)(x.sw(3)))]).build()
+            print(model({"x": np.ones((1, 1, 3), "float32")})["y"].shape)
+            model.export_html(tempfile.mkdtemp())
+        run: |
+          for artifact in dist/*.whl dist/*.tar.gz; do
+            uv run --isolated --no-project --with "nnodely[jax] @ $(realpath "$artifact")" python -c "$SMOKE"
+          done
 
       - name: TestPyPi publish
         run: uv publish --index testpypi

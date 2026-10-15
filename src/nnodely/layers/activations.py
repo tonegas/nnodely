@@ -59,10 +59,12 @@ class ELUImpl(keras.layers.Layer):
     def call(self, inputs):
         zero = keras.ops.cast(0.0, inputs.dtype)
         alpha = keras.ops.cast(self.alpha, inputs.dtype)
+        # exp of the negative part only: exp(x) of a large x overflows, and
+        # its infinite gradient poisons the branch where() does not take.
         return keras.ops.where(
             inputs > zero,
             inputs,
-            alpha * (keras.ops.exp(inputs) - 1.0),
+            alpha * (keras.ops.exp(keras.ops.minimum(inputs, zero)) - 1.0),
         )
 
     def get_config(self):
@@ -84,14 +86,23 @@ class ELU(Layer):
 
 
 class PReLU(Layer):
-    """Wrapper for keras.layers.PReLU."""
+    """Wrapper for keras.layers.PReLU.
+
+    It learns one slope per feature, shared by every time and sequence step
+    - a dynamic sequence included. ``shared_axes`` shares the slopes along
+    other axes instead, given as Keras counts them, the batch axis as 0.
+    """
 
     def __init__(self, shared_axes=None, name=None):
         self.shared_axes = shared_axes
         super().__init__(name=name, shared_axes=self.shared_axes)
 
     def build_layer(self):
-        return keras.layers.PReLU(shared_axes=self.shared_axes, name=self.name)
+        shared_axes = self.shared_axes
+        if shared_axes is None:
+            shape = self.preds[0].shape  # type: ignore
+            shared_axes = list(range(1 + shape.dim_rank, 1 + shape.rank))
+        return keras.layers.PReLU(shared_axes=shared_axes, name=self.name)
 
 
 class Softmax(Layer):
@@ -192,3 +203,19 @@ class Softplus(Layer):
 
     def build_layer(self):
         return SoftplusImpl(name=self.name)
+
+
+# An activation reads one stream: called on several, it is applied to each.
+for _activation in (
+    ReLU,
+    LeakyReLU,
+    ELU,
+    PReLU,
+    Softmax,
+    Sigmoid,
+    Tanh,
+    Swish,
+    GELU,
+    Softplus,
+):
+    _activation._one_stream = True

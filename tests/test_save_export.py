@@ -62,7 +62,7 @@ from nnodely import (
     TimeSelect,
 )
 from nnodely.core.layer import Identity
-from nnodely.layers.time_ops import Select
+from nnodely.layers.partitions import Select
 from conftest import requires_onnx_export, to_numpy
 import json
 import keras
@@ -1988,6 +1988,38 @@ def test_generalized_fuzzify_exports_to_onnx(tmp_path):
         )
 
 
+def test_fuzzify_sharing_a_keras_layer_saves_and_loads(tmp_path):
+    # The instance was wrapped once per center, and the saved model could not
+    # be loaded: "expected 1 variables, but received 0".
+    class Scaled(keras.layers.Layer):
+        def build(self, input_shape):
+            self.gain = self.add_weight(shape=(), initializer="ones", name="gain")
+
+        def call(self, x):
+            return self.gain * x
+
+    x = Input("scaled_fuzzy_x")
+    scaled = Scaled()
+    model = Modely(
+        "scaled_fuzzy",
+        inputs=[x],
+        outputs=[
+            Output(
+                "scaled_fuzzy_out",
+                Fuzzify([0.0, 1.0, 2.0], function=scaled)([x.last()]),
+            )
+        ],
+    ).build()
+    scaled.gain.assign(3.0)
+    data = {"scaled_fuzzy_x": np.full((1, 1, 1), 2.0, dtype=np.float32)}
+
+    model.save(tmp_path / "scaled_fuzzy")
+    restored = Modely.load(tmp_path / "scaled_fuzzy")
+    np.testing.assert_allclose(
+        to_numpy(restored(data)["scaled_fuzzy_out"]).ravel(), [6.0, 3.0, 0.0]
+    )
+
+
 def _moving_centers_model():
     x = Input("moving_x")
     u = Input("moving_u")
@@ -2077,3 +2109,15 @@ def test_onnx_outputs_of_one_shape_keep_their_names(tmp_path):
     assert isinstance(result, dict)
     for index, name in enumerate(names):
         np.testing.assert_allclose(to_numpy(result[name]).ravel(), [index + 1.0])
+
+    # Listed as model.outputs lists them: the exporters sort them by name.
+    listed = Modely.validate_onnx(
+        tmp_path / "same_shape.onnx",
+        {"same_shape_x": np.ones((1, 1, 1), dtype=np.float32)},
+    )
+    assert [float(to_numpy(value).ravel()[0]) for value in listed] == [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+    ]

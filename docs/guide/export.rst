@@ -12,8 +12,9 @@ A built model can be stored in three formats:
      - Use it to
    * - *nnodely* file
      - :meth:`~nnodely.Modely.save`, :meth:`~nnodely.Modely.load`
-     - store the whole model (graph, objectives and weights) and keep working
-       on it with *nnodely*.
+     - store the model (graph and weights) and keep working on it with
+       *nnodely*. Objectives are not saved: declare them again with
+       ``minimize()`` and call ``build()`` before training a loaded model.
    * - Keras file (``.keras``)
      - :meth:`~nnodely.Modely.export_keras`, :meth:`~nnodely.Modely.import_keras`
      - use the network as a plain ``keras.Model``.

@@ -259,6 +259,13 @@ class LocalModel:
         name: str | None = None,
     ):
         for role, function in (("input", input_function), ("output", output_function)):
+            if isinstance(function, type):
+                raise TypeError(
+                    f"LocalModel: the {role} function is the class "
+                    f"{function.__name__}; pass a layer instance, shared by every "
+                    f"cell, or a factory such as lambda index: {function.__name__}(...)"
+                    ", one layer per cell."
+                )
             if function is not None and not callable(function):
                 raise TypeError(
                     f"LocalModel: the {role} function must be a layer or a callable, "
@@ -305,6 +312,12 @@ class LocalModel:
                     )
                 # The same for every cell: evaluated once.
                 shared = inputs[0] if function is None else function(inputs)
+                if isinstance(shared, list):
+                    raise ValueError(
+                        f"{self.name}: the elementwise input function is applied "
+                        f"to each of the {len(inputs)} inputs, and a cell is one "
+                        "stream: pass one input, or a function that combines them."
+                    )
                 values = [shared] * len(indices)
             else:
                 values = [

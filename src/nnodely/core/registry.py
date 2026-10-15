@@ -128,7 +128,13 @@ class ModelSerializer:
         node_map = {}
 
         for node_data in data["nodes"]:
-            cls = NODE_REGISTRY[node_data["class_name"]]
+            cls = NODE_REGISTRY.get(node_data["class_name"])
+            if cls is None:
+                raise ValueError(
+                    f"The saved model holds a {node_data['class_name']!r} node, "
+                    "which this nnodely does not know: it was saved by a newer "
+                    "version, or by a layer class defined in code not imported."
+                )
 
             preds = [node_map[pred_id] for pred_id in node_data["preds"]]
             config = node_data["config"]
@@ -178,7 +184,20 @@ class ModelSerializer:
 
         loading = _Loading(weights) if loading is None else loading
         with open(config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError as error:
+                raise ValueError(f"{config_path} is not a valid model file: {error}.")
+        if not isinstance(data, dict) or data.get("format") != ModelSerializer.FORMAT:
+            raise ValueError(
+                f"{config_path} is not a model saved by nnodely 2: models saved "
+                "with nnodely 1.x cannot be loaded."
+            )
+        if data.get("version") != ModelSerializer.VERSION:
+            raise ValueError(
+                f"{config_path} was saved in format version {data.get('version')}, "
+                f"and this nnodely reads version {ModelSerializer.VERSION}."
+            )
 
         model = ModelSerializer.deserialize(data, path, loading=loading)
         model.build()

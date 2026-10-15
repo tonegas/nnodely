@@ -55,10 +55,31 @@ class _LayerType(type):
             not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
         ]
         cls._applied_on_creation = parameters == ["name"]
+        # Whether the first setting has a default: then a stream given in its
+        # place is a layer called before it was configured, ReLU(x).
+        first = next(
+            (
+                parameter
+                for parameter in inspect.signature(cls.__init__).parameters.values()
+                if parameter.name != "self"
+            ),
+            None,
+        )
+        cls._configured_first = (
+            first is not None
+            and first.default is not inspect.Parameter.empty
+            and first.name != "name"
+        )
 
     def __call__(cls, *args, **kwargs):
         if cls._applied_on_creation and args and _are_streams(args[0]):
             return super().__call__(*args[1:], **kwargs)(args[0])
+        if cls._configured_first and args and _are_streams(args[0]):
+            raise TypeError(
+                f"{cls.__name__} has settings, so it is configured first and then "
+                f"called on its streams: {cls.__name__}(...)(x), not "
+                f"{cls.__name__}(x)."
+            )
         return super().__call__(*args, **kwargs)
 
 
@@ -69,6 +90,10 @@ class Layer(Stream, metaclass=_LayerType):
     - If called with Stream(s): returns a new symbolic node
     - If called with tensor(s): applies the built Keras layer
     """
+
+    # A layer that reads one stream, such as an activation, called on several
+    # is applied to each of them, and returns one result per stream.
+    _one_stream = False
 
     def __init__(self, name=None, preds=None, seq=None, time=None, dim=None, **kwargs):
         self._properties = dict(kwargs)
@@ -136,6 +161,13 @@ class Layer(Stream, metaclass=_LayerType):
 
         multiple_outputs = isinstance(outputs, (list, tuple))
         output_values = list(outputs) if multiple_outputs else [outputs]
+        # The dummies hold one sample: more come out of a layer that reads one
+        # stream and was given several, stacked on the batch axis.
+        if any(output.shape[0] != 1 for output in output_values):
+            raise ValueError(
+                f"{self.name}: {type(self).__name__} reads one stream, got "
+                f"{len(inputs)}."
+            )
         inferred = [
             self._restore_dynamic_axes(
                 self._shape_from_tensor(
@@ -245,6 +277,10 @@ class Layer(Stream, metaclass=_LayerType):
         # Symbolic mode: Layer(Stream, ...) -> new Stream node
         ret = []
         if all(isinstance(x, Stream) for x in inputs):
+            if self._one_stream and len(inputs) > 1:
+                # A layer that reads one stream, such as an activation, is
+                # applied to each of several: one result per stream, in order.
+                return [self([x]) for x in inputs if isinstance(x, Stream)]
             out_shapes = self.output_shape(*inputs)
             if not isinstance(out_shapes, list):
                 out_shapes = [out_shapes]

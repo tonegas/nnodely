@@ -1,7 +1,7 @@
 <a name="readme-top"></a>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/logo_white_info.png" alt="The nnodely training console" width="820">
+  <img src="https://raw.githubusercontent.com/tonegas/nnodely/main/imgs/logo_white_info.png" alt="nnodely" width="820">
 </p>
 
 <p align="center">
@@ -31,7 +31,7 @@ MS-NNs combine the learning capabilities of neural networks with structural **pr
 
 In short:
 
-nnodely is not a replacement for a general purpose deep learning frameworks — it is a **structured layer on top of them**, purpose-built for physical systems.
+nnodely is not a replacement for general-purpose deep learning frameworks — it is a **structured layer on top of them**, purpose-built for physical systems.
 
 
 <p align="center">
@@ -166,7 +166,7 @@ nnodely is released under the [MIT License](https://opensource.org/licenses/MIT)
 
 <a id="1">[1]</a> Mauro Da Lio, Daniele Bortoluzzi, Gastone Pietro Rosati Papini. (2019).
 Modelling longitudinal vehicle dynamics with neural networks.
-Vehicle System Dynamics. https://doi.org/10.1080/00423114.2019.1638947 (look the [[code]](https://github.com/tonegas/nnodely-applications/blob/main/vehicle/model_longit_vehicle_dynamics/model_longit_vehicle_dynamics.py))
+Vehicle System Dynamics. https://doi.org/10.1080/00423114.2019.1638947 (see the [[code]](https://github.com/tonegas/nnodely-applications/blob/main/vehicle/model_longit_vehicle_dynamics/model_longit_vehicle_dynamics.py))
 
 <a id="2">[2]</a> Alice Plebe, Mauro Da Lio, Daniele Bortoluzzi. (2019).
 On Reliable Neural Network Sensorimotor Control in Autonomous Vehicles.
@@ -174,11 +174,11 @@ IEEE Transaction on Intelligent Transportation System. https://doi.org/10.1109/T
 
 <a id="3">[3]</a> Mauro Da Lio, Riccardo Donà, Gastone Pietro Rosati Papini, Francesco Biral, Henrik Svensson. (2020).
 A Mental Simulation Approach for Learning Neural-Network Predictive Control (in Self-Driving Cars).
-IEEE Access. https://doi.org/10.1109/ACCESS.2020.3032780 (look the [[code]](https://github.com/tonegas/nnodely-applications/blob/main/vehicle/model_lateral_vehicle_dynamics/model_lateral_vehicle_dynamics.ipynb))
+IEEE Access. https://doi.org/10.1109/ACCESS.2020.3032780 (see the [[code]](https://github.com/tonegas/nnodely-applications/blob/main/vehicle/model_lateral_vehicle_dynamics/model_lateral_vehicle_dynamics.ipynb))
 
 <a id="4">[4]</a> Edoardo Pagot, Mattia Piccinini, Enrico Bertolazzi, Francesco Biral. (2023).
 Fast Planning and Tracking of Complex Autonomous Parking Maneuvers With Optimal Control and Pseudo-Neural Networks.
-IEEE Access. https://doi.org/10.1109/ACCESS.2023.3330431 (look the [[code]](https://github.com/tonegas/nnodely-applications/blob/main/vehicle/control_steer_car_parking/control_steer_car_parking.ipynb))
+IEEE Access. https://doi.org/10.1109/ACCESS.2023.3330431 (see the [[code]](https://github.com/tonegas/nnodely-applications/blob/main/vehicle/control_steer_car_parking/control_steer_car_parking.ipynb))
 
 <a id="5">[5]</a> Mattia Piccinini, Sebastiano Taddei, Matteo Larcher, Mattia Piazza, Francesco Biral. (2023).
 A Physics-Driven Artificial Agent for Online Time-Optimal Vehicle Motion Planning and Control.
@@ -187,15 +187,15 @@ and [[code extended]](https://github.com/tonegas/nnodely-applications/blob/main/
 
 <a id="6">[6]</a> Hector Perez-Villeda, Justus Piater, Matteo Saveriano. (2023).
 Learning and extrapolation of robotic skills using task-parameterized equation learner networks.
-Robotics and Autonomous Systems. https://doi.org/10.1016/j.robot.2022.104309 (look the [[code]](https://github.com/tonegas/nnodely-applications/blob/main/equation_learner/equation_learner.ipynb))
+Robotics and Autonomous Systems. https://doi.org/10.1016/j.robot.2022.104309 (see the [[code]](https://github.com/tonegas/nnodely-applications/blob/main/equation_learner/equation_learner.ipynb))
 
-<a id="7">[7]</a> M. Raissi. P. Perdikaris b, G.E. Karniadakis a. (2019).
+<a id="7">[7]</a> M. Raissi, P. Perdikaris, G.E. Karniadakis. (2019).
 Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations
-Journal of Computational Physics. https://doi.org/10.1016/j.jcp.2018.10.045 (look the [[example Burger's equation]](https://github.com/tonegas/nnodely-applications/blob/main/pinn/pinn_Burgers_equation.ipynb))
+Journal of Computational Physics. https://doi.org/10.1016/j.jcp.2018.10.045 (see the [[example Burger's equation]](https://github.com/tonegas/nnodely-applications/blob/main/pinn/pinn_Burgers_equation.ipynb))
 
 <a id="8">[8]</a> Wojciech Marian Czarnecki, Simon Osindero, Max Jaderberg, Grzegorz Świrszcz, Razvan Pascanu. (2017).
 Sobolev Training for Neural Networks.
-arXiv. https://doi.org/10.48550/arXiv.1706.04859 (look the [[code]](https://github.com/tonegas/nnodely-applications/blob/main/sobolev/Sobolev_learning.ipynb))
+arXiv. https://doi.org/10.48550/arXiv.1706.04859 (see the [[code]](https://github.com/tonegas/nnodely-applications/blob/main/sobolev/Sobolev_learning.ipynb))
 
 <a id="9">[9]</a> Mattia Piccinini, Matteo Zumerle, Johannes Betz, Gastone Pietro Rosati Papini. (2025).
 A Road Friction-Aware Anti-Lock Braking System Based on Model-Structured Neural Networks.

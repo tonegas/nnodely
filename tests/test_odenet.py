@@ -95,6 +95,7 @@ def test_odenet_integrates_arbitrary_horizon_without_rebuild():
         np.testing.assert_allclose(solved, _analytic(times), atol=1e-4)
 
 
+@pytest.mark.slow
 def test_odenet_tolerance_controls_error():
     # Tightening the tolerance must actually buy accuracy, which is what
     # distinguishes an error-controlled march from a fixed step.
@@ -245,6 +246,7 @@ def test_odenet_requires_static_time_count():
         OdeNet(f=field, states={x: "dx_dynamic"}, t=t)
 
 
+@pytest.mark.slow
 def test_odenet_keras_round_trip(tmp_path):
     points = 4
     model, _, names = _spiral_model("save", points)
@@ -426,6 +428,7 @@ def test_odenet_fixed_step_matches_analytic_solution():
     np.testing.assert_allclose(solved, _analytic(times), atol=1e-4)
 
 
+@pytest.mark.slow
 def test_odenet_set_method_switches_a_built_layer():
     # The tableau is read on every call, so a field fitted with a fixed step is
     # integrated adaptively afterwards without rebuilding the graph.
@@ -440,6 +443,75 @@ def test_odenet_set_method_switches_a_built_layer():
 
     assert adaptive < 1e-4
     assert coarse > 100 * adaptive
+
+
+def test_odenet_dopri5_integrates_backwards_in_time():
+    # Its march once only moved forward: on descending times the trajectory
+    # stayed at the initial state.
+    points = 3
+    times = np.array([1.0, 0.5, 0.0], dtype=np.float32)
+    model, _, (x_name, t_name, y_name) = _spiral_model("backwards", points)
+    start = _analytic(times[:1]).reshape(1, 2, 1).astype(np.float32)
+    result = to_numpy(
+        model({x_name: start, t_name: times.reshape(1, 1, 1, points)})[y_name]
+    )
+    np.testing.assert_allclose(
+        result[0, :, 0, :].T, _analytic(times), rtol=1e-4, atol=1e-4
+    )
+
+
+def test_odenet_saves_the_method_set_method_chose(tmp_path):
+    # Saved from the declared node, it once kept the method it was declared
+    # with: Euler in 5 steps is far from dopri5 even on [0, 1].
+    points = 3
+    times = np.linspace(0.0, 1.0, points, dtype=np.float32)
+    model, trajectory, names = _spiral_model("saved", points, method="euler", steps=5)
+    assert model.model is not None
+    model.model.get_layer(trajectory.name).set_method("dopri5")
+    adaptive = _solve(model, names, times)
+
+    model.save(tmp_path / "saved")
+    restored = Modely.load(tmp_path / "saved")
+    np.testing.assert_allclose(_solve(restored, names, times), adaptive, rtol=1e-5)
+
+
+def test_unpacking_an_odenet_leaves_its_own_stream_alone():
+    # Unpacking once switched the node itself to return every state, so an
+    # Output of it got them all.
+    p, v = Input("unpack_p"), Input("unpack_v")
+    field = Modely(
+        "unpack_field",
+        inputs=[p, v],
+        outputs=[Output("unpack_dp", v.last()), Output("unpack_dv", -1.0 * p.last())],
+    ).build()
+    t = Input("unpack_t", dim=1, seq=3)
+    odenet = OdeNet(
+        f=field, states={p: "unpack_dp", v: "unpack_dv"}, t=t, method="rk4", steps=20
+    )
+    own = Output("unpack_own", odenet)
+    position, velocity = odenet
+    model = Modely(
+        "unpack_odenet",
+        inputs=[p, v, t],
+        outputs=[own, Output("unpack_pos", position), Output("unpack_vel", velocity)],
+    ).build()
+
+    times = np.array([0.0, 0.5, 1.0], dtype=np.float32)
+    result = model(
+        {
+            "unpack_p": np.ones((1, 1, 1), dtype=np.float32),
+            "unpack_v": np.zeros((1, 1, 1), dtype=np.float32),
+            "unpack_t": times.reshape(1, 1, 1, 3),
+        }
+    )
+    # p = cos t, v = -sin t
+    for name in ("unpack_own", "unpack_pos"):
+        np.testing.assert_allclose(
+            to_numpy(result[name]).ravel(), np.cos(times), atol=1e-5
+        )
+    np.testing.assert_allclose(
+        to_numpy(result["unpack_vel"]).ravel(), -np.sin(times), atol=1e-5
+    )
 
 
 def test_odenet_rejects_unknown_method():

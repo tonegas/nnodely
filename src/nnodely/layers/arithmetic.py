@@ -22,6 +22,7 @@ class ArithmeticImpl(keras.layers.Layer):
 
 class Arithmetic(Layer):
     operation = ""
+    _one_stream = True
 
     def __init__(self, name=None):
         super().__init__(name=name)
@@ -116,9 +117,13 @@ class Clamp(Layer):
     A bound left to None is unbounded on that side.
     """
 
+    _one_stream = True
+
     def __init__(self, min: float | None = None, max: float | None = None, name=None):
         if min is not None and max is not None and min > max:
-            raise ValueError(f"{name}: min {min} must not be greater than max {max}.")
+            raise ValueError(
+                f"{name or 'Clamp'}: min {min} must not be greater than max {max}."
+            )
         self.min = min
         self.max = max
         super().__init__(name=name, min=self.min, max=self.max)

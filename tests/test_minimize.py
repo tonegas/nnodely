@@ -1247,3 +1247,32 @@ def test_minimize_rejects_a_callable_giving_the_wrong_number_of_weights():
     with pytest.raises(ValueError, match="seq_weights"):
         model.minimize("error", out, y.sw(3), seq_weights=lambda n: np.ones(n + 1))
     assert model.minimizers == []
+
+
+def test_seq_weights_weigh_a_padded_rollout_with_a_loss_instance():
+    # On padded simulations the loss is masked, and a Loss instance reduced
+    # every step to one value before the weights were applied: they were lost.
+    def history(loss, seq_weights):
+        u = Input("padded_u", seq=-1)
+        out = Output("padded_out", u * Parameter("padded_k", value=1.0))
+        model = Modely("padded", inputs=[u], outputs=[out])
+        model.minimize(
+            "fit", out, Input("padded_t", seq=-1), loss=loss, seq_weights=seq_weights
+        )
+        model.build()
+        simulations = [
+            {"padded_u": np.arange(1.0, 1.0 + n), "padded_t": np.zeros(n)}
+            for n in (2, 4)
+        ]
+        data = DataLoader(model, source=simulations, seq_length="full")
+        trained = model.train(
+            data, epochs=1, batch_size=2, optimizer="sgd", lr=0.0, printer=None
+        )
+        return trained["loss"][0]
+
+    weights = [1.0, 0.0, 0.0, 0.0]
+    weighted = history("mse", weights)
+    assert weighted != pytest.approx(history("mse", None))
+    np.testing.assert_allclose(
+        history(keras.losses.MeanSquaredError(), weights), weighted, rtol=1e-6
+    )

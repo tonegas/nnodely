@@ -130,7 +130,14 @@ class RollImpl(keras.layers.Layer):
 
 
 class Roll(Layer):
-    """Unroll a built Modely over a temporal feedback window."""
+    """Unroll a built Modely over a temporal feedback window.
+
+    ``callback`` holds one ``{input: output}`` pair, the output one sample of
+    the input's shape. Every step evaluates ``f`` and appends that sample to
+    the input's window, dropping the oldest; after ``steps`` evaluations - by
+    default the window length, so that every sample of it is a prediction -
+    the result is the window, shaped like the input. ``f`` must be built.
+    """
 
     def __init__(
         self,

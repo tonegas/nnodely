@@ -1389,3 +1389,108 @@ def test_a_name_passed_positionally_still_only_configures():
 )
 def test_a_layer_with_settings_is_configured_before_it_is_called(layer):
     assert layer._applied_on_creation is False
+
+
+@pytest.mark.parametrize("layer", [ReLU, GELU, Softmax, Linear, nnodely.Clamp])
+def test_a_layer_with_settings_called_on_a_stream_says_how_to_call_it(layer):
+    # ReLU(x) once made a layer with x as its first setting, silently.
+    x = Input(f"settings_{layer.__name__}_x")
+    with pytest.raises(TypeError, match="configured first"):
+        layer(x.last())
+
+
+def test_a_layer_that_reads_one_stream_is_applied_to_every_stream():
+    # Given a list, Keras once stacked the streams on the batch axis:
+    # Sin()([a, b]) was declared one sample and returned two. Each stream now
+    # gets its own result, its shape kept.
+    from nnodely import Triangular
+
+    a, b = Input("every_a"), Input("every_b", dim=3)
+    streams = [a.last(), b.sw(2)]
+    results = {
+        "sin": Sin(streams),  # applied on creation, to each
+        "relu": ReLU(max_value=1.0)(streams),
+        "triangle": Triangular(center=0.5, radius=0.5)(streams),
+    }
+    for pair in results.values():
+        assert [node.shape.dimensions for node in pair] == [
+            ((1,), 1, ()),
+            ((3,), 2, ()),
+        ]
+    # One PReLU object is one layer: its slopes are shared by both streams.
+    c, d = Input("every_c", dim=2), Input("every_d", dim=2)
+    slopes = PReLU()([c.last(), d.last()])
+    model = Modely(
+        "every",
+        inputs=[a, b, c, d],
+        outputs=[
+            Output(f"every_{key}_{index}", node)
+            for key, pair in {**results, "prelu": slopes}.items()
+            for index, node in enumerate(pair)
+        ],
+    ).build()
+    assert model.model is not None and len(model.model.trainable_weights) == 1
+
+    av = np.array([[[0.3]]], dtype=np.float32)
+    bv = np.array([[[-1.0, 0.4], [2.0, 0.75], [0.5, -0.2]]], dtype=np.float32)
+    result = model(
+        {
+            "every_a": av,
+            "every_b": bv,
+            "every_c": np.ones((1, 2, 1), dtype=np.float32),
+            "every_d": np.ones((1, 2, 1), dtype=np.float32),
+        }
+    )
+    for index, values in enumerate((av, bv)):
+        np.testing.assert_allclose(
+            to_numpy(result[f"every_sin_{index}"]), np.sin(values), rtol=1e-6
+        )
+        np.testing.assert_allclose(
+            to_numpy(result[f"every_relu_{index}"]), np.clip(values, 0.0, 1.0)
+        )
+        np.testing.assert_allclose(
+            to_numpy(result[f"every_triangle_{index}"]),
+            np.maximum(1.0 - np.abs(values - 0.5) / 0.5, 0.0),
+            rtol=1e-6,
+            atol=1e-7,
+        )
+
+
+@pytest.mark.slow
+def test_elu_keeps_a_finite_gradient_for_large_inputs():
+    # exp(x) of the branch ELU does not take overflowed, and its gradient made
+    # the whole step NaN: d(w x)/dw at x = 100 is 100, so one SGD step at lr
+    # 1e-4 against 0 moves w from 1 to 1 - 1e-4 * 2 * 100 * 100 = -1.
+    x = Input("elu_large_x")
+    w = Parameter("elu_large_w", value=1.0)
+    out = Output("elu_large_out", ELU()([w * x.last()]))
+    model = Modely("elu_large", inputs=[x], outputs=[out])
+    model.minimize("elu_large_fit", out, 0.0)
+    model.build()
+    data = DataLoader(model, source={"elu_large_x": np.full((1, 1), 100.0, np.float32)})
+    model.train(data, epochs=1, batch_size=1, optimizer="sgd", lr=1e-4, printer=None)
+    np.testing.assert_allclose(np.ravel(w.value_numpy), [-1.0], rtol=1e-5)  # type: ignore
+
+
+def test_prelu_learns_one_slope_per_feature():
+    # Its slopes once covered every time and sequence step too, and a dynamic
+    # sequence could not be built at all.
+    x = Input("prelu_slope_x", dim=2, seq=-1)
+    out = Output("prelu_slope_out", PReLU()([x.sw(3)]))
+    model = Modely("prelu_slope", inputs=[x], outputs=[out]).build()
+    assert model.model is not None
+    assert [tuple(w.shape) for w in model.model.trainable_weights] == [(2, 1, 1)]
+
+    for steps in (2, 5):
+        values = np.random.default_rng(steps).normal(size=(1, 2, 3, steps))
+        result = to_numpy(
+            model({"prelu_slope_x": values.astype(np.float32)})["prelu_slope_out"]
+        )
+        np.testing.assert_allclose(result, np.maximum(values, 0.0), rtol=1e-6)
+
+
+def test_small_layer_messages_and_windows():
+    with pytest.raises(ValueError, match="Clamp: min 1.0"):
+        nnodely.Clamp(1.0, 0.0)
+    # A window as a tuple, like a list.
+    assert Input("tuple_window_x").sw((2, 1)).shape.time == 3

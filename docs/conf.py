@@ -12,8 +12,8 @@ os.environ.setdefault("KERAS_BACKEND", "jax")
 # -- Project information -----------------------------------------------------
 
 project = "nnodely"
-author = "tonegas"
-copyright = "2024, tonegas"
+author = "Gastone Pietro Rosati Papini"
+copyright = "2024-2026, Gastone Pietro Rosati Papini"
 release = package_version("nnodely")
 version = ".".join(release.split(".")[:2])
 
@@ -46,4 +46,4 @@ html_static_path = ["_static"]
 html_logo = "_static/logo.png"
 
 # -- Options for EPUB output -------------------------------------------------
-epub_copyright = "2024, tonegas"
+epub_copyright = "2024-2026, Gastone Pietro Rosati Papini"

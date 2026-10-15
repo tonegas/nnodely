@@ -17,6 +17,9 @@ _PACKAGE = Path(nnodely.__file__).parent
 
 def test_the_version_is_the_installed_one():
     assert nnodely.__version__ == version("nnodely")
+    # importlib's helpers are not part of the package's namespace.
+    assert not hasattr(nnodely, "version")
+    assert not hasattr(nnodely, "PackageNotFoundError")
 
 
 def test_the_package_is_marked_as_typed():

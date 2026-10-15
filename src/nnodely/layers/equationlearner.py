@@ -35,7 +35,7 @@ from nnodely.layers.activations import (
 from nnodely.layers.input import Input
 from nnodely.layers.linear import Linear
 from nnodely.layers.output import Output
-from nnodely.layers.time_ops import Concatenate, Select
+from nnodely.layers.partitions import Concatenate, Select
 from nnodely.layers.trigonometric import Acos, Asin, Atan, Cos, Sin, Tan
 
 
@@ -101,7 +101,11 @@ class EquationLearner:
         self.functions = list(functions)
         self.function_specs = [_resolve_function(function) for function in functions]
         self.n_arguments = sum(spec.arity for spec in self.function_specs)
-        self.linear_in_template = linear_in
+        # The input projection, made here when not given, so that every call
+        # applies the same one, as it does linear_out.
+        self.linear_in_template = linear_in or Linear(
+            features=self.n_arguments, name=f"{self.name}_linear_in"
+        )
         self.linear_out_template = linear_out
 
         self.linear_in: Linear | None = None
@@ -133,7 +137,8 @@ class EquationLearner:
             internal_input = Input(
                 f"{call_name}_input_{index}",
                 dim=stream.dim,
-                seq=stream.seq,
+                # A dynamic sequence axis is declared with -1.
+                seq=tuple(-1 if length is None else length for length in stream.seq),
             )
             internal_input.shape.time = stream.time
             internal_input.past = stream.time
@@ -150,11 +155,7 @@ class EquationLearner:
             else Concatenate(axis=0, name=f"{call_name}_inputs")(internal_streams)
         )
 
-        linear_in_template = self.linear_in_template or Linear(
-            features=self.n_arguments,
-            name=f"{call_name}_linear_in",
-        )
-        projected = linear_in_template([combined])
+        projected = self.linear_in_template([combined])
         if not isinstance(projected, Linear):
             raise TypeError(
                 "EquationLearner input projection did not produce a Linear node."

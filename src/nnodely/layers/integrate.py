@@ -24,17 +24,17 @@ _SOLVER_RULE = {
 }
 
 
-def _validate_dt(dt) -> float:
+def _validate_dt(dt, owner: str = "IntegrateStep") -> float:
     """The time step, always given explicitly - as in Derivative."""
     if dt is None:
         raise ValueError(
-            "IntegrateStep: dt is required. Pass the time step of the signal being "
-            "integrated, for example IntegrateStep(solver='euler', dt=0.01)(rate)."
+            f"{owner}: dt is required. Pass the time step of the signal being "
+            f"integrated, for example {owner}(solver='euler', dt=0.01)(rate)."
         )
     if isinstance(dt, bool) or not isinstance(dt, (int, float)):
-        raise TypeError(f"IntegrateStep: dt must be a number, got {type(dt).__name__}.")
+        raise TypeError(f"{owner}: dt must be a number, got {type(dt).__name__}.")
     if dt <= 0:
-        raise ValueError(f"IntegrateStep: dt must be positive, got {dt}.")
+        raise ValueError(f"{owner}: dt must be positive, got {dt}.")
     return float(dt)
 
 
@@ -353,7 +353,7 @@ class Integrate:
                 f"Integrate: solver must be one of {sorted(_SOLVER_RULE)}, got {solver!r}."
             )
         self.solver = solver
-        self.dt = _validate_dt(dt)
+        self.dt = _validate_dt(dt, "Integrate")
         self.init = _validate_init(init)
         self.name = next_name("Integrate") if name is None else name
         self.body = None

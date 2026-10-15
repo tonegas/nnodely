@@ -71,9 +71,10 @@ Several inputs can be fed back at once: ``rollback({"x": "x_next", "v":
 Loop
 ----
 
-A :class:`~nnodely.Loop` takes a **built** model, the *body*, and rolls it out
-along a sequence axis. It is configured with the body and its recurrence, then
-called on the streams that drive it, ``Loop(f, callback, init=...)(inputs)``:
+A :class:`~nnodely.Loop` takes a model, the *body* (built here if it is not
+yet), and rolls it out along a sequence axis. It is configured with the body
+and its recurrence, then called on the streams that drive it,
+``Loop(f, callback, init=...)(inputs)``:
 
 ``callback``
     maps a body input to the body output that feeds it at the next step.

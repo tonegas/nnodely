@@ -355,7 +355,8 @@ class Differentiate(Layer):
       arithmetic only converts with a fixed batch axis, so
       ``Modely.export_onnx`` fixes it (see its ``batch_size`` argument); and
       the Torch backend, whose exporter traces a forward pass only, refuses
-      such a model outright - export it under the TensorFlow or JAX backend.
+      such a model outright - export it under the TensorFlow backend (JAX
+      exports no ONNX at all).
     """
 
     def __init__(self, order: int = 1, respect_to: Input | None = None, name=None):

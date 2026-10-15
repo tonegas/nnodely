@@ -171,6 +171,16 @@ class Modely:
                 "Loop seeded and driven by numbers only, has nothing to run on. "
                 "Read at least one Input."
             )
+        # The data is keyed by input name: two Inputs of one name would read
+        # the same array, whatever their shapes.
+        named: dict[str, Input] = {}
+        for node in self.train_inputs:
+            if named.setdefault(node.name, node) is not node:
+                raise ValueError(
+                    f"Model {self.name!r} reads two different Inputs named "
+                    f"{node.name!r}. The data is fed by input name, so every "
+                    "Input of a model needs a name of its own."
+                )
 
         flat_graph_outputs = [flatten_memo[node] for node in graph_outputs]
         keras_inputs, keras_outputs = self._resolve_graph(
@@ -277,7 +287,12 @@ class Modely:
             if isinstance(node, Layer):
                 shared = layers_by_source.get(id(node._source))
                 if shared is not None:
-                    node._layer = shared
+                    node._layer, signature = shared
+                    # A layer without weights may be built for its input's
+                    # shape, an axis included: applied to another, it is built
+                    # again. One with weights stays shared, as its weights are.
+                    if not node._layer.weights:
+                        node._layer_signature = signature
                 if len(node.preds) == 0:  ## Parameters and Constants
                     anchor = next(iter(tensor_map.values()), None)
                     tensor_map[node] = node.call([anchor])
@@ -285,7 +300,10 @@ class Modely:
                     tensor_map[node] = node.call(
                         [tensor_map[pred] for pred in node.preds]
                     )
-                layers_by_source[id(node._source)] = node._layer
+                layers_by_source[id(node._source)] = (
+                    node._layer,
+                    node._layer_signature,
+                )
                 _claim_keras_name(node._layer, keras_names)
             else:  ## Output or other non-Layer node
                 tensor_map[node] = tensor_map[node.preds[0]]
@@ -359,6 +377,25 @@ class Modely:
         A name identifies one minimizer: registering a name again replaces the
         minimizer it names, in its place, and warns that it did.
         """
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"A minimizer name is a non-empty string, got {name!r}.")
+        # The validation loss of minimizer x is logged as val_x_loss, which is
+        # also the training loss of a minimizer named val_x.
+        clash = next(
+            (
+                other["name"]
+                for other in self.minimizers
+                if other["name"] in (f"val_{name}", name.removeprefix("val_"))
+                and other["name"] != name
+            ),
+            None,
+        )
+        if clash is not None:
+            raise ValueError(
+                f"Minimizers {name!r} and {clash!r} cannot both be declared: the "
+                "validation loss of one is logged under the training loss name "
+                "of the other."
+            )
         source = _minimizer_stream(self, source, "source", name)
         if target is None:  ## Transform it into a Constant with value zero
             target = 0.0
@@ -540,6 +577,18 @@ class Modely:
         """
         if not self.minimizers:
             raise ValueError("No minimizers defined. Call minimize() before train().")
+        for argument, value in (("epochs", epochs), ("batch_size", batch_size)):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"{argument} is a positive integer, got {value!r}.")
+        if not isinstance(lr, (int, float)) or isinstance(lr, bool) or lr < 0:
+            raise ValueError(f"lr is a non-negative number, got {lr!r}.")
+        if not isinstance(shuffle, bool):
+            raise TypeError(f"shuffle is True or False, got {shuffle!r}.")
+        if not hasattr(train_data, "as_dict"):
+            raise TypeError(
+                f"train_data is a DataLoader, got {type(train_data).__name__}: "
+                "DataLoader(model, source=...) lays the data out for training."
+            )
 
         n_samples = len(train_data)
         if n_samples == 0:
@@ -690,9 +739,9 @@ class Modely:
         symbolic shapes.
         """
         if self.built:
-            raise ValueError("roll() must be called before build().")
+            raise ValueError("rollback() must be called before build().")
         if not isinstance(rollback, dict) or not rollback:
-            raise ValueError("roll must be a non-empty input: stream mapping.")
+            raise ValueError("rollback must be a non-empty input: stream mapping.")
         if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
             raise ValueError("roll steps must be a positive integer.")
 

@@ -28,7 +28,7 @@ from nnodely.layers.loop import Loop
 from nnodely.layers.output import Output
 from nnodely.layers.parameter import Constant, Parameter
 from nnodely.layers.roll import Roll
-from nnodely.layers.time_ops import SampleWindow
+from nnodely.layers.partitions import SampleWindow
 from nnodely.utils.html_export import _block_ports, _collect_graph
 
 _LOGO = Path(__file__).with_name("templates") / "logo.png"

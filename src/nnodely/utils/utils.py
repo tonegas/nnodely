@@ -92,8 +92,11 @@ class MaskedLoss(keras.losses.Loss):
         zero = keras.ops.zeros_like(y_pred)
         y_true = keras.ops.where(valid, y_true, zero)
         y_pred = keras.ops.where(valid, y_pred, zero)
-        if callable(self.loss):
-            return self.loss(y_true, y_pred)
+        # A Loss instance is called unreduced, like a loss function: this Loss
+        # reduces, and seq_weights weigh the values before it does.
+        loss = self.loss.call if isinstance(self.loss, keras.losses.Loss) else self.loss
+        if callable(loss):
+            return loss(y_true, y_pred)
         else:
             raise TypeError("Wrapped loss must be callable.")
 
@@ -131,10 +134,17 @@ def _resolve_optimizer(
     if optimizer is None:
         optimizer = "adam"
 
+    if optimizer_kwargs and "learning_rate" in optimizer_kwargs:
+        raise ValueError(
+            "The learning rate is train()'s lr argument: optimizer_kwargs would "
+            "be overridden by it, so it cannot hold 'learning_rate'."
+        )
+
     if isinstance(optimizer, str):
         if optimizer.lower() not in SUPPORTED_OPTIMIZERS:
             raise ValueError(
-                f"Unknown or invalid Keras optimizer {optimizer!r}. the following optimizers are supported: [{', '.join(SUPPORTED_OPTIMIZERS)}]"
+                f"Unknown or invalid Keras optimizer {optimizer!r}. The supported "
+                f"optimizers are: {', '.join(sorted(SUPPORTED_OPTIMIZERS))}."
             )
         config = keras.optimizers.serialize(keras.optimizers.get(optimizer))
         if type(config) is dict and "config" in config:

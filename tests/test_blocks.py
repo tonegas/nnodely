@@ -29,7 +29,7 @@ from conftest import to_numpy
 import pytest
 
 
-def test_fuzzify():
+def test_fuzzify(tmp_path):
     from nnodely.layers.trigonometric import Sin, Cos
     from nnodely.layers.fuzzify import Rectangular, Triangular, Gaussian
     import keras
@@ -192,8 +192,8 @@ def test_fuzzify():
         atol=1e-5,
     )
 
-    model1.plot(out_dir="./results", filename="fuzzify_multi_temporal")
-    model1.export_html(out_dir="./results", filename="fuzzify_multi_temporal")
+    model1.plot(out_dir=tmp_path, filename="fuzzify")
+    model1.export_html(out_dir=tmp_path, filename="fuzzify")
 
 
 def test_fuzzify_multi_temporal():
@@ -593,9 +593,9 @@ def test_membership_functions_are_layers_of_their_own():
         "triangle": [0.0, 0.5, 1.0, 0.0, 0.0],
         # Up from 0 to 1 at 1, down to 0 at 3.
         "leaning": [0.0, 0.25, 0.5, 0.8, 0.5],
-        # 1 strictly inside (0.25, 0.75), then (0.25, 1.5).
-        "rectangle": [0.0, 0.0, 1.0, 0.0, 0.0],
-        "lopsided": [0.0, 0.0, 1.0, 1.0, 0.0],
+        # 1 on [0.25, 0.75), then [0.25, 1.5): the left edge is in.
+        "rectangle": [0.0, 1.0, 1.0, 0.0, 0.0],
+        "lopsided": [0.0, 1.0, 1.0, 1.0, 0.0],
         "bell": np.exp(-0.5 * ((samples - 0.5) / 0.25) ** 2),
     }
     for key, values in expected.items():
@@ -826,7 +826,7 @@ def test_local_model_with_user_functions():
     local_model = LocalModel(output_function=ReLU(), name="local_model")(
         [x.sw(1)], [fuzzy_k]
     )
- 
+
     out = Output("out", local_model)
     model = Modely("model_with_local", inputs=[x, k], outputs=[out])
     model.build()
@@ -1528,6 +1528,7 @@ def test_integrate_twice_from_acceleration_to_position():
     np.testing.assert_allclose(to_numpy(result["pos"]).ravel(), expected, rtol=1e-5)
 
 
+@pytest.mark.slow
 def test_integrate_is_trained_through():
     # x = Integrate(k * u): the gain of the rate is learnt from the trajectory.
     # (A fixed horizon: arithmetic on a dynamic sequence axis cannot be declared.)
@@ -1658,6 +1659,7 @@ def test_a_dynamic_integrate_feeds_any_relation():
         )
 
 
+@pytest.mark.slow
 def test_a_dynamic_integrate_trains_on_simulations_of_different_lengths():
     # Every simulation is one trajectory of its own length; the loader pads the
     # shorter ones, and the padded steps are left out of the loss.
@@ -1706,13 +1708,16 @@ def test_integrate_rejects_what_it_cannot_integrate():
     with pytest.raises(ValueError, match="init has seq"):
         Integrate(dt=0.1, init=Input("seq_init", dim=2, seq=4))(rate)
 
+
 def test_my_localmodel():
     x = Input("x_local", dim=(2, 2)).sw(4)
     g = Input("g_local", dim=1)
     k = Input("k_local", dim=1)
     mu = Fuzzify(centers=[0.0, 1.0, 2.0])(g.last())
     mu_k = Fuzzify(centers=[0.0, 1.0])(k.last())
-    local = LocalModel(Linear(features=6), Fir(features=1), name="local_model", vectorized=True)
+    local = LocalModel(
+        Linear(features=6), Fir(features=1), name="local_model", vectorized=True
+    )
     local_output = local([x], [mu, mu_k])
 
     model = Modely(
@@ -1726,3 +1731,74 @@ def test_my_localmodel():
     dummy_k = np.array([0, 1, 0, 1]).reshape([1, 1, 4]).astype(np.float32)
     result = model({"x_local": dummy_x, "g_local": dummy_g, "k_local": dummy_k})
     assert result["local_output"].shape == (1, 1, 1)
+
+
+def test_fuzzify_rectangles_hold_every_value_once():
+    # Each rectangle reaches halfway to the centers next to it, half-open:
+    # once, on uneven centers, a rectangle reached halfway to the right on
+    # both sides, two sets held 0.25, and the edges 0.5 and 1.5 held none.
+    x = Input("boxes_x")
+    even = Fuzzify([0.0, 1.0, 2.0], function=Rectangular)([x.last()])
+    uneven = Fuzzify([0.0, 1.0, 3.0], function=Rectangular)([x.last()])
+    moving = Fuzzify(
+        Parameter("boxes_centers", value=[0.0, 1.0, 3.0]), function=Rectangular
+    )([x.last()])
+    model = Modely(
+        "boxes",
+        inputs=[x],
+        outputs=[
+            Output("boxes_even", even),
+            Output("boxes_uneven", uneven),
+            Output("boxes_moving", moving),
+        ],
+    ).build()
+
+    samples = np.array([-0.5, 0.25, 0.5, 1.5, 1.99, 3.49], dtype=np.float32)
+    result = model({"boxes_x": samples.reshape(-1, 1, 1)})
+    np.testing.assert_array_equal(
+        to_numpy(result["boxes_even"])[..., 0],
+        [[1, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, 1], [0, 0, 0]],
+    )
+    # Uneven: [-0.5, 0.5), [0.5, 2), [2, 4).
+    for name in ("boxes_uneven", "boxes_moving"):
+        np.testing.assert_array_equal(
+            to_numpy(result[name])[..., 0],
+            [[1, 0, 0], [1, 0, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 0, 1]],
+        )
+
+
+def test_local_model_refuses_a_layer_class():
+    x = Input("class_cells_x")
+    mu = Fuzzify([0.0, 1.0])([x.last()])
+    with pytest.raises(TypeError, match="pass a layer instance"):
+        LocalModel(Tanh)([x.last()], [mu])
+
+
+def test_equation_learner_called_twice_applies_one_projection():
+    # Its default input projection was made anew at every call, so two calls
+    # on one stream gave different results.
+    x = Input("twice_eql_x")
+    learner = EquationLearner(["sin", "multiply"], linear_out=Linear(features=1))
+    first, second = learner([x.last()]), learner([x.last()])
+    model = Modely(
+        "twice_eql",
+        inputs=[x],
+        outputs=[Output("twice_eql_1", first), Output("twice_eql_2", second)],
+    ).build()
+    assert len(model.parameters) == 4  # one projection in, one out
+    result = model({"twice_eql_x": np.full((2, 1, 1), 0.7, dtype=np.float32)})
+    np.testing.assert_allclose(
+        to_numpy(result["twice_eql_1"]), to_numpy(result["twice_eql_2"])
+    )
+
+    # On a dynamic sequence too.
+    s = Input("twice_eql_s", seq=-1)
+    assert learner([s.last()]).shape.seq == (None,)
+
+
+def test_local_model_with_an_elementwise_function_on_several_inputs():
+    # The function is applied to each input, and a cell is one stream.
+    x, y = Input("several_cells_x"), Input("several_cells_y")
+    mu = Fuzzify([0.0, 1.0])([x.last()])
+    with pytest.raises(ValueError, match="a cell is one stream"):
+        LocalModel(Tanh())([x.last(), y.last()], [mu])

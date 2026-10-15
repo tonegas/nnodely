@@ -49,7 +49,11 @@ Every layer is created with its configuration and then called on streams. A
 layer with nothing to configure - its constructor takes only ``name``, as
 ``Sin``, ``Exp``, ``Sigmoid`` or ``TimeConcatenate`` do - can be applied as it
 is created: ``Sin(x)`` is ``Sin()(x)``. To name it, configure it first:
-``Sin(name="s")(x)``. The tables group the available layers.
+``Sin(name="s")(x)``. A layer that reads one stream - an activation, a math or
+trigonometric layer, ``Clamp``, a membership function - called on a list of
+streams is applied to each and returns a list: ``Sin([a, b])`` gives
+``[sin(a), sin(b)]``, and one ``PReLU`` object shares its slopes between them.
+The tables group the available layers.
 
 .. list-table:: Layers with weights
    :header-rows: 1
@@ -132,7 +136,7 @@ Some examples:
    # a gain scheduled by the gear: one FIR filter per gear, blended
    torque = Input("torque")
    gear_membership = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function=Triangular)([gear.last()])
-   engine_force = LocalModel(Fir(features=1))([torque.sw(10)], [gear_membership])
+   engine_force = LocalModel(lambda cell: Fir(features=1))([torque.sw(10)], [gear_membership])
 
    # a lookup table
    rolling = Interpolation(x_points=[0.0, 10.0, 30.0], y_points=[0.0, 0.2, 0.3])([velocity.last()])
@@ -163,12 +167,14 @@ more arguments is refused:
 
 .. code-block:: python
 
+   import keras
+
    class Square(keras.layers.Layer):
        def call(self, x):
            return x * x
 
-   squares = Fuzzify([0.0, 0.5, 1.0], function=Square)([x.last()])
-   # (x - c)^2 on every center c
+   squares = Fuzzify([0.0, 0.5, 1.0], function=Square)([velocity.last()])
+   # (velocity - c)^2 on every center c
 
 To load such a model in another session, define the class first, decorated
 with ``@keras.saving.register_keras_serializable()``.
@@ -184,8 +190,8 @@ neighbors as they are computed, so the gradient reaches them (a
 .. code-block:: python
 
    centers = Parameter("centers", value=[0.0, 0.5, 1.0])
-   trained = Fuzzify(centers)([x.last()])          # where the triangles sit, learned
-   middle = Fuzzify([0.0, Parameter("middle", value=[0.5]), 1.0])([x.last()])
+   trained = Fuzzify(centers)([velocity.last()])   # where the triangles sit, learned
+   middle = Fuzzify([0.0, Parameter("middle", value=[0.5]), 1.0])([velocity.last()])
 
 The same wrapping works anywhere in a model: :class:`~nnodely.KerasFunction`
 makes any Keras layer an nnodely layer, its streams passed to ``call`` as
@@ -195,17 +201,21 @@ separate arguments and its output shape read off the result:
 
    from nnodely import KerasFunction
 
+   class Norm(keras.layers.Layer):
+       def call(self, x):
+           return keras.ops.sqrt(keras.ops.sum(x * x, axis=1, keepdims=True))
+
    class Shifted(keras.layers.Layer):
        def call(self, x, y):
            return x * x + y
 
-   length = KerasFunction(Norm)([v.sw(2)])          # a class, made here
-   shifted = KerasFunction(Shifted())([a.last(), b.last()])  # an instance
+   length = KerasFunction(Norm)([altitude.last()])                       # a class, made here
+   shifted = KerasFunction(Shifted())([velocity.last(), torque.last()])  # an instance
 
 Weights of such a layer are Keras weights, trained with the model, but not
 :class:`~nnodely.Parameter` objects: freeze them with the layer's
 ``trainable``. The membership functions are layers of
-their own too: ``Triangular(center=0.5, radius=0.5)([x.last()])``.
+their own too: ``Triangular(center=0.5, radius=0.5)([velocity.last()])``.
 
 ``LocalModel`` takes the inputs and a list of activations. Several activations
 are multiplied together, so memberships over 4 gears and 5 speeds give 20 local
@@ -268,8 +278,8 @@ which the input's ``shape`` reports. Here ``velocity`` is read through
    result = vehicle(sample)
    print(result["acceleration"].shape)   # (1, 1, 1)
 
-The model has to be called with every input of the built graph. When
-objectives are declared, that includes the inputs used only as targets.
+The model has to be called with every input its outputs read, listed in
+``model.inference_inputs``; inputs used only as targets can be left out.
 
 Weights and the Keras model
 ---------------------------

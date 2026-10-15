@@ -18,7 +18,7 @@ from nnodely import (
     Fir,
     DataLoader,
     BatchNorm,
-    SeqSelect
+    SeqSelect,
 )
 from nnodely.layers.loop import DYNAMIC_BUILD_LENGTH
 import pytest
@@ -825,11 +825,12 @@ def test_a_parameter_is_one_weight_for_a_loop_body_and_the_outer_model():
         to_numpy(result["shared_outer"]).ravel(), [3.0, 0.0, 0.0]
     )
 
+
 def test_callback_from_nested_loop_with_seq_select():
     vx0 = Input("vx0")
     px0 = Input("px0")
     ax = Input("ax")
-    outvx = Output("outvx", vx0.last()+ax.last())
+    outvx = Output("outvx", vx0.last() + ax.last())
     outpx = Output("outpx", px0.last())
     modelStep = Modely("Step", inputs=[ax, vx0, px0], outputs=[outvx, outpx]).build()
 
@@ -837,7 +838,11 @@ def test_callback_from_nested_loop_with_seq_select():
     ax_sq = Input("ax_sq", seq=-1)
     px0_init = Input("px0_init")
     loop = Loop(f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init})
-    model = Modely("Int", inputs=[ax_sq, px0_init], outputs=[Output("int_loop1", loop({"ax": ax_sq}))]).build()
+    model = Modely(
+        "Int",
+        inputs=[ax_sq, px0_init],
+        outputs=[Output("int_loop1", loop({"ax": ax_sq}))],
+    ).build()
 
     # outer: chain the chunks, the last position of a chunk seeds the next one
     ax_sq_sq = Input("ax_sq_sq", seq=(-1, -1))
@@ -845,14 +850,90 @@ def test_callback_from_nested_loop_with_seq_select():
     # The collected trajectory has a sequence axis the scalar px0_init has not,
     # so it cannot be fed back: the loop is refused when it is declared.
     with pytest.raises(ValueError, match="seq"):
-        Loop(f=model, callback={"px0_init": "int_loop1"}, init={"px0_init": px0_init_sq})
+        Loop(
+            f=model, callback={"px0_init": "int_loop1"}, init={"px0_init": px0_init_sq}
+        )
 
     # Returning only the last step drops that axis, so it can be fed back.
     last = Loop(f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init})
-    model_last = Modely("IntLast", inputs=[ax_sq, px0_init], outputs=[Output("int_last", SeqSelect(-1)(last({"ax": ax_sq})))]).build() #type: ignore
-    outer = Loop(f=model_last, callback={"px0_init": "int_last"}, init={"px0_init": px0_init_sq})
-    model22 = Modely("Int22", inputs=[ax_sq_sq, px0_init_sq],
-                    outputs=[Output("int_loop1_sq", outer({"ax_sq": ax_sq_sq}))]).build()
+    model_last = Modely(
+        "IntLast",
+        inputs=[ax_sq, px0_init],
+        outputs=[Output("int_last", SeqSelect(-1)(last({"ax": ax_sq})))],  # type: ignore
+    ).build()
+    outer = Loop(
+        f=model_last, callback={"px0_init": "int_last"}, init={"px0_init": px0_init_sq}
+    )
+    model22 = Modely(
+        "Int22",
+        inputs=[ax_sq_sq, px0_init_sq],
+        outputs=[Output("int_loop1_sq", outer({"ax_sq": ax_sq_sq}))],
+    ).build()
 
-    result = model22({"ax_sq_sq": np.ones((1, 1, 1, 125, 8)), "px0_init_sq": np.zeros((1, 1, 1))})
-    np.testing.assert_allclose(to_numpy(result["int_loop1_sq"]), np.full((1, 1, 1, 8), 125.0))
+    result = model22(
+        {"ax_sq_sq": np.ones((1, 1, 1, 125, 8)), "px0_init_sq": np.zeros((1, 1, 1))}
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["int_loop1_sq"]), np.full((1, 1, 1, 8), 125.0)
+    )
+
+
+def test_loop_steps_follow_the_inputs_that_drive_it():
+    # An initial value with a rollout axis is read at its first step only; the
+    # steps once followed it because it came first, and one step was taken.
+    x, u = Input("drive_x"), Input("drive_u")
+    following = Output("drive_next", x.last() + u.last())
+    body = Modely("drive_body", inputs=[x, u], outputs=[following]).build()
+    x0 = Input("drive_x0", seq=-1)
+    for drive in (Input("drive_dynamic", seq=-1), Input("drive_fixed", seq=5)):
+        trajectory = Loop(f=body, callback={x: following}, init={x: x0})({u: drive})
+        model = Modely(
+            f"{drive.name}_model",
+            inputs=[x0, drive],
+            outputs=[Output(f"{drive.name}_out", trajectory)],
+        ).build()
+        result = model(
+            {
+                "drive_x0": np.full((1, 1, 1, 1), 10.0, dtype=np.float32),
+                drive.name: np.ones((1, 1, 1, 5), dtype=np.float32),
+            }
+        )
+        np.testing.assert_allclose(
+            to_numpy(result[f"{drive.name}_out"]).ravel(), [11, 12, 13, 14, 15]
+        )
+
+
+def test_unpacking_a_loop_leaves_its_own_stream_alone():
+    # Unpacking once switched the node itself to return every body output, so
+    # an Output of it got them all; and its shape was the first body output's,
+    # not the fed-back one it returns.
+    from nnodely import Concatenate
+
+    x = Input("unpack_x")
+    diagnostic = Output(
+        "unpack_diag", Concatenate()([x.last(), x.last(), x.last()]) + 100.0
+    )
+    state = Output("unpack_state", x.last() * 2.0)
+    body = Modely("unpack_body", inputs=[x], outputs=[diagnostic, state]).build()
+    seed = Input("unpack_x0", seq=3)
+    loop = Loop(f=body, callback={x: state}, init={x: seed})()
+    assert loop.shape.dimensions == ((1,), 1, (3,))
+
+    own = Output("unpack_own", loop)
+    diagnostic_out, state_out = loop
+    model = Modely(
+        "unpack_model",
+        inputs=[seed],
+        outputs=[
+            own,
+            Output("unpack_d", diagnostic_out),
+            Output("unpack_s", state_out),
+        ],
+    ).build()
+    result = model({"unpack_x0": np.array([[[[1.0, 2.0, 3.0]]]], dtype=np.float32)})
+    for name in ("unpack_own", "unpack_s"):
+        np.testing.assert_allclose(to_numpy(result[name]).ravel(), [2.0, 4.0, 8.0])
+    assert to_numpy(result["unpack_d"]).shape == (1, 3, 1, 3)
+    np.testing.assert_allclose(
+        to_numpy(result["unpack_d"])[0, :, 0, :], [[101.0, 102.0, 104.0]] * 3
+    )

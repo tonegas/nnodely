@@ -187,3 +187,18 @@ def test_nnodely_printer_arms_the_cursor_restore_only_while_training(monkeypatch
     assert unregistered == registered
     # The cursor is shown again at the end of each run, not only the first.
     assert stream.getvalue().count("\033[?25h") == 2
+
+
+@pytest.mark.parametrize(
+    "losses", [[1.0, float("inf")], [float("inf")], [float("nan")]]
+)
+def test_a_loss_that_is_not_finite_is_drawn_not_raised(losses):
+    # Its log once raised "cannot convert float NaN to integer", which aborted
+    # train() on a terminal.
+    from nnodely.utils.printers import _Channel
+
+    channel = _Channel("fit", "fit_loss", span=10)
+    for loss in losses:
+        channel.push(loss, None)
+    assert isinstance(channel.sparkline(10), str)
+    assert channel.trend() == 0.0

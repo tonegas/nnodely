@@ -226,10 +226,7 @@ def _set_onnx_io_names(model, path: Path) -> None:
     # kept them may still have reordered them - both tf2onnx and the Torch
     # exporter sort their outputs - and pairing those off by position would
     # rename each tensor after a different one, silently swapping two
-    # outputs' values.
-    # TODO: an output order sorted by the exporter is left as it is, so the
-    # ONNX outputs do not follow model.outputs (seen with tf2onnx: outputs
-    # "b", "a" are exported as "a", "b"). Reorder graph.output by name here.
+    # outputs' values. The order is restored below, by name.
     for values, expected, by_name in (
         (graph.input, expected_inputs, False),
         (graph.output, expected_outputs, True),
@@ -238,8 +235,6 @@ def _set_onnx_io_names(model, path: Path) -> None:
         if len(names) != len(expected) or set(names) == {name for name, _ in expected}:
             continue
         rename.update(_pair_onnx_names(values, expected, by_name=by_name))
-    if not rename:
-        return
 
     for collection in (
         graph.input,
@@ -254,6 +249,23 @@ def _set_onnx_io_names(model, path: Path) -> None:
             node.input[idx] = rename.get(name, name)
         for idx, name in enumerate(node.output):
             node.output[idx] = rename.get(name, name)
+
+    # The exporters sort the outputs: listed again as model.outputs lists
+    # them, a positional reading of the results follows the model.
+    order = [name for name, _ in expected_outputs]
+    listed = [value.name for value in graph.output]
+    reorder = listed != order and sorted(listed) == sorted(order)
+    if reorder:
+        by_name = {value.name: value for value in graph.output}
+        outputs = []
+        for name in order:
+            value = onnx.ValueInfoProto()
+            value.CopyFrom(by_name[name])
+            outputs.append(value)
+        del graph.output[:]
+        graph.output.extend(outputs)
+    if not rename and not reorder:
+        return
 
     onnx.checker.check_model(onnx_model)
     onnx.save(onnx_model, str(path))

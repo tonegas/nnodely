@@ -1,5 +1,6 @@
 """Ode - fixed-step and adaptive integration of a derivative function."""
 
+import copy
 from functools import reduce
 from operator import add
 from typing import Any
@@ -285,15 +286,24 @@ class OdeNetImpl(keras.layers.Layer):
         return keras.ops.sqrt(reduce(add, squares) / reduce(add, counts))
 
     def _march(self, start, states, step, target):
-        """Advance from `start` to `target`, letting the controller pick the steps."""
+        """Advance from `start` to `target`, letting the controller pick the steps.
+
+        The times may run backwards: the march heads towards `target`, with
+        steps of the size the controller picks.
+        """
+        direction = keras.ops.sign(target - start)
 
         def cond(time, step, count, *states):
-            return keras.ops.logical_and(time < target, count < self.max_steps)
+            return keras.ops.logical_and(
+                direction * (target - time) > 0, count < self.max_steps
+            )
 
         def body(time, step, count, *states):
             # Clip so the segment ends exactly on the requested time; a clipped
             # step makes the next one start conservatively, which self-corrects.
-            trial = keras.ops.minimum(step, target - time)
+            trial = direction * keras.ops.minimum(
+                keras.ops.abs(step), direction * (target - time)
+            )
             candidates, errors = self._dopri5_step(states, trial)
             norm = self._error_norm(states, candidates, errors)
             accepted = norm <= 1.0
@@ -571,6 +581,8 @@ class OdeNet(Layer):
         self.atol = float(atol)
         self.max_steps = int(max_steps)
         self.return_all_outputs = False
+        # The twin of this node that returns every state, made on unpacking.
+        self._unpacked: OdeNet | None = None
 
         result_seq = (self.output_count,)
         super().__init__(
@@ -586,8 +598,22 @@ class OdeNet(Layer):
         ]
 
     def __iter__(self):
-        self.return_all_outputs = True
-        return iter(self.odenet_outputs)
+        # Unpacking reads every state from a twin of this node that returns
+        # them all: this node, used as a stream, still gives its first state.
+        if self._unpacked is None:
+            twin = copy.copy(self)
+            twin._source = twin
+            twin._layer = twin._layer_signature = None
+            twin.return_all_outputs = True
+            twin.odenet_outputs = [
+                OdeNetOutput(twin, index, node, output.shape.seq)
+                for index, (node, output) in enumerate(
+                    zip(self.state_inputs, self.odenet_outputs)
+                )
+            ]
+            twin._unpacked = twin
+            self._unpacked = twin
+        return iter(self._unpacked.odenet_outputs)
 
     def build_layer(self):
         return OdeNetImpl(
@@ -613,14 +639,16 @@ class OdeNet(Layer):
         )
 
     def get_config(self):
+        # set_method() swaps the method on the built layer: saved as it is now.
+        built = self._layer
         return {
             "name": self.name,
             "states": {
                 node.name: output.name
                 for node, output in zip(self.state_inputs, self.state_outputs)
             },
-            "method": self.method,
-            "steps": self.steps,
+            "method": getattr(built, "method", self.method),
+            "steps": getattr(built, "steps", self.steps),
             "event": None if self.event_output is None else self.event_output.name,
             "reset": (
                 None

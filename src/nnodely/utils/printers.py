@@ -539,7 +539,9 @@ class _Channel:
         if len(self.train) < 3:
             return 0.0
         first, last = self.train[0], self.train[-1]
-        return 0.0 if first == 0 else (last - first) / abs(first)
+        if first == 0 or not (math.isfinite(first) and math.isfinite(last)):
+            return 0.0
+        return (last - first) / abs(first)
 
     def sparkline(self, width: int) -> str:
         values = list(self.train)[-width:]
@@ -548,13 +550,22 @@ class _Channel:
         # A loss falls over orders of magnitude, so the spark is drawn on a log
         # scale - otherwise everything after the first few epochs is one flat
         # line pinned to the bottom of the cell.
-        floor = min(v for v in values if v > 0) if any(v > 0 for v in values) else 1.0
-        scaled = [math.log10(max(v, floor * 1e-3)) for v in values]
-        low, high = min(scaled), max(scaled)
+        positive = [v for v in values if math.isfinite(v) and v > 0]
+        floor = min(positive) if positive else 1.0
+        scaled = [
+            math.log10(max(v, floor * 1e-3)) if math.isfinite(v) else None
+            for v in values
+        ]
+        known = [value for value in scaled if value is not None]
+        low, high = (min(known), max(known)) if known else (0.0, 0.0)
         span = high - low
         out = []
         for index, value in enumerate(scaled):
-            level = 0.0 if span <= 0 else (value - low) / span
+            # A loss that is not finite diverged: drawn at the top.
+            if value is None:
+                level = 1.0
+            else:
+                level = 0.0 if span <= 0 else (value - low) / span
             block = _SPARKS[min(len(_SPARKS) - 1, int(level * len(_SPARKS)))]
             colour = _brand(0.15 + 0.85 * (1.0 - level))
             fade = 0.45 + 0.55 * (index + 1) / len(scaled)

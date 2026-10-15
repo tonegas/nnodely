@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import weakref
 from typing import cast
 
 import keras
@@ -81,6 +82,9 @@ class KerasFunction(Layer):
         ] = type(function)
         self.function = function
         super().__init__(name=name, function=function)
+        # One Keras layer is one layer however many times it is wrapped: every
+        # wrapper of an instance applies it, so they save and load as one.
+        self._source = _WRAPPERS.setdefault(id(function), self._source)
 
     def build_layer(self):
         return KerasFunctionImpl(function=self.function, name=self.name)
@@ -93,6 +97,11 @@ class KerasFunction(Layer):
             "name": self.name,
             "function": {k: v for k, v in function.items() if k != "build_config"},
         }
+
+
+# The first wrapper of every Keras layer still wrapped, by the layer's id: a
+# live wrapper keeps its layer alive, so the id is not reused meanwhile.
+_WRAPPERS: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 
 
 def _is_keras_layer(function) -> bool:

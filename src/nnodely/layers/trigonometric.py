@@ -24,6 +24,7 @@ class TrigonometricImpl(keras.layers.Layer):
 
 class Trigonometric(Layer):
     operation = ""
+    _one_stream = True
 
     def __init__(self, name=None):
         super().__init__(name=name)

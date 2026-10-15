@@ -1,7 +1,7 @@
 """Input: a signal read from data, a root of the graph. Its windows are
 ``SampleWindow`` nodes."""
 
-from nnodely.layers.time_ops import SampleWindow
+from nnodely.layers.partitions import SampleWindow
 from nnodely.core.stream import Stream
 
 import keras
@@ -44,7 +44,7 @@ class Input(Stream):
             0,
         )
 
-    def sw(self, window_size: int | list[int]):
+    def sw(self, window_size: int | list[int] | tuple[int, int]):
         """Return a window of samples of this input.
 
         ``sw(n)`` is the last ``n`` samples, up to and including the current
@@ -52,7 +52,7 @@ class Input(Stream):
         one followed by the next ``f`` samples. The input's own window grows to
         cover every window requested from it.
         """
-        if isinstance(window_size, list):
+        if isinstance(window_size, (list, tuple)):
             if len(window_size) != 2:
                 raise ValueError(
                     f"{self.name}: window_size list must have length 2, got {len(window_size)}."

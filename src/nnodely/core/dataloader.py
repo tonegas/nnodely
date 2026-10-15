@@ -4,6 +4,7 @@ import warnings
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Literal, Sequence
 
+import keras
 import numpy as np
 import pandas as pd
 
@@ -195,9 +196,15 @@ class DataLoader:
         returns a time series of ``n`` predictions. They never cross from one
         simulation into the next, where two unrelated trajectories would join.
 
-        simulation: index of the simulation, in reading order, or its label -
-            the CSV file name, or ``"simulation <i>"`` for in-memory sources.
-        start: the first sample, counted within that simulation.
+        Parameters
+        ----------
+        n:
+            The number of samples.
+        start:
+            The first sample, counted within that simulation.
+        simulation:
+            The index of the simulation, in reading order, or its label - the
+            CSV file name, or ``"simulation <i>"`` for in-memory sources.
         """
         label, offset, count = self._simulation(simulation)
         if isinstance(n, bool) or not isinstance(n, (int, np.integer)) or n < 1:
@@ -695,7 +702,7 @@ class DataLoader:
             return {
                 key: self._denormalize_values(key, values)
                 if self._normalization_name(key) is not None
-                else np.asarray(values)
+                else keras.ops.convert_to_numpy(values)
                 for key, values in data.items()
             }
 
@@ -708,7 +715,8 @@ class DataLoader:
         if stats_name is None:
             raise ValueError(f"No normalization statistics are available for {name!r}.")
         stats = self.normalization_stats[stats_name]
-        values = np.asarray(values, dtype=np.float64)
+        # A model's results are tensors of its backend, a torch one included.
+        values = np.asarray(keras.ops.convert_to_numpy(values), dtype=np.float64)
         offset = self._match_stat_rank(stats["offset"], values.ndim)
         scale = self._match_stat_rank(stats["scale"], values.ndim)
         constant = self._match_stat_rank(stats["constant"], values.ndim)
