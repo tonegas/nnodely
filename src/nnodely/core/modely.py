@@ -364,8 +364,8 @@ class Modely:
             validated loss stays unweighted, the way Keras logs a
             ``loss_weight``.
         seq_weights:
-            One weight per step of the last axis of the source - the rollout
-            of a Loop, or the window of a stream - such as
+            One weight per step of the outer time of the source - the
+            rollout of its outermost Loop, or its window without one - such as
             ``np.exp(0.1 * np.arange(N))`` to weigh the last predictions more,
             or a callable of the number of steps returning them, such as
             ``lambda n: np.exp(0.1 * np.arange(n))``, for a sequence whose

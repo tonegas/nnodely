@@ -134,7 +134,7 @@ def _safe_attrs(node) -> dict:
         "name": getattr(node, "name", None),
     }
 
-    for attr in ("seq", "time", "dim", "shape"):
+    for attr in ("time", "dim", "shape"):
         if hasattr(node, attr):
             try:
                 attrs[attr] = str(getattr(node, attr))

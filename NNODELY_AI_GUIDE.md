@@ -82,8 +82,9 @@ Use this order:
 
 **Semantic shape** (no batch axis): `(*time, *dim)`.
 - `time`: a tuple of time axes, **outermost first**, `(T_k, ..., T_1)`.
-  - The **inner time** `T_1` (the last) is the window of consecutive samples. Windows, `Fir`, `Derivative`, `IntegrateStep`, `TimeSelect` / `TimeRange` / `TimeConcatenate`, `Roll` and `rollback` act on it.
-  - The **outer time** `T_k` (the first) is where a `Loop` rolls out; a collected rollout is prepended as a new outer time. The axes before the inner one, `time[:-1]`, are the stream's **sequence**, declared with `seq=` on a window and handled by the `Seq*` layers.
+  - The **inner time** `T_1` (the last) is the window of consecutive samples. Windows, `Fir`, `Derivative`, `IntegrateStep`, `Roll` and `rollback` act on it.
+  - The **outer time** `T_k` (the first) is where a `Loop` rolls out; a collected rollout is prepended as a new outer time. The axes before the inner one, `time[:-1]`, are the stream's **sequence**, declared with `seq=` on a window.
+  - The `Time*` layers (§6.5) act on any time axis, counted outermost first: `axis=-1`, their default, is the inner time, `axis=0` the outer time. With one time axis the two are the same.
   - `()` is a **timeless** stream: a number, a `Parameter` / `Constant` declared without time, an Input never windowed. It broadcasts along any time (see below).
   - A dynamic axis (`seq=-1`) is `None` internally, `dyn` when printed.
 - `dim`: feature axes. Default `(1,)`; `dim=3` gives `(3,)`; `dim=(3,2)` gives a matrix per sample.
@@ -111,12 +112,12 @@ The Input's own window is the union of all requested windows: `past = max p`, `f
 
 | Expression | Output shape |
 |---|---|
-| `Fir(features=2)([v.sw(4)])` | `T=(1,), D=(2, 3)`: each of the 3 features filtered alone over its 4 samples onto 2 channels, a new leading dim axis; one output sample; outer time axes are kept (`v.sw(4, seq=5)` gives `T=(5, 1)`). `Fir(features=1)` keeps the dim, `D=(3,)`; on a scalar the channels replace it, `Fir(features=2)([x.sw(4)])` is `T=(1,), D=(2,)` |
+| `Fir(features=2)([v.sw(4)])` | `T=(1,), D=(3, 2)`: each of the 3 features filtered alone over its 4 samples onto 2 channels, a new last dim axis; one output sample; outer time axes are kept (`v.sw(4, seq=5)` gives `T=(5, 1)`). `Fir(features=1)` keeps the dim, `D=(3,)`; on a scalar the channels replace it, `Fir(features=2)([x.sw(4)])` is `T=(1,), D=(2,)` |
 | `Linear(features=5)([v.sw(4)])` | `T=(4,), D=(5,)`: per-sample map of the whole dim, every time axis kept; a `D=(2, 3)` input gives `D=(5,)` too, and `axis=k` maps only dim axis `k` (`Linear(5, axis=1)` on `D=(2, 3)` gives `D=(2, 5)`), with a matrix per row unless `shared_kernel=True` |
 | `Sum()([v.sw(4)])` | `T=(4,), D=(1,)`: sums dim axes (keepdims) |
 | `Select(1)([v.sw(4)])` | `T=(4,), D=(1,)` |
 | `Range(0, 2)([v.sw(4)])` | `T=(4,), D=(2,)` |
-| `TimeSelect(-1)([v.sw(4)])` | `T=(1,), D=(3,)` |
+| `TimeSelect(-1)([v.sw(4)])` | `T=(1,), D=(3,)`; `keep_dim=False` drops the time axis, `T=()` |
 | `TimeRange(0, 2)([v.sw(4)])` | `T=(2,), D=(3,)` |
 | `Concatenate()([v.last(), w_dim2.last()])` | `T=(1,), D=(5,)`: along dim axis 0 |
 | `TimeConcatenate()([v.sw(2), v.sw(3)])` | `T=(5,), D=(3,)` |
@@ -150,9 +151,9 @@ from nnodely import (
     Linear, Fir, LocalModel, EquationLearner, BatchNorm,
     # fuzzy / lookup
     Fuzzify, Triangular, Rectangular, Gaussian, Interpolation, KerasFunction,
-    # dim axes / inner time (window) / outer time (sequence)
-    Select, Range, Concatenate, Sum, TimeSelect, TimeRange, TimeConcatenate,
-    SeqSelect, SeqRange, SeqConcatenate, SeqStack, SeqReverse,
+    # dim axes / time axes
+    Select, Range, Concatenate, Sum,
+    TimeSelect, TimeRange, TimeConcatenate, TimeStack, TimeReverse,
     # calculus / recurrence
     Differentiate, Derivative, Integrate, IntegrateStep, Ode, OdeNet, Loop, Roll,
     # activations
@@ -202,7 +203,7 @@ Install: `pip install "nnodely[torch]"` (or `[tensorflow]` / `[jax]`); add `onnx
 Configure first, then call on a stream or a list of streams:
 - `Linear(features=4)([s])` and `Linear(features=4)(s)` are both accepted.
 - Multi-input layers take a list: `Concatenate()([a, b])`.
-- A layer whose constructor takes only `name` (`Sin Cos Tan Asin Acos Atan Atan2 Exp Log Log10 Sqrt Abs Floor Ceil Deg2Rad Sign Negative Sigmoid Tanh Swish Softplus TimeConcatenate`) can be applied as it is created: `Sin(x)` is `Sin()(x)`, `TimeConcatenate([a, b])` is `TimeConcatenate()([a, b])`, `Atan2([y, x])` is `Atan2()([y, x])`. A string first argument is still the name: `Sin("s")` configures. For a named layer write `Sin(name="s")(x)`. Layers with settings (`ReLU`, `Softmax`, `Sum`, `Clamp`, `Linear`, ...) are always configured first.
+- A layer whose constructor takes only `name` (`Sin Cos Tan Asin Acos Atan Atan2 Exp Log Log10 Sqrt Abs Floor Ceil Deg2Rad Sign Negative Sigmoid Tanh Swish Softplus`) can be applied as it is created: `Sin(x)` is `Sin()(x)`, `Atan2([y, x])` is `Atan2()([y, x])`. A string first argument is still the name: `Sin("s")` configures. For a named layer write `Sin(name="s")(x)`. Layers with settings (`ReLU`, `Softmax`, `Sum`, `Clamp`, `Linear`, ...) are always configured first.
 - `LocalModel` takes the inputs and a list of activations: `LocalModel(...)(inputs, activations)`.
 
 The weights of `Fir` and `Linear` are `Parameter`s, predecessors of the layer in the graph:
@@ -223,8 +224,8 @@ Legend: **in → out** gives semantic shapes `(*time, *dim)`. `d` = dim, `T` = a
 | Signature | in → out | Notes |
 |---|---|---|
 | `Linear(features=1, kernel="glorot_uniform", bias=True, axis=None, shared_kernel=False, name=None)` | `(*T, *d)` → `(*T, features)`; with `axis=k`, dim axis `k` becomes `features` | Per sample of every time axis. Without `axis` the whole dim is mapped (every feature feeds every output). With `axis=k` only that axis is mapped, with a matrix and bias per position of the other dim axes, or one for all with `shared_kernel=True` (which requires `axis`). `bias=True` draws the bias with glorot, not zeros. Weights: §5. |
-| `Fir(features, kernel="glorot_uniform", bias=True, shared_kernel=False, name=None)` | `(*To, Ti, *d)` → `(*To, 1, features, *d)` | Each dim element is filtered alone over its inner-time window (elements never mixed), with a kernel of its own or one for all with `shared_kernel=True`; applied at every step of the outer time. The channels are a leading dim axis. `features=1` keeps the dim (`(*To, 1, *d)`); on a scalar the channels replace it (`(*To, 1, features)`). `bias=True` is zeros. `features` is required. Weights: §5. |
-| `LocalModel(input_function=None, output_function=None, vectorized=False, name=None)` called as `(inputs, activations: list)` | `a_k: (T, n_k)`: dim `(n_k,)` and at most one time axis, T the cells' inner time or 1 → shape of one output cell | The activations are multiplied into `N = Π n_k` joint memberships `mu`, row-major (cell `(i1, i2)` is `i1*n2 + i2`), and a `CellWeight` layer (`<name>_weighted`) weighs the cells with them: a 1-sample membership weighs every sample of a window. Activations with outer time raise. Computes `Σ_i output_function_i(mu_i * input_function_i([x...]))`. Each function is: `None` (no function: one input weighted as it is / the weighted cells only summed); a weightless elementwise layer instance (`Sin()`, `Tanh()`, `ReLU()`, ...), applied once; any other `Layer` instance, applied to every cell with the same weights; or a callable, which is a factory `f((i1, i2, ...)) -> layer` called once per cell. With `vectorized=True` a callable or a layer (other than a weightless elementwise one) is instead called once on all cells and must return `(N, *cell)` (`(N,)` for scalar cells), e.g. `Fir(features=N)`: its N channels are the N cells. Functions receive a **list** of streams; all cells must have the same shape. Lists of functions are not accepted. |
+| `Fir(features, kernel="glorot_uniform", bias=True, shared_kernel=False, name=None)` | `(*To, Ti, *d)` → `(*To, 1, *d, features)` | Each dim element is filtered alone over its inner-time window (elements never mixed), with a kernel of its own or one for all with `shared_kernel=True`; applied at every step of the outer time. The channels are a new last dim axis. `features=1` keeps the dim (`(*To, 1, *d)`); on a scalar the channels replace it (`(*To, 1, features)`). `bias=True` is zeros. `features` is required. Weights: §5. |
+| `LocalModel(input_function=None, output_function=None, vectorized=False, name=None)` called as `(inputs, activations: list)` | `a_k: (T, n_k)`: dim `(n_k,)` and at most one time axis, T the cells' inner time or 1 → shape of one output cell | The activations are multiplied into `N = Π n_k` joint memberships `mu`, row-major (cell `(i1, i2)` is `i1*n2 + i2`), and a `CellWeight` layer (`<name>_weighted`) weighs the cells with them: a 1-sample membership weighs every sample of a window. Activations with outer time raise. Computes `Σ_i output_function_i(mu_i * input_function_i([x...]))`. Each function is: `None` (no function: one input weighted as it is / the weighted cells only summed); a weightless elementwise layer instance (`Sin()`, `Tanh()`, `ReLU()`, ...), applied once; any other `Layer` instance, applied to every cell with the same weights; or a callable, which is a factory `f((i1, i2, ...)) -> layer` called once per cell. With `vectorized=True` a callable or a layer (other than a weightless elementwise one) is instead called once on all cells and must return `(*cell, N)` (`(N,)` for scalar cells), e.g. `Fir(features=N)`: its N channels are the N cells. Functions receive a **list** of streams; all cells must have the same shape. Lists of functions are not accepted. |
 | `EquationLearner(functions: list, *, linear_in: Linear \| None = None, linear_out: Linear \| None = None, name=None)` called on `stream` or `[streams]` | `(*T, d)` → `(*T, n_functions)`, or `linear_out`'s output | `functions` items can be a name (`identity sin cos tan asin acos atan relu leaky_relu elu prelu sigmoid tanh swish gelu softplus add subtract multiply divide power`), a Layer class or instance, a callable over streams (arity inferred), or `(callable, arity)`. `linear_in` projects to Σarity arguments; its `features` must equal that sum. Inputs must have dim rank 1 (several inputs are concatenated). Internally it is a composed `Modely`. |
 | `BatchNorm(axis=None, momentum=0.99, epsilon=1e-3, center=True, scale=True, name=None)` | unchanged | Per-feature statistics, along the stream's first dim axis by default [verified]. An explicit `axis` is a raw tensor axis (batch 0, time axes next, dims last). Uses the inference branch in `validate` and inference. |
 | `Parameter(...)` | – | See §5. |
@@ -248,19 +249,16 @@ Legend: **in → out** gives semantic shapes `(*time, *dim)`. `d` = dim, `T` = a
 ### 6.5 Axis manipulation
 | Signature | Effect |
 |---|---|
-| `Select(idx, axis=0)` | Picks one index on a dim axis and keeps it with length 1. Negative idx allowed; an index out of range raises. |
+| `Select(idx, axis=0, keep_dim=False)` | Picks one index on a dim axis, **the axis dropped**: `D=(4, 3)` → `D=(3,)`; `keep_dim=True` keeps it with length 1, `D=(1, 3)`. A stream always has a dim, so a vector gives `D=(1,)` either way. Negative idx allowed; an index out of range raises. |
 | `Range(start, end, axis=0)` | Slice `[start, end)` on a dim axis. |
 | `Concatenate(axis=0)([a, b, ...])` | Concatenates along a dim axis. Timed inputs must have equal time; a timeless input (a Parameter, a number) is repeated along the time of the others [verified]. |
-| `TimeSelect(idx)` | One sample of the inner time, kept with length 1 (`-1` = newest). |
-| `TimeRange(start, end)` | Slice `[start, end)` on the inner time. |
-| `TimeConcatenate()([a, b, ...])` | Concatenates along the inner time; dim and outer time must match. |
-| `SeqSelect(idx, axis=0)` | One element of an outer time axis, **the axis removed**: `T=(dyn, 1)` → `T=(1,)`. Negative idx counts from the end of the data, also on a dynamic axis, so `SeqSelect(-1)` is the last step of the outermost rollout, of any length. |
-| `SeqRange(start, end, axis=0)` | Slice `[start, end)` on an outer time axis; `None` leaves a bound open. On a dynamic axis a negative bound or an open end gives a dynamic axis. |
-| `SeqConcatenate(axis=0)([a, b, ...])` | Joins along an existing outer time axis; dim and the other time axes must match. A dynamic input makes the axis dynamic. |
-| `SeqStack(axis=0)([a, b, ...])` | Stacks equal-shape streams into a new outer time axis: 4 × `T=(1,)` → `T=(4, 1)`. `axis` is the new axis's position among the result's outer time axes: `0` the new outermost, `-1` the innermost (next to the window). |
-| `SeqReverse(axis=0)` | Reverses the elements of an outer time axis. |
+| `TimeSelect(idx, axis=-1, keep_dim=True)` | One index on a time axis, **kept with length 1** (`-1` = newest sample of the window); `keep_dim=False` drops the axis: `T=(4,)` → `T=()`, and with `axis=0` `T=(dyn, 1)` → `T=(1,)`. Negative idx counts from the end of the data, also on a dynamic axis, so `TimeSelect(-1, axis=0)` is the last step of the outermost rollout, of any length. |
+| `TimeRange(start, end, axis=-1)` | Slice `[start, end)` on a time axis, kept; `None` leaves a bound open. On a dynamic axis a negative bound or an open end gives a dynamic axis. |
+| `TimeConcatenate(axis=-1)([a, b, ...])` | Joins along an existing time axis; dim and the other time axes must match. A dynamic input makes the axis dynamic. |
+| `TimeStack(axis=-1)([a, b, ...])` | Stacks equal-shape streams into a new time axis: 3 × `T=()` → `T=(3,)`; with `axis=0`, 4 × `T=(1,)` → `T=(4, 1)`. `axis` is the new axis's position among the result's time axes: `-1` the new inner time, `0` the new outermost. |
+| `TimeReverse(axis=-1)` | Reverses the elements of a time axis. |
 
-The `Seq*` layers act on the outer time axes, `time[:-1]` (the sequence), never on the window. Their `axis` counts those axes **outermost first**: `0`, the default, is the outermost, the rollout of the outermost (last applied) `Loop`; a negative `axis` counts from the window, `-1` being the innermost outer axis. On `T=(3, 5, 1)` [verified]: `SeqSelect(-1)` → `T=(5, 1)`, `SeqSelect(0, axis=1)` → `T=(3, 1)`, `SeqRange(1, 3)` → `T=(2, 5, 1)`, `SeqRange(1, 3, axis=-1)` → `T=(3, 2, 1)`, `SeqStack()([s, s])` → `T=(2, 3, 5, 1)`. A stream without outer time raises (`axis 0 out of bounds for seq rank 0`). `SeqSelect(-1)` on a collected trajectory gives a stream that can close a `Loop` callback on an input without that outer time. There is no layer that reshapes or transposes. Write a custom layer (§16) if one is needed.
+The `Time*` layers mirror the dim ones on the time axes. Their `axis` counts the time axes **outermost first**: `-1`, the default, is the inner time, the window; `0` is the outer time, the rollout of the outermost (last applied) `Loop`, or the window when there is no rollout. On `T=(3, 5, 1)` [verified]: `TimeSelect(-1, axis=0, keep_dim=False)` → `T=(5, 1)`, `TimeSelect(0, axis=1)` → `T=(3, 1, 1)`, `TimeSelect(0, axis=1, keep_dim=False)` → `T=(3, 1)`, `TimeRange(1, 3, axis=0)` → `T=(2, 5, 1)`, `TimeRange(1, 3, axis=1)` → `T=(3, 2, 1)`, `TimeStack(axis=0)([s, s])` → `T=(2, 3, 5, 1)`, `TimeStack()([s, s])` → `T=(3, 5, 1, 2)`. A timeless stream raises (`axis -1 out of bounds for time rank 0`). Dropped from the only time axis, a sample is a timeless stream, which broadcasts along any window: `w - TimeSelect(-1, keep_dim=False)(w)` subtracts the newest sample from each [verified]. `TimeSelect(-1, axis=0, keep_dim=False)` on a collected trajectory gives a stream that can close a `Loop` callback on an input without that outer time. There is no layer that reshapes or transposes. Write a custom layer (§16) if one is needed.
 
 ### 6.6 Calculus and recurrence
 See §10 (`Loop`, `Roll`, `rollback`) and §11 (`Differentiate`, `Derivative`, `IntegrateStep`, `Integrate`, `Ode`, `OdeNet`).
@@ -383,7 +381,7 @@ Reproducibility: call `set_seed(int)` before creating layers and data. It seeds 
 - At least one source must derive from an `Input`, so that there is a batch axis.
 - Timing: at step k (0-based) the body sees state `s_k` (with `s_0` from `init`) and exogenous `u_k`. Every body output at step k is computed from `s_k`, and the callback output becomes `s_{k+1}`. With `collect=True` the result gets steps `0..H-1` as a new **outer time**, prepended: a body output `T=(1,), D=(2,)` with horizon H gives `T=(H, 1), D=(2,)`, arrays `(B, H, 1, 2)` [verified]. So the fed-back trajectory is `s_1..s_H`: with `initial` = states window `[t..t+H-1]`, the target must be states `[t+1..t+H]`, i.e. data `{"s_seq": S[:-1], "s_target": S[1:]}` (recipe R3). A non-fed-back output (for example a measurement `y(s_k)`) aligns with the unshifted window. `collect=False` returns only the last step.
 - Multiple outputs: `a, b = Loop(...)` yields one stream per body output, in `f.outputs` order.
-- Loops can be nested; the body of a Loop can itself contain a Loop. Each rollout is prepended: a body output carrying an inner rollout `T=(3, 1)` gives `T=(H, 3, 1)` [verified]; close a callback on the inner trajectory's last step with `SeqSelect(-1)`.
+- Loops can be nested; the body of a Loop can itself contain a Loop. Each rollout is prepended: a body output carrying an inner rollout `T=(3, 1)` gives `T=(H, 3, 1)` [verified]; close a callback on the inner trajectory's last step with `TimeSelect(-1, axis=0, keep_dim=False)`.
 - Supports `save` / `load`, `export_keras` and ONNX (on TensorFlow the rollout is an ONNX `Loop` node).
 
 ### 10.3 `Roll(f, callback: dict, steps=None, name=None)`
@@ -495,7 +493,7 @@ JAX cannot export ONNX at all: jax2tf emits an unconvertible XlaCallModule. `exp
 | `Model '...' reads no Input` at build | The model reads no Input, e.g. a Loop seeded and driven only by numbers | Seed or drive it from an `Input`. |
 | `Loop init must be a dict` | Scalar or stream passed as `init` | `Loop(..., init={inp1: s1, inp2: s2})(...)`. |
 | `the output must either cover the whole window of the input ... or a single step` | Callback output's inner time is incompatible | The output's inner time must be 1 or equal to the input's. |
-| `the outer time axes, the sequence, must be the same` | Loop callback output with other outer time than its input, e.g. a collected inner trajectory | Close the callback on `SeqSelect(-1)(...)`, or make the sequences equal. |
+| `the outer time axes, the sequence, must be the same` | Loop callback output with other outer time than its input, e.g. a collected inner trajectory, or a sample selected with `keep_dim=False` (time `()`) fed back into a window | Close the callback on `TimeSelect(-1, axis=0, keep_dim=False)(...)`; keep a selected sample's axis (the default) to feed it back; or make the sequences equal. |
 | `has two different outputs named ...` | A block called twice exposes same-named outputs | Wrap each call's output in a distinctly named `Output`. |
 | `the differentiated relation does not depend on input ...` | `Differentiate` w.r.t. an Input inside a composed block, or no real dependency | Move the derivative to the model that declares the Input. |
 | `Minimizer '...' compares '...' of shape ... with '...' of shape ...` in `train` / `validate` | The source and target of an objective have different shapes, e.g. a raw timeless Input target against a `last()` source | Make them match: use a window as target. |
@@ -748,7 +746,7 @@ src/nnodely/
   core/registry.py       ModelSerializer: model.json (+ model.weights.h5) via get_config/from_config; bodies in sub-folders
   core/validation.py     validate, score_signal, SignalScore, ValidationResult
   layers/input.py        Input (+ sw/last/next → SampleWindow)
-  layers/partitions.py   SampleWindow, Select, Range, Concatenate (dim); TimeSelect, TimeRange, TimeConcatenate (time); SeqSelect, SeqRange, SeqConcatenate, SeqStack, SeqReverse (outer time)
+  layers/partitions.py   SampleWindow, Select, Range, Concatenate (dim axes); TimeSelect, TimeRange, TimeConcatenate, TimeStack, TimeReverse (time axes)
   layers/{linear,fir,localmodel,fuzzify,function,interpolation,equationlearner,batchnorm,activations,arithmetic,trigonometric}.py   function.py: KerasFunction
   layers/{parameter,output}.py   parameter.py: _Value, Parameter, Constant
   layers/derivative.py   Differentiate (autodiff dispatch per backend), Derivative (Savitzky–Golay banded operator)

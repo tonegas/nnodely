@@ -97,7 +97,7 @@ def _validate_gain(gain, minimizer: str) -> float:
 
 
 def _seq_weights_for(seq_weights, steps: int | None, minimizer: str):
-    """One weight per step of a last axis ``steps`` long, normalized to mean one.
+    """One weight per step of an outer time ``steps`` long, normalized to mean one.
 
     A callable is given the number of steps. Weights are not negative, and not
     all zero: a negative weight would maximize the error of its step, and all
@@ -108,7 +108,7 @@ def _seq_weights_for(seq_weights, steps: int | None, minimizer: str):
     if weights.ndim != 1 or steps is not None and weights.shape != (steps,):
         raise ValueError(
             f"The seq_weights of minimizer {minimizer!r} must be one weight per "
-            f"step of the last axis, {steps} of them, got shape {weights.shape}."
+            f"step of the outer time, {steps} of them, got shape {weights.shape}."
         )
     if not np.isfinite(weights).all() or (weights < 0).any() or not weights.any():
         raise ValueError(
@@ -150,7 +150,7 @@ class _MinimizerTerm:
     ):
         self.name = name
         self.gain = gain  # weight of this term in the total loss
-        # weight of each step of the last axis, or a callable of its length
+        # weight of each step of the outer time, or a callable of its length
         self.seq_weights = seq_weights
         self.source = source  # name of the graph output holding the prediction
         self.target = target  # name of the graph output holding the reference

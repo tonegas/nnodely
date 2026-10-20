@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import keras
 
-from nnodely.core.shape import BATCH_AXIS, Shape, inverse_permutation, transpose
+from nnodely.core.shape import BATCH_AXIS, Shape, transpose
 from nnodely.layers.parameter import Parameter, _check_weight_size, _ParameterWeights
 
 
@@ -17,7 +17,7 @@ class FirImpl(keras.layers.Layer):
     ``features`` channels, with a kernel of its own or, with
     ``shared_kernel``, one kernel shared by all of them; elements are never
     mixed. ``(batch, *outer, window, *dim)`` becomes
-    ``(batch, *outer, 1, features, *dim)``, the channel axis dropped when
+    ``(batch, *outer, 1, *dim, features)``, the channel axis dropped when
     there is one channel and a scalar dim ``(1,)`` dropped when there are more.
 
     It owns no weight: it is called on ``[x, kernel]`` or ``[x, kernel,
@@ -72,29 +72,14 @@ class FirImpl(keras.layers.Layer):
         if bias:
             y = y + keras.ops.reshape(bias[0][0], self.bias_shape)
 
-        # (batch, *outer, *dim, out, 1), one step long, without the channel
-        # axis when there is one channel, and without a scalar dim when there
-        # are more; then laid out as the output, whose dim is (out, *dim).
-        y = keras.ops.expand_dims(y, len(y.shape))
+        # (batch, *outer, *dim, out) is laid out as the output already, which
+        # drops the channel axis when there is one channel and a scalar dim
+        # when there are more; it lacks only its inner time, one step long.
         if self.features == 1:
-            y = keras.ops.squeeze(y, len(y.shape) - 2)
-            out_dim = dim
+            y = keras.ops.squeeze(y, len(y.shape) - 1)
         elif dim == (1,):
             y = keras.ops.squeeze(y, 1 + len(outer))
-            out_dim = (self.features,)
-        else:
-            out_dim = (self.features, *dim)
-        out = shape.replace(dim=out_dim, time=(*shape.time[:-1], 1))
-        channels = list(out.dim_axes)
-        if len(out_dim) > len(dim):
-            # The channel axis is the first of the output, the last here.
-            channels = channels[1:] + channels[:1]
-        return transpose(
-            y,
-            inverse_permutation(
-                [BATCH_AXIS, *out.time_axes[:-1], *channels, out.inner_time_axis]
-            ),
-        )
+        return keras.ops.expand_dims(y, 1 + len(outer))
 
 
 class Fir(_ParameterWeights):
@@ -106,13 +91,13 @@ class Fir(_ParameterWeights):
     the filter applied at each of their steps::
 
         input:  (batch, *outer, window, *dim)
-        output: (batch, *outer, 1, features, *dim)
+        output: (batch, *outer, 1, *dim, features)
 
-    The channel axis is added only for ``features > 1``, and a scalar dim
-    ``(1,)`` gives way to it::
+    The channel axis, the last, is added only for ``features > 1``, and a
+    scalar dim ``(1,)`` gives way to it::
 
         Fir(features=1)  on D=(2, 3) -> D=(2, 3)
-        Fir(features=4)  on D=(2, 3) -> D=(4, 2, 3)
+        Fir(features=4)  on D=(2, 3) -> D=(2, 3, 4)
         Fir(features=4)  on D=(1,)   -> D=(4,)
 
     ``kernel`` is ``[*dim, window, features]`` and ``bias``
@@ -173,7 +158,7 @@ class Fir(_ParameterWeights):
         elif dim == (1,):
             out_dim = (self.features,)
         else:
-            out_dim = (self.features, *dim)
+            out_dim = (*dim, self.features)
         # The window becomes one sample; the outer time axes are kept.
         shape = inputs[0].shape
         return shape.replace(dim=out_dim, time=(*shape.time[:-1], 1))

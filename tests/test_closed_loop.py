@@ -18,7 +18,7 @@ from nnodely import (
     Fir,
     DataLoader,
     BatchNorm,
-    SeqSelect,
+    TimeSelect,
 )
 from nnodely.layers.loop import DYNAMIC_BUILD_LENGTH
 import pytest
@@ -917,7 +917,12 @@ def test_callback_from_nested_loop_with_seq_select():
     model_last = Modely(
         "IntLast",
         inputs=[ax_sq, px0_init],
-        outputs=[Output("int_last", SeqSelect(-1)(last({"ax": ax_window})))],  # type: ignore
+        outputs=[
+            Output(
+                "int_last",
+                TimeSelect(-1, axis=0, keep_dim=False)(last({"ax": ax_window})),  # type: ignore
+            )
+        ],
     ).build()
     outer = Loop(
         f=model_last, callback={"px0_init": "int_last"}, init={"px0_init": px0_seed}

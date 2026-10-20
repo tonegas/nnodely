@@ -24,8 +24,8 @@ variable, and trains, validates and exports through Keras. Models saved with
 - A layer whose constructor takes only `name` is applied as it is created:
   `Sin(x)` is `Sin()(x)`. These are `Sin`, `Cos`, `Tan`, `Asin`, `Acos`,
   `Atan`, `Atan2`, `Exp`, `Log`, `Log10`, `Sqrt`, `Abs`, `Floor`, `Ceil`,
-  `Deg2Rad`, `Sign`, `Negative`, `Sigmoid`, `Tanh`, `Swish`, `Softplus` and
-  `TimeConcatenate`; layers with settings (`ReLU`, `GELU`, `Clamp`, `Sum`,
+  `Deg2Rad`, `Sign`, `Negative`, `Sigmoid`, `Tanh`, `Swish` and `Softplus`;
+  layers with settings (`ReLU`, `GELU`, `Clamp`, `Sum`, `TimeConcatenate`,
   ...) are configured first.
 - An activation, a math or trigonometric layer, `Clamp` or a membership
   function called on a list of streams is applied to each and returns a list:
@@ -77,20 +77,28 @@ variable, and trains, validates and exports through Keras. Models saved with
   activations)`: several activations are multiplied into joint memberships; a
   function is a factory of the cell index, giving each cell a layer of its
   own, a layer instance is shared by every cell, and `vectorized=True` calls
-  it once on all the cells.
+  it once on all the cells, which it returns on a last dim axis, as
+  `Fir(features=N)` does.
 - Layers new in 2.0: `BatchNorm`, `LeakyReLU`, `PReLU`, `Swish`, `GELU`,
   `Softplus`, `Asin`, `Acos`, `Atan`, `Exp`, `Log`, `Log10`, `Sqrt`, `Abs`,
   `Floor`, `Ceil`, `Deg2Rad`, `Clamp`, and `DataLoader.get_samples(n)`.
-- Sequence layers `SeqSelect`, `SeqRange`, `SeqConcatenate`, `SeqStack`
-  and `SeqReverse`, on the outer time axes, fixed or dynamic, counted
-  outermost first (`axis=0`, the default, is the outermost). `SeqSelect`
-  removes the axis, so `SeqSelect(-1)` of a collected trajectory, its last
-  step, can close a `Loop` callback on an input without that axis.
+- Time layers `TimeSelect`, `TimeRange`, `TimeConcatenate`, `TimeStack`
+  and `TimeReverse`, the counterparts of `Select`, `Range` and `Concatenate`
+  on the time axes, fixed or dynamic, counted outermost first: `axis=-1`,
+  the default, is the inner time, the window, and `axis=0` the outer time.
+- `keep_dim` on `Select` and `TimeSelect`. `Select` drops the selected dim
+  axis by default, and `keep_dim=True` keeps it with length 1; a stream
+  keeps at least one dim axis, so selecting from a vector gives a scalar
+  `(1,)`. `TimeSelect` keeps the selected time axis by default, one sample,
+  and `keep_dim=False` drops it: `TimeSelect(-1, axis=0, keep_dim=False)` of
+  a collected trajectory, its last step, can close a `Loop` callback on an
+  input without that axis, and the newest sample of a window, left without
+  time, combines with every sample of it.
 - `Fir` on a multi-dimensional input (1.x took scalars only): every element
   is filtered over its window alone, with a kernel of its own or, with
   `shared_kernel=True`, one for all. `features > 1` adds the channels as
-  a leading dim axis: `D=(2, 3)` becomes `D=(4, 2, 3)` with 4 channels, and a
-  scalar becomes `D=(4,)` as in 1.x.
+  a trailing dim axis, laid out as the bias: `D=(2, 3)` becomes
+  `D=(2, 3, 4)` with 4 channels, and a scalar becomes `D=(4,)` as in 1.x.
 - `Fir(features, kernel=..., bias=...)` and `Linear(features,
   kernel=..., bias=...)`: their weights are `Parameter`s, predecessors of the
   layer in the graph. Each of `kernel` and `bias` is a `Parameter`, of the
@@ -136,12 +144,15 @@ variable, and trains, validates and exports through Keras. Models saved with
   sizes. `.value` is laid out `(*time, *dim)`.
 - `BatchNorm` normalizes along the first dim axis by default; `Softmax`,
   `PReLU` and `BatchNorm` take an explicit `axis` as a tensor axis, the batch
-  as 0.
+  as 0, as Keras does: a negative one counts from the last dim axis.
 - A layer is identified by the Python object it comes from: applying one layer
   object several times shares its weights, and layers created apart never
   share them, whatever their names.
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
   history.
+- The `.nnodely` save format is version 3. Saves and `.keras` exports made
+  with the 2.0 pre-releases, laid out `(batch, *dim, time, *seq)`, do not
+  load.
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
 

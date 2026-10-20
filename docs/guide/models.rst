@@ -48,8 +48,7 @@ Layers
 
 Every layer is created with its configuration and then called on streams. A
 layer with nothing to configure - its constructor takes only ``name``, as
-``Sin``, ``Exp``, ``Sigmoid`` or ``TimeConcatenate`` do - can be applied as it
-is created: ``Sin(x)`` is ``Sin()(x)``. To name it, configure it first:
+``Sin``, ``Exp`` or ``Sigmoid`` do - can be applied as it is created: ``Sin(x)`` is ``Sin()(x)``. To name it, configure it first:
 ``Sin(name="s")(x)``. A layer that reads one stream - an activation, a math or
 trigonometric layer, ``Clamp``, a membership function - called on a list of
 streams is applied to each and returns a list: ``Sin([a, b])`` gives
@@ -108,24 +107,30 @@ The tables group the available layers.
        :class:`~nnodely.Sqrt`, :class:`~nnodely.Abs`, :class:`~nnodely.Sign`,
        :class:`~nnodely.Floor`, :class:`~nnodely.Ceil`, :class:`~nnodely.Deg2Rad`,
        :class:`~nnodely.Negative`, :class:`~nnodely.Clamp`, :class:`~nnodely.Sum`.
-   * - Feature axis
+   * - Feature axes
      - :class:`~nnodely.Select` (one index), :class:`~nnodely.Range` (a slice),
-       :class:`~nnodely.Concatenate`.
-   * - Inner time (the window)
-     - :class:`~nnodely.TimeSelect`, :class:`~nnodely.TimeRange`,
-       :class:`~nnodely.TimeConcatenate`.
-   * - Outer time (the sequence)
-     - :class:`~nnodely.SeqSelect` (one element, the axis removed),
-       :class:`~nnodely.SeqRange`, :class:`~nnodely.SeqConcatenate`,
-       :class:`~nnodely.SeqStack` (a new axis), :class:`~nnodely.SeqReverse`.
-       ``axis`` counts the outer time axes outermost first; the default, 0, is
-       the outermost.
+       :class:`~nnodely.Concatenate`. ``axis`` counts the dim axes from 0.
+   * - Time axes
+     - :class:`~nnodely.TimeSelect` (one index), :class:`~nnodely.TimeRange`
+       (a slice), :class:`~nnodely.TimeConcatenate`,
+       :class:`~nnodely.TimeStack` (a new axis), :class:`~nnodely.TimeReverse`.
+       ``axis`` counts the time axes outermost first: the default, -1, is the
+       inner time, the window, and 0 the outer time - the rollout of the
+       outermost Loop, or the window without one.
    * - Calculus
      - :class:`~nnodely.Differentiate`, :class:`~nnodely.Derivative`,
        :class:`~nnodely.Integrate`, :class:`~nnodely.IntegrateStep`,
        :func:`~nnodely.Ode`, :class:`~nnodely.OdeNet` (see :doc:`physics`).
    * - Recurrence
      - :class:`~nnodely.Loop`, :class:`~nnodely.Roll` (see :doc:`recurrent`).
+
+``Select`` drops the dim axis it selects from, and ``keep_dim=True`` keeps it
+with length 1; a stream always has a dim, so selecting from a vector gives a
+scalar ``(1,)`` either way. ``TimeSelect`` keeps the time axis with length 1,
+one sample, and ``keep_dim=False`` drops it. Dropped from the only time axis,
+the sample is a stream without time, which combines with every sample of a
+window: ``w - TimeSelect(-1, keep_dim=False)(w)`` subtracts the newest sample
+from each. A range always keeps its axis.
 
 Some examples:
 
@@ -229,7 +234,7 @@ the memberships and the cells summed. A weightless elementwise layer such as
 applied to every cell with the same weights, and a plain function is a factory
 that receives the cell index ``(i, j)`` and returns the layer of that cell, with
 weights of its own. With ``vectorized=True`` a function or a layer such as
-``Fir(features=20)`` is called once on all the cells instead, and returns them on a first
+``Fir(features=20)`` is called once on all the cells instead, and returns them on a last
 dim axis of 20 entries. Functions passed to ``EquationLearner`` can be names,
 *nnodely* layer classes, or Python callables that take streams, such as
 ``lambda a, b: a * b``.

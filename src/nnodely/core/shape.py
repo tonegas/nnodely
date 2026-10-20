@@ -309,14 +309,6 @@ def transpose(x, permutation):
     return keras.ops.transpose(x, permutation)
 
 
-def inverse_permutation(permutation) -> list[int]:
-    """The permutation that undoes ``permutation``."""
-    inverse = [0] * len(permutation)
-    for position, axis in enumerate(permutation):
-        inverse[axis] = position
-    return inverse
-
-
 def align(
     x,
     time_rank: int,

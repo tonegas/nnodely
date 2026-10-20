@@ -485,7 +485,7 @@ def test_concatenate_rejects_incompatible_shapes():
     with pytest.raises(ValueError, match="matching dimensions"):
         Concatenate(axis=0)([x.last(), y.last()])
 
-    with pytest.raises(ValueError, match="matching dim and outer time"):
+    with pytest.raises(ValueError, match="matching dim and time axes except time"):
         TimeConcatenate()([x.last(), y.last()])
 
     with pytest.raises(ValueError, match="at least two inputs"):
@@ -947,10 +947,10 @@ def _fir_weights(fir, kernel_shape, bias_shape):
 
 def _fir_expected(values, kernel, bias=0.5):
     """``values [batch, time, *dim]`` filtered by ``kernel [*dim, time, out]``
-    (or ``[time, out]``, shared), as ``[batch, out, *dim]``."""
+    (or ``[time, out]``, shared), as ``[batch, *dim, out]``."""
     values = np.moveaxis(values, 1, -1)
     out = np.einsum(
-        "b...t,...to->bo...",
+        "b...t,...to->b...o",
         values,
         np.broadcast_to(kernel, values.shape[1:] + kernel.shape[-1:]),
     )
@@ -963,15 +963,13 @@ def _fir_expected(values, kernel, bias=0.5):
         ((1,), 1, (1,)),
         ((1,), 4, (4,)),
         ((2,), 1, (2,)),
-        ((2,), 3, (3, 2)),
+        ((2,), 3, (2, 3)),
         ((2, 3), 1, (2, 3)),
-        ((2, 3), 4, (4, 2, 3)),
+        ((2, 3), 4, (2, 3, 4)),
     ],
 )
 @pytest.mark.parametrize("shared_kernel", [False, True])
-def test_fir_adds_a_channel_axis_in_front_of_the_dim(
-    dim, features, expected, shared_kernel
-):
+def test_fir_adds_a_channel_axis_after_the_dim(dim, features, expected, shared_kernel):
     x = Input("fir_dim_x", dim=dim)
     fir = Fir(features=features, shared_kernel=shared_kernel)([x.sw(3)])
     model = Modely("fir_dim_model", inputs=[x], outputs=[Output("fir_dim_out", fir)])
@@ -996,7 +994,7 @@ def test_fir_filters_every_element_with_its_own_kernel():
     values = np.random.default_rng(3).normal(size=(2, 5, 2, 3)).astype(np.float32)
     result = to_numpy(model({"fir_own_x": values})["fir_own_out"])
 
-    assert result.shape == (2, 1, 4, 2, 3)
+    assert result.shape == (2, 1, 2, 3, 4)
     np.testing.assert_allclose(
         result[:, 0], _fir_expected(values, kernel), rtol=1e-5, atol=1e-5
     )
@@ -1004,7 +1002,7 @@ def test_fir_filters_every_element_with_its_own_kernel():
     changed = values.copy()
     changed[:, :, 1, 2] += 1.0
     changed_result = to_numpy(model({"fir_own_x": changed})["fir_own_out"])
-    np.testing.assert_allclose(changed_result[..., 0, 0], result[..., 0, 0])
+    np.testing.assert_allclose(changed_result[:, :, 0, 0], result[:, :, 0, 0])
 
 
 def test_fir_with_a_shared_kernel_filters_every_element_alike():
@@ -1022,7 +1020,7 @@ def test_fir_with_a_shared_kernel_filters_every_element_alike():
     values = np.random.default_rng(4).normal(size=(2, 5, 2, 3)).astype(np.float32)
     result = to_numpy(model({"fir_shared_x": values})["fir_shared_out"])
 
-    assert result.shape == (2, 1, 4, 2, 3)
+    assert result.shape == (2, 1, 2, 3, 4)
     np.testing.assert_allclose(
         result[:, 0], _fir_expected(values, kernel), rtol=1e-5, atol=1e-5
     )
@@ -1040,7 +1038,7 @@ def test_fir_with_one_channel_keeps_the_dim():
 
     assert result.shape == (2, 1, 2, 3)
     np.testing.assert_allclose(
-        result[:, 0], _fir_expected(values, kernel)[:, 0], rtol=1e-5, atol=1e-5
+        result[:, 0], _fir_expected(values, kernel)[..., 0], rtol=1e-5, atol=1e-5
     )
 
 
@@ -1051,13 +1049,13 @@ def test_fir_keeps_the_sequence_axes():
     fir = Fir(features=3, name="fir_seq")([x.sw(3, seq=4)])
     model = Modely("fir_seq_model", inputs=[x], outputs=[Output("fir_seq_out", fir)])
     model.build()
-    assert fir.shape.dimensions == ((4, 1), (3, 2))
+    assert fir.shape.dimensions == ((4, 1), (2, 3))
 
     kernel = _fir_weights(fir, (2, 3, 3), (2, 3))
     values = np.random.default_rng(1).normal(size=(2, 4, 3, 2)).astype(np.float32)
     result = to_numpy(model({"fir_seq_x": values})["fir_seq_out"])
 
-    assert result.shape == (2, 4, 1, 3, 2)
+    assert result.shape == (2, 4, 1, 2, 3)
     for step in range(4):
         np.testing.assert_allclose(
             result[:, step, 0],
@@ -1087,7 +1085,7 @@ def test_fir_without_sequence_axes_filters_the_whole_window():
 
 @pytest.mark.parametrize(
     "dim, features, expected",
-    [((1,), 2, (2,)), ((2, 3), 2, (2, 2, 3)), ((2, 3), 1, (2, 3))],
+    [((1,), 2, (2,)), ((2, 3), 2, (2, 3, 2)), ((2, 3), 1, (2, 3))],
 )
 def test_fir_follows_a_dynamic_sequence_length(dim, features, expected):
     x = Input("fir_dynamic_x", dim=dim)
@@ -1202,7 +1200,7 @@ def test_fir_takes_its_kernel_and_bias_from_parameters(
     values = np.random.default_rng(8).normal(size=(2, 3, 3)).astype(np.float32)
     result = to_numpy(model({"fir_param_x": values})["fir_param_out"])
 
-    assert result.shape == (2, 1, 4, 3)
+    assert result.shape == (2, 1, 3, 4)
     np.testing.assert_allclose(
         result[:, 0], _fir_expected(values, kernel / 10.0), rtol=1e-5, atol=1e-5
     )
@@ -1372,13 +1370,6 @@ def test_a_layer_without_configuration_is_applied_on_creation(layer_name):
     )
 
 
-def test_time_concatenate_is_applied_on_creation_to_a_list():
-    x = Input("direct_join_x")
-    joined = TimeConcatenate([x.sw(2), x.sw(3)])
-    assert isinstance(joined, TimeConcatenate)
-    assert joined.time == (5,)
-
-
 def test_a_name_passed_positionally_still_only_configures():
     configured = Sin("direct_named_sin")
     assert configured.name == "direct_named_sin"
@@ -1389,7 +1380,18 @@ def test_a_name_passed_positionally_still_only_configures():
 
 @pytest.mark.parametrize(
     "layer",
-    [ReLU, LeakyReLU, ELU, GELU, PReLU, Softmax, Linear, Fir, Concatenate],
+    [
+        ReLU,
+        LeakyReLU,
+        ELU,
+        GELU,
+        PReLU,
+        Softmax,
+        Linear,
+        Fir,
+        Concatenate,
+        TimeConcatenate,
+    ],
 )
 def test_a_layer_with_settings_is_configured_before_it_is_called(layer):
     assert layer._applied_on_creation is False

@@ -1,13 +1,13 @@
 """Partitions of a stream: the windows, selections and slices of its dim
 and time axes, and the concatenations that join streams along them.
 
-The dim operations count the dim axes from 0. The time ones act on the inner
-time, the window. The sequence ones act on the sequence: the time axes
-outside the window, counted outermost first - ``axis=0``, their default, is
-the outer time, the rollout of the outermost Loop - one of which may be
-dynamic (``None``), its length known only at run time. Each layer resolves
-the axis it acts on with the :class:`Shape` of its input, and gives its Keras
-layer that tensor axis.
+The dim operations count the dim axes from 0. The time ones mirror them on
+the time axes, counted outermost first: ``axis=-1``, their default, is the
+inner time, the window, and ``axis=0`` the outer time - the rollout of the
+outermost Loop, or the window without one. A time axis may be dynamic
+(``None``), its length known only at run time. Each layer resolves the axis
+it acts on with the :class:`Shape` of its input, and gives its Keras layer
+that tensor axis.
 """
 
 import keras
@@ -109,25 +109,36 @@ class SampleWindow(Layer):
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class SelectImpl(keras.layers.Layer):
-    """Serializable implementation of Select, on tensor axis ``axis``."""
+    """Serializable selection of index ``idx`` along the tensor axis ``axis``,
+    which is dropped, or kept with length 1 when ``keep_dim``."""
 
     def __init__(
         self,
         idx: int,
         axis: int,
+        keep_dim: bool = False,
         name=None,
         **kwargs,
     ):
         super().__init__(name=name, **kwargs)
         self.idx = int(idx)
         self.axis = int(axis)
+        self.keep_dim = bool(keep_dim)
 
     def call(self, x):
-        return slice_axis(x, self.axis, slice(self.idx, self.idx + 1))
+        # An integer index drops the axis. A negative one counts from the end
+        # of the data, so -1 is the last step of a sequence of any length.
+        if not self.keep_dim:
+            return slice_axis(x, self.axis, self.idx)
+        end = None if self.idx == -1 else self.idx + 1
+        return slice_axis(x, self.axis, slice(self.idx, end))
 
     def compute_output_shape(self, input_shape):
         output_shape = list(input_shape)
-        output_shape[self.axis] = 1
+        if self.keep_dim:
+            output_shape[self.axis] = 1
+        else:
+            del output_shape[self.axis]
         return tuple(output_shape)
 
     def get_config(self):
@@ -136,6 +147,7 @@ class SelectImpl(keras.layers.Layer):
             {
                 "idx": self.idx,
                 "axis": self.axis,
+                "keep_dim": self.keep_dim,
             }
         )
         return config
@@ -145,57 +157,59 @@ class Select(Layer):
     """
     Select one index along a chosen dim axis.
 
-    The selected dim axis is kept with length 1.
+    The selected dim axis is dropped, or with ``keep_dim=True`` kept with
+    length 1. A stream always has a dim, so selecting from a vector gives a
+    scalar ``(1,)`` either way.
 
     Examples
     --------
-    dim=(4, 3), axis=0 -> dim=(1, 3)
-    dim=(4, 3), axis=1 -> dim=(4, 1)
+    dim=(4, 3), axis=0 -> dim=(3,)
+    dim=(4, 3), axis=1, keep_dim=True -> dim=(4, 1)
+    dim=(4,) -> dim=(1,)
     """
 
-    def __init__(self, idx: int, axis: int = 0, name=None):
+    def __init__(self, idx: int, axis: int = 0, keep_dim: bool = False, name=None):
         self.idx = int(idx)
         self.axis = int(axis)
-        super().__init__(name=name, idx=self.idx, axis=self.axis)
+        self.keep_dim = bool(keep_dim)
+        super().__init__(
+            name=name, idx=self.idx, axis=self.axis, keep_dim=self.keep_dim
+        )
+
+    def _selected(self, shape):
+        """The dim axis, the index on it, and whether the axis is kept."""
+        axis = shape.resolve_dim(self.axis, self.name)
+        idx = _index(self.name, self.idx, shape.dim[axis], "dim", axis)
+        return axis, idx, self.keep_dim or shape.dim_rank == 1
+
+    def output_shape(self, *inputs):
+        shape = inputs[0].shape
+        axis, _, keep = self._selected(shape)
+        kept = (1,) if keep else ()
+        return shape.replace(dim=shape.dim[:axis] + kept + shape.dim[axis + 1 :])
 
     def build_layer(self):
         # The input's shape, not this node's: once applied, a Select carries
-        # its own output shape, in which the selected axis is 1 long.
+        # its own output shape, without the selected axis.
         shape = self.preds[0].shape  # type: ignore[union-attr]
-        axis = shape.resolve_dim(self.axis, self.name)
-
-        dim_size = shape.dim[axis]
-        idx = self.idx
-        if idx < 0:
-            idx += dim_size
-        if idx < 0 or idx >= dim_size:
-            raise ValueError(
-                f"{self.name}: idx {self.idx} out of bounds for dim axis {axis} "
-                f"of size {dim_size}."
-            )
-
+        axis, idx, keep = self._selected(shape)
         return SelectImpl(
             idx=idx,
             axis=shape.dim_axes[axis],
+            keep_dim=keep,
             name=self.name,
         )
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class RangeImpl(keras.layers.Layer):
-    """Serializable implementation of Range, on tensor axis ``axis``."""
+    """Serializable range ``[start, end)`` along the tensor axis ``axis``;
+    ``None`` leaves a bound open."""
 
-    def __init__(
-        self,
-        start: int,
-        end: int,
-        axis: int,
-        name=None,
-        **kwargs,
-    ):
+    def __init__(self, start, end, axis: int, name=None, **kwargs):
         super().__init__(name=name, **kwargs)
-        self.start = int(start)
-        self.end = int(end)
+        self.start = None if start is None else int(start)
+        self.end = None if end is None else int(end)
         self.axis = int(axis)
 
     def call(self, x):
@@ -203,7 +217,9 @@ class RangeImpl(keras.layers.Layer):
 
     def compute_output_shape(self, input_shape):
         output_shape = list(input_shape)
-        output_shape[self.axis] = self.end - self.start
+        output_shape[self.axis] = _range_length(
+            self.name, self.start, self.end, input_shape[self.axis]
+        )
         return tuple(output_shape)
 
     def get_config(self):
@@ -264,106 +280,106 @@ class Range(Layer):
         )
 
 
-@keras.saving.register_keras_serializable(package="nnodely")
-class TimeSelectImpl(keras.layers.Layer):
-    """Serializable implementation of selection along the time axis, the
-    tensor axis ``axis``."""
+class TimeSelect(Layer):
+    """
+    Select one index along a time axis, as :class:`Select` does along a dim
+    axis.
 
-    def __init__(self, idx: int, axis: int, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
+    ``axis`` counts the time axes outermost first: the default, -1, is the
+    inner time, the window, and 0 the outer time - the rollout of the
+    outermost Loop, or the window without one. A negative ``idx`` counts
+    from the end, also on a dynamic axis, so -1 is the newest sample of a
+    window, or the last step of a rollout of any length.
+
+    The selected axis is kept with length 1. With ``keep_dim=False`` it is
+    dropped, so the result can close a Loop callback on an input with one
+    time axis less, and a stream left without time broadcasts along the time
+    of any other.
+
+    Examples
+    --------
+    time=(5,), idx=-1 -> time=(1,)
+    time=(5,), idx=-1, keep_dim=False -> time=()
+    time=(dyn, 1), idx=-1, axis=0, keep_dim=False -> time=(1,)
+    time=(3, 5, 1), idx=0, axis=1, keep_dim=False -> time=(3, 1)
+    """
+
+    def __init__(self, idx: int, axis: int = -1, keep_dim: bool = True, name=None):
         self.idx = int(idx)
         self.axis = int(axis)
+        self.keep_dim = bool(keep_dim)
+        super().__init__(
+            name=name, idx=self.idx, axis=self.axis, keep_dim=self.keep_dim
+        )
 
-    def call(self, x):
-        return slice_axis(x, self.axis, slice(self.idx, self.idx + 1))
+    def _selected(self, shape):
+        """The time axis and the index on it."""
+        axis = shape.resolve_time(self.axis, self.name)
+        return axis, _index(self.name, self.idx, shape.time[axis], "time", axis)
 
-    def compute_output_shape(self, input_shape):
-        output_shape = list(input_shape)
-        output_shape[self.axis] = 1
-        return tuple(output_shape)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({"idx": self.idx, "axis": self.axis})
-        return config
-
-
-class TimeSelect(Layer):
-    """Select one value along the inner time, keeping the axis with length 1."""
-
-    def __init__(self, idx: int, name=None):
-        self.idx = int(idx)
-        super().__init__(name=name, idx=self.idx)
+    def output_shape(self, *inputs):
+        shape = inputs[0].shape
+        axis, _ = self._selected(shape)
+        kept = (1,) if self.keep_dim else ()
+        return shape.replace(time=shape.time[:axis] + kept + shape.time[axis + 1 :])
 
     def build_layer(self):
         shape = self.preds[0].shape  # type: ignore[union-attr]
-        input_time = int(shape.inner_time)
-        idx = self.idx
-        if idx < 0:
-            idx += input_time
-        if idx < 0 or idx >= input_time:
-            raise ValueError(
-                f"{self.name}: idx {self.idx} out of bounds for time length "
-                f"{input_time}."
-            )
-        return TimeSelectImpl(idx=idx, axis=shape.inner_time_axis, name=self.name)
-
-
-@keras.saving.register_keras_serializable(package="nnodely")
-class TimeRangeImpl(keras.layers.Layer):
-    """Serializable implementation of a contiguous range along the time axis,
-    the tensor axis ``axis``."""
-
-    def __init__(self, start: int, end: int, axis: int, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.start = int(start)
-        self.end = int(end)
-        self.axis = int(axis)
-
-    def call(self, x):
-        return slice_axis(x, self.axis, slice(self.start, self.end))
-
-    def compute_output_shape(self, input_shape):
-        output_shape = list(input_shape)
-        output_shape[self.axis] = self.end - self.start
-        return tuple(output_shape)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({"start": self.start, "end": self.end, "axis": self.axis})
-        return config
+        axis, idx = self._selected(shape)
+        return SelectImpl(
+            idx=idx,
+            axis=shape.time_axes[axis],
+            keep_dim=self.keep_dim,
+            name=self.name,
+        )
 
 
 class TimeRange(Layer):
-    """Select a contiguous range [start, end) along the inner time."""
+    """
+    Select a contiguous range [start, end) along a time axis, as
+    :class:`Range` does along a dim axis: the axis is kept, resized.
 
-    def __init__(self, start: int, end: int, name=None):
-        self.start = int(start)
-        self.end = int(end)
-        super().__init__(name=name, start=self.start, end=self.end)
+    ``axis`` counts the time axes outermost first, as in
+    :class:`TimeSelect`: the default, -1, is the window. ``None`` leaves a
+    bound open, and negative bounds count from the end. On a dynamic axis a
+    negative bound or an open end gives a dynamic axis.
+
+    Examples
+    --------
+    time=(10,), start=2, end=5 -> time=(3,)
+    time=(4, 6), start=1, end=3 -> time=(4, 2)
+    time=(dyn, 1), start=0, end=4, axis=0 -> time=(4, 1)
+    time=(dyn, 1), start=-3, end=None, axis=0 -> time=(dyn, 1)
+    """
+
+    def __init__(self, start: int | None, end: int | None, axis: int = -1, name=None):
+        self.start = None if start is None else int(start)
+        self.end = None if end is None else int(end)
+        self.axis = int(axis)
+        super().__init__(name=name, start=self.start, end=self.end, axis=self.axis)
+
+    def output_shape(self, *inputs):
+        shape = inputs[0].shape
+        axis = shape.resolve_time(self.axis, self.name)
+        length = _range_length(self.name, self.start, self.end, shape.time[axis])
+        return shape.replace(
+            time=shape.time[:axis] + (length,) + shape.time[axis + 1 :]
+        )
 
     def build_layer(self):
         shape = self.preds[0].shape  # type: ignore[union-attr]
-        input_time = int(shape.inner_time)
-        start = self.start
-        end = self.end
-        if start < 0:
-            start += input_time
-        if end < 0:
-            end += input_time
-        if start < 0 or end > input_time or start >= end:
-            raise ValueError(
-                f"{self.name}: invalid range [{self.start}, {self.end}) for "
-                f"time length {input_time}."
-            )
-        return TimeRangeImpl(
-            start=start, end=end, axis=shape.inner_time_axis, name=self.name
+        axis = shape.resolve_time(self.axis, self.name)
+        return RangeImpl(
+            start=self.start,
+            end=self.end,
+            axis=shape.time_axes[axis],
+            name=self.name,
         )
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class TimeConcatenateImpl(keras.layers.Layer):
-    """Serializable concatenation along the single time axis, the tensor axis
+    """Serializable concatenation along a time axis, the tensor axis
     ``axis``."""
 
     def __init__(self, axis: int, input_rank: int, name=None, **kwargs):
@@ -390,27 +406,59 @@ class TimeConcatenateImpl(keras.layers.Layer):
 
 
 class TimeConcatenate(Layer):
-    """Concatenate two or more streams along the inner time."""
+    """
+    Concatenate two or more streams along a time axis, as
+    :class:`Concatenate` does along a dim axis.
 
-    def __init__(self, name=None):
-        super().__init__(name=name)
+    ``axis`` counts the time axes outermost first, as in
+    :class:`TimeSelect`: the default, -1, is the window. All inputs must
+    share dim and every other time axis. A dynamic input makes the joined
+    axis dynamic.
+
+    Examples
+    --------
+    time=(2,) + time=(3,) -> time=(5,)
+    time=(4, 2) + time=(4, 3) -> time=(4, 5)
+    time=(3, 1) + time=(dyn, 1), axis=0 -> time=(dyn, 1)
+    """
+
+    def __init__(self, axis: int = -1, name=None):
+        self.axis = int(axis)
+        super().__init__(name=name, axis=self.axis)
+
+    def output_shape(self, *inputs):
+        self.inputs = list(inputs)
+        inputs = _concatenation_inputs(self)
+        shape = inputs[0].shape
+        axis = shape.resolve_time(self.axis, self.name)
+
+        def others(time):
+            return time[:axis] + time[axis + 1 :]
+
+        for input_node in inputs[1:]:
+            other = input_node.shape
+            if (
+                other.dim != shape.dim
+                or other.time_rank != shape.time_rank
+                or others(other.time) != others(shape.time)
+            ):
+                raise ValueError(
+                    f"{self.name}: all inputs must have matching dim and time "
+                    f"axes except time axis {self.axis}."
+                )
+        sizes = [input_node.shape.time[axis] for input_node in inputs]
+        joined = None if None in sizes else sum(int(size) for size in sizes)  # type: ignore[arg-type]
+        return shape.replace(
+            time=shape.time[:axis] + (joined,) + shape.time[axis + 1 :]
+        )
 
     def build_layer(self):
         inputs = _concatenation_inputs(self)
-        reference = inputs[0].shape
-        for input_node in inputs[1:]:
-            if (
-                input_node.dim != reference.dim
-                or input_node.time[:-1] != reference.time[:-1]
-            ):
-                raise ValueError(
-                    f"{self.name}: all inputs must have matching dim and outer time "
-                    "axes when concatenating time."
-                )
-
+        shape = inputs[0].shape
+        axis = shape.resolve_time(self.axis, self.name)
         return TimeConcatenateImpl(
-            axis=reference.inner_time_axis,
-            input_rank=reference.rank,
+            axis=shape.time_axes[axis],
+            input_rank=shape.rank,
             name=self.name,
         )
 
@@ -533,14 +581,17 @@ def _concatenated_output_shape(input_shapes, axis):
     return tuple(output_shape)
 
 
-# ---------------------------------------------------------------------------
-# Sequence axes: the time axes outside the window, outermost first
-# ---------------------------------------------------------------------------
-def _sequence_axis(shape, axis: int, owner: str, extra: int = 0) -> int:
-    """Sequence axis ``axis`` of ``shape``, counted outermost first, a
-    negative one from the window, checked; ``extra`` more positions for an
-    axis to add. It is also the index of that axis in ``shape.time``."""
-    return resolve_axis(axis, len(shape.time[:-1]) + extra, owner, "seq")
+def _index(owner: str, idx: int, size, kind: str, axis: int) -> int:
+    """``idx`` on axis ``axis`` of a kind, ``size`` long, checked and counted
+    from the start; on a dynamic axis a negative one stays counted from the
+    end."""
+    if size is None:
+        return idx
+    if not -size <= idx < size:
+        raise ValueError(
+            f"{owner}: idx {idx} out of bounds for {kind} axis {axis} of size {size}."
+        )
+    return idx % size
 
 
 def _range_length(name: str, start, end, size):
@@ -559,223 +610,14 @@ def _range_length(name: str, start, end, size):
         last = size if end is None else end + size if end < 0 else end
     if first < 0 or (size is not None and last > size) or first >= last:
         raise ValueError(
-            f"{name}: invalid range [{start}, {end}) for seq size "
+            f"{name}: invalid range [{start}, {end}) for an axis of size "
             f"{'dyn' if size is None else size}."
         )
     return last - first
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
-class SeqSelectImpl(keras.layers.Layer):
-    """Serializable selection of one element along a tensor axis, dropped."""
-
-    def __init__(self, idx: int, axis: int, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.idx = int(idx)
-        self.axis = int(axis)
-
-    def call(self, x):
-        # An integer index drops the axis, and a negative one counts from the
-        # end of the data, so -1 is the last step of a rollout of any length.
-        return slice_axis(x, self.axis, self.idx)
-
-    def compute_output_shape(self, input_shape):
-        output_shape = list(input_shape)
-        del output_shape[self.axis]
-        return tuple(output_shape)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({"idx": self.idx, "axis": self.axis})
-        return config
-
-
-class SeqSelect(Layer):
-    """
-    Select one element along a sequence axis, removing the axis.
-
-    Unlike :class:`Select` and :class:`TimeSelect`, which keep their axis with
-    length 1, the sequence axis is dropped, so the result can close a Loop
-    callback on an input with one sequence axis less. ``axis`` counts the
-    sequence axes outermost first: the default, 0, is the outer time. A
-    negative ``idx`` counts from the end, also on a dynamic axis.
-
-    Examples
-    --------
-    time=(dyn, 1), idx=-1 -> time=(1,)
-    time=(3, 5, 1), idx=0, axis=1 -> time=(3, 1)
-    """
-
-    def __init__(self, idx: int, axis: int = 0, name=None):
-        self.idx = int(idx)
-        self.axis = int(axis)
-        super().__init__(name=name, idx=self.idx, axis=self.axis)
-
-    def output_shape(self, *inputs):
-        shape = inputs[0].shape
-        axis = _sequence_axis(shape, self.axis, self.name)
-        size = shape.time[axis]
-        if size is not None and not -size <= self.idx < size:
-            raise ValueError(
-                f"{self.name}: idx {self.idx} out of bounds for seq axis {axis} "
-                f"of size {size}."
-            )
-        return shape.replace(time=shape.time[:axis] + shape.time[axis + 1 :])
-
-    def build_layer(self):
-        shape = self.preds[0].shape  # type: ignore[union-attr]
-        axis = _sequence_axis(shape, self.axis, self.name)
-        return SeqSelectImpl(idx=self.idx, axis=shape.time_axes[axis], name=self.name)
-
-
-@keras.saving.register_keras_serializable(package="nnodely")
-class SeqRangeImpl(keras.layers.Layer):
-    """Serializable range ``[start, end)`` along a tensor axis."""
-
-    def __init__(self, start, end, axis: int, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.start = None if start is None else int(start)
-        self.end = None if end is None else int(end)
-        self.axis = int(axis)
-
-    def call(self, x):
-        return slice_axis(x, self.axis, slice(self.start, self.end))
-
-    def compute_output_shape(self, input_shape):
-        output_shape = list(input_shape)
-        output_shape[self.axis] = _range_length(
-            self.name, self.start, self.end, input_shape[self.axis]
-        )
-        return tuple(output_shape)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({"start": self.start, "end": self.end, "axis": self.axis})
-        return config
-
-
-class SeqRange(Layer):
-    """
-    Select a contiguous range [start, end) along a sequence axis.
-
-    ``None`` leaves a bound open, and negative bounds count from the end. On a
-    dynamic axis a negative bound or an open end gives a dynamic axis.
-    ``axis`` counts the sequence axes outermost first.
-
-    Examples
-    --------
-    time=(10, 1), start=2, end=5 -> time=(3, 1)
-    time=(dyn, 1), start=0, end=4 -> time=(4, 1)
-    time=(dyn, 1), start=-3, end=None -> time=(dyn, 1)
-    """
-
-    def __init__(self, start: int | None, end: int | None, axis: int = 0, name=None):
-        self.start = None if start is None else int(start)
-        self.end = None if end is None else int(end)
-        self.axis = int(axis)
-        super().__init__(name=name, start=self.start, end=self.end, axis=self.axis)
-
-    def output_shape(self, *inputs):
-        shape = inputs[0].shape
-        axis = _sequence_axis(shape, self.axis, self.name)
-        length = _range_length(self.name, self.start, self.end, shape.time[axis])
-        return shape.replace(
-            time=shape.time[:axis] + (length,) + shape.time[axis + 1 :]
-        )
-
-    def build_layer(self):
-        shape = self.preds[0].shape  # type: ignore[union-attr]
-        axis = _sequence_axis(shape, self.axis, self.name)
-        return SeqRangeImpl(
-            start=self.start,
-            end=self.end,
-            axis=shape.time_axes[axis],
-            name=self.name,
-        )
-
-
-@keras.saving.register_keras_serializable(package="nnodely")
-class SeqConcatenateImpl(keras.layers.Layer):
-    """Serializable concatenation along an existing tensor axis."""
-
-    def __init__(self, axis: int, input_rank: int, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.axis = int(axis)
-        self.input_rank = int(input_rank)
-
-    def call(self, xs):
-        values = _concatenation_values(xs, self.input_rank)
-        return keras.ops.concatenate(values, axis=self.axis)
-
-    def compute_output_shape(self, input_shape):
-        output_shape = list(input_shape[0])
-        sizes = [shape[self.axis] for shape in input_shape]
-        output_shape[self.axis] = None if None in sizes else sum(sizes)
-        return tuple(output_shape)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({"axis": self.axis, "input_rank": self.input_rank})
-        return config
-
-
-class SeqConcatenate(Layer):
-    """
-    Concatenate two or more streams along an existing sequence axis.
-
-    All inputs must share dim and every other time axis. A dynamic input
-    makes the joined axis dynamic. ``axis`` counts the sequence axes
-    outermost first.
-
-    Examples
-    --------
-    time=(3, 1) + time=(5, 1) -> time=(8, 1)
-    time=(3, 1) + time=(dyn, 1) -> time=(dyn, 1)
-    """
-
-    def __init__(self, axis: int = 0, name=None):
-        self.axis = int(axis)
-        super().__init__(name=name, axis=self.axis)
-
-    def output_shape(self, *inputs):
-        self.inputs = list(inputs)
-        inputs = _concatenation_inputs(self)
-        shape = inputs[0].shape
-        axis = _sequence_axis(shape, self.axis, self.name)
-
-        def others(time):
-            return time[:axis] + time[axis + 1 :]
-
-        for input_node in inputs[1:]:
-            other = input_node.shape
-            if (
-                other.dim != shape.dim
-                or other.time_rank != shape.time_rank
-                or others(other.time) != others(shape.time)
-            ):
-                raise ValueError(
-                    f"{self.name}: all inputs must have matching dim and time "
-                    f"axes except seq axis {self.axis}."
-                )
-        sizes = [input_node.shape.time[axis] for input_node in inputs]
-        joined = None if None in sizes else sum(int(size) for size in sizes)  # type: ignore[arg-type]
-        return shape.replace(
-            time=shape.time[:axis] + (joined,) + shape.time[axis + 1 :]
-        )
-
-    def build_layer(self):
-        inputs = _concatenation_inputs(self)
-        shape = inputs[0].shape
-        axis = _sequence_axis(shape, self.axis, self.name)
-        return SeqConcatenateImpl(
-            axis=shape.time_axes[axis],
-            input_rank=shape.rank,
-            name=self.name,
-        )
-
-
-@keras.saving.register_keras_serializable(package="nnodely")
-class SeqStackImpl(keras.layers.Layer):
+class TimeStackImpl(keras.layers.Layer):
     """Serializable stack of tensors into a new tensor axis."""
 
     def __init__(self, axis: int, input_rank: int, name=None, **kwargs):
@@ -798,28 +640,30 @@ class SeqStackImpl(keras.layers.Layer):
         return config
 
 
-class SeqStack(Layer):
+class TimeStack(Layer):
     """
-    Stack two or more streams into a new sequence axis.
+    Stack two or more streams into a new time axis.
 
     All inputs must have the same shape. ``axis`` is the position of the new
-    axis among the sequence axes of the result, counted outermost first: the
-    default, 0, makes it the new outer time.
+    axis among the time axes of the result, counted outermost first: the
+    default, -1, makes it the new inner time, and 0 the new outer time, as a
+    Loop's rollout.
 
     Examples
     --------
-    4 x time=(1,) -> time=(4, 1)
+    3 x time=() -> time=(3,)
+    4 x time=(1,), axis=0 -> time=(4, 1)
     2 x time=(5, 1), axis=1 -> time=(5, 2, 1)
     """
 
-    def __init__(self, axis: int = 0, name=None):
+    def __init__(self, axis: int = -1, name=None):
         self.axis = int(axis)
         super().__init__(name=name, axis=self.axis)
 
     def _stacked(self, inputs):
         """The shape of the stack, and the position of its new time axis."""
         shape = inputs[0].shape
-        axis = _sequence_axis(shape, self.axis, self.name, extra=1)
+        axis = resolve_axis(self.axis, shape.time_rank + 1, self.name, "time")
         time = shape.time[:axis] + (len(inputs),) + shape.time[axis:]
         return shape.replace(time=time), axis
 
@@ -839,7 +683,7 @@ class SeqStack(Layer):
     def build_layer(self):
         inputs = _concatenation_inputs(self)
         stacked, axis = self._stacked(inputs)
-        return SeqStackImpl(
+        return TimeStackImpl(
             axis=stacked.time_axes[axis],
             input_rank=inputs[0].shape.rank,
             name=self.name,
@@ -847,7 +691,7 @@ class SeqStack(Layer):
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
-class SeqReverseImpl(keras.layers.Layer):
+class TimeReverseImpl(keras.layers.Layer):
     """Serializable reversal of the elements along a tensor axis."""
 
     def __init__(self, axis: int, name=None, **kwargs):
@@ -866,26 +710,27 @@ class SeqReverseImpl(keras.layers.Layer):
         return config
 
 
-class SeqReverse(Layer):
+class TimeReverse(Layer):
     """
-    Reverse the order of the elements along a sequence axis, counted
-    outermost first.
+    Reverse the order of the elements along a time axis, counted outermost
+    first, as in :class:`TimeSelect`: the default, -1, is the window.
 
     Examples
     --------
-    time=(dyn, 1) -> time=(dyn, 1)
+    time=(5,) -> time=(5,), its samples newest first
+    time=(dyn, 1), axis=0 -> time=(dyn, 1), its steps last first
     """
 
-    def __init__(self, axis: int = 0, name=None):
+    def __init__(self, axis: int = -1, name=None):
         self.axis = int(axis)
         super().__init__(name=name, axis=self.axis)
 
     def output_shape(self, *inputs):
         shape = inputs[0].shape
-        _sequence_axis(shape, self.axis, self.name)
+        shape.resolve_time(self.axis, self.name)
         return shape
 
     def build_layer(self):
         shape = self.preds[0].shape  # type: ignore[union-attr]
-        axis = _sequence_axis(shape, self.axis, self.name)
-        return SeqReverseImpl(axis=shape.time_axes[axis], name=self.name)
+        axis = shape.resolve_time(self.axis, self.name)
+        return TimeReverseImpl(axis=shape.time_axes[axis], name=self.name)

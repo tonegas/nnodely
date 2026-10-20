@@ -49,7 +49,7 @@ Feature axis
 
 .. autoclass:: Sum
 
-Time axis
+Time axes
 ---------
 
 .. autoclass:: TimeSelect
@@ -58,18 +58,9 @@ Time axis
 
 .. autoclass:: TimeConcatenate
 
-Sequence axes
--------------
+.. autoclass:: TimeStack
 
-.. autoclass:: SeqSelect
-
-.. autoclass:: SeqRange
-
-.. autoclass:: SeqConcatenate
-
-.. autoclass:: SeqStack
-
-.. autoclass:: SeqReverse
+.. autoclass:: TimeReverse
 
 Calculus
 --------

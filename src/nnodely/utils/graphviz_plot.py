@@ -110,7 +110,7 @@ def _role(node) -> str:
 
 
 def _shape(node) -> str:
-    """The shape as ``(*dim, time, *seq)``, a dynamic axis written ``dyn``."""
+    """The shape as ``(*time, *dim)``, a dynamic axis written ``dyn``."""
     shape = getattr(node, "shape", None)
     if shape is None:
         return ""

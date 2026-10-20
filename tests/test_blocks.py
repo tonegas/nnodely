@@ -1015,6 +1015,63 @@ def test_local_model_per_cell_once_and_vectorized_paths_agree():
         )
 
 
+def test_local_model_vectorized_fir_on_vector_cells():
+    # ------- Fir(features=N) on a vector gives (*cell, N): the cells -------
+    x = Input("vector_cells_x", dim=2)
+    g, h = Input("vector_cells_g"), Input("vector_cells_h")
+    activations = [
+        Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)([g.last()]),
+        Fuzzify(centers=[0.0, 1.0], function=Triangular)([h.last()]),
+    ]
+    rng = np.random.default_rng(7)
+    kernel = rng.normal(size=(2, 4, 6)).astype(np.float32)  # (*dim, window, N)
+    bias = rng.normal(size=(2, 6)).astype(np.float32)
+
+    vectorized = LocalModel(
+        Fir(
+            features=6,
+            kernel=Parameter(value=kernel),
+            bias=Parameter(value=bias),
+        ),
+        output_function=Tanh(),
+        vectorized=True,
+        name="vector_cells_vectorized",
+    )([x.sw(4)], activations)
+    # Cell (i, j) is number 2 * i + j: its own column of the kernel and bias.
+    per_cell = LocalModel(
+        lambda index: Fir(
+            features=1,
+            kernel=Parameter(value=kernel[..., 2 * index[0] + index[1], None]),
+            bias=Parameter(value=bias[:, 2 * index[0] + index[1], None]),
+        ),
+        output_function=Tanh(),
+        name="vector_cells_per_cell",
+    )([x.sw(4)], activations)
+    assert vectorized.shape.dimensions == per_cell.shape.dimensions == ((1,), (2,))
+
+    model = Modely(
+        "vector_cells",
+        inputs=[x, g, h],
+        outputs=[
+            Output("vector_cells_vectorized_out", vectorized),
+            Output("vector_cells_per_cell_out", per_cell),
+        ],
+    ).build()
+    result = model(
+        {
+            "vector_cells_x": rng.normal(size=(5, 4, 2)).astype(np.float32),
+            "vector_cells_g": rng.uniform(0.0, 2.0, size=(5, 1, 1)).astype(np.float32),
+            "vector_cells_h": rng.uniform(0.0, 1.0, size=(5, 1, 1)).astype(np.float32),
+        }
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["vector_cells_vectorized_out"]),
+        to_numpy(result["vector_cells_per_cell_out"]),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+
 def test_local_model_passes_cell_index():
     # ------- A factory builds each cell from its (i_j, i_k) index -------
     x = Input("index_x", dim=1)
@@ -1161,7 +1218,7 @@ def test_local_model_matrix_input_two_fuzzy_functions_by_hand():
 
 
 def test_local_model_matrix_input_without_input_function_by_hand():
-    # ------- Y = sum_c sin(mu_c * X), the output applied to the (6, 2, 2) stack ----
+    # ------- Y = sum_c sin(mu_c * X), the output applied to the (2, 2, 6) stack ----
     X = Input("X_plain", dim=(2, 2))
     a = Input("a_plain")
     b = Input("b_plain")

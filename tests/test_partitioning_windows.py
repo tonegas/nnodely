@@ -10,11 +10,12 @@ from nnodely import (
     Loop,
     Modely,
     Output,
-    SeqConcatenate,
-    SeqRange,
-    SeqReverse,
-    SeqSelect,
-    SeqStack,
+    Select,
+    TimeConcatenate,
+    TimeRange,
+    TimeReverse,
+    TimeSelect,
+    TimeStack,
 )
 
 
@@ -153,7 +154,7 @@ def test_partitioning_windows():
 
 
 # ---------------------------------------------------------------------------
-# Sequence axes: SeqSelect, SeqRange, SeqConcatenate, SeqStack, SeqReverse
+# Time axes: TimeSelect, TimeRange, TimeConcatenate, TimeStack, TimeReverse
 # ---------------------------------------------------------------------------
 def _run(name, inputs, relation, data):
     model = Modely(
@@ -162,10 +163,11 @@ def _run(name, inputs, relation, data):
     return to_numpy(model(data)[f"{name}_out"])
 
 
-def test_seq_select_fixed_drops_the_axis():
+def test_time_select_fixed_drops_the_axis():
     x = Input("seq_select_x", dim=2)
     window = x.sw(2, seq=5)
-    third, last = SeqSelect(2)([window]), SeqSelect(-1)([window])
+    third = TimeSelect(2, axis=0, keep_dim=False)([window])
+    last = TimeSelect(-1, axis=0, keep_dim=False)([window])
 
     assert third.shape.dimensions == ((2,), (2,))
     assert last.shape.dimensions == ((2,), (2,))
@@ -181,9 +183,9 @@ def test_seq_select_fixed_drops_the_axis():
     )
 
 
-def test_seq_select_dynamic_counts_from_the_end_of_the_data():
+def test_time_select_dynamic_counts_from_the_end_of_the_data():
     x = Input("seq_select_dyn_x")
-    last = SeqSelect(-1)([x.last(seq=-1)])
+    last = TimeSelect(-1, axis=0, keep_dim=False)([x.last(seq=-1)])
     assert last.shape.dimensions == ((1,), (1,))
 
     model = Modely(
@@ -195,11 +197,11 @@ def test_seq_select_dynamic_counts_from_the_end_of_the_data():
         np.testing.assert_allclose(result, values[:, -1])
 
 
-def test_seq_select_nested_axis():
+def test_time_select_nested_axis():
     x = Input("seq_select_nested_x")
     window = x.last(seq=(-1, -1))
-    outer = SeqSelect(0, axis=1)([window])
-    inner = SeqSelect(-1)([window])
+    outer = TimeSelect(0, axis=1, keep_dim=False)([window])
+    inner = TimeSelect(-1, axis=0, keep_dim=False)([window])
     assert outer.shape.time == (None, 1)
     assert inner.shape.time == (None, 1)
 
@@ -213,11 +215,11 @@ def test_seq_select_nested_axis():
     )
 
 
-def test_seq_range_fixed():
+def test_time_range_fixed():
     x = Input("seq_range_x", dim=2)
     window = x.last(seq=6)
-    middle = SeqRange(1, 4)([window])
-    tail = SeqRange(-3, None)([window])
+    middle = TimeRange(1, 4, axis=0)([window])
+    tail = TimeRange(-3, None, axis=0)([window])
     assert middle.shape.time == (3, 1)
     assert tail.shape.time == (3, 1)
 
@@ -229,12 +231,12 @@ def test_seq_range_fixed():
     np.testing.assert_allclose(_run("seq_range_tail", [x], tail, data), values[:, -3:])
 
 
-def test_seq_range_dynamic():
+def test_time_range_dynamic():
     x = Input("seq_range_dyn_x")
     window = x.last(seq=-1)
-    head = SeqRange(0, 2)([window])
-    tail = SeqRange(-3, None)([window])
-    open_start = SeqRange(None, 2)([window])
+    head = TimeRange(0, 2, axis=0)([window])
+    tail = TimeRange(-3, None, axis=0)([window])
+    open_start = TimeRange(None, 2, axis=0)([window])
     # A range with known non-negative bounds has a known length; one counted
     # from the end of the data follows the data.
     assert head.shape.time == (2, 1)
@@ -253,13 +255,13 @@ def test_seq_range_dynamic():
         np.testing.assert_allclose(to_numpy(result["seq_range_tail"]), values[:, -3:])
 
 
-def test_seq_concatenate():
+def test_time_concatenate():
     x = Input("seq_concat_x", dim=2)
     y = Input("seq_concat_y", dim=2)
     d = Input("seq_concat_d", dim=2)
     x_window, y_window = x.last(seq=3), y.last(seq=5)
-    joined = SeqConcatenate()([x_window, y_window])
-    dynamic = SeqConcatenate()([x_window, d.last(seq=-1)])
+    joined = TimeConcatenate(axis=0)([x_window, y_window])
+    dynamic = TimeConcatenate(axis=0)([x_window, d.last(seq=-1)])
     assert joined.shape.time == (8, 1)
     assert dynamic.shape.time == (None, 1)
 
@@ -286,10 +288,10 @@ def test_seq_concatenate():
     )
 
 
-def test_seq_concatenate_nested_axis():
+def test_time_concatenate_nested_axis():
     x = Input("seq_concat_nested_x")
     y = Input("seq_concat_nested_y")
-    joined = SeqConcatenate(axis=1)([x.last(seq=(-1, 2)), y.last(seq=(-1, 3))])
+    joined = TimeConcatenate(axis=1)([x.last(seq=(-1, 2)), y.last(seq=(-1, 3))])
     assert joined.shape.time == (None, 5, 1)
 
     xv = np.random.rand(1, 4, 2, 1, 1).astype(np.float32)
@@ -305,9 +307,9 @@ def test_seq_concatenate_nested_axis():
     )
 
 
-def test_seq_stack():
+def test_time_stack():
     a, b, c = (Input(f"seq_stack_{name}", dim=2) for name in "abc")
-    stacked = SeqStack()([a.last(), b.last(), c.last()])
+    stacked = TimeStack(axis=0)([a.last(), b.last(), c.last()])
     assert stacked.shape.dimensions == ((3, 1), (2,))
 
     values = {
@@ -320,10 +322,10 @@ def test_seq_stack():
     )
 
 
-def test_seq_stack_new_outer_axis_of_dynamic_sequences():
+def test_time_stack_new_outer_axis_of_dynamic_sequences():
     x = Input("seq_stack_dyn_x")
     y = Input("seq_stack_dyn_y")
-    stacked = SeqStack(axis=1)([x.last(seq=-1), y.last(seq=-1)])
+    stacked = TimeStack(axis=1)([x.last(seq=-1), y.last(seq=-1)])
     assert stacked.shape.time == (None, 2, 1)
 
     xv = np.random.rand(1, 6, 1, 1).astype(np.float32)
@@ -339,11 +341,11 @@ def test_seq_stack_new_outer_axis_of_dynamic_sequences():
     )
 
 
-def test_seq_reverse():
+def test_time_reverse():
     x = Input("seq_reverse_x", dim=2)
     window = x.last(seq=(-1, 3))
-    inner = SeqReverse()([window])
-    outer = SeqReverse(axis=1)([window])
+    inner = TimeReverse(axis=0)([window])
+    outer = TimeReverse(axis=1)([window])
     assert inner.shape.time == outer.shape.time == (None, 3, 1)
 
     values = np.random.rand(1, 5, 3, 1, 2).astype(np.float32)
@@ -356,30 +358,124 @@ def test_seq_reverse():
     )
 
 
-def test_seq_ops_reject_invalid_declarations():
+def test_time_ops_reject_invalid_declarations():
     x = Input("seq_invalid_x").last(seq=4)
     y = Input("seq_invalid_y").last(seq=(2, 4))
     plain = Input("seq_invalid_plain")
 
-    with pytest.raises(ValueError, match="out of bounds for seq axis"):
-        SeqSelect(4)([x])
-    with pytest.raises(ValueError, match="out of bounds for seq rank 0"):
-        SeqSelect(-1)([plain.last()])
-    with pytest.raises(ValueError, match="out of bounds for seq rank 1"):
-        SeqReverse(axis=1)([x])
+    with pytest.raises(ValueError, match="out of bounds for time axis"):
+        TimeSelect(4, axis=0)([x])
+    with pytest.raises(ValueError, match="out of bounds for time rank 0"):
+        TimeSelect(-1, axis=0)([plain])
+    with pytest.raises(ValueError, match="out of bounds for time rank 2"):
+        TimeReverse(axis=2)([x])
     with pytest.raises(ValueError, match="invalid range"):
-        SeqRange(3, 2)([x])
+        TimeRange(3, 2, axis=0)([x])
     with pytest.raises(ValueError, match="invalid range"):
-        SeqRange(0, 5)([x])
+        TimeRange(0, 5, axis=0)([x])
     with pytest.raises(ValueError, match="matching dim and time"):
-        SeqConcatenate()([x, y])
+        TimeConcatenate(axis=0)([x, y])
     with pytest.raises(ValueError, match="matching dim and time"):
-        SeqStack()([x, y])
+        TimeStack(axis=0)([x, y])
     with pytest.raises(ValueError, match="at least two inputs"):
-        SeqConcatenate()([x])
+        TimeConcatenate(axis=0)([x])
 
 
-def test_seq_select_closes_a_loop_chained_over_chunks():
+def test_select_drops_its_axis_unless_kept():
+    x = Input("select_keep_x", dim=(4, 3))
+    v = Input("select_keep_v", dim=4)
+    dropped = Select(1)([x.last()])
+    kept = Select(-1, axis=1, keep_dim=True)([x.last()])
+    # A stream always has a dim: the only axis of a vector stays, as a scalar.
+    scalar = Select(2)([v.last()])
+    assert dropped.shape.dimensions == ((1,), (3,))
+    assert kept.shape.dimensions == ((1,), (4, 1))
+    assert scalar.shape.dimensions == ((1,), (1,))
+
+    xv = np.random.rand(2, 1, 4, 3).astype(np.float32)
+    vv = np.random.rand(2, 1, 4).astype(np.float32)
+    data = {"select_keep_x": xv, "select_keep_v": vv}
+    np.testing.assert_allclose(
+        _run("select_dropped", [x], dropped, data), xv[..., 1, :]
+    )
+    np.testing.assert_allclose(_run("select_kept", [x], kept, data), xv[..., -1:])
+    np.testing.assert_allclose(_run("select_scalar", [v], scalar, data), vv[..., 2:3])
+
+
+def test_time_select_keeps_its_axis_by_default():
+    x = Input("time_keep_x", dim=2)
+    window = x.sw(3, seq=-1)
+    last_step = TimeSelect(-1, axis=0)([window])
+    last_sample = TimeSelect(-1)([window])
+    assert last_step.shape.time == (1, 3)
+    assert last_sample.shape.time == (None, 1)
+
+    model = Modely(
+        "time_keep",
+        inputs=[x],
+        outputs=[
+            Output("time_keep_step", last_step),
+            Output("time_keep_sample", last_sample),
+        ],
+    ).build()
+    for steps in (1, 4):
+        values = np.random.rand(1, steps, 3, 2).astype(np.float32)
+        result = model({"time_keep_x": values})
+        # -1 is the last step of a dynamic axis, of any length.
+        np.testing.assert_allclose(to_numpy(result["time_keep_step"]), values[:, -1:])
+        np.testing.assert_allclose(
+            to_numpy(result["time_keep_sample"]), values[:, :, -1:]
+        )
+
+
+def test_time_ops_act_on_the_window_by_default():
+    # The inner time; the outer time, a sequence, is kept.
+    x = Input("inner_ops_x")
+    y = Input("inner_ops_y")
+    x_window, y_window = x.sw(2, seq=4), y.sw(3, seq=4)
+    newest = TimeSelect(-1)([x_window])
+    middle = TimeRange(1, 3)([y_window])
+    joined = TimeConcatenate()([x_window, y_window])
+    stacked = TimeStack()([x_window, x_window])
+    reversed_ = TimeReverse()([y_window])
+    assert newest.shape.time == (4, 1)
+    assert middle.shape.time == (4, 2)
+    assert joined.shape.time == (4, 5)
+    assert stacked.shape.time == (4, 2, 2)
+    assert reversed_.shape.time == (4, 3)
+
+    xv = np.random.rand(2, 4, 2, 1).astype(np.float32)
+    yv = np.random.rand(2, 4, 3, 1).astype(np.float32)
+    data = {"inner_ops_x": xv, "inner_ops_y": yv}
+    np.testing.assert_allclose(_run("inner_newest", [x], newest, data), xv[:, :, -1:])
+    np.testing.assert_allclose(_run("inner_middle", [y], middle, data), yv[:, :, 1:3])
+    np.testing.assert_allclose(
+        _run("inner_joined", [x, y], joined, data), np.concatenate([xv, yv], axis=2)
+    )
+    np.testing.assert_allclose(
+        _run("inner_stacked", [x], stacked, data), np.stack([xv, xv], axis=3)
+    )
+    np.testing.assert_allclose(
+        _run("inner_reversed", [y], reversed_, data), yv[:, :, ::-1]
+    )
+
+
+def test_a_selected_sample_broadcasts_along_the_window():
+    # Without time, the newest sample combines with every sample of the window.
+    x = Input("relative_x")
+    window = x.sw(4)
+    relative = window - TimeSelect(-1, keep_dim=False)([window])
+    assert relative.shape.dimensions == ((4,), (1,))
+
+    values = np.random.rand(2, 4, 1).astype(np.float32)
+    np.testing.assert_allclose(
+        _run("relative", [x], relative, {"relative_x": values}),
+        values - values[:, -1:],
+        rtol=1e-6,
+    )
+
+
+def test_time_select_closes_a_loop_chained_over_chunks():
     # #209: an outer Loop chains the chunks of an inner one, each chunk seeded
     # by the last position and velocity of the one before.
     vx0, px0, ax = Input("chunk_vx0"), Input("chunk_px0"), Input("chunk_ax")
@@ -399,8 +495,8 @@ def test_seq_select_closes_a_loop_chained_over_chunks():
         inputs=[ax_sq, px0_init, vx0_init],
         outputs=[
             Output("chunk_traj", position),
-            Output("chunk_last_px", SeqSelect(-1)([position])),
-            Output("chunk_last_vx", SeqSelect(-1)([velocity])),
+            Output("chunk_last_px", TimeSelect(-1, axis=0, keep_dim=False)([position])),
+            Output("chunk_last_vx", TimeSelect(-1, axis=0, keep_dim=False)([velocity])),
         ],
     ).build()
 
@@ -440,12 +536,12 @@ def test_seq_select_closes_a_loop_chained_over_chunks():
     )
 
 
-def test_one_seq_op_applied_to_streams_of_two_shapes():
+def test_one_time_op_applied_to_streams_of_two_shapes():
     # The second application once reused the Keras layer built for the first,
-    # with the tensor axis of the first stream: SeqReverse reversed the wrong
-    # axis of the second. Counted from the window, -1 is the innermost
-    # sequence axis of both.
-    reverse = SeqReverse(axis=-1)
+    # with the tensor axis of the first stream: TimeReverse reversed the wrong
+    # axis of the second. Counted from the inner time, -2 is the time axis
+    # right outside the window of both.
+    reverse = TimeReverse(axis=-2)
     c = Input("two_shapes_c")
     d = Input("two_shapes_d", dim=(2, 2))
     model = Modely(

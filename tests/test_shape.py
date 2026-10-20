@@ -18,7 +18,6 @@ from nnodely.core.shape import (
     OUTER_TIME_AXIS,
     Shape,
     expand_to_rank,
-    inverse_permutation,
     outer_time_view,
     slice_axis,
     transpose,
@@ -133,9 +132,7 @@ def test_slice_axis_indexes_one_axis():
 def test_a_permutation_and_its_inverse_give_the_tensor_back():
     x = _tensor(Shape(dim=(2, 3), time=(5, 4)))
     permutation = [0, 3, 4, 1, 2]
-    back = transpose(
-        to_numpy(transpose(x, permutation)), inverse_permutation(permutation)
-    )
+    back = transpose(to_numpy(transpose(x, permutation)), np.argsort(permutation))
     np.testing.assert_array_equal(to_numpy(back), x)
     assert transpose(x, range(x.ndim)) is x
 

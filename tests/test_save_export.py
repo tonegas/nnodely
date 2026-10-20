@@ -42,11 +42,11 @@ from nnodely import (
     Range,
     ReLU,
     Roll,
-    SeqConcatenate,
-    SeqRange,
-    SeqReverse,
-    SeqSelect,
-    SeqStack,
+    TimeConcatenate,
+    TimeRange,
+    TimeReverse,
+    TimeSelect,
+    TimeStack,
     Sigmoid,
     Sign,
     Sin,
@@ -57,9 +57,6 @@ from nnodely import (
     Swish,
     Tan,
     Tanh,
-    TimeConcatenate,
-    TimeRange,
-    TimeSelect,
 )
 from nnodely.core.layer import Identity
 from nnodely.layers.partitions import Select
@@ -235,18 +232,24 @@ def _seq_ops_model():
         outputs=[
             Output(
                 "seq_ops_joined",
-                SeqConcatenate(axis=-1, name="seq_ops_concat")(
+                TimeConcatenate(axis=1, name="seq_ops_concat")(
                     [
-                        SeqRange(1, 3, axis=-1, name="seq_ops_range")([window]),
-                        SeqReverse(axis=-1, name="seq_ops_reverse")([window]),
+                        TimeRange(1, 3, axis=1, name="seq_ops_range")([window]),
+                        TimeReverse(axis=1, name="seq_ops_reverse")([window]),
                     ]
                 ),
             ),
-            Output("seq_ops_last", SeqSelect(-1, name="seq_ops_select")([window])),
+            Output(
+                "seq_ops_last",
+                TimeSelect(-1, axis=0, keep_dim=False, name="seq_ops_select")([window]),
+            ),
             Output(
                 "seq_ops_stacked",
-                SeqStack(name="seq_ops_stack")(
-                    [SeqSelect(0)([window]), SeqSelect(-1)([window])]
+                TimeStack(axis=0, name="seq_ops_stack")(
+                    [
+                        TimeSelect(0, axis=0, keep_dim=False)([window]),
+                        TimeSelect(-1, axis=0, keep_dim=False)([window]),
+                    ]
                 ),
             ),
         ],
@@ -1340,8 +1343,14 @@ def test_export_onnx_seq_ops_follow_the_data(tmp_path):
         "dyn_seq_ops",
         inputs=[x],
         outputs=[
-            Output("dyn_seq_ops_last", SeqSelect(-1)([sequence])),
-            Output("dyn_seq_ops_tail", SeqReverse()(SeqRange(-2, None)([sequence]))),
+            Output(
+                "dyn_seq_ops_last",
+                TimeSelect(-1, axis=0, keep_dim=False)([sequence]),
+            ),
+            Output(
+                "dyn_seq_ops_tail",
+                TimeReverse(axis=0)(TimeRange(-2, None, axis=0)([sequence])),
+            ),
         ],
     ).build()
     model.export_onnx(tmp_path)
