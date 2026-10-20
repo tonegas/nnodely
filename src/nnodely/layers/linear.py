@@ -8,14 +8,14 @@ from nnodely.layers.parameter import Parameter, _check_weight_size, _ParameterWe
 @keras.saving.register_keras_serializable(package="nnodely")
 class LinearImpl(keras.layers.Layer):
     """
-    Linear projection of the dim axes, ``x @ kernel + bias``, at every time
-    and sequence step.
+    Linear projection of the dim axes, ``x @ kernel + bias``, at every step
+    of every time axis.
 
     Input convention:
-        [batch, *dim, time, *seq]
+        [batch, *time, *dim]
 
     Output convention, with ``axis=None``:
-        [batch, features, time, *seq]
+        [batch, *time, features]
 
     With ``axis=k`` only dim axis ``k`` is projected, and ``features``
     takes its place among the dim axes: with a matrix of its own at every
@@ -54,7 +54,8 @@ class LinearImpl(keras.layers.Layer):
         return config
 
     def build(self, input_shape):
-        dim = tuple(int(axis) for axis in input_shape[0][1 : 1 + self.dim_rank])
+        # The dim axes are the last ones.
+        dim = tuple(int(axis) for axis in input_shape[0][-self.dim_rank :])
         self.kernel_shape, self.bias_shape = _linear_weight_shapes(
             dim, self.features, self.axis, self.shared_kernel
         )
@@ -67,41 +68,28 @@ class LinearImpl(keras.layers.Layer):
     def call(self, inputs):
         x, kernel, *bias = inputs
         kernel = keras.ops.reshape(kernel[0], self.kernel_shape)
-        rank = len(x.shape)
-        steps = list(range(1 + self.dim_rank, rank))  # time and seq
 
         if self.axis is None:
-            # [batch, *dim, time, *seq] -> [batch, time, *seq, *dim], the dim
-            # contracted with the first axes of the kernel.
-            x = keras.ops.transpose(x, [0, *steps, *range(1, 1 + self.dim_rank)])
+            # The dim, the last axes of (batch, *time, *dim), contracted with
+            # the first axes of the kernel: (batch, *time, out).
             y = keras.ops.tensordot(x, kernel, axes=self.dim_rank)
             if bias:
                 y = y + keras.ops.reshape(bias[0][0], self.bias_shape)
-            return keras.ops.moveaxis(y, -1, 1)
+            return y
 
-        # [batch, *dim, time, *seq] -> [batch, time, *seq, *kept, 1, projected]:
+        # The projected axis moved last, (batch, *time, *kept, 1, projected):
         # every position of the kept axes times its matrix, or the shared one.
-        kept = [1 + axis for axis in range(self.dim_rank) if axis != self.axis]
-        x = keras.ops.transpose(x, [0, *steps, *kept, 1 + self.axis])
+        # The axes are addressed from the front, which ONNX needs.
+        last = len(x.shape) - 1
+        projected = last + 1 - self.dim_rank + self.axis
+        if projected != last:
+            x = keras.ops.moveaxis(x, projected, last)
         y = keras.ops.matmul(keras.ops.expand_dims(x, -2), kernel)
         y = keras.ops.squeeze(y, -2)
         if bias:
             y = y + keras.ops.reshape(bias[0][0], self.bias_shape)
-
-        # [batch, time, *seq, *kept, out] -> [batch, *dim with out at axis,
-        # time, *seq]
-        first_kept = 1 + len(steps)
-        kept_axes = list(range(first_kept, first_kept + len(kept)))
-        return keras.ops.transpose(
-            y,
-            [
-                0,
-                *kept_axes[: self.axis],
-                len(y.shape) - 1,
-                *kept_axes[self.axis :],
-                *range(1, first_kept),
-            ],
-        )
+        # out back in place of the projected axis.
+        return y if projected == last else keras.ops.moveaxis(y, last, projected)
 
 
 def _linear_weight_shapes(dim, features, axis, shared_kernel):
@@ -115,13 +103,13 @@ def _linear_weight_shapes(dim, features, axis, shared_kernel):
 class Linear(_ParameterWeights):
     """
     Linear projection of the dim axes, ``x @ kernel + bias``, applied at every
-    time and sequence step.
+    step of every time axis.
 
     With ``axis=None`` the whole dim is projected: every feature of a sample
     feeds every output::
 
-        input:  (batch, *dim, time, *seq)
-        output: (batch, features, time, *seq)
+        input:  (batch, *time, *dim)
+        output: (batch, *time, features)
         kernel: (*dim, features)
         bias:   (features,)
 
@@ -209,7 +197,7 @@ class Linear(_ParameterWeights):
             if axis is None
             else (*dim[:axis], self.features, *dim[axis + 1 :])
         )
-        return out_dim, inputs[0].time, tuple(inputs[0].seq)
+        return inputs[0].shape.replace(dim=out_dim)
 
     def build_layer(self):
         dim = tuple(self.preds[0].dim)  # type: ignore[attr-defined]

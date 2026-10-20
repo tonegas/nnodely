@@ -8,6 +8,7 @@ import numpy as np
 
 from nnodely.core.dag import _streams_from
 from nnodely.core.layer import Layer
+from nnodely.core.shape import OUTER_TIME_AXIS, expand_to_rank, outer_time_view
 from nnodely.core.stream import Node, Stream
 from nnodely.layers.input import Input
 from nnodely.utils.utils import MaskedLoss, _resolve_loss, _weighted_sequence_loss
@@ -26,7 +27,7 @@ def _depends_on_dynamic_input(node) -> bool:
         if id(current) in seen:
             continue
         seen.add(id(current))
-        if isinstance(current, Input) and any(n is None for n in current.seq):
+        if isinstance(current, Input) and any(n is None for n in current.time):
             return True
         stack.extend(current.preds)
     return False
@@ -125,7 +126,7 @@ def _validate_seq_weights(seq_weights, source: Stream, minimizer: str):
     """
     if seq_weights is None:
         return None
-    steps = None if _depends_on_dynamic_input(source) else source.shape.tuple[-1]
+    steps = None if _depends_on_dynamic_input(source) else source.shape.outer_time
     if callable(seq_weights):
         if steps is not None:
             _seq_weights_for(seq_weights, steps, minimizer)
@@ -205,8 +206,7 @@ class MinimizerModel(keras.Model):
         """
         broadcast = term.target_constant
         if broadcast:
-            while len(target.shape) < len(source.shape):
-                target = keras.ops.expand_dims(target, axis=-1)
+            target = expand_to_rank(target, len(source.shape))
 
         source_axes, target_axes = tuple(source.shape[1:]), tuple(target.shape[1:])
         compatible = len(source_axes) == len(target_axes) and all(
@@ -242,21 +242,21 @@ class MinimizerModel(keras.Model):
             source = y_pred[term.source]
             target = self._align_target(term, y_pred[term.target], source)
             # The mask is one row per sample, one column per rollout step, and
-            # the rollout is the last axis of every padded stream.
+            # the rollout is the outer step axis of every padded stream.
             rollout = (
-                target.shape[-1] in (None, y.shape[-1]) if y is not None else False
+                target.shape[OUTER_TIME_AXIS] in (None, y.shape[-1])
+                if y is not None
+                else False
             )
             if term.masked and rollout:
-                valid = keras.ops.cast(y, "bool")
-                for _ in range(len(target.shape) - 2):
-                    valid = keras.ops.expand_dims(valid, axis=1)
+                valid = outer_time_view(keras.ops.cast(y, "bool"), len(target.shape))
                 target = keras.ops.where(
                     valid, target, keras.ops.full_like(target, np.nan)
                 )
             if term.seq_weights is not None:
                 # The rollout is unrolled, so its length is static here.
                 weights = _seq_weights_for(
-                    term.seq_weights, source.shape[-1], term.name
+                    term.seq_weights, source.shape[OUTER_TIME_AXIS], term.name
                 )
                 value = _weighted_sequence_loss(term.loss, target, source, weights)
             else:

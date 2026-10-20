@@ -16,6 +16,7 @@ import keras
 import numpy as np
 
 from nnodely.core.minimizer import _reads_input, _seq_weights_for
+from nnodely.core.shape import OUTER_TIME_AXIS, expand_to_rank
 
 #: Samples evaluated per forward pass during validation. Validation is defined
 #: one sample at a time - nothing about the result depends on this number - so
@@ -52,8 +53,8 @@ def evaluate_loss(
 ) -> float:
     """The minimizer's own loss, so validation is scored the way it was trained.
 
-    With ``seq_weights`` the signals keep their layout, whose last axis is the
-    one the weights are laid along.
+    With ``seq_weights`` the signals keep their layout, whose outer step axis
+    is the one the weights are laid along.
     """
     if loss_fn is None:
         return float(np.mean((y_true - y_pred) ** 2))
@@ -276,13 +277,12 @@ def _minimizer_key(model, node) -> str | None:
 def _broadcast_constant(values, source_values: np.ndarray) -> np.ndarray:
     """A target built from constants, laid out like its source's predictions.
 
-    The numpy twin of what training does: append the axes the target
-    omits, then broadcast - so a dim-2 Constant lines up with the dim
-    axis, not the time axis.
+    The numpy twin of what training does: add the axes the target omits
+    where :func:`expand_to_rank` puts them, then broadcast - so a dim-2
+    Constant lines up with the dim axis, not the time axis.
     """
     values = np.asarray(values, dtype=np.float32)
-    while values.ndim < source_values.ndim:
-        values = values[..., np.newaxis]
+    values = expand_to_rank(values, source_values.ndim, np.expand_dims)
     return np.broadcast_to(values, source_values.shape)
 
 
@@ -376,7 +376,9 @@ def validate(
             seq_weights=(
                 None
                 if minimizer.get("seq_weights") is None
-                else _seq_weights_for(minimizer["seq_weights"], y_true.shape[-1], name)
+                else _seq_weights_for(
+                    minimizer["seq_weights"], y_true.shape[OUTER_TIME_AXIS], name
+                )
             ),
             y_true=y_true,
             y_pred=np.asarray(predictions[source_key][:n_samples]),

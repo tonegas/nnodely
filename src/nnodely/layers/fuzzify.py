@@ -8,6 +8,7 @@ import keras
 
 from nnodely.core.dag import next_name
 from nnodely.core.layer import Layer
+from nnodely.core.shape import expand_to_rank, slice_axis
 from nnodely.core.stream import Stream
 from nnodely.layers.function import KerasFunction, _is_keras_layer
 from nnodely.layers.parameter import Constant
@@ -118,8 +119,8 @@ class _Membership(Layer):
     _one_stream = True
 
     def output_shape(self, *inputs):
-        # Elementwise: every axis kept, a dynamic sequence axis included.
-        return inputs[0].shape.dimensions
+        # Elementwise: every axis kept, a dynamic time axis included.
+        return inputs[0].shape
 
     @classmethod
     def _placed(cls, center, left, right, name):
@@ -265,22 +266,19 @@ def _neighbor_distances(centers):
     ]
 
 
-def _neighbors(centers, index, rank):
-    """Center ``index`` of a tensor of centers ``(batch, n, 1, *seq)``, and
-    its distances to the centers on its left and on its right, read as
-    :func:`_neighbor_distances` reads fixed centers; each laid out with
-    ``rank`` axes, to broadcast against the signal."""
+def _neighbors(centers, index, rank, axis):
+    """Center ``index`` of a tensor of centers, which lie along its tensor
+    axis ``axis``, and its distances to the centers on its left and on its
+    right, read as :func:`_neighbor_distances` reads fixed centers; each
+    given ``rank`` axes, to broadcast against the signal."""
 
     def center(k):
-        value = centers[:, k : k + 1]
-        while len(value.shape) < rank:
-            value = keras.ops.expand_dims(value, axis=-1)
-        return value
+        return expand_to_rank(slice_axis(centers, axis, slice(k, k + 1)), rank)
 
     def gap(k):
         return center(k + 1) - center(k)
 
-    count = centers.shape[1]
+    count = centers.shape[axis]
     if count == 1:
         return center(0), 1.0, 1.0
     return center(index), gap(max(index - 1, 0)), gap(min(index, count - 2))
@@ -288,20 +286,23 @@ def _neighbors(centers, index, rank):
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class MovingMembershipImpl(keras.layers.Layer):
-    def __init__(self, membership="Triangular", index=0, name=None, **kwargs):
+    def __init__(self, axis, membership="Triangular", index=0, name=None, **kwargs):
         super().__init__(name=name, **kwargs)
+        self.axis = int(axis)
         self.membership = membership
         self.index = int(index)
 
     def call(self, inputs):
         x, centers = inputs
-        center, left, right = _neighbors(centers, self.index, len(x.shape))
+        center, left, right = _neighbors(centers, self.index, len(x.shape), self.axis)
         function = _MEMBERSHIPS[self.membership.lower()]
         return function._moving(x, center, left, right)
 
     def get_config(self):
         config = super().get_config()
-        config.update({"membership": self.membership, "index": self.index})
+        config.update(
+            {"axis": self.axis, "membership": self.membership, "index": self.index}
+        )
         return config
 
 
@@ -317,11 +318,16 @@ class MovingMembership(Layer):
         super().__init__(name=name, membership=membership, index=self.index)
 
     def output_shape(self, *inputs):
-        return inputs[0].shape.dimensions
+        return inputs[0].shape
 
     def build_layer(self):
+        # The centers lie along their one dim axis.
+        centers = self.preds[1].shape  # type: ignore[union-attr]
         return MovingMembershipImpl(
-            membership=self.membership, index=self.index, name=self.name
+            axis=centers.dim_axes[0],
+            membership=self.membership,
+            index=self.index,
+            name=self.name,
         )
 
 
@@ -464,10 +470,11 @@ class Fuzzify:
         # A membership placed on centers that move reads them with the signal.
         placed_inputs: list[Stream] = [x]
         if isinstance(self.centers, Stream):
-            if self.centers.shape.seq not in ((), x.shape.seq):
+            outer = tuple(self.centers.shape.time[:-1])
+            if outer not in ((), tuple(x.shape.time[:-1])):
                 raise ValueError(
-                    f"{self.name}: centers with a sequence axis have the "
-                    f"signal's, {x.shape.seq}; got {self.centers.shape.seq}."
+                    f"{self.name}: centers with outer time axes have the signal's, "
+                    f"{tuple(x.shape.time[:-1])}; got {outer}."
                 )
             placed_inputs = [x, self.centers]
         if self._layers is None:
@@ -496,13 +503,14 @@ class Fuzzify:
 
 def _centers(centers, owner: str) -> list[float] | Stream:
     """``centers`` checked: fixed, a list of numbers; or moving, one stream
-    of shape ``(n,)``, given as it is or concatenated from a list of scalar
-    streams and numbers."""
+    of shape ``(n,)``, of one time step or none, given as it is or
+    concatenated from a list of scalar streams and numbers."""
     if isinstance(centers, Stream):
-        if centers.shape.dim_rank != 1 or centers.shape.time != 1:
+        if centers.shape.dim_rank != 1 or not _one_step(centers):
             raise ValueError(
                 f"{owner}: a stream of centers is a vector of shape (n,), one "
-                f"time step; got dim {centers.shape.dim}, time {centers.shape.time}."
+                f"sample of inner time or none; got dim {centers.shape.dim}, time "
+                f"{centers.shape.time}."
             )
         return centers
     items = list(centers)
@@ -515,16 +523,22 @@ def _centers(centers, owner: str) -> list[float] | Stream:
     for index, item in enumerate(items):
         if not isinstance(item, Stream):
             item = Constant(f"{owner}_center_{index}", value=[float(item)])
-        elif tuple(item.shape.dim) != (1,) or item.shape.time != 1:
+        elif tuple(item.shape.dim) != (1,) or not _one_step(item):
             raise ValueError(
                 f"{owner}: in a list every center is a number or a scalar "
-                f"stream, dim (1,) and one time step; center {index} has dim "
-                f"{item.shape.dim}, time {item.shape.time}."
+                f"stream, dim (1,) and one time step or none; center {index} has "
+                f"dim {item.shape.dim}, time {item.shape.time}."
             )
         streams.append(item)
     if len(streams) == 1:
         return streams[0]
     return Concatenate(axis=0, name=f"{owner}_centers")(streams)
+
+
+def _one_step(stream: Stream) -> bool:
+    """Whether a stream holds one step of inner time, or no time at all; its
+    outer time, if any, must be the signal's."""
+    return not stream.shape.time or stream.shape.time[-1] == 1
 
 
 def _membership_function(function):

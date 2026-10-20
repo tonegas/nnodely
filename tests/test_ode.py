@@ -178,12 +178,14 @@ def test_ode_in_loop():
     body_output = Output("x_next", Ode(_decay, x.last(), dt, method="rk4"))
     body = Modely("ode_body", inputs=[x], outputs=[body_output]).build()
 
-    seed = Input("x_seq", dim=1, seq=steps)
-    loop = Loop(f=body, callback={x: body_output}, collect=False, init={x: seed})()
+    seed = Input("x_seq", dim=1)
+    loop = Loop(
+        f=body, callback={x: body_output}, collect=False, init={x: seed.last(seq=steps)}
+    )()
     model = Modely("ode_loop", inputs=[seed], outputs=[Output("x_end", loop)]).build()
 
-    seed_values = np.zeros((1, 1, 1, steps), dtype=np.float32)
-    seed_values[..., 0] = 1.0
+    seed_values = np.zeros((1, steps, 1, 1), dtype=np.float32)
+    seed_values[:, 0] = 1.0
     result = to_numpy(model({"x_seq": seed_values})["x_end"])
 
     assert result.shape == (1, 1, 1)

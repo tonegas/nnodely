@@ -29,13 +29,13 @@ def test_basic_model_build_and_inference(batch_size, window_size):
     model = Modely("model1", inputs=[x, y], outputs=[x_out])
     model.build()
 
-    dummy_x = np.ones((batch_size, 1, window_size), dtype=np.float32)
-    dummy_y = np.ones((batch_size, 1, window_size), dtype=np.float32)
+    dummy_x = np.ones((batch_size, window_size, 1), dtype=np.float32)
+    dummy_y = np.ones((batch_size, window_size, 1), dtype=np.float32)
 
     result = model({"x": dummy_x, "y": dummy_y})
 
     assert "x_pred" in result
-    assert result["x_pred"].shape == (batch_size, 2, 1)
+    assert result["x_pred"].shape == (batch_size, 1, 2)
 
 
 def test_model_inference_with_composed_model(batch_size, window_size):
@@ -62,23 +62,23 @@ def test_model_inference_with_composed_model(batch_size, window_size):
     model2.build()
 
     # ------- Model inference -------
-    dummy_input_x = np.ones((batch_size, 1, window_size), dtype=np.float32)
-    dummy_input_y = np.ones((batch_size, 1, window_size), dtype=np.float32)
-    dummy_input_z = np.ones((batch_size, 1, window_size), dtype=np.float32)
+    dummy_input_x = np.ones((batch_size, window_size, 1), dtype=np.float32)
+    dummy_input_y = np.ones((batch_size, window_size, 1), dtype=np.float32)
+    dummy_input_z = np.ones((batch_size, window_size, 1), dtype=np.float32)
 
     result1 = model1({"x": dummy_input_x, "y": dummy_input_y})
     assert "x_pred" in result1
-    assert result1["x_pred"].shape == (batch_size, 2, 1)
+    assert result1["x_pred"].shape == (batch_size, 1, 2)
 
     result2 = model2({"z": dummy_input_z})
     assert "z_pred" in result2
     # The outer Fir filters each of the 2 features of model1 alone.
-    assert result2["z_pred"].shape == (batch_size, 2, 1)
+    assert result2["z_pred"].shape == (batch_size, 1, 2)
 
 
 def test_inference_accepts_a_backend_tensor():
     x = Input("backend_tensor_x", dim=1)
-    output = Output("backend_tensor_out", x * 2.0)
+    output = Output("backend_tensor_out", x.last() * 2.0)
     model = Modely("backend_tensor_model", inputs=[x], outputs=[output]).build()
 
     value = keras.ops.convert_to_tensor(np.array([[[3.0]]], dtype=np.float32))
@@ -115,7 +115,7 @@ def _minimized_model(name):
 
 
 def _windows(batch=4):
-    return np.random.default_rng(0).uniform(size=(batch, 1, 3)).astype(np.float32)
+    return np.random.default_rng(0).uniform(size=(batch, 3, 1)).astype(np.float32)
 
 
 def test_inference_does_not_need_inputs_only_minimizers_read():
@@ -212,7 +212,7 @@ def test_rollback_inference_does_not_need_minimizer_inputs():
     model.build()
 
     result = model(
-        {"rollback_inference_x": np.arange(1, 6, dtype=np.float32).reshape(1, 1, 5)}
+        {"rollback_inference_x": np.arange(1, 6, dtype=np.float32).reshape(1, 5, 1)}
     )
 
     assert set(result) == {"rollback_inference_out"}
@@ -238,16 +238,19 @@ def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
     body.build()
 
     # The loop runs the body as declared: its target is not an input of the loop.
-    seed = Input("minimized_body_seed", dim=1, seq=4)
+    seed = Input("minimized_body_seed", dim=1)
     loop = Loop(
-        f=body, callback={state: next_state}, collect=False, init={state: seed}
+        f=body,
+        callback={state: next_state},
+        collect=False,
+        init={state: seed.last(seq=4)},
     )()
     model = Modely(
         "minimized_loop", inputs=[seed], outputs=[Output("minimized_loop_out", loop)]
     ).build()
 
-    seed_values = np.zeros((1, 1, 1, 4), dtype=np.float32)
-    seed_values[..., 0] = 1.0
+    seed_values = np.zeros((1, 4, 1, 1), dtype=np.float32)
+    seed_values[:, 0] = 1.0
     result = model({"minimized_body_seed": seed_values})
     np.testing.assert_allclose(
         to_numpy(result["minimized_loop_out"]), np.full((1, 1, 1), 16.0)

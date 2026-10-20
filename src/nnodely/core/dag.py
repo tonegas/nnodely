@@ -2,8 +2,8 @@
 DAG - Lazy/DAG approach. No global graph.
 Each node has predecessors; Model traverses from output backwards.
 
-Dimensioni: dim, time, seq. Shape = dim, time, seq.
-Default: dim=1
+Axes: a stream is laid out (batch, *time, *dim), see core/shape.py.
+Default: dim=1, no time
 """
 
 from copy import copy

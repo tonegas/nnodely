@@ -81,10 +81,11 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Layers new in 2.0: `BatchNorm`, `LeakyReLU`, `PReLU`, `Swish`, `GELU`,
   `Softplus`, `Asin`, `Acos`, `Atan`, `Exp`, `Log`, `Log10`, `Sqrt`, `Abs`,
   `Floor`, `Ceil`, `Deg2Rad`, `Clamp`, and `DataLoader.get_samples(n)`.
-- Sequence-axis layers `SeqSelect`, `SeqRange`, `SeqConcatenate`, `SeqStack`
-  and `SeqReverse`, on fixed and dynamic seq axes. `SeqSelect` removes the
-  axis, so `SeqSelect(-1)` of a collected trajectory, its last step, can
-  close a `Loop` callback on an input without that axis.
+- Sequence layers `SeqSelect`, `SeqRange`, `SeqConcatenate`, `SeqStack`
+  and `SeqReverse`, on the outer time axes, fixed or dynamic, counted
+  outermost first (`axis=0`, the default, is the outermost). `SeqSelect`
+  removes the axis, so `SeqSelect(-1)` of a collected trajectory, its last
+  step, can close a `Loop` callback on an input without that axis.
 - `Fir` on a multi-dimensional input (1.x took scalars only): every element
   is filtered over its window alone, with a kernel of its own or, with
   `shared_kernel=True`, one for all. `features > 1` adds the channels as
@@ -98,8 +99,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   `"<layer>_bias"`). Assigning, training or freezing the Parameter changes
   the layer, and layers given one Parameter share it. `bias=False` leaves the
   bias out. A Fir draws the filter of each element alone.
-- `Linear` maps the whole dim of a multi-dimensional input, `(*dim, T)` to
-  `(features, T)`, or only one dim axis with `axis=k`: with a matrix and a
+- `Linear` maps the whole dim of a multi-dimensional input, `(*time, *dim)`
+  to `(*time, features)`, or only one dim axis with `axis=k`: with a matrix and a
   bias for each position of the other dim axes, as the elements of a `Fir`, or
   with `shared_kernel=True` one for all.
 - `save(path, weights=True)` / `Modely.load(path, weights=True)`, Keras and
@@ -110,12 +111,32 @@ variable, and trains, validates and exports through Keras. Models saved with
 
 ### Changed
 
-- Every stream is laid out `(batch, *dim, time, *seq)`, a `Parameter` or a
-  `Constant` included: their value is repeated for every sample.
-- A `Parameter` or `Constant` `value` is all dim by default, one time step:
-  an array of shape `(2, 3, 2)` is `D=(2, 3, 2)`. Given with a value, `dim`,
-  `time` and `seq` name its axes (`dim=0, time=1, seq=2` makes it
-  `D=(2,), T=3, S=(2,)`); without one, they are sizes.
+- Every stream is laid out `(batch, *time, *dim)`, a `Parameter` or a
+  `Constant` included: their value is repeated for every sample. The time
+  axes come outermost first: the outer time, where a `Loop` rolls out (and
+  where a collected rollout is added), then the inner time, the window of
+  samples, where windows, `Fir`, derivatives and integrals act. A stream may
+  have no time axis: a number, a `Parameter` without time, an `Input` read
+  whole. `Shape` holds `time` (a tuple) and `dim`; `shape.dimensions` is
+  `(time, dim)`. The arrays given to a model or built by `DataLoader` are
+  laid out the same, `(samples, *time, *dim)`.
+- The sequence of an `Input`, its outer time, is declared on its windows:
+  `x.sw(3, seq=5)`, `x.last(seq=(4, -1))` (outermost first, `-1` dynamic).
+  An input has one sequence, set by its first window; a later window may
+  leave `seq` out, but not change it.
+- Arithmetic between streams: streams with time must have the same time
+  axes, and one without time applies to every sample; dims must be equal,
+  or one a scalar; and one stream must already have the shape of the result,
+  so a matrix without time is not combined with the window of a scalar.
+  `Concatenate` repeats a stream without time along the time of the others.
+- A `Parameter` or `Constant` `value` is all dim by default, with no time
+  axis: an array of shape `(2, 3, 2)` is `D=(2, 3, 2)`. Given with a value,
+  `dim` and `time` name its axes, `time` one or several, outermost first
+  (`dim=0, time=(2, 1)` makes it `T=(2, 3), D=(2,)`); without one, they are
+  sizes. `.value` is laid out `(*time, *dim)`.
+- `BatchNorm` normalizes along the first dim axis by default; `Softmax`,
+  `PReLU` and `BatchNorm` take an explicit `axis` as a tensor axis, the batch
+  as 0.
 - A layer is identified by the Python object it comes from: applying one layer
   object several times shares its weights, and layers created apart never
   share them, whatever their names.

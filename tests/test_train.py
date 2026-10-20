@@ -60,8 +60,8 @@ def test_train_basic():
     model1.build()
 
     dummy = {
-        "x": np.ones((1, 1, 5), dtype=np.float32),
-        "y": np.ones((1, 1, 5), dtype=np.float32),
+        "x": np.ones((1, 5, 1), dtype=np.float32),
+        "y": np.ones((1, 5, 1), dtype=np.float32),
         "x_target": np.ones((1, 1, 1), dtype=np.float32),
     }
     result = model1(dummy)
@@ -80,8 +80,8 @@ def test_train_basic():
     model1.validate(data_train)
 
     dummy = {
-        "x": np.ones((1, 1, 5), dtype=np.float32),
-        "y": np.ones((1, 1, 5), dtype=np.float32),
+        "x": np.ones((1, 5, 1), dtype=np.float32),
+        "y": np.ones((1, 5, 1), dtype=np.float32),
         "x_target": np.ones((1, 1, 1), dtype=np.float32),
     }
     result_trained = model1(dummy)
@@ -186,7 +186,7 @@ def test_training_values_fir_linear():
     assert linear_out.bias is not None
 
     def reset_weights():
-        fir_weight.assign([[1.0]])
+        fir_weight.assign([1.0])
         linear_out.kernel.assign([[1.0]])
         linear_out.bias.assign([1.0])
 
@@ -219,27 +219,27 @@ def test_training_values_fir_linear():
     dataset = {"in1": [1], "target1": [3]}
     data_train = DataLoader(model, source=dataset)
 
-    assert_weights([[1.0]], [[1.0]], [1.0])
+    assert_weights([1.0], [[1.0]], [1.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[3.0]], [[3.0]], [3.0])
+    assert_weights([3.0], [[3.0]], [3.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[-51.0]], [[-51.0]], [-15.0])
+    assert_weights([-51.0], [[-51.0]], [-15.0])
 
     # ------- Same result training both epochs in a single call -------
     reset_weights()
     model.train(train_data=data_train, epochs=2, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[-51.0]], [[-51.0]], [-15.0])
+    assert_weights([-51.0], [[-51.0]], [-15.0])
 
     # ------- Two identical samples in one batch: the mean error gives the same step -------
     data_train2 = DataLoader(model, source={"in1": [1, 1], "target1": [3, 3]})
 
     reset_weights()
     model.train(train_data=data_train2, epochs=1, batch_size=2, optimizer="sgd", lr=1.0)
-    assert_weights([[3.0]], [[3.0]], [3.0])
+    assert_weights([3.0], [[3.0]], [3.0])
 
     reset_weights()
     model.train(train_data=data_train2, epochs=2, batch_size=2, optimizer="sgd", lr=1.0)
-    assert_weights([[-51.0]], [[-51.0]], [-15.0])
+    assert_weights([-51.0], [[-51.0]], [-15.0])
 
 
 def test_training_values_fir_linear_only_model():
@@ -265,7 +265,7 @@ def test_training_values_fir_linear_only_model():
     assert linear_out.bias is not None
 
     def reset_weights():
-        fir_weight.assign([[1.0]])
+        fir_weight.assign([1.0])
         linear_out.kernel.assign([[1.0]])
         linear_out.bias.assign([1.0])
 
@@ -299,9 +299,9 @@ def test_training_values_fir_linear_only_model():
 
     # ------- Both blocks trainable -------
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[3.0]], [[3.0]], [3.0])
+    assert_weights([3.0], [[3.0]], [3.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[-51.0]], [[-51.0]], [-15.0])
+    assert_weights([-51.0], [[-51.0]], [-15.0])
 
     def set_trainable(layer, trainable):
         # A layer's weights are the Parameters among its predecessors.
@@ -313,18 +313,18 @@ def test_training_values_fir_linear_only_model():
     reset_weights()
     set_trainable(linear_out, False)
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[3.0]], [[1.0]], [1.0])
+    assert_weights([3.0], [[1.0]], [1.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[1.0]], [[1.0]], [1.0])
+    assert_weights([1.0], [[1.0]], [1.0])
 
     # ------- Only the Linear block trainable -------
     reset_weights()
     set_trainable(linear_out, True)
     set_trainable(fir_out, False)
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[1.0]], [[3.0]], [3.0])
+    assert_weights([1.0], [[3.0]], [3.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[1.0]], [[-3.0]], [-3.0])
+    assert_weights([1.0], [[-3.0]], [-3.0])
 
 
 def test_training_values_fir_linear_more_samples():
@@ -348,7 +348,7 @@ def test_training_values_fir_linear_more_samples():
     assert linear_out.bias is not None
 
     def reset_weights():
-        fir_weight.assign([[1.0]])
+        fir_weight.assign([1.0])
         linear_out.kernel.assign([[1.0]])
         linear_out.bias.assign([1.0])
 
@@ -383,7 +383,7 @@ def test_training_values_fir_linear_more_samples():
     assert len(data_train) == 4
 
     model.train(train_data=data_train, epochs=1, batch_size=4, optimizer="sgd", lr=1.0)
-    assert_weights([[-9.0]], [[-9.0]], [0.5])
+    assert_weights([-9.0], [[-9.0]], [0.5])
 
     # ------- The old prediction_samples=3 grouped four consecutive samples into a
     # block, and train_batch_size=2 put two overlapping blocks in the same batch -------
@@ -405,7 +405,7 @@ def test_training_values_fir_linear_more_samples():
         lr=1.0,
         shuffle=False,
     )
-    assert_weights([[-162.75]], [[-162.75]], [-15.75])
+    assert_weights([-162.75], [[-162.75]], [-15.75])
 
 
 def test_training_values_linear_fir_window():
@@ -431,7 +431,7 @@ def test_training_values_linear_fir_window():
     def reset_weights():
         lin_out.kernel.assign([[-1.0], [-5.0]])
         lin_out.bias.assign([1.0])
-        fir_weight.assign([[4.0], [5.0]])
+        fir_weight.assign([4.0, 5.0])
 
     def assert_weights(kernel, bias, fir_kernel):
         np.testing.assert_allclose(
@@ -451,7 +451,7 @@ def test_training_values_linear_fir_window():
     assert len(data) == 4
     result = model(data.as_dict())
     np.testing.assert_allclose(
-        to_numpy(result["out1"])[:, 0],
+        to_numpy(result["out1"])[:, :, 0],
         [[-4.0, -16.0], [-16.0, -26.0], [-26.0, -15.0], [-15.0, -13.0]],
         rtol=1e-5,
         atol=1e-5,
@@ -468,9 +468,9 @@ def test_training_values_linear_fir_window():
     data_train = DataLoader(model, source={"in1": [[1, 3], [4, 2]], "target": [1, 3]})
     assert len(data_train) == 1
 
-    assert_weights([[-1.0], [-5.0]], [1.0], [[4.0], [5.0]])
+    assert_weights([[-1.0], [-5.0]], [1.0], [4.0, 5.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[6143.0], [5627.0]], [2305.0], [[-3836.0], [-3323.0]])
+    assert_weights([[6143.0], [5627.0]], [2305.0], [-3836.0, -3323.0])
 
     # ------- Four samples in a single batch -------
     dataset2 = {
@@ -482,7 +482,7 @@ def test_training_values_linear_fir_window():
 
     reset_weights()
     model.train(train_data=data_train2, epochs=1, batch_size=4, optimizer="sgd", lr=1.0)
-    assert_weights([[12779.0], [11678.5]], [3142.0], [[-7682.0], [-7457.5]])
+    assert_weights([[12779.0], [11678.5]], [3142.0], [-7682.0, -7457.5])
 
 
 @pytest.mark.slow
@@ -508,7 +508,7 @@ def test_training_values_fir_and_linear_closed_loop():
     assert lin_out.bias is not None
 
     def reset_weights():
-        fir_weight.assign([[1.0]])
+        fir_weight.assign([1.0])
         lin_out.kernel.assign([[1.0]])
         lin_out.bias.assign([1.0])
 
@@ -524,13 +524,19 @@ def test_training_values_fir_and_linear_closed_loop():
     reset_weights()
 
     # ------- Six closed loop steps from a zero state -------
-    seed1 = Input("seed1", seq=6)
-    seed2 = Input("seed2", seq=6)
+    seed1 = Input("seed1")
+    seed2 = Input("seed2")
     loop1 = Loop(
-        f=body1, callback={input1: output1}, name="loop1", init={input1: seed1}
+        f=body1,
+        callback={input1: output1},
+        name="loop1",
+        init={input1: seed1.last(seq=6)},
     )()
     loop2 = Loop(
-        f=body2, callback={input2: output2}, name="loop2", init={input2: seed2}
+        f=body2,
+        callback={input2: output2},
+        name="loop2",
+        init={input2: seed2.last(seq=6)},
     )()
     rollout = Modely(
         "rollout",
@@ -538,7 +544,7 @@ def test_training_values_fir_and_linear_closed_loop():
         outputs=[Output("rollout1", loop1), Output("rollout2", loop2)],
     ).build()
 
-    zeros = np.zeros((1, 1, 1, 6), dtype=np.float32)
+    zeros = np.zeros((1, 6, 1, 1), dtype=np.float32)
     result = rollout({"seed1": zeros, "seed2": zeros})
     np.testing.assert_allclose(
         to_numpy(result["rollout1"]).reshape(-1), [0.0] * 6, rtol=1e-5, atol=1e-5
@@ -569,15 +575,15 @@ def test_training_values_fir_and_linear_closed_loop():
     dataset = {"in1": [1], "in2": [1.0], "target1": [3], "target2": [3]}
     data_train = DataLoader(model, source=dataset)
 
-    assert_weights([[1.0]], [[1.0]], [1.0])
+    assert_weights([1.0], [[1.0]], [1.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[5.0]], [[3.0]], [3.0])
+    assert_weights([5.0], [[3.0]], [3.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[1.0]], [[-3.0]], [-3.0])
+    assert_weights([1.0], [[-3.0]], [-3.0])
 
     reset_weights()
     model.train(train_data=data_train, epochs=2, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[1.0]], [[-3.0]], [-3.0])
+    assert_weights([1.0], [[-3.0]], [-3.0])
 
     # ------- Two identical samples in one batch -------
     dataset2 = {
@@ -590,11 +596,11 @@ def test_training_values_fir_and_linear_closed_loop():
 
     reset_weights()
     model.train(train_data=data_train2, epochs=1, batch_size=2, optimizer="sgd", lr=1.0)
-    assert_weights([[5.0]], [[3.0]], [3.0])
+    assert_weights([5.0], [[3.0]], [3.0])
 
     reset_weights()
     model.train(train_data=data_train2, epochs=2, batch_size=2, optimizer="sgd", lr=1.0)
-    assert_weights([[1.0]], [[-3.0]], [-3.0])
+    assert_weights([1.0], [[-3.0]], [-3.0])
 
 
 def test_training_values_linear():
@@ -907,7 +913,7 @@ def test_train_with_custom_loss_function():
 
 def test_train_with_loop():
     state = Input("state")
-    x = Input("x", seq=5)
+    x = Input("x")
     target = Input("target")
     relation = Linear(features=1, kernel="ones", bias="zeros")(state.last())
     output = Output("out", relation)
@@ -915,7 +921,11 @@ def test_train_with_loop():
     body.build()
     # x carries the five rollout steps and seeds the state with x[0]
     loop = Loop(
-        f=body, callback={state: output}, name="loop", collect=False, init={state: x}
+        f=body,
+        callback={state: output},
+        name="loop",
+        collect=False,
+        init={state: x.last(seq=5)},
     )()
     out_loop = Output("out_loop", loop)
     model = Modely("model", inputs=[x], outputs=[out_loop])
@@ -949,10 +959,10 @@ def test_train_with_loop():
     }
     data = DataLoader(model, source=dataset)
 
-    assert data.dataset["x"].shape == (16, 1, 1, 5)
+    assert data.dataset["x"].shape == (16, 5, 1, 1)
     assert data.dataset["target"].shape == (16, 1, 1)
-    np.testing.assert_array_equal(data.dataset["x"][0, 0, 0], [1, 2, 3, 4, 5])
-    np.testing.assert_array_equal(data.dataset["x"][-1, 0, 0], [16, 17, 18, 19, 20])
+    np.testing.assert_array_equal(data.dataset["x"][0, :, 0, 0], [1, 2, 3, 4, 5])
+    np.testing.assert_array_equal(data.dataset["x"][-1, :, 0, 0], [16, 17, 18, 19, 20])
     np.testing.assert_array_equal(data.dataset["target"][:, 0, 0], np.arange(25, 41))
 
     initial_prediction = model(data.as_dict())
@@ -992,15 +1002,17 @@ def test_train_with_loop_under_xla(monkeypatch):
         ),
     )
     state = Input("state")
-    x = Input("x", seq=5)
-    target = Input("target", seq=5)
+    x = Input("x")
+    target = Input("target")
     relation = Linear(features=1, kernel="ones")(state.last())
     output = Output("out", relation)
     body = Modely("body", inputs=[state], outputs=[output]).build()
-    loop = Loop(f=body, callback={state: output}, name="loop", init={state: x})()
+    loop = Loop(
+        f=body, callback={state: output}, name="loop", init={state: x.last(seq=5)}
+    )()
     out_loop = Output("out_loop", loop)
     model = Modely("model", inputs=[x, target], outputs=[out_loop])
-    model.minimize("error", source=out_loop, target=target.last(), loss="mse")
+    model.minimize("error", source=out_loop, target=target.last(seq=5), loss="mse")
     model.build()
 
     values = np.linspace(0.0, 1.0, 20)
@@ -1144,17 +1156,19 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
     body_out = Output("pad_body_out", relation)
     body = Modely("pad_body", inputs=[body_x], outputs=[body_out]).build()
 
-    seed = Input("pad_x", dim=1, seq=-1)
+    seed = Input("pad_x", dim=1)
     loop = Loop(
         f=body,
         callback={body_x: body_out},
         length=6,
         name="pad_loop",
-        init={body_x: seed},
+        init={body_x: seed.last(seq=-1)},
     )()
     output = Output("pad_out", loop)
     model = Modely("pad_loop_model", inputs=[seed], outputs=[output])
-    model.minimize("pad_error", output, Input("pad_target", dim=1, seq=-1), loss="mse")
+    model.minimize(
+        "pad_error", output, Input("pad_target", dim=1).last(seq=-1), loss="mse"
+    )
     model.build()
 
     ## Three simulations of different lengths, the longest fixing the rollout
@@ -1168,7 +1182,7 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
         seq_length="full",
     )
 
-    assert data.dataset["pad_x"].shape == (3, 1, 1, 6)
+    assert data.dataset["pad_x"].shape == (3, 6, 1, 1)
     assert data.mask is not None
     np.testing.assert_array_equal(data.mask.sum(axis=1), [6, 3, 5])
 

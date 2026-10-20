@@ -6,6 +6,8 @@ import inspect
 from copy import copy
 from typing import Any, Sequence
 
+from nnodely.core.shape import Shape
+
 NODE_REGISTRY: dict[str, type["Node"]] = {}
 
 #: Every node name this process has used - given, generated or loaded - with
@@ -59,74 +61,6 @@ class Node:
         return cls(**config)
 
 
-class Shape:
-    dim: tuple[int]
-    time: int
-    seq: tuple[int] | tuple[()]
-
-    def __init__(self, dim=None, time=None, seq=None):
-        # Always tuples: a shape read back from JSON arrives as lists, and two
-        # shapes that describe the same axes have to compare equal.
-        self.dim = (
-            (1,) if dim is None else (dim,) if isinstance(dim, int) else tuple(dim)
-        )
-        self.time = 1 if time is None else int(time)
-        self.seq = () if seq is None else (seq,) if isinstance(seq, int) else tuple(seq)
-
-    @property
-    def tuple(self) -> tuple:
-        return tuple(self.dim) + (self.time,) + tuple(self.seq)
-
-    @property
-    def dimensions(self) -> tuple:
-        return self.dim, self.time, self.seq
-
-    @property
-    def rank(self) -> int:
-        return len(self.tuple)
-
-    @property
-    def dim_rank(self) -> int:
-        return len(self.dim)
-
-    @property
-    def seq_rank(self) -> int:
-        return len(self.seq)
-
-    def get_config(self):
-        return {
-            "dim": tuple(self.dim),
-            "time": self.time,
-            "seq": tuple(self.seq),
-        }
-
-    @classmethod
-    def from_config(cls, config: dict) -> "Shape":
-        return cls(
-            dim=config.get("dim"),
-            time=config.get("time"),
-            seq=config.get("seq"),
-        )
-
-    def __iter__(self):
-        return iter(self.tuple)
-
-    def __len__(self):
-        return len(self.tuple)
-
-    def __getitem__(self, item):
-        return self.tuple[item]
-
-    def __repr__(self):
-        # Named axes: a bare (3, 10) reads as well as three features of ten
-        # samples as ten features of three. A dynamic axis prints as "dyn".
-        def axes(values) -> str:
-            items = ["dyn" if value is None else str(value) for value in values]
-            return "(" + ", ".join(items) + ("," if len(items) == 1 else "") + ")"
-
-        return f"Shape(D={axes(self.dim)}, T={self.time}, S={axes(self.seq)})"
-
-
 class Stream(Node):
     _literal_constant_cache = {}
     shape: Shape
@@ -136,28 +70,23 @@ class Stream(Node):
         name: str,
         dim=None,
         time=None,
-        seq=None,
         preds: list[Node] | None = None,
     ):
         super().__init__(name, preds)
-        self.shape = Shape(dim=dim, time=time, seq=seq)
+        self.shape = Shape(dim=dim, time=time)
 
     @property
-    def dim(self) -> tuple[int]:
+    def dim(self) -> tuple[int, ...]:
         return self.shape.dim
 
     @property
-    def time(self) -> int:
+    def time(self) -> tuple[int | None, ...]:
         return self.shape.time
-
-    @property
-    def seq(self) -> tuple[int] | tuple[()]:
-        return self.shape.seq
 
     @property
     def dimensions(self):
         """
-        Return seq, time, dim separately
+        Return the time axes and the dim axes separately
         """
         return self.shape.dimensions
 

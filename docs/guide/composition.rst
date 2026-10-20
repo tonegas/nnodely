@@ -19,7 +19,7 @@ its outputs as streams of the outer graph:
    command = Output("command", ReLU()([Linear(features=1)([smoothed])]))
 
    controller = Modely("controller", inputs=[raw], outputs=[command]).build()
-   print(controller({"raw": np.ones((1, 1, 10))})["command"].shape)   # (1, 1, 1)
+   print(controller({"raw": np.ones((1, 10, 1))})["command"].shape)   # (1, 1, 1)
 
 A model with several outputs returns them as a list:
 ``first, second = block([a, b])``.

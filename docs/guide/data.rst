@@ -80,14 +80,14 @@ Samples
 -------
 
 Every sample is a dictionary with one array per input, shaped
-``(*dim, time, *seq)``. The loader can be indexed, iterated, and converted to
-the full arrays:
+``(*time, *dim)``, the layout of the model's streams. The loader can be
+indexed, iterated, and converted to the full arrays:
 
 .. code-block:: python
 
    sample = loader[0]
    print({name: value.shape for name, value in sample.items()})
-   arrays = loader.as_dict()   # {name: (samples, *dim, time, *seq)}
+   arrays = loader.as_dict()   # {name: (samples, *time, *dim)}
 
 ``step`` sets how many samples separate two consecutive windows:
 
@@ -98,34 +98,37 @@ the full arrays:
 Sequences
 ---------
 
-An input declared with ``seq`` carries a trajectory of windows. The loader
-builds one sliding window per sequence length, on top of the time windows.
-Sequences are used by rollouts (see :doc:`recurrent`):
+An input windowed with ``seq`` carries a trajectory of windows, its outer
+time. The loader builds one sliding window per sequence length, on top of the
+time windows. Sequences are used by rollouts (see :doc:`recurrent`):
 
 .. code-block:: python
 
-   s = Input("s", seq=20)
-   seq_model = Modely("sequence", inputs=[s], outputs=[Output("s_out", s.last() * 2.0)])
+   s = Input("s")
+   seq_model = Modely(
+       "sequence", inputs=[s], outputs=[Output("s_out", s.last(seq=20) * 2.0)]
+   )
    seq_model.build()
 
    seq_loader = DataLoader(seq_model, source={"s": np.arange(100.0)})
-   print(seq_loader[0]["s"].shape)   # (1, 1, 20)
+   print(seq_loader[0]["s"].shape)   # (20, 1, 1): 20 steps of one sample
 
 A sequence length can be left dynamic with ``seq=-1``. It is then fixed when
 the data is loaded:
 
 - ``seq_length=n`` uses sequences of ``n`` steps.
 - ``seq_length="full"`` makes every simulation one sample spanning all of it.
-  Simulations of different lengths are padded, and ``loader.mask`` marks the
-  real steps. Training ignores the padded steps.
+  The dynamic length must be the outermost one. Simulations of different
+  lengths are padded, and ``loader.mask`` marks the real steps. Training
+  ignores the padded steps.
 
 Dynamic sequences are meant to be consumed by a :class:`~nnodely.Loop`, which
 rolls out over whatever length it is given (see :doc:`recurrent`).
 
 .. code-block:: python
 
-   d = Input("d", seq=-1)
-   dyn_model = Modely("dynamic", inputs=[d], outputs=[Output("d_out", d.last())])
+   d = Input("d")
+   dyn_model = Modely("dynamic", inputs=[d], outputs=[Output("d_out", d.last(seq=-1))])
    dyn_model.build()
 
    fixed = DataLoader(dyn_model, source={"d": np.arange(100.0)}, seq_length=10)

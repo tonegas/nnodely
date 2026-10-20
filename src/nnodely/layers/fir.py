@@ -4,19 +4,20 @@ from __future__ import annotations
 
 import keras
 
+from nnodely.core.shape import BATCH_AXIS, Shape, inverse_permutation, transpose
 from nnodely.layers.parameter import Parameter, _check_weight_size, _ParameterWeights
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class FirImpl(keras.layers.Layer):
-    """A filter over the time axis of every element of a window, at every
-    step of a sequence.
+    """A filter over the inner time, the window, of every element, at every
+    step of the outer time axes.
 
-    Each element of the dim axes has the time axis projected onto
+    Each element of the dim axes has the inner time projected onto
     ``features`` channels, with a kernel of its own or, with
     ``shared_kernel``, one kernel shared by all of them; elements are never
-    mixed. ``(batch, *dim, time, *seq)`` becomes
-    ``(batch, features, *dim, 1, *seq)``, the channel axis dropped when
+    mixed. ``(batch, *outer, window, *dim)`` becomes
+    ``(batch, *outer, 1, features, *dim)``, the channel axis dropped when
     there is one channel and a scalar dim ``(1,)`` dropped when there are more.
 
     It owns no weight: it is called on ``[x, kernel]`` or ``[x, kernel,
@@ -24,11 +25,11 @@ class FirImpl(keras.layers.Layer):
     sample.
     """
 
-    def __init__(self, features, shared_kernel=False, seq_rank=0, name=None, **kwargs):
+    def __init__(self, features, shared_kernel=False, time_rank=1, name=None, **kwargs):
         super().__init__(name=name, **kwargs)
         self.features = int(features)
         self.shared_kernel = bool(shared_kernel)
-        self.seq_rank = int(seq_rank)
+        self.time_rank = int(time_rank)
 
     def get_config(self):
         config = super().get_config()
@@ -36,19 +37,17 @@ class FirImpl(keras.layers.Layer):
             {
                 "features": self.features,
                 "shared_kernel": self.shared_kernel,
-                "seq_rank": self.seq_rank,
+                "time_rank": self.time_rank,
             }
         )
         return config
 
     def build(self, input_shape):
-        x_shape = input_shape[0]
-        first_seq = len(x_shape) - self.seq_rank
-        dim = tuple(int(axis) for axis in x_shape[1 : first_seq - 1])
-        time = int(x_shape[first_seq - 1])
+        shape = Shape.from_tensor_shape(input_shape[0][1:], time_rank=self.time_rank)
+        dim = tuple(int(axis) for axis in shape.dim)
         # A scalar has a single element: its kernel is the shared one.
         elements = () if self.shared_kernel or dim == (1,) else dim
-        self.kernel_shape = (*elements, time, self.features)
+        self.kernel_shape = (*elements, shape.inner_time, self.features)
         self.bias_shape = (*elements, self.features)
         for label, shape, expected in zip(
             ("kernel", "bias"), input_shape[1:], (self.kernel_shape, self.bias_shape)
@@ -60,43 +59,54 @@ class FirImpl(keras.layers.Layer):
         x, kernel, *bias = inputs
         kernel = keras.ops.reshape(kernel[0], self.kernel_shape)
 
-        rank = len(x.shape)
-        first_seq = rank - self.seq_rank
-        dim = tuple(int(axis) for axis in x.shape[1 : first_seq - 1])
+        shape = Shape.from_tensor_shape(x.shape[1:], time_rank=self.time_rank)
+        dim = tuple(int(axis) for axis in shape.dim)
+        outer = shape.time_axes[:-1]
 
-        # [batch, *dim, time, *seq] -> [batch, *seq, *dim, 1, time]: the time
-        # axis of every element is multiplied by its kernel, so neither the
-        # batch nor a sequence left dynamic has to be reshaped.
-        x = keras.ops.transpose(x, [0, *range(first_seq, rank), *range(1, first_seq)])
+        # (batch, *outer, *dim, 1, window): the inner time of every element is
+        # multiplied by its kernel, so neither the batch nor an outer time
+        # left dynamic has to be reshaped.
+        x = transpose(x, [BATCH_AXIS, *outer, *shape.dim_axes, shape.inner_time_axis])
         y = keras.ops.matmul(keras.ops.expand_dims(x, -2), kernel)
         y = keras.ops.squeeze(y, -2)
         if bias:
             y = y + keras.ops.reshape(bias[0][0], self.bias_shape)
 
-        # [batch, *seq, *dim, out] -> [batch, out, *dim, 1, *seq]
-        seq_end = 1 + self.seq_rank
-        dim_end = seq_end + len(dim)
-        y = keras.ops.transpose(
-            y, [0, dim_end, *range(seq_end, dim_end), *range(1, seq_end)]
-        )
-        y = keras.ops.expand_dims(y, axis=2 + len(dim))
+        # (batch, *outer, *dim, out, 1), one step long, without the channel
+        # axis when there is one channel, and without a scalar dim when there
+        # are more; then laid out as the output, whose dim is (out, *dim).
+        y = keras.ops.expand_dims(y, len(y.shape))
         if self.features == 1:
-            return keras.ops.squeeze(y, axis=1)
-        if dim == (1,):
-            return keras.ops.squeeze(y, axis=2)
-        return y
+            y = keras.ops.squeeze(y, len(y.shape) - 2)
+            out_dim = dim
+        elif dim == (1,):
+            y = keras.ops.squeeze(y, 1 + len(outer))
+            out_dim = (self.features,)
+        else:
+            out_dim = (self.features, *dim)
+        out = shape.replace(dim=out_dim, time=(*shape.time[:-1], 1))
+        channels = list(out.dim_axes)
+        if len(out_dim) > len(dim):
+            # The channel axis is the first of the output, the last here.
+            channels = channels[1:] + channels[:1]
+        return transpose(
+            y,
+            inverse_permutation(
+                [BATCH_AXIS, *out.time_axes[:-1], *channels, out.inner_time_axis]
+            ),
+        )
 
 
 class Fir(_ParameterWeights):
     """
-    Filter over the time axis of every element of a window: each element is
-    projected onto ``features`` channels, one time step long. Elements
+    Filter over the inner time, the window, of every element: each element
+    is projected onto ``features`` channels, one time step long. Elements
     are never mixed: each has a kernel of its own, or with
-    ``shared_kernel=True`` they all share one. Sequence axes are kept, the
-    filter applied at each of their steps::
+    ``shared_kernel=True`` they all share one. The outer time axes are kept,
+    the filter applied at each of their steps::
 
-        input:  (batch, *dim, time, *seq)
-        output: (batch, features, *dim, 1, *seq)
+        input:  (batch, *outer, window, *dim)
+        output: (batch, *outer, 1, features, *dim)
 
     The channel axis is added only for ``features > 1``, and a scalar dim
     ``(1,)`` gives way to it::
@@ -105,7 +115,7 @@ class Fir(_ParameterWeights):
         Fir(features=4)  on D=(2, 3) -> D=(4, 2, 3)
         Fir(features=4)  on D=(1,)   -> D=(4,)
 
-    ``kernel`` is ``[*dim, time, features]`` and ``bias``
+    ``kernel`` is ``[*dim, window, features]`` and ``bias``
     ``[*dim, features]`` (without ``*dim`` for a scalar input or a shared
     kernel). Both are Parameters, predecessors of the layer: assigning or
     training them changes the filter. Each is given as a :class:`Parameter`,
@@ -115,7 +125,7 @@ class Fir(_ParameterWeights):
     of each element alone, as if it were a scalar. ``bias=True`` makes a bias
     of zeros, and ``bias=False`` leaves it out::
 
-        W = Parameter("W", dim=(3, 5, 4))   # (*dim, time, features)
+        W = Parameter("W", dim=(3, 5, 4))   # (*dim, window, features)
         Fir(features=4, kernel=W, bias=False)([x.sw(5)])  # x with dim=3
     """
 
@@ -138,17 +148,25 @@ class Fir(_ParameterWeights):
         )
 
     def _weight_shapes(self, x):
+        if not x.shape.time:
+            raise ValueError(
+                f"{self.name}: a Fir filters a window of samples, and "
+                f"{x.name!r} has no time axis; take one with sw() or last()."
+            )
         dim = tuple(x.dim)
         elements = () if self.shared_kernel or dim == (1,) else dim
-        return (*elements, x.time, self.features), (*elements, self.features)
+        return (*elements, x.shape.inner_time, self.features), (
+            *elements,
+            self.features,
+        )
 
     def _draw_shapes(self, kernel_shape, bias_shape):
         # The filter and the bias of each element alone, as for a scalar.
         return kernel_shape[-2:], bias_shape[-1:]
 
     def output_shape(self, *inputs):
-        # Declared rather than probed with a dummy tensor, which a sequence
-        # axis left dynamic cannot be given.
+        # Declared rather than probed with a dummy tensor, which a time axis
+        # left dynamic cannot be given.
         dim = tuple(inputs[0].dim)
         if self.features == 1:
             out_dim = dim
@@ -156,12 +174,14 @@ class Fir(_ParameterWeights):
             out_dim = (self.features,)
         else:
             out_dim = (self.features, *dim)
-        return out_dim, 1, tuple(inputs[0].seq)
+        # The window becomes one sample; the outer time axes are kept.
+        shape = inputs[0].shape
+        return shape.replace(dim=out_dim, time=(*shape.time[:-1], 1))
 
     def build_layer(self):
         return FirImpl(
             features=self.features,
             shared_kernel=self.shared_kernel,
-            seq_rank=len(self.preds[0].seq),  # type: ignore
+            time_rank=self.preds[0].shape.time_rank,  # type: ignore[union-attr]
             name=self.name,
         )

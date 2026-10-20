@@ -96,8 +96,8 @@ def test_save_load_simple_model(tmp_path):
     model.build()
 
     ## dummy input
-    x_data = np.random.randn(1, 1, 5)
-    y_data = np.random.randn(1, 1, 5)
+    x_data = np.random.randn(1, 5, 1)
+    y_data = np.random.randn(1, 5, 1)
 
     pred = model({"x": x_data, "y": y_data})
     assert pred["accelleration"].shape == (1, 1, 1)
@@ -141,9 +141,7 @@ def _activation_model():
                 Swish()(
                     Tanh()(
                         Sigmoid()(
-                            Softmax(axis=-1)(
-                                PReLU()(ELU()(LeakyReLU()(ReLU()(stream))))
-                            )
+                            Softmax(axis=1)(PReLU()(ELU()(LeakyReLU()(ReLU()(stream)))))
                         )
                     )
                 )
@@ -228,8 +226,8 @@ def _local_model():
 
 
 def _seq_ops_model():
-    x = Input("seq_ops_x", dim=2, seq=(4, 3))
-    window = x.sw(2)
+    x = Input("seq_ops_x", dim=2)
+    window = x.sw(2, seq=(3, 4))
     return Modely(
         "seq_ops",
         inputs=[x],
@@ -237,10 +235,10 @@ def _seq_ops_model():
         outputs=[
             Output(
                 "seq_ops_joined",
-                SeqConcatenate(axis=0, name="seq_ops_concat")(
+                SeqConcatenate(axis=-1, name="seq_ops_concat")(
                     [
-                        SeqRange(1, 3, axis=0, name="seq_ops_range")([window]),
-                        SeqReverse(axis=0, name="seq_ops_reverse")([window]),
+                        SeqRange(1, 3, axis=-1, name="seq_ops_range")([window]),
+                        SeqReverse(axis=-1, name="seq_ops_reverse")([window]),
                     ]
                 ),
             ),
@@ -263,23 +261,31 @@ def _seq_ops_model():
             lambda: _single_input_model(
                 "onnx_fir", lambda stream: Fir(features=2)(stream)
             ),
-            {"onnx_fir_input": [[[1.0, 2.0, 3.0]]]},
+            {"onnx_fir_input": [[[1.0], [2.0], [3.0]]]},
         ),
         (
             lambda: _single_input_model(
                 "onnx_linear", lambda stream: Linear(features=2)(stream)
             ),
-            {"onnx_linear_input": [[[1.0, 2.0, 3.0]]]},
+            {"onnx_linear_input": [[[1.0], [2.0], [3.0]]]},
         ),
-        (_activation_model, {"onnx_activations_input": [[[-0.5, 0.0, 0.5]]]}),
+        (_activation_model, {"onnx_activations_input": [[[-0.5], [0.0], [0.5]]]}),
         (_trigonometric_model, {"onnx_trigonometric_input": [[[0.25]]]}),
         (
             lambda: _interpolation_model("linear"),
-            {"export_interpolation_linear_input": [[[-3.0, -0.5, 0.0, 1.5, 3.0]]]},
+            {
+                "export_interpolation_linear_input": [
+                    [[-3.0], [-0.5], [0.0], [1.5], [3.0]]
+                ]
+            },
         ),
         (
             lambda: _interpolation_model("polynomial"),
-            {"export_interpolation_polynomial_input": [[[-3.0, -0.5, 0.0, 1.5, 3.0]]]},
+            {
+                "export_interpolation_polynomial_input": [
+                    [[-3.0], [-0.5], [0.0], [1.5], [3.0]]
+                ]
+            },
         ),
         (
             lambda: _single_input_model(
@@ -298,13 +304,13 @@ def _seq_ops_model():
                 dim=3,
                 time=1,
             ),
-            {"onnx_select_input": [[[1.0], [2.0], [3.0]]]},
+            {"onnx_select_input": [[[1.0, 2.0, 3.0]]]},
         ),
         (
             _concatenate_model,
             {
-                "onnx_concat_x": [[[1.0, 2.0]]],
-                "onnx_concat_y": [[[3.0, 4.0]]],
+                "onnx_concat_x": [[[1.0], [2.0]]],
+                "onnx_concat_y": [[[3.0], [4.0]]],
             },
         ),
         (
@@ -313,7 +319,11 @@ def _seq_ops_model():
         ),
         (
             _seq_ops_model,
-            {"seq_ops_x": np.arange(48, dtype=np.float32).reshape(1, 2, 2, 4, 3)},
+            {
+                "seq_ops_x": np.arange(48, dtype=np.float32)
+                .reshape(1, 2, 2, 4, 3)
+                .transpose(0, 4, 3, 2, 1)
+            },
         ),
         (
             _local_model,
@@ -377,7 +387,9 @@ def test_interpolation_save_keras_and_html(tmp_path, mode):
     model = _interpolation_model(mode)
     input_name = f"export_interpolation_{mode}_input"
     output_name = f"export_interpolation_{mode}_output"
-    inputs = {input_name: np.array([[[-3.0, -0.5, 0.0, 1.5, 3.0]]], dtype=np.float32)}
+    inputs = {
+        input_name: np.array([[[-3.0], [-0.5], [0.0], [1.5], [3.0]]], dtype=np.float32)
+    }
     expected = model(inputs)[output_name]
 
     nnodely_path = tmp_path / f"interpolation_{mode}.nnodely"
@@ -425,8 +437,8 @@ def test_interpolation_save_keras_and_html(tmp_path, mode):
 def test_concatenate_save_keras_and_html(tmp_path):
     model = _concatenate_model()
     inputs = {
-        "onnx_concat_x": np.array([[[1.0, 2.0]]], dtype=np.float32),
-        "onnx_concat_y": np.array([[[3.0, 4.0]]], dtype=np.float32),
+        "onnx_concat_x": np.array([[[1.0], [2.0]]], dtype=np.float32),
+        "onnx_concat_y": np.array([[[3.0], [4.0]]], dtype=np.float32),
     }
     expected = model(inputs)["onnx_concatenate_output"]
 
@@ -552,8 +564,8 @@ def test_local_model_with_fuzzy_product_round_trips(tmp_path):
     j = Input("save_local_j", dim=1)
     k = Input("save_local_k", dim=1)
     activations = [
-        Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)([j]),
-        Fuzzify(centers=[0.0, 1.0], function=Triangular)([k]),
+        Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)([j.last()]),
+        Fuzzify(centers=[0.0, 1.0], function=Triangular)([k.last()]),
     ]
     cloned = LocalModel(Fir(features=2), output_function=Tanh(), name="save_cloned")(
         [x.sw(3)], activations
@@ -577,7 +589,7 @@ def test_local_model_with_fuzzy_product_round_trips(tmp_path):
         ],
     ).build()
     inputs = {
-        "save_local_x": np.arange(12, dtype=np.float32).reshape(4, 1, 3) / 5.0,
+        "save_local_x": np.arange(12, dtype=np.float32).reshape(4, 3, 1) / 5.0,
         "save_local_j": np.linspace(0.0, 2.0, 4, dtype=np.float32).reshape(4, 1, 1),
         "save_local_k": np.linspace(0.2, 0.9, 4, dtype=np.float32).reshape(4, 1, 1),
     }
@@ -615,7 +627,7 @@ def _assert_roll_result(result):
 
 def test_save_load_roll_model(tmp_path):
     model = _roll_model()
-    inputs = {"roll_x": np.arange(1, 6, dtype=np.float32).reshape((1, 1, 5))}
+    inputs = {"roll_x": np.arange(1, 6, dtype=np.float32).reshape((1, 5, 1))}
     _assert_roll_result(model(inputs))
 
     path = tmp_path / "roll_model.nnodely"
@@ -632,7 +644,7 @@ def test_save_load_roll_model(tmp_path):
 
 def test_export_keras_roll_model(tmp_path):
     model = _roll_model()
-    inputs = {"roll_x": np.arange(1, 6, dtype=np.float32).reshape((1, 1, 5))}
+    inputs = {"roll_x": np.arange(1, 6, dtype=np.float32).reshape((1, 5, 1))}
     path = tmp_path / "roll_model.keras"
 
     model.export_keras(tmp_path, "roll_model")
@@ -646,7 +658,7 @@ def test_export_keras_roll_model(tmp_path):
 def test_export_onnx_roll_model(tmp_path):
     pytest.importorskip("onnxruntime")
     model = _roll_model()
-    inputs = {"roll_x": np.arange(1, 6, dtype=np.float32).reshape((1, 1, 5))}
+    inputs = {"roll_x": np.arange(1, 6, dtype=np.float32).reshape((1, 5, 1))}
 
     model.export_onnx(tmp_path, "roll")
     path = tmp_path / "roll.onnx"
@@ -667,7 +679,7 @@ def test_save_load_batchnorm_model(tmp_path):
     assert model.model is not None
     # Move the moving statistics away from their initial values, so a wrong
     # weight roundtrip changes the prediction.
-    values = np.random.rand(4, 2, 3).astype(np.float32) * 10.0
+    values = np.random.rand(4, 3, 2).astype(np.float32) * 10.0
     model.model({"batchnorm_save_input": values}, training=True)
 
     pred = model({"batchnorm_save_input": values})
@@ -779,8 +791,11 @@ def _weighted_layers_model():
     return Modely(
         "weighted_layers",
         inputs=[x, y],
+        # The Fir of the projection has dim (2, 2), which a vector of dim (2,)
+        # is never added to: it is an output of its own.
         outputs=[
-            Output("weighted_out", (past - around + mixed) * gain + offset),
+            Output("weighted_out", (past - around) * gain + offset),
+            Output("weighted_mixed", mixed),
             Output("weighted_projected", projected),
         ],
     ).build()
@@ -1001,13 +1016,13 @@ def _loop_final_state_model():
         "loop_final_body", inputs=[state, force], outputs=[next_state]
     ).build()
 
-    seed = Input("loop_final_seed", dim=1, seq=4)
+    seed = Input("loop_final_seed", dim=1)
     loop = Loop(
         f=body,
         callback={state: next_state},
         collect=False,
         name="loop_final",
-        init={state: seed},
+        init={state: seed.last(seq=4)},
     )()
     return Modely(
         "loop_final",
@@ -1041,14 +1056,14 @@ def _loop_trajectory_model():
 
     # The position window is shifted, the velocity seeded by a constant and the
     # force read one step at a time from its own sequence.
-    p0 = Input("loop_traj_p0", dim=1, seq=horizon)
-    force_sequence = Input("loop_traj_force_sequence", dim=1, seq=horizon)
+    p0 = Input("loop_traj_p0", dim=1)
+    force_sequence = Input("loop_traj_force_sequence", dim=1)
     position_trajectory, velocity_trajectory = Loop(
         f=body,
         callback={position: position_next, velocity: velocity_next},
         name="loop_traj",
-        init={position: p0.sw(2), velocity: 0.25},
-    )({force: force_sequence})
+        init={position: p0.sw(2, seq=horizon), velocity: 0.25},
+    )({force: force_sequence.last(seq=horizon)})
     return Modely(
         "loop_traj",
         inputs=[p0, force_sequence],
@@ -1060,11 +1075,11 @@ def _loop_trajectory_model():
 
 
 def _nested_loop_model():
-    x = Input("nested_save_input", dim=1, seq=(5, 3))
+    x = Input("nested_save_input", dim=1)
     gain = Constant("nested_save_gain", value=2.0)
 
-    inner = Input("nested_save_inner", dim=1, seq=5)
-    first_output = Output("nested_save_first_out", inner * gain)
+    inner = Input("nested_save_inner", dim=1)
+    first_output = Output("nested_save_first_out", inner.last(seq=5) * gain)
     first_body = Modely(
         "nested_save_first_body", inputs=[inner], outputs=[first_output]
     ).build()
@@ -1073,11 +1088,11 @@ def _nested_loop_model():
         callback={inner: first_output},
         name="nested_save_first_loop",
         collect=False,
-        init={inner: x},
+        init={inner: x.last(seq=(3, 5))},
     )()
 
     second = Input("nested_save_second", dim=1)
-    second_output = Output("nested_save_second_out", second * gain)
+    second_output = Output("nested_save_second_out", second.last() * gain)
     second_body = Modely(
         "nested_save_second_body", inputs=[second], outputs=[second_output]
     ).build()
@@ -1106,21 +1121,21 @@ def _shared_body_model():
 
     # One body rolled out by two loops, and its gain read outside it as well:
     # all three places use the same weights.
-    short = Input("shared_body_short", dim=1, seq=3)
-    long = Input("shared_body_long", dim=1, seq=5)
+    short = Input("shared_body_short", dim=1)
+    long = Input("shared_body_long", dim=1)
     first = Loop(
         f=body,
         callback={state: next_state},
         collect=False,
         name="shared_body_first",
-        init={state: short},
+        init={state: short.last(seq=3)},
     )()
     second = Loop(
         f=body,
         callback={state: next_state},
         collect=False,
         name="shared_body_second",
-        init={state: long},
+        init={state: long.last(seq=5)},
     )()
     return Modely(
         "shared_body_model",
@@ -1141,8 +1156,10 @@ def _ode_loop_model():
     )
     body = Modely("ode_loop_body", inputs=[x], outputs=[body_output]).build()
 
-    seed = Input("ode_loop_seed", dim=1, seq=6)
-    loop = Loop(f=body, callback={x: body_output}, name="ode_loop", init={x: seed})()
+    seed = Input("ode_loop_seed", dim=1)
+    loop = Loop(
+        f=body, callback={x: body_output}, name="ode_loop", init={x: seed.last(seq=6)}
+    )()
     return Modely(
         "ode_loop", inputs=[seed], outputs=[Output("ode_loop_out", loop)]
     ).build()
@@ -1281,9 +1298,11 @@ def test_export_onnx_dynamic_loop_follows_the_data(tmp_path):
     x, u = Input("dyn_onnx_x", dim=1), Input("dyn_onnx_u", dim=1)
     body_output = Output("dyn_onnx_next", x.last() * 0.5 + u.last())
     body = Modely("dyn_onnx_body", inputs=[x, u], outputs=[body_output]).build()
-    x_seq = Input("dyn_onnx_x_seq", dim=1, seq=-1)
-    u_seq = Input("dyn_onnx_u_seq", dim=1, seq=-1)
-    loop = Loop(f=body, callback={x: body_output}, init={x: x_seq})({u: u_seq})
+    x_seq = Input("dyn_onnx_x_seq", dim=1)
+    u_seq = Input("dyn_onnx_u_seq", dim=1)
+    loop = Loop(f=body, callback={x: body_output}, init={x: x_seq.last(seq=-1)})(
+        {u: u_seq.last(seq=-1)}
+    )
     model = Modely(
         "dyn_onnx_model",
         inputs=[x_seq, u_seq],
@@ -1293,16 +1312,16 @@ def test_export_onnx_dynamic_loop_follows_the_data(tmp_path):
 
     for steps in (1, 7):
         inputs = {
-            "dyn_onnx_x_seq": np.ones((1, 1, 1, steps), dtype=np.float32),
+            "dyn_onnx_x_seq": np.ones((1, steps, 1, 1), dtype=np.float32),
             "dyn_onnx_u_seq": np.arange(steps, dtype=np.float32).reshape(
-                1, 1, 1, steps
+                1, steps, 1, 1
             ),
         }
         expected = to_numpy(model(inputs)["dyn_onnx_out"])
         actual = Modely.validate_onnx(
             tmp_path / f"{model.name}.onnx", inputs, return_dict=True
         )["dyn_onnx_out"]  # type: ignore
-        assert expected.shape == (1, 1, 1, steps)
+        assert expected.shape == (1, steps, 1, 1)
         np.testing.assert_allclose(to_numpy(actual), expected, rtol=1e-5, atol=1e-5)
 
 
@@ -1315,20 +1334,21 @@ def test_export_onnx_seq_ops_follow_the_data(tmp_path):
     # Counted from the end, the selected elements are those of the data, not
     # of the length the graph was declared with.
     pytest.importorskip("onnxruntime")
-    x = Input("dyn_seq_ops_x", dim=1, seq=-1)
+    x = Input("dyn_seq_ops_x", dim=1)
+    sequence = x.last(seq=-1)
     model = Modely(
         "dyn_seq_ops",
         inputs=[x],
         outputs=[
-            Output("dyn_seq_ops_last", SeqSelect(-1)([x])),
-            Output("dyn_seq_ops_tail", SeqReverse()(SeqRange(-2, None)([x]))),
+            Output("dyn_seq_ops_last", SeqSelect(-1)([sequence])),
+            Output("dyn_seq_ops_tail", SeqReverse()(SeqRange(-2, None)([sequence]))),
         ],
     ).build()
     model.export_onnx(tmp_path)
 
     for steps in (2, 6):
         inputs = {
-            "dyn_seq_ops_x": np.arange(steps, dtype=np.float32).reshape(1, 1, 1, steps)
+            "dyn_seq_ops_x": np.arange(steps, dtype=np.float32).reshape(1, steps, 1, 1)
         }
         expected = model(inputs)
         actual = Modely.validate_onnx(
@@ -1349,8 +1369,8 @@ def test_save_load_behaves_like_original(tmp_path, model_factory):
 
 def _target_for(output):
     """A dataset input shaped like ``output``, the way a user adds a target."""
-    return Input(f"{output.name}_target", dim=output.dim, seq=output.seq).sw(
-        output.time
+    return Input(f"{output.name}_target", dim=output.dim).sw(
+        output.shape.inner_time, seq=output.shape.time[:-1]
     )
 
 
@@ -1398,7 +1418,7 @@ def test_fine_tune_a_loaded_model_with_its_own_minimizers(tmp_path):
     )
     model.save(tmp_path / "pretrained")
 
-    windows = np.random.default_rng(1).uniform(size=(_BATCH, 1, 3))
+    windows = np.random.default_rng(1).uniform(size=(_BATCH, 3, 1))
     inputs = {"fine_tune_x": windows.astype(np.float32)}
     pretrained = to_numpy(model(inputs)["fine_tune_out"])
 
@@ -1449,11 +1469,11 @@ def test_save_load_odenet(tmp_path, method):
             )
         ],
     ).build()
-    t = Input(f"odenet_save_{method}_t", dim=1, seq=points)
+    t = Input(f"odenet_save_{method}_t", dim=1)
     trajectory = OdeNet(
         f=field,
         states={x: f"odenet_save_{method}_dx"},
-        t=t,
+        t=t.last(seq=points),
         method=method,
         steps=2,
         name=f"odenet_save_{method}",
@@ -1465,10 +1485,10 @@ def test_save_load_odenet(tmp_path, method):
     ).build()
     _randomize_trainable_weights(model)
 
-    times = np.linspace(0.0, 1.0, points, dtype=np.float32).reshape(1, 1, 1, points)
+    times = np.linspace(0.0, 1.0, points, dtype=np.float32).reshape(1, points, 1, 1)
     inputs = {
         x.name: np.random.default_rng(1)
-        .uniform(-1.0, 1.0, size=(_BATCH, 2, 1))
+        .uniform(-1.0, 1.0, size=(_BATCH, 1, 2))
         .astype(np.float32),
         t.name: np.tile(times, (_BATCH, 1, 1, 1)),
     }
@@ -1494,11 +1514,11 @@ def test_save_load_odenet_with_event(tmp_path):
             Output("odenet_event_v_plus", -1.0 * restitution * velocity.last()),
         ],
     ).build()
-    t = Input("odenet_event_t", dim=1, seq=4)
+    t = Input("odenet_event_t", dim=1)
     position_trajectory, velocity_trajectory = OdeNet(
         f=field,
         states={position: "odenet_event_dp", velocity: "odenet_event_dv"},
-        t=t,
+        t=t.last(seq=4),
         steps=20,
         event="odenet_event_guard",
         reset={position: "odenet_event_p_plus", velocity: "odenet_event_v_plus"},
@@ -1513,7 +1533,7 @@ def test_save_load_odenet_with_event(tmp_path):
         ],
     ).build()
 
-    times = np.array([0.0, 0.5, 1.0, 1.5], dtype=np.float32).reshape(1, 1, 1, 4)
+    times = np.array([0.0, 0.5, 1.0, 1.5], dtype=np.float32).reshape(1, 4, 1, 1)
     inputs = {
         position.name: np.array([0.5, 1.0, 1.5], dtype=np.float32).reshape(3, 1, 1),
         velocity.name: np.zeros((_BATCH, 1, 1), dtype=np.float32),
@@ -1537,7 +1557,7 @@ def _minimized_model():
 
 def _minimized_inputs():
     # Only the model's own input: nothing exported or saved asks for the target.
-    values = np.random.default_rng(1).uniform(size=(_BATCH, 1, 3))
+    values = np.random.default_rng(1).uniform(size=(_BATCH, 3, 1))
     return {"minimized_x": values.astype(np.float32)}
 
 
@@ -1611,7 +1631,7 @@ def _fir_model(name, gain):
     return model, fir
 
 
-_WINDOW_OF_ONES = np.ones((1, 1, 2), dtype=np.float32)
+_WINDOW_OF_ONES = np.ones((1, 2, 1), dtype=np.float32)
 
 
 def test_a_loaded_layer_keeps_its_name_and_its_own_weights(tmp_path):
@@ -1699,13 +1719,13 @@ def test_a_loop_closed_over_a_generated_layer_reloads_beside_its_original(tmp_pa
     # A body output, unnamed.
     bare = Fir(features=1, kernel=gain, bias=False)(s.last())
     body = Modely("bare_body", inputs=[s], outputs=[bare]).build()
-    seed = Input("bare_seed", seq=4)
-    loop = Loop(f=body, callback={s: bare}, collect=False, init={s: seed})()
+    seed = Input("bare_seed")
+    loop = Loop(f=body, callback={s: bare}, collect=False, init={s: seed.last(seq=4)})()
     model = Modely(
         "bare_top", inputs=[seed], outputs=[Output("bare_out", loop)]
     ).build()
-    seed_values = np.zeros((1, 1, 1, 4), dtype=np.float32)
-    seed_values[..., 0] = 1.0
+    seed_values = np.zeros((1, 4, 1, 1), dtype=np.float32)
+    seed_values[:, 0] = 1.0
     expected = to_numpy(model({"bare_seed": seed_values})["bare_out"])
     model.save(tmp_path / "bare")
 
@@ -1762,7 +1782,7 @@ def test_a_model_saved_without_weights_loads_as_freshly_built(tmp_path):
     ).build()
     assert fir.kernel is not None and gain.param is not None
     fir.kernel.assign(np.full((2, 1), 5.0, dtype=np.float32))  # as if trained
-    gain.param.assign([[7.0]])
+    gain.param.assign([7.0])
 
     path = tmp_path / "architecture"
     model.save(path)
@@ -1776,7 +1796,7 @@ def test_a_model_saved_without_weights_loads_as_freshly_built(tmp_path):
     )
     assert isinstance(restored_gain, Parameter) and isinstance(restored_fir, Fir)
     # As declared again: the parameter from its value, the Fir from a new draw.
-    np.testing.assert_allclose(to_numpy(restored_gain.param), [[2.0]])
+    np.testing.assert_allclose(to_numpy(restored_gain.param), [2.0])
     assert not np.allclose(to_numpy(restored_fir.kernel), 5.0)
 
 
@@ -1830,7 +1850,10 @@ def _parameter_weights_model():
 
 
 # Two elements of three samples each: [[0, 0.25, 0.5], [0.75, 1, 1.25]].
-_WEIGHTS_INPUTS = {"weights_x": np.arange(6, dtype=np.float32).reshape(1, 2, 3) / 4.0}
+_WEIGHTS_INPUTS = {
+    "weights_x": np.arange(6, dtype=np.float32).reshape(1, 2, 3).transpose(0, 2, 1)
+    / 4.0
+}
 
 
 def _as_if_trained(parameters):
@@ -1844,7 +1867,7 @@ def test_fir_and_linear_computing_with_parameters_save_load_and_export(tmp_path)
     model, parameters = _parameter_weights_model()
     declared = to_numpy(model(_WEIGHTS_INPUTS)["weights_out"])
     # Fir: [2.0 + 0.1, 2.25 - 0.2]; Linear: [2.1, 2.05] @ [[1, 2], [3, 4]] + bias.
-    np.testing.assert_allclose(declared, [[[8.75], [11.9]]], rtol=1e-5)
+    np.testing.assert_allclose(declared, [[[8.75, 11.9]]], rtol=1e-5)
     _as_if_trained(parameters)
     trained = to_numpy(model(_WEIGHTS_INPUTS)["weights_out"])
     assert not np.allclose(trained, declared)
@@ -2037,14 +2060,14 @@ def _moving_centers_model():
         ],
     ).build()
     # As if trained: the centers moved from where they started.
-    centers.param.assign(np.array([[-0.2], [0.6], [1.3]], dtype=np.float32))  # type: ignore
+    centers.param.assign(np.array([-0.2, 0.6, 1.3], dtype=np.float32))  # type: ignore
     return model
 
 
 _MOVING_OUTPUTS = ("moving_triangles", "moving_bells", "moving_waves", "moving_listed")
 _MOVING_DATA = {
     "moving_x": np.linspace(-0.5, 1.5, 5, dtype=np.float32).reshape(-1, 1, 1),
-    "moving_u": np.linspace(-1.0, 1.0, 10, dtype=np.float32).reshape(5, 1, 2),
+    "moving_u": np.linspace(-1.0, 1.0, 10, dtype=np.float32).reshape(5, 2, 1),
 }
 
 

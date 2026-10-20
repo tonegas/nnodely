@@ -8,6 +8,8 @@ import keras
 import numpy as np
 import pandas as pd
 
+from nnodely.core.shape import BATCH_AXIS, OUTER_TIME_AXIS, outer_time_view, slice_axis
+
 sliding_window_view = np.lib.stride_tricks.sliding_window_view
 
 
@@ -36,24 +38,25 @@ class DataLoader:
 
     Windows:
 
-    - Temporal windows come from ``Input.sw()``. All inputs are aligned so that
-      every window ends on the same sample.
-    - Sequence windows come from ``Input(seq=...)``: one sliding window per
-      declared length, applied on top of the temporal windows, the outermost
-      sequence last. Only one length may be dynamic (``-1``), and
-      ``seq_length`` resolves it.
+    - Temporal windows, the inner time, come from ``Input.sw()``. All inputs
+      are aligned so that every window ends on the same sample.
+    - Sequence windows, the outer time axes, come from ``sw(..., seq=...)``:
+      one sliding window per declared length, applied on top of the temporal
+      windows. Only one length may be dynamic (``-1``), and ``seq_length``
+      resolves it.
     - ``step`` is the jump between one dataset sample and the next; every
       sequence level itself advances one sample at a time.
-    - ``seq_length="full"`` resolves the dynamic length to the whole simulation,
-      so every simulation yields exactly one sample. Simulations of different
-      lengths are padded on the rollout axis and ``mask`` marks the real steps;
-      ``step`` is meaningless there and is rejected.
+    - ``seq_length="full"`` resolves the dynamic length, which must be the
+      outer time, to the whole simulation, so every simulation yields exactly
+      one sample. Simulations of different lengths are padded on the outer
+      time and ``mask`` marks the real steps; ``step`` is meaningless there
+      and is rejected.
     - ``on_short`` decides what happens to a simulation with too few samples to
       fill the windows: raise, or leave it out.
 
-    Final dataset format::
+    Final dataset format, laid out as the model's tensors::
 
-        {name: np.ndarray of shape (N, *dim, time, *seq)}
+        {name: np.ndarray of shape (N, *time, *dim)}
 
     Example::
 
@@ -62,7 +65,7 @@ class DataLoader:
         model = Modely("model", inputs=[x], outputs=[y]).build()
 
         loader = DataLoader(model, source={"x": np.arange(10.0)})
-        loader[0]  # {"x": array([[0., 1., 2., 3., 4.]])}
+        loader[0]  # {"x": array([[0.], [1.], [2.], [3.], [4.]])}
     """
 
     def __init__(
@@ -170,7 +173,7 @@ class DataLoader:
         return self._num_steps
 
     def get_input(self, name: str) -> np.ndarray:
-        """All the samples of one input, shaped ``(N, *dim, time, *seq)``."""
+        """All the samples of one input, shaped ``(N, *time, *dim)``."""
         return self.dataset[name]
 
     def get_step(self, idx: int) -> Dict[str, Any]:
@@ -246,7 +249,7 @@ class DataLoader:
         return self._simulations[simulation]
 
     def as_dict(self) -> Dict[str, np.ndarray]:
-        """The whole dataset as ``{name: array of shape (N, *dim, time, *seq)}``."""
+        """The whole dataset as ``{name: array of shape (N, *time, *dim)}``."""
         return self.dataset
 
     # ------------------------------------------------------------------
@@ -254,7 +257,9 @@ class DataLoader:
     # ------------------------------------------------------------------
 
     def _resolve_sequence(self, node) -> tuple[int | None, ...]:
-        dynamic = [index for index, length in enumerate(node.seq) if length is None]
+        """The lengths of an input's outer time axes, outermost first."""
+        outer_time = node.shape.time[:-1]
+        dynamic = [index for index, length in enumerate(outer_time) if length is None]
         if len(dynamic) > 1:
             raise ValueError(
                 f"Input '{node.name}' declares more than one dynamic sequence length. "
@@ -265,14 +270,14 @@ class DataLoader:
                 "Some inputs have undefined sequence length. "
                 "Please specify seq_length in training."
             )
-        if dynamic and self.seq_length == "full" and dynamic[0] != len(node.seq) - 1:
+        if dynamic and self.seq_length == "full" and dynamic[0] != 0:
             raise ValueError(
                 f"Input '{node.name}' declares its dynamic sequence length at position "
                 f"{dynamic[0]}, but seq_length='full' only resolves the outermost one."
             )
 
         sequence = []
-        for length in node.seq:
+        for length in outer_time:
             if length is None:
                 if self.seq_length == "full":
                     # Resolved per simulation, once its own length is known.
@@ -416,7 +421,7 @@ class DataLoader:
         return np.reshape(values, (values.shape[0], *dim))
 
     # ------------------------------------------------------------------
-    # Window: simulations -> {name: (N, *dim, time, *seq)}
+    # Window: simulations -> {name: (N, *time, *dim)}
     # ------------------------------------------------------------------
 
     def _build(
@@ -497,7 +502,7 @@ class DataLoader:
             )
 
         # A dynamic sequence spans its whole simulation, so simulations of
-        # different lengths only line up once the rollout axis is padded.
+        # different lengths only line up once the outer time is padded.
         if self._dynamic_inputs and len(set(lengths)) > 1:
             widest = max(lengths)
             for name in self._dynamic_inputs:
@@ -530,24 +535,24 @@ class DataLoader:
 
     @staticmethod
     def _pad(values: np.ndarray, width: int) -> np.ndarray:
-        """Extend the rollout axis to ``width`` by repeating its last step.
+        """Extend the outer time to ``width`` by repeating its last step.
 
         Repeating keeps the padded part of a rollout inside the range the model
         was fitted on; the mask is what removes it from the loss.
         """
-        missing = width - values.shape[-1]
+        missing = width - values.shape[OUTER_TIME_AXIS]
         if missing <= 0:
             return values
+        last = slice_axis(values, OUTER_TIME_AXIS, slice(-1, None))
         return np.concatenate(
-            [values, np.repeat(values[..., -1:], missing, axis=-1)], axis=-1
+            [values, np.repeat(last, missing, axis=OUTER_TIME_AXIS)],
+            axis=OUTER_TIME_AXIS,
         )
 
     def _mask_view(self, rank: int) -> np.ndarray:
         """The rollout mask shaped to broadcast against a dataset array."""
         assert self.mask is not None
-        return self.mask.reshape(
-            self.mask.shape[0], *([1] * (rank - 2)), self.mask.shape[1]
-        )
+        return outer_time_view(self.mask, rank, np.expand_dims)
 
     def _windows(
         self,
@@ -558,7 +563,8 @@ class DataLoader:
         lead: int,
         sequence: tuple[int, ...],
     ) -> np.ndarray:
-        """Temporal windows of one input, then one sliding window per seq length."""
+        """Temporal windows of one input, then one sliding window per outer
+        time axis, laid out ``(N, *time, *dim)``."""
         past, future = self.input_specs[name]
         width = past + future
         last = values.shape[0] - max_future  # one past the last aligned end sample
@@ -567,13 +573,17 @@ class DataLoader:
             # Window i covers values[i:i + width] and ends on sample i + past - 1,
             # so the shared range of end samples selects the windows to keep.
             windows = sliding_window_view(values, window_shape=width, axis=0)
-            windows = windows[first - past + 1 : last - past + 1]
+            windows = np.moveaxis(windows[first - past + 1 : last - past + 1], -1, 1)
         else:
-            # No declared window: the input contributes a single sample.
-            windows = values[first:last][..., np.newaxis]
+            # No declared window: the input is read whole, one sample with no
+            # time axis.
+            windows = values[first:last]
 
-        for length in sequence:
+        # Each sliding window appends its axis; moved right after the samples it
+        # becomes the outermost time, so the innermost outer axis comes first.
+        for length in reversed(sequence):
             windows = sliding_window_view(windows, window_shape=length, axis=0)
+            windows = np.moveaxis(windows, -1, 1)
 
         # A sequence window is aligned to its final temporal sample. Inputs with
         # shorter/no seq dimensions therefore skip earlier samples so every model
@@ -630,8 +640,8 @@ class DataLoader:
 
         for name in selected:
             values = source[name].astype(np.float64, copy=False)
-            dim_rank = self.input_nodes[name].shape.dim_rank
-            reduce_axes = (0, *range(1 + dim_rank, values.ndim))
+            # One statistic per feature: over the samples and every step.
+            reduce_axes = (BATCH_AXIS, *self.input_nodes[name].shape.time_axes)
 
             # Padded rollout steps are repeats, not observations, so they are
             # left out of the statistics while still being transformed.

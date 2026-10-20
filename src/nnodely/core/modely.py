@@ -259,7 +259,7 @@ class Modely:
             },
             output_names=tuple(node.name for node in output_nodes),
             input_time_axes={
-                node.name: node.shape.dim_rank + 1 for node in self._roll_callbacks
+                node.name: node.shape.inner_time_axis for node in self._roll_callbacks
             },
             steps=cast(int, self._roll_steps),
             name=self._roll_name or f"{self.name}_roll",
@@ -764,7 +764,10 @@ class Modely:
         for input_ref, stream_ref in rollback.items():
             input_node = resolve(self.inputs, input_ref, "input")
             stream = resolve(graph_streams, stream_ref, "stream")
-            expected = tuple(input_node.dim) + (1,) + tuple(input_node.seq)
+            # One sample of the inner time; the outer time axes are kept.
+            expected = input_node.shape.replace(
+                time=(*input_node.shape.time[:-1], 1)
+            ).tuple
             if stream.shape.tuple != expected:
                 raise ValueError(
                     f"roll stream {stream.name!r} must produce one temporal "

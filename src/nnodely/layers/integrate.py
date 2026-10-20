@@ -12,6 +12,7 @@ import keras
 import numpy as np
 
 from nnodely.core.layer import Layer
+from nnodely.core.shape import expand_to_rank
 from nnodely.core.stream import Stream
 
 #: Quadrature rules, by the name the model writes. "euler" is the same
@@ -78,17 +79,17 @@ def _operator_matrix(rule: str, window_length: int, dt: float) -> np.ndarray:
 class IntegrateImpl(keras.layers.Layer):
     """Running integral of a window, one integrated sample per rate sample."""
 
-    def __init__(self, dt, rule, dim_rank, name=None, **kwargs):
+    def __init__(self, dt, rule, axis, name=None, **kwargs):
         super().__init__(name=name, **kwargs)
         self.dt = float(dt)
         self.rule = rule
-        self.dim_rank = int(dim_rank)
+        self.axis = int(axis)
 
     def build(self, input_shape):
         shapes = (
             input_shape if isinstance(input_shape[0], (list, tuple)) else [input_shape]  # type: ignore[list-item]
         )
-        window_length = int(shapes[0][1 + self.dim_rank])
+        window_length = int(shapes[0][self.axis])
         operator = _operator_matrix(self.rule, window_length, self.dt)
         self.operator = self.add_weight(
             name="operator",
@@ -104,7 +105,7 @@ class IntegrateImpl(keras.layers.Layer):
             x, init = inputs[0], inputs[1] if len(inputs) > 1 else None
         else:
             x, init = inputs, None
-        time_axis = 1 + self.dim_rank
+        time_axis = self.axis
 
         result = keras.ops.tensordot(x, self.operator, axes=[[time_axis], [0]])  # type: ignore[arg-type]
         # tensordot appends the window axis; put it back where time belongs.
@@ -115,11 +116,10 @@ class IntegrateImpl(keras.layers.Layer):
             result = keras.ops.moveaxis(result, last_axis, time_axis)
 
         if init is not None:
-            # An initial condition may leave out the sequence axes, and a
-            # scalar one the dim size: adding it broadcasts along both.
-            while len(init.shape) < len(result.shape):
-                init = keras.ops.expand_dims(init, axis=-1)
-            result = result + init
+            # An initial condition may leave out the outer time axes, or have
+            # no time, and a scalar one the dim size: adding it broadcasts
+            # along both.
+            result = result + expand_to_rank(init, len(result.shape))
         return result
 
     def compute_output_shape(self, input_shape):
@@ -133,7 +133,7 @@ class IntegrateImpl(keras.layers.Layer):
             {
                 "dt": self.dt,
                 "rule": self.rule,
-                "dim_rank": self.dim_rank,
+                "axis": self.axis,
             }
         )
         return config
@@ -243,24 +243,27 @@ class IntegrateStep(Layer):
             self._validate_init_shape(rate, inputs[1])
         # One integrated sample per rate sample: the result stays aligned with
         # the signal it came from.
-        return rate.shape.dim, rate.shape.time, rate.shape.seq
+        return rate.shape
 
     def _validate_init_shape(self, rate, init):
-        init_dim, init_seq = tuple(init.shape.dim), tuple(init.shape.seq)
-        if init.shape.time != 1:
+        init_dim, init_time = tuple(init.shape.dim), tuple(init.shape.time)
+        # Without time, the initial condition is a single sample.
+        samples = init_time[-1] if init_time else 1
+        if samples != 1:
             raise ValueError(
                 f"{self.name}: init is the value just before the window, so it "
-                f"must carry a single sample, got {init.shape.time}."
+                f"must carry a single sample, got {samples}."
             )
         if init_dim not in ((1,), tuple(rate.shape.dim)):
             raise ValueError(
                 f"{self.name}: init has dim {init_dim}, which is neither a scalar "
                 f"nor the integrated rate's {tuple(rate.shape.dim)}."
             )
-        if init_seq not in ((), tuple(rate.shape.seq)):
+        outer, rate_outer = init_time[:-1], tuple(rate.shape.time[:-1])
+        if outer not in ((), rate_outer):
             raise ValueError(
-                f"{self.name}: init has seq {init_seq}, which is neither empty nor "
-                f"the integrated rate's {tuple(rate.shape.seq)}."
+                f"{self.name}: init has the outer time {outer}, which is neither "
+                f"empty nor the integrated rate's {rate_outer}."
             )
 
     # ------------------------------------------------------------------
@@ -270,7 +273,7 @@ class IntegrateStep(Layer):
         return IntegrateImpl(
             dt=self.dt,
             rule=_SOLVER_RULE[self.solver],
-            dim_rank=len(self.dim),
+            axis=self.shape.inner_time_axis,
             name=self.name,
         )
 
@@ -296,13 +299,13 @@ class IntegrateStep(Layer):
 
 
 def _declared_seq(seq) -> tuple[int, ...] | None:
-    """Sequence axes as an Input declares them: -1 for a dynamic one."""
+    """Outer time axes as a window declares them: -1 for a dynamic one."""
     axes = tuple(-1 if length is None else int(length) for length in seq)
     return axes or None
 
 
 class Integrate:
-    """Integrate a rate along the horizon of its last sequence axis.
+    """Integrate a rate along the horizon of its outer time.
 
     ::
 
@@ -311,9 +314,9 @@ class Integrate:
     The high-level counterpart of :class:`IntegrateStep`: a block built from an
     ``IntegrateStep`` rolled out by a :class:`Loop`, one rate sample per step,
     with the integrated value fed back as the state of the next step. The rate
-    carries the horizon on its last sequence axis, of fixed length
-    (``seq=N``) or dynamic (``seq=-1``, followed at call time), and has one
-    time sample per step. The result is shaped like the rate: its element
+    carries the horizon as its outer time, of fixed length (``seq=N``) or
+    dynamic (``seq=-1``, followed at call time), and has one sample of inner
+    time per step. The result is shaped like the rate: its element
     ``k`` is the value at the end of step ``k``::
 
         y[k] = y[k-1] + dt * rate[k]                      # "euler", "rectangular"
@@ -325,8 +328,8 @@ class Integrate:
     values.
 
     ``init`` is the value just before the first step: a Stream of one sample
-    (a scalar, or the rate's dim; its sequence axes are the rate's except the
-    horizon), a number, or ``None`` for zero.
+    (a scalar, or the rate's dim; its outer time axes are the rate's except
+    the horizon), a number, or ``None`` for zero.
 
     Calling the block returns the ``Loop`` itself, bound to the rate and
     ``init`` it is called with: a stream like any other, to use in further
@@ -365,7 +368,6 @@ class Integrate:
         from nnodely.layers.input import Input
         from nnodely.layers.loop import Loop
         from nnodely.layers.output import Output
-        from nnodely.layers.parameter import Constant
 
         if isinstance(rate, (list, tuple)):
             if len(rate) != 1:
@@ -377,43 +379,49 @@ class Integrate:
             raise TypeError(
                 f"{self.name}: Integrate expects a Stream, got {type(rate).__name__}."
             )
-        if not rate.seq:
+        if len(rate.time) < 2:
             raise ValueError(
-                f"{self.name}: Integrate runs along the last sequence axis of the "
-                "rate, and this rate has none. Declare it on the Input, e.g. "
-                "Input(..., seq=-1), or integrate a time window with IntegrateStep."
+                f"{self.name}: Integrate runs along the outer time of the rate, its "
+                "rollout, and this rate has none. Declare it on the window, e.g. "
+                "x.last(seq=-1), or integrate a time window with IntegrateStep."
             )
-        if rate.time != 1:
+        if rate.time[-1] != 1:
             raise ValueError(
                 f"{self.name}: Integrate takes one rate sample per step, but the "
-                f"rate carries {rate.time} time samples. Integrate a time window "
+                f"rate carries {rate.time[-1]} time samples. Integrate a time window "
                 "with IntegrateStep."
             )
 
         self._calls += 1
         call_name = self.name if self._calls == 1 else f"{self.name}_{self._calls}"
         dim = tuple(rate.dim)
-        step_seq = _declared_seq(rate.seq[:-1])
+        # A step sees one sample of the rate, within the outer time axes the
+        # horizon leaves.
+        step_seq = _declared_seq(rate.time[1:-1])
 
         # One step: the state integrates the rate of that step.
-        rate_in = Input(f"{call_name}_rate", dim=dim, seq=step_seq)
-        state_in = Input(f"{call_name}_state", dim=dim, seq=step_seq)
+        rate_in = Input(f"{call_name}_rate", dim=dim)
+        state_in = Input(f"{call_name}_state", dim=dim)
+        rate_step = rate_in.last(seq=step_seq)
         trapezoidal = _SOLVER_RULE[self.solver] == "trapezoidal"
-        step_rate = rate_in
+        step_rate = rate_step
         previous_in = None
         if trapezoidal:
             # The trapezoid of a step averages its rate with the previous one,
             # which the loop feeds back like the state.
-            previous_in = Input(f"{call_name}_previous_rate", dim=dim, seq=step_seq)
-            step_rate = (previous_in + rate_in) * 0.5
+            previous_in = Input(f"{call_name}_previous_rate", dim=dim)
+            step_rate = (previous_in.last(seq=step_seq) + rate_step) * 0.5
         step = IntegrateStep(
-            solver="euler", dt=self.dt, init=state_in, name=f"{call_name}_step"
+            solver="euler",
+            dt=self.dt,
+            init=state_in.last(seq=step_seq),
+            name=f"{call_name}_step",
         )(step_rate)
         next_out = Output(f"{call_name}_next", step)
         body_inputs, body_outputs = [rate_in, state_in], [next_out]
         callback = {state_in: next_out}
         if previous_in is not None:
-            rate_out = Output(f"{call_name}_rate_out", Identity()([rate_in]))
+            rate_out = Output(f"{call_name}_rate_out", Identity()([rate_step]))
             body_inputs.append(previous_in)
             body_outputs.append(rate_out)
             callback[previous_in] = rate_out
@@ -423,16 +431,15 @@ class Integrate:
         # streams: the loop is returned as the integrated stream itself.
         initial: dict = {}
         if isinstance(self.init, Stream):
+            # A scalar init is spread over the rate's dim by the Loop, which
+            # broadcasts an initial value to the state it seeds.
             self._validate_init_shape(rate, self.init)
-            seed = self.init
-            if tuple(seed.dim) != dim:  # a scalar init, spread over the rate's dim
-                seed = seed * Constant(value=np.ones(dim))
-            initial[state_in] = seed
+            initial[state_in] = self.init
         elif self.init is not None:
             initial[state_in] = float(self.init)
         if previous_in is not None:
-            # The rate has one more sequence axis than the step: the first
-            # step reads its first sample, so that step is a rectangle.
+            # The rate has one more time axis than the step, the horizon: the
+            # first step reads its first sample, so that step is a rectangle.
             initial[previous_in] = rate
 
         self.body = body
@@ -441,11 +448,13 @@ class Integrate:
         )
 
     def _validate_init_shape(self, rate, init):
-        dim, step_seq = tuple(rate.dim), tuple(rate.seq[:-1])
-        if init.time != 1:
+        dim, step_outer = tuple(rate.dim), tuple(rate.time[1:-1])
+        init_time = tuple(init.time)
+        # Without time, the initial condition is a single sample.
+        if (init_time[-1] if init_time else 1) != 1:
             raise ValueError(
                 f"{self.name}: init is the value just before the first step, so "
-                f"it must carry a single sample, got {init.time}."
+                f"it must carry a single sample, got {init_time[-1]}."
             )
         if tuple(init.dim) not in (dim, (1,)) or (
             tuple(init.dim) == (1,) and len(dim) > 1
@@ -454,9 +463,9 @@ class Integrate:
                 f"{self.name}: init has dim {tuple(init.dim)}, which is neither "
                 f"the rate's {dim} nor, for a one-axis dim, a scalar."
             )
-        if tuple(init.seq) != step_seq:
+        if init_time[:-1] != step_outer:
             raise ValueError(
-                f"{self.name}: init has seq {tuple(init.seq)}, but one value per "
-                f"sequence of steps needs the rate's seq without the horizon, "
-                f"{step_seq}."
+                f"{self.name}: init has the outer time {init_time[:-1]}, but one "
+                "value per sequence of steps needs the rate's outer time without "
+                f"the horizon, {step_outer}."
             )

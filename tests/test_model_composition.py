@@ -35,16 +35,16 @@ def test_model_composition():
     model2 = Modely("composed_model", inputs=[z], outputs=[z_out])
     model2.build()
 
-    dummy_z = np.ones((3, 1, 10), dtype=np.float32)
+    dummy_z = np.ones((3, 10, 1), dtype=np.float32)
     result = model2({"z": dummy_z})
 
     assert "z_pred" in result
-    assert result["z_pred"].shape == (3, 2, 1)
+    assert result["z_pred"].shape == (3, 1, 2)
     # The body sums 10 samples of (z + z) into each of its 2 features, and the
     # outer Fir passes each feature on alone: 10 * 2 = 20 per feature.
     np.testing.assert_allclose(
         to_numpy(result["z_pred"]),
-        np.full((3, 2, 1), 20.0, dtype=np.float32),
+        np.full((3, 1, 2), 20.0, dtype=np.float32),
         rtol=1e-5,
         atol=1e-5,
     )
@@ -188,8 +188,8 @@ def test_model_saving_loading_and_compose(tmp_path):
     model1 = Modely("model1", inputs=[x, y], outputs=[x_out])
     model1.build()
 
-    dummy_x = np.array([[[1.0, 2.0, 3.0]]], dtype=np.float32)
-    dummy_y = np.array([[[4.0, 5.0, 6.0]]], dtype=np.float32)
+    dummy_x = np.array([[[1.0], [2.0], [3.0]]], dtype=np.float32)
+    dummy_y = np.array([[[4.0], [5.0], [6.0]]], dtype=np.float32)
     result_model1 = model1({"x": dummy_x, "y": dummy_y})
     np.testing.assert_allclose(
         to_numpy(result_model1["x_pred"]),
@@ -222,7 +222,7 @@ def test_model_saving_loading_and_compose(tmp_path):
     model2 = Modely("composed_model", inputs=[z], outputs=[z_out])
     model2.build()
 
-    dummy_z = np.array([[[10.0, 20.0, 30.0]]], dtype=np.float32)
+    dummy_z = np.array([[[10.0], [20.0], [30.0]]], dtype=np.float32)
     result_model2 = model2({"z": dummy_z})
     np.testing.assert_allclose(
         to_numpy(result_model2["z_pred"]),
@@ -261,7 +261,7 @@ def test_composition_shares_the_body_weights():
         "share_composed", inputs=[z], outputs=[Output("o", body([z.sw(2)]))]
     ).build()
 
-    values = np.array([[[3.0, 4.0]]], dtype=np.float32)
+    values = np.array([[[3.0], [4.0]]], dtype=np.float32)
     np.testing.assert_allclose(
         to_numpy(composed({"share_z": values})["o"]),
         np.full((1, 1, 1), 3.0 * 1.0 + 4.0 * 10.0, dtype=np.float32),
@@ -334,7 +334,7 @@ def test_composition_shares_parameters_and_constants():
     )
 
     assert gain.param is not None and offset.constant is not None
-    gain.param.assign(np.full((1, 1), 10.0, dtype=np.float32))
+    gain.param.assign(np.full((1,), 10.0, dtype=np.float32))
     np.testing.assert_allclose(
         to_numpy(composed({"pc_z": np.full((1, 1, 1), 2.0, dtype=np.float32)})["o"]),
         np.full((1, 1, 1), 2.0 * 10.0 + 1.0, dtype=np.float32),
@@ -358,7 +358,7 @@ def test_composition_rebuilds_layers_that_read_their_predecessor():
         "ctx_composed", inputs=[w], outputs=[Output("o", body([w.sw(3)]))]
     ).build()
 
-    values = np.array([[[10.0, 20.0, 30.0]]], dtype=np.float32)
+    values = np.array([[[10.0], [20.0], [30.0]]], dtype=np.float32)
     np.testing.assert_allclose(
         to_numpy(composed({"ctx_w": values})["o"]),
         np.full((1, 1, 1), 30.0, dtype=np.float32),
@@ -469,6 +469,6 @@ def test_layers_created_apart_have_their_own_weights_whatever_their_names():
     assert len(keras_names) == len(set(keras_names))
     # Three layers: the two twins, and the one applied twice.
     assert len(model.inference_model.weights) == 3
-    result = model({"twins_x": np.ones((1, 1, 2), dtype=np.float32)})
+    result = model({"twins_x": np.ones((1, 2, 1), dtype=np.float32)})
     np.testing.assert_allclose(to_numpy(result["twins_first"]), [[[2.0]]])
     np.testing.assert_allclose(to_numpy(result["twins_second"]), [[[6.0]]])

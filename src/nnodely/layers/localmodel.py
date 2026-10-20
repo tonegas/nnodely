@@ -10,7 +10,8 @@ import keras
 import numpy as np
 
 from nnodely.core.dag import next_name
-from nnodely.core.layer import Identity, Layer
+from nnodely.core.layer import Identity, Layer, Multiply
+from nnodely.core.shape import Shape, align, slice_axis
 from nnodely.core.stream import Stream
 from nnodely.layers.activations import (
     ELU,
@@ -54,9 +55,9 @@ class FuzzyProductImpl(keras.layers.Layer):
     Joint membership of several fuzzifications, laid out to weigh a stack of
     cells with ``cell_rank`` dim axes.
 
-    Inputs:  a_k: [batch, n_k, time]
-    Output:  [batch, n_1 * n_2 * ..., 1 x cell_rank, time], row-major: the
-             last input varies fastest.
+    Inputs:  a_k of dim (n_k,)
+    Output:  dim (n_1 * n_2 * ..., 1 x cell_rank), row-major: the last input
+             varies fastest; the time axis is kept.
     """
 
     def __init__(self, cell_rank=0, name=None, **kwargs):
@@ -70,15 +71,22 @@ class FuzzyProductImpl(keras.layers.Layer):
 
     def call(self, xs):
         xs = list(xs) if isinstance(xs, (list, tuple)) else [xs]
+        # Each activation (batch, *time, n_k), with at most one time axis,
+        # given the time of the others: the product runs over the last axis.
+        time_rank = max(len(activation.shape) - 2 for activation in xs)
+        xs = [
+            align(activation, len(activation.shape) - 2, 1, time_rank, 1)
+            for activation in xs
+        ]
         result = xs[0]
         for activation in xs[1:]:
-            cells = result.shape[1] * activation.shape[1]
-            result = keras.ops.expand_dims(result, 2) * keras.ops.expand_dims(
-                activation, 1
+            cells = result.shape[-1] * activation.shape[-1]
+            result = keras.ops.expand_dims(result, -1) * keras.ops.expand_dims(
+                activation, -2
             )
-            result = keras.ops.reshape(result, (-1, cells, result.shape[-1]))
+            result = keras.ops.reshape(result, (-1, *result.shape[1:-2], cells))
         for _ in range(self.cell_rank):
-            result = keras.ops.expand_dims(result, 2)
+            result = keras.ops.expand_dims(result, -1)
         return result
 
 
@@ -92,8 +100,8 @@ class FuzzyProduct(Layer):
 
     def output_shape(self, *inputs):
         cells = prod(activation.dim[0] for activation in inputs)
-        time = max(activation.time for activation in inputs)
-        return (cells, *(1,) * self.cell_rank), time, ()
+        time = max(tuple(activation.time) for activation in inputs)
+        return Shape(dim=(cells, *(1,) * self.cell_rank), time=time)
 
     def build_layer(self):
         return FuzzyProductImpl(cell_rank=self.cell_rank, name=self.name)
@@ -102,27 +110,26 @@ class FuzzyProduct(Layer):
 @keras.saving.register_keras_serializable(package="nnodely")
 class CellStackImpl(keras.layers.Layer):
     """
-    Cells stacked on a new first dim axis.
-
-    Inputs:  cell_0, ..., cell_{N-1}: [batch, *cell, time, *seq]
-    Output:  [batch, N, *cell, time, *seq], or [batch, N, time, *seq] for
-             scalar cells.
+    Cells stacked on a new first dim axis, the tensor axis ``axis`` of the
+    result: ``(N, *cell)``, or ``(N,)`` for scalar cells, which are joined on
+    their one dim axis.
     """
 
-    def __init__(self, scalar=False, name=None, **kwargs):
+    def __init__(self, axis, scalar=False, name=None, **kwargs):
         super().__init__(name=name, **kwargs)
+        self.axis = int(axis)
         self.scalar = bool(scalar)
 
     def get_config(self):
         config = super().get_config()
-        config.update({"scalar": self.scalar})
+        config.update({"axis": self.axis, "scalar": self.scalar})
         return config
 
     def call(self, xs):
         xs = list(xs) if isinstance(xs, (list, tuple)) else [xs]
         if self.scalar:
-            return keras.ops.concatenate(xs, axis=1)
-        return keras.ops.stack(xs, axis=1)
+            return keras.ops.concatenate(xs, axis=self.axis)
+        return keras.ops.stack(xs, axis=self.axis)
 
 
 class CellStack(Layer):
@@ -138,30 +145,34 @@ class CellStack(Layer):
         cell = inputs[0]
         cells = len(inputs)
         dim = (cells,) if tuple(cell.dim) == (1,) else (cells, *cell.dim)
-        return dim, cell.time, tuple(cell.seq)
+        return cell.shape.replace(dim=dim)
 
     def build_layer(self):
-        return CellStackImpl(scalar=len(self.dim) == 1, name=self.name)
+        return CellStackImpl(
+            axis=self.shape.dim_axes[0], scalar=len(self.dim) == 1, name=self.name
+        )
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class CellSelectImpl(keras.layers.Layer):
-    """[batch, N, *cell, time, *seq] -> [batch, *cell, time, *seq], cell ``idx``."""
+    """Cell ``idx`` of a stack whose cell axis is the tensor axis ``axis``,
+    without that axis."""
 
-    def __init__(self, idx, keepdims=False, name=None, **kwargs):
+    def __init__(self, idx, axis, keepdims=False, name=None, **kwargs):
         super().__init__(name=name, **kwargs)
         self.idx = int(idx)
+        self.axis = int(axis)
         self.keepdims = bool(keepdims)
 
     def get_config(self):
         config = super().get_config()
-        config.update({"idx": self.idx, "keepdims": self.keepdims})
+        config.update({"idx": self.idx, "axis": self.axis, "keepdims": self.keepdims})
         return config
 
     def call(self, x):
         if self.keepdims:
-            return x[:, self.idx : self.idx + 1]
-        return x[:, self.idx]
+            return slice_axis(x, self.axis, slice(self.idx, self.idx + 1))
+        return slice_axis(x, self.axis, self.idx)
 
 
 class CellSelect(Layer):
@@ -172,45 +183,62 @@ class CellSelect(Layer):
         super().__init__(name=name, idx=self.idx)
 
     def output_shape(self, *inputs):
-        stack = inputs[0]
-        return _cell_dim(stack.dim), stack.time, tuple(stack.seq)
+        stack = inputs[0].shape
+        return stack.replace(dim=_cell_dim(stack.dim))
 
     def build_layer(self):
+        stack = self.preds[0].shape  # type: ignore[union-attr]
         return CellSelectImpl(
             idx=self.idx,
-            keepdims=len(self.preds[0].dim) == 1,  # type: ignore
+            axis=stack.dim_axes[0],
+            keepdims=stack.dim_rank == 1,
             name=self.name,
         )
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class CellSumImpl(keras.layers.Layer):
-    """[batch, N, *cell, time, *seq] -> [batch, *cell, time, *seq]."""
+    """The sum of the cells of a stack whose cell axis is the tensor axis
+    ``axis``, without that axis."""
 
-    def __init__(self, keepdims=False, name=None, **kwargs):
+    def __init__(self, axis, keepdims=False, name=None, **kwargs):
         super().__init__(name=name, **kwargs)
+        self.axis = int(axis)
         self.keepdims = bool(keepdims)
 
     def get_config(self):
         config = super().get_config()
-        config.update({"keepdims": self.keepdims})
+        config.update({"axis": self.axis, "keepdims": self.keepdims})
         return config
 
     def call(self, x):
-        return keras.ops.sum(x, axis=1, keepdims=self.keepdims)
+        return keras.ops.sum(x, axis=self.axis, keepdims=self.keepdims)
+
+
+class CellWeight(Multiply):
+    """A stack of cells weighted by their memberships ``[N, 1 x cell_rank,
+    T]``: the stack's shape. The memberships may hold one sample, or none,
+    to weigh every sample of the cells' window alike, a broadcast along time
+    that plain arithmetic refuses; :class:`LocalModel` checks the times."""
+
+    def output_shape(self, *inputs):
+        stack, mu = inputs[0].shape, inputs[1].shape
+        if stack.time and stack.time[-1] == 1 and mu.time:
+            return stack.replace(time=(*stack.time[:-1], mu.time[-1]))
+        return stack if stack.time else stack.replace(time=mu.time)
 
 
 class CellSum(Layer):
     """Sum of the cells of a stack, without the cell axis."""
 
     def output_shape(self, *inputs):
-        stack = inputs[0]
-        return _cell_dim(stack.dim), stack.time, tuple(stack.seq)
+        stack = inputs[0].shape
+        return stack.replace(dim=_cell_dim(stack.dim))
 
     def build_layer(self):
+        stack = self.preds[0].shape  # type: ignore[union-attr]
         return CellSumImpl(
-            keepdims=len(self.preds[0].dim) == 1,  # type: ignore
-            name=self.name,
+            axis=stack.dim_axes[0], keepdims=stack.dim_rank == 1, name=self.name
         )
 
 
@@ -291,7 +319,7 @@ class LocalModel:
             raise TypeError(f"{self.name}: inputs and activations must be Streams.")
         for index, activation in enumerate(activations):
             shape = activation.shape
-            if shape.seq_rank or shape.dim_rank != 1:
+            if shape.time_rank > 1 or shape.dim_rank != 1:
                 raise ValueError(
                     f"{self.name}: activation {index} must have shape "
                     f"[cells, T], got {shape}."
@@ -327,8 +355,10 @@ class LocalModel:
             stack = CellStack(name=f"{self.name}_inputs")(values)
 
         # The memberships, with a 1 for every dim axis of a cell: multiplied
-        # with the stack, they line up on the cell axis and on the time axis.
-        times = {activation.time for activation in activations} | {stack.time}
+        # with the stack, they line up on the cell axis and on the inner time.
+        times = {
+            stream.time[-1] if stream.time else 1 for stream in [*activations, stack]
+        }
         if len(times - {1}) > 1:
             raise ValueError(
                 f"{self.name}: the activations and the cells have time axes of "
@@ -340,7 +370,7 @@ class LocalModel:
             if len(activations) == 1 and cell_rank == 0
             else FuzzyProduct(cell_rank=cell_rank, name=f"{self.name}_mu")(activations)
         )
-        weighted = stack * mu
+        weighted = CellWeight(name=f"{self.name}_weighted")([stack, mu])
 
         function = self.output_function
         if self._is_vectorized(function):

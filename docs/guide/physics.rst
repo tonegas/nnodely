@@ -61,7 +61,7 @@ signals at the price of a delay of about ``(window - 1) / 2`` samples:
    position = Input("position")
    velocity = Derivative(dt=dt, init=0.0)(position.sw(10))
    smooth_velocity = Derivative(dt=dt, window=5)(position.sw(10))
-   print(velocity.shape)   # Shape(D=(1,), T=10, S=())
+   print(velocity.shape)   # Shape(T=(10,), D=(1,))
 
 Integrators
 -----------
@@ -84,14 +84,14 @@ position can be obtained from acceleration with no rollout:
 
    v_window = IntegrateStep(dt=dt)(acceleration.sw(50))
    x_window = IntegrateStep(dt=dt)(v_window)
-   print(x_window.shape)   # Shape(D=(1,), T=50, S=())
+   print(x_window.shape)   # Shape(T=(50,), D=(1,))
 
 The Euler rule is the exact inverse of the time derivative with the same
 ``init``: ``IntegrateStep(dt=dt, init=x0)(Derivative(dt=dt, init=x0)(x))``
 returns ``x``.
 
-:class:`~nnodely.Integrate` integrates along a **horizon** instead: the last
-sequence axis of the rate, one sample per step. It is a block built from an
+:class:`~nnodely.Integrate` integrates along a **horizon** instead: the outer
+time of the rate, one sample per step. It is a block built from an
 ``IntegrateStep`` and a :class:`~nnodely.Loop` that feeds each integrated
 value back as the state of the next step. A dynamic horizon (``seq=-1``)
 follows the length of the data at every call, with no rebuild. The rules, and
@@ -99,15 +99,17 @@ the results on the same samples, are those of ``IntegrateStep``:
 
 .. code-block:: python
 
-   acc = Input("acc", seq=-1)                      # one acceleration per step
+   acc = Input("acc")
    v0 = Input("v0")
-   velocity = Integrate(solver="trapezoidal", dt=dt, init=v0)(acc)
+   velocity = Integrate(solver="trapezoidal", dt=dt, init=v0.last())(
+       acc.last(seq=-1)                          # one acceleration per step
+   )
    position = Integrate(solver="trapezoidal", dt=dt, init=0.0)(velocity)
    kinematics = Modely("kinematics", inputs=[acc, v0],
                        outputs=[Output("velocity", velocity), Output("position", position)])
    kinematics.build()
-   result = kinematics({"acc": np.ones((1, 1, 1, 30)), "v0": np.zeros((1, 1, 1))})
-   print(result["position"].shape)   # (1, 1, 1, 30): one value per step
+   result = kinematics({"acc": np.ones((1, 30, 1, 1)), "v0": np.zeros((1, 1, 1))})
+   print(result["position"].shape)   # (1, 30, 1, 1): one value per step
 
 One ODE step
 ------------
@@ -136,12 +138,12 @@ body of a :class:`~nnodely.Loop`. Here a pendulum with an unknown ratio
        outputs=[Output("theta_next", theta_next), Output("omega_next", omega_next)],
    ).build()
 
-   theta0 = Input("theta0", seq=100)
-   omega0 = Input("omega0", seq=100)
+   theta0 = Input("theta0")
+   omega0 = Input("omega0")
    theta_traj, omega_traj = Loop(
        f=step,
        callback={"theta": "theta_next", "omega": "omega_next"},
-       init={"theta": theta0, "omega": omega0},
+       init={"theta": theta0.last(seq=100), "omega": omega0.last(seq=100)},
    )()
    simulator = Modely(
        "pendulum",
@@ -149,8 +151,8 @@ body of a :class:`~nnodely.Loop`. Here a pendulum with an unknown ratio
        outputs=[Output("theta_traj", theta_traj), Output("omega_traj", omega_traj)],
    ).build()
 
-   result = simulator({"theta0": np.full((1, 1, 1, 100), 0.5), "omega0": np.zeros((1, 1, 1, 100))})
-   print(result["theta_traj"].shape)   # (1, 1, 1, 100)
+   result = simulator({"theta0": np.full((1, 100, 1, 1), 0.5), "omega0": np.zeros((1, 100, 1, 1))})
+   print(result["theta_traj"].shape)   # (1, 100, 1, 1)
 
 ``g_over_l`` is a parameter, so training the simulator on measured angles
 identifies it. ``dt`` can also be a stream, read from data or learned.
@@ -161,8 +163,8 @@ Neural ODEs
 :class:`~nnodely.OdeNet` integrates a vector field given as a built model.
 ``states`` maps each state input of the field to the output with its
 derivative. ``t`` is a stream with the times to report: the first one is the
-initial condition, and the result appends one point per time as the last
-sequence axis. The field must be autonomous (all its inputs are states).
+initial condition, and the result gets one point per time as its new outer
+time. The field must be autonomous (all its inputs are states).
 
 .. code-block:: python
 
@@ -173,15 +175,17 @@ sequence axis. The field must be autonomous (all its inputs are states).
        outputs=[Output("dz", Linear(features=2, bias=False)([z.last()]))],
    ).build()
 
-   report_times = Input("report_times", seq=50)
-   z_traj = OdeNet(f=field, states={z: "dz"}, t=report_times, method="rk4", steps=2)
+   report_times = Input("report_times")
+   z_traj = OdeNet(
+       f=field, states={z: "dz"}, t=report_times.last(seq=50), method="rk4", steps=2
+   )
    node = Modely("neural_ode", inputs=[z, report_times], outputs=[Output("z_traj", z_traj)]).build()
 
    result = node({
-       "z": np.array([[[2.0], [0.0]]]),
-       "report_times": np.linspace(0.0, 5.0, 50).reshape(1, 1, 1, 50),
+       "z": np.array([[[2.0, 0.0]]]),
+       "report_times": np.linspace(0.0, 5.0, 50).reshape(1, 50, 1, 1),
    })
-   print(result["z_traj"].shape)   # (1, 2, 1, 50)
+   print(result["z_traj"].shape)   # (1, 50, 1, 2)
 
 With a fixed method (``"euler"``, ``"midpoint"``, ``"heun"``, ``"rk4"``), each
 reported interval is split into ``steps`` equal substeps and the solver is an

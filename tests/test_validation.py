@@ -14,7 +14,7 @@ def _identity_model(name, *, dim=None, window=1, loss="mse"):
     prediction = Output(f"{name}_prediction", x.sw(window))
 
     model = Modely(name, inputs=[x], outputs=[prediction])
-    reference = target if window == 1 else target.sw(window)
+    reference = target.last() if window == 1 else target.sw(window)
     model.minimize("tracking", source=prediction, target=reference, loss=loss)
     model.build()
     return model
@@ -86,10 +86,10 @@ def test_relative_indicators_are_undefined_on_a_constant_target():
 
 
 def test_every_element_of_the_tensor_is_scored():
-    ## (samples, dim, time) - an error hidden past the first scalar still counts
-    true = np.zeros((4, 2, 3))
-    pred = np.zeros((4, 2, 3))
-    pred[2, 1, 2] = 1.0
+    ## (samples, time, dim) - an error hidden past the first scalar still counts
+    true = np.zeros((4, 3, 2))
+    pred = np.zeros((4, 3, 2))
+    pred[2, 2, 1] = 1.0
     score = validation.score_signal(
         name="t", source="p", target="r", loss_fn=None, y_true=true, y_pred=pred
     )

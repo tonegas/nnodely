@@ -2,6 +2,7 @@ import keras
 
 from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
+from nnodely.core.shape import slice_axis
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -36,10 +37,9 @@ class ModelRollImpl(keras.layers.Layer):
                 state = states[input_name]
                 feedback = values[stream_name]
                 time_axis = self.input_time_axes[input_name]
-                slices = [slice(None)] * len(state.shape)
-                slices[time_axis] = slice(1, None)
                 next_states[input_name] = keras.ops.concatenate(
-                    [state[tuple(slices)], feedback], axis=time_axis
+                    [slice_axis(state, time_axis, slice(1, None)), feedback],
+                    axis=time_axis,
                 )
             states = next_states
 
@@ -99,10 +99,8 @@ class RollImpl(keras.layers.Layer):
             if isinstance(feedback, dict):
                 feedback = feedback[self.callback_output_name]
 
-            slices = [slice(None)] * len(state.shape)
-            slices[self.time_axis] = slice(1, None)
             state = keras.ops.concatenate(
-                [state[tuple(slices)], feedback],
+                [slice_axis(state, self.time_axis, slice(1, None)), feedback],
                 axis=self.time_axis,
             )
 
@@ -155,9 +153,10 @@ class Roll(Layer):
         callback_input = self._find_node(f.inputs, callback_input, "input")
         callback_output = self._find_node(f.outputs, callback_output, "output")
 
-        expected_output_shape = (
-            tuple(callback_input.dim) + (1,) + tuple(callback_input.seq)
-        )
+        # One sample of the inner time; the outer time axes are kept.
+        expected_output_shape = callback_input.shape.replace(
+            time=(*callback_input.time[:-1], 1)
+        ).tuple
         if callback_output.shape.tuple != expected_output_shape:
             raise ValueError(
                 "callback output must produce one temporal sample with shape "
@@ -165,7 +164,7 @@ class Roll(Layer):
             )
 
         if steps is None:
-            steps = callback_input.time
+            steps = callback_input.shape.inner_time
         if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
             raise ValueError("steps must be a positive integer.")
 
@@ -180,7 +179,6 @@ class Roll(Layer):
             preds=[callback_input, *self.static_inputs],
             dim=callback_input.dim,
             time=callback_input.time,
-            seq=callback_input.seq,
         )
 
     @staticmethod
@@ -204,7 +202,7 @@ class Roll(Layer):
             callback_output_name=self.callback_output.name,
             static_input_names=tuple(node.name for node in self.static_inputs),
             steps=self.steps,
-            time_axis=self.callback_input.shape.dim_rank + 1,
+            time_axis=self.callback_input.shape.inner_time_axis,
             name=self.name,
         )
 

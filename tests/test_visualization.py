@@ -186,15 +186,17 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
     body_output = Output("body_out", Linear(features=1)(seed_input.last()))
     body = Modely("loop_body", inputs=[seed_input], outputs=[body_output]).build()
 
-    seed = Input("in1_seq", seq=5)
+    seed = Input("in1_seq")
+    seed_window = seed.last(seq=5)
     loop = Loop(
         f=body,
         callback={seed_input: body_output},
         name="loop_block",
-        init={seed_input: seed},
+        init={seed_input: seed_window},
     )()
     model = Modely("loop_model", inputs=[seed], outputs=[Output("out1", loop)])
-    model.minimize("err", source=model.outputs[0], target=Input("target", seq=5))
+    target = Input("target").last(seq=5)
+    model.minimize("err", source=model.outputs[0], target=target)
     model.build()
 
     model.export_html(out_dir=tmp_path, filename="loop_model")
@@ -203,7 +205,7 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
 
     # The block node carries the ports that bind the body to this graph.
     assert '"nested_model": "loop_body"' in page
-    assert '"body": "in1", "outer": "in1_seq", "role": "initial"' in page
+    assert f'"body": "in1", "outer": "{seed_window.name}", "role": "initial"' in page
     assert '"from": "body_out", "to": "in1"' in page
     assert '"steps": 5' in page
 
@@ -213,7 +215,7 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
 
     # Training objectives are visible, and an unreferenced target is drawn.
     assert '"__min_err"' in page
-    assert '"from": "target", "to": "__min_err"' in page
+    assert f'"from": "{target.name}", "to": "__min_err"' in page
 
 
 def test_export_html_layout_survives_feedback_cycles(tmp_path):
@@ -222,12 +224,12 @@ def test_export_html_layout_survives_feedback_cycles(tmp_path):
     body_output = Output("body_out", Sin(seed_input.last()))
     body = Modely("cyc_body", inputs=[seed_input], outputs=[body_output]).build()
 
-    seed = Input("in1_seq", seq=5)
+    seed = Input("in1_seq")
     loop = Loop(
         f=body,
         callback={seed_input: body_output},
         name="cyc_block",
-        init={seed_input: seed},
+        init={seed_input: seed.last(seq=5)},
     )()
     model = Modely("cyc_model", inputs=[seed], outputs=[Output("out1", loop)])
     model.build()
@@ -274,12 +276,13 @@ def test_flattened_page_inlines_a_loop_body(tmp_path):
     body_output = Output("body_out", Linear(features=1)(seed_input.last()))
     body = Modely("inline_body", inputs=[seed_input], outputs=[body_output]).build()
 
-    seed = Input("in1_seq", seq=4)
+    seed = Input("in1_seq")
+    seed_window = seed.last(seq=4)
     loop = Loop(
         f=body,
         callback={seed_input: body_output},
         name="inline_block",
-        init={seed_input: seed},
+        init={seed_input: seed_window},
     )()
     model = Modely("inline_model", inputs=[seed], outputs=[Output("out1", loop)])
     model.build()
@@ -299,7 +302,7 @@ def test_flattened_page_inlines_a_loop_body(tmp_path):
     assert {"inline_block/in1", "inline_block/body_out"} <= flattened_ids
 
     labels = {(e["from"], e["to"]): e["label"] for e in _graph(flattened)[1]}
-    assert labels[("in1_seq", "inline_block/in1")] == "initial"
+    assert labels[(seed_window.name, "inline_block/in1")] == "initial"
     assert (
         labels[("inline_block/body_out", "inline_block/in1")] == "feedback (x4 steps)"
     )
@@ -465,10 +468,10 @@ def _looped_model():
     state, force = Input("loop_state"), Input("loop_force")
     nxt = Output("loop_next", Linear(bias=False)(state.last()) + force.last())
     body = Modely("step_body", inputs=[state, force], outputs=[nxt]).build()
-    seed, forces = Input("loop_seed"), Input("loop_forces", seq=-1)
+    seed, forces = Input("loop_seed"), Input("loop_forces")
     trajectory = Loop(
-        f=body, callback={state: nxt}, name="sim_loop", init={state: seed}
-    )({force: forces})
+        f=body, callback={state: nxt}, name="sim_loop", init={state: seed.last()}
+    )({force: forces.last(seq=-1)})
     return Modely(
         "simulator", inputs=[seed, forces], outputs=[Output("loop_traj", trajectory)]
     ).build()
@@ -584,14 +587,16 @@ def test_plot_draws_roll_and_rollback_recurrences(tmp_path, monkeypatch):
 def test_plot_writes_the_shape_on_the_arrows_and_only_the_name_on_the_cards(
     tmp_path, monkeypatch
 ):
-    acc = Input("dyn_acc", seq=-1)
+    acc = Input("dyn_acc")
     model = Modely(
-        "dynamic", inputs=[acc], outputs=[Output("dyn_vel", Integrate(dt=0.1)(acc))]
+        "dynamic",
+        inputs=[acc],
+        outputs=[Output("dyn_vel", Integrate(dt=0.1)(acc.last(seq=-1)))],
     ).build()
 
     root = _dot_sources(model, tmp_path, monkeypatch)["dynamic"]
 
-    assert re.search(r'dyn_acc -> \w+ \[label="\(1, 1, dyn\)"\]', root)
+    assert re.search(r'dyn_acc -> \w+ \[label="\(dyn, 1, 1\)"\]', root)
     # A card holds its name, and nothing else: no class, no shape.
     for card in re.findall(r"<TABLE BORDER=\"1\".*?</TABLE>", root):
         assert card.count("<TD>") == 1

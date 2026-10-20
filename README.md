@@ -82,7 +82,7 @@ loop = Loop(f=model, callback={x: out}, init={x: window}, length=10)()
 fib = Output("fib", loop)
 generator = Modely("FibonacciGenerator", inputs=[x], outputs=[fib]).build()
 
-start = np.array([[[0.0, 1.0]]], dtype=np.float32)
+start = np.array([[[0.0], [1.0]]], dtype=np.float32)  # (batch, time, dim)
 print(generator({"x": start}))  # Make inference
 
 generator.save("path/to/fibonacci_model")  # Save the nnodely model
@@ -127,7 +127,7 @@ a reference written for LLMs and coding agents rather than for people. It is den
 
 - the hard rules of the library: lifecycle order, how objectives and targets work, naming and weight sharing.
 - a table that maps physical concepts and equations to nnodely blocks;
-- the shape convention `(*dim, time, *seq)` and how windows and sequences are aligned by the `DataLoader`;
+- the shape convention `(batch, *time, *dim)` and how windows and sequences are aligned by the `DataLoader`;
 - exact signatures of every block, of `Modely` and of `DataLoader`;
 - when to use `rollback`, `Loop`, `Roll`, `Ode` or `OdeNet`, and how to align their training data;
 - which models can be saved or exported to Keras and ONNX, on which backend;

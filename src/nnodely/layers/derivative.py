@@ -23,6 +23,7 @@ import numpy as np
 
 from nnodely.core.dag import _source_input_tensors, _source_names
 from nnodely.core.layer import Layer
+from nnodely.core.shape import expand_to_rank, slice_axis
 from nnodely.core.stream import Stream
 from nnodely.layers.input import Input
 
@@ -234,14 +235,14 @@ class TimeDerivativeImpl(keras.layers.Layer):
     def __init__(
         self,
         coefficients,
-        dim_rank: int,
+        axis: int,
         init_time: int = 1,
         name=None,
         **kwargs,
     ):
         super().__init__(name=name, **kwargs)
         self.coefficients = tuple(float(c) for c in coefficients)
-        self.dim_rank = int(dim_rank)
+        self.axis = int(axis)
         self.init_time = int(init_time)
 
     @property
@@ -253,7 +254,7 @@ class TimeDerivativeImpl(keras.layers.Layer):
         shapes = (
             input_shape if isinstance(input_shape[0], (list, tuple)) else [input_shape]  # type: ignore[list-item]
         )
-        window_length = int(shapes[0][1 + self.dim_rank])
+        window_length = int(shapes[0][self.axis])
         operator = _operator_matrix(self.coefficients, window_length)
         self.operator = self.add_weight(
             name="operator",
@@ -264,29 +265,22 @@ class TimeDerivativeImpl(keras.layers.Layer):
         )
         super().build(input_shape)
 
-    def _time_slice(self, x, start, stop):
-        slices = [slice(None)] * len(x.shape)
-        slices[1 + self.dim_rank] = slice(start, stop)
-        return x[tuple(slices)]
-
     def call(self, inputs):
         if isinstance(inputs, (list, tuple)):
             x, init = inputs[0], inputs[1] if len(inputs) > 1 else None
         else:
             x, init = inputs, None
-        time_axis = 1 + self.dim_rank
+        time_axis = self.axis
 
         # One sample of zeros shaped like the window's first: it both stands
         # in for a missing initial condition and gives a given one the axes it
         # may be broadcasting over - a scalar initial condition carries no dim
-        # size, and one may leave out the sequence axes.
-        reference = keras.ops.zeros_like(self._time_slice(x, 0, 1))
+        # size, and one may leave out the outer time axes, or have no time.
+        reference = keras.ops.zeros_like(slice_axis(x, time_axis, slice(0, 1)))
         if init is None:
             history = reference
         else:
-            while len(init.shape) < len(reference.shape):
-                init = keras.ops.expand_dims(init, axis=-1)
-            history = init + reference
+            history = expand_to_rank(init, len(reference.shape)) + reference
         if self.init_time != self.past:
             history = keras.ops.repeat(history, self.past, axis=time_axis)
 
@@ -310,7 +304,7 @@ class TimeDerivativeImpl(keras.layers.Layer):
         config.update(
             {
                 "coefficients": self.coefficients,
-                "dim_rank": self.dim_rank,
+                "axis": self.axis,
                 "init_time": self.init_time,
             }
         )
@@ -393,8 +387,7 @@ class Differentiate(Layer):
             )
         # Reverse-mode differentiation yields the shape of the variable, not
         # of the relation: one derivative per sample of the input's window.
-        wrt = self.respect_to
-        return wrt.shape.dim, wrt.shape.time, wrt.shape.seq
+        return self.respect_to.shape
 
     # ------------------------------------------------------------------
     # Keras layer logic
@@ -586,25 +579,27 @@ class Derivative(Layer):
             self._validate_init(function, inputs[1])
         # One derivative per sample: the window is preserved, so the result
         # stays aligned with the signal it came from.
-        return function.shape.dim, function.shape.time, function.shape.seq
+        return function.shape
 
     def _validate_init(self, function, init):
-        init_dim, init_seq = tuple(init.shape.dim), tuple(init.shape.seq)
-        if init.shape.time not in (1, self.past):
+        init_dim, init_time = tuple(init.shape.dim), tuple(init.shape.time)
+        # Without time, the initial condition is one sample, reused for each.
+        samples = init_time[-1] if init_time else 1
+        if samples not in (1, self.past):
             raise ValueError(
                 f"{self.name}: init must carry 1 sample (reused for each) or the "
-                f"{self.past} the stencil reads before the window, got "
-                f"{init.shape.time}."
+                f"{self.past} the stencil reads before the window, got {samples}."
             )
         if init_dim not in ((1,), tuple(function.shape.dim)):
             raise ValueError(
                 f"{self.name}: init has dim {init_dim}, which is neither a "
                 f"scalar nor the differentiated relation's {tuple(function.shape.dim)}."
             )
-        if init_seq not in ((), tuple(function.shape.seq)):
+        outer, function_outer = init_time[:-1], tuple(function.shape.time[:-1])
+        if outer not in ((), function_outer):
             raise ValueError(
-                f"{self.name}: init has seq {init_seq}, which is neither "
-                f"empty nor the differentiated relation's {tuple(function.shape.seq)}."
+                f"{self.name}: init has the outer time {outer}, which is neither "
+                f"empty nor the differentiated relation's {function_outer}."
             )
 
     # ------------------------------------------------------------------
@@ -614,12 +609,13 @@ class Derivative(Layer):
         init_time = 1
         if len(self.preds) > 1:
             init_node = self.preds[1]
-            init_time = init_node.shape.time if isinstance(init_node, Stream) else 1
+            if isinstance(init_node, Stream) and init_node.shape.time:
+                init_time = int(init_node.shape.inner_time)  # type: ignore[arg-type]
         return TimeDerivativeImpl(
             coefficients=_stencil_coefficients(
                 self.order, self.window, self.poly_order, self.dt
             ),
-            dim_rank=len(self.dim),
+            axis=self.shape.inner_time_axis,
             init_time=init_time,
             name=self.name,
         )

@@ -7,7 +7,6 @@ import inspect
 from collections.abc import Callable
 from typing import Any, cast
 
-import keras
 
 from nnodely.core.dag import next_name
 from nnodely.core.layer import (
@@ -134,20 +133,17 @@ class EquationLearner:
         internal_inputs = []
         internal_streams = []
         for index, stream in enumerate(streams):
-            internal_input = Input(
-                f"{call_name}_input_{index}",
-                dim=stream.dim,
-                # A dynamic sequence axis is declared with -1.
-                seq=tuple(-1 if length is None else length for length in stream.seq),
-            )
-            internal_input.shape.time = stream.time
-            internal_input.past = stream.time
-            internal_input.input = keras.Input(
-                shape=internal_input.shape,
-                name=internal_input.name,
-            )
+            internal_input = Input(f"{call_name}_input_{index}", dim=stream.dim)
             internal_inputs.append(internal_input)
-            internal_streams.append(internal_input)
+            if not stream.shape.time:
+                internal_streams.append(internal_input)
+                continue
+            # The stream's shape: a window of its inner time, with its outer
+            # time axes, a dynamic one declared with -1.
+            outer = tuple(-1 if size is None else size for size in stream.time[:-1])
+            internal_streams.append(
+                internal_input.sw(stream.shape.inner_time, seq=outer or None)
+            )
 
         combined = (
             internal_streams[0]

@@ -32,9 +32,12 @@ def test_loop(tmp_path):
     body = Modely("loop_body", inputs=[input1], outputs=[body_output]).build()
 
     # The rollout axis lives outside the body: five steps, seeded by in1_seq[0].
-    seed = Input("in1_seq", seq=5)
+    seed = Input("in1_seq")
     loop = Loop(
-        f=body, callback={input1: body_output}, collect=False, init={input1: seed}
+        f=body,
+        callback={input1: body_output},
+        collect=False,
+        init={input1: seed.last(seq=5)},
     )()
     output1 = Output("out1", loop)
 
@@ -46,8 +49,8 @@ def test_loop(tmp_path):
     assert loop.f is body
     model.export_html(out_dir=tmp_path, filename="test_closed_loop")
 
-    seed_values = np.zeros((1, 1, 1, 5), dtype=np.float32)
-    seed_values[..., 0] = 1.0
+    seed_values = np.zeros((1, 5, 1, 1), dtype=np.float32)
+    seed_values[:, 0] = 1.0
     result = model({"in1_seq": seed_values})
     output = to_numpy(result["out1"])[0]
 
@@ -59,12 +62,12 @@ def test_loop(tmp_path):
 
 
 def test_nested_loop(tmp_path):
-    # The rollout axis is the last one, so the outer three steps come last.
-    x = Input("nested_input", dim=1, seq=(5, 3))
+    # The rollout is the outer time, so the outer three steps come first.
+    x = Input("nested_input", dim=1)
     gain = Constant("nested_gain", value=2.0)
 
-    inner = Input("inner_input", dim=1, seq=5)
-    first_relation = inner * gain
+    inner = Input("inner_input", dim=1)
+    first_relation = inner.last(seq=5) * gain
     first_body_output = Output("first_body_output", first_relation)
     first_body = Modely(
         "first_body", inputs=[inner], outputs=[first_body_output]
@@ -74,12 +77,12 @@ def test_nested_loop(tmp_path):
         callback={inner: first_body_output},
         name="first_loop",
         collect=False,
-        init={inner: x},
+        init={inner: x.last(seq=(3, 5))},
     )()
-    assert first_loop.shape.dimensions == ((1,), 1, (5,))
+    assert first_loop.shape.dimensions == ((5, 1), (1,))
 
     second_input = Input("second_input", dim=1)
-    second_relation = second_input * gain
+    second_relation = second_input.last() * gain
     second_body_output = Output("second_body_output", second_relation)
     second_body = Modely(
         "second_body", inputs=[second_input], outputs=[second_body_output]
@@ -95,12 +98,12 @@ def test_nested_loop(tmp_path):
     model = Modely("nested_loop_model", inputs=[x], outputs=[output]).build()
     model.export_html(out_dir=tmp_path, filename="test_nested_loop")
 
-    nested_values = np.zeros((1, 1, 1, 5, 3), dtype=np.float32)
-    nested_values[..., 0] = 1.0
+    nested_values = np.zeros((1, 3, 5, 1, 1), dtype=np.float32)
+    nested_values[:, 0] = 1.0
     result = model({"nested_input": nested_values})
     output = to_numpy(result["nested_output"])[0]
 
-    assert second_loop.shape.dimensions == ((1,), 1, ())
+    assert second_loop.shape.dimensions == ((1,), (1,))
     assert output.shape == (1, 1)
     np.testing.assert_allclose(
         output,
@@ -115,7 +118,7 @@ def test_loop_mechanical_modely(tmp_path):
     state_transition = Linear(features=1, kernel=gain, bias="zeros")(state.last())
     next_state_stream = state_transition + 1.0
     next_state = Output("next_state", next_state_stream)
-    diagnostic = Output("diagnostic", external_force + 10.0)
+    diagnostic = Output("diagnostic", external_force.last() + 10.0)
     mechanical_model = Modely(
         "mechanical_model",
         inputs=[state, external_force],
@@ -123,15 +126,15 @@ def test_loop_mechanical_modely(tmp_path):
     ).build()
     mechanical_model.export_html(out_dir=tmp_path, filename="mechanical_model")
 
-    state_seq = Input("mechanical_state_seq", dim=1, seq=5)
+    state_seq = Input("mechanical_state_seq", dim=1)
     loop = Loop(
         f=mechanical_model,
         callback={"mechanical_state": "next_state"},
         name="mechanical_loop",
         collect=False,
-        init={"mechanical_state": state_seq},
+        init={"mechanical_state": state_seq.last(seq=5)},
     )({"external_force": external_force})  # init in the constructor, inputs in the call
-    assert loop.shape.dimensions == ((1,), 1, ())
+    assert loop.shape.dimensions == ((1,), (1,))
     model = Modely(
         "closed_mechanical_model",
         inputs=[state_seq, external_force],
@@ -139,8 +142,8 @@ def test_loop_mechanical_modely(tmp_path):
     ).build()
     model.export_html(out_dir=tmp_path, filename="closed_mechanical_model")
 
-    state_values = np.zeros((1, 1, 1, 5), dtype=np.float32)
-    state_values[..., 0] = 1.0
+    state_values = np.zeros((1, 5, 1, 1), dtype=np.float32)
+    state_values[:, 0] = 1.0
     result = model(
         {
             "mechanical_state_seq": state_values,
@@ -162,25 +165,25 @@ def test_model_roll():
     test.build()
     roll = Roll(f=test, callback={x: out}, name="roll")
     roll_3 = Roll(f=test, callback={x: out}, steps=3, name="roll_3")
-    assert roll.steps == x.time == 5
+    assert roll.steps == x.shape.inner_time == 5
     assert roll.shape.tuple == x.shape.tuple
     output = Output("res", roll)
     output_3 = Output("res_3", roll_3)
     model = Modely("test_roll_multi_input", inputs=[x], outputs=[output, output_3])
     model.build()
 
-    result = model(inputs={"x": np.arange(1, 6, dtype=np.float32).reshape(1, 1, 5)})
-    assert result["res"].shape == (1, 1, 5)
-    assert result["res_3"].shape == (1, 1, 5)
+    result = model(inputs={"x": np.arange(1, 6, dtype=np.float32).reshape(1, 5, 1)})
+    assert result["res"].shape == (1, 5, 1)
+    assert result["res_3"].shape == (1, 5, 1)
     np.testing.assert_allclose(
         to_numpy(result["res"]),
-        np.array([15.0, 29.0, 56.0, 109.0, 214.0]).reshape((1, 1, 5)),
+        np.array([15.0, 29.0, 56.0, 109.0, 214.0]).reshape((1, 5, 1)),
         rtol=1e-5,
         atol=1e-5,
     )
     np.testing.assert_allclose(
         to_numpy(result["res_3"]),
-        np.array([4.0, 5.0, 15.0, 29.0, 56.0]).reshape((1, 1, 5)),
+        np.array([4.0, 5.0, 15.0, 29.0, 56.0]).reshape((1, 5, 1)),
         rtol=1e-5,
         atol=1e-5,
     )
@@ -206,7 +209,7 @@ def test_model_rollback():
     test.rollback({"x": "fir"}, steps=3)
     test.build()
 
-    result = test(inputs={"x": np.arange(1, 6, dtype=np.float32).reshape(1, 1, 5)})
+    result = test(inputs={"x": np.arange(1, 6, dtype=np.float32).reshape(1, 5, 1)})
     assert result["out"].shape == (1, 1, 1)
     np.testing.assert_allclose(
         to_numpy(result["out"]),
@@ -228,7 +231,7 @@ def test_model_multi_rollback(tmp_path):
 
     result = test(
         inputs={
-            "x": np.arange(1, 6, dtype=np.float32).reshape(1, 1, 5),
+            "x": np.arange(1, 6, dtype=np.float32).reshape(1, 5, 1),
             "y": np.full((1, 1, 1), 10.0, dtype=np.float32),
         }
     )
@@ -249,26 +252,32 @@ def test_nested_closed_loop(tmp_path):
     y = Input(name="y", dim=1)
     c = Parameter("c", value=1.0)
     d = Parameter("d", value=1.0)
-    r1 = x * c + y * d
+    r1 = x.last() * c + y.last() * d
     out1 = Output("out1", r1)
     model_add = Modely(name="model1", inputs=[x, y], outputs=[out1])
     model_add.build()
 
     # The rollout axis lives on the outer streams: x is seeded from x_seq[0] and
     # closed onto out1, while y is consumed one step at a time.
-    x_seq = Input(name="x_seq", dim=1, seq=4)
-    y_seq = Input(name="y_seq", dim=1, seq=4)
+    x_seq = Input(name="x_seq", dim=1)
+    y_seq = Input(name="y_seq", dim=1)
     loop_fn = Loop(
-        f=model_add, callback={"x": "out1"}, name="loop_model_add", init={"x": x_seq}
-    )({"y": y_seq})
+        f=model_add,
+        callback={"x": "out1"},
+        name="loop_model_add",
+        init={"x": x_seq.last(seq=4)},
+    )({"y": y_seq.last(seq=4)})
     out = Output("out", loop_fn)
     model_in = Modely(name="model", inputs=[x_seq, y_seq], outputs=[out])
     model_in.build()
 
     # Create a nested loop model
-    z = Input(name="z", dim=1, seq=(4, 2))
+    z = Input(name="z", dim=1)
     loop_fn2 = Loop(
-        f=model_in, callback={"y_seq": "out"}, name="loop_model_in", init={"y_seq": z}
+        f=model_in,
+        callback={"y_seq": "out"},
+        name="loop_model_in",
+        init={"y_seq": z.last(seq=(2, 4))},
     )()
     out_w = Output("out_w", loop_fn2)
     model_out = Modely(name="model_with_loop_w", inputs=[x_seq, z], outputs=[out_w])
@@ -276,7 +285,7 @@ def test_nested_closed_loop(tmp_path):
     model_out.minimize(
         "error",
         source=out_w,
-        target=Input("w_target", dim=1, seq=(4, 2)),
+        target=Input("w_target", dim=1).last(seq=(2, 4)),
         loss="mse",
     )
 
@@ -286,17 +295,20 @@ def test_nested_closed_loop(tmp_path):
 
     # ------- Model inference -------
     batch_size = 1
-    dummy_input_x = dummy_input((batch_size, 1, 1, 4), method="ones")
-    dummy_input_y = dummy_input((batch_size, 1, 1, 4), method="sequential")
+    dummy_input_x = dummy_input((batch_size, 4, 1, 1), method="ones")
+    dummy_input_y = dummy_input((batch_size, 4, 1, 1), method="sequential")
 
     result_in = model_in({"x_seq": dummy_input_x, "y_seq": dummy_input_y})
     assert "out" in result_in
-    assert result_in["out"].shape == (batch_size, 1, 1, 4)
+    assert result_in["out"].shape == (batch_size, 4, 1, 1)
     np.testing.assert_allclose(
         to_numpy(result_in["out"]),
-        np.array([2.0, 4.0, 7.0, 11.0], dtype=np.float32).reshape(1, 1, 1, 4),
+        np.array([2.0, 4.0, 7.0, 11.0], dtype=np.float32).reshape(1, 4, 1, 1),
     )
-    dummy_input_z = dummy_input((batch_size, 1, 1, 4, 2), method="sequential")
+    # z[i] of inner step i (rows) and outer step j (columns), outer step first.
+    dummy_input_z = np.array(
+        [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]], dtype=np.float32
+    ).T.reshape(batch_size, 2, 4, 1, 1)
     result_out = model_out(
         {
             "x_seq": dummy_input_x,
@@ -305,13 +317,13 @@ def test_nested_closed_loop(tmp_path):
         }
     )
     assert "out_w" in result_out
-    assert result_out["out_w"].shape == (batch_size, 1, 1, 4, 2)
+    assert result_out["out_w"].shape == (batch_size, 2, 4, 1, 1)
     np.testing.assert_allclose(
         to_numpy(result_out["out_w"]),
         np.array(
             [[2.0, 3.0], [5.0, 8.0], [10.0, 18.0], [17.0, 35.0]],
             dtype=np.float32,
-        ).reshape(1, 1, 1, 4, 2),
+        ).T.reshape(1, 2, 4, 1, 1),
     )
 
 
@@ -321,14 +333,17 @@ def test_simple_model_loop(tmp_path):
     x = Input(name="x", dim=1)
     z = Input(name="z", dim=1)
     w = Parameter("w", value=3.5)
-    out1 = Output("y", x + w + z)
+    out1 = Output("y", x.last() + w + z.last())
     model_add = Modely(name="model1", inputs=[x, z], outputs=[out1])
     model_add.build()
 
     # x is seeded from x_seq[0] and rolled out over its four steps
-    x_seq = Input(name="x_seq", dim=1, seq=4)
+    x_seq = Input(name="x_seq", dim=1)
     loop_fn = Loop(
-        f=model_add, callback={"x": "y"}, name="loop_model_add", init={"x": x_seq}
+        f=model_add,
+        callback={"x": "y"},
+        name="loop_model_add",
+        init={"x": x_seq.last(seq=4)},
     )()
     out = Output("out", loop_fn)
     model_in = Modely(name="simple_loop_model", inputs=[x_seq, z], outputs=[out])
@@ -336,7 +351,7 @@ def test_simple_model_loop(tmp_path):
     model_in.minimize(
         "error",
         source=out,
-        target=Input("x_target", dim=1, seq=4),
+        target=Input("x_target", dim=1).last(seq=4),
         loss="mse",
     )
     model_in.build()
@@ -368,19 +383,19 @@ def test_simple_model2(tmp_path):
     z = Input(name="z", dim=1)
     w = Parameter("w", dim=1)
     k = Parameter("k", dim=1)
-    out1 = Output("y", x + w)
-    out2 = Output("y2", z - k)
+    out1 = Output("y", x.last() + w)
+    out2 = Output("y2", z.last() - k)
     model_add = Modely(name="model1", inputs=[x, z], outputs=[out1, out2])
     model_add.build()
 
     # both states are seeded from the first step of their own outer stream
-    x_seq = Input(name="x_seq", dim=1, seq=4)
-    z_seq = Input(name="z_seq", dim=1, seq=4)
+    x_seq = Input(name="x_seq", dim=1)
+    z_seq = Input(name="z_seq", dim=1)
     loop_out1, loop_out2 = Loop(
         f=model_add,
         callback={"x": "y", "z": "y2"},
         name="loop_model_add",
-        init={"x": x_seq, "z": z_seq},
+        init={"x": x_seq.last(seq=4), "z": z_seq.last(seq=4)},
     )()
 
     out1 = Output("out1", loop_out1)
@@ -392,13 +407,13 @@ def test_simple_model2(tmp_path):
     model_in.minimize(
         "error_x",
         source=out1,
-        target=Input("x_target", dim=1, seq=4),
+        target=Input("x_target", dim=1).last(seq=4),
         loss="mse",
     )
     model_in.minimize(
         "error_z",
         source=out2,
-        target=Input("z_target", dim=1, seq=4),
+        target=Input("z_target", dim=1).last(seq=4),
         loss="mse",
     )
     model_in.build()
@@ -428,10 +443,10 @@ def test_simple_model2(tmp_path):
 
     res = model_in(
         {
-            "x_seq": dummy_input((1, 1, 1, 4), method="ones") + 7,
-            "z_seq": dummy_input((1, 1, 1, 4), method="ones"),
-            "x_target": dummy_input((1, 1, 1, 4), method="sequential"),
-            "z_target": dummy_input((1, 1, 1, 4), method="sequential"),
+            "x_seq": dummy_input((1, 4, 1, 1), method="ones") + 7,
+            "z_seq": dummy_input((1, 4, 1, 1), method="ones"),
+            "x_target": dummy_input((1, 4, 1, 1), method="sequential"),
+            "z_target": dummy_input((1, 4, 1, 1), method="sequential"),
         }
     )
     print("Result of simple model:", res["out1"], res["out2"])
@@ -448,13 +463,16 @@ def test_loop_bound_inputs(tmp_path):
     body_output = Output("sliced_next", x.last() * 2.0 + u.last())
     body = Modely("sliced_body", inputs=[x, u], outputs=[body_output]).build()
 
-    initial = Input("sliced_x0", dim=1, seq=3)
-    driver = Input("sliced_u_seq", dim=1, seq=3)
+    initial = Input("sliced_x0", dim=1)
+    driver = Input("sliced_u_seq", dim=1)
     loop = Loop(
-        f=body, callback={x: body_output}, name="sliced_loop", init={x: initial}
-    )({u: driver})
+        f=body,
+        callback={x: body_output},
+        name="sliced_loop",
+        init={x: initial.last(seq=3)},
+    )({u: driver.last(seq=3)})
     assert loop.horizon == 3
-    assert loop.shape.dimensions == ((1,), 1, (3,))
+    assert loop.shape.dimensions == ((3, 1), (1,))
 
     model = Modely(
         "sliced_model",
@@ -465,12 +483,16 @@ def test_loop_bound_inputs(tmp_path):
 
     result = model(
         {
-            "sliced_x0": np.array([[[[1.0, 0.0, 0.0]]]], dtype=np.float32),
-            "sliced_u_seq": np.array([[[[10.0, 20.0, 30.0]]]], dtype=np.float32),
+            "sliced_x0": np.array([1.0, 0.0, 0.0], dtype=np.float32).reshape(
+                1, 3, 1, 1
+            ),
+            "sliced_u_seq": np.array([10.0, 20.0, 30.0], dtype=np.float32).reshape(
+                1, 3, 1, 1
+            ),
         }
     )
     # x0 = 1 -> 2*1 + 10 = 12 -> 2*12 + 20 = 44 -> 2*44 + 30 = 118
-    expected = np.array([12.0, 44.0, 118.0], dtype=np.float32).reshape(1, 1, 1, 3)
+    expected = np.array([12.0, 44.0, 118.0], dtype=np.float32).reshape(1, 3, 1, 1)
     np.testing.assert_allclose(to_numpy(result["sliced_out"]), expected)
 
     path = os.path.join(tmp_path, "sliced_model.keras")
@@ -480,10 +502,12 @@ def test_loop_bound_inputs(tmp_path):
         to_numpy(
             reloaded(
                 {
-                    "sliced_x0": np.array([[[[1.0, 0.0, 0.0]]]], dtype=np.float32),
-                    "sliced_u_seq": np.array(
-                        [[[[10.0, 20.0, 30.0]]]], dtype=np.float32
+                    "sliced_x0": np.array([1.0, 0.0, 0.0], dtype=np.float32).reshape(
+                        1, 3, 1, 1
                     ),
+                    "sliced_u_seq": np.array(
+                        [10.0, 20.0, 30.0], dtype=np.float32
+                    ).reshape(1, 3, 1, 1),
                 }
             )["sliced_out"]
         ),
@@ -497,8 +521,9 @@ def test_loop_dynamic_length():
     body_output = Output("dyn_next", x.last() * 2.0 + u.last())
     body = Modely("dyn_body", inputs=[x, u], outputs=[body_output]).build()
 
-    initial = Input("dyn_x0", dim=1, seq=-1)
-    driver = Input("dyn_u_seq", dim=1, seq=-1)
+    initial = Input("dyn_x0", dim=1)
+    driver = Input("dyn_u_seq", dim=1)
+    initial_window, driver_window = initial.last(seq=-1), driver.last(seq=-1)
 
     # Without a rollout axis nothing tells the loop how many steps to take.
     with pytest.raises(ValueError, match="cannot determine the rollout length"):
@@ -506,19 +531,26 @@ def test_loop_dynamic_length():
             f=body,
             callback={x: body_output},
             name="dyn_loop_no_axis",
-            init={x: Input("dyn_x_plain", dim=1)},
+            init={x: Input("dyn_x_plain", dim=1).last()},
         )()
 
     loop = Loop(
-        f=body, callback={x: body_output}, name="dyn_loop", length=3, init={x: initial}
-    )({u: driver})
+        f=body,
+        callback={x: body_output},
+        name="dyn_loop",
+        length=3,
+        init={x: initial_window},
+    )({u: driver_window})
     assert loop.horizon == 3
-    assert loop.shape.dimensions == ((1,), 1, (3,))
+    assert loop.shape.dimensions == ((3, 1), (1,))
 
     # A dynamic rollout needs no length: it is only declared with a default one.
     unpinned = Loop(
-        f=body, callback={x: body_output}, name="dyn_loop_unpinned", init={x: initial}
-    )({u: driver})
+        f=body,
+        callback={x: body_output},
+        name="dyn_loop_unpinned",
+        init={x: initial_window},
+    )({u: driver_window})
     assert unpinned.horizon == DYNAMIC_BUILD_LENGTH
 
     model = Modely(
@@ -530,29 +562,32 @@ def test_loop_dynamic_length():
     # The declared length drives the training-time shapes ...
     short = model(
         {
-            "dyn_x0": np.array([[[[1.0, 0.0, 0.0]]]], dtype=np.float32),
-            "dyn_u_seq": np.array([[[[10.0, 20.0, 30.0]]]], dtype=np.float32),
+            "dyn_x0": np.array([1.0, 0.0, 0.0], dtype=np.float32).reshape(1, 3, 1, 1),
+            "dyn_u_seq": np.array([10.0, 20.0, 30.0], dtype=np.float32).reshape(
+                1, 3, 1, 1
+            ),
         }
     )
     np.testing.assert_allclose(
         to_numpy(short["dyn_out"]),
-        np.array([12.0, 44.0, 118.0], dtype=np.float32).reshape(1, 1, 1, 3),
+        np.array([12.0, 44.0, 118.0], dtype=np.float32).reshape(1, 3, 1, 1),
     )
 
     # ... a longer sequence rolls out further.
     long = model(
         {
-            "dyn_x0": np.zeros((1, 1, 1, 5), dtype=np.float32)
-            + np.array([1.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32),
-            "dyn_u_seq": np.array(
-                [[[[10.0, 20.0, 30.0, 40.0, 50.0]]]], dtype=np.float32
+            "dyn_x0": np.array([1.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32).reshape(
+                1, 5, 1, 1
             ),
+            "dyn_u_seq": np.array(
+                [10.0, 20.0, 30.0, 40.0, 50.0], dtype=np.float32
+            ).reshape(1, 5, 1, 1),
         }
     )
     np.testing.assert_allclose(
         to_numpy(long["dyn_out"]),
         np.array([12.0, 44.0, 118.0, 276.0, 602.0], dtype=np.float32).reshape(
-            1, 1, 1, 5
+            1, 5, 1, 1
         ),
     )
     np.testing.assert_allclose(
@@ -568,14 +603,18 @@ def test_loop_window_feedback():
     body_output = Output("window_next", taps)
     body = Modely("window_body", inputs=[x], outputs=[body_output])
 
-    initial = Input("window_x0", dim=1, seq=3)
+    initial = Input("window_x0", dim=1)
     loop = Loop(
-        f=body, callback={x: body_output}, name="window_loop", init={x: initial.sw(3)}
+        f=body,
+        callback={x: body_output},
+        name="window_loop",
+        init={x: initial.sw(3, seq=3)},
     )()
     # Loop builds the body when it is handed an unbuilt one
     assert body.built
-    assert loop.callback_shift_axes == [2]
-    assert loop.shape.dimensions == ((1,), 1, (3,))
+    # The window of x, (batch, 3, 1), shifts along its inner time, axis 1.
+    assert loop.callback_shift_axes == [1]
+    assert loop.shape.dimensions == ((3, 1), (1,))
 
     model = Modely(
         "window_model",
@@ -583,13 +622,13 @@ def test_loop_window_feedback():
         outputs=[Output("window_out", loop)],
     ).build()
 
-    values = np.zeros((1, 1, 3, 3), dtype=np.float32)
-    values[0, 0, :, 0] = [1.0, 2.0, 3.0]
+    values = np.zeros((1, 3, 3, 1), dtype=np.float32)
+    values[0, 0, :, 0] = [1.0, 2.0, 3.0]  # the window of the first rollout step
     result = model({"window_x0": values})
     # [1,2,3] -> 6 -> [2,3,6] -> 11 -> [3,6,11] -> 20
     np.testing.assert_allclose(
         to_numpy(result["window_out"]),
-        np.array([6.0, 11.0, 20.0], dtype=np.float32).reshape(1, 1, 1, 3),
+        np.array([6.0, 11.0, 20.0], dtype=np.float32).reshape(1, 3, 1, 1),
     )
 
 
@@ -605,48 +644,50 @@ def test_loop_multi_output():
         outputs=[position_next, velocity_next],
     ).build()
 
-    p0 = Input("int_p0", dim=1, seq=-1)
-    v0 = Input("int_v0", dim=1, seq=-1)
-    a_seq = Input("int_a_seq", dim=1, seq=-1)
+    p0 = Input("int_p0", dim=1)
+    v0 = Input("int_v0", dim=1)
+    a_seq = Input("int_a_seq", dim=1)
     position_out, velocity_out = Loop(
         f=body,
         callback={position: position_next, velocity: velocity_next},
         name="integrator_loop",
         length=3,
-        init={position: p0, velocity: v0},
-    )({acceleration: a_seq})
+        init={position: p0.last(seq=-1), velocity: v0.last(seq=-1)},
+    )({acceleration: a_seq.last(seq=-1)})
     model = Modely(
         "integrator_model",
         inputs=[p0, v0, a_seq],
         outputs=[Output("p_traj", position_out), Output("v_traj", velocity_out)],
     ).build()
 
-    zeros = np.zeros((1, 1, 1, 3), dtype=np.float32)
+    zeros = np.zeros((1, 3, 1, 1), dtype=np.float32)
     result = model(
         {
             "int_p0": zeros,
             "int_v0": zeros,
-            "int_a_seq": np.ones((1, 1, 1, 3), dtype=np.float32),
+            "int_a_seq": np.ones((1, 3, 1, 1), dtype=np.float32),
         }
     )
     np.testing.assert_allclose(
         to_numpy(result["p_traj"]),
-        np.array([0.0, 1.0, 3.0], dtype=np.float32).reshape(1, 1, 1, 3),
+        np.array([0.0, 1.0, 3.0], dtype=np.float32).reshape(1, 3, 1, 1),
     )
     np.testing.assert_allclose(
         to_numpy(result["v_traj"]),
-        np.array([1.0, 2.0, 3.0], dtype=np.float32).reshape(1, 1, 1, 3),
+        np.array([1.0, 2.0, 3.0], dtype=np.float32).reshape(1, 3, 1, 1),
     )
 
 
 def test_loop_collects_output_that_is_not_fed_back():
     x = Input("extra_x", dim=1)
-    state = Output("extra_state", x * 2.0)
-    diagnostic = Output("extra_diag", x + 100.0)
+    state = Output("extra_state", x.last() * 2.0)
+    diagnostic = Output("extra_diag", x.last() + 100.0)
     body = Modely("extra_body", inputs=[x], outputs=[state, diagnostic]).build()
 
-    seed = Input("extra_x0", dim=1, seq=4)
-    loop = Loop(f=body, callback={x: state}, name="extra_loop", init={x: seed})()
+    seed = Input("extra_x0", dim=1)
+    loop = Loop(
+        f=body, callback={x: state}, name="extra_loop", init={x: seed.last(seq=4)}
+    )()
     state_out, diagnostic_out = loop
 
     model = Modely(
@@ -655,15 +696,21 @@ def test_loop_collects_output_that_is_not_fed_back():
         outputs=[Output("s", state_out), Output("d", diagnostic_out)],
     ).build()
 
-    result = model({"extra_x0": np.array([[[[1.0, 2.0, 3.0, 4.0]]]], dtype=np.float32)})
+    result = model(
+        {
+            "extra_x0": np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32).reshape(
+                1, 4, 1, 1
+            )
+        }
+    )
     # the state starts at x[0] = 1 and doubles; the diagnostic reports each state
     np.testing.assert_allclose(
         to_numpy(result["s"]),
-        np.array([2.0, 4.0, 8.0, 16.0], dtype=np.float32).reshape(1, 1, 1, 4),
+        np.array([2.0, 4.0, 8.0, 16.0], dtype=np.float32).reshape(1, 4, 1, 1),
     )
     np.testing.assert_allclose(
         to_numpy(result["d"]),
-        np.array([101.0, 102.0, 104.0, 108.0], dtype=np.float32).reshape(1, 1, 1, 4),
+        np.array([101.0, 102.0, 104.0, 108.0], dtype=np.float32).reshape(1, 4, 1, 1),
     )
 
 
@@ -675,14 +722,18 @@ def test_loop_constant_initial_batched():
     body_output = Output("cst_next", x.last() * 2.0 + u.last())
     body = Modely("cst_body", inputs=[x, u], outputs=[body_output]).build()
 
-    driver = Input("cst_u_seq", dim=1, seq=3)
-    loop = Loop(f=body, callback={x: body_output}, name="cst_loop")({u: driver})
+    driver = Input("cst_u_seq", dim=1)
+    loop = Loop(f=body, callback={x: body_output}, name="cst_loop")(
+        {u: driver.last(seq=3)}
+    )
 
     model = Modely(
         "cst_model", inputs=[driver], outputs=[Output("cst_out", loop)]
     ).build()
 
-    values = np.tile(np.array([[[[1.0, 2.0, 3.0]]]], dtype=np.float32), (2, 1, 1, 1))
+    values = np.tile(
+        np.array([1.0, 2.0, 3.0], dtype=np.float32).reshape(1, 3, 1, 1), (2, 1, 1, 1)
+    )
     if model.model is None:
         raise ValueError(
             "Model weights are not available. call model.build() before inference."
@@ -692,7 +743,7 @@ def test_loop_constant_initial_batched():
     np.testing.assert_allclose(
         to_numpy(result["cst_out"]),
         np.tile(
-            np.array([1.0, 4.0, 11.0], dtype=np.float32).reshape(1, 1, 1, 3),
+            np.array([1.0, 4.0, 11.0], dtype=np.float32).reshape(1, 3, 1, 1),
             (2, 1, 1, 1),
         ),
     )
@@ -707,14 +758,16 @@ def test_loop_with_batchnorm_train():
     body_output = Output("bn_next", norm + u.last())
     body = Modely("bn_body", inputs=[x, u], outputs=[body_output]).build()
 
-    driver = Input("bn_u_seq", dim=1, seq=3)
-    loop = Loop(f=body, callback={x: body_output}, name="bn_loop")({u: driver})
+    driver = Input("bn_u_seq", dim=1)
+    loop = Loop(f=body, callback={x: body_output}, name="bn_loop")(
+        {u: driver.last(seq=3)}
+    )
 
     model = Modely("bn_model", inputs=[driver], outputs=[Output("bn_out", loop)])
     model.minimize(
         "bn_loss",
         source=loop,
-        target=Input("bn_target", dim=1, seq=3),
+        target=Input("bn_target", dim=1).last(seq=3),
         loss="mse",
     )
     model.build()
@@ -761,12 +814,13 @@ def test_loop_binds_initial_and_inputs_at_call():
     with pytest.raises(ValueError, match="is not bound"):
         loop + 1.0  # type: ignore
 
-    driver = Input("bind_u_seq", dim=1, seq=3)
+    driver = Input("bind_u_seq", dim=1)
     seed = Input("bind_seed", dim=1)
-    from_zero = loop({u: driver})
+    driver_window = driver.last(seq=3)
+    from_zero = loop({u: driver_window})
     from_seed = Loop(
-        f=body, callback={x: body_output}, init={x: seed}, name="bind_loop"
-    )({u: driver})
+        f=body, callback={x: body_output}, init={x: seed.last()}, name="bind_loop"
+    )({u: driver_window})
     model = Modely(
         "bind_model",
         inputs=[driver, seed],
@@ -774,7 +828,7 @@ def test_loop_binds_initial_and_inputs_at_call():
     ).build()
     result = model(
         {
-            "bind_u_seq": np.ones((1, 1, 1, 3), dtype=np.float32),
+            "bind_u_seq": np.ones((1, 3, 1, 1), dtype=np.float32),
             "bind_seed": np.full((1, 1, 1), 10.0, dtype=np.float32),
         }
     )
@@ -795,8 +849,8 @@ def test_a_parameter_is_one_weight_for_a_loop_body_and_the_outer_model():
         inputs=[q],
         outputs=[Output("shared_next", Linear(kernel=g, bias=False)(q.last()))],
     ).build()
-    seed = Input("shared_seed", seq=3)
-    loop = Loop(f=body, callback={q: "shared_next"}, init={q: seed})()
+    seed = Input("shared_seed")
+    loop = Loop(f=body, callback={q: "shared_next"}, init={q: seed.last(seq=3)})()
     outer = Linear(kernel=g, bias=False)(seed.last())
     model = Modely(
         "shared_model",
@@ -805,8 +859,8 @@ def test_a_parameter_is_one_weight_for_a_loop_body_and_the_outer_model():
     ).build()
 
     assert model.model is not None and len(model.model.trainable_weights) == 1
-    seed_values = np.zeros((1, 1, 1, 3), dtype=np.float32)
-    seed_values[..., 0] = 1.0
+    seed_values = np.zeros((1, 3, 1, 1), dtype=np.float32)
+    seed_values[:, 0] = 1.0
     # From 1, the loop doubles at every step; outside, g scales the seed.
     result = model({"shared_seed": seed_values})
     np.testing.assert_allclose(to_numpy(result["shared_loop"]).ravel(), [2.0, 4.0, 8.0])
@@ -816,7 +870,7 @@ def test_a_parameter_is_one_weight_for_a_loop_body_and_the_outer_model():
 
     # Assigned once, the gain changes inside the loop and outside alike.
     assert g.param is not None
-    g.param.assign([[3.0]])
+    g.param.assign([3.0])  # g has no time: its value is (1,)
     result = model({"shared_seed": seed_values})
     np.testing.assert_allclose(
         to_numpy(result["shared_loop"]).ravel(), [3.0, 9.0, 27.0]
@@ -835,46 +889,50 @@ def test_callback_from_nested_loop_with_seq_select():
     modelStep = Modely("Step", inputs=[ax, vx0, px0], outputs=[outvx, outpx]).build()
 
     # inner: rollout of an integrator over a sequence
-    ax_sq = Input("ax_sq", seq=-1)
+    ax_sq = Input("ax_sq")
     px0_init = Input("px0_init")
-    loop = Loop(f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init})
+    ax_window = ax_sq.last(seq=-1)
+    loop = Loop(
+        f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init.last()}
+    )
     model = Modely(
         "Int",
         inputs=[ax_sq, px0_init],
-        outputs=[Output("int_loop1", loop({"ax": ax_sq}))],
+        outputs=[Output("int_loop1", loop({"ax": ax_window}))],
     ).build()
 
     # outer: chain the chunks, the last position of a chunk seeds the next one
-    ax_sq_sq = Input("ax_sq_sq", seq=(-1, -1))
+    ax_sq_sq = Input("ax_sq_sq")
     px0_init_sq = Input("px0_init_sq")
+    px0_seed = px0_init_sq.last()
     # The collected trajectory has a sequence axis the scalar px0_init has not,
     # so it cannot be fed back: the loop is refused when it is declared.
     with pytest.raises(ValueError, match="seq"):
-        Loop(
-            f=model, callback={"px0_init": "int_loop1"}, init={"px0_init": px0_init_sq}
-        )
+        Loop(f=model, callback={"px0_init": "int_loop1"}, init={"px0_init": px0_seed})
 
     # Returning only the last step drops that axis, so it can be fed back.
-    last = Loop(f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init})
+    last = Loop(
+        f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init.last()}
+    )
     model_last = Modely(
         "IntLast",
         inputs=[ax_sq, px0_init],
-        outputs=[Output("int_last", SeqSelect(-1)(last({"ax": ax_sq})))],  # type: ignore
+        outputs=[Output("int_last", SeqSelect(-1)(last({"ax": ax_window})))],  # type: ignore
     ).build()
     outer = Loop(
-        f=model_last, callback={"px0_init": "int_last"}, init={"px0_init": px0_init_sq}
+        f=model_last, callback={"px0_init": "int_last"}, init={"px0_init": px0_seed}
     )
     model22 = Modely(
         "Int22",
         inputs=[ax_sq_sq, px0_init_sq],
-        outputs=[Output("int_loop1_sq", outer({"ax_sq": ax_sq_sq}))],
+        outputs=[Output("int_loop1_sq", outer({"ax_sq": ax_sq_sq.last(seq=(-1, -1))}))],
     ).build()
 
     result = model22(
-        {"ax_sq_sq": np.ones((1, 1, 1, 125, 8)), "px0_init_sq": np.zeros((1, 1, 1))}
+        {"ax_sq_sq": np.ones((1, 8, 125, 1, 1)), "px0_init_sq": np.zeros((1, 1, 1))}
     )
     np.testing.assert_allclose(
-        to_numpy(result["int_loop1_sq"]), np.full((1, 1, 1, 8), 125.0)
+        to_numpy(result["int_loop1_sq"]), np.full((1, 8, 1, 1), 125.0)
     )
 
 
@@ -884,9 +942,12 @@ def test_loop_steps_follow_the_inputs_that_drive_it():
     x, u = Input("drive_x"), Input("drive_u")
     following = Output("drive_next", x.last() + u.last())
     body = Modely("drive_body", inputs=[x, u], outputs=[following]).build()
-    x0 = Input("drive_x0", seq=-1)
-    for drive in (Input("drive_dynamic", seq=-1), Input("drive_fixed", seq=5)):
-        trajectory = Loop(f=body, callback={x: following}, init={x: x0})({u: drive})
+    x0 = Input("drive_x0")
+    x0_window = x0.last(seq=-1)
+    for drive, seq in ((Input("drive_dynamic"), -1), (Input("drive_fixed"), 5)):
+        trajectory = Loop(f=body, callback={x: following}, init={x: x0_window})(
+            {u: drive.last(seq=seq)}
+        )
         model = Modely(
             f"{drive.name}_model",
             inputs=[x0, drive],
@@ -895,7 +956,7 @@ def test_loop_steps_follow_the_inputs_that_drive_it():
         result = model(
             {
                 "drive_x0": np.full((1, 1, 1, 1), 10.0, dtype=np.float32),
-                drive.name: np.ones((1, 1, 1, 5), dtype=np.float32),
+                drive.name: np.ones((1, 5, 1, 1), dtype=np.float32),
             }
         )
         np.testing.assert_allclose(
@@ -915,9 +976,9 @@ def test_unpacking_a_loop_leaves_its_own_stream_alone():
     )
     state = Output("unpack_state", x.last() * 2.0)
     body = Modely("unpack_body", inputs=[x], outputs=[diagnostic, state]).build()
-    seed = Input("unpack_x0", seq=3)
-    loop = Loop(f=body, callback={x: state}, init={x: seed})()
-    assert loop.shape.dimensions == ((1,), 1, (3,))
+    seed = Input("unpack_x0")
+    loop = Loop(f=body, callback={x: state}, init={x: seed.last(seq=3)})()
+    assert loop.shape.dimensions == ((3, 1), (1,))
 
     own = Output("unpack_own", loop)
     diagnostic_out, state_out = loop
@@ -930,10 +991,14 @@ def test_unpacking_a_loop_leaves_its_own_stream_alone():
             Output("unpack_s", state_out),
         ],
     ).build()
-    result = model({"unpack_x0": np.array([[[[1.0, 2.0, 3.0]]]], dtype=np.float32)})
+    result = model(
+        {"unpack_x0": np.array([1.0, 2.0, 3.0], dtype=np.float32).reshape(1, 3, 1, 1)}
+    )
     for name in ("unpack_own", "unpack_s"):
         np.testing.assert_allclose(to_numpy(result[name]).ravel(), [2.0, 4.0, 8.0])
     assert to_numpy(result["unpack_d"]).shape == (1, 3, 1, 3)
+    # (step, feature): every feature of a step is that step's value.
     np.testing.assert_allclose(
-        to_numpy(result["unpack_d"])[0, :, 0, :], [[101.0, 102.0, 104.0]] * 3
+        to_numpy(result["unpack_d"])[0, :, 0, :],
+        np.array([[101.0, 102.0, 104.0]] * 3).T,
     )

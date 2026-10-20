@@ -30,7 +30,7 @@ A built model can be stored in three formats:
    x = Input("x")
    y = Output("y", ReLU()([Fir(features=1)([x.sw(10)])]))
    model = Modely("filter", inputs=[x], outputs=[y]).build()
-   sample = {"x": np.random.rand(1, 1, 10).astype("float32")}
+   sample = {"x": np.random.rand(1, 10, 1).astype("float32")}
 
 Saving and loading
 ------------------

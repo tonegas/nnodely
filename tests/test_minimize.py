@@ -192,7 +192,7 @@ def test_minimize_without_target_compares_against_a_zero_constant():
 
     target = model.minimizers[0]["target"]
     assert isinstance(target, Constant)
-    np.testing.assert_allclose(to_numpy(target.value), [[0.0]])
+    np.testing.assert_allclose(to_numpy(target.value), [0.0])
 
 
 @pytest.mark.parametrize(
@@ -208,7 +208,7 @@ def test_minimize_numeric_target_becomes_a_constant(number):
 
     target = model.minimizers[0]["target"]
     assert isinstance(target, Constant)
-    np.testing.assert_allclose(to_numpy(target.value), [[3.0]])
+    np.testing.assert_allclose(to_numpy(target.value), [3.0])
 
 
 def test_minimize_keeps_an_explicit_constant_target():
@@ -232,7 +232,7 @@ def test_minimize_with_an_existing_name_replaces_it_and_warns():
 
     assert [m["name"] for m in model.minimizers] == ["error", "other"]
     replaced = model.minimizers[0]
-    np.testing.assert_allclose(replaced["target"].value, [[1.0]])
+    np.testing.assert_allclose(replaced["target"].value, [1.0])
     value = replaced["loss"](_f32([[1.0]]), _f32([[4.0]]))
     np.testing.assert_allclose(to_numpy(value), [3.0])
 
@@ -377,7 +377,7 @@ def test_a_removed_name_can_be_registered_again():
     model.minimize("error", out, 2.0)
 
     [minimizer] = model.minimizers
-    np.testing.assert_allclose(minimizer["target"].value, [[2.0]])
+    np.testing.assert_allclose(minimizer["target"].value, [2.0])
 
 
 def test_train_after_removing_every_minimizer_raises():
@@ -420,8 +420,9 @@ def _case_stream_vs_input_window():
 
 
 def _case_output_vs_input():
-    x, _, _, out = _gain_model()
-    y = Input("y")
+    # The Input itself is read whole, without time: so is the prediction.
+    x, y = Input("x"), Input("y")
+    out = Output("pred", x * Parameter(value=[2.0]))
     model = Modely("model", inputs=[x], outputs=[out])
     model.minimize("error", out, y)
     X, Y = _column("data_1"), _column("data_3")
@@ -429,8 +430,9 @@ def _case_output_vs_input():
 
 
 def _case_input_vs_output():
-    x, _, _, out = _gain_model()
-    y = Input("y")
+    # The Input itself is read whole, without time: so is the prediction.
+    x, y = Input("x"), Input("y")
+    out = Output("pred", x * Parameter(value=[2.0]))
     model = Modely("model", inputs=[x], outputs=[out])
     model.minimize("error", y, out)
     X, Y = _column("data_1"), _column("data_3")
@@ -1038,7 +1040,7 @@ def test_minimize_rejects_an_invalid_gain(gain, error):
 
 
 # -----------------------------------------------------------------------------
-# Sequence weights: the weight of each step along the last axis
+# Sequence weights: the weight of each step along the outer time axis
 # -----------------------------------------------------------------------------
 
 
@@ -1132,16 +1134,14 @@ def test_seq_weights_weigh_the_rollout_steps_of_a_loop():
         "d", value=[2.0]
     )
     body = Modely("body", inputs=[x, y], outputs=[Output("step", step)]).build()
-    x_seq, y_seq, t_seq = (
-        Input("x_seq", seq=4),
-        Input("y_seq", seq=4),
-        Input("t_seq", seq=4),
+    x_seq, y_seq, t_seq = Input("x_seq"), Input("y_seq"), Input("t_seq")
+    loop = Loop(f=body, callback={"x": "step"}, init={"x": x_seq.last(seq=4)})(
+        {"y": y_seq.last(seq=4)}
     )
-    loop = Loop(f=body, callback={"x": "step"}, init={"x": x_seq})({"y": y_seq})
     out = Output("rollout", loop)
     model = Modely("model", inputs=[x_seq, y_seq], outputs=[out])
     weights = np.exp(np.arange(4))
-    model.minimize("error", out, t_seq, seq_weights=weights)
+    model.minimize("error", out, t_seq.last(seq=4), seq_weights=weights)
     model.build()
     rng = np.random.default_rng(0)
     raw = {
@@ -1192,14 +1192,14 @@ def _dynamic_loop_model(seq_weights):
         "d", value=[2.0]
     )
     body = Modely("body", inputs=[x, y], outputs=[Output("step", step)]).build()
-    x_seq, y_seq = Input("x_seq", seq=-1), Input("y_seq", seq=-1)
-    t_seq = Input("t_seq", seq=-1)
-    loop = Loop(f=body, callback={"x": "step"}, length=3, init={"x": x_seq})(
-        {"y": y_seq}
-    )
+    x_seq, y_seq = Input("x_seq"), Input("y_seq")
+    t_seq = Input("t_seq")
+    loop = Loop(
+        f=body, callback={"x": "step"}, length=3, init={"x": x_seq.last(seq=-1)}
+    )({"y": y_seq.last(seq=-1)})
     out = Output("rollout", loop)
     model = Modely("model", inputs=[x_seq, y_seq], outputs=[out])
-    model.minimize("error", out, t_seq, seq_weights=seq_weights)
+    model.minimize("error", out, t_seq.last(seq=-1), seq_weights=seq_weights)
     model.build()
     rng = np.random.default_rng(0)
     raw = {
@@ -1253,11 +1253,15 @@ def test_seq_weights_weigh_a_padded_rollout_with_a_loss_instance():
     # On padded simulations the loss is masked, and a Loss instance reduced
     # every step to one value before the weights were applied: they were lost.
     def history(loss, seq_weights):
-        u = Input("padded_u", seq=-1)
-        out = Output("padded_out", u * Parameter("padded_k", value=1.0))
+        u = Input("padded_u")
+        out = Output("padded_out", u.last(seq=-1) * Parameter("padded_k", value=1.0))
         model = Modely("padded", inputs=[u], outputs=[out])
         model.minimize(
-            "fit", out, Input("padded_t", seq=-1), loss=loss, seq_weights=seq_weights
+            "fit",
+            out,
+            Input("padded_t").last(seq=-1),
+            loss=loss,
+            seq_weights=seq_weights,
         )
         model.build()
         simulations = [

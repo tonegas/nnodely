@@ -134,12 +134,7 @@ class Clamp(Layer):
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class SumImpl(keras.layers.Layer):
-    """
-    Serializable implementation of Sum.
-
-    Runtime tensor shape:
-        [batch, dim1, dim2, ..., time, seq1, seq2, ...]
-    """
+    """Serializable implementation of Sum, over the tensor axes ``axes``."""
 
     def __init__(self, axes, name=None, **kwargs):
         super().__init__(name=name, **kwargs)
@@ -164,9 +159,6 @@ class Sum(Layer):
     """
     Sum over the dim axes, keeping them with length 1.
 
-    Runtime tensor shape:
-        [batch, dim1, dim2, ..., time, seq1, seq2, ...]
-
     With axis=None every dim axis is summed together, otherwise only the
     chosen one.
 
@@ -181,16 +173,10 @@ class Sum(Layer):
         super().__init__(name=name, axis=self.axis)
 
     def build_layer(self):
-        dim_rank = len(self.dim)
-        if self.axis is None:
-            axes = range(dim_rank)
-        else:
-            axis = self.axis + dim_rank if self.axis < 0 else self.axis
-            if axis < 0 or axis >= dim_rank:
-                raise ValueError(
-                    f"{self.name}: axis {self.axis} out of bounds for dim rank {dim_rank}."
-                )
-            axes = (axis,)
-
-        # Dim axes start immediately after the batch axis.
-        return SumImpl(axes=tuple(1 + axis for axis in axes), name=self.name)
+        shape = self.shape
+        axes = (
+            shape.dim_axes
+            if self.axis is None
+            else (shape.dim_axes[shape.resolve_dim(self.axis, self.name)],)
+        )
+        return SumImpl(axes=axes, name=self.name)

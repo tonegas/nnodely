@@ -89,42 +89,42 @@ def test_fuzzify(tmp_path):
     result1 = model1({"x": dummy_input_x, "y": dummy_input_y})
 
     assert "x_pred_rectangular" in result1
-    assert result1["x_pred_rectangular"].shape == (4, 3, 1)
+    assert result1["x_pred_rectangular"].shape == (4, 1, 3)
     np.testing.assert_allclose(
         to_numpy(result1["x_pred_rectangular"]),
         np.array(
             [
-                [[0.0], [0.0], [0.0]],
-                [[0.0], [1.0], [0.0]],
-                [[0.0], [0.0], [1.0]],
-                [[0.0], [0.0], [0.0]],
+                [[0.0, 0.0, 0.0]],
+                [[0.0, 1.0, 0.0]],
+                [[0.0, 0.0, 1.0]],
+                [[0.0, 0.0, 0.0]],
             ]
         ),
         rtol=1e-5,
         atol=1e-5,
     )
     assert "x_pred_triangular" in result1
-    assert result1["x_pred_triangular"].shape == (4, 3, 1)
+    assert result1["x_pred_triangular"].shape == (4, 1, 3)
     np.testing.assert_allclose(
         to_numpy(result1["x_pred_triangular"]),
         np.array(
             [
-                [[0.0], [0.0], [0.0]],
-                [[0.0], [1.0], [0.0]],
-                [[0.0], [0.4], [0.6]],
-                [[0.0], [0.0], [0.0]],
+                [[0.0, 0.0, 0.0]],
+                [[0.0, 1.0, 0.0]],
+                [[0.0, 0.4, 0.6]],
+                [[0.0, 0.0, 0.0]],
             ]
         ),
         rtol=1e-5,
         atol=1e-5,
     )
     assert "x_pred_gaussian" in result1
-    assert result1["x_pred_gaussian"].shape == (4, 3, 1)
+    assert result1["x_pred_gaussian"].shape == (4, 1, 3)
     np.testing.assert_allclose(
         to_numpy(result1["x_pred_gaussian"]),
         np.array(
             [
-                [[gaussian(x - c)] for c in (0.0, 0.5, 1.0)]
+                [[gaussian(x - c) for c in (0.0, 0.5, 1.0)]]
                 for x in (-7.0, 0.5, 0.8, 5.0)
             ]
         ),
@@ -132,60 +132,60 @@ def test_fuzzify(tmp_path):
         atol=1e-5,
     )
     assert "x_pred_sin" in result1
-    assert result1["x_pred_sin"].shape == (4, 3, 1)
+    assert result1["x_pred_sin"].shape == (4, 1, 3)
     np.testing.assert_allclose(
         to_numpy(result1["x_pred_sin"]),
         np.array(
             [
-                [[np.sin(-7.0)], [np.sin(-7.0 - 0.5)], [np.sin(-7.0 - 1.0)]],
-                [[np.sin(0.5)], [np.sin(0.5 - 0.5)], [np.sin(0.5 - 1.0)]],
-                [[np.sin(0.8)], [np.sin(0.8 - 0.5)], [np.sin(0.8 - 1.0)]],
-                [[np.sin(5.0)], [np.sin(5.0 - 0.5)], [np.sin(5.0 - 1.0)]],
+                [[np.sin(-7.0), np.sin(-7.0 - 0.5), np.sin(-7.0 - 1.0)]],
+                [[np.sin(0.5), np.sin(0.5 - 0.5), np.sin(0.5 - 1.0)]],
+                [[np.sin(0.8), np.sin(0.8 - 0.5), np.sin(0.8 - 1.0)]],
+                [[np.sin(5.0), np.sin(5.0 - 0.5), np.sin(5.0 - 1.0)]],
             ]
         ),
         rtol=1e-5,
         atol=1e-5,
     )
     assert "x_pred_cos" in result1
-    assert result1["x_pred_cos"].shape == (4, 3, 1)
+    assert result1["x_pred_cos"].shape == (4, 1, 3)
     np.testing.assert_allclose(
         to_numpy(result1["x_pred_cos"]),
         np.array(
             [
-                [[np.cos(-7.0)], [np.cos(-7.0 - 0.5)], [np.cos(-7.0 - 1.0)]],
-                [[np.cos(0.5)], [np.cos(0.5 - 0.5)], [np.cos(0.5 - 1.0)]],
-                [[np.cos(0.8)], [np.cos(0.8 - 0.5)], [np.cos(0.8 - 1.0)]],
-                [[np.cos(5.0)], [np.cos(5.0 - 0.5)], [np.cos(5.0 - 1.0)]],
+                [[np.cos(-7.0), np.cos(-7.0 - 0.5), np.cos(-7.0 - 1.0)]],
+                [[np.cos(0.5), np.cos(0.5 - 0.5), np.cos(0.5 - 1.0)]],
+                [[np.cos(0.8), np.cos(0.8 - 0.5), np.cos(0.8 - 1.0)]],
+                [[np.cos(5.0), np.cos(5.0 - 0.5), np.cos(5.0 - 1.0)]],
             ]
         ),
         rtol=1e-5,
         atol=1e-5,
     )
     assert "x_pred_multiple" in result1
-    assert result1["x_pred_multiple"].shape == (4, 3, 1)
+    assert result1["x_pred_multiple"].shape == (4, 1, 3)
     np.testing.assert_allclose(
         to_numpy(result1["x_pred_multiple"]),
         np.array(
             [
-                [[0.0], [0.0], [0.0]],
-                [[0.0], [1.0], [gaussian(-0.5)]],
-                [[0.0], [0.4], [gaussian(-0.2)]],
-                [[0.0], [0.0], [0.0]],
+                [[0.0, 0.0, 0.0]],
+                [[0.0, 1.0, gaussian(-0.5)]],
+                [[0.0, 0.4, gaussian(-0.2)]],
+                [[0.0, 0.0, 0.0]],
             ]
         ),
         rtol=1e-5,
         atol=1e-5,
     )
     assert "x_pred_custom" in result1
-    assert result1["x_pred_custom"].shape == (4, 3, 1)
+    assert result1["x_pred_custom"].shape == (4, 1, 3)
     np.testing.assert_allclose(
         to_numpy(result1["x_pred_custom"]),
         np.array(
             [
-                [[np.power(-7.0, 2)], [np.power(-7.5, 2)], [np.power(-8.0, 2)]],
-                [[np.power(0.5, 2)], [np.power(0.0, 2)], [np.power(-0.5, 2)]],
-                [[np.power(0.8, 2)], [np.power(0.3, 2)], [np.power(-0.2, 2)]],
-                [[np.power(5.0, 2)], [np.power(4.5, 2)], [np.power(4.0, 2)]],
+                [[np.power(-7.0, 2), np.power(-7.5, 2), np.power(-8.0, 2)]],
+                [[np.power(0.5, 2), np.power(0.0, 2), np.power(-0.5, 2)]],
+                [[np.power(0.8, 2), np.power(0.3, 2), np.power(-0.2, 2)]],
+                [[np.power(5.0, 2), np.power(4.5, 2), np.power(4.0, 2)]],
             ]
         ),
         rtol=1e-5,
@@ -249,8 +249,8 @@ def test_fuzzify_multi_temporal():
     samples_x = ((-7.0, -6.0), (0.5, 0.8))
     samples_y = ((1.0, 3.0), (0.5, -1.0))
     centers = (0.0, 0.5, 1.0)
-    dummy_input_x = np.array(samples_x, dtype=np.float32).reshape(2, 1, 2)
-    dummy_input_y = np.array(samples_y, dtype=np.float32).reshape(2, 1, 2)
+    dummy_input_x = np.array(samples_x, dtype=np.float32).reshape(2, 2, 1)
+    dummy_input_y = np.array(samples_y, dtype=np.float32).reshape(2, 2, 1)
     result1 = model1({"x": dummy_input_x, "y": dummy_input_y})
 
     def rectangular(distance):
@@ -301,10 +301,10 @@ def test_fuzzify_multi_temporal():
 
     for name, values in expected.items():
         assert name in result1
-        # A matrix per sample: 3 centers x 2 time steps.
-        assert result1[name].shape == (2, 3, 2)
+        # A matrix per sample: 2 time steps x 3 centers.
+        assert result1[name].shape == (2, 2, 3)
         np.testing.assert_allclose(
-            to_numpy(result1[name]), values, rtol=1e-5, atol=1e-5
+            to_numpy(result1[name]), values.transpose(0, 2, 1), rtol=1e-5, atol=1e-5
         )
 
 
@@ -393,27 +393,28 @@ def test_fuzzify_with_trainable_centers():
     # The Fir centers of the samples: 0, 0.5, 1, 1.5 twice, then 0, 1, 2, 3;
     # and the fir2 ones -1, -1, -2.
     dummy_input_fir = np.array(
-        [[[0.0, 0.0, 1.0]], [[0.0, 0.0, 1.0]], [[0.0, 0.0, 2.0]]], dtype=np.float32
+        [[[0.0], [0.0], [1.0]], [[0.0], [0.0], [1.0]], [[0.0], [0.0], [2.0]]],
+        dtype=np.float32,
     )
     result1 = model1({"x": dummy_input_x, "fir_input": dummy_input_fir})
 
     xs = np.array([-7.0, 0.5, 1.2]).reshape(3, 1, 1)
-    centers = np.array([0.0, 0.5, 1.0, 1.5]).reshape(1, 4, 1)
+    centers = np.array([0.0, 0.5, 1.0, 1.5]).reshape(1, 1, 4)
     expected = {
         # Triangles on each sample's centers: 1.2 is 0.8 of the way back
         # from 2 to 1 on the last one.
-        "out_fir": [[[0.0], [0.0], [0.0], [0.0]],
-                    [[0.0], [1.0], [0.0], [0.0]],
-                    [[0.0], [0.8], [0.2], [0.0]]],
+        "out_fir": [[[0.0, 0.0, 0.0, 0.0]],
+                    [[0.0, 1.0, 0.0, 0.0]],
+                    [[0.0, 0.8, 0.2, 0.0]]],
         # Rectangles reaching halfway to the next center, 0.25 either side.
-        "out_param": [[[0.0], [0.0], [0.0], [0.0]],
-                      [[0.0], [1.0], [0.0], [0.0]],
-                      [[0.0], [0.0], [1.0], [0.0]]],
+        "out_param": [[[0.0, 0.0, 0.0, 0.0]],
+                      [[0.0, 1.0, 0.0, 0.0]],
+                      [[0.0, 0.0, 1.0, 0.0]]],
         # Two triangles on -1 and 0, then -2 and 0, reaching each other.
-        "out_fir2": [[[0.0], [0.0]],
-                     [[0.0], [0.5]],
-                     [[0.0], [0.4]]],
-        "out_multiple": np.sin(xs - np.array([0.0, 0.5, 1.0]).reshape(1, 3, 1)),
+        "out_fir2": [[[0.0, 0.0]],
+                     [[0.0, 0.5]],
+                     [[0.0, 0.4]]],
+        "out_multiple": np.sin(xs - np.array([0.0, 0.5, 1.0]).reshape(1, 1, 3)),
         # k (x - c) with k = 2, on fixed and on trainable centers alike.
         "out_custom": 2.0 * (xs - centers),
         "out_multiple_custom": 2.0 * (xs - centers),
@@ -429,7 +430,7 @@ def test_fuzzify_on_moving_centers_matches_fixed_centers():
     # Untrained, centers in a Parameter give what the same numbers give - uneven
     # ones too, on a time window and a dynamic sequence - and so do a lone
     # center and a list of numbers and scalar Parameters.
-    x = Input("same_x", seq=-1)
+    x = Input("same_x")
     values = [0.0, 0.5, 2.0]
     pairs = {
         "triangular": (Fuzzify(values), Fuzzify(Parameter("same_t", value=values))),
@@ -460,7 +461,7 @@ def test_fuzzify_on_moving_centers_matches_fixed_centers():
     }
     outputs = []
     for key, (fixed, moving) in pairs.items():
-        fixed_out, moving_out = fixed([x.sw(2)]), moving([x.sw(2)])
+        fixed_out, moving_out = fixed([x.sw(2, seq=-1)]), moving([x.sw(2, seq=-1)])
         assert moving_out.shape.dimensions == fixed_out.shape.dimensions
         outputs += [Output(f"same_{key}_fixed", fixed_out)]
         outputs += [Output(f"same_{key}_moving", moving_out)]
@@ -468,6 +469,7 @@ def test_fuzzify_on_moving_centers_matches_fixed_centers():
 
     for length in (3, 5):
         samples = np.random.default_rng(length).uniform(-0.5, 2.5, (4, 1, 2, length))
+        samples = samples.transpose(0, 3, 2, 1)  # (batch, seq, time, dim)
         result = model({"same_x": samples.astype(np.float32)})
         for key in pairs:
             np.testing.assert_allclose(
@@ -479,7 +481,7 @@ def test_fuzzify_on_moving_centers_matches_fixed_centers():
 
 
 def test_fuzzify_rejects_centers_it_cannot_use():
-    x = Input("bad_centers_x", seq=3)
+    x = Input("bad_centers_x")
     u = Input("bad_centers_u")
     with pytest.raises(ValueError, match="vector of shape"):
         Fuzzify(Parameter("bad_matrix", value=[[0.0, 1.0], [2.0, 3.0]]))
@@ -490,9 +492,9 @@ def test_fuzzify_rejects_centers_it_cannot_use():
     with pytest.raises(ValueError, match="2 functions for 3 centers"):
         Fuzzify(Parameter("bad_count", value=[0.0, 0.5, 1.0]), function=[Sin, Cos])
     # Centers with a sequence axis follow the signal's.
-    s = Input("bad_centers_s", seq=2)
-    with pytest.raises(ValueError, match="sequence axis"):
-        Fuzzify(Fir(features=2)(s.last()))([x.last()])
+    s = Input("bad_centers_s")
+    with pytest.raises(ValueError, match="outer time axes"):
+        Fuzzify(Fir(features=2)(s.last(seq=2)))([x.last(seq=3)])
 
 
 @pytest.mark.slow
@@ -585,10 +587,10 @@ def test_membership_functions_are_layers_of_their_own():
         inputs=[x],
         outputs=[Output(f"member_{key}", node) for key, node in outputs.items()],
     ).build()
-    assert all(node.shape.dimensions == ((1,), 5, ()) for node in outputs.values())
+    assert all(node.shape.dimensions == ((5,), (1,)) for node in outputs.values())
 
     samples = np.array([0.0, 0.25, 0.5, 1.4, 2.0], dtype=np.float32)
-    result = model({"member_x": samples.reshape(1, 1, 5)})
+    result = model({"member_x": samples.reshape(1, 5, 1)})
     expected = {
         "triangle": [0.0, 0.5, 1.0, 0.0, 0.0],
         # Up from 0 to 1 at 1, down to 0 at 3.
@@ -605,16 +607,17 @@ def test_membership_functions_are_layers_of_their_own():
 
 
 def test_membership_functions_keep_the_shape_of_any_stream():
-    x = Input("member_shape_x", dim=(2, 3), seq=-1)
-    bell = Gaussian()([x.sw(2)])
+    x = Input("member_shape_x", dim=(2, 3))
+    bell = Gaussian()([x.sw(2, seq=-1)])
     for node in (Triangular()([x.sw(2)]), Rectangular()([x.sw(2)]), bell):
-        assert node.shape.dimensions == ((2, 3), 2, (None,))
+        assert node.shape.dimensions == ((None, 2), (2, 3))
     model = Modely(
         "member_shape", inputs=[x], outputs=[Output("member_shape_bell", bell)]
     ).build()
 
     for length in (3, 5):
         values = np.random.default_rng(length).normal(size=(1, 2, 3, 2, length))
+        values = values.transpose(0, 4, 3, 1, 2)  # (batch, seq, time, *dim)
         result = to_numpy(model({"member_shape_x": values})["member_shape_bell"])
         np.testing.assert_allclose(result, np.exp(-0.5 * values**2), rtol=1e-5)
 
@@ -637,7 +640,7 @@ def test_fuzzify_with_uneven_centers_leans_its_triangles_and_adds_up_to_one():
 
     values = np.linspace(0.0, 3.0, 13, dtype=np.float32)
     result = to_numpy(model({"uneven_x": values.reshape(-1, 1, 1)})["uneven_out"])
-    result = result[..., 0]
+    result = result[:, 0]
     np.testing.assert_allclose(result.sum(axis=1), 1.0, rtol=1e-6)
     # x = 2, halfway from 1 to 3: the triangle of 1 reaches 3, that of 3 reaches 1.
     np.testing.assert_allclose(result[8], [0.0, 0.5, 0.5], atol=1e-6)
@@ -663,7 +666,7 @@ def test_fuzzify_with_a_single_center():
         "single_model", inputs=[x], outputs=[Output("single_out", fuzzy)]
     ).build()
     assert fuzzy.name == "single_fuzzy"
-    assert fuzzy.shape.dimensions == ((1,), 1, ())
+    assert fuzzy.shape.dimensions == ((1,), (1,))
 
     # A lone triangle reaches 1 on either side.
     values = np.array([-0.5, 0.0, 0.5, 1.5], dtype=np.float32).reshape(-1, 1, 1)
@@ -707,11 +710,11 @@ def test_fuzzify_with_a_layer_instance_or_a_weighted_layer_class():
 
 
 def test_fuzzify_follows_a_time_window_and_a_dynamic_sequence():
-    x = Input("dynamic_fuzzy_x", seq=-1)
-    placed = Fuzzify([0.0, 1.0])([x.sw(4)])
+    x = Input("dynamic_fuzzy_x")
+    placed = Fuzzify([0.0, 1.0])([x.sw(4, seq=-1)])
     waves = Fuzzify([0.0, 1.0], function=Sin)([x.sw(4)])
-    assert placed.shape.dimensions == ((2,), 4, (None,))
-    assert waves.shape.dimensions == ((2,), 4, (None,))
+    assert placed.shape.dimensions == ((None, 4), (2,))
+    assert waves.shape.dimensions == ((None, 4), (2,))
     model = Modely(
         "dynamic_fuzzy",
         inputs=[x],
@@ -720,14 +723,15 @@ def test_fuzzify_follows_a_time_window_and_a_dynamic_sequence():
 
     for length in (3, 5):
         values = np.random.default_rng(length).uniform(-1, 2, size=(1, 1, 4, length))
+        values = values.transpose(0, 3, 2, 1)  # (batch, seq, time, dim)
         result = model({"dynamic_fuzzy_x": values.astype(np.float32)})
         np.testing.assert_allclose(
             to_numpy(result["dynamic_waves"]),
-            np.concatenate([np.sin(values - 0.0), np.sin(values - 1.0)], axis=1),
+            np.concatenate([np.sin(values - 0.0), np.sin(values - 1.0)], axis=-1),
             rtol=1e-5,
             atol=1e-6,
         )
-        assert to_numpy(result["dynamic_placed"]).shape == (1, 2, 4, length)
+        assert to_numpy(result["dynamic_placed"]).shape == (1, length, 4, 2)
 
 
 def test_fuzzify_takes_a_membership_name_for_its_class():
@@ -871,7 +875,7 @@ def test_local_model_matches_explicit_cells():
     kernel = rng.normal(size=(3, 4, 2)).astype(np.float32)  # (cell, time, features)
     bias = rng.normal(size=(3, 2)).astype(np.float32)
 
-    activation = Fuzzify(centers=centers, function=Triangular)([k])
+    activation = Fuzzify(centers=centers, function=Triangular)([k.last()])
     local = LocalModel(_fir_factory(kernel, bias, (3,)), name="cells_local")(
         [x.sw(4)], [activation]
     )
@@ -892,11 +896,11 @@ def test_local_model_matches_explicit_cells():
 
     result = model(
         {
-            "x_local": np.arange(20, dtype=np.float32).reshape(5, 1, 4) / 10.0,
+            "x_local": np.arange(20, dtype=np.float32).reshape(5, 4, 1) / 10.0,
             "k_local": np.linspace(-0.5, 2.5, 5, dtype=np.float32).reshape(5, 1, 1),
         }
     )
-    assert result["local"].shape == (5, 2, 1)
+    assert result["local"].shape == (5, 1, 2)
     np.testing.assert_allclose(
         to_numpy(result["local"]), to_numpy(result["explicit"]), rtol=1e-5, atol=1e-5
     )
@@ -906,10 +910,14 @@ def _two_fuzzy_inputs(prefix):
     x = Input(f"{prefix}_x", dim=1)
     j = Input(f"{prefix}_j", dim=1)
     k = Input(f"{prefix}_k", dim=1)
-    activation_j = Fuzzify(centers=[0.0, 1.0, 2.0, 3.0], function=Triangular)([j])
-    activation_k = Fuzzify(centers=[0.0, 1.0, 2.0, 3.0, 4.0], function=Triangular)([k])
+    activation_j = Fuzzify(centers=[0.0, 1.0, 2.0, 3.0], function=Triangular)(
+        [j.last()]
+    )
+    activation_k = Fuzzify(centers=[0.0, 1.0, 2.0, 3.0, 4.0], function=Triangular)(
+        [k.last()]
+    )
     data = {
-        f"{prefix}_x": np.arange(30, dtype=np.float32).reshape(6, 1, 5) / 10.0 - 1.0,
+        f"{prefix}_x": np.arange(30, dtype=np.float32).reshape(6, 5, 1) / 10.0 - 1.0,
         f"{prefix}_j": np.linspace(-0.5, 3.5, 6, dtype=np.float32).reshape(6, 1, 1),
         f"{prefix}_k": np.linspace(0.3, 4.2, 6, dtype=np.float32).reshape(6, 1, 1),
     }
@@ -1012,8 +1020,8 @@ def test_local_model_passes_cell_index():
     x = Input("index_x", dim=1)
     j = Input("index_j", dim=1)
     k = Input("index_k", dim=1)
-    activation_j = Fuzzify(centers=[0.0, 1.0], function=Rectangular)([j])
-    activation_k = Fuzzify(centers=[0.0, 1.0, 2.0], function=Rectangular)([k])
+    activation_j = Fuzzify(centers=[0.0, 1.0], function=Rectangular)([j.last()])
+    activation_k = Fuzzify(centers=[0.0, 1.0, 2.0], function=Rectangular)([k.last()])
 
     seen = []
 
@@ -1063,7 +1071,7 @@ def test_local_model_repeated_call_shares_weights():
     assert sum(isinstance(layer, FirImpl) for layer in model.model.layers) == 2
     result = model(
         {
-            "shared_local_x": np.random.rand(4, 1, 3).astype(np.float32),
+            "shared_local_x": np.random.rand(4, 3, 1).astype(np.float32),
             "shared_local_g": np.random.rand(4, 1, 1).astype(np.float32),
         }
     )
@@ -1131,7 +1139,7 @@ def test_local_model_matrix_input_two_fuzzy_functions_by_hand():
     values = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
     result = model(
         {
-            "X_hand": values.reshape(1, 2, 2, 1),
+            "X_hand": values.reshape(1, 1, 2, 2),
             "a_hand": np.array([[[0.5]]], dtype=np.float32),
             "b_hand": np.array([[[0.25]]], dtype=np.float32),
         }
@@ -1146,7 +1154,7 @@ def test_local_model_matrix_input_two_fuzzy_functions_by_hand():
         atol=1e-6,
     )
     # Y = (0.375*1 + 0.125*2 + 0.375*3 + 0.125*4) * X = 2.25 * X
-    assert result["Y"].shape == (1, 2, 2, 1)
+    assert result["Y"].shape == (1, 1, 2, 2)
     np.testing.assert_allclose(
         to_numpy(result["Y"]).reshape(2, 2), 2.25 * values, rtol=1e-5
     )
@@ -1170,6 +1178,7 @@ def test_local_model_matrix_input_without_input_function_by_hand():
     ).build()
 
     values = np.arange(12, dtype=np.float32).reshape(1, 2, 2, 3) / 4.0
+    values = values.transpose(0, 3, 1, 2)  # (batch, time, *dim)
     result = model(
         {
             "X_plain": values,
@@ -1178,7 +1187,7 @@ def test_local_model_matrix_input_without_input_function_by_hand():
         }
     )
     mu = np.array([0.375, 0.125, 0.375, 0.125, 0.0, 0.0], dtype=np.float32)
-    assert result["vectorized"].shape == (1, 2, 2, 3)
+    assert result["vectorized"].shape == (1, 3, 2, 2)
     # The memberships sum to one, so weighting alone gives the input back.
     np.testing.assert_allclose(to_numpy(result["weighted"]), values, rtol=1e-5)
     np.testing.assert_allclose(
@@ -1209,16 +1218,16 @@ def test_local_model_memberships_along_the_window_by_hand():
     x_values = np.array([1.0, 2.0, 3.0], dtype=np.float32)
     result = model(
         {
-            "x_window": x_values.reshape(1, 1, 3),
-            "a_window": np.array([0.0, 0.5, 2.0], dtype=np.float32).reshape(1, 1, 3),
+            "x_window": x_values.reshape(1, 3, 1),
+            "a_window": np.array([0.0, 0.5, 2.0], dtype=np.float32).reshape(1, 3, 1),
             "b_window": np.array([[[0.25]]], dtype=np.float32),
         }
     )
-    membership_a = to_numpy(result["mu_a"]).reshape(3, 3)  # (center, sample)
+    membership_a = to_numpy(result["mu_a"]).reshape(3, 3).T  # (center, sample)
     membership_b = to_numpy(result["mu_b"]).ravel()
     gains = np.arange(1.0, 7.0).reshape(3, 2)
     expected = x_values * np.einsum("at,b,ab->t", membership_a, membership_b, gains)
-    assert result["y"].shape == (1, 1, 3)
+    assert result["y"].shape == (1, 3, 1)
     np.testing.assert_allclose(to_numpy(result["y"]).ravel(), expected, rtol=1e-5)
 
 
@@ -1255,8 +1264,8 @@ def test_local_model_rejects_mismatched_inputs():
     with pytest.raises(ValueError, match="must match, or be 1"):
         LocalModel(name="windowed_local")([x.sw(2)], [windowed_activation])
 
-    sequence = Input("k_invalid_seq", dim=1, seq=-1)
-    sequence_activation = Fuzzify(centers=[0.0, 1.0])([sequence.last()])
+    sequence = Input("k_invalid_seq", dim=1)
+    sequence_activation = Fuzzify(centers=[0.0, 1.0])([sequence.last(seq=-1)])
     with pytest.raises(ValueError, match="activation 0 must have shape"):
         LocalModel(name="sequence_local")([x.sw(2)], [sequence_activation])
 
@@ -1320,9 +1329,9 @@ def test_equation_learner_supports_layer_classes_and_basis_output():
     value = np.array([[[0.25]]], dtype=np.float32)
     result = to_numpy(model({"basis_x": value})["basis"])
     expected = np.array(
-        [[[np.sin(0.25)], [np.cos(0.25)], [0.5]]],
+        [[[np.sin(0.25), np.cos(0.25), 0.5]]],
         dtype=np.float32,
-    ).reshape((1, 3, 1))
+    ).reshape((1, 1, 3))
 
     assert basis.dim == (3,)
     np.testing.assert_allclose(result, expected, rtol=1e-5, atol=1e-5)
@@ -1346,34 +1355,36 @@ def test_integrate():
     # make a simple forward Euler integrator step
     x = Input("x")
     x0 = Input("x0")
-    integrate = IntegrateStep(solver="euler", dt=0.1, init=x0)(x)
+    integrate = IntegrateStep(solver="euler", dt=0.1, init=x0.last())(x.last())
     out = Output("x_hat", integrate)
     model = Modely(name="integrator", inputs=[x, x0], outputs=[out])
     model.build()
 
     # make a loop that rolls out the integrator along a sequence of rates
-    x_seq = Input("x_seq", seq=-1)
+    x_seq = Input("x_seq")
     x0_loop = Input("x0_loop")
-    loop = Loop(f=model, callback={x0: out}, init={x0: x0_loop})({x: x_seq})
+    loop = Loop(f=model, callback={x0: out}, init={x0: x0_loop.last()})(
+        {x: x_seq.last(seq=-1)}
+    )
     out_loop = Output("x_hat_loop", loop)
     model_loop = Modely(
         name="integrator_loop", inputs=[x_seq, x0_loop], outputs=[out_loop]
     ).build()
 
-    dummy = np.array([1.0, 2.0, 3.0]).reshape(1, 1, 1, 3)
+    dummy = np.array([1.0, 2.0, 3.0]).reshape(1, 3, 1, 1)
     start = np.array(0.0).reshape(1, 1, 1)
     by_hand = to_numpy(model_loop({"x_seq": dummy, "x0_loop": start})["x_hat_loop"])
-    np.testing.assert_allclose(by_hand, [[[[0.1, 0.3, 0.6]]]], rtol=1e-6)
+    np.testing.assert_allclose(by_hand, [[[[0.1]], [[0.3]], [[0.6]]]], rtol=1e-6)
 
     # The block builds the same loop: the horizon is the rate's sequence axis.
-    y = Input("y", seq=-1)
+    y = Input("y")
     y0 = Input("y0")
-    new_integrate = Integrate(solver="euler", dt=0.1, init=y0)(y)
+    new_integrate = Integrate(solver="euler", dt=0.1, init=y0.last())(y.last(seq=-1))
     out_int = Output("y_hat", new_integrate)
     new_model = Modely(name="new_integrator", inputs=[y, y0], outputs=[out_int]).build()
 
     result = to_numpy(new_model({"y": dummy, "y0": start})["y_hat"])
-    assert result.shape == (1, 1, 1, 3)
+    assert result.shape == (1, 3, 1, 1)
     np.testing.assert_allclose(result, by_hand, rtol=1e-6)
 
 
@@ -1383,8 +1394,8 @@ def test_integrate():
 
 
 def _integrate_model(name, seq: int | tuple[int, ...] = -1, dim=1, **kwargs):
-    rate = Input(f"{name}_rate", dim=dim, seq=seq)
-    out = Output(f"{name}_out", Integrate(**kwargs)(rate))
+    rate = Input(f"{name}_rate", dim=dim)
+    out = Output(f"{name}_out", Integrate(**kwargs)(rate.last(seq=seq)))
     return Modely(name, inputs=[rate], outputs=[out]).build()
 
 
@@ -1406,12 +1417,12 @@ def test_integrate_matches_integrate_step_over_the_same_samples(solver):
     ).build()
 
     along = to_numpy(
-        horizon({f"along_{solver}_rate": samples.reshape(1, 1, 1, 5)})[
+        horizon({f"along_{solver}_rate": samples.reshape(1, 5, 1, 1)})[
             f"along_{solver}_out"
         ]
     )
     over = to_numpy(
-        window({f"window_{solver}": samples.reshape(1, 1, 5)})[f"window_{solver}_out"]
+        window({f"window_{solver}": samples.reshape(1, 5, 1)})[f"window_{solver}_out"]
     )
     np.testing.assert_allclose(along.ravel(), over.ravel(), rtol=1e-5, atol=1e-6)
 
@@ -1419,16 +1430,16 @@ def test_integrate_matches_integrate_step_over_the_same_samples(solver):
 def test_integrate_follows_a_dynamic_horizon_without_rebuilding():
     model = _integrate_model("dynamic", solver="euler", dt=0.5)
     for steps in (1, 4, 9):
-        rate = np.ones((2, 1, 1, steps), dtype=np.float32)
+        rate = np.ones((2, steps, 1, 1), dtype=np.float32)
         result = to_numpy(model({"dynamic_rate": rate})["dynamic_out"])
-        assert result.shape == (2, 1, 1, steps)
+        assert result.shape == (2, steps, 1, 1)
         np.testing.assert_allclose(result[0].ravel(), 0.5 * np.arange(1, steps + 1))
 
 
 def test_integrate_over_a_fixed_horizon():
     model = _integrate_model("fixed", seq=4, solver="euler", dt=1.0)
     result = to_numpy(
-        model({"fixed_rate": np.array([1.0, 2.0, 3.0, 4.0]).reshape(1, 1, 1, 4)})[
+        model({"fixed_rate": np.array([1.0, 2.0, 3.0, 4.0]).reshape(1, 4, 1, 1)})[
             "fixed_out"
         ]
     )
@@ -1436,14 +1447,16 @@ def test_integrate_over_a_fixed_horizon():
 
 
 def test_integrate_starts_from_none_a_number_or_a_stream():
-    rate = np.full((1, 1, 1, 3), 2.0, dtype=np.float32)
+    rate = np.full((1, 3, 1, 1), 2.0, dtype=np.float32)
     zero = _integrate_model("from_zero", dt=0.1)
     number = _integrate_model("from_number", dt=0.1, init=5.0)
-    r, r0 = Input("from_stream_rate", seq=-1), Input("from_stream_init")
+    r, r0 = Input("from_stream_rate"), Input("from_stream_init")
     stream = Modely(
         "from_stream",
         inputs=[r, r0],
-        outputs=[Output("from_stream_out", Integrate(dt=0.1, init=r0)(r))],
+        outputs=[
+            Output("from_stream_out", Integrate(dt=0.1, init=r0.last())(r.last(seq=-1)))
+        ],
     ).build()
 
     np.testing.assert_allclose(
@@ -1470,56 +1483,63 @@ def test_integrate_starts_from_none_a_number_or_a_stream():
 
 
 def test_integrate_each_feature_of_a_vector_rate():
-    rate, start = Input("vector_rate", dim=2, seq=-1), Input("vector_init", dim=2)
+    rate, start = Input("vector_rate", dim=2), Input("vector_init", dim=2)
     scalar_start = Input("vector_scalar_init")
     model = Modely(
         "vector",
         inputs=[rate, start, scalar_start],
         outputs=[
-            Output("vector_out", Integrate(dt=1.0, init=start)(rate)),
-            Output("vector_scalar_out", Integrate(dt=1.0, init=scalar_start)(rate)),
+            Output(
+                "vector_out", Integrate(dt=1.0, init=start.last())(rate.last(seq=-1))
+            ),
+            Output(
+                "vector_scalar_out",
+                Integrate(dt=1.0, init=scalar_start.last())(rate.last(seq=-1)),
+            ),
         ],
     ).build()
     values = np.array([[1.0, 1.0, 1.0], [10.0, 20.0, 30.0]], dtype=np.float32)
 
     result = model(
         {
-            "vector_rate": values.reshape(1, 2, 1, 3),
-            "vector_init": np.array([0.0, 100.0]).reshape(1, 2, 1),
+            "vector_rate": values.T.reshape(1, 3, 1, 2),
+            "vector_init": np.array([0.0, 100.0]).reshape(1, 1, 2),
             "vector_scalar_init": np.array([1.0]).reshape(1, 1, 1),
         }
     )
     np.testing.assert_allclose(
-        to_numpy(result["vector_out"]).reshape(2, 3), [[1, 2, 3], [110, 130, 160]]
+        to_numpy(result["vector_out"]).reshape(3, 2).T, [[1, 2, 3], [110, 130, 160]]
     )
     # A scalar initial value starts every feature.
     np.testing.assert_allclose(
-        to_numpy(result["vector_scalar_out"]).reshape(2, 3), [[2, 3, 4], [11, 31, 61]]
+        to_numpy(result["vector_scalar_out"]).reshape(3, 2).T,
+        [[2, 3, 4], [11, 31, 61]],
     )
 
 
 def test_integrate_a_rate_with_an_extra_sequence_axis():
-    # The horizon is the last sequence axis; the others are integrated apart.
-    model = _integrate_model("extra_seq", seq=(2, -1), dt=1.0)
+    # The horizon is the outer time; the other outer time axes are integrated
+    # apart.
+    model = _integrate_model("extra_seq", seq=(-1, 2), dt=1.0)
     rate = np.array([[1.0, 1.0, 1.0], [2.0, 0.0, 2.0]], dtype=np.float32)
     result = to_numpy(
-        model({"extra_seq_rate": rate.reshape(1, 1, 1, 2, 3)})["extra_seq_out"]
+        model({"extra_seq_rate": rate.T.reshape(1, 3, 2, 1, 1)})["extra_seq_out"]
     )
-    assert result.shape == (1, 1, 1, 2, 3)
-    np.testing.assert_allclose(result.reshape(2, 3), [[1, 2, 3], [2, 2, 4]])
+    assert result.shape == (1, 3, 2, 1, 1)
+    np.testing.assert_allclose(result.reshape(3, 2).T, [[1, 2, 3], [2, 2, 4]])
 
 
 def test_integrate_twice_from_acceleration_to_position():
     # Constant acceleration: the trapezoid of a linear velocity is exact.
     dt, steps, a, v0, x0 = 0.1, 20, 2.0, 1.0, 3.0
-    acc = Input("acc", seq=-1)
-    vel = Integrate(solver="trapezoidal", dt=dt, init=v0)(acc)
+    acc = Input("acc")
+    vel = Integrate(solver="trapezoidal", dt=dt, init=v0)(acc.last(seq=-1))
     pos = Integrate(solver="trapezoidal", dt=dt, init=x0)(vel)
     model = Modely(
         "kinematics", inputs=[acc], outputs=[Output("vel", vel), Output("pos", pos)]
     ).build()
 
-    result = model({"acc": np.full((1, 1, 1, steps), a, dtype=np.float32)})
+    result = model({"acc": np.full((1, steps, 1, 1), a, dtype=np.float32)})
     t = dt * np.arange(1, steps + 1)
     np.testing.assert_allclose(to_numpy(result["vel"]).ravel(), v0 + a * t, rtol=1e-5)
     # The first velocity step is a rectangle, so the position trails the exact
@@ -1533,11 +1553,11 @@ def test_integrate_is_trained_through():
     # x = Integrate(k * u): the gain of the rate is learnt from the trajectory.
     # (A fixed horizon: arithmetic on a dynamic sequence axis cannot be declared.)
     steps = 8
-    u = Input("trained_u", seq=steps)
+    u = Input("trained_u")
     k = Parameter("trained_k", value=0.5)
-    x = Output("trained_x", Integrate(dt=0.1)(u * k))
+    x = Output("trained_x", Integrate(dt=0.1)(u.last(seq=steps) * k))
     model = Modely("trained", inputs=[u], outputs=[x])
-    model.minimize("fit", x, Input("trained_target", seq=steps))
+    model.minimize("fit", x, Input("trained_target").last(seq=steps))
     model.build()
     rng = np.random.default_rng(0)
     rates = rng.uniform(-1.0, 1.0, (64, steps)).astype(np.float32)
@@ -1559,19 +1579,22 @@ def test_integrate_is_trained_through():
 def test_integrate_round_trips_through_save_and_the_keras_file(tmp_path):
     import keras
 
-    rate, start = Input("saved_rate", seq=-1), Input("saved_init")
+    rate, start = Input("saved_rate"), Input("saved_init")
     model = Modely(
         "saved_integrator",
         inputs=[rate, start],
         outputs=[
             Output(
-                "saved_out", Integrate(solver="trapezoidal", dt=0.2, init=start)(rate)
+                "saved_out",
+                Integrate(solver="trapezoidal", dt=0.2, init=start.last())(
+                    rate.last(seq=-1)
+                ),
             )
         ],
     ).build()
     data = {
         "saved_rate": np.array([1.0, 3.0, 2.0, 5.0], dtype=np.float32).reshape(
-            1, 1, 1, 4
+            1, 4, 1, 1
         ),
         "saved_init": np.array([0.5], dtype=np.float32).reshape(1, 1, 1),
     }
@@ -1598,25 +1621,25 @@ def test_integrate_round_trips_through_save_and_the_keras_file(tmp_path):
 def test_integrate_a_rate_from_a_layer_with_parameter_weights(layer):
     # rate = 2u + 1 on [1, 2, 3, 4] is [3, 5, 7, 9]; Euler with dt = 1 sums it.
     name = f"prate_{layer.__name__.lower()}"
-    u = Input(f"{name}_u", seq=4)
+    u = Input(f"{name}_u")
     gain = Parameter(f"{name}_gain", value=[2.0])
     offset = Parameter(f"{name}_offset", value=[1.0])
-    rate = layer(features=1, kernel=gain, bias=offset)(u.last())
+    rate = layer(features=1, kernel=gain, bias=offset)(u.last(seq=4))
     model = Modely(
         name,
         inputs=[u],
         outputs=[Output(f"{name}_out", Integrate(solver="euler", dt=1.0)(rate))],
     ).build()
 
-    values = np.array([1.0, 2.0, 3.0, 4.0]).reshape(1, 1, 1, 4)
+    values = np.array([1.0, 2.0, 3.0, 4.0]).reshape(1, 4, 1, 1)
     result = to_numpy(model({f"{name}_u": values})[f"{name}_out"])
     np.testing.assert_allclose(result.ravel(), [3.0, 8.0, 15.0, 24.0])
 
 
 def test_integrate_returns_the_loop_for_further_relations():
     # The result is the Loop itself, a stream to compute with like any other.
-    acc = Input("further_acc", seq=5)
-    vel = Integrate(dt=0.1)(acc)
+    acc = Input("further_acc")
+    vel = Integrate(dt=0.1)(acc.last(seq=5))
     assert isinstance(vel, Loop)
     gain = Parameter("further_gain", value=3.0)
     model = Modely(
@@ -1626,7 +1649,7 @@ def test_integrate_returns_the_loop_for_further_relations():
     ).build()
 
     result = to_numpy(
-        model({"further_acc": np.ones((1, 1, 1, 5), dtype=np.float32)})["further_out"]
+        model({"further_acc": np.ones((1, 5, 1, 1), dtype=np.float32)})["further_out"]
     )
     v = 0.1 * np.arange(1, 6)
     np.testing.assert_allclose(
@@ -1636,9 +1659,9 @@ def test_integrate_returns_the_loop_for_further_relations():
 
 def test_a_dynamic_integrate_feeds_any_relation():
     # On a dynamic horizon the result is still a stream to compute with.
-    acc = Input("dynamic_further_acc", seq=-1)
-    vel = Integrate(dt=0.1)(acc)
-    assert vel.seq == (None,)
+    acc = Input("dynamic_further_acc")
+    vel = Integrate(dt=0.1)(acc.last(seq=-1))
+    assert vel.shape.time == (None, 1)
     gain = Parameter("dynamic_further_gain", value=3.0)
     model = Modely(
         "dynamic_further",
@@ -1648,12 +1671,12 @@ def test_a_dynamic_integrate_feeds_any_relation():
 
     for steps in (3, 7):
         result = to_numpy(
-            model({"dynamic_further_acc": np.ones((2, 1, 1, steps), dtype=np.float32)})[
+            model({"dynamic_further_acc": np.ones((2, steps, 1, 1), dtype=np.float32)})[
                 "dynamic_further_out"
             ]
         )
         v = 0.1 * np.arange(1, steps + 1)
-        assert result.shape == (2, 1, 1, steps)
+        assert result.shape == (2, steps, 1, 1)
         np.testing.assert_allclose(
             result[1].ravel(), 3.0 * np.sin(v) + 2.0 * v, rtol=1e-5
         )
@@ -1663,11 +1686,11 @@ def test_a_dynamic_integrate_feeds_any_relation():
 def test_a_dynamic_integrate_trains_on_simulations_of_different_lengths():
     # Every simulation is one trajectory of its own length; the loader pads the
     # shorter ones, and the padded steps are left out of the loss.
-    u = Input("dynamic_trained_u", seq=-1)
+    u = Input("dynamic_trained_u")
     k = Parameter("dynamic_trained_k", value=0.5)
-    x = Output("dynamic_trained_x", Integrate(dt=0.1)(u * k))
+    x = Output("dynamic_trained_x", Integrate(dt=0.1)(u.last(seq=-1) * k))
     model = Modely("dynamic_trained", inputs=[u], outputs=[x])
-    model.minimize("fit", x, Input("dynamic_trained_target", seq=-1))
+    model.minimize("fit", x, Input("dynamic_trained_target").last(seq=-1))
     model.build()
     rng = np.random.default_rng(1)
     simulations = []
@@ -1689,24 +1712,24 @@ def test_a_dynamic_integrate_trains_on_simulations_of_different_lengths():
 
 def test_integrate_rejects_what_it_cannot_integrate():
     with pytest.raises(ValueError, match="has none"):
-        Integrate(dt=0.1)(Input("no_seq"))
+        Integrate(dt=0.1)(Input("no_seq").last())
     with pytest.raises(ValueError, match="one rate sample per step"):
-        Integrate(dt=0.1)(Input("windowed", seq=-1).sw(3))
+        Integrate(dt=0.1)(Input("windowed").sw(3, seq=-1))
     with pytest.raises(ValueError, match="solver must be one of"):
         Integrate(solver="rk4", dt=0.1)
     with pytest.raises(ValueError, match="dt"):
         Integrate()
     with pytest.raises(TypeError, match="configured first"):
-        Integrate(Input("misused", seq=-1))  # type: ignore[arg-type]
+        Integrate(Input("misused").last(seq=-1))  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="integrates one rate"):
-        Integrate(dt=0.1)([Input("first", seq=-1), Input("second", seq=-1)])
-    rate = Input("checked_rate", dim=2, seq=-1)
+        Integrate(dt=0.1)([Input("first").last(seq=-1), Input("second").last(seq=-1)])
+    rate = Input("checked_rate", dim=2).last(seq=-1)
     with pytest.raises(ValueError, match="single sample"):
         Integrate(dt=0.1, init=Input("long_init", dim=2).sw(2))(rate)
     with pytest.raises(ValueError, match="init has dim"):
-        Integrate(dt=0.1, init=Input("wide_init", dim=3))(rate)
-    with pytest.raises(ValueError, match="init has seq"):
-        Integrate(dt=0.1, init=Input("seq_init", dim=2, seq=4))(rate)
+        Integrate(dt=0.1, init=Input("wide_init", dim=3).last())(rate)
+    with pytest.raises(ValueError, match="init has the outer time"):
+        Integrate(dt=0.1, init=Input("seq_init", dim=2).last(seq=4))(rate)
 
 
 def test_my_localmodel():
@@ -1726,9 +1749,10 @@ def test_my_localmodel():
         outputs=[Output("local_output", local_output)],
     ).build()
 
-    dummy_x = np.ones([1, 2, 2, 4]).astype(np.float32)
-    dummy_g = np.array([1, 1, 2, 3]).reshape([1, 1, 4]).astype(np.float32)
-    dummy_k = np.array([0, 1, 0, 1]).reshape([1, 1, 4]).astype(np.float32)
+    dummy_x = np.ones([1, 4, 2, 2]).astype(np.float32)
+    # g and k are read with last(): one sample each, the latest.
+    dummy_g = np.array([1, 1, 2, 3]).reshape([1, 4, 1])[:, -1:].astype(np.float32)
+    dummy_k = np.array([0, 1, 0, 1]).reshape([1, 4, 1])[:, -1:].astype(np.float32)
     result = model({"x_local": dummy_x, "g_local": dummy_g, "k_local": dummy_k})
     assert result["local_output"].shape == (1, 1, 1)
 
@@ -1756,13 +1780,13 @@ def test_fuzzify_rectangles_hold_every_value_once():
     samples = np.array([-0.5, 0.25, 0.5, 1.5, 1.99, 3.49], dtype=np.float32)
     result = model({"boxes_x": samples.reshape(-1, 1, 1)})
     np.testing.assert_array_equal(
-        to_numpy(result["boxes_even"])[..., 0],
+        to_numpy(result["boxes_even"])[:, 0],
         [[1, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, 1], [0, 0, 0]],
     )
     # Uneven: [-0.5, 0.5), [0.5, 2), [2, 4).
     for name in ("boxes_uneven", "boxes_moving"):
         np.testing.assert_array_equal(
-            to_numpy(result[name])[..., 0],
+            to_numpy(result[name])[:, 0],
             [[1, 0, 0], [1, 0, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 0, 1]],
         )
 
@@ -1792,8 +1816,8 @@ def test_equation_learner_called_twice_applies_one_projection():
     )
 
     # On a dynamic sequence too.
-    s = Input("twice_eql_s", seq=-1)
-    assert learner([s.last()]).shape.seq == (None,)
+    s = Input("twice_eql_s")
+    assert learner([s.last(seq=-1)]).shape.time == (None, 1)
 
 
 def test_local_model_with_an_elementwise_function_on_several_inputs():

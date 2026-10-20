@@ -11,28 +11,24 @@ class BatchNorm(Layer):
     """
     Wrapper for keras.layers.BatchNormalization.
 
-    Input::
+    Input and output::
 
-        [batch, *dim, time, *seq]
+        [batch, *time, *dim]
 
-    Output::
-
-        [batch, *dim, time, *seq]
-
-    Statistics are accumulated per feature, so the normalization axis defaults
-    to the dim axis and not to the last axis as in Keras.
+    Statistics are accumulated per feature: by default along the first dim
+    axis. ``axis`` picks another tensor axis, counted with the batch as 0.
     """
 
     def __init__(
         self,
-        axis: int = 1,
+        axis: int | None = None,
         momentum: float = 0.99,
         epsilon: float = 1e-3,
         center: bool = True,
         scale: bool = True,
         name=None,
     ):
-        self.axis = int(axis)
+        self.axis = None if axis is None else int(axis)
         self.momentum = float(momentum)
         self.epsilon = float(epsilon)
         self.center = bool(center)
@@ -47,13 +43,16 @@ class BatchNorm(Layer):
         )
 
     def output_shape(self, *inputs):
-        # Normalization preserves every axis, including a dynamic sequence axis
+        # Normalization preserves every axis, including a dynamic time axis
         # that cannot be probed with a dummy tensor.
-        return inputs[0].shape.dimensions
+        return inputs[0].shape
 
     def build_layer(self):
+        axis = self.axis
+        if axis is None:
+            axis = self.preds[0].shape.dim_axes[0]  # type: ignore[union-attr]
         return keras.layers.BatchNormalization(
-            axis=self.axis,
+            axis=axis,
             momentum=self.momentum,
             epsilon=self.epsilon,
             center=self.center,

@@ -38,7 +38,7 @@ from conftest import to_numpy
 
 class DoubleFeaturesImpl(keras.layers.Layer):
     def call(self, x):
-        return keras.ops.concatenate([x, x], axis=1)
+        return keras.ops.concatenate([x, x], axis=-1)
 
 
 class DoubleFeatures(Layer):
@@ -53,22 +53,22 @@ def test_automatic_layer_output_shape():
     doubled = DoubleFeatures(name="double_features")(x.sw(3))
 
     assert doubled.dim == (4,)
-    assert doubled.time == 3
-    assert doubled.seq == ()
+    assert doubled.time == (3,)
+    assert doubled.shape.time_rank == 1
 
     model = Modely(
         "automatic_shape_model",
         inputs=[x],
         outputs=[Output("automatic_shape_output", doubled)],
     ).build()
-    values = np.arange(6, dtype=np.float32).reshape(1, 2, 3)
+    values = np.arange(6, dtype=np.float32).reshape(1, 3, 2)
     result = to_numpy(
         model({"automatic_shape_input": values})["automatic_shape_output"]
     )
 
-    assert result.shape == (1, 4, 3)
-    np.testing.assert_allclose(result[:, :2], values)
-    np.testing.assert_allclose(result[:, 2:], values)
+    assert result.shape == (1, 3, 4)
+    np.testing.assert_allclose(result[..., :2], values)
+    np.testing.assert_allclose(result[..., 2:], values)
 
 
 def test_time_select():
@@ -76,15 +76,15 @@ def test_time_select():
     selected = TimeSelect(idx=3, name="time_select")(x.sw(5))
 
     assert selected.dim == (1,)
-    assert selected.time == 1
-    assert selected.seq == ()
+    assert selected.time == (1,)
+    assert selected.shape.time_rank == 1
 
     model = Modely(
         "time_select_model",
         inputs=[x],
         outputs=[Output("time_select_output", selected)],
     ).build()
-    values = np.arange(5, dtype=np.float32).reshape((1, 1, 5))
+    values = np.arange(5, dtype=np.float32).reshape((1, 5, 1))
     result = model({"time_select_input": values})
 
     assert result["time_select_output"].shape == (1, 1, 1)
@@ -99,21 +99,21 @@ def test_time_range():
     selected = TimeRange(start=1, end=4, name="time_range")(x.sw(5))
 
     assert selected.dim == (1,)
-    assert selected.time == 3
-    assert selected.seq == ()
+    assert selected.time == (3,)
+    assert selected.shape.time_rank == 1
 
     model = Modely(
         "time_range_model",
         inputs=[x],
         outputs=[Output("time_range_output", selected)],
     ).build()
-    values = np.arange(5, dtype=np.float32).reshape((1, 1, 5))
+    values = np.arange(5, dtype=np.float32).reshape((1, 5, 1))
     result = model({"time_range_input": values})
 
-    assert result["time_range_output"].shape == (1, 1, 3)
+    assert result["time_range_output"].shape == (1, 3, 1)
     np.testing.assert_allclose(
         to_numpy(result["time_range_output"]),
-        np.array([[[1.0, 2.0, 3.0]]], dtype=np.float32),
+        np.array([[[1.0], [2.0], [3.0]]], dtype=np.float32),
     )
 
 
@@ -122,21 +122,21 @@ def test_range():
     selected = Range(start=1, end=3, axis=0, name="range")(x.last())
 
     assert selected.dim == (2,)
-    assert selected.time == 1
-    assert selected.seq == ()
+    assert selected.time == (1,)
+    assert selected.shape.time_rank == 1
 
     model = Modely(
         "range_model",
         inputs=[x],
         outputs=[Output("range_output", selected)],
     ).build()
-    values = np.arange(4, dtype=np.float32).reshape((1, 4, 1))
+    values = np.arange(4, dtype=np.float32).reshape((1, 1, 4))
     result = model({"range_input": values})
 
-    assert result["range_output"].shape == (1, 2, 1)
+    assert result["range_output"].shape == (1, 1, 2)
     np.testing.assert_allclose(
         to_numpy(result["range_output"]),
-        np.array([[[1.0], [2.0]]], dtype=np.float32),
+        np.array([[[1.0, 2.0]]], dtype=np.float32),
     )
 
 
@@ -149,16 +149,16 @@ def test_linear_interpolation():
         name="linear_interpolation",
     )(x.sw(5))
 
-    assert interpolated.dimensions == ((1,), 5, ())
+    assert interpolated.dimensions == ((5,), (1,))
     model = Modely(
         "linear_interpolation_model",
         inputs=[x],
         outputs=[Output("interpolated", interpolated)],
     ).build()
 
-    values = np.array([[[-1.0, 0.5, 1.0, 1.5, 3.0]]], dtype=np.float32)
+    values = np.array([-1.0, 0.5, 1.0, 1.5, 3.0], dtype=np.float32).reshape(1, 5, 1)
     result = to_numpy(model({"interpolation_input": values})["interpolated"])
-    expected = np.array([[[0.0, 0.5, 1.0, 2.5, 4.0]]], dtype=np.float32)
+    expected = np.array([0.0, 0.5, 1.0, 2.5, 4.0], dtype=np.float32).reshape(1, 5, 1)
 
     assert result.shape == values.shape
     np.testing.assert_allclose(result, expected, rtol=1e-6, atol=1e-6)
@@ -180,7 +180,9 @@ def test_polynomial_interpolation(tmp_path):
         outputs=[Output("interpolated", interpolated)],
     ).build()
 
-    values = np.array([[[-3.0, -1.5, -0.5, 0.0, 0.5, 1.5, 3.0]]], dtype=np.float32)
+    values = np.array([-3.0, -1.5, -0.5, 0.0, 0.5, 1.5, 3.0], dtype=np.float32).reshape(
+        1, 7, 1
+    )
     clipped = np.clip(values, x_points[0], x_points[-1])
     expected = clipped**2 + 2.0 * clipped + 3.0
     result = to_numpy(model({"polynomial_input": values})["interpolated"])
@@ -231,22 +233,22 @@ def test_trigonometric():
     batch_size = 1
     max_time = 4
     dummy_input_x = (
-        np.random.rand(batch_size, 1, max_time) * 2 - 1
+        np.random.rand(batch_size, max_time, 1) * 2 - 1
     )  # Random values in range [-1, 1]
     result = model({"x": dummy_input_x})
     assert "out_sin" in result
     assert result["out_sin"].shape == (batch_size, 1, 1)
     np.testing.assert_allclose(
         to_numpy(result["out_sin"]),
-        np.sin(dummy_input_x[:, :, -1:]),
+        np.sin(dummy_input_x[:, -1:]),
         rtol=1e-5,
         atol=1e-5,
     )
     assert "out_cos" in result
-    assert result["out_cos"].shape == (batch_size, 1, 3)
+    assert result["out_cos"].shape == (batch_size, 3, 1)
     np.testing.assert_allclose(
         to_numpy(result["out_cos"]),
-        np.cos(dummy_input_x[:, :, -3:]),
+        np.cos(dummy_input_x[:, -3:]),
         rtol=1e-5,
         atol=1e-5,
     )
@@ -254,15 +256,15 @@ def test_trigonometric():
     assert result["out_tan"].shape == (batch_size, 1, 1)
     np.testing.assert_allclose(
         to_numpy(result["out_tan"]),
-        np.tan(dummy_input_x[:, :, -1:]),
+        np.tan(dummy_input_x[:, -1:]),
         rtol=1e-5,
         atol=1e-5,
     )
     assert "out_asin" in result
-    assert result["out_asin"].shape == (batch_size, 1, 4)
+    assert result["out_asin"].shape == (batch_size, 4, 1)
     np.testing.assert_allclose(
         to_numpy(result["out_asin"]),
-        np.arcsin(dummy_input_x[:, :, -4:]),
+        np.arcsin(dummy_input_x[:, -4:]),
         rtol=1e-5,
         atol=1e-5,
     )
@@ -270,15 +272,15 @@ def test_trigonometric():
     assert result["out_acos"].shape == (batch_size, 1, 1)
     np.testing.assert_allclose(
         to_numpy(result["out_acos"]),
-        np.arccos(dummy_input_x[:, :, -1:]),
+        np.arccos(dummy_input_x[:, -1:]),
         rtol=1e-5,
         atol=1e-5,
     )
     assert "out_atan" in result
-    assert result["out_atan"].shape == (batch_size, 1, 2)
+    assert result["out_atan"].shape == (batch_size, 2, 1)
     np.testing.assert_allclose(
         to_numpy(result["out_atan"]),
-        np.arctan(dummy_input_x[:, :, -2:]),
+        np.arctan(dummy_input_x[:, -2:]),
         rtol=1e-5,
         atol=1e-5,
     )
@@ -329,7 +331,7 @@ def test_activations():
     prelu_out = Output("out_prelu", PReLU()([x.sw(1)]))
     sigmoid_out = Output("out_sigmoid", Sigmoid()([x.sw(5)]))
     tanh_out = Output("out_tanh", Tanh()([x.sw(1)]))
-    softmax_out = Output("out_softmax", Softmax(axis=-1)([x.sw(3)]))
+    softmax_out = Output("out_softmax", Softmax(axis=1)([x.sw(3)]))
     swish_out = Output("out_swish", Swish()([x.sw(1)]))
     gelu_out = Output("out_gelu", GELU()([x.sw(1)]))
     softplus_out = Output("out_softplus", Softplus()([x.sw(1)]))
@@ -413,17 +415,17 @@ def test_concatenate_multiple_tensors_on_multidimensional_axis():
     ).build()
 
     x_data = np.arange(8, dtype=np.float32).reshape((1, 2, 2, 2))
-    y_data = (10 + np.arange(4, dtype=np.float32)).reshape((1, 1, 2, 2))
-    z_data = (20 + np.arange(12, dtype=np.float32)).reshape((1, 3, 2, 2))
+    y_data = (10 + np.arange(4, dtype=np.float32)).reshape((1, 2, 1, 2))
+    z_data = (20 + np.arange(12, dtype=np.float32)).reshape((1, 2, 3, 2))
     result = to_numpy(
         model({"concat_x": x_data, "concat_y": y_data, "concat_z": z_data})["result"]
     )
 
     assert concatenated.dim == (6, 2)
-    assert concatenated.time == 2
-    assert result.shape == (1, 6, 2, 2)
+    assert concatenated.time == (2,)
+    assert result.shape == (1, 2, 6, 2)
     np.testing.assert_array_equal(
-        result, np.concatenate([x_data, y_data, z_data], axis=1)
+        result, np.concatenate([x_data, y_data, z_data], axis=2)
     )
 
 
@@ -439,11 +441,11 @@ def test_concatenate_supports_second_and_negative_dim_axes():
         outputs=[Output("positive", positive), Output("negative", negative)],
     ).build()
 
-    x_data = np.arange(2, dtype=np.float32).reshape((1, 2, 1, 1))
-    y_data = (10 + np.arange(4, dtype=np.float32)).reshape((1, 2, 2, 1))
-    z_data = (20 + np.arange(6, dtype=np.float32)).reshape((1, 2, 3, 1))
+    x_data = np.arange(2, dtype=np.float32).reshape((1, 1, 2, 1))
+    y_data = (10 + np.arange(4, dtype=np.float32)).reshape((1, 1, 2, 2))
+    z_data = (20 + np.arange(6, dtype=np.float32)).reshape((1, 1, 2, 3))
     result = model({"axis_x": x_data, "axis_y": y_data, "axis_z": z_data})
-    expected = np.concatenate([x_data, y_data, z_data], axis=2)
+    expected = np.concatenate([x_data, y_data, z_data], axis=3)
 
     assert positive.dim == negative.dim == (2, 6)
     np.testing.assert_array_equal(to_numpy(result["positive"]), expected)
@@ -462,17 +464,17 @@ def test_time_concatenate_multiple_tensors():
     ).build()
 
     x_data = np.arange(4, dtype=np.float32).reshape((1, 2, 2))
-    y_data = (10 + np.arange(2, dtype=np.float32)).reshape((1, 2, 1))
-    z_data = (20 + np.arange(6, dtype=np.float32)).reshape((1, 2, 3))
+    y_data = (10 + np.arange(2, dtype=np.float32)).reshape((1, 1, 2))
+    z_data = (20 + np.arange(6, dtype=np.float32)).reshape((1, 3, 2))
     result = to_numpy(
         model({"time_x": x_data, "time_y": y_data, "time_z": z_data})["result"]
     )
 
     assert concatenated.dim == (2,)
-    assert concatenated.time == 6
-    assert result.shape == (1, 2, 6)
+    assert concatenated.time == (6,)
+    assert result.shape == (1, 6, 2)
     np.testing.assert_array_equal(
-        result, np.concatenate([x_data, y_data, z_data], axis=2)
+        result, np.concatenate([x_data, y_data, z_data], axis=1)
     )
 
 
@@ -483,7 +485,7 @@ def test_concatenate_rejects_incompatible_shapes():
     with pytest.raises(ValueError, match="matching dimensions"):
         Concatenate(axis=0)([x.last(), y.last()])
 
-    with pytest.raises(ValueError, match="matching dim and seq"):
+    with pytest.raises(ValueError, match="matching dim and outer time"):
         TimeConcatenate()([x.last(), y.last()])
 
     with pytest.raises(ValueError, match="at least two inputs"):
@@ -551,8 +553,8 @@ def test_batchnorm_inference_and_training():
     normalized = BatchNorm(name="batchnorm")([x.sw(3)])
 
     assert normalized.dim == (2,)
-    assert normalized.time == 3
-    assert normalized.seq == ()
+    assert normalized.time == (3,)
+    assert normalized.shape.time_rank == 1
 
     model = Modely(
         "batchnorm_model",
@@ -560,33 +562,33 @@ def test_batchnorm_inference_and_training():
         outputs=[Output("out_batchnorm", normalized)],
     ).build()
     assert model.model is not None
-    values = np.random.rand(4, 2, 3).astype(np.float32) * 10.0
+    values = np.random.rand(4, 3, 2).astype(np.float32) * 10.0
 
     # Untrained moving statistics (mean 0, variance 1) leave the input untouched.
     inference = to_numpy(
         model.model({"batchnorm_input": values}, training=False)["out_batchnorm"]
     )
-    assert inference.shape == (4, 2, 3)
+    assert inference.shape == (4, 3, 2)
     np.testing.assert_allclose(inference, values, rtol=1e-3, atol=1e-3)
 
     # In training mode each feature is normalized over the batch and time axes.
     training = to_numpy(
         model.model({"batchnorm_input": values}, training=True)["out_batchnorm"]
     )
-    np.testing.assert_allclose(training.mean(axis=(0, 2)), np.zeros(2), atol=1e-5)
-    np.testing.assert_allclose(training.std(axis=(0, 2)), np.ones(2), atol=1e-3)
+    np.testing.assert_allclose(training.mean(axis=(0, 1)), np.zeros(2), atol=1e-5)
+    np.testing.assert_allclose(training.std(axis=(0, 1)), np.ones(2), atol=1e-3)
 
 
 def test_batchnorm_axis_and_moving_statistics():
     x = Input("batchnorm_axis_input", dim=2)
-    normalized = BatchNorm(axis=-1, name="batchnorm_axis")([x.sw(3)])
+    normalized = BatchNorm(axis=1, name="batchnorm_axis")([x.sw(3)])
     model = Modely(
         "batchnorm_axis_model",
         inputs=[x],
         outputs=[Output("out_batchnorm_axis", normalized)],
     ).build()
     assert model.model is not None
-    values = np.random.rand(4, 2, 3).astype(np.float32) * 10.0
+    values = np.random.rand(4, 3, 2).astype(np.float32) * 10.0
     result = to_numpy(
         model.model({"batchnorm_axis_input": values}, training=True)[
             "out_batchnorm_axis"
@@ -594,7 +596,7 @@ def test_batchnorm_axis_and_moving_statistics():
     )
 
     # Normalizing on the time axis gives one statistic per time step instead.
-    np.testing.assert_allclose(result.mean(axis=(0, 1)), np.zeros(3), atol=1e-5)
+    np.testing.assert_allclose(result.mean(axis=(0, 2)), np.zeros(3), atol=1e-5)
 
     moving_mean = to_numpy(normalized._layer.moving_mean)
     assert moving_mean.shape == (3,)
@@ -679,14 +681,14 @@ def test_linear_takes_its_kernel_and_bias_from_parameters():
         id(b.param),
     }
 
-    values = np.array([[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]], dtype=np.float32)
+    values = np.array([[[1.0, 3.0, 5.0], [2.0, 4.0, 6.0]]], dtype=np.float32)
     result = model({"linear_param_x": values})
     # Each sample [a, b, c] -> [a + c, b + c], plus the bias.
     np.testing.assert_allclose(
         to_numpy(result["linear_param_unbiased"]), [[[6.0, 8.0], [8.0, 10.0]]]
     )
     np.testing.assert_allclose(
-        to_numpy(result["linear_param_out"]), [[[6.5, 8.5], [7.0, 9.0]]]
+        to_numpy(result["linear_param_out"]), [[[6.5, 7.0], [8.5, 9.0]]]
     )
 
 
@@ -705,7 +707,7 @@ def test_linear_with_parameters_round_trips_through_save_and_keras(tmp_path):
     model = Modely(
         "linear_kept", inputs=[x], outputs=[Output("linear_kept_out", linear)]
     ).build()
-    values = np.random.default_rng(11).normal(size=(2, 2, 1)).astype(np.float32)
+    values = np.random.default_rng(11).normal(size=(2, 1, 2)).astype(np.float32)
     before = to_numpy(model({"linear_kept_x": values})["linear_kept_out"])
 
     model.save(tmp_path / "linear_kept")
@@ -743,32 +745,34 @@ def _linear_values(shape, seed):
 
 
 def test_linear_projects_the_whole_dim_by_default():
-    # (batch, 2, 3, time, seq) -> (batch, features, time, seq): every one
+    # (batch, seq, time, 2, 3) -> (batch, seq, time, features): every one
     # of the 6 features of a sample feeds every output.
-    x = Input("lin_dim_x", dim=(2, 3), seq=2)
-    summed = Linear(features=2, kernel="ones", bias=False, name="lin_dim_sum")(x.sw(4))
+    x = Input("lin_dim_x", dim=(2, 3))
+    summed = Linear(features=2, kernel="ones", bias=False, name="lin_dim_sum")(
+        x.sw(4, seq=2)
+    )
     drawn = Linear(features=2, name="lin_dim_drawn")(x.sw(4))
     model = Modely(
         "lin_dim_model",
         inputs=[x],
         outputs=[Output("lin_dim_sum", summed), Output("lin_dim_drawn", drawn)],
     ).build()
-    assert summed.shape.dimensions == ((2,), 4, (2,))
+    assert summed.shape.dimensions == ((2, 4), (2,))
     assert drawn.kernel is not None and drawn.bias is not None
     assert tuple(drawn.kernel.shape) == (2, 3, 2)
     assert tuple(drawn.bias.shape) == (2,)
 
-    values = _linear_values((5, 2, 3, 4, 2), seed=12)
+    values = _linear_values((5, 2, 4, 2, 3), seed=12)
     result = model({"lin_dim_x": values})
 
     # With a kernel of ones, both outputs are the sum of the 6 features.
-    total = values.sum(axis=(1, 2))
+    total = values.sum(axis=(3, 4))
     np.testing.assert_allclose(
-        to_numpy(result["lin_dim_sum"]), np.stack([total, total], axis=1), rtol=1e-5
+        to_numpy(result["lin_dim_sum"]), np.stack([total, total], axis=-1), rtol=1e-5
     )
-    expected = np.einsum("bijts,ijo->bots", values, to_numpy(drawn.kernel)) + to_numpy(
+    expected = np.einsum("bstij,ijo->bsto", values, to_numpy(drawn.kernel)) + to_numpy(
         drawn.bias
-    ).reshape(1, 2, 1, 1)
+    ).reshape(1, 1, 1, 2)
     np.testing.assert_allclose(
         to_numpy(result["lin_dim_drawn"]), expected, rtol=1e-5, atol=1e-5
     )
@@ -779,12 +783,12 @@ def test_linear_projects_the_whole_dim_by_default():
     [
         # A matrix and a bias per position of the other axis, as the
         # elements of a Fir: the default.
-        (0, False, (3, 2, 2), (3, 2), (2, 3), "bijts,jio->bojts", "jo->oj"),
-        (1, False, (2, 3, 2), (2, 2), (2, 2), "bijts,ijo->biots", "io->io"),
-        (-1, False, (2, 3, 2), (2, 2), (2, 2), "bijts,ijo->biots", "io->io"),
+        (0, False, (3, 2, 2), (3, 2), (2, 3), "bstij,jio->bstoj", "jo->oj"),
+        (1, False, (2, 3, 2), (2, 2), (2, 2), "bstij,ijo->bstio", "io->io"),
+        (-1, False, (2, 3, 2), (2, 2), (2, 2), "bstij,ijo->bstio", "io->io"),
         # One matrix and one bias for every position.
-        (0, True, (2, 2), (2,), (2, 3), "bijts,io->bojts", "o->o"),
-        (1, True, (3, 2), (2,), (2, 2), "bijts,jo->biots", "o->o"),
+        (0, True, (2, 2), (2,), (2, 3), "bstij,io->bstoj", "o->o"),
+        (1, True, (3, 2), (2,), (2, 2), "bstij,jo->bstio", "o->o"),
     ],
 )
 def test_linear_with_an_axis_projects_that_axis_alone(
@@ -798,25 +802,25 @@ def test_linear_with_an_axis_projects_that_axis_alone(
     bias_terms,
 ):
     # features takes the place of the axis.
-    x = Input("lin_axis_x", dim=(2, 3), seq=2)
+    x = Input("lin_axis_x", dim=(2, 3))
     linear = Linear(
         features=2, axis=axis, shared_kernel=shared_kernel, name="lin_axis"
-    )(x.sw(4))
+    )(x.sw(4, seq=2))
     model = Modely(
         "lin_axis_model", inputs=[x], outputs=[Output("lin_axis_out", linear)]
     ).build()
-    assert linear.shape.dimensions == (out_dim, 4, (2,))
+    assert linear.shape.dimensions == ((2, 4), out_dim)
     assert linear.kernel is not None and linear.bias is not None
     assert tuple(linear.kernel.shape) == kernel_shape
     assert tuple(linear.bias.shape) == bias_shape
 
-    values = _linear_values((5, 2, 3, 4, 2), seed=13)
+    values = _linear_values((5, 2, 4, 2, 3), seed=13)
     result = to_numpy(model({"lin_axis_x": values})["lin_axis_out"])
     bias = np.einsum(bias_terms, to_numpy(linear.bias))
     if shared_kernel:  # one bias per output, along the axis
         bias = bias.reshape([2 if index == axis % 2 else 1 for index in range(2)])
     expected = np.einsum(subscripts, values, to_numpy(linear.kernel)) + bias.reshape(
-        1, *bias.shape, 1, 1
+        1, 1, 1, *bias.shape
     )
     np.testing.assert_allclose(result, expected, rtol=1e-5, atol=1e-5)
 
@@ -887,9 +891,7 @@ def test_select_takes_every_index_of_its_dim_axis():
     ]
     model = Modely("select_every", inputs=[x], outputs=outputs).build()
 
-    result = model(
-        {"select_every_x": np.array([[[1.0], [2.0], [3.0]]], dtype=np.float32)}
-    )
+    result = model({"select_every_x": np.array([[[1.0, 2.0, 3.0]]], dtype=np.float32)})
 
     picked = [
         float(to_numpy(result[f"select_{index + 3}"]).ravel()[0])
@@ -907,17 +909,17 @@ def test_softmax_normalizes_every_value_of_each_sample():
     # Once over the last tensor axis only: on x.last() that is the time axis,
     # one value long, so every output was 1.
     x = Input("softmax_whole_x", dim=3)
-    y = Input("softmax_whole_y", dim=2, seq=2)
+    y = Input("softmax_whole_y", dim=2)
     model = Modely(
         "softmax_whole",
         inputs=[x, y],
         outputs=[
             Output("softmax_dim", Softmax()([x.last()])),
-            Output("softmax_all", Softmax()([y.sw(3)])),
+            Output("softmax_all", Softmax()([y.sw(3, seq=2)])),
         ],
     ).build()
     rng = np.random.default_rng(0)
-    x_values = rng.normal(size=(2, 3, 1)).astype(np.float32)
+    x_values = rng.normal(size=(2, 1, 3)).astype(np.float32)
     y_values = rng.normal(size=(2, 2, 3, 2)).astype(np.float32)
 
     result = model({"softmax_whole_x": x_values, "softmax_whole_y": y_values})
@@ -944,8 +946,9 @@ def _fir_weights(fir, kernel_shape, bias_shape):
 
 
 def _fir_expected(values, kernel, bias=0.5):
-    """``values [batch, *dim, time]`` filtered by ``kernel [*dim, time, out]``
+    """``values [batch, time, *dim]`` filtered by ``kernel [*dim, time, out]``
     (or ``[time, out]``, shared), as ``[batch, out, *dim]``."""
+    values = np.moveaxis(values, 1, -1)
     out = np.einsum(
         "b...t,...to->bo...",
         values,
@@ -973,11 +976,11 @@ def test_fir_adds_a_channel_axis_in_front_of_the_dim(
     fir = Fir(features=features, shared_kernel=shared_kernel)([x.sw(3)])
     model = Modely("fir_dim_model", inputs=[x], outputs=[Output("fir_dim_out", fir)])
     model.build()
-    assert fir.shape.dimensions == (expected, 1, ())
+    assert fir.shape.dimensions == ((1,), expected)
 
-    values = np.ones((2, *dim, 3), dtype=np.float32)
+    values = np.ones((2, 3, *dim), dtype=np.float32)
     result = to_numpy(model({"fir_dim_x": values})["fir_dim_out"])
-    assert result.shape == (2, *expected, 1)
+    assert result.shape == (2, 1, *expected)
 
 
 def test_fir_filters_every_element_with_its_own_kernel():
@@ -990,18 +993,18 @@ def test_fir_filters_every_element_with_its_own_kernel():
     assert tuple(fir.bias.shape) == (2, 3, 4)
 
     kernel = _fir_weights(fir, (2, 3, 5, 4), (2, 3, 4))
-    values = np.random.default_rng(3).normal(size=(2, 2, 3, 5)).astype(np.float32)
+    values = np.random.default_rng(3).normal(size=(2, 5, 2, 3)).astype(np.float32)
     result = to_numpy(model({"fir_own_x": values})["fir_own_out"])
 
-    assert result.shape == (2, 4, 2, 3, 1)
+    assert result.shape == (2, 1, 4, 2, 3)
     np.testing.assert_allclose(
-        result[..., 0], _fir_expected(values, kernel), rtol=1e-5, atol=1e-5
+        result[:, 0], _fir_expected(values, kernel), rtol=1e-5, atol=1e-5
     )
     # Elements are never mixed: element (0, 0) depends on its own window only.
     changed = values.copy()
-    changed[:, 1, 2] += 1.0
+    changed[:, :, 1, 2] += 1.0
     changed_result = to_numpy(model({"fir_own_x": changed})["fir_own_out"])
-    np.testing.assert_allclose(changed_result[:, :, 0, 0], result[:, :, 0, 0])
+    np.testing.assert_allclose(changed_result[..., 0, 0], result[..., 0, 0])
 
 
 def test_fir_with_a_shared_kernel_filters_every_element_alike():
@@ -1016,12 +1019,12 @@ def test_fir_with_a_shared_kernel_filters_every_element_alike():
     assert tuple(fir.bias.shape) == (4,)
 
     kernel = _fir_weights(fir, (5, 4), (4,))
-    values = np.random.default_rng(4).normal(size=(2, 2, 3, 5)).astype(np.float32)
+    values = np.random.default_rng(4).normal(size=(2, 5, 2, 3)).astype(np.float32)
     result = to_numpy(model({"fir_shared_x": values})["fir_shared_out"])
 
-    assert result.shape == (2, 4, 2, 3, 1)
+    assert result.shape == (2, 1, 4, 2, 3)
     np.testing.assert_allclose(
-        result[..., 0], _fir_expected(values, kernel), rtol=1e-5, atol=1e-5
+        result[:, 0], _fir_expected(values, kernel), rtol=1e-5, atol=1e-5
     )
 
 
@@ -1032,33 +1035,33 @@ def test_fir_with_one_channel_keeps_the_dim():
     model.build()
 
     kernel = _fir_weights(fir, (2, 3, 4, 1), (2, 3, 1))
-    values = np.random.default_rng(5).normal(size=(2, 2, 3, 4)).astype(np.float32)
+    values = np.random.default_rng(5).normal(size=(2, 4, 2, 3)).astype(np.float32)
     result = to_numpy(model({"fir_one_x": values})["fir_one_out"])
 
-    assert result.shape == (2, 2, 3, 1)
+    assert result.shape == (2, 1, 2, 3)
     np.testing.assert_allclose(
-        result[..., 0], _fir_expected(values, kernel)[:, 0], rtol=1e-5, atol=1e-5
+        result[:, 0], _fir_expected(values, kernel)[:, 0], rtol=1e-5, atol=1e-5
     )
 
 
 def test_fir_keeps_the_sequence_axes():
     # Once flattened into the projection: every output mixed every step of
     # the sequence, and the seq axis was gone from the result.
-    x = Input("fir_seq_x", dim=2, seq=4)
-    fir = Fir(features=3, name="fir_seq")([x.sw(3)])
+    x = Input("fir_seq_x", dim=2)
+    fir = Fir(features=3, name="fir_seq")([x.sw(3, seq=4)])
     model = Modely("fir_seq_model", inputs=[x], outputs=[Output("fir_seq_out", fir)])
     model.build()
-    assert fir.shape.dimensions == ((3, 2), 1, (4,))
+    assert fir.shape.dimensions == ((4, 1), (3, 2))
 
     kernel = _fir_weights(fir, (2, 3, 3), (2, 3))
-    values = np.random.default_rng(1).normal(size=(2, 2, 3, 4)).astype(np.float32)
+    values = np.random.default_rng(1).normal(size=(2, 4, 3, 2)).astype(np.float32)
     result = to_numpy(model({"fir_seq_x": values})["fir_seq_out"])
 
-    assert result.shape == (2, 3, 2, 1, 4)
+    assert result.shape == (2, 4, 1, 3, 2)
     for step in range(4):
         np.testing.assert_allclose(
-            result[:, :, :, 0, step],
-            _fir_expected(values[..., step], kernel),
+            result[:, step, 0],
+            _fir_expected(values[:, step], kernel),
             rtol=1e-5,
             atol=1e-5,
         )
@@ -1073,12 +1076,12 @@ def test_fir_without_sequence_axes_filters_the_whole_window():
     model.build()
 
     kernel = _fir_weights(fir, (3, 3), (3,))
-    values = np.random.default_rng(2).normal(size=(2, 1, 3)).astype(np.float32)
+    values = np.random.default_rng(2).normal(size=(2, 3, 1)).astype(np.float32)
     result = to_numpy(model({"fir_plain_x": values})["fir_plain_out"])
 
-    assert result.shape == (2, 3, 1)
+    assert result.shape == (2, 1, 3)
     np.testing.assert_allclose(
-        result[:, :, 0], values.reshape(2, -1) @ kernel + 0.5, rtol=1e-5
+        result[:, 0], values.reshape(2, -1) @ kernel + 0.5, rtol=1e-5
     )
 
 
@@ -1087,17 +1090,17 @@ def test_fir_without_sequence_axes_filters_the_whole_window():
     [((1,), 2, (2,)), ((2, 3), 2, (2, 2, 3)), ((2, 3), 1, (2, 3))],
 )
 def test_fir_follows_a_dynamic_sequence_length(dim, features, expected):
-    x = Input("fir_dynamic_x", dim=dim, seq=-1)
-    fir = Fir(features=features, name="fir_dynamic")([x.sw(2)])
+    x = Input("fir_dynamic_x", dim=dim)
+    fir = Fir(features=features, name="fir_dynamic")([x.sw(2, seq=-1)])
     model = Modely(
         "fir_dynamic_model", inputs=[x], outputs=[Output("fir_dynamic_out", fir)]
     )
     model.build()
 
     for length in (3, 5):
-        values = np.ones((1, *dim, 2, length), dtype=np.float32)
+        values = np.ones((1, length, 2, *dim), dtype=np.float32)
         result = to_numpy(model({"fir_dynamic_x": values})["fir_dynamic_out"])
-        assert result.shape == (1, *expected, 1, length)
+        assert result.shape == (1, length, 1, *expected)
 
 
 def test_fir_shared_kernel_is_saved_with_the_architecture(tmp_path):
@@ -1106,7 +1109,7 @@ def test_fir_shared_kernel_is_saved_with_the_architecture(tmp_path):
     model = Modely(
         "fir_saved", inputs=[x], outputs=[Output("fir_saved_out", fir)]
     ).build()
-    values = np.random.default_rng(6).normal(size=(2, 2, 3, 3)).astype(np.float32)
+    values = np.random.default_rng(6).normal(size=(2, 3, 2, 3)).astype(np.float32)
     before = to_numpy(model({"fir_saved_x": values})["fir_saved_out"])
 
     model.save(tmp_path / "fir_saved")
@@ -1199,9 +1202,9 @@ def test_fir_takes_its_kernel_and_bias_from_parameters(
     values = np.random.default_rng(8).normal(size=(2, 3, 3)).astype(np.float32)
     result = to_numpy(model({"fir_param_x": values})["fir_param_out"])
 
-    assert result.shape == (2, 4, 3, 1)
+    assert result.shape == (2, 1, 4, 3)
     np.testing.assert_allclose(
-        result[..., 0], _fir_expected(values, kernel / 10.0), rtol=1e-5, atol=1e-5
+        result[:, 0], _fir_expected(values, kernel / 10.0), rtol=1e-5, atol=1e-5
     )
 
 
@@ -1215,7 +1218,7 @@ def test_fir_takes_a_parameter_whose_shape_differs_only_by_axes_of_size_one():
     ).build()
     assert fir.bias is None
 
-    values = np.array([[[1.0, 2.0, 3.0]]], dtype=np.float32)
+    values = np.array([[[1.0], [2.0], [3.0]]], dtype=np.float32)
     result = to_numpy(model({"fir_ones_x": values})["fir_ones_out"])
     # Channel 0 reads the oldest sample, channel 1 twice the newest.
     np.testing.assert_allclose(result.ravel(), [1.0, 6.0], rtol=1e-5)
@@ -1233,8 +1236,8 @@ def test_firs_given_one_parameter_share_its_weight(tmp_path):
         outputs=[Output("fir_twin_first", first), Output("fir_twin_second", second)],
     ).build()
     data = {
-        "fir_twin_x": np.array([[[1.0, 2.0, 3.0]]], dtype=np.float32),
-        "fir_twin_y": np.array([[[10.0, 20.0, 30.0]]], dtype=np.float32),
+        "fir_twin_x": np.array([[[1.0], [2.0], [3.0]]], dtype=np.float32),
+        "fir_twin_y": np.array([[[10.0], [20.0], [30.0]]], dtype=np.float32),
     }
 
     # One variable, held by the Parameter, behind both Firs.
@@ -1242,7 +1245,7 @@ def test_firs_given_one_parameter_share_its_weight(tmp_path):
     assert model.model is not None and len(model.model.trainable_weights) == 1
 
     # Changed through one Fir, the kernel changes for the other as well.
-    first.kernel.assign(np.array([[0.0], [0.0], [2.0]], dtype=np.float32))
+    first.kernel.assign(np.array([0.0, 0.0, 2.0], dtype=np.float32))
     result = model(data)
     np.testing.assert_allclose(to_numpy(result["fir_twin_first"]).ravel(), [6.0])
     np.testing.assert_allclose(to_numpy(result["fir_twin_second"]).ravel(), [60.0])
@@ -1302,7 +1305,7 @@ def test_fir_with_parameters_round_trips_through_save_and_keras(tmp_path, given)
     model = Modely(
         "fir_kept", inputs=[x], outputs=[Output("fir_kept_out", fir)]
     ).build()
-    values = np.random.default_rng(10).normal(size=(2, 2, 3)).astype(np.float32)
+    values = np.random.default_rng(10).normal(size=(2, 3, 2)).astype(np.float32)
     before = to_numpy(model({"fir_kept_x": values})["fir_kept_out"])
 
     model.save(tmp_path / "fir_kept")
@@ -1360,7 +1363,8 @@ def test_a_layer_without_configuration_is_applied_on_creation(layer_name):
         ],
     ).build()
 
-    values = np.array([[[0.1, 0.4, 0.6, 0.9]]], dtype=np.float32)  # in every domain
+    # in every domain
+    values = np.array([[[0.1], [0.4], [0.6], [0.9]]], dtype=np.float32)
     result = model({f"direct_{layer_name}_x": values})
     np.testing.assert_allclose(
         to_numpy(result[f"direct_{layer_name}_out"]),
@@ -1372,7 +1376,7 @@ def test_time_concatenate_is_applied_on_creation_to_a_list():
     x = Input("direct_join_x")
     joined = TimeConcatenate([x.sw(2), x.sw(3)])
     assert isinstance(joined, TimeConcatenate)
-    assert joined.time == 5
+    assert joined.time == (5,)
 
 
 def test_a_name_passed_positionally_still_only_configures():
@@ -1414,8 +1418,8 @@ def test_a_layer_that_reads_one_stream_is_applied_to_every_stream():
     }
     for pair in results.values():
         assert [node.shape.dimensions for node in pair] == [
-            ((1,), 1, ()),
-            ((3,), 2, ()),
+            ((1,), (1,)),
+            ((2,), (3,)),
         ]
     # One PReLU object is one layer: its slopes are shared by both streams.
     c, d = Input("every_c", dim=2), Input("every_d", dim=2)
@@ -1432,13 +1436,13 @@ def test_a_layer_that_reads_one_stream_is_applied_to_every_stream():
     assert model.model is not None and len(model.model.trainable_weights) == 1
 
     av = np.array([[[0.3]]], dtype=np.float32)
-    bv = np.array([[[-1.0, 0.4], [2.0, 0.75], [0.5, -0.2]]], dtype=np.float32)
+    bv = np.array([[[-1.0, 2.0, 0.5], [0.4, 0.75, -0.2]]], dtype=np.float32)
     result = model(
         {
             "every_a": av,
             "every_b": bv,
-            "every_c": np.ones((1, 2, 1), dtype=np.float32),
-            "every_d": np.ones((1, 2, 1), dtype=np.float32),
+            "every_c": np.ones((1, 1, 2), dtype=np.float32),
+            "every_d": np.ones((1, 1, 2), dtype=np.float32),
         }
     )
     for index, values in enumerate((av, bv)):
@@ -1475,14 +1479,14 @@ def test_elu_keeps_a_finite_gradient_for_large_inputs():
 def test_prelu_learns_one_slope_per_feature():
     # Its slopes once covered every time and sequence step too, and a dynamic
     # sequence could not be built at all.
-    x = Input("prelu_slope_x", dim=2, seq=-1)
-    out = Output("prelu_slope_out", PReLU()([x.sw(3)]))
+    x = Input("prelu_slope_x", dim=2)
+    out = Output("prelu_slope_out", PReLU()([x.sw(3, seq=-1)]))
     model = Modely("prelu_slope", inputs=[x], outputs=[out]).build()
     assert model.model is not None
-    assert [tuple(w.shape) for w in model.model.trainable_weights] == [(2, 1, 1)]
+    assert [tuple(w.shape) for w in model.model.trainable_weights] == [(1, 1, 2)]
 
     for steps in (2, 5):
-        values = np.random.default_rng(steps).normal(size=(1, 2, 3, steps))
+        values = np.random.default_rng(steps).normal(size=(1, steps, 3, 2))
         result = to_numpy(
             model({"prelu_slope_x": values.astype(np.float32)})["prelu_slope_out"]
         )
@@ -1493,4 +1497,4 @@ def test_small_layer_messages_and_windows():
     with pytest.raises(ValueError, match="Clamp: min 1.0"):
         nnodely.Clamp(1.0, 0.0)
     # A window as a tuple, like a list.
-    assert Input("tuple_window_x").sw((2, 1)).shape.time == 3
+    assert Input("tuple_window_x").sw((2, 1)).shape.time == (3,)

@@ -72,7 +72,9 @@ Loop
 ----
 
 A :class:`~nnodely.Loop` takes a model, the *body* (built here if it is not
-yet), and rolls it out along a sequence axis. It is configured with the body
+yet), and rolls it out along the outer time of the streams that drive it:
+a stream with one more time axis than the body input it feeds, declared with
+``seq=`` on a window. It is configured with the body
 and its recurrence, then called on the streams that drive it,
 ``Loop(f, callback, init=...)(inputs)``:
 
@@ -80,16 +82,16 @@ and its recurrence, then called on the streams that drive it,
     maps a body input to the body output that feeds it at the next step.
 ``init``
     maps a fed-back input to the stream that seeds it. Step 0 reads the first
-    element of that stream's sequence. A fed-back input left out starts at zero.
+    step of that stream's outer time. A fed-back input left out starts at zero.
 ``inputs`` (the call)
     maps the other body inputs to streams that carry one value per step
     (exogenous signals). Body inputs left out keep a constant value.
 ``collect``
-    ``True`` (the default) returns the whole trajectory, with the rollout
-    appended as the last sequence axis. ``False`` returns only the last step.
+    ``True`` (the default) returns the whole trajectory, with the rollout as
+    its new outer time. ``False`` returns only the last step.
 ``length``
     fixes the number of steps. It is needed only when no initial value or
-    input carries a rollout axis.
+    input carries a rollout.
 
 The body below is a linear state-space step, :math:`s[t+1] = A s[t] + B F[t]`,
 on the state :math:`s = (x, \dot x)`:
@@ -106,17 +108,20 @@ on the state :math:`s = (x, \dot x)`:
    )
    body = Modely("step", inputs=[state, F_step], outputs=[next_state]).build()
 
-   s0 = Input("s0", dim=2, seq=horizon)
-   F_seq = Input("F_seq", seq=horizon)
+   s0 = Input("s0", dim=2)
+   F_seq = Input("F_seq")
    trajectory = Output(
        "trajectory",
-       Loop(f=body, callback={state: next_state}, init={state: s0})({F_step: F_seq}),
+       Loop(f=body, callback={state: next_state}, init={state: s0.last(seq=horizon)})(
+           {F_step: F_seq.last(seq=horizon)}
+       ),
    )
 
    simulator = Modely("msd_loop", inputs=[s0, F_seq], outputs=[trajectory])
-   simulator.minimize("trajectory", trajectory, Input("s_next", dim=2, seq=horizon))
+   s_next = Input("s_next", dim=2).last(seq=horizon)
+   simulator.minimize("trajectory", trajectory, s_next)
    simulator.build()
-   print(trajectory.shape)   # Shape(D=(2,), T=1, S=(20,)): 2 states, 1 sample, 20 steps
+   print(trajectory.shape)   # Shape(T=(20, 1), D=(2,)): 20 steps of 1 sample of 2 states
 
 The :class:`~nnodely.DataLoader` cuts the signals into sequences of
 ``horizon`` steps. The target sequence is the state one step ahead:
@@ -133,7 +138,7 @@ unpacked: ``position_traj, velocity_traj = Loop(...)``. A fed-back input with
 a time window, ``x.sw(n)``, is closed by shifting: after ``n`` steps the window
 contains only predictions.
 
-With a dynamic sequence, ``seq=-1``, the rollout follows the length of the
+With a dynamic sequence, ``sw(..., seq=-1)``, the rollout follows the length of the
 data it receives, and no ``length`` is needed. Together
 with ``seq_length="full"`` in the :class:`~nnodely.DataLoader`, this trains on
 whole simulations of different lengths (see :doc:`data`).
@@ -153,4 +158,4 @@ inputs, and returns a window of the same length. With the default ``steps``
 
    rolled = Roll(f=one_step, callback={x: out})
    free_run = Modely("free_run", inputs=[x], outputs=[Output("free", rolled)]).build()
-   print(free_run({"x_roll": np.arange(1.0, 6.0).reshape(1, 1, 5)})["free"].shape)   # (1, 1, 5)
+   print(free_run({"x_roll": np.arange(1.0, 6.0).reshape(1, 5, 1)})["free"].shape)   # (1, 5, 1)

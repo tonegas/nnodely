@@ -24,13 +24,14 @@ Parameters and constants
 
 A :class:`~nnodely.Parameter` is a trainable tensor used directly in the graph,
 and a :class:`~nnodely.Constant` is a fixed one. A ``value`` sets the shape:
-every axis of the value is a ``dim`` axis and the value holds one time step,
-unless ``dim``, ``time`` and ``seq`` name the axes of the value that play each
-part - ``Parameter("w", value=np.ones((2, 3)), time=1)`` is a 2-feature window
-of 3 samples. A constant always takes its shape from its ``value``; a
-parameter can be given ``dim``, ``time`` and ``seq`` as sizes instead, and
-start from a random value. Like every stream they are laid out
-``(batch, *dim, time, *seq)``, the same value for every sample:
+every axis of the value is a ``dim`` axis and the value has no time axis - it
+applies to every sample, of any stream - unless ``dim`` and ``time`` name the
+axes of the value that play each part: ``Parameter("w", value=np.ones((2, 3)),
+time=1)`` is a 2-feature window of 3 samples, and ``time`` can name several
+axes, outermost first. A constant always takes its shape from its ``value``; a
+parameter can be given ``dim`` and ``time`` as sizes instead, and start from a
+random value. Like every stream they are laid out ``(batch, *time, *dim)``,
+the same value for every sample:
 
 .. code-block:: python
 
@@ -110,13 +111,15 @@ The tables group the available layers.
    * - Feature axis
      - :class:`~nnodely.Select` (one index), :class:`~nnodely.Range` (a slice),
        :class:`~nnodely.Concatenate`.
-   * - Time axis
+   * - Inner time (the window)
      - :class:`~nnodely.TimeSelect`, :class:`~nnodely.TimeRange`,
        :class:`~nnodely.TimeConcatenate`.
-   * - Sequence axes
+   * - Outer time (the sequence)
      - :class:`~nnodely.SeqSelect` (one element, the axis removed),
        :class:`~nnodely.SeqRange`, :class:`~nnodely.SeqConcatenate`,
        :class:`~nnodely.SeqStack` (a new axis), :class:`~nnodely.SeqReverse`.
+       ``axis`` counts the outer time axes outermost first; the default, 0, is
+       the outermost.
    * - Calculus
      - :class:`~nnodely.Differentiate`, :class:`~nnodely.Derivative`,
        :class:`~nnodely.Integrate`, :class:`~nnodely.IntegrateStep`,
@@ -203,7 +206,7 @@ separate arguments and its output shape read off the result:
 
    class Norm(keras.layers.Layer):
        def call(self, x):
-           return keras.ops.sqrt(keras.ops.sum(x * x, axis=1, keepdims=True))
+           return keras.ops.sqrt(keras.ops.sum(x * x, axis=-1, keepdims=True))
 
    class Shifted(keras.layers.Layer):
        def call(self, x, y):
@@ -255,25 +258,25 @@ Inference
 ---------
 
 A built model is called with a dictionary that maps input names to arrays of
-shape ``(batch, *dim, time, *seq)``, batch axis included. Inputs only the
+shape ``(batch, *time, *dim)``, batch axis included. Inputs only the
 minimizers read, such as targets, are ignored, so the arrays of a
 :class:`~nnodely.DataLoader` - ``as_dict()`` or ``get_samples(n)`` - can be
 passed as they are. The result maps output names to tensors of the active
 backend.
 
-The ``time`` axis of an input's array must cover the union of all its windows,
+The time axes of an input's array must cover the union of all its windows,
 which the input's ``shape`` reports. Here ``velocity`` is read through
 ``sw(5)``, so it needs five samples:
 
 .. code-block:: python
 
-   print(velocity.shape, torque.shape)   # Shape(D=(1,), T=5, S=()) Shape(D=(1,), T=10, S=())
+   print(velocity.shape, torque.shape)   # Shape(T=(5,), D=(1,)) Shape(T=(10,), D=(1,))
 
    sample = {
-       "velocity": np.full((1, 1, 5), 15.0),
-       "torque": np.ones((1, 1, 10)),
+       "velocity": np.full((1, 5, 1), 15.0),
+       "torque": np.ones((1, 10, 1)),
        "gear": np.full((1, 1, 1), 2.0),
-       "altitude": np.zeros((1, 3, 1)),
+       "altitude": np.zeros((1, 1, 3)),
    }
    result = vehicle(sample)
    print(result["acceleration"].shape)   # (1, 1, 1)
@@ -313,7 +316,7 @@ image suffix (``"model.svg"``) names the file and its format.
 
 Each node shows its name, coloured by its role - inputs green, outputs red,
 parameters, constants, sub-models and losses as in the legend - and each arrow
-the shape it carries, a dynamic sequence axis written ``dyn``. Without
+the shape it carries, a dynamic time axis written ``dyn``. Without
 ``flatten``, every block that wraps a model - a sub-model call, a
 :class:`~nnodely.Loop`, a :class:`~nnodely.Roll` - is one sub-model node, and
 its body is drawn in an image of its own named ``<filename>_<body name>``,

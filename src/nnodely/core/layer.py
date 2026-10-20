@@ -5,7 +5,8 @@ from abc import abstractmethod
 import keras
 from typing import Any
 
-from nnodely.core.stream import Stream, Shape
+from nnodely.core.shape import Shape, align
+from nnodely.core.stream import Stream
 from nnodely.core.dag import next_name
 
 
@@ -95,7 +96,7 @@ class Layer(Stream, metaclass=_LayerType):
     # is applied to each of them, and returns one result per stream.
     _one_stream = False
 
-    def __init__(self, name=None, preds=None, seq=None, time=None, dim=None, **kwargs):
+    def __init__(self, name=None, preds=None, time=None, dim=None, **kwargs):
         self._properties = dict(kwargs)
         self.inputs = None
         self._layer = None
@@ -109,7 +110,6 @@ class Layer(Stream, metaclass=_LayerType):
             name=next_name(self.__class__.__name__) if name is None else name,
             dim=dim,
             time=time,
-            seq=seq,
             preds=preds,
         )
 
@@ -117,10 +117,11 @@ class Layer(Stream, metaclass=_LayerType):
     # Shape logic
     # ------------------------------------------------------------------
     def output_shape(self, *inputs):
-        """Infer the output shape by executing the concrete layer on dummy inputs.
+        """Infer the output Shape by executing the concrete layer on dummy inputs.
 
-        Layers with value-dependent output shapes or layers that change the semantic
-        sequence rank can override this method.
+        Layers with value-dependent output shapes or layers that change the
+        number of time axes override this method, and return a Shape, or a
+        list of them for several outputs.
         """
         if not inputs:
             raise ValueError(
@@ -128,7 +129,7 @@ class Layer(Stream, metaclass=_LayerType):
                 "Layers without inputs must implement output_shape()."
             )
 
-        # A dynamic sequence axis (None) is probed with one step, then declared
+        # A dynamic time axis (None) is probed with one step, then declared
         # dynamic again in the shape inferred from it.
         dummy_inputs = [
             keras.ops.zeros(
@@ -171,7 +172,7 @@ class Layer(Stream, metaclass=_LayerType):
         inferred = [
             self._restore_dynamic_axes(
                 self._shape_from_tensor(
-                    output, max(input_node.shape.seq_rank for input_node in inputs)
+                    output, max(input_node.shape.time_rank for input_node in inputs)
                 ),
                 inputs,
             )
@@ -181,39 +182,38 @@ class Layer(Stream, metaclass=_LayerType):
 
     @staticmethod
     def _restore_dynamic_axes(shape, inputs):
-        """Declare dynamic again the sequence axes probed with one step.
+        """Declare dynamic again the time axes probed with one step.
 
-        A sequence axis of the result is dynamic where an input with as many
-        sequence axes has a dynamic one - the same rule a product of streams
-        follows. A layer that adds or removes sequence axes is left as probed.
+        A time axis of the result is dynamic where an input with as many time
+        axes has a dynamic one - the same rule a product of streams follows. A
+        layer that adds or removes time axes is left as probed.
         """
-        dim, time, seq = shape
         dynamic = {
             index
             for input_node in inputs
-            if len(input_node.shape.seq) == len(seq)
-            for index, axis in enumerate(input_node.shape.seq)
+            if input_node.shape.time_rank == shape.time_rank
+            for index, axis in enumerate(input_node.shape.time)
             if axis is None
         }
         if not dynamic:
             return shape
-        return (
-            dim,
-            time,
-            tuple(None if index in dynamic else axis for index, axis in enumerate(seq)),
+        return shape.replace(
+            time=tuple(
+                None if index in dynamic else axis
+                for index, axis in enumerate(shape.time)
+            )
         )
 
-    def _shape_from_tensor(self, tensor, seq_rank: int):
+    def _shape_from_tensor(self, tensor, time_rank: int):
         shape = tuple(tensor.shape)[1:]
-        # A layer may consume sequence axes (for example a recurrent body
-        # relation reduced to one step), so preserve only those still present.
-        seq_rank = min(seq_rank, max(0, len(shape) - 2))
-        minimum_rank = seq_rank + 2  # At least one dim axis and one time axis.
-        if len(shape) < minimum_rank:
+        # A layer may consume time axes (for example a recurrent body relation
+        # reduced to one step), so preserve only those still present, and at
+        # least one dim axis.
+        time_rank = min(time_rank, max(0, len(shape) - 1))
+        if not shape:
             raise ValueError(
-                f"{self.name}: inferred tensor shape {shape} cannot be represented "
-                f"with {seq_rank} sequence dimensions. Implement output_shape() "
-                "to describe this layer's semantic axes."
+                f"{self.name}: inferred tensor shape {shape} has no dim axis. "
+                "Implement output_shape() to describe this layer's axes."
             )
         if any(axis is None for axis in shape):
             raise ValueError(
@@ -221,11 +221,9 @@ class Layer(Stream, metaclass=_LayerType):
                 "Implement output_shape() explicitly for dynamic output shapes."
             )
 
-        time_index = len(shape) - seq_rank - 1
-        dim = tuple(int(axis) for axis in shape[:time_index])
-        time = int(shape[time_index])
-        seq = tuple(int(axis) for axis in shape[time_index + 1 :])
-        return dim, time, seq
+        return Shape.from_tensor_shape(
+            tuple(int(axis) for axis in shape), time_rank=time_rank
+        )
 
     # ------------------------------------------------------------------
     # Keras layer logic
@@ -284,11 +282,17 @@ class Layer(Stream, metaclass=_LayerType):
             out_shapes = self.output_shape(*inputs)
             if not isinstance(out_shapes, list):
                 out_shapes = [out_shapes]
-            for idx, (out_dim, out_time, out_seq) in enumerate(out_shapes):
+            for out_shape in out_shapes:
+                if not isinstance(out_shape, Shape):
+                    raise TypeError(
+                        f"{self.name}: {type(self).__name__}.output_shape() must "
+                        f"return a Shape, got {out_shape!r}."
+                    )
                 node = self.__class__(name=self.name, **self._properties)
                 node._source = self._source
                 node.inputs = inputs
-                node.shape = Shape(dim=out_dim, time=out_time, seq=out_seq)
+                # A copy: the shape of an Input changes as windows are taken.
+                node.shape = out_shape.replace()
                 node.preds = inputs  # type: ignore
                 ret.append(node)
             return ret if len(ret) > 1 else ret[0]
@@ -316,42 +320,6 @@ class Layer(Stream, metaclass=_LayerType):
         return layer(preds)
 
 
-class BinaryOp(Layer):
-    operation = None
-
-    def build_layer(self) -> keras.layers.Layer:
-        if self.operation is None:
-            raise NotImplementedError(
-                "Subclasses must define an operation class attribute."
-            )
-        return BinaryOpImpl(operation=self.operation, name=self.name)
-
-    def output_shape(self, *inputs):  # type: ignore
-        # A dynamic sequence axis cannot be probed with a dummy tensor, but a
-        # product of streams of one shape keeps that shape. A dynamic axis
-        # matches the build length of the other side (a Loop rollout declared
-        # with length), since both follow the data, and stays dynamic.
-        shapes = [input_node.shape.tuple for input_node in inputs]
-        ranks = {input_node.shape.seq_rank for input_node in inputs}
-        if len({len(shape) for shape in shapes}) == 1 and len(ranks) == 1:
-            axes = [
-                {axis for axis in column if axis is not None} for column in zip(*shapes)
-            ]
-            if all(len(sizes) <= 1 for sizes in axes):
-                merged = [
-                    None if None in column else sizes.pop()
-                    for column, sizes in zip(zip(*shapes), axes)
-                ]
-                seq_rank = ranks.pop()
-                time_index = len(merged) - seq_rank - 1
-                return (
-                    tuple(merged[:time_index]),
-                    merged[time_index],
-                    tuple(merged[time_index + 1 :]),
-                )
-        return super().output_shape(*inputs)
-
-
 _BINARY_OPERATIONS = {
     "add": keras.ops.add,
     "subtract": keras.ops.subtract,
@@ -363,26 +331,29 @@ _BINARY_OPERATIONS = {
 
 @keras.saving.register_keras_serializable(package="nnodely")
 class BinaryOpImpl(keras.layers.Layer):
-    """An elementwise operation between streams laid out
-    ``(batch, *dim, time, *seq)``.
+    """An elementwise operation between streams of ``time_ranks`` time axes
+    and ``dim_ranks`` dim axes.
 
-    An operand with fewer axes - a number carries no sequence axis - gets its
-    missing axes at the end, so it broadcasts along those. Aligned from the
-    end instead, as broadcasting does by default, its batch axis would line
-    up with the other operand's first dim axis.
+    An operand without time, or with fewer dim axes, gets the axes it misses
+    where :func:`align` puts them, so it broadcasts along those, as
+    :meth:`Shape.broadcast` declares. Aligned from the end instead, as
+    broadcasting does by default, a dim axis could line up with a time axis.
     """
 
-    def __init__(self, operation: str, **kwargs):
+    def __init__(self, operation: str, time_ranks=(), dim_ranks=(), **kwargs):
         super().__init__(**kwargs)
         self.operation = operation
+        self.time_ranks = tuple(int(rank) for rank in time_ranks)
+        self.dim_ranks = tuple(int(rank) for rank in dim_ranks)
 
     def call(self, xs):
-        rank = max(len(value.shape) for value in xs)
-        values = []
-        for value in xs:
-            while len(value.shape) < rank:
-                value = keras.ops.expand_dims(value, axis=-1)
-            values.append(value)
+        time_rank, dim_rank = max(self.time_ranks), max(self.dim_ranks)
+        values = [
+            align(value, value_time_rank, value_dim_rank, time_rank, dim_rank)
+            for value, value_time_rank, value_dim_rank in zip(
+                xs, self.time_ranks, self.dim_ranks
+            )
+        ]
 
         operation = _BINARY_OPERATIONS[self.operation]
         result = values[0]
@@ -392,8 +363,37 @@ class BinaryOpImpl(keras.layers.Layer):
 
     def get_config(self):
         config = super().get_config()
-        config.update({"operation": self.operation})
+        config.update(
+            {
+                "operation": self.operation,
+                "time_ranks": self.time_ranks,
+                "dim_ranks": self.dim_ranks,
+            }
+        )
         return config
+
+
+class BinaryOp(Layer):
+    operation = None
+
+    def build_layer(self) -> keras.layers.Layer:
+        if self.operation is None:
+            raise NotImplementedError(
+                "Subclasses must define an operation class attribute."
+            )
+        shapes = [input_node.shape for input_node in self.preds]  # type: ignore[union-attr]
+        return BinaryOpImpl(
+            operation=self.operation,
+            time_ranks=tuple(shape.time_rank for shape in shapes),
+            dim_ranks=tuple(shape.dim_rank for shape in shapes),
+            name=self.name,
+        )
+
+    def output_shape(self, *inputs):  # type: ignore
+        # Declared rather than probed: a dynamic time axis cannot be given to
+        # a dummy tensor, and which operands may broadcast is a rule of the
+        # streams, not of their tensors.
+        return Shape.broadcast([input_node.shape for input_node in inputs], self.name)
 
 
 class Add(BinaryOp):
@@ -418,9 +418,9 @@ class Power(BinaryOp):
 
 class Identity(Layer):
     def output_shape(self, *inputs):
-        # Every axis is preserved, including a dynamic sequence axis that cannot
+        # Every axis is preserved, including a dynamic time axis that cannot
         # be probed with a dummy tensor.
-        return inputs[0].shape.dimensions
+        return inputs[0].shape
 
     def build_layer(self):
         return keras.layers.Identity(name=self.name)

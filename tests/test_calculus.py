@@ -17,6 +17,7 @@ from nnodely import (
     Output,
     Parameter,
     Sin,
+    TimeConcatenate,
 )
 from nnodely.core.export import _traces_backward_pass
 
@@ -195,7 +196,7 @@ def test_derivative_wrt_input_through_a_trainable_layer():
     fun = Fir(features=1)([x.sw(3)])
     derivative = Differentiate(order=1, respect_to=x)(fun)
 
-    assert derivative.shape.tuple == (1, 3)
+    assert derivative.shape.tuple == (3, 1)
 
     model = Modely(
         "derivative_through_fir_model",
@@ -203,11 +204,11 @@ def test_derivative_wrt_input_through_a_trainable_layer():
         outputs=[Output("dx", derivative)],
     ).build()
 
-    values = np.array([[[1.0, 2.0, 3.0]]], dtype=np.float32)
+    values = np.array([[[1.0], [2.0], [3.0]]], dtype=np.float32)
     result = to_numpy(model({"fir_x": values})["dx"])
-    weights = to_numpy(fun.kernel).reshape(1, 1, 3)
+    weights = to_numpy(fun.kernel).reshape(1, 3, 1)
 
-    assert result.shape == (1, 1, 3)
+    assert result.shape == (1, 3, 1)
     np.testing.assert_allclose(result, weights, rtol=1e-5, atol=1e-5)
 
 
@@ -222,8 +223,8 @@ def test_differentiate_through_a_linear_with_parameter_weights():
         "dlin_model", inputs=[s], outputs=[Output("dlin_dz", derivative)]
     ).build()
 
-    assert derivative.shape.tuple == (3, 1)
-    values = np.array([1.0, 2.0, 3.0], dtype=np.float32).reshape(1, 3, 1)
+    assert derivative.shape.tuple == (1, 3)
+    values = np.array([1.0, 2.0, 3.0], dtype=np.float32).reshape(1, 1, 3)
     result = to_numpy(model({"dlin_s": values})["dlin_dz"])
     np.testing.assert_allclose(result.ravel(), [1.0, 1.0, 2.0], rtol=1e-5)
 
@@ -266,7 +267,7 @@ def test_derivative_between_layers_with_parameter_weights():
         outputs=[Output("dlay_slope", slope), Output("dlay_last", last_slope)],
     ).build()
 
-    result = model({"dlay_x": np.array([0.0, 1.0, 3.0, 6.0]).reshape(1, 1, 4)})
+    result = model({"dlay_x": np.array([0.0, 1.0, 3.0, 6.0]).reshape(1, 4, 1)})
     np.testing.assert_allclose(
         to_numpy(result["dlay_slope"]).ravel(), [2.0, 4.0, 8.0, 12.0], rtol=1e-5
     )
@@ -294,7 +295,7 @@ def test_derivative_wrt_time_keeps_the_window_length():
     fun = v.sw(4)
     derivative = Derivative(order=1, dt=dt)(fun)
 
-    assert derivative.shape.tuple == (1, 4)
+    assert derivative.shape.tuple == (4, 1)
 
     model = Modely(
         "derivative_time_window_model",
@@ -303,11 +304,11 @@ def test_derivative_wrt_time_keeps_the_window_length():
     ).build()
 
     samples = np.array([1.0, 4.0, 9.0, 16.0], dtype=np.float32)
-    result = to_numpy(model({"time_window_v": samples.reshape(1, 1, 4)})["dt"])
+    result = to_numpy(model({"time_window_v": samples.reshape(1, 4, 1)})["dt"])
 
     expected = np.diff(np.concatenate([[0.0], samples])) / dt
-    assert result.shape == (1, 1, 4)
-    np.testing.assert_allclose(result, expected.reshape(1, 1, 4), rtol=1e-5)
+    assert result.shape == (1, 4, 1)
+    np.testing.assert_allclose(result, expected.reshape(1, 4, 1), rtol=1e-5)
 
 
 def test_derivative_wrt_time_over_a_relation_and_a_batch():
@@ -324,12 +325,12 @@ def test_derivative_wrt_time_over_a_relation_and_a_batch():
     ).build()
 
     samples = np.array([[1.0, 2.0, 4.0], [0.0, -1.0, -3.0]], dtype=np.float32)
-    values = samples.reshape(2, 1, 3)
+    values = samples.reshape(2, 3, 1)
     result = to_numpy(model({"time_batch_v": values})["dt"])
 
     scaled = 2.0 * samples
     expected = np.diff(np.pad(scaled, ((0, 0), (1, 0))), axis=1) / dt
-    np.testing.assert_allclose(result, expected.reshape(2, 1, 3), rtol=1e-5)
+    np.testing.assert_allclose(result, expected.reshape(2, 3, 1), rtol=1e-5)
 
 
 def test_derivative_wrt_time_takes_a_missing_past_as_zero():
@@ -362,10 +363,10 @@ def test_derivative_wrt_time_reads_a_number_as_the_initial_condition():
     ).build()
 
     samples = np.array([2.0, 3.0, 5.0], dtype=np.float32)
-    result = to_numpy(model({"time_init_number_v": samples.reshape(1, 1, 3)})["dt"])
+    result = to_numpy(model({"time_init_number_v": samples.reshape(1, 3, 1)})["dt"])
 
     expected = np.diff(np.concatenate([[1.5], samples])) / dt
-    np.testing.assert_allclose(result, expected.reshape(1, 1, 3), rtol=1e-5)
+    np.testing.assert_allclose(result, expected.reshape(1, 3, 1), rtol=1e-5)
 
 
 def test_derivative_wrt_time_reads_a_stream_as_the_initial_condition():
@@ -392,14 +393,14 @@ def test_derivative_wrt_time_reads_a_stream_as_the_initial_condition():
     result = to_numpy(
         model(
             {
-                "time_init_v": samples.reshape(2, 1, 3),
+                "time_init_v": samples.reshape(2, 3, 1),
                 "time_init_previous": initial.reshape(2, 1, 1),
             }
         )["dt"]
     )
 
     expected = np.diff(np.concatenate([initial, samples], axis=1), axis=1) / dt
-    np.testing.assert_allclose(result, expected.reshape(2, 1, 3), rtol=1e-5)
+    np.testing.assert_allclose(result, expected.reshape(2, 3, 1), rtol=1e-5)
 
 
 def test_derivative_wrt_time_second_order():
@@ -413,14 +414,14 @@ def test_derivative_wrt_time_second_order():
     ).build()
 
     samples = np.array([1.0, 3.0, 8.0], dtype=np.float32)
-    result = to_numpy(model({"time_second_v": samples.reshape(1, 1, 3)})["dt2"])
+    result = to_numpy(model({"time_second_v": samples.reshape(1, 3, 1)})["dt2"])
 
     padded = np.concatenate([[0.0, 0.0], samples])
     expected = (
         np.array([padded[i] - 2.0 * padded[i + 1] + padded[i + 2] for i in range(3)])
         / dt**2
     )
-    np.testing.assert_allclose(result, expected.reshape(1, 1, 3), rtol=1e-5)
+    np.testing.assert_allclose(result, expected.reshape(1, 3, 1), rtol=1e-5)
 
 
 def test_derivative_wrt_time_second_order_repeats_a_single_init_sample():
@@ -438,14 +439,14 @@ def test_derivative_wrt_time_second_order_repeats_a_single_init_sample():
     ).build()
 
     samples = np.array([2.0, 5.0], dtype=np.float32)
-    result = to_numpy(model({"time_second_init_v": samples.reshape(1, 1, 2)})["dt2"])
+    result = to_numpy(model({"time_second_init_v": samples.reshape(1, 2, 1)})["dt2"])
 
     padded = np.concatenate([[2.0, 2.0], samples])
     expected = (
         np.array([padded[i] - 2.0 * padded[i + 1] + padded[i + 2] for i in range(2)])
         / dt**2
     )
-    np.testing.assert_allclose(result, expected.reshape(1, 1, 2), rtol=1e-5)
+    np.testing.assert_allclose(result, expected.reshape(1, 2, 1), rtol=1e-5)
 
 
 def test_derivative_wrt_time_a_higher_poly_order_is_more_accurate():
@@ -470,7 +471,7 @@ def test_derivative_wrt_time_a_higher_poly_order_is_more_accurate():
     # x(t) = t^2 on the window, so the exact derivative is 2t.
     times = np.arange(4, dtype=np.float32) * dt
     samples = times**2
-    result = model({"time_accuracy_v": samples.reshape(1, 1, 4)})
+    result = model({"time_accuracy_v": samples.reshape(1, 4, 1)})
 
     exact = 2.0 * times
     two = to_numpy(result["two"]).reshape(4)
@@ -509,7 +510,7 @@ def test_derivative_wrt_time_longer_window_smooths_noise():
     noise = np.random.default_rng(0).normal(0.0, 1e-3, size=samples).astype(np.float32)
     exact = 2.0 * np.pi * 0.2 * np.cos(2.0 * np.pi * 0.2 * times)
 
-    result = model({"time_noise_v": (clean + noise).reshape(1, 1, samples)})
+    result = model({"time_noise_v": (clean + noise).reshape(1, samples, 1)})
     settled = slice(9, None)
     sharp_error = np.abs(
         to_numpy(result["sharp"]).reshape(samples)[settled] - exact[settled]
@@ -540,8 +541,8 @@ def test_derivative_wrt_time_inverts_the_integral():
     ).build()
 
     samples = np.array([2.0, 3.5, 3.0, 7.0, 11.0], dtype=np.float32)
-    result = to_numpy(model({"time_inverse_v": samples.reshape(1, 1, 5)})["roundtrip"])
-    np.testing.assert_allclose(result, samples.reshape(1, 1, 5), rtol=1e-4, atol=1e-4)
+    result = to_numpy(model({"time_inverse_v": samples.reshape(1, 5, 1)})["roundtrip"])
+    np.testing.assert_allclose(result, samples.reshape(1, 5, 1), rtol=1e-4, atol=1e-4)
 
 
 def test_derivative_wrt_time():
@@ -553,10 +554,10 @@ def test_derivative_wrt_time():
         outputs=[Output("dt", Derivative(order=1, dt=0.1)(v.sw(2)))],
     ).build()
 
-    values = np.array([[[1.0, 2.0]]], dtype=np.float32)
+    values = np.array([[[1.0], [2.0]]], dtype=np.float32)
     result = to_numpy(model({"time_ignored_v": values})["dt"])
     np.testing.assert_allclose(
-        result, np.array([[[10.0, 10.0]]], dtype=np.float32), rtol=1e-5
+        result, np.array([[[10.0], [10.0]]], dtype=np.float32), rtol=1e-5
     )
 
 
@@ -573,11 +574,11 @@ def test_derivative_wrt_time_in_a_multi_dimensional_relation():
     ).build()
 
     samples = np.array([[1.0, 2.0], [3.0, 3.0], [-1.0, 0.0]], dtype=np.float32)
-    result = to_numpy(model({"time_multi_x": samples.reshape(1, 3, 2)})["dt"])
+    result = to_numpy(model({"time_multi_x": samples.T.reshape(1, 2, 3)})["dt"])
 
     expected = np.diff(np.pad(samples, ((0, 0), (1, 0)), constant_values=1.0), axis=1)
-    assert result.shape == (1, 3, 2)
-    np.testing.assert_allclose(result, expected.reshape(1, 3, 2) / dt, rtol=1e-5)
+    assert result.shape == (1, 2, 3)
+    np.testing.assert_allclose(result, expected.T.reshape(1, 2, 3) / dt, rtol=1e-5)
 
 
 def test_derivative_wrt_time_rejects_invalid_arguments():
@@ -631,10 +632,10 @@ def test_derivative_wrt_input_in_a_multi_dimensional_relation():
         outputs=[Output("dx", Differentiate(order=1, respect_to=x)(fun))],
     ).build()
 
-    values = np.array([[[1.0], [2.0], [3.0]]], dtype=np.float32)
+    values = np.array([[[1.0, 2.0, 3.0]]], dtype=np.float32)
     result = to_numpy(model({"multi_x": values})["dx"])
 
-    assert result.shape == (1, 3, 1)
+    assert result.shape == (1, 1, 3)
     np.testing.assert_allclose(result, 2.0 * values, rtol=1e-5, atol=1e-5)
 
 
@@ -645,7 +646,10 @@ def _build_mixed_derivative_model(name):
     x = Input(f"{name}_x", dim=1)
     init = Input(f"{name}_init", dim=1)
     fir = Fir(features=1, name=f"{name}_fir")
-    fun = Sin()(fir([x.sw(2)]) * x.sw(2))
+    # Different times are never multiplied: the Fir's one-sample output is
+    # repeated along the two-sample window, as it used to be broadcast.
+    filtered = fir([x.sw(2)])
+    fun = Sin()(TimeConcatenate()([filtered, filtered]) * x.sw(2))
     return (
         x,
         fir,
@@ -673,7 +677,7 @@ def test_derivative_save_load_round_trip(tmp_path):
     _, _, model = _build_mixed_derivative_model("derivative_save_model")
     model.build()
 
-    values = np.array([[[0.4, 1.3]]], dtype=np.float32)
+    values = np.array([[[0.4], [1.3]]], dtype=np.float32)
     inputs = {
         "derivative_save_model_x": values,
         "derivative_save_model_init": np.array([[[0.7]]], dtype=np.float32),
@@ -693,7 +697,7 @@ def test_derivative_export_keras_round_trip(tmp_path):
     _, _, model = _build_mixed_derivative_model("derivative_keras_model")
     model.build()
 
-    values = np.array([[[0.4, 1.3]]], dtype=np.float32)
+    values = np.array([[[0.4], [1.3]]], dtype=np.float32)
     inputs = {
         "derivative_keras_model_x": values,
         "derivative_keras_model_init": np.array([[[0.7]]], dtype=np.float32),
@@ -716,7 +720,7 @@ def test_derivative_export_onnx(tmp_path):
     _, _, model = _build_mixed_derivative_model("derivative_onnx_model")
     model.build()
 
-    values = np.array([[[0.4, 1.3]]], dtype=np.float32)
+    values = np.array([[[0.4], [1.3]]], dtype=np.float32)
     inputs = {
         "derivative_onnx_model_x": values,
         "derivative_onnx_model_init": np.array([[[0.7]]], dtype=np.float32),
@@ -764,13 +768,13 @@ def test_derivative_wrt_time_needs_no_fixed_batch_to_export():
     with tempfile.TemporaryDirectory() as folder:
         time_model.export_onnx(folder, "derivative_time")
         path = f"{folder}/derivative_time.onnx"
-        values = np.array([[[1.0, 2.0]]], dtype=np.float32)
+        values = np.array([[[1.0], [2.0]]], dtype=np.float32)
         result = Modely.validate_onnx(
             str(path), {"onnx_time_v": values}, return_dict=True
         )
         np.testing.assert_allclose(
             result["dt"],  # type: ignore
-            np.array([[[10.0, 10.0]]], dtype=np.float32),
+            np.array([[[10.0], [10.0]]], dtype=np.float32),
             rtol=1e-5,
         )
 
@@ -993,10 +997,10 @@ def test_integrate_trapezoidal_over_a_window():
     ).build()
 
     samples = np.array([2.0, 4.0], dtype=np.float32)
-    result = to_numpy(model({"v": samples.reshape(1, 1, 2)})["integral"])
+    result = to_numpy(model({"v": samples.reshape(1, 2, 1)})["integral"])
     np.testing.assert_allclose(
         result,
-        _integrated(samples, dt, rule="trapezoidal").reshape(1, 1, 2),
+        _integrated(samples, dt, rule="trapezoidal").reshape(1, 2, 1),
         rtol=1e-5,
         atol=1e-5,
     )
@@ -1017,10 +1021,10 @@ def test_integrate_over_arbitrary_layer_output():
     ).build()
 
     samples = np.array([2.0, 4.0], dtype=np.float32)
-    result = to_numpy(model({"v": samples.reshape(1, 1, 2)})["integral"])
+    result = to_numpy(model({"v": samples.reshape(1, 2, 1)})["integral"])
     np.testing.assert_allclose(
         result,
-        _integrated(2.0 * samples, dt, rule="trapezoidal").reshape(1, 1, 2),
+        _integrated(2.0 * samples, dt, rule="trapezoidal").reshape(1, 2, 1),
         rtol=1e-5,
         atol=1e-5,
     )
@@ -1043,9 +1047,9 @@ def test_integrate_accepts_any_window_length():
     ).build()
 
     samples = np.array([1.0, 2.0, 3.0, 5.0, 8.0], dtype=np.float32)
-    result = model({"v": samples.reshape(1, 1, 5)})
+    result = model({"v": samples.reshape(1, 5, 1)})
 
-    assert to_numpy(result["five"]).shape == (1, 1, 5)
+    assert to_numpy(result["five"]).shape == (1, 5, 1)
     np.testing.assert_allclose(
         to_numpy(result["one"]), to_numpy(result["euler_one"]), rtol=1e-6
     )
@@ -1094,7 +1098,7 @@ def test_integrate_save_load_round_trip(tmp_path):
         ],
     ).build()
 
-    values = np.array([[[2.0, 4.0]]], dtype=np.float32)
+    values = np.array([[[2.0], [4.0]]], dtype=np.float32)
     expected = model({"v": values})["integral"]
 
     path = tmp_path / "integrate_model"
@@ -1163,10 +1167,10 @@ def test_integrate_running_integral_over_a_window():
     ).build()
 
     samples = np.array([1.0, 2.0, 3.0, 5.0], dtype=np.float32)
-    result = to_numpy(model({"v": samples.reshape(1, 1, 4)})["integral"])
+    result = to_numpy(model({"v": samples.reshape(1, 4, 1)})["integral"])
     np.testing.assert_allclose(
         result,
-        _integrated(samples, dt, rule="trapezoidal").reshape(1, 1, 4),
+        _integrated(samples, dt, rule="trapezoidal").reshape(1, 4, 1),
         rtol=1e-5,
         atol=1e-5,
     )
@@ -1186,7 +1190,7 @@ def test_integrate_solver_aliases():
         ],
     ).build()
 
-    values = np.array([[[1.0, 2.0, 3.0, 5.0]]], dtype=np.float32)
+    values = np.array([[[1.0], [2.0], [3.0], [5.0]]], dtype=np.float32)
     result = model({"v": values})
     np.testing.assert_allclose(
         to_numpy(result["euler"]), to_numpy(result["rectangular"]), rtol=1e-6, atol=1e-6
@@ -1210,7 +1214,7 @@ def test_integrate_init_number():
     ).build()
 
     samples = np.array([1.0, 2.0, 3.0, 5.0], dtype=np.float32)
-    result = model({"cum_init_v": samples.reshape(1, 1, 4)})
+    result = model({"cum_init_v": samples.reshape(1, 4, 1)})
 
     relative = to_numpy(result["relative"]).reshape(4)
     absolute = to_numpy(result["absolute"]).reshape(4)
@@ -1253,7 +1257,7 @@ def test_integrate_init_stream_per_sample_of_the_batch():
     result = to_numpy(
         model(
             {
-                "cum_init_rate": samples.reshape(2, 1, 4),
+                "cum_init_rate": samples.reshape(2, 4, 1),
                 "cum_init_state": initial.reshape(2, 1, 1),
             }
         )["trajectory"]
@@ -1267,8 +1271,8 @@ def test_integrate_init_stream_per_sample_of_the_batch():
         axis=0,
     )
 
-    assert result.shape == (2, 1, 4)
-    np.testing.assert_allclose(result, expected.reshape(2, 1, 4), rtol=1e-5, atol=1e-5)
+    assert result.shape == (2, 4, 1)
+    np.testing.assert_allclose(result, expected.reshape(2, 4, 1), rtol=1e-5, atol=1e-5)
 
 
 def test_integrate_init_over_a_one_sample_window_is_one_step():
@@ -1308,11 +1312,13 @@ def test_integrate_init_broadcasts_a_scalar_over_dim():
     ).build()
 
     samples = np.array([[1.0, 2.0, 3.0], [0.0, 1.0, 1.0], [2.0, 2.0, 2.0]], np.float32)
-    result = to_numpy(model({"cum_multi_x": samples.reshape(1, 3, 3)})["cum"])
+    result = to_numpy(model({"cum_multi_x": samples.T.reshape(1, 3, 3)})["cum"])
 
     expected = np.stack([_integrated(row, dt, 1.0) for row in samples], axis=0)
     assert result.shape == (1, 3, 3)
-    np.testing.assert_allclose(result, expected.reshape(1, 3, 3), rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(
+        result, expected.T.reshape(1, 3, 3), rtol=1e-5, atol=1e-5
+    )
 
 
 def test_integrate_step_init_returns_the_updated_state():
@@ -1377,7 +1383,7 @@ def test_integrate_predicts_a_trajectory_in_one_pass():
     samples = np.linspace(1.0, 3.0, steps, dtype=np.float32)
     result = model(
         {
-            "traj_acc": samples.reshape(1, 1, steps),
+            "traj_acc": samples.reshape(1, steps, 1),
             "traj_v0": np.array([[[0.5]]], dtype=np.float32),
             "traj_x0": np.array([[[-1.0]]], dtype=np.float32),
         }
@@ -1424,13 +1430,13 @@ def test_integrate_with_init_inverts_the_derivative_exactly():
     result = to_numpy(
         model(
             {
-                "inverse_v": samples.reshape(1, 1, 5),
+                "inverse_v": samples.reshape(1, 5, 1),
                 "inverse_previous": np.array([[[1.0]]], dtype=np.float32),
             }
         )["roundtrip"]
     )
 
-    np.testing.assert_allclose(result, samples.reshape(1, 1, 5), rtol=1e-4, atol=1e-4)
+    np.testing.assert_allclose(result, samples.reshape(1, 5, 1), rtol=1e-4, atol=1e-4)
 
 
 def test_integrate_init_validation():
@@ -1475,7 +1481,7 @@ def test_integrate_init_save_load_round_trip(tmp_path):
     ).build()
 
     inputs = {
-        "init_save_rate": np.array([[[1.0, 2.0, 3.0, 5.0]]], dtype=np.float32),
+        "init_save_rate": np.array([[[1.0], [2.0], [3.0], [5.0]]], dtype=np.float32),
         "init_save_state": np.array([[[2.0]]], dtype=np.float32),
     }
     expected = {name: to_numpy(value) for name, value in model(inputs).items()}
@@ -1512,7 +1518,7 @@ def _integrate_init_export_model():
     ).build()
 
     inputs = {
-        "init_export_rate": np.array([[[1.0, 2.0, 3.0, 5.0]]], dtype=np.float32),
+        "init_export_rate": np.array([[[1.0], [2.0], [3.0], [5.0]]], dtype=np.float32),
         "init_export_state": np.array([[[2.0]]], dtype=np.float32),
     }
     return model, inputs
@@ -1598,10 +1604,10 @@ def test_train_a_rate_through_an_integrated_trajectory():
         to_numpy(
             model(
                 {
-                    "traj_train_u": np.ones((1, 1, steps), dtype=np.float32),
+                    "traj_train_u": np.ones((1, steps, 1), dtype=np.float32),
                     "traj_train_v0": np.zeros((1, 1, 1), dtype=np.float32),
                     "traj_train_target": np.full(
-                        (1, 1, steps), target_value, dtype=np.float32
+                        (1, steps, 1), target_value, dtype=np.float32
                     ),
                 }
             )["trajectory"]

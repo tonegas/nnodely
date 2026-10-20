@@ -36,7 +36,7 @@ class Norm(keras.layers.Layer):
     """The length of the feature vector of every sample: dim (n,) to (1,)."""
 
     def call(self, x):
-        return keras.ops.sqrt(keras.ops.sum(x * x, axis=1, keepdims=True))
+        return keras.ops.sqrt(keras.ops.sum(x * x, axis=-1, keepdims=True))
 
 
 def test_keras_function_applies_a_keras_layer_to_a_stream():
@@ -48,9 +48,9 @@ def test_keras_function_applies_a_keras_layer_to_a_stream():
         inputs=[x],
         outputs=[Output("kf_cubed", cubed), Output("kf_squared", squared)],
     ).build()
-    assert cubed.shape.dimensions == ((1,), 3, ())
+    assert cubed.shape.dimensions == ((3,), (1,))
 
-    values = np.array([[[1.0, 2.0, -3.0]]], dtype=np.float32)
+    values = np.array([[[1.0], [2.0], [-3.0]]], dtype=np.float32)
     result = model({"kf_x": values})
     np.testing.assert_allclose(to_numpy(result["kf_cubed"]), values**3, rtol=1e-6)
     np.testing.assert_allclose(to_numpy(result["kf_squared"]), values**2, rtol=1e-6)
@@ -74,17 +74,17 @@ def test_keras_function_passes_its_streams_as_separate_arguments():
 
 
 def test_keras_function_reads_its_output_shape_off_the_layer():
-    v = Input("kf_v", dim=3, seq=-1)
-    length = KerasFunction(Norm)([v.sw(2)])
+    v = Input("kf_v", dim=3)
+    length = KerasFunction(Norm)([v.sw(2, seq=-1)])
     model = Modely("kf_norm", inputs=[v], outputs=[Output("kf_length", length)]).build()
     # The dim is reduced, the time window and the dynamic sequence kept.
-    assert length.shape.dimensions == ((1,), 2, (None,))
+    assert length.shape.dimensions == ((None, 2), (1,))
 
     for steps in (3, 5):
-        values = np.random.default_rng(steps).normal(size=(1, 3, 2, steps))
+        values = np.random.default_rng(steps).normal(size=(1, steps, 2, 3))
         result = to_numpy(model({"kf_v": values.astype(np.float32)})["kf_length"])
         np.testing.assert_allclose(
-            result, np.linalg.norm(values, axis=1, keepdims=True), rtol=1e-5
+            result, np.linalg.norm(values, axis=-1, keepdims=True), rtol=1e-5
         )
 
 

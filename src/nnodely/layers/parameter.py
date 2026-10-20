@@ -14,7 +14,7 @@ class ParameterImpl(keras.layers.Layer):
     """A value of fixed shape, the same for every sample of the batch.
 
     It is called with a tensor of the graph, of which it reads only the batch
-    size: the value comes out ``(batch, *dim, time, *seq)`` like every stream.
+    size: the value comes out ``(batch, *time, *dim)`` like every stream.
     """
 
     trainable_value = True
@@ -77,13 +77,15 @@ class ConstantImpl(ParameterImpl):
     trainable_value = False
 
 
-def _value_layout(value, dim, time, seq, owner: str):
-    """``value`` laid out ``(*dim, time, *seq)``, and the sizes of those axes.
+def _value_layout(value, dim, time, owner: str):
+    """``value`` laid out ``(*time, *dim)``, as a tensor holds a sample, with
+    the sizes of its dim axes and of its time axes.
 
-    Without ``dim``, ``time`` and ``seq``, every axis of ``value`` is a dim
-    axis and the value holds one time step. Otherwise they name the axes of
-    ``value`` that play each part: ``dim`` and ``seq`` an axis or a tuple of
-    axes, ``time`` one axis. The axes ``time`` and ``seq`` leave are the dim
+    Without ``dim`` and ``time``, every axis of ``value`` is a dim axis and
+    the value has no time axis: like a number, it broadcasts along the time
+    of any stream. Otherwise they name the axes of ``value`` that play each
+    part, an axis or a tuple of axes: ``time`` its time axes, outermost
+    first, the last the inner time. The axes ``time`` leaves are the dim
     axes, unless ``dim`` names them; a value with none keeps a dim of one.
     """
     array = np.atleast_1d(np.asarray(value, dtype=np.float32))
@@ -107,36 +109,23 @@ def _value_layout(value, dim, time, seq, owner: str):
         return tuple(int(axis) % array.ndim for axis in items)
 
     time_axes = axes(time, "time")
-    if len(time_axes) > 1:
-        raise ValueError(f"{owner}: time is one axis of value, got {time}.")
-    seq_axes = axes(seq, "seq")
     dim_axes = (
         axes(dim, "dim")
         if dim is not None
-        else tuple(
-            axis for axis in range(array.ndim) if axis not in time_axes + seq_axes
-        )
+        else tuple(axis for axis in range(array.ndim) if axis not in time_axes)
     )
-    order = dim_axes + time_axes + seq_axes
+    order = time_axes + dim_axes
     if sorted(order) != list(range(array.ndim)):
         raise ValueError(
-            f"{owner}: dim, time and seq must take each axis of a value of shape "
-            f"{array.shape} once, got dim={dim_axes}, time={time_axes}, "
-            f"seq={seq_axes}."
+            f"{owner}: dim and time must take each axis of a value of shape "
+            f"{array.shape} once, got dim={dim_axes}, time={time_axes}."
         )
 
     array = np.transpose(array, order)
     if not dim_axes:
-        array = array[np.newaxis]
-    dim_rank = max(1, len(dim_axes))
-    if not time_axes:
-        array = np.expand_dims(array, axis=dim_rank)
-    return (
-        array,
-        array.shape[:dim_rank],
-        array.shape[dim_rank],
-        array.shape[dim_rank + 1 :],
-    )
+        array = array[..., np.newaxis]
+    time_rank = len(time_axes)
+    return array, array.shape[time_rank:], array.shape[:time_rank]
 
 
 class _Value(Layer):
@@ -149,18 +138,15 @@ class _Value(Layer):
     _impl: type[ParameterImpl] = ParameterImpl
     _trainable = True
 
-    def __init__(self, name, value, initializer, dim, time, seq):
+    def __init__(self, name, value, initializer, dim, time):
         if value is not None:
-            value, dim, time, seq = _value_layout(
-                value, dim, time, seq, self.__class__.__name__
-            )
+            value, dim, time = _value_layout(value, dim, time, self.__class__.__name__)
 
         self.value = value
         self.initializer = initializer
 
         super().__init__(
             name=name,
-            seq=seq,
             time=time,
             dim=dim,
             value=None if value is None else value.tolist(),
@@ -179,15 +165,14 @@ class _Value(Layer):
     def get_config(self):
         # Read from no stream, a value keeps its shape in its config rather
         # than taking it from its inputs as other layers do. A value is saved
-        # laid out (*dim, time, *seq), with the axes that play each part.
+        # laid out (*time, *dim), with the axes that play each part.
         config = Stream.get_config(self)
         if self.value is not None:
-            dim_rank, seq_rank = len(self.shape.dim), len(self.shape.seq)
+            time_rank = self.shape.time_rank
             config.update(
                 {
-                    "dim": list(range(dim_rank)),
-                    "time": dim_rank,
-                    "seq": list(range(dim_rank + 1, dim_rank + 1 + seq_rank)),
+                    "time": list(range(time_rank)),
+                    "dim": list(range(time_rank, self.shape.rank)),
                     "value": self.value.tolist(),
                 }
             )
@@ -206,18 +191,20 @@ class Parameter(_Value):
     """
     Trainable symbolic parameter.
 
-    Without ``value``, ``dim``, ``time`` and ``seq`` are the sizes of its
-    axes, and ``initializer``, any Keras initializer, draws its initial value.
+    Without ``value``, ``dim`` and ``time`` are the sizes of its axes - its
+    time axes outermost first - and ``initializer``, any Keras initializer,
+    draws its initial value. Without ``time`` it has no time axis, and
+    broadcasts along the time of any stream.
 
     ``value`` sets the shape and the initial value. Every axis of the value is
-    a dim axis, and the value holds one time step, unless ``dim``, ``time``
-    and ``seq`` say otherwise: given with a value they are axes of the value
-    - ``dim`` and ``seq`` an axis or a tuple of axes, ``time`` one axis - and
-    the axes ``time`` and ``seq`` leave are the dim axes::
+    a dim axis, and the value has no time axis, unless ``dim`` and ``time``
+    say otherwise: given with a value they are axes of the value, an axis or
+    a tuple of axes - the time axes outermost first - and the axes ``time``
+    leaves are the dim axes::
 
-        Parameter("p", value=np.ones((2, 3, 2)))                       # D=(2, 3, 2), T=1
-        Parameter("p", value=np.ones((2, 3, 2)), dim=0, time=1, seq=2)  # D=(2,), T=3, S=(2,)
-        Parameter("p", value=[[1.0, 2.0, 3.0]], time=1)                 # D=(1,), T=3
+        Parameter("p", value=np.ones((2, 3, 2)))                        # T=(), D=(2, 3, 2)
+        Parameter("p", value=np.ones((2, 3, 2)), dim=0, time=(2, 1))     # T=(2, 3), D=(2,)
+        Parameter("p", value=[[1.0, 2.0, 3.0]], time=1)                  # T=(3,), D=(1,)
 
     ``trainable=False`` keeps the value as it is through training, as
     :meth:`freeze` does, before or after the model is built; the flag is
@@ -226,7 +213,7 @@ class Parameter(_Value):
     Like every stream it is laid out with a batch axis first, the same value
     for every sample::
 
-        (batch, *dim, time, *seq)
+        (batch, *time, *dim)
     """
 
     def __init__(
@@ -235,13 +222,12 @@ class Parameter(_Value):
         *,
         value=None,
         initializer="random_normal",
-        seq=None,
         time=None,
         dim=None,
         trainable: bool = True,
     ):
         self._trainable = bool(trainable)
-        super().__init__(name, value, initializer, dim, time, seq)
+        super().__init__(name, value, initializer, dim, time)
 
     @property
     def trainable(self) -> bool:
@@ -293,26 +279,26 @@ class Parameters(list):
         self.title = title
 
     def __str__(self):
-        header = ("name", "dim", "time", "seq", "values", "trainable")
+        header = ("name", "time", "dim", "values", "trainable")
         rows = [
             (
                 parameter.name,
+                str(tuple(parameter.shape.time)) if parameter.shape.time else "-",
                 str(tuple(parameter.shape.dim)),
-                str(parameter.shape.time),
-                str(tuple(parameter.shape.seq)) if parameter.shape.seq else "-",
                 str(math.prod(parameter.shape.tuple)),
                 "yes" if parameter.trainable else "no",
             )
             for parameter in self
         ]
         widths = [
-            max(len(row[column]) for row in (header, *rows)) for column in range(6)
+            max(len(row[column]) for row in (header, *rows))
+            for column in range(len(header))
         ]
 
         def line(row):
             return "  ".join(cell.ljust(width) for cell, width in zip(row, widths))
 
-        values = [int(row[4]) for row in rows]
+        values = [int(row[3]) for row in rows]
         trainable = sum(v for v, p in zip(values, self) if p.trainable)
         return "\n".join(
             [
@@ -332,29 +318,27 @@ class Constant(_Value):
     Non-trainable symbolic constant layer.
 
     ``value`` sets its shape as for a :class:`Parameter`: every axis of the
-    value is a dim axis, and the value holds one time step, unless ``dim``,
-    ``time`` and ``seq`` name the axes of the value that play each part::
+    value is a dim axis, and the value has no time axis, unless ``dim`` and
+    ``time`` name the axes of the value that play each part::
 
-        Constant("c", value=[1.0, 2.0, 3.0])                 # D=(3,), T=1
-        Constant("c", value=[[1.0, 2.0, 3.0]], time=1)       # D=(1,), T=3
+        Constant("c", value=[1.0, 2.0, 3.0])                 # T=(), D=(3,)
+        Constant("c", value=[[1.0, 2.0, 3.0]], time=1)       # T=(3,), D=(1,)
 
     Numbers used in arithmetic with a stream become constants automatically.
 
     Like every stream it is laid out with a batch axis first, the same value
     for every sample::
 
-        (batch, *dim, time, *seq)
+        (batch, *time, *dim)
     """
 
     _impl = ConstantImpl
     _trainable = False
 
-    def __init__(
-        self, name: str | None = None, *, value, seq=None, time=None, dim=None
-    ):
+    def __init__(self, name: str | None = None, *, value, time=None, dim=None):
         if value is None:
             raise ValueError("Constant requires a value.")
-        super().__init__(name, value, None, dim, time, seq)
+        super().__init__(name, value, None, dim, time)
 
     @property
     def constant(self):
@@ -367,7 +351,6 @@ class Constant(_Value):
             value=config["value"],
             dim=config.get("dim"),
             time=config.get("time"),
-            seq=config.get("seq"),
         )
 
 

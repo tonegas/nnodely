@@ -25,21 +25,30 @@ model, and only then are the weights created.
 Shapes
 ------
 
-Every stream has a shape made of three parts, without the batch axis:
+Every stream has a shape made of two parts, laid out after the batch axis as
 
-``(*dim, time, *seq)``
+``(batch, *time, *dim)``
 
+- **time**: the time axes, outermost first. The last one, the **inner time**,
+  is the window of consecutive samples the stream carries; the ones before it,
+  the **outer time**, are the steps of a rollout over a trajectory (see
+  :doc:`recurrent`). A stream may have no time axis at all: a number, a
+  :class:`~nnodely.Parameter` declared without time, an input read whole.
 - **dim**: the feature axes. ``Input("u", dim=3)`` is a three-component signal,
   and ``dim=(3, 2)`` is a 3x2 matrix per sample. The default is one feature.
-- **time**: the window of consecutive samples the stream carries.
-- **seq**: optional sequence axes, used when a model is rolled out over a
-  trajectory (see :doc:`recurrent`).
 
 .. code-block:: python
 
    u = Input("u", dim=3)
-   print(u.sw(10).shape)   # Shape(D=(3,), T=10, S=()): 3 features, 10 samples
+   print(u.sw(10).shape)   # Shape(T=(10,), D=(3,)): 10 samples of 3 features
    print(u.dim, u.sw(10).time)
+
+   w = Input("w", dim=3)
+   print(w.sw(10, seq=5).shape)   # Shape(T=(5, 10), D=(3,)): 5 steps of those
+
+Temporal operations - windows, :class:`~nnodely.Fir`, derivatives and
+integrals - act on the inner time; a :class:`~nnodely.Loop` rolls out along
+the outer time.
 
 Windows
 -------
@@ -63,11 +72,17 @@ physics needs it, as the ``dt`` of :doc:`derivatives and integrators <physics>`.
    x = Input("x")
    past = x.sw(4)          # x[t-3], x[t-2], x[t-1], x[t]
    around = x.sw([2, 1])   # x[t-1], x[t], x[t+1]
-   print(past.shape, around.shape)   # Shape(D=(1,), T=4, S=()) Shape(D=(1,), T=3, S=())
+   print(past.shape, around.shape)   # Shape(T=(4,), D=(1,)) Shape(T=(3,), D=(1,))
 
 An input can be windowed several times. The data it needs is the union of all
 its windows, and the :class:`~nnodely.DataLoader` builds samples that cover it.
 All inputs are aligned on the current sample ``t``.
+
+``seq=`` on a window declares the input's outer time: ``x.sw(3, seq=5)`` is
+five consecutive windows of three samples, ``x.last(seq=(4, 5))`` four
+sequences of five steps (outermost first, ``-1`` for a length that follows the
+data). An input has one sequence, set by its first window: later windows may
+leave ``seq`` out, but not change it.
 
 Layers
 ------
@@ -98,7 +113,7 @@ Operators
 ---------
 
 Streams support ``+``, ``-``, ``*``, ``/`` and ``**``, with other streams or
-with numbers. A number becomes a :class:`~nnodely.Constant`:
+with numbers. A number becomes a :class:`~nnodely.Constant`, with no time axis:
 
 .. code-block:: python
 
@@ -106,6 +121,24 @@ with numbers. A number becomes a :class:`~nnodely.Constant`:
 
    gain = Parameter("gain", value=2.0)
    z = gain * x.last() + 1.0
+
+Two streams combine when their shapes agree:
+
+- **time**: streams with time axes must have the same ones; different times
+  are never blended. A stream without time - a number, a Parameter - applies
+  to every sample.
+- **dim**: the dims must be the same, or one of them a scalar, which applies
+  to every feature. A vector is never stretched over a matrix.
+- one of the streams must already have the shape of the result: a matrix
+  without time is not combined with the window of a scalar, which would have
+  to stretch both.
+
+.. code-block:: python
+
+   v = Input("v", dim=3)
+   v.last() * gain          # (1, 3): the gain applies to every feature
+   v.sw(4) + x.sw(4)        # (4, 3): the scalar window applies to every feature
+   # v.sw(4) + x.last() is refused: a window of 4 samples and one of 1
 
 Names
 -----

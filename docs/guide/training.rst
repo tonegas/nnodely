@@ -71,10 +71,10 @@ them, and prints as a table:
 
    print(model.parameters)
    # Parameters of first_order
-   # name         dim     time  seq  values  trainable
-   # -----------  ------  ----  ---  ------  ---------
-   # Fir1_kernel  (1, 1)  1     -    1       yes
-   # Fir1_bias    (1,)    1     -    1       yes
+   # name         time  dim     values  trainable
+   # -----------  ----  ------  ------  ---------
+   # Fir1_kernel  (1,)  (1, 1)  1       yes
+   # Fir1_bias    (1,)  (1,)    1       yes
    # ...
    # 4 parameters, 4 values, 4 trainable
 

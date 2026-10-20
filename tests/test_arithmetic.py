@@ -47,10 +47,10 @@ def test_arithmetic(layer_class, reference, low, high):
 
     # ------- Model inference -------
     batch_size = 1
-    dummy_input_x = np.random.uniform(low, high, size=(batch_size, 1, window))
+    dummy_input_x = np.random.uniform(low, high, size=(batch_size, window, 1))
     result = model({"x": dummy_input_x})
     assert "out" in result
-    assert result["out"].shape == (batch_size, 1, window)
+    assert result["out"].shape == (batch_size, window, 1)
     np.testing.assert_allclose(
         to_numpy(result["out"]),
         reference(dummy_input_x),
@@ -66,7 +66,7 @@ def test_arithmetic_chain():
     model = Modely("arithmetic_chain_model", inputs=[x], outputs=[out])
     model.build()
 
-    dummy_input_x = np.random.uniform(-2.0, 2.0, size=(1, 1, 2))
+    dummy_input_x = np.random.uniform(-2.0, 2.0, size=(1, 2, 1))
     np.testing.assert_allclose(
         to_numpy(model({"x": dummy_input_x})["out"]),
         np.log(np.abs(np.exp(dummy_input_x))),
@@ -82,7 +82,7 @@ def test_arithmetic_save_load(tmp_path):
     model = Modely("arithmetic_save_model", inputs=[x], outputs=[out])
     model.build()
 
-    inputs = {"x": np.random.uniform(0.5, 5.0, size=(1, 1, 3))}
+    inputs = {"x": np.random.uniform(0.5, 5.0, size=(1, 3, 1))}
     expected = model(inputs)["out"]
 
     path = tmp_path / "arithmetic.nnodely"
@@ -112,9 +112,9 @@ def test_clamp(minimum, maximum):
     model = Modely("arithmetic_clamp_model", inputs=[x], outputs=[out])
     model.build()
 
-    dummy_input_x = np.random.uniform(-3.0, 3.0, size=(1, 1, window))
+    dummy_input_x = np.random.uniform(-3.0, 3.0, size=(1, window, 1))
     result = model({"x": dummy_input_x})
-    assert result["out"].shape == (1, 1, window)
+    assert result["out"].shape == (1, window, 1)
     np.testing.assert_allclose(
         to_numpy(result["out"]),
         np.clip(
@@ -136,10 +136,10 @@ def test_clamp_invalid_bounds():
 @pytest.mark.parametrize(
     "axis, reference_axis, expected_dim",
     [
-        (None, (1, 2), (1, 1)),
-        (0, 1, (1, 3)),
-        (1, 2, (2, 1)),
-        (-1, 2, (2, 1)),
+        (None, (2, 3), (1, 1)),
+        (0, 2, (1, 3)),
+        (1, 3, (2, 1)),
+        (-1, 3, (2, 1)),
     ],
 )
 def test_sum(axis, reference_axis, expected_dim):
@@ -151,9 +151,9 @@ def test_sum(axis, reference_axis, expected_dim):
     model.build()
 
     batch_size = 5
-    dummy_input_x = np.random.uniform(-2.0, 2.0, size=(batch_size, 2, 3, window))
+    dummy_input_x = np.random.uniform(-2.0, 2.0, size=(batch_size, window, 2, 3))
     result = model({"x": dummy_input_x})
-    assert result["out"].shape == (batch_size, *expected_dim, window)
+    assert result["out"].shape == (batch_size, window, *expected_dim)
     np.testing.assert_allclose(
         to_numpy(result["out"]),
         dummy_input_x.sum(axis=reference_axis, keepdims=True),
@@ -178,7 +178,7 @@ def test_clamp_sum_save_load(tmp_path):
     model = Modely("arithmetic_clamp_sum_save_model", inputs=[x], outputs=[out])
     model.build()
 
-    inputs = {"x": np.random.uniform(-2.0, 2.0, size=(1, 2, 3, 3))}
+    inputs = {"x": np.random.uniform(-2.0, 2.0, size=(1, 3, 2, 3))}
     expected = model(inputs)["out"]
 
     path = tmp_path / "arithmetic_clamp_sum.nnodely"
