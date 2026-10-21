@@ -57,6 +57,7 @@ from nnodely.layers.partitions import (
     TimeStack,
 )
 from nnodely.layers.batchnorm import BatchNorm
+from nnodely.layers.conv import Conv2D, Flatten, Reshape
 from nnodely.layers.ode import Ode, OdeNet
 from nnodely.layers.activations import (
     ELU,
@@ -124,6 +125,9 @@ __all__ = [
     "TimeReverse",
     "Range",
     "BatchNorm",
+    "Conv2D",
+    "Flatten",
+    "Reshape",
     "Ode",
     "OdeNet",
     "ReLU",
