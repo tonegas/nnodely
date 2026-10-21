@@ -26,6 +26,7 @@ from nnodely.core.layer import Layer
 from nnodely.core.shape import expand_to_rank, slice_axis
 from nnodely.core.stream import Stream
 from nnodely.layers.input import Input
+from nnodely.layers.partitions import SampleWindow
 
 #: Only first and second derivatives are supported, in both modes.
 _SUPPORTED_ORDERS = (1, 2)
@@ -88,6 +89,31 @@ def _find_input(node, name: str):
             return current
         stack.extend(getattr(current, "preds", None) or [])
     return None
+
+
+def _window_read(node, name: str):
+    """The window ``node`` reads from the Input named ``name``: the union
+    ``(past, future)`` of the windows of it among ``node``'s ancestors, and
+    that Input; ``(0, 0, None)`` when it reads none."""
+    past = future = 0
+    source = None
+    seen: set[int] = set()
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        preds = getattr(current, "preds", None) or []
+        if (
+            isinstance(current, SampleWindow)
+            and isinstance(preds[0], Input)
+            and preds[0].name == name
+        ):
+            past, future = max(past, current.past), max(future, current.future)
+            source = preds[0]
+        stack.extend(preds)
+    return past, future, source
 
 
 # ----------------------------------------------------------------------
@@ -386,8 +412,14 @@ class Differentiate(Layer):
                 f"got {len(inputs)}."
             )
         # Reverse-mode differentiation yields the shape of the variable, not
-        # of the relation: one derivative per sample of the input's window.
-        return self.respect_to.shape
+        # of the relation: one derivative per sample of the window of the
+        # Input the relation reads - known here, whatever else reads it.
+        past, future, _ = _window_read(function, self.wrt_name)
+        if past + future == 0:
+            return self.respect_to.shape
+        return self.respect_to.shape.replace(
+            time=(*self.respect_to.sequence, past + future)
+        )
 
     # ------------------------------------------------------------------
     # Keras layer logic
@@ -423,7 +455,17 @@ class Differentiate(Layer):
                 order=self.order,
                 name=self.name,
             )
-        return self._layer(sources)
+        gradient = self._layer(sources)
+        # The derivative is taken with respect to all the Input the model
+        # reads, which other relations may read through a wider window: the
+        # samples this relation reads are cut from it.
+        past, future, source = _window_read(self.preds[0], self.wrt_name)
+        if source is None or (past, future) == (source.past, source.future):
+            return gradient
+        start = source.past - past
+        return slice_axis(
+            gradient, source.shape.inner_time_axis, slice(start, start + past + future)
+        )
 
     # ------------------------------------------------------------------
     # Serialization

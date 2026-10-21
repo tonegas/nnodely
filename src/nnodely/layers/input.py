@@ -28,44 +28,61 @@ class Input(Stream):
 
     ``dim`` sets the feature axes (one feature by default). Read whole, an
     Input has no time axis. Its windows, requested with :meth:`sw`,
-    :meth:`last` and :meth:`next`, have the window as their inner time, and
-    the Input's own is the union of them. A window's ``seq`` sets the
-    sequence: the outer time axes, outermost first, used by rollouts; ``-1``
-    leaves a length dynamic. An Input has one sequence, set by its first
-    window, and every window has it: a later one may leave it out, but not
-    change it.
+    :meth:`last` and :meth:`next`, have the window as their inner time.
+    Requesting a window leaves the Input as it is: a model reads from it the
+    union of the windows its own graph takes, found by ``build()``, which
+    then gives the Input that window - a window declared but never used
+    widens nothing.
+
+    A window's ``seq`` sets the sequence: the outer time axes, outermost
+    first, used by rollouts; ``-1`` leaves a length dynamic. An Input has one
+    sequence, set once, by its first window: every later window has it and
+    leaves ``seq`` out.
     """
 
     def __init__(self, name: str, *, dim: int | tuple | None = None):
         super().__init__(name=name, dim=dim, preds=None)
+        # The window the graph of the last model built reads, found by build().
         self.past, self.future = (0, 0)
-        # The time axes outside the window, fixed by the first window.
+        # The time axes outside the window, set by the first window.
         self._outer_time: tuple | None = None
+        # The window a saved model read, kept by the model loaded from it.
+        self._saved_window = (0, 0)
         self._update_shape()
 
+    @property
+    def sequence(self) -> tuple:
+        """The outer time axes of the Input's windows, outermost first, a
+        dynamic one as None: ``()`` until a window sets them, or when it has
+        no sequence."""
+        return self._outer_time or ()
+
     def _update_shape(self):
-        """The time axes of the union of the windows: the outer ones, then
-        the window; none before the first window."""
-        time = (
-            ()
-            if self._outer_time is None
-            else (*self._outer_time, self.past + self.future)
-        )
+        """The time axes of the window the Input is read through: its outer
+        ones, then the window; none before build() has found a window."""
+        window = self.past + self.future
+        time = () if window == 0 else (*self.sequence, window)
         self.shape = Shape(dim=self.shape.dim, time=time)
         self.input = keras.Input(shape=self.shape, name=self.name)
 
-    def _check_sequence(self, seq):
-        """Fix the Input's outer time with its first window; ``seq`` may not
-        change it afterwards."""
+    def _set_window(self, past: int, future: int) -> None:
+        """Read through ``past`` samples up to the current one and ``future``
+        after it: the union of the windows of the graph being built."""
+        self.past, self.future = int(past), int(future)
+        self._update_shape()
+
+    def _declare_sequence(self, seq):
+        """Set the Input's outer time with its first window; a later window
+        may not set it again."""
         outer_time = _outer_time(self.name, seq)
         if self._outer_time is None:
             self._outer_time = () if outer_time is None else outer_time
-        elif outer_time is not None and outer_time != self._outer_time:
+        elif outer_time is not None:
             raise ValueError(
-                f"{self.name}: every window of an Input has the Input's sequence "
-                f"{self._outer_time}, so a window cannot have seq={outer_time}. "
-                "Windows may differ only in their inner time; for another "
-                "sequence, declare another Input."
+                f"{self.name}: the sequence of an Input is set only once, by its "
+                f"first window, and it is {self._outer_time or 'none'}: a later "
+                "window has it already, so leave seq out. For another sequence, "
+                "declare another Input."
             )
 
     def sw(
@@ -77,9 +94,10 @@ class Input(Stream):
 
         ``sw(n)`` is the last ``n`` samples, up to and including the current
         one. ``sw([p, f])`` is ``p`` samples up to and including the current
-        one followed by the next ``f`` samples. The input's own window grows to
-        cover every window requested from it. ``seq`` is the sequence of the
-        Input, its outer time axes, outermost first (see :class:`Input`).
+        one followed by the next ``f`` samples. The Input itself is left as it
+        is: ``build()`` finds the windows a model reads. ``seq`` is the
+        sequence of the Input, its outer time axes, outermost first, set only
+        by its first window (see :class:`Input`).
         """
         if isinstance(window_size, (list, tuple)):
             if len(window_size) != 2:
@@ -90,12 +108,7 @@ class Input(Stream):
         else:
             local_past, local_future = window_size, 0
 
-        self._check_sequence(seq)
-        self.past, self.future = (
-            max(self.past, local_past),
-            max(self.future, local_future),
-        )
-        self._update_shape()
+        self._declare_sequence(seq)
         return SampleWindow(past=local_past, future=local_future)([self])
 
     def last(self, seq: int | tuple[int, ...] | None = None):
@@ -121,7 +134,39 @@ class Input(Stream):
     def from_config(cls, config: dict, preds=None):
         node = cls(name=config["name"], dim=config["dim"])
         node._outer_time = _outer_time(node.name, config["seq"])
-        node.past = config["past"]
-        node.future = config["future"]
-        node._update_shape()
+        node._saved_window = (config["past"], config["future"])
+        node._set_window(*node._saved_window)
         return node
+
+
+def resolve_windows(order) -> dict[Input, tuple[int, int]]:
+    """Give every Input of a graph the union of the windows the graph reads
+    from it, and return them: ``{input: (past, future)}``.
+
+    ``order`` is the graph's nodes. A window declared on an Input but not in
+    the graph widens nothing; an Input the graph reads through no window is
+    left as it is. An Input loaded from a file keeps at least the window the
+    saved model read, so it reads the same data.
+    """
+    windows: dict[Input, tuple[int, int]] = {}
+    for node in order:
+        if isinstance(node, SampleWindow) and isinstance(node.preds[0], Input):
+            source = node.preds[0]
+            past, future = windows.get(source, source._saved_window)
+            windows[source] = (max(past, node.past), max(future, node.future))
+    # Read whole, an Input has no time axis; read through a window, the
+    # data holds one: one Input cannot be both.
+    for node in order:
+        if isinstance(node, SampleWindow):
+            continue
+        for pred in node.preds:
+            if isinstance(pred, Input) and pred in windows:
+                raise ValueError(
+                    f"{node.name} reads the Input {pred.name!r} whole, and the "
+                    "graph also reads it through windows, so its data has a "
+                    "time axis the whole read does not have. Read it through a "
+                    f"window there too, such as {pred.name}.last()."
+                )
+    for source, (past, future) in windows.items():
+        source._set_window(past, future)
+    return windows

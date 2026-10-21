@@ -20,7 +20,7 @@ Use this order:
 
 1. **The lifecycle order is fixed:** declare streams → `Modely(name, inputs, outputs)` → `minimize(...)` / `rollback(...)` → `build()` → `DataLoader(model, ...)` → `train` / `validate` / `model(...)` / export. `DataLoader`, `train`, `validate`, inference and export all need a built model. Objectives and rollback must be declared **before** `build()`, and `rollback` after `build` raises. `build()` returns the model, so `Modely(...).build()` chains.
 2. **`Input(name, *, dim=None)`**: `dim` is keyword-only, so `Input("x", 3)` is an error. `Input` takes no `seq`: the sequence (outer time) is declared on the Input's **first window**, `x.sw(n, seq=s)`, `x.last(seq=s)`, `x.next(seq=s)` (§3).
-3. **Feed layers with windows, not raw Inputs:** use `x.last()`, `x.sw(n)`, `x.sw([p, f])`, `x.next()`, and `x.last(seq=H)` for a sequence. A raw `Input` used as a stream carries the *union* of all its windows (time `(*seq, past+future)`); a never-windowed one is **timeless**, shape `(dim,)`, data `(batch, *dim)` [verified]. Its shape is read when it is used: a raw Input used before its first window is declared timeless but fed the union window at build [verified], so never use one Input both raw and windowed. As `minimize` targets and as `Loop` / `OdeNet` sequences use windows (`y.next()`, `s.last(seq=H)`): a raw timeless target against a timed source is refused by `train()` [verified].
+3. **Feed layers with windows, not raw Inputs:** use `x.last()`, `x.sw(n)`, `x.sw([p, f])`, `x.next()`, and `x.last(seq=H)` for a sequence. A raw `Input` used as a stream is **timeless**, shape `(dim,)`, data `(batch, *dim)` [verified]; one Input read both raw and through windows is refused by `build()` (`ValueError`) [verified]. As `minimize` targets and as `Loop` / `OdeNet` sequences use windows (`y.next()`, `s.last(seq=H)`): a raw timeless target against a timed source is refused by `train()` [verified].
 4. **Stream operators:** `+ - * / **` work between streams and Python numbers; numbers become timeless `Constant`s, applied to every sample. Operands must have the same time axes or be timeless (§3). Unary minus is not supported: `-x` raises `TypeError` [verified], so write `-1.0 * x` or `Negative()(x)`. Also unsupported: `2 ** x`, `@`, indexing `x[0]`, comparisons. For indexing use `Select`, `Range`, `TimeSelect` or `TimeRange`.
 5. **Objective targets** (`minimize(name, source, target, loss)`). `target` is one of:
    (a) a window of an `Input` (`y.next()`, `y.sw(n)`, `y.last(seq=H)`), or a raw `Input` for a timeless source;
@@ -37,7 +37,7 @@ Use this order:
 13. **`validate()` scores every objective**, including residual (`target=None`) and number targets [verified].
 14. **`save()` / `load()`** (nnodely format) **supports every model**, including `Loop`, `Roll` and `OdeNet`, whose bodies are saved in sub-folders. Weights are saved and loaded by default; `save(path, weights=False)` stores the architecture alone and `load(path, weights=False)` ignores saved weights, and either way the model is initialized as `build()` does. A loaded model's layers are its own: they never share weights with the model it was saved from or with another load of the same file. The method an `OdeNet.set_method()` switched to is saved with it. Objectives are not saved: a loaded model has no minimizers; call `minimize(...)` and `build()` again before `train()` [verified].
 15. **`Softmax()` normalizes each sample as a whole**: its values over every time and dim axis sum to one [verified]. For a softmax over the features use `Softmax(axis=-1)` [verified]: `axis` is a raw tensor axis (batch 0, time axes next, dims last), so `-1` is the last dim axis. `BatchNorm()` already normalizes per feature (its default axis is the first dim axis).
-16. **`Differentiate(respect_to=x)`**: `x` must be the `Input` object, not a window of it. The result has the shape of x's **union** window, `x.shape` [verified]. It does not work inside a model that is used as a composed block (§12).
+16. **`Differentiate(respect_to=x)`**: `x` must be the `Input` object, not a window of it. The result has the shape of the window of x that the differentiated relation reads (the union of its windows of x), whatever wider window other relations read [verified]. It does not work inside a model that is used as a composed block (§12).
 17. **`train()` defaults to `batch_size=1` and `epochs=10`.** Always pass both (typical batch sizes are 32–256).
 18. **Set `KERAS_BACKEND` before the first import** of `keras` or `nnodely`. With no value set, the backend is TensorFlow. A backend that is not installed raises `ImportError` naming the extra to install.
 19. **`Parameter` initializes to `random_normal` when no value is given.** For physical constants pass `value=<initial guess>`.
@@ -104,9 +104,9 @@ Stream attributes: `s.shape` (a `Shape(dim, time)`, tuple-like over `(*time, *di
 | `x.next()` | `x[t+1]` (= `sw([0, 1])`) | `(1,)` |
 | `x.sw(n, seq=s)`, `x.last(seq=s)`, `x.next(seq=s)` | `s` consecutive windows, the last ending at `t` (§9) | `(*s, n)` |
 
-`seq=` (an int or a tuple, outermost first; `-1` dynamic) declares the Input's sequence on its **first** window: `x.last(seq=(4, -1))` has time `(4, dyn, 1)`. Every window of the Input has that sequence. A later window may omit `seq` and inherits it (after `w.sw(10, seq=5)`, `w.last()` has time `(5, 1)`), but may not change it: `ValueError` [verified]. For another sequence, declare another Input.
+`seq=` (an int or a tuple, outermost first; `-1` dynamic) declares the Input's sequence on its **first** window: `x.last(seq=(4, -1))` has time `(4, dyn, 1)`. Every window of the Input has that sequence. A later window omits `seq` and inherits it (after `w.sw(10, seq=5)`, `w.last()` has time `(5, 1)`); giving `seq` again, even the same value, or after a first window without one, raises `ValueError` ("set only once") [verified]. For another sequence, declare another Input.
 
-The Input's own window is the union of all requested windows: `past = max p`, `future = max f`, and `Input.shape.time = (*seq, past + future)` [verified: `u = Input("u", dim=3); u.sw(10); u.sw([2, 3])` gives `u.shape` = `Shape(T=(13,), D=(3,))`]. Before its first window an Input is timeless, `Shape(T=(), D=(1,))`. Windows are ordered oldest first; index `-1` along the inner time is the newest sample.
+Requesting a window leaves the Input unchanged. `build()` gives every Input the union of the windows **that model's graph** reads (outputs, minimizer sides, rollback streams): `past = max p`, `future = max f`, `Input.shape.time = (*seq, past + future)`; a window declared but unused widens nothing, and each model reads its own windows (`model.train_inputs` hold them; the Input object shows the last model built) [verified: `u.sw(10)` and `u.sw([2, 3])` both used give `Shape(T=(13,), D=(3,))` after build]. Before build an Input is timeless, `Shape(T=(), D=(1,))`. A loaded model keeps at least the window the saved one read. Windows are ordered oldest first; index `-1` along the inner time is the newest sample.
 
 **Shape rules of common layers** [verified]. Input `v = Input("v", dim=3)`, window `v.sw(4)` of shape `T=(4,), D=(3,)`:
 
@@ -126,7 +126,7 @@ The Input's own window is the union of all requested windows: `past = max p`, `f
 | `Fuzzify(centers=Parameter("c", value=[0,1,2]))([g.last()])` | `T=(1,), D=(3,)`: trainable centers |
 | `LocalModel(lambda i: Fir(features=1))([t.sw(10)], [Fuzzify(...)([g.last()])])` | `T=(1,), D=(1,)` |
 | `Derivative(dt=dt)(x.sw(n))` | `T=(n,), D=(1,)`: window length preserved |
-| `Differentiate(respect_to=t_input)(u)` | `t_input.shape`, its union window |
+| `Differentiate(respect_to=t_input)(u)` | the window of `t_input` that `u` reads |
 | `IntegrateStep(dt=dt)(a.sw(n))` | `T=(n,), D=(1,)` |
 | Elementwise layers (activations, trig, `Exp`, `Clamp`, `Interpolation`, `BatchNorm`) | unchanged |
 
@@ -395,7 +395,7 @@ Reproducibility: call `set_seed(int)` before creating layers and data. It seeds 
 
 ### 11.1 `Differentiate(order=1, respect_to=<Input>, name=None)(stream)` and `Derivative(order=1, dt=<float>, init=None, window=None, poly_order=None, name=None)(stream)`
 Orders 1 and 2 are supported by both. Passing a number to `Differentiate` raises `TypeError` pointing to `Derivative`; `Derivative` requires a positive `dt`.
-- **`Differentiate`, with respect to an Input** (autodiff, exact): the result is `d(Σ stream)/d(input window)` (a VJP) with the Input's union shape, `x.shape`. It includes the trainable weights, can be nested, and can be trained through. It takes no `init`, `window` or `poly_order`. The stream must depend on that Input. Typical use is a PINN residual: `minimize("physics", Differentiate(respect_to=t)(u) + u)`. For `u` with dim>1 the result is the gradient of the sum of the components; take `Select` first to get one component. ONNX export: TensorFlow only, with batch fixed to 1. Torch refuses, and JAX cannot export.
+- **`Differentiate`, with respect to an Input** (autodiff, exact): the result is `d(Σ stream)/d(input window)` (a VJP), shaped like the window of the Input the stream reads. It includes the trainable weights, can be nested, and can be trained through. It takes no `init`, `window` or `poly_order`. The stream must depend on that Input. Typical use is a PINN residual: `minimize("physics", Differentiate(respect_to=t)(u) + u)`. For `u` with dim>1 the result is the gradient of the sum of the components; take `Select` first to get one component. ONNX export: TensorFlow only, with batch fixed to 1. Torch refuses, and JAX cannot export.
 - **`Derivative`, with respect to time** (`dt: float`, as in `IntegrateStep`): a causal finite difference along the stream's inner time that **keeps the window length**; outer time axes are kept.
   - `init` is the sample(s) just before the window: a stream of 1 sample of inner time (reused for each) or `window-1` samples, or a timeless one, its dim a scalar or the stream's, its outer time none or the stream's [verified]; a number; or `None` (zero).
   - `window` defaults to `order+1`, the plain backward difference. Larger values fit a polynomial by least squares (Savitzky–Golay style): they smooth noise at the cost of about `(window-1)/2` samples of delay.
@@ -450,7 +450,7 @@ Orders 1 and 2 are supported by both. Passing a number to `Differentiate` raises
 
 ## 13. Inference, validation and export
 
-**Inference arrays**: float32 NumPy, shape `(batch, *time, *dim)`, where `time` is the Input's union window with its sequence (`x.shape.time`); `(batch, *dim)` for a never-windowed Input. Results come back laid out the same. A single sample keeps a batch axis of 1.
+**Inference arrays**: float32 NumPy, shape `(batch, *time, *dim)`, where `time` is the union of the windows the model reads, with its sequence (`x.shape.time` after build); `(batch, *dim)` for a never-windowed Input. Results come back laid out the same. A single sample keeps a batch axis of 1.
 
 **`validate(val_data, out_dir=None, show=False, history=None, verbose=True)`**
 - Scores every objective and prints a summary (`verbose=False` skips it).
@@ -500,7 +500,8 @@ JAX cannot export ONNX at all: jax2tf emits an unconvertible XlaCallModule. `exp
 | `streams with different time axes cannot be combined` | Arithmetic between different times, e.g. `x.sw(3) + x.last()` or `x.last(seq=4) + y.last()` | Select or window to the same time axes, or use a timeless operand. |
 | `dim ... and dim ... cannot be combined` | Dims neither equal nor one a scalar, e.g. `(3,)` with `(2, 3)` | Make them equal, or reduce one to a scalar. |
 | `cannot be combined: each would be broadcast` | A timeless non-scalar (e.g. a `(2, 3)` Constant) with the window of a scalar | Give the timeless operand the window's time, or the window the operand's dim. |
-| `every window of an Input has the Input's sequence` | A later window with another `seq=` | Omit `seq` on later windows, or declare another Input. |
+| `the sequence of an Input is set only once` | A later window with `seq=` (any value) | Omit `seq` on later windows, or declare another Input. |
+| `reads the Input ... whole, and the graph also reads it through windows` | One Input read raw and windowed | Read it through a window there too (`x.last()`). |
 | `idx ... out of bounds for dim axis` | `Select` index out of range | Use an index within the axis size. |
 | `TypeError: bad operand type for unary -` | `-stream` | `-1.0 * stream` or `Negative()(stream)`. |
 | `OdeNet integrates an autonomous field, but [...] are body inputs that are not states` | Exogenous input in the field | Use `Ode` + `Loop` for driven systems. |

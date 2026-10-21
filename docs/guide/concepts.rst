@@ -74,15 +74,20 @@ physics needs it, as the ``dt`` of :doc:`derivatives and integrators <physics>`.
    around = x.sw([2, 1])   # x[t-1], x[t], x[t+1]
    print(past.shape, around.shape)   # Shape(T=(4,), D=(1,)) Shape(T=(3,), D=(1,))
 
-An input can be windowed several times. The data it needs is the union of all
-its windows, and the :class:`~nnodely.DataLoader` builds samples that cover it.
-All inputs are aligned on the current sample ``t``.
+An input can be windowed several times. Requesting a window leaves the input
+as it is: ``build()`` finds the windows the model's graph reads, and the data a
+model needs from an input is their union - a window declared but never used
+widens nothing, and two models of one input read their own windows. The
+:class:`~nnodely.DataLoader` builds samples that cover it, and the input's
+``shape`` reports it once the model is built. All inputs are aligned on the
+current sample ``t``. An input read through windows cannot also be read whole.
 
 ``seq=`` on a window declares the input's outer time: ``x.sw(3, seq=5)`` is
 five consecutive windows of three samples, ``x.last(seq=(4, 5))`` four
 sequences of five steps (outermost first, ``-1`` for a length that follows the
-data). An input has one sequence, set by its first window: later windows may
-leave ``seq`` out, but not change it.
+data). An input has one sequence, set once, by its first window: later windows
+have it and leave ``seq`` out - giving it again is an error, even with the same
+value.
 
 Layers
 ------

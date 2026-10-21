@@ -79,9 +79,14 @@ class SampleWindow(Layer):
         )
 
     def output_shape(self, *inputs):
-        # The window replaces the inner time; the outer time axes are kept.
-        shape = inputs[0].shape
-        return shape.replace(time=(*shape.time[:-1], self.window_size))
+        from nnodely.layers.input import Input
+
+        # The window replaces the inner time; the outer time axes are kept -
+        # an Input's are its sequence, whatever window it is read through.
+        source = inputs[0]
+        shape = source.shape
+        outer = source.sequence if isinstance(source, Input) else shape.time[:-1]
+        return shape.replace(time=(*outer, self.window_size))
 
     def build_layer(self):
         from nnodely.layers.input import Input

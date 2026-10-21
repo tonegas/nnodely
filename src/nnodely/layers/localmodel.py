@@ -70,7 +70,7 @@ class FuzzyProductImpl(keras.layers.Layer):
         ]
         result = xs[0]
         for activation in xs[1:]:
-            cells = result.shape[-1] * activation.shape[-1]
+            cells = result.shape[-1] * activation.shape[-1]  # type: ignore
             result = keras.ops.expand_dims(result, -1) * keras.ops.expand_dims(
                 activation, -2
             )

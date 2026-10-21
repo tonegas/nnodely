@@ -130,8 +130,14 @@ variable, and trains, validates and exports through Keras. Models saved with
   laid out the same, `(samples, *time, *dim)`.
 - The sequence of an `Input`, its outer time, is declared on its windows:
   `x.sw(3, seq=5)`, `x.last(seq=(4, -1))` (outermost first, `-1` dynamic).
-  An input has one sequence, set by its first window; a later window may
-  leave `seq` out, but not change it.
+  An input has one sequence, set once, by its first window: a later window
+  has it and gives no `seq`, which is an error even with the same value.
+- A window leaves its `Input` as it is: `build()` gives every Input the
+  union of the windows the model's graph reads, so a window declared but not
+  used widens nothing, and two models of one Input read their own windows;
+  the Input's `shape` reports it once built. An Input read both whole and
+  through windows is refused. `Differentiate(respect_to=x)` has the shape of
+  the window of `x` its relation reads.
 - Arithmetic between streams: streams with time must have the same time
   axes, and one without time applies to every sample; dims must be equal,
   or one a scalar; and one stream must already have the shape of the result,

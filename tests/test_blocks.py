@@ -460,8 +460,10 @@ def test_fuzzify_on_moving_centers_matches_fixed_centers():
         ),
     }
     outputs = []
+    # One window, with the Input's sequence, read by every pair.
+    window = x.sw(2, seq=-1)
     for key, (fixed, moving) in pairs.items():
-        fixed_out, moving_out = fixed([x.sw(2, seq=-1)]), moving([x.sw(2, seq=-1)])
+        fixed_out, moving_out = fixed([window]), moving([window])
         assert moving_out.shape.dimensions == fixed_out.shape.dimensions
         outputs += [Output(f"same_{key}_fixed", fixed_out)]
         outputs += [Output(f"same_{key}_moving", moving_out)]
@@ -1542,16 +1544,15 @@ def test_integrate_starts_from_none_a_number_or_a_stream():
 def test_integrate_each_feature_of_a_vector_rate():
     rate, start = Input("vector_rate", dim=2), Input("vector_init", dim=2)
     scalar_start = Input("vector_scalar_init")
+    steps = rate.last(seq=-1)  # the rate's sequence, set once
     model = Modely(
         "vector",
         inputs=[rate, start, scalar_start],
         outputs=[
-            Output(
-                "vector_out", Integrate(dt=1.0, init=start.last())(rate.last(seq=-1))
-            ),
+            Output("vector_out", Integrate(dt=1.0, init=start.last())(steps)),
             Output(
                 "vector_scalar_out",
-                Integrate(dt=1.0, init=scalar_start.last())(rate.last(seq=-1)),
+                Integrate(dt=1.0, init=scalar_start.last())(steps),
             ),
         ],
     ).build()

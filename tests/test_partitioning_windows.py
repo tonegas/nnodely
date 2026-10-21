@@ -557,3 +557,120 @@ def test_one_time_op_applied_to_streams_of_two_shapes():
     result = model({"two_shapes_c": cs, "two_shapes_d": ds})
     np.testing.assert_array_equal(to_numpy(result["two_shapes_rc"]), cs[:, :, ::-1])
     np.testing.assert_array_equal(to_numpy(result["two_shapes_rd"]), ds[:, ::-1])
+
+
+def test_unbounded_temporal_window():
+    from nnodely import Fir
+
+    x = Input("unbounded_x")
+    print(x.shape)
+    # this is wrong, x_window will never be used inside the graph but it will still modify the input shape of x
+    x_window = x.sw(5)  # noqa: F841 - declared, never used
+    print(x.shape)
+    x_window_3 = x.sw(3)
+    print(x.shape)
+
+    fir = Fir(features=1)(x_window_3)
+
+    out1 = Output("out", fir)
+
+    model = Modely(
+        "unbounded_model",
+        inputs=[x],
+        outputs=[out1],
+    ).build()
+    print(x.shape)
+
+    assert x.shape.time == (3,)  ## it will give (5) which is wrong
+
+    data_train = DataLoader(
+        model,
+        format={"unbounded_x": "data_1"},
+        source=os.path.join(os.path.dirname(__file__), "datasets"),
+    )
+
+    assert data_train.dataset is not None
+    sample = data_train.get_samples(1, start=0)
+    assert (
+        sample["unbounded_x"].shape == (1, 3, 1)
+    )  # I expect this to be (1, 3, 1) but it's (1, 5, 1) because of the x_window = x.sw(5) line above
+
+
+def test_sequence_allowed_only_once():
+    x = Input("seq_once_x")
+    x.sw(3, seq=3)
+    with pytest.raises(ValueError, match="only once"):
+        x.sw(2, seq=2)
+
+
+def test_each_model_reads_the_windows_of_its_own_graph():
+    # Requesting a window leaves the Input as it is: build() finds the windows
+    # of the model's graph, so two models of one Input read their own.
+    from nnodely import Fir
+
+    x = Input("own_windows_x")
+    narrow, wide = x.sw(2), x.sw(4)
+    assert x.shape.time == ()  # nothing built yet
+    a = Modely(
+        "own_a", inputs=[x], outputs=[Output("own_a_out", Fir(features=1)(narrow))]
+    ).build()
+    b = Modely(
+        "own_b", inputs=[x], outputs=[Output("own_b_out", Fir(features=1)(wide))]
+    ).build()
+    assert x.shape.time == (4,)  # the last model built
+    source = {"own_windows_x": np.arange(10.0).reshape(-1, 1)}
+    assert DataLoader(a, source=source).get_samples(1)["own_windows_x"].shape == (
+        1,
+        2,
+        1,
+    )
+    assert DataLoader(b, source=source).get_samples(1)["own_windows_x"].shape == (
+        1,
+        4,
+        1,
+    )
+    # a, built first, still reads its own window.
+    assert a.train_inputs[0].shape.time == (2,)
+
+
+def test_a_window_only_a_minimizer_reads_widens_the_training_input():
+    from nnodely import Fir
+
+    x = Input("trained_window_x")
+    out = Output("trained_window_out", Fir(features=1)(x.sw(2)))
+    model = Modely("trained_window", inputs=[x], outputs=[out])
+    model.minimize("fit", out, x.sw([1, 1]))  # one sample ahead
+    model.build()
+    assert (x.past, x.future) == (2, 1)
+
+
+def test_an_input_read_whole_and_through_windows_is_refused():
+    from nnodely import Fir
+
+    x = Input("whole_and_window_x")
+    model = Modely(
+        "whole_and_window",
+        inputs=[x],
+        outputs=[
+            Output("whole", x * 2.0),
+            Output("window", Fir(features=1)(x.sw(3))),
+        ],
+    )
+    with pytest.raises(ValueError, match="reads the Input 'whole_and_window_x' whole"):
+        model.build()
+
+
+def test_the_sequence_is_set_by_the_first_window_alone():
+    x = Input("first_seq_x")
+    first = x.sw(3, seq=-1)
+    later = x.sw(2)  # inherits it
+    assert first.time == (None, 3) and later.time == (None, 2)
+    # Set again, even to the same value, it is refused: a window made before
+    # would not have it.
+    with pytest.raises(ValueError, match="only once"):
+        x.last(seq=-1)
+    # A first window without one sets "no sequence".
+    y = Input("first_seq_y")
+    y.last()
+    with pytest.raises(ValueError, match="only once"):
+        y.sw(2, seq=4)

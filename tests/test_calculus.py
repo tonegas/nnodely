@@ -1616,3 +1616,29 @@ def test_train_a_rate_through_an_integrated_trajectory():
         rtol=1e-2,
         atol=1e-2,
     )
+
+
+def test_differentiate_reads_the_window_of_its_relation():
+    # The model reads x through a window of 5 for another output; the
+    # derivative of a Fir over x.sw(3) is still one value per sample of the
+    # window it reads, the Fir's weights, cut from the derivative over all 5.
+    x = Input("own_window_dx", dim=1)
+    fun = Fir(features=1)([x.sw(3)])
+    derivative = Differentiate(order=1, respect_to=x)(fun)
+    assert derivative.shape.tuple == (3, 1)
+    model = Modely(
+        "own_window_d",
+        inputs=[x],
+        outputs=[
+            Output("own_window_d_out", derivative),
+            Output("own_window_d_wide", Fir(features=1)([x.sw(5)])),
+        ],
+    ).build()
+    assert x.shape.time == (5,)
+
+    values = np.arange(5.0, dtype=np.float32).reshape(1, 5, 1)
+    result = to_numpy(model({"own_window_dx": values})["own_window_d_out"])
+    assert result.shape == (1, 3, 1)
+    np.testing.assert_allclose(
+        result, to_numpy(fun.kernel).reshape(1, 3, 1), rtol=1e-5, atol=1e-5
+    )

@@ -269,16 +269,18 @@ minimizers read, such as targets, are ignored, so the arrays of a
 passed as they are. The result maps output names to tensors of the active
 backend.
 
-The time axes of an input's array must cover the union of all its windows,
-which the input's ``shape`` reports. Here ``velocity`` is read through
-``sw(5)``, so it needs five samples:
+The time axes of an input's array must cover the union of the windows the
+model reads from it, which the input's ``shape`` reports once the model is
+built. Here the model reads ``velocity`` through ``last()`` alone - the
+``sw(5)`` of ``oldest`` above is not part of it, so it widens nothing - and
+``torque`` through ``sw(10)``:
 
 .. code-block:: python
 
-   print(velocity.shape, torque.shape)   # Shape(T=(5,), D=(1,)) Shape(T=(10,), D=(1,))
+   print(velocity.shape, torque.shape)   # Shape(T=(1,), D=(1,)) Shape(T=(10,), D=(1,))
 
    sample = {
-       "velocity": np.full((1, 5, 1), 15.0),
+       "velocity": np.full((1, 1, 1), 15.0),
        "torque": np.ones((1, 10, 1)),
        "gear": np.full((1, 1, 1), 2.0),
        "altitude": np.zeros((1, 1, 3)),

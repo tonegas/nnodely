@@ -52,6 +52,14 @@ class ModelSerializer:
         path.mkdir(parents=True, exist_ok=True)
 
         flat = model.flatten()
+        # Every Input is saved with the window the built model reads it
+        # through, which may be wider than the windows of its outputs alone.
+        from nnodely.layers.input import Input, resolve_windows
+
+        resolve_windows(flat.order)
+        for node in flat.order:
+            if isinstance(node, Input) and node.name in model._input_windows:
+                node._set_window(*model._input_windows[node.name])
 
         node_ids = {node: f"node_{i}" for i, node in enumerate(flat.order)}
 

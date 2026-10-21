@@ -36,7 +36,7 @@ import numpy as np
 from typing import cast
 
 from nnodely.layers.output import Output
-from nnodely.layers.input import Input
+from nnodely.layers.input import Input, resolve_windows
 from nnodely.core.layer import Layer, _claim_keras_name
 
 import keras
@@ -77,6 +77,8 @@ class Modely:
         self._roll_callbacks: dict[Input, Stream] = {}
         self._roll_steps: int | None = None
         self._roll_name: str | None = None
+        # The window (past, future) build() found for each Input, by name.
+        self._input_windows: dict[str, tuple[int, int]] = {}
 
     def __repr__(self) -> str:
         items = " \n- ".join(map(str, self.order))
@@ -162,6 +164,14 @@ class Modely:
             return_memo=True,
         )
         self.train_inputs = [node for node in flat.order if isinstance(node, Input)]
+        # The window every Input is read through is the union of the windows
+        # this graph takes from it - not every window ever declared on it.
+        # The declared Inputs get it too, to show the shape the data has.
+        windows = resolve_windows(flat.order)
+        self._input_windows = {node.name: window for node, window in windows.items()}
+        for node, flat_node in flatten_memo.items():
+            if isinstance(node, Input) and flat_node in windows:
+                node._set_window(*windows[flat_node])
         if not self.train_inputs:
             # Keras would only say that its outputs are not KerasTensors.
             raise ValueError(
@@ -764,10 +774,8 @@ class Modely:
         for input_ref, stream_ref in rollback.items():
             input_node = resolve(self.inputs, input_ref, "input")
             stream = resolve(graph_streams, stream_ref, "stream")
-            # One sample of the inner time; the outer time axes are kept.
-            expected = input_node.shape.replace(
-                time=(*input_node.shape.time[:-1], 1)
-            ).tuple
+            # One sample of the inner time, within the Input's sequence.
+            expected = input_node.shape.replace(time=(*input_node.sequence, 1)).tuple
             if stream.shape.tuple != expected:
                 raise ValueError(
                     f"roll stream {stream.name!r} must produce one temporal "

@@ -27,7 +27,7 @@ def _depends_on_dynamic_input(node) -> bool:
         if id(current) in seen:
             continue
         seen.add(id(current))
-        if isinstance(current, Input) and any(n is None for n in current.time):
+        if isinstance(current, Input) and any(n is None for n in current.sequence):
             return True
         stack.extend(current.preds)
     return False

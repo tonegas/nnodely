@@ -2153,3 +2153,28 @@ def test_onnx_outputs_of_one_shape_keep_their_names(tmp_path):
         3.0,
         4.0,
     ]
+
+
+def test_a_loaded_model_reads_the_window_the_saved_one_read(tmp_path):
+    # The saved graph has the outputs alone, which read 3 samples; the model
+    # was built reading 5 for its minimizer, and the loaded one reads the same
+    # data as it did.
+    x = Input("saved_window_x")
+    out = Output("saved_window_out", Fir(features=1)(x.sw(3)))
+    model = Modely("saved_window", inputs=[x], outputs=[out])
+    model.minimize("fit", out, Fir(features=1)(x.sw(5)))
+    model.build()
+    data = {
+        "saved_window_x": np.random.default_rng(0)
+        .normal(size=(2, 5, 1))
+        .astype(np.float32)
+    }
+
+    model.save(tmp_path / "saved_window")
+    restored = Modely.load(tmp_path / "saved_window")
+    assert restored.train_inputs[0].past == 5
+    np.testing.assert_allclose(
+        to_numpy(restored(data)["saved_window_out"]),
+        to_numpy(model(data)["saved_window_out"]),
+        rtol=1e-6,
+    )
