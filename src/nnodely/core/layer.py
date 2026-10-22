@@ -326,6 +326,7 @@ _BINARY_OPERATIONS = {
     "multiply": keras.ops.multiply,
     "divide": keras.ops.divide,
     "power": keras.ops.power,
+    "arctan2": keras.ops.arctan2,
 }
 
 

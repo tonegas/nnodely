@@ -162,6 +162,20 @@ class _MinimizerTerm:
         self.tracker = keras.metrics.Mean(name=f"{name}_loss")
 
 
+def _rollout_mask(term, target, y):
+    """The padding mask ``y`` laid out to broadcast against ``target``, or
+    None when it does not apply to the minimizer.
+
+    The mask is one row per sample, one column per rollout step, and the
+    rollout is the outer step axis of every padded stream.
+    """
+    if not term.masked or y is None:
+        return None
+    if target.shape[OUTER_TIME_AXIS] not in (None, y.shape[-1]):
+        return None
+    return outer_time_view(keras.ops.cast(y, "bool"), len(target.shape))
+
+
 class _MinimizerTerms:
     """Plain holder, so Keras does not track the terms as model state.
 
@@ -223,6 +237,27 @@ class MinimizerModel(keras.Model):
             target = keras.ops.broadcast_to(target, keras.ops.shape(source))
         return target
 
+    @staticmethod
+    def _term_loss(term, source, target, y):
+        """One minimizer's loss: ``source`` against its aligned ``target``,
+        with the padded rollout steps the mask ``y`` marks left out.
+
+        Validation computes its loss here too, so a model is scored on its
+        validation data exactly as it was trained.
+        """
+        valid = _rollout_mask(term, target, y)
+        if valid is not None:
+            target = keras.ops.where(valid, target, keras.ops.full_like(target, np.nan))
+        if term.seq_weights is not None:
+            # The rollout is unrolled, so its length is static here.
+            weights = _seq_weights_for(
+                term.seq_weights, source.shape[OUTER_TIME_AXIS], term.name
+            )
+            return _weighted_sequence_loss(term.loss, target, source, weights)
+        # A loss function returns one value per sample, a Loss instance the
+        # reduced value: the mean is how compile() reduces either.
+        return keras.ops.mean(term.loss(target, source))
+
     def compute_loss(
         self, x=None, y=None, y_pred=None, sample_weight=None, training=True
     ):
@@ -241,32 +276,13 @@ class MinimizerModel(keras.Model):
                 )
             source = y_pred[term.source]
             target = self._align_target(term, y_pred[term.target], source)
-            # The mask is one row per sample, one column per rollout step, and
-            # the rollout is the outer step axis of every padded stream.
-            rollout = (
-                target.shape[OUTER_TIME_AXIS] in (None, y.shape[-1])
-                if y is not None
-                else False
-            )
-            if term.masked and rollout:
-                valid = outer_time_view(keras.ops.cast(y, "bool"), len(target.shape))
-                target = keras.ops.where(
-                    valid, target, keras.ops.full_like(target, np.nan)
-                )
-            if term.seq_weights is not None:
-                # The rollout is unrolled, so its length is static here.
-                weights = _seq_weights_for(
-                    term.seq_weights, source.shape[OUTER_TIME_AXIS], term.name
-                )
-                value = _weighted_sequence_loss(term.loss, target, source, weights)
-            else:
-                # A loss function returns one value per sample, a Loss instance
-                # the reduced value: the mean is how compile() reduces either.
-                value = keras.ops.mean(term.loss(target, source))
+            value = self._term_loss(term, source, target, y)
             # Logged unweighted by the gain, as Keras logs a per-output loss
             # under loss_weights; only the total the optimizer sees is weighted.
             # The seq_weights are part of the loss itself, so they are logged.
-            term.tracker.update_state(value)
+            # Each batch weighs as many samples as it holds, as in Keras's own
+            # loss: a short last batch would otherwise count as a full one.
+            term.tracker.update_state(value, sample_weight=keras.ops.shape(source)[0])
             weighted = value if term.gain == 1.0 else value * term.gain
             total = weighted if total is None else total + weighted
         if self.losses:

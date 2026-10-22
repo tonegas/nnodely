@@ -34,8 +34,8 @@ Use this order:
 10. **Weight sharing means reusing the same layer object:** `lin = Linear(features=4)`, then `lin([a])` and `lin([b])` share weights. A `Linear(...)` created *inside* a function that runs several times (for example the `f` of `Ode`, which runs once per RK stage) creates new weights on every call. Create weight-bearing layers and `Parameter`s outside `f` and call them inside.
 11. **Body models** passed to `Loop`, `Roll` or `OdeNet` keep their own objectives to themselves: the outer model neither trains them nor needs their target inputs [verified]. Put the objectives on the outer model.
 12. **Inference reads only what the outputs need:** `model(data)` takes the Inputs in `model.inference_inputs`. Target-only Inputs can be left out and extra keys are ignored [verified]. A missing needed input raises `ValueError` naming it.
-13. **`validate()` scores every objective**, including residual (`target=None`) and number targets [verified].
-14. **`save()` / `load()`** (nnodely format) **supports every model**, including `Loop`, `Roll` and `OdeNet`, whose bodies are saved in sub-folders. Weights are saved and loaded by default; `save(path, weights=False)` stores the architecture alone and `load(path, weights=False)` ignores saved weights, and either way the model is initialized as `build()` does. A loaded model's layers are its own: they never share weights with the model it was saved from or with another load of the same file. The method an `OdeNet.set_method()` switched to is saved with it. Objectives are not saved: a loaded model has no minimizers; call `minimize(...)` and `build()` again before `train()` [verified].
+13. **`validate()` scores every objective as training does**, including residual (`target=None`) and number targets: its loss is `train()`'s `val_<name>_loss`, its metrics are per channel and leave padded rollout steps out (§13) [verified].
+14. **`save()` / `load()`** (nnodely format) **supports every model**, including `Loop`, `Roll` and `OdeNet`, whose bodies are saved in sub-folders. Weights are saved and loaded by default; `save(path, weights=False)` stores the architecture alone and `load(path, weights=False)` ignores saved weights, and either way the model is initialized as `build()` does. A loaded model's layers are its own: they never share weights with the model it was saved from or with another load of the same file. The method an `OdeNet.set_method()` switched to is saved with it. A `Parameter` or `Constant` read by several models of the tree (Loop bodies, blocks, the outer model) is one object: saved under one id in each model's file, it is loaded as one object, listed once in `parameters`, and frozen everywhere at once [verified]. Objectives are not saved: a loaded model has no minimizers; call `minimize(...)` and `build()` again before `train()` [verified].
 15. **`Softmax()` normalizes each sample as a whole**: its values over every time and dim axis sum to one [verified]. For a softmax over the features use `Softmax(axis=-1)` [verified]: `axis` is a raw tensor axis (batch 0, time axes next, dims last), so `-1` is the last dim axis. `BatchNorm()` already normalizes per feature (its default axis is the first dim axis).
 16. **`Differentiate(respect_to=x)`**: `x` must be the `Input` object, not a window of it. The result has the shape of the window of x that the differentiated relation reads (the union of its windows of x), whatever wider window other relations read [verified]. It does not work inside a model that is used as a composed block (§12).
 17. **`train()` defaults to `batch_size=1` and `epochs=10`.** Always pass both (typical batch sizes are 32–256).
@@ -244,7 +244,7 @@ Legend: **in → out** gives semantic shapes `(*time, *dim)`. `d` = dim, `T` = a
 `ReLU(max_value=None, negative_slope=0.0, threshold=0.0)`, `LeakyReLU(negative_slope=0.3)`, `ELU(alpha=1.0)`, `PReLU(shared_axes=None)` (trainable: one slope per feature, shared along every time axis, a dynamic one included [verified]; `shared_axes` counts raw tensor axes: batch 0, time axes `1 … time_rank`, dims last), `Sigmoid()`, `Tanh()`, `Swish()`, `GELU(approximate=True)`, `Softplus()`, `Softmax(axis=None)` (the whole sample; `axis=-1` for the features, a raw tensor axis, §1.15). All accept `name=`. Called on a list of streams, an activation (or a math or trigonometric layer, `Clamp`, a membership function) is applied to each and returns a list, `Sin([a, b])` → `[sin(a), sin(b)]`; one with settings applied before it is configured, `ReLU(x)`, raises `TypeError`.
 
 ### 6.4 Math (elementwise)
-`Sin Cos Tan Asin Acos Atan Exp Log Log10 Sqrt Abs Floor Ceil Deg2Rad Sign Negative` take no arguments except `name=`. Neither does `Atan2`, called on `[y, x]`: `atan2(y, x)`, the angle of the point `(x, y)` in `[-pi, pi]`, with its quadrant. `Clamp(min=None, max=None)`: a `None` bound is unbounded. `Sum(axis=None)` sums the dim axes and keeps them with length 1 (`axis=None` sums all dim axes, an int picks one). `Floor`, `Ceil` and `Sign` have zero gradient.
+`Sin Cos Tan Asin Acos Atan Exp Log Log10 Sqrt Abs Floor Ceil Deg2Rad Sign Negative` take no arguments except `name=`. Neither does `Atan2`, called on `[y, x]`: `atan2(y, x)`, the angle of the point `(x, y)` in `[-pi, pi]`, with its quadrant; `y` and `x` broadcast as the arithmetic operators do (§3), e.g. a `Constant` against a sequence. `Clamp(min=None, max=None)`: a `None` bound is unbounded. `Sum(axis=None)` sums the dim axes and keeps them with length 1 (`axis=None` sums all dim axes, an int picks one). `Floor`, `Ceil` and `Sign` have zero gradient.
 
 ### 6.5 Axis manipulation
 | Signature | Effect |
@@ -288,7 +288,7 @@ See §10 (`Loop`, `Roll`, `rollback`) and §11 (`Differentiate`, `Derivative`, `
 | `export_html(out_dir, filename=None, *, open_subgraph_in_new_tab=False, physics=True)` | Interactive vis-network graph, one page per sub-model. |
 | `plot(out_dir, filename=None, *, flatten=False, include_minimizers=True, format="png")` | Graphviz images in `out_dir`, the root named `filename` (the model name by default); a path or filename with an image suffix (`.png`, `.svg`, `.pdf`) names the file and format. Nodes show only their name, coloured by role (inputs green, outputs red); arrows carry the shape `(*time, *dim)` (`dyn` for a dynamic time axis). Without `flatten`, each block (ModelCall, Loop, Roll) is one SubModel node and its body is drawn as `<filename>_<body name>`, recursively; with `flatten`, one image, each called sub-model boxed. Loop recurrences are an orange `loop` arrow, Roll and rollback a teal `roll (steps=n)` arrow. Every image has the logo and a legend (Input, Output, Parameter, Constant, SubModel, Loss, loop, roll). Without the Graphviz `dot` program it warns and writes each image's DOT source as `.gv`. Returns None. |
 | `save(path, weights=True)`, `Modely.load(path, weights=True)` | nnodely format: a folder with `model.json` and `model.weights.h5`, bodies of Loop, Roll and OdeNet in sub-folders (§1.14). |
-| `export_keras(path, filename=None)`, `Modely.import_keras(filename, safe_mode=True)` → `keras.Model` | Writes `path/<filename or model name>.keras`. The imported object is a plain Keras model; call it with batched float32 dicts. Pass `safe_mode=False` if loading refuses nested or lambda configs. |
+| `export_keras(path, filename=None)`, `Modely.import_keras(filename, safe_mode=True)` → `keras.Model` | Writes `path/<filename or model name>.keras`: a stand-alone copy for inference. A weight read from several Keras graphs (a body in two Loops, a Parameter inside and outside a body, a block also in a Loop, the sub-graphs of `Differentiate`) is written once per graph with the same value, since Keras cannot rebuild a layer two graphs call: the imported model gives the same outputs, but further Keras training would untie the copies - use `save`/`load` for that [verified]. The imported object is a plain Keras model; call it with batched float32 dicts. Pass `safe_mode=False` if loading refuses nested or lambda configs. |
 | `export_onnx(path, filename=None, *, input_signature=None, batch_size=None, opset_version=None, verbose=False)` | Writes `path/<filename or model name>.onnx`. Needs the `onnx` extra and the TF or Torch backend (§13). |
 | `Modely.validate_onnx(filename, inputs, *, return_dict=False, providers=None)` | Runs an exported ONNX file with onnxruntime. |
 
@@ -315,7 +315,7 @@ Properties: `built`, `model` (the training keras.Model), `inference_model` (the 
 - `optimizer`: a name (`sgd rmsprop adam adamw adagrad adadelta adamax adafactor nadam ftrl lion`; default `"adam"`), a config dict, or an instance. `lr` and `optimizer_kwargs` (e.g. `{"weight_decay": 1e-4, "global_clipnorm": 1.0}`) apply only to names; configure an instance yourself.
 - `early_stopping`: the name of a logged quantity (`"loss"`, `"<minimizer name>_loss"`, or their `val_` versions with `val_data`), completed by `early_stopping_kwargs` into a `keras.callbacks.EarlyStopping`; a dict of `EarlyStopping` arguments; or any callback that sets `self.model.stop_training = True`. Typical: `early_stopping="val_loss", early_stopping_kwargs={"patience": 10, "restore_best_weights": True}`. Monitoring a quantity that is not logged raises `ValueError`; the mode defaults to `"min"` (every logged quantity is a loss).
 - `printer`: `"legacy"` (default, a loss table), `"tiny"`, `"nnodely"` (animated), `None` (silent), or any `keras.callbacks.Callback`.
-- Returns a history dict: `loss` (the total) and `<minimizer name>_loss` for each objective, plus their `val_` versions with `val_data` [verified: one objective named `one` gives `['loss', 'one_loss', 'val_loss', 'val_one_loss']`].
+- Returns a history dict: `loss` (the total) and `<minimizer name>_loss` for each objective, plus their `val_` versions with `val_data` [verified: one objective named `one` gives `['loss', 'one_loss', 'val_loss', 'val_one_loss']`]. Every logged loss is the mean over the dataset's samples, batches weighed by their size (a short last batch counts for its samples only) [verified].
 - Each `train` call continues from the current weights.
 - Padded rollout steps (`seq_length="full"`) are masked automatically, along the outer time (tensor axis 1).
 - To freeze a composed block, call `block.freeze()` before training the outer model; `block.unfreeze()` releases it. `p.freeze()` freezes one Parameter.
@@ -440,6 +440,7 @@ Orders 1 and 2 are supported by both. Passing a number to `Differentiate` raises
 ## 12. Model composition
 
 - `block = Modely("b", inputs=[a, c], outputs=[o1, o2]).build()`. Then `o1s, o2s = block([stream_for_a, stream_for_c])`. The streams go in the order of `block.inputs`, exactly one per input (another count raises `ValueError`), and a single output returns a single stream.
+- A block keeps its shapes: each stream must have the shape the block's graph reads that input with (its window, with its sequence; a dynamic axis matches any length), else `ValueError` ("takes a stream of that shape") - nothing is reshaped, so a block reading `x.last()` refuses `a.last(seq=3)` or `a.sw(3)` [verified]. An `Input` can be passed whole, `block([a])`: the block's own windows read it, and it must have the block input's dim and sequence [verified].
 - The block brings its weights along (trained weights are reused while input shapes match), and training the outer model also trains the block. To freeze it: `block.freeze()`.
 - Calling the same block twice shares its weights (§1.22 covers naming).
 - `EquationLearner` uses composition internally.
@@ -453,11 +454,14 @@ Orders 1 and 2 are supported by both. Passing a number to `Differentiate` raises
 **Inference arrays**: float32 NumPy, shape `(batch, *time, *dim)`, where `time` is the union of the windows the model reads, with its sequence (`x.shape.time` after build); `(batch, *dim)` for a never-windowed Input. Results come back laid out the same. A single sample keeps a batch axis of 1.
 
 **`validate(val_data, out_dir=None, show=False, history=None, verbose=True)`**
-- Scores every objective and prints a summary (`verbose=False` skips it).
-- Metrics per objective (`result[name].metrics`, or `result.metrics()` for everything): `loss rmse mae max_error bias std_error nrmse_pct fit_pct r2 correlation non_finite`.
-  - `fit_pct` = 100(1 − ‖y−ŷ‖/‖y−ȳ‖).
-  - Relative metrics are NaN when the target is constant.
-- `out_dir` writes PNGs (prediction vs target, error, parity, histogram, plus loss curves when `history` is given), and `result.figures` lists them.
+- Scores every objective as training does: same forward pass (`training=False`), same target alignment, same padding mask. `metrics["loss"]` equals `train()`'s `val_<name>_loss` on the same data (`seq_weights` and masking included, `gain` not applied) [verified]. Prints a summary (`verbose=False` skips it).
+- Metrics per objective (`result[name].metrics`, or `result.metrics()` for everything): `loss rmse mae max_error bias std_error nrmse_pct fit_pct r2 vaf_pct correlation non_finite`.
+  - With e = ŷ − y: `fit_pct` = 100(1 − ‖e‖/‖y−ȳ‖), `r2` = 1 − Σe²/Σ(y−ȳ)², `vaf_pct` = 100(1 − var(e)/var(y)), `nrmse_pct` = 100·RMSE/range(y); `rmse² = bias² + std_error²`.
+  - Per channel (each dim element of the signal): `result[name].channel_metrics[key]` is an array, one value per channel. The whole-signal absolute metrics pool every channel; the relative ones are the mean over channels [verified].
+  - Relative metrics are NaN for a channel whose target is constant, and that channel is left out of the mean. Correlation is 0 for a constant prediction. Any NaN/inf error → `non_finite` count and NaN metrics.
+  - Padded rollout steps (`seq_length="full"`, simulations of different lengths) are left out of every metric: the padded set scores the same as each simulation alone [verified]. `score.points` / `score.padded` count the scored and the left-out points. The loss keeps training's definition (padded steps add 0 but count in the mean).
+  - `score.step_rmse`: `(steps, channels)` RMSE along the outer time for a signal with ≥ 2 time axes (a rollout), else `None`.
+- `out_dir` writes PNGs (prediction vs target over the scored points, error, parity, histogram, RMSE per rollout step when there is one, plus loss curves when `history` is given), and `result.figures` lists them.
 
 **Export support**
 
@@ -467,7 +471,8 @@ Orders 1 and 2 are supported by both. Passing a number to `Differentiate` raises
 | `Differentiate(respect_to=Input)` | yes | yes | yes (batch 1) | no | no |
 | `Loop`, `Roll` | yes | yes [verified] | yes [verified for Loop] | yes (per docs) | no |
 | `OdeNet` (fixed tableau) | yes | yes | yes (per docs) | yes (per docs) | no |
-| `OdeNet(method="dopri5")` | yes, but loads with its declared method | yes | no | no | no |
+| `OdeNet(method="dopri5")` | yes (`set_method` included) | yes | no | no | no |
+| A weight read from several graphs (body in two Loops, Parameter inside and outside a body, block also in a Loop, several `Differentiate`) | yes, shared | yes, as equal copies | yes | yes | no |
 
 JAX cannot export ONNX at all: jax2tf emits an unconvertible XlaCallModule. `export_onnx(batch_size=n)` fixes the batch axis.
 
@@ -482,6 +487,7 @@ JAX cannot export ONNX at all: jax2tf emits an unconvertible XlaCallModule. `exp
 | `reads the inputs [...], which are missing from the data it was called with` | An input of `model.inference_inputs` is not in the dict (§1.12) | Add it. |
 | `expected shape=(None, ...), found shape=(...)` at inference | An array laid out in the old `(batch, *dim, time)` order, or without its batch axis, e.g. `loader[i]` (§1.24; a missing batch axis may also fail inside a layer, or be misread) | Lay it out `(batch, *time, *dim)`; add a batch axis: `v[None]`. |
 | `used as a block it takes one stream for each, in that order` | A block called with fewer or more streams than its inputs | Pass one stream per `block.inputs`. |
+| `so used as a block it takes a stream of that shape` | A block called on a stream of another window, sequence or dim | Pass a stream of the shape the block reads (or the Input whole), or declare the block on the shape it is used with. |
 | `... is missing required inputs: [...]` (DataLoader) | Data dict lacks an input, often a target-only one | Add the column, or map it with `format`. |
 | `has only N samples, but the model requires at least M` | Simulation shorter than windows plus sequences | Shorter windows or seq, more data, or `on_short="skip"`. |
 | `Some inputs have undefined sequence length` | `seq=-1` without `seq_length` | `DataLoader(..., seq_length=H)` or `"full"`. |

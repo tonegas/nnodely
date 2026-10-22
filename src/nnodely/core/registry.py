@@ -18,6 +18,8 @@ class _Loading:
         self.sources: dict[int, object] = {}
         self.layers: dict[int, object] = {}
         self.ids: dict[int, int] = {}  # id(node) -> the id its layer was saved under
+        # The Parameters and Constants loaded, by the id they were saved under.
+        self.values: dict[int, object] = {}
 
     def restore(self, node, layer_id: int | None) -> None:
         if layer_id is None:
@@ -132,6 +134,7 @@ class ModelSerializer:
     @staticmethod
     def deserialize(data, path, *, loading):
         from nnodely.core.modely import Modely
+        from nnodely.layers.parameter import _Value
 
         node_map = {}
 
@@ -143,6 +146,14 @@ class ModelSerializer:
                     "which this nnodely does not know: it was saved by a newer "
                     "version, or by a layer class defined in code not imported."
                 )
+
+            layer_id = node_data.get("layer")
+            # A Parameter or Constant read by several models of the tree is
+            # one object, written in the file of each: loaded once, it is the
+            # same object in all of them.
+            if issubclass(cls, _Value) and layer_id in loading.values:
+                node_map[node_data["id"]] = loading.values[layer_id]
+                continue
 
             preds = [node_map[pred_id] for pred_id in node_data["preds"]]
             config = node_data["config"]
@@ -159,7 +170,9 @@ class ModelSerializer:
                 config,
                 preds=preds,
             )
-            loading.restore(node, node_data.get("layer"))
+            loading.restore(node, layer_id)
+            if issubclass(cls, _Value) and layer_id is not None:
+                loading.values[layer_id] = node
             node_map[node_data["id"]] = node
 
         inputs = [node_map[node_id] for node_id in data["inputs"]]

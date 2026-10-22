@@ -286,6 +286,47 @@ def test_trigonometric():
     )
 
 
+def test_atan2_broadcasts_as_the_operators_do():
+    # A stream without time applies to every sample and step of the other:
+    # Keras once aligned the Constant from the right, so a batch of 3 against
+    # a sequence of 4 gave (3, 4, 3, 1) where (3, 4, 1, 1) was declared.
+    x = Input("atan2_seq_x")
+    w, u = Input("atan2_w", dim=2), Input("atan2_u", dim=2)
+    by_constant = Atan2([x.last(seq=4), Constant("atan2_one", value=[1.0])])
+    by_whole = Atan2([w.sw(3), u])  # u read whole: one pair per sample
+    assert by_constant.shape.dimensions == ((4, 1), (1,))
+    assert by_whole.shape.dimensions == ((3,), (2,))
+    model = Modely(
+        "atan2_broadcast",
+        inputs=[x, w, u],
+        outputs=[
+            Output("atan2_by_constant", by_constant),
+            Output("atan2_by_whole", by_whole),
+        ],
+    ).build()
+
+    rng = np.random.default_rng(0)
+    xs = rng.normal(size=(3, 4, 1, 1)).astype(np.float32)
+    ws = rng.normal(size=(3, 3, 2)).astype(np.float32)
+    us = rng.normal(size=(3, 2)).astype(np.float32)
+    result = model({"atan2_seq_x": xs, "atan2_w": ws, "atan2_u": us})
+    np.testing.assert_allclose(
+        to_numpy(result["atan2_by_constant"]), np.arctan2(xs, 1.0), rtol=1e-6
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["atan2_by_whole"]),
+        np.arctan2(ws, us[:, None, :]),
+        rtol=1e-6,
+    )
+
+    # Like the operators: windows of different lengths are not combined, and
+    # Atan2 reads two streams.
+    with pytest.raises(ValueError, match="different time axes"):
+        Atan2([w.sw(3), Input("atan2_v", dim=2).last()])
+    with pytest.raises(ValueError, match="reads two streams"):
+        Atan2([w.sw(3)])
+
+
 def test_atan2_gives_the_angle_of_the_point_in_every_quadrant(tmp_path):
     y = Input("atan2_y")
     x = Input("atan2_x")

@@ -1,7 +1,8 @@
 """Figures for a validation run.
 
 One figure per minimizer with four panels - response, error, parity, error
-distribution - plus one loss-curve figure when a training history is passed.
+distribution - and a fifth, the error along the rollout, for a signal that has
+one; plus one loss-curve figure when a training history is passed.
 
 Figures are built with the normal Matplotlib pyplot interface, so when they
 are shown they come with the interactive toolbar: zoom, pan, rescale, edit
@@ -27,7 +28,7 @@ _PREDICT = ("#6F84FE", "#5B4BFB", "#80BFFF", "#7A3FE8", "#3FA7E8", "#9B6BFF")
 
 
 def _worst_channels(score: SignalScore) -> list[int]:
-    order = np.argsort(score.channel_rmse())[::-1]
+    order = np.argsort(score.channel_metrics["rmse"])[::-1]
     return sorted(int(index) for index in order[:MAX_LINES])
 
 
@@ -36,24 +37,28 @@ def _label(score: SignalScore, channel: int) -> str:
 
 
 def figure_signal(score: SignalScore):
-    """Response, error, parity and error distribution for one minimizer."""
+    """Response, error, parity and error distribution for one minimizer, and
+    the error along the rollout when its signal has one."""
     import matplotlib.pyplot as plt
 
     channels = _worst_channels(score)
     hidden = score.channels - len(channels)
 
-    figure = plt.figure(figsize=(12.0, 8.0))
-    grid = figure.add_gridspec(3, 2, height_ratios=(2.0, 1.4, 1.4), hspace=0.35)
+    rows = 3 if score.step_rmse is None else 4
+    figure = plt.figure(figsize=(12.0, 8.0 if rows == 3 else 10.5))
+    grid = figure.add_gridspec(
+        rows, 2, height_ratios=(2.0, 1.4, 1.4, 1.4)[:rows], hspace=0.35
+    )
     ax_time = figure.add_subplot(grid[0, :])
     ax_error = figure.add_subplot(grid[1, :], sharex=ax_time)
     ax_parity = figure.add_subplot(grid[2, 0])
     ax_hist = figure.add_subplot(grid[2, 1])
 
-    samples = np.arange(len(score.y_true))
+    points = np.arange(score.points)
     for position, channel in enumerate(channels):
         colour = _PREDICT[position % len(_PREDICT)]
         ax_time.plot(
-            samples,
+            points,
             score.y_true[:, channel],
             label=f"target {_label(score, channel)}",
             color="#2E3440",
@@ -62,14 +67,14 @@ def figure_signal(score: SignalScore):
             alpha=0.85,
         )
         ax_time.plot(
-            samples,
+            points,
             score.y_pred[:, channel],
             color=colour,
             linewidth=1.2,
             label=f"predicted {_label(score, channel)}",
         )
         ax_error.plot(
-            samples,
+            points,
             score.y_pred[:, channel] - score.y_true[:, channel],
             color=colour,
             linewidth=1.0,
@@ -88,7 +93,8 @@ def figure_signal(score: SignalScore):
 
     ax_error.axhline(0.0, color="#2E3440", linewidth=0.8)
     ax_error.set_ylabel("prediction - target")
-    ax_error.set_xlabel("sample")
+    # A point is one sample at one time step; padded steps are left out.
+    ax_error.set_xlabel("point")
     ax_error.grid(alpha=0.25)
 
     flat_true = score.y_true[:, channels].ravel()
@@ -128,6 +134,26 @@ def figure_signal(score: SignalScore):
     ax_hist.set_ylabel("count")
     ax_hist.set_title("error distribution")
     ax_hist.grid(alpha=0.25)
+
+    if score.step_rmse is not None:
+        ax_steps = figure.add_subplot(grid[3, :])
+        steps = np.arange(1, len(score.step_rmse) + 1)
+        for position, channel in enumerate(channels):
+            ax_steps.plot(
+                steps,
+                score.step_rmse[:, channel],
+                color=_PREDICT[position % len(_PREDICT)],
+                linewidth=1.2,
+                marker="o",
+                markersize=3,
+                label=_label(score, channel),
+            )
+        ax_steps.set_xlabel("rollout step")
+        ax_steps.set_ylabel("RMSE")
+        ax_steps.set_title("error along the rollout")
+        ax_steps.grid(alpha=0.25)
+        if len(channels) > 1:
+            ax_steps.legend(fontsize=8)
 
     metrics = score.metrics
     figure.text(

@@ -54,9 +54,16 @@ class Scope:
     body exists once in its definition but is evaluated once per enclosing call.
     """
 
-    def __init__(self, memo: dict[Node, Any] | None = None) -> None:
+    def __init__(
+        self,
+        memo: dict[Node, Any] | None = None,
+        values: dict[Node, Any] | None = None,
+    ) -> None:
         self.memo: dict[Node, Any] = {} if memo is None else memo
         self.calls: dict[Node, "Scope"] = {}
+        # The Parameters and Constants inlined, one copy each, shared with
+        # every call: they are one object in every model that reads them.
+        self.values: dict[Node, Any] = {} if values is None else values
 
     def merged_memo(self) -> dict[Node, Any]:
         """Every node inlined anywhere, with the enclosing scope taking priority.
@@ -77,9 +84,13 @@ class Scope:
 def flatten_node(node: Node, scope: Scope) -> Any:
     from nnodely.core.modely import IntermediateOutput
     from nnodely.core.layer import Layer
+    from nnodely.layers.parameter import _Value
 
     if node in scope.memo:
         return scope.memo[node]
+    if isinstance(node, _Value) and node in scope.values:
+        scope.memo[node] = scope.values[node]
+        return scope.values[node]
 
     if type(node) is IntermediateOutput:
         model_call = node.pred
@@ -95,7 +106,7 @@ def flatten_node(node: Node, scope: Scope) -> Any:
                 internal_input: flatten_node(external_input, scope)
                 for internal_input, external_input in model_call.inputs_map.items()
             }
-            call_scope = Scope({**scope.memo, **bindings})
+            call_scope = Scope({**scope.memo, **bindings}, scope.values)
             scope.calls[model_call] = call_scope
 
         internal_output = model_call.outputs_map[node]
@@ -112,6 +123,8 @@ def flatten_node(node: Node, scope: Scope) -> Any:
     ):
         new_node._layer = None
     scope.memo[node] = new_node
+    if isinstance(node, _Value):
+        scope.values[node] = new_node
     return new_node
 
 

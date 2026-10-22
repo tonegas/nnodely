@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import keras
 
-from nnodely.core.layer import Layer
+from nnodely.core.layer import BinaryOp, Layer
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -69,20 +69,23 @@ class Atan(Trigonometric):
     operation = "arctan"
 
 
-@keras.saving.register_keras_serializable(package="nnodely")
-class Atan2Impl(keras.layers.Layer):
-    def call(self, xs):
-        y, x = xs
-        return keras.ops.arctan2(y, x)
-
-
-class Atan2(Layer):
+class Atan2(BinaryOp):
     """``atan2(y, x)``, called on ``[y, x]``: the angle of the point ``(x, y)``
     in ``[-pi, pi]``, its quadrant told by the signs of both. With nothing to
-    configure, ``Atan2([y, x])`` is ``Atan2()([y, x])``."""
+    configure, ``Atan2([y, x])`` is ``Atan2()([y, x])``.
+
+    ``y`` and ``x`` broadcast as the arithmetic operators do: one without
+    time applies to every sample of the other, a scalar to every feature.
+    """
+
+    operation = "arctan2"
 
     def __init__(self, name=None):
         super().__init__(name=name)
 
-    def build_layer(self):
-        return Atan2Impl(name=self.name)
+    def output_shape(self, *inputs):
+        if len(inputs) != 2:
+            raise ValueError(
+                f"{self.name}: Atan2 reads two streams, [y, x], got {len(inputs)}."
+            )
+        return super().output_shape(*inputs)

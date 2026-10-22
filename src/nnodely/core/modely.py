@@ -28,6 +28,7 @@ from nnodely.utils.utils import (
 )
 from nnodely.utils.printers import _resolve_printer
 from nnodely.core.registry import ModelSerializer
+from nnodely.core.shape import Shape
 from nnodely.core.stream import Stream, Node
 from nnodely.layers.parameter import Constant, Parameters
 from nnodely.core.dataloader import DataLoader
@@ -36,7 +37,7 @@ import numpy as np
 from typing import cast
 
 from nnodely.layers.output import Output
-from nnodely.layers.input import Input, resolve_windows
+from nnodely.layers.input import Input, resolve_windows, windows_read
 from nnodely.core.layer import Layer, _claim_keras_name
 
 import keras
@@ -104,6 +105,9 @@ class Modely:
                     "used as a block it takes one stream for each, in that "
                     f"order, got {len(inputs)}."
                 )
+            reads = windows_read(self.order)
+            for node, stream in zip(self.inputs, inputs):
+                self._check_block_input(node, stream, reads)
             mc = ModelCall(f"{self.name}_call", self)
             mc.preds = list(inputs)
             mc.inputs_map = {old: new for old, new in zip(self.inputs, inputs)}
@@ -124,6 +128,46 @@ class Modely:
             )
         inputs = {inp.name: inputs[inp.name] for inp in self.inference_inputs}
         return self.inference_model(inputs)
+
+    def _check_block_input(self, node: Input, stream, reads: dict) -> None:
+        """Refuse a stream that this model, used as a block, cannot read as
+        its input ``node``: a block keeps the shapes it was declared with.
+
+        An Input of the calling graph is read through this model's own
+        windows, so it needs the dim and the sequence of ``node``; any other
+        stream must have the shape this model's graph reads ``node`` with. A
+        dynamic time axis matches any length.
+        """
+        if isinstance(stream, Input):
+            if tuple(stream.dim) != tuple(node.dim) or not _same_time(
+                stream.sequence, node.sequence
+            ):
+                raise ValueError(
+                    f"Model {self.name!r} reads its input {node.name!r} through "
+                    "its own windows, so an Input given for it must have its dim "
+                    f"{tuple(node.dim)} and sequence {node.sequence}; "
+                    f"{stream.name!r} has dim {tuple(stream.dim)} and sequence "
+                    f"{stream.sequence}. Give a window of it with that shape "
+                    "instead."
+                )
+            return
+        if node not in self.order:
+            return  # an input this model does not read
+        window = reads.get(node)
+        expected = Shape(
+            dim=node.dim,
+            time=() if window is None else (*node.sequence, window[0] + window[1]),
+        )
+        if tuple(stream.dim) != tuple(expected.dim) or not _same_time(
+            stream.time, expected.time
+        ):
+            raise ValueError(
+                f"Model {self.name!r} reads its input {node.name!r} as "
+                f"{expected}, so used as a block it takes a stream of that shape "
+                f"for it; {stream.name!r} is {stream.shape}. A block keeps the "
+                "shapes it was declared with: give it a stream of that shape, or "
+                "declare the model on the shape it is used with."
+            )
 
     @property
     def built(self):
@@ -496,10 +540,14 @@ class Modely:
     ) -> ValidationResult:
         """Score the built model on ``val_data`` and draw what it did.
 
-        Every minimizer is evaluated on the validation set and reported with
-        the loss it was trained on plus the indicators a mechanical
-        system-identification report is read for: RMSE, MAE, peak error, bias,
-        NRMSE, the FIT percentage, R2 and correlation.
+        Every minimizer is evaluated as training evaluates it: the same
+        forward pass, the same target and padding mask, and its loss as
+        :meth:`train` logs it for ``val_data``. It is reported with that loss
+        plus the indicators a mechanical system-identification report is
+        read for: RMSE, MAE, peak error, bias, error std, NRMSE, FIT, R2, VAF
+        and correlation. They are computed for each channel of the signal on
+        its own scale, and over the real points only: the rollout steps padded
+        onto shorter simulations are left out.
 
         Parameters
         ----------
@@ -898,3 +946,12 @@ class IntermediateOutput(Output):
         super().__init__(name=out.name, stream=out)
         self.pred = model_call
         self.preds = [model_call]
+
+
+def _same_time(time: tuple, other: tuple) -> bool:
+    """Whether two tuples of time axes match: as many axes, of the same
+    lengths, a dynamic one (None) matching any."""
+    return len(time) == len(other) and all(
+        None in (size, other_size) or size == other_size
+        for size, other_size in zip(time, other)
+    )

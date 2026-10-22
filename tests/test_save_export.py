@@ -2178,3 +2178,256 @@ def test_a_loaded_model_reads_the_window_the_saved_one_read(tmp_path):
         to_numpy(model(data)["saved_window_out"]),
         rtol=1e-6,
     )
+
+
+def test_a_parameter_read_by_several_models_loads_as_one(tmp_path):
+    # Read by a Loop body, by a block and by the outer model, the gain - and
+    # the kernel of the Fir both use - is one object, written in the file of
+    # each model; it was loaded as one object per file.
+    gain = Parameter("one_gain", value=2.0)
+    fir = Fir(features=1, bias=False, name="one_fir")
+    s = Input("one_s")
+    body = Modely(
+        "one_body",
+        inputs=[s],
+        outputs=[Output("one_next", s.last() * gain + fir(s.last()))],
+    ).build()
+    a, c = Input("one_a"), Input("one_c")
+    loop = Loop(f=body, callback={s: "one_next"}, init={s: a.last(seq=3)})()
+    model = Modely(
+        "one_model",
+        inputs=[a, c],
+        outputs=[
+            Output("one_loop", loop),
+            Output("one_block", body([c.last()])),
+            Output("one_out", c.last() * gain + fir(c.last())),
+        ],
+    ).build()
+    assert [p.name for p in model.parameters] == ["one_gain", "one_fir_kernel"]
+    data = {
+        "one_a": np.full((2, 3, 1, 1), 0.5, dtype=np.float32),
+        "one_c": np.full((2, 1, 1), 1.5, dtype=np.float32),
+    }
+
+    model.save(tmp_path / "one")
+    restored = Modely.load(tmp_path / "one")
+    assert [p.name for p in restored.parameters] == ["one_gain", "one_fir_kernel"]
+    loaded_gain = restored.parameters[0]
+    loaded_loop = next(node for node in restored.order if isinstance(node, Loop))
+    assert any(node is loaded_gain for node in loaded_loop.f.order)
+    for name in ("one_loop", "one_block", "one_out"):
+        np.testing.assert_allclose(
+            to_numpy(restored(data)[name]), to_numpy(model(data)[name]), rtol=1e-6
+        )
+
+    # Frozen once, it is frozen everywhere, and saved so.
+    loaded_gain.freeze()
+    restored.save(tmp_path / "two")
+    again = Modely.load(tmp_path / "two")
+    assert [p.trainable for p in again.parameters] == [False, True]
+
+
+# ---------------------------------------------------------------------------
+# Keras export of models whose weights are reached from several Keras graphs
+# ---------------------------------------------------------------------------
+
+
+def _keras_two_loops():
+    s = Input("ks2_s")
+    nxt = Output("ks2_next", Linear(features=1, name="ks2_lin")(s.last()))
+    body = Modely("ks2_body", inputs=[s], outputs=[nxt]).build()
+    a = Input("ks2_a")
+    rolled = Loop(f=body, callback={s: nxt}, collect=False, init={s: a.last(seq=3)})()
+    fixed = Loop(
+        f=body, callback={s: nxt}, collect=False, init={s: a.last()}, length=2
+    )()
+    model = Modely(
+        "ks2", inputs=[a], outputs=[Output("ks2_o1", rolled), Output("ks2_o2", fixed)]
+    ).build()
+    return model, {"ks2_a": (2, 3, 1, 1)}
+
+
+def _keras_parameter_inside_and_outside():
+    gain = Parameter("ksp_gain", value=1.5)
+    s = Input("ksp_s")
+    body = Modely(
+        "ksp_body", inputs=[s], outputs=[Output("ksp_next", s.last() * gain)]
+    ).build()
+    a = Input("ksp_a")
+    loop = Loop(f=body, callback={s: "ksp_next"}, init={s: a.last(seq=3)})()
+    model = Modely(
+        "ksp",
+        inputs=[a],
+        outputs=[Output("ksp_loop", loop), Output("ksp_out", a.last() * gain)],
+    ).build()
+    return model, {"ksp_a": (2, 3, 1, 1)}
+
+
+def _keras_block_and_loop():
+    s = Input("ksb_s")
+    nxt = Output("ksb_next", Linear(features=1, name="ksb_lin")(s.last()))
+    body = Modely("ksb_body", inputs=[s], outputs=[nxt]).build()
+    a, c = Input("ksb_a"), Input("ksb_c")
+    loop = Loop(f=body, callback={s: nxt}, init={s: a.last(seq=3)})()
+    model = Modely(
+        "ksb",
+        inputs=[a, c],
+        outputs=[Output("ksb_loop", loop), Output("ksb_block", body([c.last()]))],
+    ).build()
+    return model, {"ksb_a": (2, 3, 1, 1), "ksb_c": (2, 1, 1)}
+
+
+def _keras_two_differentiate():
+    x = Input("ksd_x")
+    relation = Linear(features=1, name="ksd_lin")(x.last()) ** 2
+    model = Modely(
+        "ksd",
+        inputs=[x],
+        outputs=[
+            Output("ksd_first", Differentiate(respect_to=x)(relation)),
+            Output("ksd_second", Differentiate(order=2, respect_to=x)(relation)),
+        ],
+    ).build()
+    return model, {"ksd_x": (2, 1, 1)}
+
+
+def _keras_loop_in_a_body():
+    gain = Parameter("ksn_gain", value=0.9)
+    si = Input("ksn_si")
+    inner = Modely(
+        "ksn_inner", inputs=[si], outputs=[Output("ksn_inner_next", si.last() * gain)]
+    ).build()
+    m = Input("ksn_m")
+    inner_loop = Loop(
+        f=inner,
+        callback={si: "ksn_inner_next"},
+        collect=False,
+        init={si: m.last()},
+        length=3,
+    )()
+    mid = Modely(
+        "ksn_mid", inputs=[m], outputs=[Output("ksn_mid_out", inner_loop)]
+    ).build()
+    m0 = Input("ksn_m0")
+    outer = Loop(f=mid, callback={m: "ksn_mid_out"}, init={m: m0.last()}, length=2)()
+    model = Modely(
+        "ksn",
+        inputs=[m0],
+        outputs=[Output("ksn_out", outer), Output("ksn_direct", m0.last() * gain)],
+    ).build()
+    return model, {"ksn_m0": (2, 1, 1)}
+
+
+def _keras_stateful_and_custom_body():
+    from nnodely import KerasFunction
+
+    class Scale(keras.layers.Layer):
+        def build(self, input_shape):
+            self.k = self.add_weight(shape=(), initializer="ones", name="k")
+
+        def call(self, x):
+            return self.k * x
+
+    scale = Scale()
+    s, u = Input("ksk_s"), Input("ksk_u")
+    body = Modely(
+        "ksk_body",
+        inputs=[s, u],
+        outputs=[
+            Output(
+                "ksk_next",
+                KerasFunction(scale)([BatchNorm()(s.last())]) + u.last(),
+            )
+        ],
+    ).build()
+    s0, us = Input("ksk_s0"), Input("ksk_us")
+    loop = Loop(f=body, callback={s: "ksk_next"}, init={s: s0.last()})(
+        {u: us.last(seq=4)}
+    )
+    model = Modely(
+        "ksk",
+        inputs=[s0, us],
+        outputs=[
+            Output("ksk_loop", loop),
+            Output("ksk_scaled", KerasFunction(scale)([s0.last()])),
+        ],
+    ).build()
+    return model, {"ksk_s0": (2, 1, 1), "ksk_us": (2, 4, 1, 1)}
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        _keras_two_loops,
+        _keras_parameter_inside_and_outside,
+        _keras_block_and_loop,
+        _keras_two_differentiate,
+        _keras_loop_in_a_body,
+        _keras_stateful_and_custom_body,
+    ],
+)
+def test_keras_export_of_weights_reached_from_several_graphs(make, tmp_path):
+    # A Keras file once saved such a weight once but could not rebuild it:
+    # "expected 1 variables, but received 0", or a broken graph at the call.
+    model, shapes = make()
+    rng = np.random.default_rng(0)
+    # Values unlike any initializer - moving statistics included - so a
+    # weight left at its initial value after the import would show. Constants
+    # are left alone: a number's Constant is shared by every model.
+    assert model.inference_model is not None
+    for weight in model.inference_model.weights:
+        if weight.trainable or "moving" in weight.name:
+            weight.assign(rng.uniform(0.5, 1.5, size=weight.shape).astype("float32"))
+    data = {
+        name: rng.normal(size=shape).astype(np.float32)
+        for name, shape in shapes.items()
+    }
+    before = model(data)
+
+    model.export_keras(tmp_path, "shared")
+    imported = Modely.import_keras(tmp_path / "shared.keras")
+    after = imported(data)  # type: ignore[operator]
+    for name, value in before.items():
+        np.testing.assert_allclose(
+            to_numpy(after[name]), to_numpy(value), rtol=1e-5, atol=1e-6
+        )
+
+    # Exported again from its nnodely save, it gives the same file back.
+    model.save(tmp_path / "saved")
+    Modely.load(tmp_path / "saved").export_keras(tmp_path, "reloaded")
+    again = Modely.import_keras(tmp_path / "reloaded.keras")(data)  # type: ignore[operator]
+    for name, value in before.items():
+        np.testing.assert_allclose(
+            to_numpy(again[name]), to_numpy(value), rtol=1e-5, atol=1e-6
+        )
+
+
+def test_keras_export_follows_a_dynamic_rollout(tmp_path):
+    s, u = Input("ksdyn_s"), Input("ksdyn_u")
+    body = Modely(
+        "ksdyn_body",
+        inputs=[s, u],
+        outputs=[Output("ksdyn_next", s.last() * 0.5 + u.last())],
+    ).build()
+    s0, us = Input("ksdyn_s0"), Input("ksdyn_us")
+    loop = Loop(f=body, callback={s: "ksdyn_next"}, init={s: s0.last()})(
+        {u: us.last(seq=-1)}
+    )
+    model = Modely(
+        "ksdyn", inputs=[s0, us], outputs=[Output("ksdyn_out", loop)]
+    ).build()
+
+    model.export_keras(tmp_path, "ksdyn")
+    imported = Modely.import_keras(tmp_path / "ksdyn.keras")
+    for steps in (2, 7):
+        data = {
+            "ksdyn_s0": np.ones((1, 1, 1), dtype=np.float32),
+            "ksdyn_us": np.ones((1, steps, 1, 1), dtype=np.float32),
+        }
+        expected = to_numpy(model(data)["ksdyn_out"])
+        assert expected.shape == (1, steps, 1, 1)
+        np.testing.assert_allclose(
+            to_numpy(imported(data)["ksdyn_out"]),  # type: ignore[operator]
+            expected,
+            rtol=1e-6,
+        )

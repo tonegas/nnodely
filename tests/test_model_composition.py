@@ -346,22 +346,24 @@ def test_composition_shares_parameters_and_constants():
 def test_composition_rebuilds_layers_that_read_their_predecessor():
     """Only stored state travels. A layer configured from its predecessor is
     rebuilt where it now sits: a block that reads the last sample of its input
-    must read the last sample of the stream it is called with, not the oldest
-    one it happened to be built against."""
+    reads the last sample of the stream it is called with - which has the
+    shape the block reads, a wider window being refused."""
     u = Input("ctx_u", dim=1)
     body = Modely(
         "ctx_body", inputs=[u], outputs=[Output("ctx_out", u.last() * 1.0)]
     ).build()
 
     w = Input("ctx_w", dim=1)
+    with pytest.raises(ValueError, match="takes a stream of that shape"):
+        body([w.sw(3)])
     composed = Modely(
-        "ctx_composed", inputs=[w], outputs=[Output("o", body([w.sw(3)]))]
+        "ctx_composed", inputs=[w], outputs=[Output("o", body([w.last()]))]
     ).build()
 
-    values = np.array([[[10.0], [20.0], [30.0]]], dtype=np.float32)
+    values = np.array([[[10.0]], [[30.0]]], dtype=np.float32)
     np.testing.assert_allclose(
         to_numpy(composed({"ctx_w": values})["o"]),
-        np.full((1, 1, 1), 30.0, dtype=np.float32),
+        values,
         rtol=1e-5,
         atol=1e-5,
     )
@@ -394,12 +396,10 @@ def test_composition_rejects_a_block_whose_input_shape_changes():
     body = Modely("fit_body", inputs=[u], outputs=[Output("fit_out", body_fir)]).build()
     body_fir.kernel.assign(np.full((1, 1), 5.0, dtype=np.float32))
 
-    # Three features where the block was built for one: its kernel does not fit.
+    # Three features where the block was built for one: the call is refused.
     wide = Input("fit_wide", dim=3)
-    with pytest.raises(ValueError, match="fit the input shape they were made for"):
-        Modely(
-            "fit_composed", inputs=[wide], outputs=[Output("o", body([wide.last()]))]
-        ).build()
+    with pytest.raises(ValueError, match="takes a stream of that shape"):
+        body([wide.last()])
 
     # The block still evaluates with the weights it had.
     np.testing.assert_allclose(
@@ -472,3 +472,41 @@ def test_layers_created_apart_have_their_own_weights_whatever_their_names():
     result = model({"twins_x": np.ones((1, 2, 1), dtype=np.float32)})
     np.testing.assert_allclose(to_numpy(result["twins_first"]), [[[2.0]]])
     np.testing.assert_allclose(to_numpy(result["twins_second"]), [[[6.0]]])
+
+
+def test_a_block_takes_the_shapes_it_was_declared_with():
+    x = Input("shaped_x")
+    body = Modely(
+        "shaped_body", inputs=[x], outputs=[Output("shaped_out", x.last() * 2.0)]
+    ).build()
+
+    # A rollout of 3 steps where the block reads one sample was declared as
+    # one sample and computed on three; now it is refused, as is a stream of
+    # another window or dim.
+    with pytest.raises(ValueError, match="takes a stream of that shape"):
+        body([Input("shaped_a").last(seq=3)])
+    with pytest.raises(ValueError, match="takes a stream of that shape"):
+        body([Input("shaped_b").sw(2)])
+    with pytest.raises(ValueError, match="takes a stream of that shape"):
+        body([Input("shaped_wide", dim=2).last()])
+
+    # An Input given whole is read through the block's own window.
+    c = Input("shaped_c")
+    outer = Modely(
+        "shaped_outer", inputs=[c], outputs=[Output("shaped_whole", body([c]))]
+    ).build()
+    assert c.shape.time == (1,)
+    result = outer({"shaped_c": np.full((2, 1, 1), 3.0, dtype=np.float32)})
+    np.testing.assert_allclose(to_numpy(result["shaped_whole"]).ravel(), [6.0, 6.0])
+
+    # A block on a dynamic sequence takes one of any length; an Input given
+    # whole needs that sequence.
+    s = Input("shaped_s")
+    seq_body = Modely(
+        "shaped_seq_body",
+        inputs=[s],
+        outputs=[Output("shaped_seq_out", s.last(seq=-1) * 2.0)],
+    ).build()
+    assert seq_body([Input("shaped_d").last(seq=5)]).shape.time == (None, 1)
+    with pytest.raises(ValueError, match="sequence"):
+        seq_body([Input("shaped_e")])

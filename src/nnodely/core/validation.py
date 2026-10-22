@@ -1,9 +1,15 @@
 """A validation run: the built model evaluated on a dataset, and every
 minimizer scored on what it predicted.
 
-One minimizer produces one :class:`SignalScore`: the loss
-it was trained on, plus the handful of indicators a mechanical
-system-identification report is actually read for.
+Validation sees what training sees. The forward pass is the one training runs
+on its validation data, each target is aligned with its source as training
+aligns it, the padding mask of simulations of different lengths is the same,
+and the loss is computed by the code that trains the minimizer.
+
+One minimizer produces one :class:`SignalScore`: that loss, plus the
+indicators a mechanical system-identification report is read for. They are
+computed for each channel - each feature of the compared signal - on its own
+scale, over the real points alone: a padded rollout step is in no indicator.
 """
 
 from __future__ import annotations
@@ -15,26 +21,23 @@ from typing import Any
 import keras
 import numpy as np
 
-from nnodely.core.minimizer import _reads_input, _seq_weights_for
-from nnodely.core.shape import OUTER_TIME_AXIS, expand_to_rank
+from nnodely.core.minimizer import (
+    MinimizerModel,
+    _resolve_minimizer_terms,
+    _rollout_mask,
+)
 
 #: Samples evaluated per forward pass during validation. Validation is defined
 #: one sample at a time - nothing about the result depends on this number - so
 #: it is a memory bound rather than a parameter worth exposing.
 _INFERENCE_CHUNK = 256
 
-
-def as_channels(values: np.ndarray) -> np.ndarray:
-    """View a signal as ``(samples, channels)``.
-
-    Everything past the sample axis - dimensions, sample windows, rollout
-    steps - is one channel, because for scoring purposes each is just another
-    number that had to come out right.
-    """
-    values = np.asarray(values, dtype=np.float64)
-    if values.ndim == 0:
-        raise ValueError("A signal must have at least a sample axis.")
-    return values.reshape(len(values), -1)
+#: Indicators in the units of the signal: a signal of several channels pools
+#: every channel into them.
+_ABSOLUTE = ("rmse", "mae", "max_error", "bias", "std_error")
+#: Indicators relative to the target's own spread: a signal of several
+#: channels reports the mean of its channels' values.
+_RELATIVE = ("nrmse_pct", "fit_pct", "r2", "vaf_pct", "correlation")
 
 
 def loss_name(loss_fn: Any) -> str:
@@ -45,55 +48,103 @@ def loss_name(loss_fn: Any) -> str:
     return type(loss_fn).__name__ if loss_fn is not None else "mse"
 
 
-def evaluate_loss(
-    loss_fn: Any,
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    seq_weights: np.ndarray | None = None,
-) -> float:
-    """The minimizer's own loss, so validation is scored the way it was trained.
+def _constant(values: np.ndarray) -> bool:
+    """True for values that do not move, up to float32 rounding."""
+    return bool(np.ptp(values) <= np.finfo(np.float32).eps * np.max(np.abs(values)))
 
-    With ``seq_weights`` the signals keep their layout, whose outer step axis
-    is the one the weights are laid along.
+
+def _indicators(true: np.ndarray, pred: np.ndarray) -> dict[str, float]:
+    """Every indicator of one channel, from its real points.
+
+    With ``e = pred - true``: RMSE, MAE and max error are the root mean
+    square, mean and peak of ``|e|``; bias and error std are the mean and
+    standard deviation of ``e``, so ``RMSE^2 = bias^2 + std^2``. Against the
+    target's spread: NRMSE is RMSE as a percentage of its range, FIT is
+    ``100 (1 - ||e|| / ||true - mean(true)||)``, R2 is
+    ``1 - sum(e^2) / sum((true - mean(true))^2)``, VAF is
+    ``100 (1 - var(e) / var(true))`` - R2 that forgives a constant offset -
+    and correlation is Pearson's - 0 for a prediction that never moves, which
+    explains none of a target that does.
     """
-    if loss_fn is None:
-        return float(np.mean((y_true - y_pred) ** 2))
-    try:
-        import keras
+    nan = float("nan")
+    error = pred - true
+    if error.size == 0 or not np.isfinite(error).all():
+        return dict.fromkeys(_ABSOLUTE + _RELATIVE, nan)
 
-        y_true = keras.ops.convert_to_tensor(np.asarray(y_true, dtype=np.float32))  # type: ignore
-        y_pred = keras.ops.convert_to_tensor(np.asarray(y_pred, dtype=np.float32))  # type: ignore
-        if seq_weights is not None:
-            from nnodely.utils.utils import _weighted_sequence_loss
+    rmse = float(np.sqrt(np.mean(error**2)))
+    values = {
+        "rmse": rmse,
+        "mae": float(np.mean(np.abs(error))),
+        "max_error": float(np.max(np.abs(error))),
+        "bias": float(np.mean(error)),
+        "std_error": float(np.std(error)),
+    }
+    # A target that never moves has no scale to normalize against, so the
+    # relative indicators are undefined rather than perfect or zero - saying
+    # 100% fit on a constant signal would be a lie.
+    if _constant(true):
+        return {**values, **dict.fromkeys(_RELATIVE, nan)}
 
-            value = _weighted_sequence_loss(loss_fn, y_true, y_pred, seq_weights)
-        else:
-            value = loss_fn(y_true, y_pred)
-        return float(np.mean(keras.ops.convert_to_numpy(value)))  # type: ignore
-    except Exception:
-        # A loss that cannot be replayed outside training should not cost the
-        # caller the rest of the report.
-        return float("nan")
+    residual = float(np.sum(error**2))
+    spread = float(np.sum((true - np.mean(true)) ** 2))
+    values["nrmse_pct"] = 100.0 * rmse / float(np.ptp(true))
+    values["fit_pct"] = 100.0 * (1.0 - np.sqrt(residual / spread))
+    values["r2"] = 1.0 - residual / spread
+    values["vaf_pct"] = 100.0 * (1.0 - float(np.var(error)) / float(np.var(true)))
+    values["correlation"] = (
+        0.0 if _constant(pred) else float(np.corrcoef(true, pred)[0, 1])
+    )
+    return values
+
+
+def _step_rmse(error: np.ndarray, real: np.ndarray, dim_rank: int):
+    """RMSE of every channel at every step of the outer time, over the real
+    points of that step; None for a signal with a single time axis.
+
+    ``error`` is laid out ``(samples, *time, *dim)``, ``real`` marks its real
+    points ``(samples, *time)``.
+    """
+    if error.ndim - 1 - dim_rank < 2:
+        return None
+    samples, steps = error.shape[:2]
+    error = error.reshape(samples, steps, -1, int(np.prod(error.shape[-dim_rank:])))
+    real = real.reshape(samples, steps, -1, 1)
+    with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
+        squared = np.where(real, error**2, 0.0).sum(axis=(0, 2))
+        # A step no simulation reaches has no point, and no RMSE.
+        return np.sqrt(squared / real.sum(axis=(0, 2)))
 
 
 @dataclass
 class SignalScore:
-    """What one minimizer scored, and the two signals it scored it from."""
+    """What one minimizer scored, and the two signals it scored it from.
+
+    ``metrics`` holds the loss and every indicator of the whole signal,
+    ``channel_metrics`` each indicator of each channel. ``y_true`` and
+    ``y_pred`` are laid out ``(points, channels)``: a point is one sample at
+    one time step, a channel one feature, and the padded points are left out.
+    ``step_rmse``, for a signal with an outer time - a rollout - is the RMSE
+    of each channel at each of its steps, ``(steps, channels)``.
+    """
 
     name: str
     source: str
     target: str
     loss: str
     metrics: dict[str, float]
+    channel_metrics: dict[str, np.ndarray]
     y_true: np.ndarray
     y_pred: np.ndarray
+    step_rmse: np.ndarray | None = None
+    padded: int = 0
 
     @property
     def channels(self) -> int:
         return self.y_true.shape[1]
 
-    def channel_rmse(self) -> np.ndarray:
-        return np.sqrt(np.mean((self.y_true - self.y_pred) ** 2, axis=0))
+    @property
+    def points(self) -> int:
+        return self.y_true.shape[0]
 
 
 def score_signal(
@@ -101,86 +152,104 @@ def score_signal(
     name: str,
     source: str,
     target: str,
-    loss_fn: Any,
     y_true: np.ndarray,
     y_pred: np.ndarray,
-    seq_weights: np.ndarray | None = None,
+    valid: np.ndarray | None = None,
+    dim_rank: int = 1,
+    loss: str = "mse",
+    loss_value: float = float("nan"),
 ) -> SignalScore:
-    """Score one minimizer's prediction against its reference."""
-    true_channels = as_channels(y_true)
-    pred_channels = as_channels(y_pred)
-    if true_channels.shape != pred_channels.shape:
+    """Score one minimizer's prediction against its reference.
+
+    Both signals are laid out ``(samples, *time, *dim)``, their last
+    ``dim_rank`` axes being the channels. ``valid``, broadcastable to them,
+    marks the real points: a padded one is left out of every indicator.
+    ``loss_value`` is the minimizer's loss, computed as training computes it.
+
+    Each channel is scored on its own. For the whole signal, the absolute
+    indicators pool every channel and the relative ones are the mean of the
+    channels' values, so a channel in metres and one in millimetres are each
+    scored against their own spread.
+    """
+    y_true = np.asarray(y_true, dtype=np.float64)
+    y_pred = np.asarray(y_pred, dtype=np.float64)
+    if y_true.shape != y_pred.shape:
         raise ValueError(
             f"Minimizer {name!r} compares {source!r} of shape {y_pred.shape} with "
             f"{target!r} of shape {y_true.shape}. They must match."
         )
 
-    error = pred_channels - true_channels
-    finite = np.isfinite(error)
-    spread = float(np.std(true_channels))
-
-    # A target that never moves has no scale to normalize against, so the
-    # relative indicators are undefined rather than perfect or zero - saying
-    # 100% fit on a constant signal would be a lie.
-    if spread <= np.finfo(np.float32).eps or not finite.all():
-        fit = r2 = correlation = nrmse = float("nan")
+    observed = y_true.shape[: y_true.ndim - dim_rank]
+    channels = int(np.prod(y_true.shape[y_true.ndim - dim_rank :], dtype=int))
+    if valid is None:
+        real = np.ones(observed, dtype=bool)
     else:
-        residual = float(np.linalg.norm(error))
-        reference = float(np.linalg.norm(true_channels - np.mean(true_channels)))
-        fit = 100.0 * (1.0 - residual / reference)
-        r2 = 1.0 - residual**2 / reference**2
-        correlation = float(
-            np.corrcoef(true_channels.ravel(), pred_channels.ravel())[0, 1]
-        )
-        span = float(np.ptp(true_channels))
-        nrmse = (
-            100.0 * float(np.sqrt(np.mean(error**2))) / span if span else float("nan")
-        )
+        # A point is real when every channel of it is.
+        real = np.broadcast_to(valid, y_true.shape).reshape(*observed, channels)
+        real = np.asarray(real.all(axis=-1))
 
-    metrics = {
-        "loss": (
-            evaluate_loss(loss_fn, true_channels, pred_channels)
-            if seq_weights is None
-            else evaluate_loss(loss_fn, y_true, y_pred, seq_weights)
-        ),
-        "rmse": float(np.sqrt(np.mean(error**2))),
-        "mae": float(np.mean(np.abs(error))),
-        "max_error": float(np.max(np.abs(error))) if error.size else float("nan"),
-        "bias": float(np.mean(error)),
-        "std_error": float(np.std(error)),
-        "nrmse_pct": nrmse,
-        "fit_pct": fit,
-        "r2": r2,
-        "correlation": correlation,
-        "non_finite": int(error.size - int(finite.sum())),
+    keep = real.reshape(-1)
+    true = y_true.reshape(-1, channels)[keep]
+    pred = y_pred.reshape(-1, channels)[keep]
+    # A diverged prediction is counted below, not warned about on the way.
+    with np.errstate(invalid="ignore", over="ignore"):
+        error = y_pred - y_true
+        each = [_indicators(true[:, c], pred[:, c]) for c in range(channels)]
+        pooled = _indicators(true.ravel(), pred.ravel())
+    non_finite = int(
+        np.size(true) - np.isfinite(error.reshape(-1, channels)[keep]).sum()
+    )
+
+    channel_metrics = {
+        key: np.array([values[key] for values in each]) for key in _ABSOLUTE + _RELATIVE
     }
+    metrics = {"loss": float(loss_value)}
+    metrics.update({key: pooled[key] for key in _ABSOLUTE})
+    for key in _RELATIVE:
+        # A non-finite value spoils the signal it is in: averaging the other
+        # channels would hide it.
+        defined = channel_metrics[key][np.isfinite(channel_metrics[key])]
+        metrics[key] = (
+            float(np.mean(defined)) if defined.size and not non_finite else float("nan")
+        )
+    metrics["non_finite"] = non_finite
+
     return SignalScore(
         name=name,
         source=source,
         target=target,
-        loss=loss_name(loss_fn),
+        loss=loss,
         metrics=metrics,
-        y_true=true_channels,
-        y_pred=pred_channels,
+        channel_metrics=channel_metrics,
+        y_true=true,
+        y_pred=pred,
+        step_rmse=_step_rmse(error, real, dim_rank),
+        padded=int(keep.size - keep.sum()),
     )
 
 
 #: Label, metric key and format for every reported row, in reading order.
 _ROWS: tuple[tuple[str, str, str], ...] = (
-    ("RMSE", "rmse", "{:.6e}"),
-    ("MAE", "mae", "{:.6e}"),
-    ("Max error", "max_error", "{:.6e}"),
-    ("Bias (mean error)", "bias", "{:+.6e}"),
-    ("Error std", "std_error", "{:.6e}"),
+    ("RMSE", "rmse", "{:.4e}"),
+    ("MAE", "mae", "{:.4e}"),
+    ("Max error", "max_error", "{:.4e}"),
+    ("Bias (mean error)", "bias", "{:+.4e}"),
+    ("Error std", "std_error", "{:.4e}"),
     ("NRMSE (% of range)", "nrmse_pct", "{:.3f} %"),
-    ("FIT (% variance)", "fit_pct", "{:.3f} %"),
+    ("FIT", "fit_pct", "{:.3f} %"),
     ("R2", "r2", "{:.6f}"),
+    ("VAF", "vaf_pct", "{:.3f} %"),
     ("Correlation", "correlation", "{:.6f}"),
 )
 
+#: Width of one value column of the summary, and how many channels get a
+#: column of their own next to the whole signal's within 80 characters.
+_COLUMN = 12
+_CHANNEL_COLUMNS = 3
+
 
 def _cell(value: float, spec: str) -> str:
-    return "n/a" if value != value else spec.format(value)
+    return f"{'n/a' if value != value else spec.format(value):>{_COLUMN}}"
 
 
 @dataclass
@@ -219,13 +288,43 @@ class ValidationResult:
             lines.append(f"{score.name}   ({score.source} vs {score.target})")
             lines.append(
                 f"{'  Loss (' + score.loss + ')':<{label}}"
-                f"{_cell(score.metrics['loss'], '{:.6e}')}"
+                f"{_cell(score.metrics['loss'], '{:.4e}')}"
             )
+            points = f"{'  Points scored':<{label}}{score.points:>{_COLUMN}}"
+            if score.padded:
+                points += f"  ({score.padded} padded left out)"
+            lines.append(points)
+
+            columns = 1 < score.channels <= _CHANNEL_COLUMNS
+            if columns:
+                lines.append(
+                    f"{'':<{label}}{'all':>{_COLUMN}}"
+                    + "".join(f"{f'[{c}]':>{_COLUMN}}" for c in range(score.channels))
+                )
+            elif score.channels > 1:
+                lines.append(
+                    f"{'  Channels':<{label}}{score.channels:>{_COLUMN}}"
+                    "  (each in channel_metrics)"
+                )
             for text, key, spec in _ROWS:
-                lines.append(f"{'  ' + text:<{label}}{_cell(score.metrics[key], spec)}")
+                values = [score.metrics[key]]
+                if columns:
+                    values += list(score.channel_metrics[key])
+                lines.append(
+                    f"{'  ' + text:<{label}}"
+                    + "".join(_cell(value, spec) for value in values)
+                )
+            if score.step_rmse is not None:
+                # Every channel pooled, at the first and the last step.
+                rollout = np.sqrt(np.mean(score.step_rmse**2, axis=1))
+                lines.append(
+                    f"{'  RMSE first / last step':<{label}}"
+                    f"{_cell(rollout[0], '{:.4e}')}{_cell(rollout[-1], '{:.4e}')}"
+                )
             if score.metrics["non_finite"]:
                 lines.append(
-                    f"{'  Non-finite values':<{label}}{score.metrics['non_finite']}"
+                    f"{'  Non-finite values':<{label}}"
+                    f"{score.metrics['non_finite']:>{_COLUMN}}"
                 )
 
         if self.figures:
@@ -244,46 +343,56 @@ class ValidationResult:
 # ----------------------------------------------------------------------
 
 
-def _predict(model, x_data: dict, n_samples: int) -> dict[str, np.ndarray]:
-    """Run the graph over the whole dataset with the training path disabled.
+def _evaluate(model, terms, x_data: dict, mask, n_samples: int) -> dict:
+    """What each minimizer compares over the dataset, as training sees it.
+
+    Returns, by minimizer, its loss over the whole dataset, its source, its
+    target aligned with it, and the mask of their real points - None when no
+    point was padded.
 
     ``training=False`` is the backend-independent switch: it is what tells
     every Keras layer to take its inference branch, so no per-backend module
-    mode has to be toggled here.
+    mode has to be toggled here. The loss of a chunk is a mean over its
+    samples, so weighing it by their number gives the loss of the dataset.
     """
-    if model.model is None:
-        raise ValueError("Model is not built. Call build() before validate().")
     input_names = [node.name for node in model.train_inputs]
     missing = [name for name in input_names if name not in x_data]
     if missing:
         raise ValueError(f"Validation data is missing model inputs: {missing}.")
 
-    chunks: dict[str, list[np.ndarray]] = {}
+    losses = {term.name: 0.0 for term in terms}
+    parts: dict[str, tuple[list, list, list]] = {
+        term.name: ([], [], []) for term in terms
+    }
     for start in range(0, n_samples, _INFERENCE_CHUNK):
         stop = min(start + _INFERENCE_CHUNK, n_samples)
         batch = {name: x_data[name][start:stop, ...] for name in input_names}
-        for name, value in model.model(batch, training=False).items():
-            value = keras.ops.convert_to_numpy(value)
-            chunks.setdefault(name, []).append(value)  # type: ignore
+        y = None if mask is None else mask[start:stop]
+        outputs = model.model(batch, training=False)
+        for term in terms:
+            source = outputs[term.source]
+            target = MinimizerModel._align_target(term, outputs[term.target], source)
+            value = keras.ops.convert_to_numpy(
+                MinimizerModel._term_loss(term, source, target, y)
+            )
+            losses[term.name] += float(value) * (stop - start)  # type: ignore[arg-type]
 
-    return {name: np.concatenate(values, axis=0) for name, values in chunks.items()}
+            sources, targets, valids = parts[term.name]
+            sources.append(keras.ops.convert_to_numpy(source))
+            targets.append(keras.ops.convert_to_numpy(target))
+            valid = _rollout_mask(term, target, y)
+            if valid is not None:
+                valids.append(keras.ops.convert_to_numpy(valid))
 
-
-def _minimizer_key(model, node) -> str | None:
-    """Name under which the forward pass returns a minimizer's side."""
-    return model._minimizer_outputs.get(node, node.name)
-
-
-def _broadcast_constant(values, source_values: np.ndarray) -> np.ndarray:
-    """A target built from constants, laid out like its source's predictions.
-
-    The numpy twin of what training does: add the axes the target omits
-    where :func:`expand_to_rank` puts them, then broadcast - so a dim-2
-    Constant lines up with the dim axis, not the time axis.
-    """
-    values = np.asarray(values, dtype=np.float32)
-    values = expand_to_rank(values, source_values.ndim, np.expand_dims)
-    return np.broadcast_to(values, source_values.shape)
+    return {
+        name: (
+            losses[name] / n_samples,
+            np.concatenate(sources),
+            np.concatenate(targets),
+            np.concatenate(valids) if valids else None,
+        )
+        for name, (sources, targets, valids) in parts.items()
+    }
 
 
 def _dataset_name(node, x_data: dict) -> str | None:
@@ -294,41 +403,6 @@ def _dataset_name(node, x_data: dict) -> str | None:
     if len(preds) == 1:
         return _dataset_name(preds[0], x_data)
     return None
-
-
-def _validation_target(
-    model, minimizer: dict, x_data: dict, predictions: dict, n_samples: int
-) -> tuple[np.ndarray, str]:
-    """Resolve the reference signal a minimizer is scored against.
-
-    The evaluated target stream wins over the dataset column it reads: a
-    target declared as ``y.sw(2)`` on an input that carries a wider window
-    elsewhere in the graph is two steps long, not as wide as the column.
-    The column still names the signal, which is what a reader recognizes.
-    """
-    source_values = predictions[_minimizer_key(model, minimizer["source"])]
-    target = minimizer["target"]
-    label = _dataset_name(target, x_data) or target.name
-
-    key = _minimizer_key(model, target)
-    if key in predictions:
-        values = np.asarray(predictions[key][:n_samples])
-        if not _reads_input(target):
-            return _broadcast_constant(values, source_values), label
-        return values, label
-
-    if label in x_data:
-        return np.asarray(x_data[label][:n_samples]), label
-
-    value = getattr(target, "value_numpy", None)
-    if value is None:
-        raise ValueError(
-            f"Validation target {target.name!r} of minimizer "
-            f"{minimizer['name']!r} is neither in the dataset nor a constant."
-        )
-    # The value itself, without the batch axis of the streams.
-    values = np.asarray(value)[np.newaxis, ...]
-    return _broadcast_constant(values, source_values), target.name
 
 
 def validate(
@@ -352,36 +426,24 @@ def validate(
     if n_samples == 0:
         raise ValueError("Validation dataset is empty.")
 
-    x_data = {name: np.asarray(values) for name, values in val_data.as_dict().items()}
-    predictions = _predict(model, x_data, n_samples)
+    terms = _resolve_minimizer_terms(model)
+    x_data, mask = model._training_arrays(val_data)
+    compared = _evaluate(model, terms, x_data, mask, n_samples)
 
     signals = {}
-    for minimizer in model.minimizers:
-        name = minimizer["name"]
-        source = minimizer["source"]
-        source_key = _minimizer_key(model, source)
-        if source_key not in predictions:
-            raise ValueError(
-                f"Minimizer {name!r} sources {source.name!r}, which the built "
-                "model does not expose as an output."
-            )
-        y_true, target_name = _validation_target(
-            model, minimizer, x_data, predictions, n_samples
-        )
-        signals[name] = score_signal(
-            name=name,
-            source=source.name,
-            target=target_name,
-            loss_fn=minimizer["loss"],
-            seq_weights=(
-                None
-                if minimizer.get("seq_weights") is None
-                else _seq_weights_for(
-                    minimizer["seq_weights"], y_true.shape[OUTER_TIME_AXIS], name
-                )
-            ),
+    for minimizer, term in zip(model.minimizers, terms):
+        loss_value, y_pred, y_true, valid = compared[term.name]
+        target = minimizer["target"]
+        signals[term.name] = score_signal(
+            name=term.name,
+            source=minimizer["source"].name,
+            target=_dataset_name(target, x_data) or target.name,
             y_true=y_true,
-            y_pred=np.asarray(predictions[source_key][:n_samples]),
+            y_pred=y_pred,
+            valid=valid,
+            dim_rank=minimizer["source"].shape.dim_rank,
+            loss=loss_name(minimizer["loss"]),
+            loss_value=loss_value,
         )
 
     result = ValidationResult(

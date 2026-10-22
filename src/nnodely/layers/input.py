@@ -139,14 +139,13 @@ class Input(Stream):
         return node
 
 
-def resolve_windows(order) -> dict[Input, tuple[int, int]]:
-    """Give every Input of a graph the union of the windows the graph reads
-    from it, and return them: ``{input: (past, future)}``.
+def windows_read(order) -> dict[Input, tuple[int, int]]:
+    """The window a graph reads from each Input it reads through windows: the
+    union of them, ``{input: (past, future)}``.
 
     ``order`` is the graph's nodes. A window declared on an Input but not in
-    the graph widens nothing; an Input the graph reads through no window is
-    left as it is. An Input loaded from a file keeps at least the window the
-    saved model read, so it reads the same data.
+    the graph widens nothing. An Input loaded from a file keeps at least the
+    window the saved model read, so it reads the same data.
     """
     windows: dict[Input, tuple[int, int]] = {}
     for node in order:
@@ -154,6 +153,15 @@ def resolve_windows(order) -> dict[Input, tuple[int, int]]:
             source = node.preds[0]
             past, future = windows.get(source, source._saved_window)
             windows[source] = (max(past, node.past), max(future, node.future))
+    return windows
+
+
+def resolve_windows(order) -> dict[Input, tuple[int, int]]:
+    """Give every Input of a graph the window the graph reads from it
+    (:func:`windows_read`), and return them: ``{input: (past, future)}``.
+    An Input the graph reads through no window is left as it is.
+    """
+    windows = windows_read(order)
     # Read whole, an Input has no time axis; read through a window, the
     # data holds one: one Input cannot be both.
     for node in order:

@@ -31,7 +31,20 @@ variable, and trains, validates and exports through Keras. Models saved with
   function called on a list of streams is applied to each and returns a list:
   `Sin([a, b])` gives `[sin(a), sin(b)]`.
 - `Atan2([y, x])`, the two-argument arctangent: the angle of the point
-  `(x, y)` in `[-pi, pi]`, with its quadrant.
+  `(x, y)` in `[-pi, pi]`, with its quadrant. `y` and `x` broadcast as the
+  arithmetic operators do.
+- A model used as a block keeps the shapes it was declared with: each stream
+  it is called on must have the shape its graph reads that input with, and
+  another one is refused; an `Input` given whole is read through the block's
+  own windows.
+- A `Parameter` or `Constant` read by several models - Loop bodies, blocks,
+  the outer model - is one object in the saved model too: loaded once,
+  listed once, frozen once.
+- `export_keras` writes a stand-alone copy that `import_keras` gives back
+  for every model: a weight read from several Keras graphs - a body rolled
+  out by two Loops, a Parameter read inside and outside a body, a block also
+  used in a Loop, several `Differentiate` of one relation - is written once
+  per graph, with the same value. Keras could not rebuild such a file.
 - `KerasFunction(function)`: any Keras layer, class or instance, as an
   nnodely layer - a custom function in the graph, its streams passed to
   `call` as separate arguments. The model saves, loads and exports with it.
@@ -65,8 +78,14 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Early stopping in `train()`: the name of a monitored loss (made into a Keras
   `EarlyStopping` with `early_stopping_kwargs`), its configuration, or any
   callback, Keras's or your own.
-- `validate()` with system-identification metrics (RMSE, MAE, FIT, R², ...)
-  and figures.
+- `validate()` scores every objective as training does - the same forward
+  pass, target and padding mask, and the loss `train()` logs for validation
+  data - with system-identification metrics: RMSE, MAE, max error, bias, error
+  std, NRMSE, FIT, R², VAF and correlation. They are computed for each channel
+  on its own scale, pooled or averaged for the whole signal, and leave out the
+  rollout steps padded onto shorter simulations. A rollout also reports its
+  RMSE at each step. Figures show prediction, error, parity, error
+  distribution and the error along the rollout.
 - Calculus blocks `Differentiate` (with respect to an input), `Derivative`
   (with respect to time),
   `IntegrateStep`, `Integrate` (an `IntegrateStep` rolled out along a
@@ -155,7 +174,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   object several times shares its weights, and layers created apart never
   share them, whatever their names.
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
-  history.
+  history, each batch weighing as many samples as it holds, as Keras weighs
+  `"loss"`: a short last batch no longer counts as a full one.
 - The `.nnodely` save format is version 3. Saves and `.keras` exports made
   with the 2.0 pre-releases, laid out `(batch, *dim, time, *seq)`, do not
   load.

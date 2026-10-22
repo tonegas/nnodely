@@ -24,6 +24,14 @@ its outputs as streams of the outer graph:
 A model with several outputs returns them as a list:
 ``first, second = block([a, b])``.
 
+A block keeps the shapes it was declared with. Every stream it is called on
+must have the shape the block's graph reads that input with - here a window
+of 10 samples of one feature - and another shape is refused rather than
+reshaped, so a rollout is not slipped into a block that reads one sample. A
+dynamic sequence matches any length. An :class:`~nnodely.Input` can also be
+given whole, ``smoother([raw])``: the block's own windows then read it, so it
+needs the block's dim and sequence.
+
 Weights
 -------
 
