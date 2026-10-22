@@ -119,7 +119,7 @@ def test_time_range():
 
 def test_range():
     x = Input("range_input", dim=4)
-    selected = Range(start=1, end=3, axis=0, name="range")(x.last())
+    selected = Range(start=1, end=3, axis=0, name="range")(x)
 
     assert selected.dim == (2,)
     assert selected.time == (1,)
@@ -290,10 +290,10 @@ def test_atan2_broadcasts_as_the_operators_do():
     # A stream without time applies to every sample and step of the other:
     # Keras once aligned the Constant from the right, so a batch of 3 against
     # a sequence of 4 gave (3, 4, 3, 1) where (3, 4, 1, 1) was declared.
-    x = Input("atan2_seq_x")
+    x = Input("atan2_seq_x", seq=4)
     w, u = Input("atan2_w", dim=2), Input("atan2_u", dim=2)
-    by_constant = Atan2([x.last(seq=4), Constant("atan2_one", value=[1.0])])
-    by_whole = Atan2([w.sw(3), u])  # u read whole: one pair per sample
+    by_constant = Atan2([x, Constant("atan2_one", value=[1.0])])
+    by_whole = Atan2([w.sw(3), u])  # u read directly: one pair per sample
     assert by_constant.shape.dimensions == ((4, 1), (1,))
     assert by_whole.shape.dimensions == ((3,), (2,))
     model = Modely(
@@ -308,21 +308,21 @@ def test_atan2_broadcasts_as_the_operators_do():
     rng = np.random.default_rng(0)
     xs = rng.normal(size=(3, 4, 1, 1)).astype(np.float32)
     ws = rng.normal(size=(3, 3, 2)).astype(np.float32)
-    us = rng.normal(size=(3, 2)).astype(np.float32)
+    us = rng.normal(size=(3, 1, 2)).astype(np.float32)
     result = model({"atan2_seq_x": xs, "atan2_w": ws, "atan2_u": us})
     np.testing.assert_allclose(
         to_numpy(result["atan2_by_constant"]), np.arctan2(xs, 1.0), rtol=1e-6
     )
     np.testing.assert_allclose(
         to_numpy(result["atan2_by_whole"]),
-        np.arctan2(ws, us[:, None, :]),
+        np.arctan2(ws, us),
         rtol=1e-6,
     )
 
     # Like the operators: windows of different lengths are not combined, and
     # Atan2 reads two streams.
     with pytest.raises(ValueError, match="different time axes"):
-        Atan2([w.sw(3), Input("atan2_v", dim=2).last()])
+        Atan2([w.sw(3), Input("atan2_v", dim=2).sw(2)])
     with pytest.raises(ValueError, match="reads two streams"):
         Atan2([w.sw(3)])
 
@@ -330,8 +330,8 @@ def test_atan2_broadcasts_as_the_operators_do():
 def test_atan2_gives_the_angle_of_the_point_in_every_quadrant(tmp_path):
     y = Input("atan2_y")
     x = Input("atan2_x")
-    angle = Atan2([y.last(), x.last()])  # applied as it is created
-    called = Atan2()([y.last(), x.last()])
+    angle = Atan2([y, x])  # applied as it is created
+    called = Atan2()([y, x])
     model = Modely(
         "atan2_model",
         inputs=[y, x],
@@ -474,8 +474,8 @@ def test_concatenate_supports_second_and_negative_dim_axes():
     x = Input("axis_x", dim=(2, 1))
     y = Input("axis_y", dim=(2, 2))
     z = Input("axis_z", dim=(2, 3))
-    positive = Concatenate(axis=1)([x.last(), y.last(), z.last()])
-    negative = Concatenate(axis=-1)([x.last(), y.last(), z.last()])
+    positive = Concatenate(axis=1)([x, y, z])
+    negative = Concatenate(axis=-1)([x, y, z])
     model = Modely(
         "axis_concatenate_model",
         inputs=[x, y, z],
@@ -524,18 +524,18 @@ def test_concatenate_rejects_incompatible_shapes():
     y = Input("invalid_concat_y", dim=(1, 3))
 
     with pytest.raises(ValueError, match="matching dimensions"):
-        Concatenate(axis=0)([x.last(), y.last()])
+        Concatenate(axis=0)([x, y])
 
     with pytest.raises(ValueError, match="matching dim and time axes except time"):
-        TimeConcatenate()([x.last(), y.last()])
+        TimeConcatenate()([x, y])
 
     with pytest.raises(ValueError, match="at least two inputs"):
-        Concatenate()([x.last()])
+        Concatenate()([x])
 
 
 def test_fir_simple():
     input1 = Input("in1")
-    rel1 = Fir(features=1)([input1.last()])
+    rel1 = Fir(features=1)([input1])
     fun = Output("out", rel1)
 
     test = Modely(name="test_model", inputs=[input1], outputs=[fun])
@@ -666,9 +666,7 @@ def test_a_frozen_linear_stays_frozen_through_a_keras_file(tmp_path):
     model = Modely(
         "frozen",
         inputs=[x],
-        outputs=[
-            Output("frozen_out", Linear(features=3, name="frozen_linear")(x.last()))
-        ],
+        outputs=[Output("frozen_out", Linear(features=3, name="frozen_linear")(x))],
     ).build()
     assert model.inference_model is not None
     model.inference_model.get_layer("frozen_linear").trainable = False
@@ -682,7 +680,7 @@ def test_a_frozen_linear_stays_frozen_through_a_keras_file(tmp_path):
 def test_linear_initializers_are_saved_with_the_architecture(tmp_path):
     x = Input("initialized_x", dim=2)
     linear = Linear(features=3, kernel="ones", bias="zeros", name="initialized_linear")(
-        x.last()
+        x
     )
     model = Modely(
         "initialized", inputs=[x], outputs=[Output("initialized_out", linear)]
@@ -736,15 +734,15 @@ def test_linear_takes_its_kernel_and_bias_from_parameters():
 def test_linear_rejects_parameters_of_the_wrong_shape():
     x = Input("linear_bad_x", dim=3)
     with pytest.raises(ValueError, match=r"kernel must have the shape \(3, 2\)"):
-        Linear(features=2, kernel=Parameter("linear_bad_w", dim=(2, 3)))([x.last()])
+        Linear(features=2, kernel=Parameter("linear_bad_w", dim=(2, 3)))([x])
     with pytest.raises(ValueError, match=r"bias must have the shape \(2,\)"):
-        Linear(features=2, bias=Parameter("linear_bad_b", dim=3))([x.last()])
+        Linear(features=2, bias=Parameter("linear_bad_b", dim=3))([x])
 
 
 def test_linear_with_parameters_round_trips_through_save_and_keras(tmp_path):
     x = Input("linear_kept_x", dim=2)
     w = Parameter("linear_kept_w", dim=(2, 3))
-    linear = Linear(features=3, kernel=w, bias="ones", name="linear_kept")([x.last()])
+    linear = Linear(features=3, kernel=w, bias="ones", name="linear_kept")([x])
     model = Modely(
         "linear_kept", inputs=[x], outputs=[Output("linear_kept_out", linear)]
     ).build()
@@ -788,10 +786,8 @@ def _linear_values(shape, seed):
 def test_linear_projects_the_whole_dim_by_default():
     # (batch, seq, time, 2, 3) -> (batch, seq, time, features): every one
     # of the 6 features of a sample feeds every output.
-    x = Input("lin_dim_x", dim=(2, 3))
-    summed = Linear(features=2, kernel="ones", bias=False, name="lin_dim_sum")(
-        x.sw(4, seq=2)
-    )
+    x = Input("lin_dim_x", dim=(2, 3), seq=2)
+    summed = Linear(features=2, kernel="ones", bias=False, name="lin_dim_sum")(x.sw(4))
     drawn = Linear(features=2, name="lin_dim_drawn")(x.sw(4))
     model = Modely(
         "lin_dim_model",
@@ -843,10 +839,10 @@ def test_linear_with_an_axis_projects_that_axis_alone(
     bias_terms,
 ):
     # features takes the place of the axis.
-    x = Input("lin_axis_x", dim=(2, 3))
+    x = Input("lin_axis_x", dim=(2, 3), seq=2)
     linear = Linear(
         features=2, axis=axis, shared_kernel=shared_kernel, name="lin_axis"
-    )(x.sw(4, seq=2))
+    )(x.sw(4))
     model = Modely(
         "lin_axis_model", inputs=[x], outputs=[Output("lin_axis_out", linear)]
     ).build()
@@ -885,7 +881,7 @@ def test_linear_rejects_an_axis_its_input_does_not_have():
     x = Input("lin_bad_axis_x", dim=(2, 3))
     for axis in (2, -3):
         with pytest.raises(ValueError, match=f"axis {axis} is not an axis"):
-            Linear(features=2, axis=axis)(x.last())
+            Linear(features=2, axis=axis)(x)
 
 
 def test_linear_draws_a_whole_dim_kernel_as_one_matrix():
@@ -899,7 +895,7 @@ def test_linear_draws_a_whole_dim_kernel_as_one_matrix():
             mode="fan_out", distribution="uniform"
         ),
         bias=False,
-    )(x.last())
+    )(x)
     Modely("lin_draw", inputs=[x], outputs=[Output("lin_draw_out", linear)]).build()
 
     kernel = np.abs(to_numpy(linear.kernel))
@@ -921,14 +917,13 @@ def test_select_rejects_an_index_out_of_its_dim_axis(dim, axis, idx):
     # Once accepted: the stream came out with an empty dim axis.
     x = Input("select_bounds_x", dim=dim)
     with pytest.raises(ValueError, match=f"idx {idx} out of bounds"):
-        Select(idx=idx, axis=axis)([x.last()])
+        Select(idx=idx, axis=axis)([x])
 
 
 def test_select_takes_every_index_of_its_dim_axis():
     x = Input("select_every_x", dim=3)
     outputs = [
-        Output(f"select_{index + 3}", Select(idx=index)([x.last()]))
-        for index in range(-3, 3)
+        Output(f"select_{index + 3}", Select(idx=index)([x])) for index in range(-3, 3)
     ]
     model = Modely("select_every", inputs=[x], outputs=outputs).build()
 
@@ -947,16 +942,16 @@ def test_select_takes_every_index_of_its_dim_axis():
 
 
 def test_softmax_normalizes_every_value_of_each_sample():
-    # Once over the last tensor axis only: on x.last() that is the time axis,
+    # Once over the last tensor axis only: on x that is the time axis,
     # one value long, so every output was 1.
     x = Input("softmax_whole_x", dim=3)
-    y = Input("softmax_whole_y", dim=2)
+    y = Input("softmax_whole_y", dim=2, seq=2)
     model = Modely(
         "softmax_whole",
         inputs=[x, y],
         outputs=[
-            Output("softmax_dim", Softmax()([x.last()])),
-            Output("softmax_all", Softmax()([y.sw(3, seq=2)])),
+            Output("softmax_dim", Softmax()([x])),
+            Output("softmax_all", Softmax()([y.sw(3)])),
         ],
     ).build()
     rng = np.random.default_rng(0)
@@ -1086,8 +1081,8 @@ def test_fir_with_one_channel_keeps_the_dim():
 def test_fir_keeps_the_sequence_axes():
     # Once flattened into the projection: every output mixed every step of
     # the sequence, and the seq axis was gone from the result.
-    x = Input("fir_seq_x", dim=2)
-    fir = Fir(features=3, name="fir_seq")([x.sw(3, seq=4)])
+    x = Input("fir_seq_x", dim=2, seq=4)
+    fir = Fir(features=3, name="fir_seq")([x.sw(3)])
     model = Modely("fir_seq_model", inputs=[x], outputs=[Output("fir_seq_out", fir)])
     model.build()
     assert fir.shape.dimensions == ((4, 1), (2, 3))
@@ -1129,8 +1124,8 @@ def test_fir_without_sequence_axes_filters_the_whole_window():
     [((1,), 2, (2,)), ((2, 3), 2, (2, 3, 2)), ((2, 3), 1, (2, 3))],
 )
 def test_fir_follows_a_dynamic_sequence_length(dim, features, expected):
-    x = Input("fir_dynamic_x", dim=dim)
-    fir = Fir(features=features, name="fir_dynamic")([x.sw(2, seq=-1)])
+    x = Input("fir_dynamic_x", dim=dim, seq=-1)
+    fir = Fir(features=features, name="fir_dynamic")([x.sw(2)])
     model = Modely(
         "fir_dynamic_model", inputs=[x], outputs=[Output("fir_dynamic_out", fir)]
     )
@@ -1319,7 +1314,7 @@ def test_fir_trains_the_parameters_it_is_given():
     model = Modely(
         "fir_train_model", inputs=[x], outputs=[Output("fir_train_out", fir)]
     )
-    model.minimize("fit", fir, Input("fir_train_y").last())
+    model.minimize("fit", fir, Input("fir_train_y"))
     model.build()
 
     signal = np.random.default_rng(9).normal(size=100).astype(np.float32)
@@ -1443,7 +1438,7 @@ def test_a_layer_with_settings_called_on_a_stream_says_how_to_call_it(layer):
     # ReLU(x) once made a layer with x as its first setting, silently.
     x = Input(f"settings_{layer.__name__}_x")
     with pytest.raises(TypeError, match="configured first"):
-        layer(x.last())
+        layer(x)
 
 
 def test_a_layer_that_reads_one_stream_is_applied_to_every_stream():
@@ -1453,7 +1448,7 @@ def test_a_layer_that_reads_one_stream_is_applied_to_every_stream():
     from nnodely import Triangular
 
     a, b = Input("every_a"), Input("every_b", dim=3)
-    streams = [a.last(), b.sw(2)]
+    streams = [a, b.sw(2)]
     results = {
         "sin": Sin(streams),  # applied on creation, to each
         "relu": ReLU(max_value=1.0)(streams),
@@ -1466,7 +1461,7 @@ def test_a_layer_that_reads_one_stream_is_applied_to_every_stream():
         ]
     # One PReLU object is one layer: its slopes are shared by both streams.
     c, d = Input("every_c", dim=2), Input("every_d", dim=2)
-    slopes = PReLU()([c.last(), d.last()])
+    slopes = PReLU()([c, d])
     model = Modely(
         "every",
         inputs=[a, b, c, d],
@@ -1510,7 +1505,7 @@ def test_elu_keeps_a_finite_gradient_for_large_inputs():
     # 1e-4 against 0 moves w from 1 to 1 - 1e-4 * 2 * 100 * 100 = -1.
     x = Input("elu_large_x")
     w = Parameter("elu_large_w", value=1.0)
-    out = Output("elu_large_out", ELU()([w * x.last()]))
+    out = Output("elu_large_out", ELU()([w * x]))
     model = Modely("elu_large", inputs=[x], outputs=[out])
     model.minimize("elu_large_fit", out, 0.0)
     model.build()
@@ -1522,8 +1517,8 @@ def test_elu_keeps_a_finite_gradient_for_large_inputs():
 def test_prelu_learns_one_slope_per_feature():
     # Its slopes once covered every time and sequence step too, and a dynamic
     # sequence could not be built at all.
-    x = Input("prelu_slope_x", dim=2)
-    out = Output("prelu_slope_out", PReLU()([x.sw(3, seq=-1)]))
+    x = Input("prelu_slope_x", dim=2, seq=-1)
+    out = Output("prelu_slope_out", PReLU()([x.sw(3)]))
     model = Modely("prelu_slope", inputs=[x], outputs=[out]).build()
     assert model.model is not None
     assert [tuple(w.shape) for w in model.model.trainable_weights] == [(1, 1, 2)]

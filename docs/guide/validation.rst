@@ -76,7 +76,7 @@ The model below is trained on part of a signal and validated on the rest:
    u = Input("u")
    y = Output("y", Fir(features=1)([u.sw(20)]))
    model = Modely("filter", inputs=[u], outputs=[y])
-   model.minimize("response", y, Input("y_target").last())
+   model.minimize("response", y, Input("y_target"))
    model.build()
 
    signals = {"u": u_data, "y_target": y_data}

@@ -11,7 +11,7 @@ import numpy as np
 
 from nnodely.core.dag import next_name
 from nnodely.core.layer import Identity, Layer, Multiply
-from nnodely.core.shape import Shape, align, slice_axis
+from nnodely.core.shape import Shape, _padded, align, slice_axis
 from nnodely.core.stream import Stream
 from nnodely.layers.activations import (
     ELU,
@@ -200,17 +200,19 @@ class CellSumImpl(keras.layers.Layer):
 
 
 class CellWeight(Multiply):
-    """A stack of cells weighted by their memberships, of time ``(T,)`` or
-    none and dim ``(N,)``: the stack's shape. The memberships may hold one
-    sample, or none, to weigh every sample of the cells' window alike, a
-    broadcast along time that plain arithmetic refuses; :class:`LocalModel`
-    checks the times."""
+    """A stack of cells weighted by their memberships, of dim ``(N,)``. Either
+    may hold one sample of inner time, to be weighed along the other's
+    window, a broadcast along time that plain arithmetic refuses:
+    :class:`LocalModel` checks the times."""
 
     def output_shape(self, *inputs):
         stack, mu = inputs[0].shape, inputs[1].shape
-        if stack.time and stack.time[-1] == 1 and mu.time:
-            return stack.replace(time=(*stack.time[:-1], mu.time[-1]))
-        return stack if stack.time else stack.replace(time=mu.time)
+        rank = max(stack.time_rank, mu.time_rank)
+        time = tuple(
+            other if size == 1 else size
+            for size, other in zip(_padded(stack.time, rank), _padded(mu.time, rank))
+        )
+        return stack.replace(time=time)
 
 
 class CellSum(Layer):
@@ -342,9 +344,7 @@ class LocalModel:
 
         # The memberships, of dim (N,), line up with the last dim axis of the
         # stack, its cell axis, and with its inner time.
-        times = {
-            stream.time[-1] if stream.time else 1 for stream in [*activations, stack]
-        }
+        times = {stream.time[-1] for stream in [*activations, stack]}
         if len(times - {1}) > 1:
             raise ValueError(
                 f"{self.name}: the activations and the cells have time axes of "

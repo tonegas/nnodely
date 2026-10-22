@@ -46,7 +46,7 @@ class KerasFunction(Layer):
             def call(self, x, y):
                 return x * x + y
 
-        shifted = KerasFunction(Shifted)([a.last(), b.last()])
+        shifted = KerasFunction(Shifted)([a, b])
 
     A class is made anew for every KerasFunction; an instance keeps its
     weights, shared wherever it is used. Weights of the Keras layer are Keras

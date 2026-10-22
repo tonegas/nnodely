@@ -78,7 +78,7 @@ def test_model_inference_with_composed_model(batch_size, window_size):
 
 def test_inference_accepts_a_backend_tensor():
     x = Input("backend_tensor_x", dim=1)
-    output = Output("backend_tensor_out", x.last() * 2.0)
+    output = Output("backend_tensor_out", x * 2.0)
     model = Modely("backend_tensor_model", inputs=[x], outputs=[output]).build()
 
     value = keras.ops.convert_to_tensor(np.array([[[3.0]]], dtype=np.float32))
@@ -104,12 +104,12 @@ def _minimized_model(name):
     """
     x = Input(f"{name}_x", dim=1)
     target = Input(f"{name}_target", dim=1)
-    hidden = Linear(features=1, name=f"{name}_hidden")(x.last())
+    hidden = Linear(features=1, name=f"{name}_hidden")(x)
     prediction = Output(
         f"{name}_pred", Fir(features=1, name=f"{name}_fir")(x.sw(3)) + hidden
     )
     model = Modely(name, inputs=[x, target], outputs=[prediction])
-    model.minimize(f"{name}_fit", source=prediction, target=target.last())
+    model.minimize(f"{name}_fit", source=prediction, target=target)
     model.minimize(f"{name}_small", source=hidden, target=0.0)
     return model.build()
 
@@ -166,9 +166,9 @@ def test_inference_returns_only_declared_outputs():
 def test_inference_keeps_an_input_that_outputs_and_minimizers_both_read():
     # A reconstruction: the input is both what the model reads and its target.
     x = Input("reconstruct_x", dim=1)
-    rebuilt = Output("reconstruct_out", Linear(features=1)(x.last()))
+    rebuilt = Output("reconstruct_out", Linear(features=1)(x))
     model = Modely("reconstruct", inputs=[x], outputs=[rebuilt])
-    model.minimize("reconstruct_fit", source=rebuilt, target=x.last())
+    model.minimize("reconstruct_fit", source=rebuilt, target=x)
     model.build()
 
     assert [node.name for node in model.inference_inputs] == ["reconstruct_x"]
@@ -205,9 +205,9 @@ def test_rollback_inference_does_not_need_minimizer_inputs():
     fir = Fir(features=1, kernel=taps, bias=False, name="rollback_inference_fir")(
         x.sw(5)
     )
-    output = Output("rollback_inference_out", fir + x.last())
+    output = Output("rollback_inference_out", fir + x)
     model = Modely("rollback_inference", inputs=[x, target], outputs=[output])
-    model.minimize("rollback_inference_fit", source=output, target=target.last())
+    model.minimize("rollback_inference_fit", source=output, target=target)
     model.rollback({x: fir}, steps=3)
     model.build()
 
@@ -216,7 +216,7 @@ def test_rollback_inference_does_not_need_minimizer_inputs():
     )
 
     assert set(result) == {"rollback_inference_out"}
-    # 1..5 -> 15, 29, 56 fed back; the last step reads 56 + x.last() = 29 + 56.
+    # 1..5 -> 15, 29, 56 fed back; the last step reads 56 + x = 29 + 56.
     np.testing.assert_allclose(
         to_numpy(result["rollback_inference_out"]), np.array([[[85.0]]])
     )
@@ -227,23 +227,23 @@ def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
     gain = Parameter("minimized_body_gain", value=[2.0])
     relation = Linear(
         features=1, kernel=gain, bias=False, name="minimized_body_linear"
-    )(state.last())
+    )(state)
     next_state = Output("minimized_body_next", relation)
     body = Modely("minimized_body", inputs=[state], outputs=[next_state])
     body.minimize(
         "minimized_body_fit",
         source=next_state,
-        target=Input("minimized_body_target", dim=1).last(),
+        target=Input("minimized_body_target", dim=1),
     )
     body.build()
 
     # The loop runs the body as declared: its target is not an input of the loop.
-    seed = Input("minimized_body_seed", dim=1)
+    seed = Input("minimized_body_seed", dim=1, seq=4)
     loop = Loop(
         f=body,
         callback={state: next_state},
         collect=False,
-        init={state: seed.last(seq=4)},
+        init={state: seed},
     )()
     model = Modely(
         "minimized_loop", inputs=[seed], outputs=[Output("minimized_loop_out", loop)]
@@ -278,7 +278,7 @@ def test_a_model_that_reads_no_input_is_refused_at_build():
         only_values.build()
 
     state = Input("numbers_state")
-    step = Output("numbers_next", Linear(bias=False)(state.last()))
+    step = Output("numbers_next", Linear(bias=False)(state))
     body = Modely("numbers_body", inputs=[state], outputs=[step]).build()
     driven_by_numbers = Loop(
         f=body, callback={state: step}, length=4, init={state: 1.0}
@@ -294,9 +294,7 @@ def test_two_inputs_of_one_name_are_refused():
     # The data is keyed by input name: two Inputs named alike read one array,
     # and a model with them once ran silently on the wrong values.
     a, b = Input("twin_name"), Input("twin_name")
-    model = Modely(
-        "twin_names", inputs=[a, b], outputs=[Output("twin_out", a.last() + b.last())]
-    )
+    model = Modely("twin_names", inputs=[a, b], outputs=[Output("twin_out", a + b)])
     with pytest.raises(ValueError, match="two different Inputs named 'twin_name'"):
         model.build()
 
@@ -306,7 +304,7 @@ def test_a_file_that_is_not_an_nnodely_2_model_is_refused(tmp_path):
 
     x = Input("file_check_x")
     Modely(
-        "file_check", inputs=[x], outputs=[Output("file_check_out", x.last() * 2.0)]
+        "file_check", inputs=[x], outputs=[Output("file_check_out", x * 2.0)]
     ).build().save(tmp_path / "model")
     config = tmp_path / "model" / "model.json"
     saved = json.loads(config.read_text())

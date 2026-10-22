@@ -436,7 +436,7 @@ class Loop(Layer):
 
     ``length`` pins the number of steps. It is required only when no initial
     value or input carries a rollout. A rollout declared dynamic
-    (``sw(..., seq=-1)``) follows the length of the sequence it is actually
+    (an Input with ``seq=-1``) follows the length of the sequence it is actually
     given, and without ``length`` its streams are declared with
     ``DYNAMIC_BUILD_LENGTH`` steps.
 
@@ -567,9 +567,10 @@ class Loop(Layer):
             self.static_inputs, self.static_sources, self.rolled_static
         ):
             step = source.shape.without_outer_time() if rolled else source.shape
-            if source is not node and step.time != node.shape.time:
+            if source is not node and step.time != node.data_shape.time:
                 raise ValueError(
-                    f"Loop input {node.name!r} expects time {tuple(node.time)} or "
+                    f"Loop input {node.name!r} expects time "
+                    f"{tuple(node.data_shape.time)} or "
                     f"one more outer time for the rollout, got {tuple(source.time)} "
                     f"from {source.name!r}."
                 )
@@ -642,16 +643,17 @@ class Loop(Layer):
     @staticmethod
     def _rolled(node, source):
         """Whether ``source`` feeds ``node`` one step of its outer time per step
-        of the rollout: it has one more time axis, and the same sequence."""
-        if source.shape.time_rank != node.shape.time_rank + 1:
+        of the rollout: it has one more time axis than the body reads, and the
+        same sequence."""
+        if source.shape.time_rank != node.data_shape.time_rank + 1:
             return False
-        return tuple(source.time[1:-1]) == tuple(node.time[:-1])
+        return tuple(source.time[1:-1]) == tuple(node.sequence)
 
     @staticmethod
     def _state_shape(node, value, rolled):
         """Shape an initial value must be broadcast to, or None if it fits."""
         source = value.shape.without_outer_time().tuple if rolled else value.shape.tuple
-        target = tuple(node.shape.tuple)
+        target = tuple(node.data_shape.tuple)
         if source == target:
             return None
         incompatible = len(source) > len(target) or any(
@@ -679,7 +681,7 @@ class Loop(Layer):
             # The output becomes the input at the next step, so it must carry
             # the same outer time axes, the sequence; a dynamic one is only
             # known at run time.
-            output_time, node_time = tuple(output.time), tuple(node.time)
+            output_time, node_time = tuple(output.time), tuple(node.data_shape.time)
             if len(output_time) != len(node_time) or any(
                 None not in (size, node_size) and size != node_size
                 for size, node_size in zip(output_time[:-1], node_time[:-1])

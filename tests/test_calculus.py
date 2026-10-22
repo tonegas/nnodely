@@ -25,7 +25,7 @@ from nnodely.core.export import _traces_backward_pass
 def test_derivate_wrt_input_and_time():
     x = Input("x", dim=1)
     y = Input("y", dim=1)
-    x_last, y_last = x.last(), y.last()
+    x_last, y_last = x, y
     fun = Sin()(x_last) + y_last**2
     out_der_x = Differentiate(order=1, respect_to=x)(fun)
     out_der_y = Differentiate(order=1, respect_to=y)(fun)
@@ -75,7 +75,7 @@ def test_derivate_wrt_input_and_time():
 
     # x = Input("x", dim=1)
     # y = Input("y", dim=1)
-    # x_last, y_last = x.last(), y.last()
+    # x_last, y_last = x, y
     # fun = Sin()(x_last) + y_last**2
     # out_der_x = Differentiate(order=1, respect_to=x)(fun)
     # out_der_y = Differentiate(order=1, respect_to=y)(fun)
@@ -104,7 +104,7 @@ def test_derivative_wrt_input_matches_analytic_over_a_batch():
     sums over a relation's own axes, never across independent samples."""
     x = Input("batch_x", dim=1)
     y = Input("batch_y", dim=1)
-    fun = Sin()(x.last()) + y.last() ** 2
+    fun = Sin()(x) + y**2
 
     model = Modely(
         "derivative_batch_model",
@@ -133,7 +133,7 @@ def test_derivative_wrt_input_matches_analytic_over_a_batch():
 
 def test_derivative_wrt_input_second_order():
     x = Input("second_x", dim=1)
-    fun = Sin()(x.last()) + x.last() ** 3
+    fun = Sin()(x) + x**3
 
     model = Modely(
         "derivative_second_order_model",
@@ -165,7 +165,7 @@ def test_derivative_wrt_input_nested_equals_second_order():
     """A derivative is itself a differentiable relation, so it can be fed
     back into another Differentiate."""
     x = Input("nested_x", dim=1)
-    fun = x.last() ** 3
+    fun = x**3
     first = Differentiate(order=1, respect_to=x)(fun)
 
     model = Modely(
@@ -217,7 +217,7 @@ def test_differentiate_through_a_linear_with_parameter_weights():
     s = Input("dlin_s", dim=3)
     W = Parameter("dlin_W", value=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
     b = Parameter("dlin_b", value=[5.0, 6.0])
-    z = Linear(features=2, kernel=W, bias=b)(s.last())
+    z = Linear(features=2, kernel=W, bias=b)(s)
     derivative = Differentiate(respect_to=s)(z)
     model = Modely(
         "dlin_model", inputs=[s], outputs=[Output("dlin_dz", derivative)]
@@ -237,7 +237,7 @@ def test_differentiate_trains_a_parameter_kernel():
     k = Parameter("dk_k", value=[1.0])
     derivative = Output(
         "dk_dx",
-        Differentiate(respect_to=x)(Fir(features=1, kernel=k, bias=False)(x.last())),
+        Differentiate(respect_to=x)(Fir(features=1, kernel=k, bias=False)(x)),
     )
     model = Modely("dk_model", inputs=[x], outputs=[derivative])
     model.minimize("dk_slope", derivative, 3.0, loss="mse")
@@ -277,7 +277,7 @@ def test_derivative_between_layers_with_parameter_weights():
 def test_derivative_wrt_input_the_relation_does_not_read_raises():
     x = Input("unrelated_x", dim=1)
     y = Input("unrelated_y", dim=1)
-    fun = Sin()(x.last())
+    fun = Sin()(x)
 
     with pytest.raises(ValueError, match="does not depend on input"):
         Modely(
@@ -342,7 +342,7 @@ def test_derivative_wrt_time_takes_a_missing_past_as_zero():
     model = Modely(
         "derivative_time_single_model",
         inputs=[v],
-        outputs=[Output("dt", Derivative(order=1, dt=dt)(v.last()))],
+        outputs=[Output("dt", Derivative(order=1, dt=dt)(v))],
     ).build()
 
     values = np.array([[[2.0]]], dtype=np.float32)
@@ -383,7 +383,7 @@ def test_derivative_wrt_time_reads_a_stream_as_the_initial_condition():
         outputs=[
             Output(
                 "dt",
-                Derivative(order=1, dt=dt, init=previous.last())(v.sw(3)),
+                Derivative(order=1, dt=dt, init=previous)(v.sw(3)),
             )
         ],
     ).build()
@@ -601,7 +601,7 @@ def test_derivative_wrt_time_rejects_invalid_arguments():
     with pytest.raises(ValueError, match="init must carry"):
         Derivative(order=1, dt=dt, init=v.sw(2))(v.sw(3))
     with pytest.raises(ValueError, match="init has dim"):
-        Derivative(order=1, dt=dt, init=Input("time_invalid_i", dim=2).last())(v.sw(3))
+        Derivative(order=1, dt=dt, init=Input("time_invalid_i", dim=2))(v.sw(3))
 
 
 def test_each_derivative_takes_only_its_own_kind_of_variable():
@@ -624,7 +624,7 @@ def test_each_derivative_takes_only_its_own_kind_of_variable():
 def test_derivative_wrt_input_in_a_multi_dimensional_relation():
     """dim > 1 inputs keep their own axis: one derivative per feature."""
     x = Input("multi_x", dim=3)
-    fun = x.last() ** 2
+    fun = x**2
 
     model = Modely(
         "derivative_multi_dim_model",
@@ -662,7 +662,7 @@ def _build_mixed_derivative_model(name):
                 Output("dx2", Differentiate(order=2, respect_to=x)(fun)),
                 Output(
                     "dt",
-                    Derivative(order=1, dt=0.1, init=init.last())(fun),
+                    Derivative(order=1, dt=0.1, init=init)(fun),
                 ),
                 Output(
                     "dt_smooth",
@@ -755,7 +755,7 @@ def test_derivative_wrt_time_needs_no_fixed_batch_to_export():
     ).build()
 
     x = Input("onnx_grad_x", dim=1)
-    fun = Sin()(x.last())
+    fun = Sin()(x)
     gradient_model = Modely(
         "derivative_grad_onnx_model",
         inputs=[x],
@@ -783,9 +783,9 @@ def test_derivative_inside_a_rollback_model():
     """A derivative is an ordinary block of the graph, so unrolling the model
     re-evaluates it at every step with that step's own state."""
     x = Input("roll_x", dim=1)
-    fun = x.last() ** 2
+    fun = x**2
     derivative = Differentiate(order=1, respect_to=x)(fun)  # 2x
-    next_x = x.last() + derivative * 0.1  # 1.2 x
+    next_x = x + derivative * 0.1  # 1.2 x
 
     model = Modely(
         "derivative_rollback_model",
@@ -808,7 +808,7 @@ def test_train_through_a_derivative():
     For a single-sample Fir the derivative *is* the weight, so it must
     converge to the target."""
     x = Input("dtrain_x", dim=1)
-    fun = Fir(features=1, bias=False, name="dtrain_fir")([x.last()])
+    fun = Fir(features=1, bias=False, name="dtrain_fir")([x])
     derivative = Output("dx", Differentiate(order=1, respect_to=x)(fun))
 
     model = Modely("derivative_train_model", inputs=[x], outputs=[derivative])
@@ -841,16 +841,16 @@ def _build_pos_vel_integrators(name_suffix, dt, mass):
     vel = Input(f"vel_{name_suffix}", dim=1)
     pos = Input(f"pos_{name_suffix}", dim=1)
 
-    acc_rate = force.last() / mass
+    acc_rate = force / mass
     vel_next = IntegrateStep(
-        solver="euler", dt=dt, init=vel.last(), name=f"vel_next_{name_suffix}"
+        solver="euler", dt=dt, init=vel, name=f"vel_next_{name_suffix}"
     )(acc_rate)
 
     # d(pos)/dt = vel (the current velocity, before this step's own update -
     # explicit Euler, not semi-implicit).
     pos_next = IntegrateStep(
-        solver="euler", dt=dt, init=pos.last(), name=f"pos_next_{name_suffix}"
-    )(vel.last())
+        solver="euler", dt=dt, init=pos, name=f"pos_next_{name_suffix}"
+    )(vel)
 
     return force, vel, pos, vel_next, pos_next
 
@@ -963,10 +963,10 @@ def test_integrate_one_sample_window_is_one_step():
         "integrate_euler_model",
         inputs=[v, state],
         outputs=[
-            Output("increment", IntegrateStep(solver="euler", dt=dt)(v.last())),
+            Output("increment", IntegrateStep(solver="euler", dt=dt)(v)),
             Output(
                 "updated",
-                IntegrateStep(solver="euler", dt=dt, init=state.last())(v.last()),
+                IntegrateStep(solver="euler", dt=dt, init=state)(v),
             ),
         ],
     ).build()
@@ -1072,7 +1072,7 @@ def test_integrate_requires_explicit_dt():
     model = Modely(
         "integrate_explicit_dt_model",
         inputs=[v],
-        outputs=[Output("integral", IntegrateStep(solver="euler", dt=0.5)(v.last()))],
+        outputs=[Output("integral", IntegrateStep(solver="euler", dt=0.5)(v))],
     ).build()
 
     result = to_numpy(model({"v": np.array([[[2.0]]], dtype=np.float32)})["integral"])
@@ -1084,7 +1084,7 @@ def test_integrate_rejects_the_rate_as_a_constructor_argument():
     layer."""
     v = Input("v", dim=1)
     with pytest.raises(TypeError, match="configured first"):
-        IntegrateStep(v.last(), dt=0.1)  # type: ignore[arg-type]
+        IntegrateStep(v, dt=0.1)  # type: ignore[arg-type]
 
 
 def test_integrate_save_load_round_trip(tmp_path):
@@ -1119,7 +1119,7 @@ def _integrate_export_model():
     model = Modely(
         "integrate_export_model",
         inputs=[v],
-        outputs=[Output("integral", IntegrateStep(solver="euler", dt=dt)(v.last()))],
+        outputs=[Output("integral", IntegrateStep(solver="euler", dt=dt)(v))],
     ).build()
     return model, {"v": np.array([[[3.0]]], dtype=np.float32)}
 
@@ -1243,9 +1243,7 @@ def test_integrate_init_stream_per_sample_of_the_batch():
         outputs=[
             Output(
                 "trajectory",
-                IntegrateStep(solver="trapezoidal", dt=dt, init=state.last())(
-                    rate.sw(4)
-                ),
+                IntegrateStep(solver="trapezoidal", dt=dt, init=state)(rate.sw(4)),
             )
         ],
     ).build()
@@ -1285,8 +1283,8 @@ def test_integrate_init_over_a_one_sample_window_is_one_step():
         "integrate_cum_one_model",
         inputs=[v],
         outputs=[
-            Output("without", IntegrateStep(solver="euler", dt=dt)(v.last())),
-            Output("with", IntegrateStep(solver="euler", dt=dt, init=3.0)(v.last())),
+            Output("without", IntegrateStep(solver="euler", dt=dt)(v)),
+            Output("with", IntegrateStep(solver="euler", dt=dt, init=3.0)(v)),
         ],
     ).build()
 
@@ -1327,7 +1325,7 @@ def test_integrate_step_init_returns_the_updated_state():
     dt, mass = 0.1, 2.0
     force = Input("step_init_force", dim=1)
     vel = Input("step_init_vel", dim=1)
-    acceleration = force.last() / mass
+    acceleration = force / mass
 
     model = Modely(
         "integrate_step_init_model",
@@ -1335,11 +1333,11 @@ def test_integrate_step_init_returns_the_updated_state():
         outputs=[
             Output(
                 "with_init",
-                IntegrateStep(solver="euler", dt=dt, init=vel.last())(acceleration),
+                IntegrateStep(solver="euler", dt=dt, init=vel)(acceleration),
             ),
             Output(
                 "by_hand",
-                vel.last() + IntegrateStep(solver="euler", dt=dt)(acceleration),
+                vel + IntegrateStep(solver="euler", dt=dt)(acceleration),
             ),
         ],
     ).build()
@@ -1369,10 +1367,8 @@ def test_integrate_predicts_a_trajectory_in_one_pass():
     v0 = Input("traj_v0", dim=1)
     x0 = Input("traj_x0", dim=1)
 
-    velocity = IntegrateStep(solver="euler", dt=dt, init=v0.last())(
-        acceleration.sw(steps)
-    )
-    position = IntegrateStep(solver="euler", dt=dt, init=x0.last())(velocity)
+    velocity = IntegrateStep(solver="euler", dt=dt, init=v0)(acceleration.sw(steps))
+    position = IntegrateStep(solver="euler", dt=dt, init=x0)(velocity)
 
     model = Modely(
         "integrate_trajectory_model",
@@ -1415,10 +1411,8 @@ def test_integrate_with_init_inverts_the_derivative_exactly():
     previous = Input("inverse_previous", dim=1)
     window = v.sw(5)
 
-    derivative = Derivative(order=1, dt=dt, init=previous.last())(window)
-    roundtrip = IntegrateStep(solver="rectangular", dt=dt, init=previous.last())(
-        derivative
-    )
+    derivative = Derivative(order=1, dt=dt, init=previous)(window)
+    roundtrip = IntegrateStep(solver="rectangular", dt=dt, init=previous)(derivative)
 
     model = Modely(
         "integrate_inverse_model",
@@ -1449,7 +1443,7 @@ def test_integrate_init_validation():
     with pytest.raises(ValueError, match="single sample"):
         IntegrateStep(solver="euler", dt=dt, init=v.sw(2))(v.sw(3))
     with pytest.raises(ValueError, match="init has dim"):
-        IntegrateStep(solver="euler", dt=dt, init=wide.last())(v.sw(3))
+        IntegrateStep(solver="euler", dt=dt, init=wide)(v.sw(3))
 
 
 def test_integrate_init_save_load_round_trip(tmp_path):
@@ -1465,13 +1459,11 @@ def test_integrate_init_save_load_round_trip(tmp_path):
         outputs=[
             Output(
                 "trajectory",
-                IntegrateStep(solver="trapezoidal", dt=dt, init=state.last())(
-                    rate.sw(4)
-                ),
+                IntegrateStep(solver="trapezoidal", dt=dt, init=state)(rate.sw(4)),
             ),
             Output(
                 "step",
-                IntegrateStep(solver="euler", dt=dt, init=state.last())(rate.last()),
+                IntegrateStep(solver="euler", dt=dt, init=state)(rate),
             ),
             Output(
                 "constant_init",
@@ -1506,13 +1498,11 @@ def _integrate_init_export_model():
         outputs=[
             Output(
                 "trajectory",
-                IntegrateStep(solver="trapezoidal", dt=dt, init=state.last())(
-                    rate.sw(4)
-                ),
+                IntegrateStep(solver="trapezoidal", dt=dt, init=state)(rate.sw(4)),
             ),
             Output(
                 "step",
-                IntegrateStep(solver="euler", dt=dt, init=state.last())(rate.last()),
+                IntegrateStep(solver="euler", dt=dt, init=state)(rate),
             ),
         ],
     ).build()
@@ -1569,7 +1559,7 @@ def test_train_a_rate_through_an_integrated_trajectory():
     # Linear projects along dim, so the rate keeps one sample per step.
     rate = Linear(features=1, bias=False)([u.sw(steps)])
     trajectory = Output(
-        "trajectory", IntegrateStep(solver="euler", dt=dt, init=v0.last())(rate)
+        "trajectory", IntegrateStep(solver="euler", dt=dt, init=v0)(rate)
     )
 
     model = Modely(
@@ -1634,7 +1624,7 @@ def test_differentiate_reads_the_window_of_its_relation():
             Output("own_window_d_wide", Fir(features=1)([x.sw(5)])),
         ],
     ).build()
-    assert x.shape.time == (5,)
+    assert x.data_shape.time == (5,)
 
     values = np.arange(5.0, dtype=np.float32).reshape(1, 5, 1)
     result = to_numpy(model({"own_window_dx": values})["own_window_d_out"])

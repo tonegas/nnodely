@@ -132,7 +132,7 @@ class Linear(_ParameterWeights):
     the bias with ``"glorot_uniform"``, and ``bias=False`` leaves it out::
 
         W = Parameter("W", value=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
-        Linear(features=2, kernel=W, bias=False)([v.last()])  # v with dim=3
+        Linear(features=2, kernel=W, bias=False)([v])  # v with dim=3
     """
 
     _bias_initializer = "glorot_uniform"

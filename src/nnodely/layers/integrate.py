@@ -116,9 +116,8 @@ class IntegrateImpl(keras.layers.Layer):
             result = keras.ops.moveaxis(result, last_axis, time_axis)
 
         if init is not None:
-            # An initial condition may leave out the outer time axes, or have
-            # no time, and a scalar one the dim size: adding it broadcasts
-            # along both.
+            # An initial condition may leave out the outer time axes, and a
+            # scalar one the dim size: adding it broadcasts along both.
             result = result + expand_to_rank(init, len(result.shape))
         return result
 
@@ -155,7 +154,7 @@ class IntegrateStep(Layer):
     with ``y[-1] = init``. Two things follow from that convention:
 
     * **A one-sample window is one integration step.** ``IntegrateStep(dt=dt,
-      init=velocity.last())(acceleration.last())`` is the state update
+      init=velocity)(acceleration)`` is the state update
       ``velocity + dt * acceleration``, so a recurrence needs no separate form
       of this layer and no ``+`` written around it.
 
@@ -299,7 +298,7 @@ class IntegrateStep(Layer):
 
 
 def _declared_seq(seq) -> tuple[int, ...] | None:
-    """Outer time axes as a window declares them: -1 for a dynamic one."""
+    """Outer time axes as an Input declares them: -1 for a dynamic one."""
     axes = tuple(-1 if length is None else int(length) for length in seq)
     return axes or None
 
@@ -382,8 +381,9 @@ class Integrate:
         if len(rate.time) < 2:
             raise ValueError(
                 f"{self.name}: Integrate runs along the outer time of the rate, its "
-                "rollout, and this rate has none. Declare it on the window, e.g. "
-                "x.last(seq=-1), or integrate a time window with IntegrateStep."
+                "rollout, and this rate has none. Declare it on an Input with a "
+                "sequence, e.g. Input('x', seq=-1), or integrate a time window "
+                "with IntegrateStep."
             )
         if rate.time[-1] != 1:
             raise ValueError(
@@ -400,21 +400,21 @@ class Integrate:
         step_seq = _declared_seq(rate.time[1:-1])
 
         # One step: the state integrates the rate of that step.
-        rate_in = Input(f"{call_name}_rate", dim=dim)
-        state_in = Input(f"{call_name}_state", dim=dim)
-        rate_step = rate_in.last(seq=step_seq)
+        rate_in = Input(f"{call_name}_rate", dim=dim, seq=step_seq)
+        state_in = Input(f"{call_name}_state", dim=dim, seq=step_seq)
+        rate_step = rate_in
         trapezoidal = _SOLVER_RULE[self.solver] == "trapezoidal"
         step_rate = rate_step
         previous_in = None
         if trapezoidal:
             # The trapezoid of a step averages its rate with the previous one,
             # which the loop feeds back like the state.
-            previous_in = Input(f"{call_name}_previous_rate", dim=dim)
-            step_rate = (previous_in.last(seq=step_seq) + rate_step) * 0.5
+            previous_in = Input(f"{call_name}_previous_rate", dim=dim, seq=step_seq)
+            step_rate = (previous_in + rate_step) * 0.5
         step = IntegrateStep(
             solver="euler",
             dt=self.dt,
-            init=state_in.last(seq=step_seq),
+            init=state_in,
             name=f"{call_name}_step",
         )(step_rate)
         next_out = Output(f"{call_name}_next", step)

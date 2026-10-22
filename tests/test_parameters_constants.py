@@ -36,7 +36,7 @@ def test_parameter_shape_is_inferred_like_constant():
         time=(2, 1),
     )
 
-    assert parameter.shape.dimensions == ((), (2, 3, 4))
+    assert parameter.shape.dimensions == ((1,), (2, 3, 4))
     assert parameter_with_axes.shape.dimensions == ((4, 3), (1,))
 
 
@@ -94,7 +94,7 @@ def test_parameter_through_a_layer_keeps_the_batch_axis():
     x = Input("x", dim=4)
     parameter = Parameter("param_exp", value=np.zeros(4, dtype=np.float32))
 
-    y = x.last() * Exp()([parameter])
+    y = x * Exp()([parameter])
     model = Modely("model_param_exp", inputs=[x], outputs=[Output("x_out", y)])
     model.build()
 
@@ -108,20 +108,21 @@ def test_parameter_through_a_layer_keeps_the_batch_axis():
 @pytest.mark.parametrize(
     "value, dimensions",
     [
-        (2.0, ((), (1,))),
-        ([1.0, 2.0, 3.0], ((), (3,))),
-        (np.ones((2, 4)), ((), (2, 4))),
-        (np.ones((2, 4, 3)), ((), (2, 4, 3))),
+        (2.0, ((1,), (1,))),
+        ([1.0, 2.0, 3.0], ((1,), (3,))),
+        (np.ones((2, 4)), ((1,), (2, 4))),
+        (np.ones((2, 4, 3)), ((1,), (2, 4, 3))),
     ],
     ids=["number", "vector", "matrix", "three_axes"],
 )
 def test_a_value_is_laid_out_dim_time_seq(value, dimensions):
     # Unless told otherwise, every axis of a value is a dim axis and the value
-    # has no time axis - for both classes alike.
+    # is one sample of its stream - for both classes alike. It is held as
+    # given, without that sample axis.
     for node in (Constant(value=value), Parameter(value=value)):
         assert node.shape.dimensions == dimensions
         assert node.value is not None
-        assert node.value.shape == node.shape.tuple
+        assert node.value.shape == node.shape.dim
 
 
 @pytest.mark.parametrize(
@@ -166,7 +167,7 @@ def test_a_parameter_without_value_is_drawn_with_the_shape_it_is_given():
     model = Modely(
         "drawn_model",
         inputs=[x],
-        outputs=[Output("drawn_x_out", x.last()), Output("drawn_out", parameter)],
+        outputs=[Output("drawn_x_out", x), Output("drawn_out", parameter)],
     ).build()
 
     assert parameter.shape.dimensions == ((5, 4), (3, 2))
@@ -212,7 +213,7 @@ def test_only_a_parameter_is_trained():
     model = Modely(
         "trained_model",
         inputs=[x],
-        outputs=[Output("trained_out", x.last() * parameter * constant)],
+        outputs=[Output("trained_out", x * parameter * constant)],
     ).build()
 
     assert model.model is not None
@@ -242,7 +243,7 @@ def test_values_given_their_axes_round_trip_through_save(tmp_path):
         "axes_model",
         inputs=[x],
         outputs=[
-            Output("axes_x_out", x.last()),
+            Output("axes_x_out", x),
             Output("axes_parameter_out", parameter),
             Output("axes_constant_out", constant),
         ],
@@ -313,7 +314,7 @@ def test_a_parameter_frozen_before_build_is_built_frozen():
     model = Modely(
         "prebuild_model",
         inputs=[x],
-        outputs=[Output("prebuild_out", x.last() * a + x.last() * b + c)],
+        outputs=[Output("prebuild_out", x * a + x * b + c)],
     ).build()
 
     assert _trainable_ids(model) == {id(c.param)}
@@ -327,9 +328,9 @@ def test_a_frozen_parameter_keeps_its_value_through_training():
     x = Input("frozen_x")
     a = Parameter("frozen_a", value=[1.0])
     b = Parameter("frozen_b", value=[1.0])
-    out = Output("frozen_out", x.last() * a + x.last() * b)
+    out = Output("frozen_out", x * a + x * b)
     model = Modely("frozen_model", inputs=[x], outputs=[out])
-    model.minimize("frozen_fit", out, Input("frozen_y").last())
+    model.minimize("frozen_fit", out, Input("frozen_y"))
     model.build()
     data = DataLoader(
         model,
@@ -357,17 +358,17 @@ def test_model_freeze_reaches_layer_weights_called_models_and_loop_bodies():
     u = Input("reach_u")
     gain = Parameter("reach_gain", value=[2.0])
     block = Modely(
-        "reach_block", inputs=[u], outputs=[Output("reach_block_out", u.last() * gain)]
+        "reach_block", inputs=[u], outputs=[Output("reach_block_out", u * gain)]
     ).build()
     # A Loop body whose Linear makes its own weights.
     q = Input("reach_q")
     body = Modely(
         "reach_body",
         inputs=[q],
-        outputs=[Output("reach_next", Linear(features=1)(q.last()))],
+        outputs=[Output("reach_next", Linear(features=1)(q))],
     ).build()
-    seed = Input("reach_seed")
-    loop = Loop(f=body, callback={q: "reach_next"}, init={q: seed.last(seq=3)})()
+    seed = Input("reach_seed", seq=3)
+    loop = Loop(f=body, callback={q: "reach_next"}, init={q: seed})()
 
     x = Input("reach_x")
     model = Modely(
@@ -375,7 +376,7 @@ def test_model_freeze_reaches_layer_weights_called_models_and_loop_bodies():
         inputs=[x, seed],
         outputs=[
             Output("reach_fir", Fir(features=1)([x.sw(2)])),
-            Output("reach_called", block([x.last()])),
+            Output("reach_called", block([x])),
             Output("reach_loop", loop),
         ],
     ).build()
@@ -399,7 +400,7 @@ def test_the_trainable_flag_is_saved_with_the_model(tmp_path):
     model = Modely(
         "saved_flag_model",
         inputs=[x],
-        outputs=[Output("saved_flag_out", x.last() * frozen + free + fir)],
+        outputs=[Output("saved_flag_out", x * frozen + free + fir)],
     ).build()
 
     model.save(tmp_path / "saved_flag")
@@ -441,8 +442,8 @@ def test_model_parameters_lists_every_parameter_and_prints_a_table():
             "Parameters of table_model",
             "name        time  dim        values  trainable",
             "----------  ----  ---------  ------  ---------",
-            "a           -     (2, 3, 2)  12      yes",
-            "b           -     (2, 3, 2)  12      no",
+            "a           (1,)  (2, 3, 2)  12      yes",
+            "b           (1,)  (2, 3, 2)  12      no",
             "lin_kernel  (1,)  (2, 3, 2)  12      yes",
             "lin_bias    (1,)  (2,)       2       yes",
             "c           (4,)  (1,)       4       yes",

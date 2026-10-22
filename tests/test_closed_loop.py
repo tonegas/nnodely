@@ -27,17 +27,17 @@ import pytest
 def test_loop(tmp_path):
     input1 = Input("in1")
     gain = Parameter("loop_gain", value=[2.0])
-    relation = Linear(features=1, kernel=gain, bias=False)(input1.last())
+    relation = Linear(features=1, kernel=gain, bias=False)(input1)
     body_output = Output("body_out", relation)
     body = Modely("loop_body", inputs=[input1], outputs=[body_output]).build()
 
     # The rollout axis lives outside the body: five steps, seeded by in1_seq[0].
-    seed = Input("in1_seq")
+    seed = Input("in1_seq", seq=5)
     loop = Loop(
         f=body,
         callback={input1: body_output},
         collect=False,
-        init={input1: seed.last(seq=5)},
+        init={input1: seed},
     )()
     output1 = Output("out1", loop)
 
@@ -63,11 +63,11 @@ def test_loop(tmp_path):
 
 def test_nested_loop(tmp_path):
     # The rollout is the outer time, so the outer three steps come first.
-    x = Input("nested_input", dim=1)
+    x = Input("nested_input", dim=1, seq=(3, 5))
     gain = Constant("nested_gain", value=2.0)
 
-    inner = Input("inner_input", dim=1)
-    first_relation = inner.last(seq=5) * gain
+    inner = Input("inner_input", dim=1, seq=5)
+    first_relation = inner * gain
     first_body_output = Output("first_body_output", first_relation)
     first_body = Modely(
         "first_body", inputs=[inner], outputs=[first_body_output]
@@ -77,12 +77,12 @@ def test_nested_loop(tmp_path):
         callback={inner: first_body_output},
         name="first_loop",
         collect=False,
-        init={inner: x.last(seq=(3, 5))},
+        init={inner: x},
     )()
     assert first_loop.shape.dimensions == ((5, 1), (1,))
 
     second_input = Input("second_input", dim=1)
-    second_relation = second_input.last() * gain
+    second_relation = second_input * gain
     second_body_output = Output("second_body_output", second_relation)
     second_body = Modely(
         "second_body", inputs=[second_input], outputs=[second_body_output]
@@ -115,10 +115,10 @@ def test_loop_mechanical_modely(tmp_path):
     state = Input("mechanical_state", dim=1)
     external_force = Input("external_force", dim=1)
     gain = Parameter("mechanical_gain", value=[2.0])
-    state_transition = Linear(features=1, kernel=gain, bias="zeros")(state.last())
+    state_transition = Linear(features=1, kernel=gain, bias="zeros")(state)
     next_state_stream = state_transition + 1.0
     next_state = Output("next_state", next_state_stream)
-    diagnostic = Output("diagnostic", external_force.last() + 10.0)
+    diagnostic = Output("diagnostic", external_force + 10.0)
     mechanical_model = Modely(
         "mechanical_model",
         inputs=[state, external_force],
@@ -126,13 +126,13 @@ def test_loop_mechanical_modely(tmp_path):
     ).build()
     mechanical_model.export_html(out_dir=tmp_path, filename="mechanical_model")
 
-    state_seq = Input("mechanical_state_seq", dim=1)
+    state_seq = Input("mechanical_state_seq", dim=1, seq=5)
     loop = Loop(
         f=mechanical_model,
         callback={"mechanical_state": "next_state"},
         name="mechanical_loop",
         collect=False,
-        init={"mechanical_state": state_seq.last(seq=5)},
+        init={"mechanical_state": state_seq},
     )({"external_force": external_force})  # init in the constructor, inputs in the call
     assert loop.shape.dimensions == ((1,), (1,))
     model = Modely(
@@ -165,8 +165,8 @@ def test_model_roll():
     test.build()
     roll = Roll(f=test, callback={x: out}, name="roll")
     roll_3 = Roll(f=test, callback={x: out}, steps=3, name="roll_3")
-    assert roll.steps == x.shape.inner_time == 5
-    assert roll.shape.tuple == x.shape.tuple
+    assert roll.steps == x.data_shape.inner_time == 5
+    assert roll.shape.tuple == x.data_shape.tuple
     output = Output("res", roll)
     output_3 = Output("res_3", roll_3)
     model = Modely("test_roll_multi_input", inputs=[x], outputs=[output, output_3])
@@ -204,7 +204,7 @@ def test_model_rollback():
     x = Input("x")
     taps = Parameter("rollback_taps", value=np.ones(5))
     fir = Fir(features=1, kernel=taps, bias=False, name="fir")(x.sw(5))
-    out = Output("out", fir + x.last())
+    out = Output("out", fir + x)
     test = Modely("body", inputs=[x], outputs=[out])
     test.rollback({"x": "fir"}, steps=3)
     test.build()
@@ -224,7 +224,7 @@ def test_model_multi_rollback(tmp_path):
     y = Input("y")
     taps = Parameter("rollback_taps", value=np.ones(5))
     fir = Fir(features=1, kernel=taps, bias=False, name="fir")(x.sw(5))
-    out = Output("out", fir + y.last())
+    out = Output("out", fir + y)
     test = Modely("body", inputs=[x, y], outputs=[out])
     test.rollback({"x": "fir", "y": "out"}, steps=3)
     test.build()
@@ -252,32 +252,32 @@ def test_nested_closed_loop(tmp_path):
     y = Input(name="y", dim=1)
     c = Parameter("c", value=1.0)
     d = Parameter("d", value=1.0)
-    r1 = x.last() * c + y.last() * d
+    r1 = x * c + y * d
     out1 = Output("out1", r1)
     model_add = Modely(name="model1", inputs=[x, y], outputs=[out1])
     model_add.build()
 
     # The rollout axis lives on the outer streams: x is seeded from x_seq[0] and
     # closed onto out1, while y is consumed one step at a time.
-    x_seq = Input(name="x_seq", dim=1)
-    y_seq = Input(name="y_seq", dim=1)
+    x_seq = Input(name="x_seq", dim=1, seq=4)
+    y_seq = Input(name="y_seq", dim=1, seq=4)
     loop_fn = Loop(
         f=model_add,
         callback={"x": "out1"},
         name="loop_model_add",
-        init={"x": x_seq.last(seq=4)},
-    )({"y": y_seq.last(seq=4)})
+        init={"x": x_seq},
+    )({"y": y_seq})
     out = Output("out", loop_fn)
     model_in = Modely(name="model", inputs=[x_seq, y_seq], outputs=[out])
     model_in.build()
 
     # Create a nested loop model
-    z = Input(name="z", dim=1)
+    z = Input(name="z", dim=1, seq=(2, 4))
     loop_fn2 = Loop(
         f=model_in,
         callback={"y_seq": "out"},
         name="loop_model_in",
-        init={"y_seq": z.last(seq=(2, 4))},
+        init={"y_seq": z},
     )()
     out_w = Output("out_w", loop_fn2)
     model_out = Modely(name="model_with_loop_w", inputs=[x_seq, z], outputs=[out_w])
@@ -285,7 +285,7 @@ def test_nested_closed_loop(tmp_path):
     model_out.minimize(
         "error",
         source=out_w,
-        target=Input("w_target", dim=1).last(seq=(2, 4)),
+        target=Input("w_target", dim=1, seq=(2, 4)),
         loss="mse",
     )
 
@@ -333,17 +333,17 @@ def test_simple_model_loop(tmp_path):
     x = Input(name="x", dim=1)
     z = Input(name="z", dim=1)
     w = Parameter("w", value=3.5)
-    out1 = Output("y", x.last() + w + z.last())
+    out1 = Output("y", x + w + z)
     model_add = Modely(name="model1", inputs=[x, z], outputs=[out1])
     model_add.build()
 
     # x is seeded from x_seq[0] and rolled out over its four steps
-    x_seq = Input(name="x_seq", dim=1)
+    x_seq = Input(name="x_seq", dim=1, seq=4)
     loop_fn = Loop(
         f=model_add,
         callback={"x": "y"},
         name="loop_model_add",
-        init={"x": x_seq.last(seq=4)},
+        init={"x": x_seq},
     )()
     out = Output("out", loop_fn)
     model_in = Modely(name="simple_loop_model", inputs=[x_seq, z], outputs=[out])
@@ -351,7 +351,7 @@ def test_simple_model_loop(tmp_path):
     model_in.minimize(
         "error",
         source=out,
-        target=Input("x_target", dim=1).last(seq=4),
+        target=Input("x_target", dim=1, seq=4),
         loss="mse",
     )
     model_in.build()
@@ -383,19 +383,19 @@ def test_simple_model2(tmp_path):
     z = Input(name="z", dim=1)
     w = Parameter("w", dim=1)
     k = Parameter("k", dim=1)
-    out1 = Output("y", x.last() + w)
-    out2 = Output("y2", z.last() - k)
+    out1 = Output("y", x + w)
+    out2 = Output("y2", z - k)
     model_add = Modely(name="model1", inputs=[x, z], outputs=[out1, out2])
     model_add.build()
 
     # both states are seeded from the first step of their own outer stream
-    x_seq = Input(name="x_seq", dim=1)
-    z_seq = Input(name="z_seq", dim=1)
+    x_seq = Input(name="x_seq", dim=1, seq=4)
+    z_seq = Input(name="z_seq", dim=1, seq=4)
     loop_out1, loop_out2 = Loop(
         f=model_add,
         callback={"x": "y", "z": "y2"},
         name="loop_model_add",
-        init={"x": x_seq.last(seq=4), "z": z_seq.last(seq=4)},
+        init={"x": x_seq, "z": z_seq},
     )()
 
     out1 = Output("out1", loop_out1)
@@ -407,13 +407,13 @@ def test_simple_model2(tmp_path):
     model_in.minimize(
         "error_x",
         source=out1,
-        target=Input("x_target", dim=1).last(seq=4),
+        target=Input("x_target", dim=1, seq=4),
         loss="mse",
     )
     model_in.minimize(
         "error_z",
         source=out2,
-        target=Input("z_target", dim=1).last(seq=4),
+        target=Input("z_target", dim=1, seq=4),
         loss="mse",
     )
     model_in.build()
@@ -460,17 +460,17 @@ def test_loop_bound_inputs(tmp_path):
     # One-step body: the rollout axis lives on the outer streams only.
     x = Input("sliced_x", dim=1)
     u = Input("sliced_u", dim=1)
-    body_output = Output("sliced_next", x.last() * 2.0 + u.last())
+    body_output = Output("sliced_next", x * 2.0 + u)
     body = Modely("sliced_body", inputs=[x, u], outputs=[body_output]).build()
 
-    initial = Input("sliced_x0", dim=1)
-    driver = Input("sliced_u_seq", dim=1)
+    initial = Input("sliced_x0", dim=1, seq=3)
+    driver = Input("sliced_u_seq", dim=1, seq=3)
     loop = Loop(
         f=body,
         callback={x: body_output},
         name="sliced_loop",
-        init={x: initial.last(seq=3)},
-    )({u: driver.last(seq=3)})
+        init={x: initial},
+    )({u: driver})
     assert loop.horizon == 3
     assert loop.shape.dimensions == ((3, 1), (1,))
 
@@ -518,12 +518,12 @@ def test_loop_bound_inputs(tmp_path):
 def test_loop_dynamic_length():
     x = Input("dyn_x", dim=1)
     u = Input("dyn_u", dim=1)
-    body_output = Output("dyn_next", x.last() * 2.0 + u.last())
+    body_output = Output("dyn_next", x * 2.0 + u)
     body = Modely("dyn_body", inputs=[x, u], outputs=[body_output]).build()
 
-    initial = Input("dyn_x0", dim=1)
-    driver = Input("dyn_u_seq", dim=1)
-    initial_window, driver_window = initial.last(seq=-1), driver.last(seq=-1)
+    initial = Input("dyn_x0", dim=1, seq=-1)
+    driver = Input("dyn_u_seq", dim=1, seq=-1)
+    initial_window, driver_window = initial, driver
 
     # Without a rollout axis nothing tells the loop how many steps to take.
     with pytest.raises(ValueError, match="cannot determine the rollout length"):
@@ -531,7 +531,7 @@ def test_loop_dynamic_length():
             f=body,
             callback={x: body_output},
             name="dyn_loop_no_axis",
-            init={x: Input("dyn_x_plain", dim=1).last()},
+            init={x: Input("dyn_x_plain", dim=1)},
         )()
 
     loop = Loop(
@@ -603,12 +603,12 @@ def test_loop_window_feedback():
     body_output = Output("window_next", taps)
     body = Modely("window_body", inputs=[x], outputs=[body_output])
 
-    initial = Input("window_x0", dim=1)
+    initial = Input("window_x0", dim=1, seq=3)
     loop = Loop(
         f=body,
         callback={x: body_output},
         name="window_loop",
-        init={x: initial.sw(3, seq=3)},
+        init={x: initial.sw(3)},
     )()
     # Loop builds the body when it is handed an unbuilt one
     assert body.built
@@ -662,24 +662,24 @@ def test_loop_multi_output():
     position = Input("int_p", dim=1)
     velocity = Input("int_v", dim=1)
     acceleration = Input("int_a", dim=1)
-    position_next = Output("int_p_next", position.last() + velocity.last())
-    velocity_next = Output("int_v_next", velocity.last() + acceleration.last())
+    position_next = Output("int_p_next", position + velocity)
+    velocity_next = Output("int_v_next", velocity + acceleration)
     body = Modely(
         "integrator",
         inputs=[position, velocity, acceleration],
         outputs=[position_next, velocity_next],
     ).build()
 
-    p0 = Input("int_p0", dim=1)
-    v0 = Input("int_v0", dim=1)
-    a_seq = Input("int_a_seq", dim=1)
+    p0 = Input("int_p0", dim=1, seq=-1)
+    v0 = Input("int_v0", dim=1, seq=-1)
+    a_seq = Input("int_a_seq", dim=1, seq=-1)
     position_out, velocity_out = Loop(
         f=body,
         callback={position: position_next, velocity: velocity_next},
         name="integrator_loop",
         length=3,
-        init={position: p0.last(seq=-1), velocity: v0.last(seq=-1)},
-    )({acceleration: a_seq.last(seq=-1)})
+        init={position: p0, velocity: v0},
+    )({acceleration: a_seq})
     model = Modely(
         "integrator_model",
         inputs=[p0, v0, a_seq],
@@ -706,14 +706,12 @@ def test_loop_multi_output():
 
 def test_loop_collects_output_that_is_not_fed_back():
     x = Input("extra_x", dim=1)
-    state = Output("extra_state", x.last() * 2.0)
-    diagnostic = Output("extra_diag", x.last() + 100.0)
+    state = Output("extra_state", x * 2.0)
+    diagnostic = Output("extra_diag", x + 100.0)
     body = Modely("extra_body", inputs=[x], outputs=[state, diagnostic]).build()
 
-    seed = Input("extra_x0", dim=1)
-    loop = Loop(
-        f=body, callback={x: state}, name="extra_loop", init={x: seed.last(seq=4)}
-    )()
+    seed = Input("extra_x0", dim=1, seq=4)
+    loop = Loop(f=body, callback={x: state}, name="extra_loop", init={x: seed})()
     state_out, diagnostic_out = loop
 
     model = Modely(
@@ -745,13 +743,11 @@ def test_loop_constant_initial_batched():
     # the batched body output.
     x = Input("cst_x", dim=1)
     u = Input("cst_u", dim=1)
-    body_output = Output("cst_next", x.last() * 2.0 + u.last())
+    body_output = Output("cst_next", x * 2.0 + u)
     body = Modely("cst_body", inputs=[x, u], outputs=[body_output]).build()
 
-    driver = Input("cst_u_seq", dim=1)
-    loop = Loop(f=body, callback={x: body_output}, name="cst_loop")(
-        {u: driver.last(seq=3)}
-    )
+    driver = Input("cst_u_seq", dim=1, seq=3)
+    loop = Loop(f=body, callback={x: body_output}, name="cst_loop")({u: driver})
 
     model = Modely(
         "cst_model", inputs=[driver], outputs=[Output("cst_out", loop)]
@@ -780,20 +776,18 @@ def test_loop_with_batchnorm_train():
     # step while training, also on JAX, where the rollout runs through scan.
     x = Input("bn_x", dim=1)
     u = Input("bn_u", dim=1)
-    norm = BatchNorm(name="bn_norm")(x.last())
-    body_output = Output("bn_next", norm + u.last())
+    norm = BatchNorm(name="bn_norm")(x)
+    body_output = Output("bn_next", norm + u)
     body = Modely("bn_body", inputs=[x, u], outputs=[body_output]).build()
 
-    driver = Input("bn_u_seq", dim=1)
-    loop = Loop(f=body, callback={x: body_output}, name="bn_loop")(
-        {u: driver.last(seq=3)}
-    )
+    driver = Input("bn_u_seq", dim=1, seq=3)
+    loop = Loop(f=body, callback={x: body_output}, name="bn_loop")({u: driver})
 
     model = Modely("bn_model", inputs=[driver], outputs=[Output("bn_out", loop)])
     model.minimize(
         "bn_loss",
         source=loop,
-        target=Input("bn_target", dim=1).last(seq=3),
+        target=Input("bn_target", dim=1, seq=3),
         loss="mse",
     )
     model.build()
@@ -825,7 +819,7 @@ def test_loop_binds_initial_and_inputs_at_call():
     # `initial` starts at zero, and one Loop can be bound more than once.
     x = Input("bind_x", dim=1)
     u = Input("bind_u", dim=1)
-    body_output = Output("bind_next", x.last() + u.last())
+    body_output = Output("bind_next", x + u)
     body = Modely("bind_body", inputs=[x, u], outputs=[body_output]).build()
     loop = Loop(f=body, callback={x: body_output}, name="bind_loop")
 
@@ -840,12 +834,12 @@ def test_loop_binds_initial_and_inputs_at_call():
     with pytest.raises(ValueError, match="is not bound"):
         loop + 1.0  # type: ignore
 
-    driver = Input("bind_u_seq", dim=1)
+    driver = Input("bind_u_seq", dim=1, seq=3)
     seed = Input("bind_seed", dim=1)
-    driver_window = driver.last(seq=3)
+    driver_window = driver
     from_zero = loop({u: driver_window})
     from_seed = Loop(
-        f=body, callback={x: body_output}, init={x: seed.last()}, name="bind_loop"
+        f=body, callback={x: body_output}, init={x: seed}, name="bind_loop"
     )({u: driver_window})
     model = Modely(
         "bind_model",
@@ -873,11 +867,11 @@ def test_a_parameter_is_one_weight_for_a_loop_body_and_the_outer_model():
     body = Modely(
         "shared_body",
         inputs=[q],
-        outputs=[Output("shared_next", Linear(kernel=g, bias=False)(q.last()))],
+        outputs=[Output("shared_next", Linear(kernel=g, bias=False)(q))],
     ).build()
-    seed = Input("shared_seed")
-    loop = Loop(f=body, callback={q: "shared_next"}, init={q: seed.last(seq=3)})()
-    outer = Linear(kernel=g, bias=False)(seed.last())
+    seed = Input("shared_seed", seq=3)
+    loop = Loop(f=body, callback={q: "shared_next"}, init={q: seed})()
+    outer = Linear(kernel=g, bias=False)(seed)
     model = Modely(
         "shared_model",
         inputs=[seed],
@@ -910,17 +904,15 @@ def test_callback_from_nested_loop_with_seq_select():
     vx0 = Input("vx0")
     px0 = Input("px0")
     ax = Input("ax")
-    outvx = Output("outvx", vx0.last() + ax.last())
-    outpx = Output("outpx", px0.last())
+    outvx = Output("outvx", vx0 + ax)
+    outpx = Output("outpx", px0)
     modelStep = Modely("Step", inputs=[ax, vx0, px0], outputs=[outvx, outpx]).build()
 
     # inner: rollout of an integrator over a sequence
-    ax_sq = Input("ax_sq")
+    ax_sq = Input("ax_sq", seq=-1)
     px0_init = Input("px0_init")
-    ax_window = ax_sq.last(seq=-1)
-    loop = Loop(
-        f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init.last()}
-    )
+    ax_window = ax_sq
+    loop = Loop(f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init})
     model = Modely(
         "Int",
         inputs=[ax_sq, px0_init],
@@ -928,18 +920,16 @@ def test_callback_from_nested_loop_with_seq_select():
     ).build()
 
     # outer: chain the chunks, the last position of a chunk seeds the next one
-    ax_sq_sq = Input("ax_sq_sq")
+    ax_sq_sq = Input("ax_sq_sq", seq=(-1, -1))
     px0_init_sq = Input("px0_init_sq")
-    px0_seed = px0_init_sq.last()
+    px0_seed = px0_init_sq
     # The collected trajectory has a sequence axis the scalar px0_init has not,
     # so it cannot be fed back: the loop is refused when it is declared.
     with pytest.raises(ValueError, match="seq"):
         Loop(f=model, callback={"px0_init": "int_loop1"}, init={"px0_init": px0_seed})
 
     # Returning only the last step drops that axis, so it can be fed back.
-    last = Loop(
-        f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init.last()}
-    )
+    last = Loop(f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init})
     model_last = Modely(
         "IntLast",
         inputs=[ax_sq, px0_init],
@@ -956,7 +946,7 @@ def test_callback_from_nested_loop_with_seq_select():
     model22 = Modely(
         "Int22",
         inputs=[ax_sq_sq, px0_init_sq],
-        outputs=[Output("int_loop1_sq", outer({"ax_sq": ax_sq_sq.last(seq=(-1, -1))}))],
+        outputs=[Output("int_loop1_sq", outer({"ax_sq": ax_sq_sq}))],
     ).build()
 
     result = model22(
@@ -971,14 +961,11 @@ def test_loop_steps_follow_the_inputs_that_drive_it():
     # An initial value with a rollout axis is read at its first step only; the
     # steps once followed it because it came first, and one step was taken.
     x, u = Input("drive_x"), Input("drive_u")
-    following = Output("drive_next", x.last() + u.last())
+    following = Output("drive_next", x + u)
     body = Modely("drive_body", inputs=[x, u], outputs=[following]).build()
-    x0 = Input("drive_x0")
-    x0_window = x0.last(seq=-1)
-    for drive, seq in ((Input("drive_dynamic"), -1), (Input("drive_fixed"), 5)):
-        trajectory = Loop(f=body, callback={x: following}, init={x: x0_window})(
-            {u: drive.last(seq=seq)}
-        )
+    x0 = Input("drive_x0", seq=-1)
+    for drive in (Input("drive_dynamic", seq=-1), Input("drive_fixed", seq=5)):
+        trajectory = Loop(f=body, callback={x: following}, init={x: x0})({u: drive})
         model = Modely(
             f"{drive.name}_model",
             inputs=[x0, drive],
@@ -1002,13 +989,11 @@ def test_unpacking_a_loop_leaves_its_own_stream_alone():
     from nnodely import Concatenate
 
     x = Input("unpack_x")
-    diagnostic = Output(
-        "unpack_diag", Concatenate()([x.last(), x.last(), x.last()]) + 100.0
-    )
-    state = Output("unpack_state", x.last() * 2.0)
+    diagnostic = Output("unpack_diag", Concatenate()([x, x, x]) + 100.0)
+    state = Output("unpack_state", x * 2.0)
     body = Modely("unpack_body", inputs=[x], outputs=[diagnostic, state]).build()
-    seed = Input("unpack_x0")
-    loop = Loop(f=body, callback={x: state}, init={x: seed.last(seq=3)})()
+    seed = Input("unpack_x0", seq=3)
+    loop = Loop(f=body, callback={x: state}, init={x: seed})()
     assert loop.shape.dimensions == ((3, 1), (1,))
 
     own = Output("unpack_own", loop)

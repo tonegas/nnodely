@@ -32,12 +32,12 @@ physics-informed neural networks. The model below fits
 .. code-block:: python
 
    t = Input("t")
-   u = Linear(features=1)([Tanh()([Linear(features=16)([t.last()])])])
+   u = Linear(features=1)([Tanh()([Linear(features=16)([t])])])
    du_dt = Differentiate(respect_to=t)(u)
 
    u_out = Output("u", u)
    decay = Modely("decay", inputs=[t], outputs=[u_out])
-   decay.minimize("data", u_out, Input("u_meas").last())
+   decay.minimize("data", u_out, Input("u_meas"))
    decay.minimize("physics", du_dt + u)       # no target: the residual goes to zero
    decay.build()
 
@@ -75,7 +75,7 @@ step, which is the state update of a recurrent model:
 
    acceleration = Input("acceleration")
    v = Input("v")
-   v_next = IntegrateStep(dt=dt, init=v.last())(acceleration.last())   # v + dt * a
+   v_next = IntegrateStep(dt=dt, init=v)(acceleration)   # v + dt * a
 
 On a longer window it returns the whole integrated trajectory in one pass, so
 position can be obtained from acceleration with no rollout:
@@ -99,11 +99,9 @@ the results on the same samples, are those of ``IntegrateStep``:
 
 .. code-block:: python
 
-   acc = Input("acc")
+   acc = Input("acc", seq=-1)   # one acceleration per step
    v0 = Input("v0")
-   velocity = Integrate(solver="trapezoidal", dt=dt, init=v0.last())(
-       acc.last(seq=-1)                          # one acceleration per step
-   )
+   velocity = Integrate(solver="trapezoidal", dt=dt, init=v0)(acc)
    position = Integrate(solver="trapezoidal", dt=dt, init=0.0)(velocity)
    kinematics = Modely("kinematics", inputs=[acc, v0],
                        outputs=[Output("velocity", velocity), Output("position", position)])
@@ -130,7 +128,7 @@ body of a :class:`~nnodely.Loop`. Here a pendulum with an unknown ratio
    omega = Input("omega")
    g_over_l = Parameter("g_over_l", value=5.0)
    theta_next, omega_next = Ode(
-       pendulum, [theta.last(), omega.last()], dt=0.05, method="rk4", args=(g_over_l,)
+       pendulum, [theta, omega], dt=0.05, method="rk4", args=(g_over_l,)
    )
    step = Modely(
        "pendulum_step",
@@ -138,12 +136,12 @@ body of a :class:`~nnodely.Loop`. Here a pendulum with an unknown ratio
        outputs=[Output("theta_next", theta_next), Output("omega_next", omega_next)],
    ).build()
 
-   theta0 = Input("theta0")
-   omega0 = Input("omega0")
+   theta0 = Input("theta0", seq=100)
+   omega0 = Input("omega0", seq=100)
    theta_traj, omega_traj = Loop(
        f=step,
        callback={"theta": "theta_next", "omega": "omega_next"},
-       init={"theta": theta0.last(seq=100), "omega": omega0.last(seq=100)},
+       init={"theta": theta0, "omega": omega0},
    )()
    simulator = Modely(
        "pendulum",
@@ -172,12 +170,12 @@ time. The field must be autonomous (all its inputs are states).
    field = Modely(
        "field",
        inputs=[z],
-       outputs=[Output("dz", Linear(features=2, bias=False)([z.last()]))],
+       outputs=[Output("dz", Linear(features=2, bias=False)([z]))],
    ).build()
 
-   report_times = Input("report_times")
+   report_times = Input("report_times", seq=50)
    z_traj = OdeNet(
-       f=field, states={z: "dz"}, t=report_times.last(seq=50), method="rk4", steps=2
+       f=field, states={z: "dz"}, t=report_times, method="rk4", steps=2
    )
    node = Modely("neural_ode", inputs=[z, report_times], outputs=[Output("z_traj", z_traj)]).build()
 

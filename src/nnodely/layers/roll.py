@@ -153,18 +153,18 @@ class Roll(Layer):
         callback_input = self._find_node(f.inputs, callback_input, "input")
         callback_output = self._find_node(f.outputs, callback_output, "output")
 
-        # One sample of the inner time; the outer time axes are kept.
-        expected_output_shape = callback_input.shape.replace(
-            time=(*callback_input.time[:-1], 1)
-        ).tuple
+        # One sample of the inner time, the input read directly.
+        expected_output_shape = callback_input.shape.tuple
         if callback_output.shape.tuple != expected_output_shape:
             raise ValueError(
                 "callback output must produce one temporal sample with shape "
                 f"{expected_output_shape}, got {callback_output.shape.tuple}."
             )
 
+        # The window the body reads is the one rolled.
+        window = callback_input.data_shape
         if steps is None:
-            steps = callback_input.shape.inner_time
+            steps = window.inner_time
         if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
             raise ValueError("steps must be a positive integer.")
 
@@ -178,7 +178,7 @@ class Roll(Layer):
             name=name,
             preds=[callback_input, *self.static_inputs],
             dim=callback_input.dim,
-            time=callback_input.time,
+            time=window.time,
         )
 
     @staticmethod

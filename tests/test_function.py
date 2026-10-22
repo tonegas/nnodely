@@ -59,7 +59,7 @@ def test_keras_function_applies_a_keras_layer_to_a_stream():
 def test_keras_function_passes_its_streams_as_separate_arguments():
     a = Input("kf_a")
     b = Input("kf_b")
-    shifted = KerasFunction(Shifted)([a.last(), b.last()])
+    shifted = KerasFunction(Shifted)([a, b])
     model = Modely(
         "kf_two_inputs", inputs=[a, b], outputs=[Output("kf_shifted", shifted)]
     ).build()
@@ -74,8 +74,8 @@ def test_keras_function_passes_its_streams_as_separate_arguments():
 
 
 def test_keras_function_reads_its_output_shape_off_the_layer():
-    v = Input("kf_v", dim=3)
-    length = KerasFunction(Norm)([v.sw(2, seq=-1)])
+    v = Input("kf_v", dim=3, seq=-1)
+    length = KerasFunction(Norm)([v.sw(2)])
     model = Modely("kf_norm", inputs=[v], outputs=[Output("kf_length", length)]).build()
     # The dim is reduced, the time window and the dynamic sequence kept.
     assert length.shape.dimensions == ((None, 2), (1,))
@@ -91,8 +91,8 @@ def test_keras_function_reads_its_output_shape_off_the_layer():
 def test_keras_function_shares_an_instance_and_makes_a_class_anew():
     x = Input("kf_share_x")
     gain = Gain()
-    shared = [KerasFunction(gain)([x.last()]) for _ in range(2)]
-    apart = [KerasFunction(Gain)([x.last()]) for _ in range(2)]
+    shared = [KerasFunction(gain)([x]) for _ in range(2)]
+    apart = [KerasFunction(Gain)([x]) for _ in range(2)]
     model = Modely(
         "kf_share",
         inputs=[x],
@@ -122,7 +122,7 @@ def test_keras_function_trains_the_weights_of_its_layer():
     # the gain from 1 to 1 - 0.25 * 2 * (1 - 3) = 2.
     x = Input("kf_train_x")
     gain = Gain()
-    out = Output("kf_train_out", KerasFunction(gain)([x.last()]))
+    out = Output("kf_train_out", KerasFunction(gain)([x]))
     model = Modely("kf_train", inputs=[x], outputs=[out])
     model.minimize("kf_fit", out, 3.0)
     model.build()
@@ -161,10 +161,10 @@ def _custom_function_model():
         "kf_saved",
         inputs=[x, y],
         outputs=[
-            Output("kf_saved_cubed", KerasFunction(Power(exponent=3.0))([x.last()])),
-            Output("kf_saved_shifted", KerasFunction(Shifted)([x.last(), y.last()])),
-            Output("kf_saved_gain", KerasFunction(gain)([x.last()])),
-            Output("kf_saved_offset", KerasFunction(Offset)([x.last()])),
+            Output("kf_saved_cubed", KerasFunction(Power(exponent=3.0))([x])),
+            Output("kf_saved_shifted", KerasFunction(Shifted)([x, y])),
+            Output("kf_saved_gain", KerasFunction(gain)([x])),
+            Output("kf_saved_offset", KerasFunction(Offset)([x])),
         ],
     ).build()
     gain.gain.assign(2.5)  # as if trained
@@ -235,8 +235,8 @@ def test_one_keras_layer_wrapped_twice_saves_and_loads_as_one(tmp_path):
         "kf_twice",
         inputs=[x],
         outputs=[
-            Output("kf_twice_a", KerasFunction(gain)([x.last()])),
-            Output("kf_twice_b", KerasFunction(gain)([x.last()])),
+            Output("kf_twice_a", KerasFunction(gain)([x])),
+            Output("kf_twice_b", KerasFunction(gain)([x])),
         ],
     ).build()
     gain.gain.assign(3.0)

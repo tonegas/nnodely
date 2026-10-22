@@ -14,7 +14,9 @@ class ParameterImpl(keras.layers.Layer):
     """A value of fixed shape, the same for every sample of the batch.
 
     It is called with a tensor of the graph, of which it reads only the batch
-    size: the value comes out ``(batch, *time, *dim)`` like every stream.
+    size: the value, held as ``value_shape``, comes out ``(batch,
+    *stream_shape)`` like every stream - a value given without time as one
+    sample of it.
     """
 
     trainable_value = True
@@ -24,12 +26,18 @@ class ParameterImpl(keras.layers.Layer):
         value_shape,
         value=None,
         initializer="random_normal",
+        stream_shape=None,
         name=None,
         **kwargs,
     ):
         super().__init__(name=name, **kwargs)
 
         self.value_shape = tuple(int(axis) for axis in value_shape)
+        self.stream_shape = (
+            self.value_shape
+            if stream_shape is None
+            else tuple(int(axis) for axis in stream_shape)
+        )
         self.value = (
             None
             if value is None
@@ -44,6 +52,7 @@ class ParameterImpl(keras.layers.Layer):
                 "value_shape": self.value_shape,
                 "value": None if self.value is None else self.value.tolist(),
                 "initializer": self.initializer,
+                "stream_shape": self.stream_shape,
             }
         )
         return config
@@ -65,11 +74,11 @@ class ParameterImpl(keras.layers.Layer):
         super().build(input_shape)
 
     def call(self, anchor):
-        value = keras.ops.expand_dims(self.variable, axis=0)
+        value = keras.ops.reshape(self.variable, (1, *self.stream_shape))
         if anchor is None:
             return value
         batch = keras.ops.shape(anchor)[0]
-        return keras.ops.broadcast_to(value, (batch, *self.value_shape))
+        return keras.ops.broadcast_to(value, (batch, *self.stream_shape))
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -82,11 +91,12 @@ def _value_layout(value, dim, time, owner: str):
     the sizes of its dim axes and of its time axes.
 
     Without ``dim`` and ``time``, every axis of ``value`` is a dim axis and
-    the value has no time axis: like a number, it broadcasts along the time
-    of any stream. Otherwise they name the axes of ``value`` that play each
-    part, an axis or a tuple of axes: ``time`` its time axes, outermost
-    first, the last the inner time. The axes ``time`` leaves are the dim
-    axes, unless ``dim`` names them; a value with none keeps a dim of one.
+    the value has no time axis of its own: its stream is one sample, time
+    ``(1,)``, and like a number it broadcasts along the time of any stream.
+    Otherwise they name the axes of ``value`` that play each part, an axis
+    or a tuple of axes: ``time`` its time axes, outermost first, the last the
+    inner time. The axes ``time`` leaves are the dim axes, unless ``dim``
+    names them; a value with none keeps a dim of one.
     """
     array = np.atleast_1d(np.asarray(value, dtype=np.float32))
     if array.size == 0:
@@ -145,17 +155,22 @@ class _Value(Layer):
         self.value = value
         self.initializer = initializer
 
+        # Without time of its own, a value is one sample of the stream.
         super().__init__(
             name=name,
-            time=time,
+            time=time or None,
             dim=dim,
             value=None if value is None else value.tolist(),
             initializer=initializer,
         )
+        # The value as it is held, its own time axes (none, if not given)
+        # then its dim.
+        self.value_shape = (*(self.shape.time if time else ()), *self.shape.dim)
 
     def build_layer(self):
         return self._impl(
-            value_shape=self.shape.tuple,
+            value_shape=self.value_shape,
+            stream_shape=self.shape.tuple,
             value=self.value,
             initializer=self.initializer,
             trainable=self._trainable,
@@ -167,12 +182,15 @@ class _Value(Layer):
         # than taking it from its inputs as other layers do. A value is saved
         # laid out (*time, *dim), with the axes that play each part.
         config = Stream.get_config(self)
+        time_rank = len(self.value_shape) - self.shape.dim_rank
+        if self.value is None and not time_rank:
+            # Without time of its own, it is loaded back as one sample again.
+            config["time"] = None
         if self.value is not None:
-            time_rank = self.shape.time_rank
             config.update(
                 {
                     "time": list(range(time_rank)),
-                    "dim": list(range(time_rank, self.shape.rank)),
+                    "dim": list(range(time_rank, len(self.value_shape))),
                     "value": self.value.tolist(),
                 }
             )
@@ -193,16 +211,17 @@ class Parameter(_Value):
 
     Without ``value``, ``dim`` and ``time`` are the sizes of its axes - its
     time axes outermost first - and ``initializer``, any Keras initializer,
-    draws its initial value. Without ``time`` it has no time axis, and
-    broadcasts along the time of any stream.
+    draws its initial value. Without ``time`` it is one sample, time ``(1,)``,
+    and broadcasts along the time of any stream.
 
     ``value`` sets the shape and the initial value. Every axis of the value is
-    a dim axis, and the value has no time axis, unless ``dim`` and ``time``
-    say otherwise: given with a value they are axes of the value, an axis or
-    a tuple of axes - the time axes outermost first - and the axes ``time``
-    leaves are the dim axes::
+    a dim axis, and the value is one sample, unless ``dim`` and ``time`` say
+    otherwise: given with a value they are axes of the value, an axis or a
+    tuple of axes - the time axes outermost first - and the axes ``time``
+    leaves are the dim axes. :attr:`value` and the variable hold the value
+    laid out ``(*time, *dim)``, without time when none is given::
 
-        Parameter("p", value=np.ones((2, 3, 2)))                        # T=(), D=(2, 3, 2)
+        Parameter("p", value=np.ones((2, 3, 2)))                        # T=(1,), D=(2, 3, 2)
         Parameter("p", value=np.ones((2, 3, 2)), dim=0, time=(2, 1))     # T=(2, 3), D=(2,)
         Parameter("p", value=[[1.0, 2.0, 3.0]], time=1)                  # T=(3,), D=(1,)
 
@@ -283,7 +302,7 @@ class Parameters(list):
         rows = [
             (
                 parameter.name,
-                str(tuple(parameter.shape.time)) if parameter.shape.time else "-",
+                str(tuple(parameter.shape.time)),
                 str(tuple(parameter.shape.dim)),
                 str(math.prod(parameter.shape.tuple)),
                 "yes" if parameter.trainable else "no",
@@ -318,10 +337,10 @@ class Constant(_Value):
     Non-trainable symbolic constant layer.
 
     ``value`` sets its shape as for a :class:`Parameter`: every axis of the
-    value is a dim axis, and the value has no time axis, unless ``dim`` and
-    ``time`` name the axes of the value that play each part::
+    value is a dim axis, and the value is one sample, time ``(1,)``, unless
+    ``dim`` and ``time`` name the axes of the value that play each part::
 
-        Constant("c", value=[1.0, 2.0, 3.0])                 # T=(), D=(3,)
+        Constant("c", value=[1.0, 2.0, 3.0])                 # T=(1,), D=(3,)
         Constant("c", value=[[1.0, 2.0, 3.0]], time=1)       # T=(3,), D=(1,)
 
     Numbers used in arithmetic with a stream become constants automatically.

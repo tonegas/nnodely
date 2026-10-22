@@ -133,11 +133,6 @@ class Fir(_ParameterWeights):
         )
 
     def _weight_shapes(self, x):
-        if not x.shape.time:
-            raise ValueError(
-                f"{self.name}: a Fir filters a window of samples, and "
-                f"{x.name!r} has no time axis; take one with sw() or last()."
-            )
         dim = tuple(x.dim)
         elements = () if self.shared_kernel or dim == (1,) else dim
         return (*elements, x.shape.inner_time, self.features), (

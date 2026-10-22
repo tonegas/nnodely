@@ -736,7 +736,7 @@ def _resolve_event(f, event, reset, state_inputs):
 
 def _resolve_output_count(t):
     """Number of reported times, which is a tensor axis and so must be static."""
-    count = t.shape.outer_time if t.shape.time else None
+    count = t.shape.outer_time
     if not isinstance(count, int) or count < 2:
         raise ValueError(
             f"OdeNet needs at least two reported times with a static count, got "

@@ -13,7 +13,7 @@ that tensor axis.
 import keras
 
 from nnodely.core.layer import Layer
-from nnodely.core.shape import expand_to_rank, resolve_axis, slice_axis
+from nnodely.core.shape import _is_scalar, expand_to_rank, resolve_axis, slice_axis
 from nnodely.core.stream import Stream
 
 
@@ -79,14 +79,10 @@ class SampleWindow(Layer):
         )
 
     def output_shape(self, *inputs):
-        from nnodely.layers.input import Input
-
-        # The window replaces the inner time; the outer time axes are kept -
-        # an Input's are its sequence, whatever window it is read through.
-        source = inputs[0]
-        shape = source.shape
-        outer = source.sequence if isinstance(source, Input) else shape.time[:-1]
-        return shape.replace(time=(*outer, self.window_size))
+        # The window replaces the inner time; the outer time axes, an Input's
+        # sequence, are kept.
+        shape = inputs[0].shape
+        return shape.replace(time=(*shape.time[:-1], self.window_size))
 
     def build_layer(self):
         from nnodely.layers.input import Input
@@ -298,13 +294,12 @@ class TimeSelect(Layer):
 
     The selected axis is kept with length 1. With ``keep_dim=False`` it is
     dropped, so the result can close a Loop callback on an input with one
-    time axis less, and a stream left without time broadcasts along the time
-    of any other.
+    time axis less; a stream keeps at least one time axis, so the only one
+    cannot be dropped.
 
     Examples
     --------
     time=(5,), idx=-1 -> time=(1,)
-    time=(5,), idx=-1, keep_dim=False -> time=()
     time=(dyn, 1), idx=-1, axis=0, keep_dim=False -> time=(1,)
     time=(3, 5, 1), idx=0, axis=1, keep_dim=False -> time=(3, 1)
     """
@@ -325,6 +320,12 @@ class TimeSelect(Layer):
     def output_shape(self, *inputs):
         shape = inputs[0].shape
         axis, _ = self._selected(shape)
+        if not self.keep_dim and shape.time_rank == 1:
+            raise ValueError(
+                f"{self.name}: keep_dim=False drops the time axis, and "
+                f"{inputs[0].name!r} has only one: a stream keeps at least one "
+                "time axis. Keep it, of length 1, with keep_dim=True."
+            )
         kept = (1,) if self.keep_dim else ()
         return shape.replace(time=shape.time[:axis] + kept + shape.time[axis + 1 :])
 
@@ -471,13 +472,17 @@ class TimeConcatenate(Layer):
 @keras.saving.register_keras_serializable(package="nnodely")
 class ConcatenateImpl(keras.layers.Layer):
     """Serializable concatenation along a dim axis, the tensor axis ``axis``
-    of the inputs of ``input_rank`` axes; an input without time is repeated
-    along the time of the others."""
+    of the inputs of ``input_rank`` axes; the inputs ``repeated`` flags, of a
+    single sample, are repeated along the time of the input ``reference``."""
 
-    def __init__(self, axis: int, input_rank: int, name=None, **kwargs):
+    def __init__(
+        self, axis: int, input_rank: int, repeated=(), reference=0, name=None, **kwargs
+    ):
         super().__init__(name=name, **kwargs)
         self.axis = int(axis)
         self.input_rank = int(input_rank)
+        self.repeated = tuple(bool(flag) for flag in repeated)
+        self.reference = int(reference)
 
     def call(self, xs):
         if not isinstance(xs, (list, tuple)) or len(xs) < 2:
@@ -485,13 +490,14 @@ class ConcatenateImpl(keras.layers.Layer):
                 "Concatenate implementations require at least two tensors."
             )
         rank = self.input_rank + 1
-        reference = next(value for value in xs if len(value.shape) == rank)
-        # Zeros of one feature along the axis, shaped like the timed inputs:
-        # added to an input without time, they repeat it along that time.
-        zeros = keras.ops.zeros_like(slice_axis(reference, self.axis, slice(0, 1)))
+        # Zeros of one feature along the axis, shaped like the reference:
+        # added to a single sample, they repeat it along that time.
+        zeros = keras.ops.zeros_like(
+            slice_axis(xs[self.reference], self.axis, slice(0, 1))
+        )
         values = [
-            value if len(value.shape) == rank else expand_to_rank(value, rank) + zeros
-            for value in xs
+            expand_to_rank(value, rank) + zeros if repeated else value
+            for value, repeated in zip(xs, self.repeated or (False,) * len(xs))
         ]
         return keras.ops.concatenate(values, axis=self.axis)
 
@@ -504,6 +510,8 @@ class ConcatenateImpl(keras.layers.Layer):
             {
                 "axis": self.axis,
                 "input_rank": self.input_rank,
+                "repeated": self.repeated,
+                "reference": self.reference,
             }
         )
         return config
@@ -512,8 +520,8 @@ class ConcatenateImpl(keras.layers.Layer):
 class Concatenate(Layer):
     """Concatenate two or more streams along a selected dim axis.
 
-    The streams with time must have the same time axes; a stream without
-    time - a Parameter, a number - is repeated along them, as arithmetic
+    The streams must have the same time axes; a single sample, time ``(1,)``
+    - a Parameter, a number - is repeated along the others', as arithmetic
     broadcasts it.
     """
 
@@ -523,9 +531,10 @@ class Concatenate(Layer):
 
     def build_layer(self):
         inputs = _concatenation_inputs(self)
-        reference = next(
-            (node.shape for node in inputs if node.shape.time), inputs[0].shape
+        index = next(
+            (i for i, node in enumerate(inputs) if not _is_scalar(node.shape.time)), 0
         )
+        reference = inputs[index].shape
         axis = reference.resolve_dim(self.axis, self.name)
 
         for input_node in inputs:
@@ -535,15 +544,20 @@ class Concatenate(Layer):
                 for index, size in enumerate(shape.dim)
                 if index != axis
             )
-            if not compatible_dim or (shape.time and shape.time != reference.time):
+            if not compatible_dim or not (
+                shape.time == reference.time or _is_scalar(shape.time)
+            ):
                 raise ValueError(
                     f"{self.name}: all inputs must have matching dimensions "
-                    f"except dim axis {self.axis}, and matching time axes or none."
+                    f"except dim axis {self.axis}, and the same time axes or a "
+                    "single sample."
                 )
 
         return ConcatenateImpl(
             axis=reference.dim_axes[axis],
             input_rank=reference.rank,
+            repeated=[node.shape.time != reference.time for node in inputs],
+            reference=index,
             name=self.name,
         )
 
@@ -574,10 +588,14 @@ def _concatenated_output_shape(input_shapes, axis):
     if len(shapes) < 2:
         raise ValueError("Concatenate implementations require at least two tensors.")
 
-    # The axis counts the axes of the longest shape; a shorter one, without
-    # time, lacks the leading time axes.
-    output_shape: list[int | None] = list(max(shapes, key=len))
-    axis_sizes = [shape[axis - (len(output_shape) - len(shape))] for shape in shapes]
+    # A single sample of fewer time axes lacks leading ones, after the batch,
+    # and is repeated along the others' time.
+    rank = max(len(shape) for shape in shapes)
+    shapes = [shape[:1] + [1] * (rank - len(shape)) + shape[1:] for shape in shapes]
+    output_shape: list[int | None] = [
+        next((size for size in sizes if size != 1), 1) for sizes in zip(*shapes)
+    ]
+    axis_sizes = [shape[axis] for shape in shapes]
     output_shape[axis] = (
         None
         if any(size is None for size in axis_sizes)
@@ -656,7 +674,7 @@ class TimeStack(Layer):
 
     Examples
     --------
-    3 x time=() -> time=(3,)
+    3 x time=(1,) -> time=(1, 3)
     4 x time=(1,), axis=0 -> time=(4, 1)
     2 x time=(5, 1), axis=1 -> time=(5, 2, 1)
     """

@@ -6,9 +6,9 @@ A stream has two kinds of axes:
   inner time ``T_1`` is the window of samples, along which the temporal
   operations (windows, filters, derivatives) act; a Loop rolls out along
   the outer time ``T_k``, and adds its rollout as a new outer time. A time
-  axis may be dynamic (``None``), its length known only at run time. A
-  stream may have no time axis at all - a number, a Parameter, an Input
-  read whole.
+  axis may be dynamic (``None``), its length known only at run time. Every
+  stream has at least one time axis: a number, a Parameter or an Input read
+  whole is one sample, ``(1,)``.
 - ``dim``, its feature axes, one or more.
 
 A tensor holds them after its batch axis::
@@ -58,9 +58,9 @@ def resolve_axis(axis: int, rank: int, owner: str, kind: str) -> int:
 class Shape:
     """The sizes of the axes of a stream, batch aside.
 
-    ``time`` is the tuple of its time axes, outermost first, ``()`` for a
-    stream without time; an int is one axis. ``dim`` is one feature by
-    default.
+    ``time`` is the tuple of its time axes, outermost first, at least one;
+    an int is one axis. A stream is one sample, ``(1,)``, and one feature,
+    ``dim=(1,)``, by default.
     """
 
     dim: tuple[int, ...]
@@ -70,7 +70,11 @@ class Shape:
         # Always tuples: a shape read back from JSON arrives as lists, and two
         # shapes that describe the same axes have to compare equal.
         self.dim = _axes(dim, (1,))
-        self.time = _axes(time, ())
+        self.time = _axes(time, (1,))
+        if not self.time:
+            raise ValueError(
+                "A stream has at least one time axis: one sample is time=(1,)."
+            )
 
     @classmethod
     def from_tensor_shape(
@@ -94,37 +98,37 @@ class Shape:
     def broadcast(shapes, owner: str) -> "Shape":
         """The shape of an elementwise operation between streams of ``shapes``.
 
-        Time is never blended: the streams with time axes must have the same
-        ones - a dynamic axis matches any length and stays dynamic - and a
-        stream without time broadcasts along them. The dim axes must be the
-        same, unless one stream's are a scalar - every axis of size 1 - which
-        broadcasts to the others' as numpy aligns them, from the last.
+        Time is never blended: the streams must have the same time axes - a
+        dynamic axis matches any length and stays dynamic - unless one
+        stream's are a single sample - every axis of size 1 - which broadcasts
+        along the others', as numpy aligns them, from the inner time. The dim
+        axes must be the same, unless one stream's are a scalar - every axis
+        of size 1 - which broadcasts to the others' as numpy aligns them, from
+        the last.
 
         And one stream must already have the shape of the result, the others
         broadcasting into it: two streams that would both be broadcast, one
-        along the time of the other and the other along its dim - a matrix
-        without time and the window of a scalar - are not combined.
+        along the time of the other and the other along its dim - a matrix of
+        one sample and the window of a scalar - are not combined.
         """
         time: tuple | None = None
         for shape in shapes:
-            if not shape.time:
-                continue
-            if time is None:
-                time = shape.time
-                continue
-            if len(shape.time) != len(time) or any(
-                None not in (size, other) and size != other
-                for size, other in zip(shape.time, time)
-            ):
+            if time is None or _is_scalar(time):
+                time = _broadcast_ones(time, shape.time)
+            elif _is_scalar(shape.time):
+                time = _broadcast_ones(shape.time, time)
+            elif _same_time(shape.time, time):
+                time = tuple(
+                    None if None in (size, other) else size
+                    for size, other in zip(shape.time, time)
+                )
+            else:
                 raise ValueError(
                     f"{owner}: streams with different time axes cannot be combined, "
-                    f"got {_sizes(time)} and {_sizes(shape.time)}. Only a stream "
-                    "without time broadcasts along the time of another."
+                    f"got {_sizes(time)} and {_sizes(shape.time)}. Only a single "
+                    "sample, time=(1,), broadcasts along the time of another."
                 )
-            time = tuple(
-                None if None in (size, other) else size
-                for size, other in zip(shape.time, time)
-            )
+        assert time is not None
 
         dim: tuple[int, ...] | None = None
         for shape in shapes:
@@ -148,17 +152,18 @@ class Shape:
             raise ValueError(
                 f"{owner}: streams of {' and '.join(map(repr, shapes))} cannot be "
                 "combined: each would be broadcast, one along the time of another "
-                "and that one along its dim. A stream without time combines with "
-                "a timed one only if its dim is a scalar or the same."
+                "and that one along its dim. A single sample combines with a "
+                "window only if its dim is a scalar or the same."
             )
         return result
 
     def _fills(self, result: "Shape") -> bool:
         """Whether this shape is already ``result``'s, but for axes of 1: a
         stream of it would not be broadcast to ``result``."""
-        if not self.time and any(size != 1 for size in result.time):
-            return False
-        return _padded(self.dim, len(result.dim)) == result.dim
+        return (
+            _same_time(_padded(self.time, len(result.time)), result.time)
+            and _padded(self.dim, len(result.dim)) == result.dim
+        )
 
     # ------------------------------------------------------------------
     # Axes
@@ -197,13 +202,13 @@ class Shape:
     @property
     def inner_time(self) -> int | None:
         """Samples of the inner time ``T_1``, the window."""
-        return self._timed()[-1]
+        return self.time[-1]
 
     @property
     def outer_time(self) -> int | None:
         """Steps of the outer time ``T_k``: the outermost rollout, or the
         window without one."""
-        return self._timed()[0]
+        return self.time[0]
 
     def with_outer_time(self, length: int | None) -> "Shape":
         """This shape rolled out by one more Loop, of ``length`` steps: a new
@@ -213,11 +218,6 @@ class Shape:
     def without_outer_time(self) -> "Shape":
         """The shape of one step of the outer time, as a Loop's body sees it."""
         return self.replace(time=self.time[1:])
-
-    def _timed(self) -> tuple:
-        if not self.time:
-            raise ValueError(f"{self} has no time axis.")
-        return tuple(self.time)
 
     # ------------------------------------------------------------------
     # Layout: the tensor axes, counted with the batch axis as 0
@@ -240,12 +240,11 @@ class Shape:
     @property
     def inner_time_axis(self) -> int:
         """The axis of the inner time ``T_1``."""
-        return len(self._timed())
+        return self.time_rank
 
     @property
     def outer_time_axis(self) -> int:
         """The axis of the outer time ``T_k``."""
-        self._timed()
         return OUTER_TIME_AXIS
 
     # ------------------------------------------------------------------
@@ -282,6 +281,20 @@ def _is_scalar(dim) -> bool:
 def _padded(dim, rank: int) -> tuple:
     """``dim`` given leading axes of 1 up to ``rank``."""
     return (1,) * (rank - len(dim)) + tuple(dim)
+
+
+def _same_time(time, other) -> bool:
+    """Whether two time axes are the same, a dynamic axis matching any
+    length."""
+    return len(time) == len(other) and all(
+        None in (size, length) or size == length for size, length in zip(time, other)
+    )
+
+
+def _broadcast_ones(ones, time) -> tuple:
+    """``time`` broadcast with ``ones``, a single sample - every axis of
+    size 1 - or None: ``time`` given the leading axes ``ones`` has more."""
+    return tuple(time) if ones is None else _padded(time, len(ones))
 
 
 def _sizes(values) -> str:
@@ -321,9 +334,9 @@ def align(
     size 1 to broadcast against a tensor of ``to_time_rank`` and
     ``to_dim_rank``, as :meth:`Shape.broadcast` lines them up.
 
-    A stream without time gets the time axes right after the batch, and a
-    scalar dim of fewer axes its missing leading ones. ``expand_dims`` is
-    ``np.expand_dims`` for numpy.
+    A single sample of fewer time axes gets its missing outer ones right
+    after the batch, and a scalar dim of fewer axes its missing leading ones.
+    ``expand_dims`` is ``np.expand_dims`` for numpy.
     """
     for _ in range(to_time_rank - time_rank):
         x = expand_dims(x, 1)

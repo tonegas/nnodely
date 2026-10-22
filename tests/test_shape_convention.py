@@ -32,7 +32,7 @@ BATCH = 3
 def _evaluate(name, streams, x):
     """The streams of a model over a batch of three samples of ``x``, which
     gives the model its batch even where a stream does not read it."""
-    outputs = [Output(f"{name}_x", x.last())]
+    outputs = [Output(f"{name}_x", x)]
     outputs += [Output(key, stream) for key, stream in streams.items()]
     model = Modely(name, inputs=[x], outputs=outputs).build()
     values = np.arange(BATCH, dtype=np.float32).reshape(BATCH, 1, 1)
@@ -53,7 +53,8 @@ def test_a_parameter_and_a_constant_are_repeated_for_every_sample():
 
     _, result = _evaluate("repeat", {"parameter": parameter, "constant": constant}, x)
 
-    np.testing.assert_allclose(result["parameter"], _repeated([1.0, 2.0, 3.0]))
+    ## Without time of its own, a value is one sample
+    np.testing.assert_allclose(result["parameter"], _repeated([[1.0, 2.0, 3.0]]))
     np.testing.assert_allclose(result["constant"], _repeated([[4.0], [5.0]]))
 
 
@@ -71,9 +72,9 @@ def test_dim_slicing_of_a_parameter_selects_along_its_dim_axis():
         x,
     )
 
-    np.testing.assert_allclose(result["select"], _repeated([2.0]))
-    np.testing.assert_allclose(result["range"], _repeated([1.0, 2.0]))
-    np.testing.assert_allclose(result["sum"], _repeated([6.0]))
+    np.testing.assert_allclose(result["select"], _repeated([[2.0]]))
+    np.testing.assert_allclose(result["range"], _repeated([[1.0, 2.0]]))
+    np.testing.assert_allclose(result["sum"], _repeated([[6.0]]))
 
 
 def test_time_slicing_of_a_constant_selects_along_its_time_axis():
@@ -101,8 +102,8 @@ def test_concatenation_joins_a_parameter_with_an_input_sample_by_sample():
     _, result = _evaluate(
         "join",
         {
-            "dim": Concatenate()([x.last(), parameter]),
-            "time": TimeConcatenate()([x.last(), window]),
+            "dim": Concatenate()([x, parameter]),
+            "time": TimeConcatenate()([x, window]),
         },
         x,
     )
@@ -135,19 +136,19 @@ def test_linear_and_fir_project_a_parameter_like_an_input():
     }
 
     # [1, 2, 3] -> [1 + 3, 2 + 3]; the window sums to 10.
-    np.testing.assert_allclose(result["linear"], _repeated([4.0, 5.0]))
+    np.testing.assert_allclose(result["linear"], _repeated([[4.0, 5.0]]))
     np.testing.assert_allclose(result["fir"], _repeated([[10.0]]))
-    np.testing.assert_allclose(result["exp"], _repeated(np.exp([1.0, 2.0, 3.0])))
+    np.testing.assert_allclose(result["exp"], _repeated(np.exp([[1.0, 2.0, 3.0]])))
 
 
 def test_division_and_power_keep_the_samples_apart():
-    a = Input("apart_a")
+    a = Input("apart_a", seq=4)
     b = Input("apart_b")
-    # b read whole, without time, broadcasts along the sequence of a: one
+    # b read directly, one sample, broadcasts along the sequence of a: one
     # value per sample.
-    quotient = a.last(seq=4) / b
-    power = a.last() ** b
-    halved = a.last() / 2.0
+    quotient = a / b
+    power = a**b
+    halved = a / 2.0
     model = Modely(
         "apart",
         inputs=[a, b],
@@ -176,8 +177,8 @@ def test_division_and_power_keep_the_samples_apart():
 def test_a_dynamic_sequence_axis_survives_shape_inference():
     # A layer whose shape is probed with dummy zeros - elementwise, arithmetic,
     # a Parameter, a projection - keeps a dynamic sequence axis dynamic.
-    x = Input("dynamic_shape_x", dim=2)
-    sample = x.last(seq=-1)
+    x = Input("dynamic_shape_x", dim=2, seq=-1)
+    sample = x
     gain = Parameter("dynamic_shape_gain", value=2.0)
     streams = {
         "scaled": sample * 3.0,
@@ -212,10 +213,10 @@ def test_a_dynamic_sequence_axis_survives_shape_inference():
 
 def test_only_the_dynamic_sequence_axes_become_dynamic_again():
     # A fixed sequence axis next to a dynamic one keeps its size.
-    x = Input("mixed_seq_x")
-    doubled = x.last(seq=(-1, 3)) * 2.0
+    x = Input("mixed_seq_x", seq=(-1, 3))
+    doubled = x * 2.0
     assert doubled.shape.time == (None, 3, 1)
-    fixed = Input("fixed_seq_x").last(seq=4) * 2.0
+    fixed = Input("fixed_seq_x", seq=4) * 2.0
     assert fixed.shape.time == (4, 1)
 
 
@@ -223,8 +224,24 @@ def test_a_shape_prints_its_named_axes():
     # Once a bare (3, 10): three features of ten samples, or the other way round?
     assert repr(Input("named_x", dim=3).sw(10).shape) == "Shape(T=(10,), D=(3,))"
     assert (
-        repr(Input("named_m", dim=(3, 2)).last(seq=(-1, 4)).shape)
+        repr(Input("named_m", dim=(3, 2), seq=(-1, 4)).shape)
         == "Shape(T=(dyn, 4, 1), D=(3, 2))"
     )
     window = Input("named_w", dim=2).sw(5)
     assert "shape=Shape(T=(5,), D=(2,))" in repr(window)
+
+
+def test_concatenation_repeats_a_single_sample_along_a_window():
+    x = Input("repeat_join_x")
+    parameter = Parameter("repeat_join_parameter", value=[7.0])
+    joined = Concatenate()([x.sw(3), parameter])
+    assert joined.shape.dimensions == ((3,), (2,))
+
+    model = Modely(
+        "repeat_join", inputs=[x], outputs=[Output("repeat_join_out", joined)]
+    ).build()
+    values = np.arange(6, dtype=np.float32).reshape(2, 3, 1)
+    result = to_numpy(model({"repeat_join_x": values})["repeat_join_out"])
+    np.testing.assert_allclose(
+        result, np.concatenate([values, np.full((2, 3, 1), 7.0)], axis=-1)
+    )

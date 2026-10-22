@@ -48,11 +48,11 @@ are those of the last evaluation. It is declared before ``build()``.
    steps = 5
    x = Input("x")
    F = Input("F")
-   x_pred = Output("x_pred", Fir(features=1)([x.sw(5)]) + Fir(features=1)([F.last()]))
+   x_pred = Output("x_pred", Fir(features=1)([x.sw(5)]) + Fir(features=1)([F]))
 
    model = Modely("msd_rollback", inputs=[x, F], outputs=[x_pred])
    model.rollback({x: x_pred}, steps=steps)
-   model.minimize("ahead", x_pred, Input("x_ahead").last())
+   model.minimize("ahead", x_pred, Input("x_ahead"))
    model.build()
 
 Inputs that are not fed back keep the value of their window at every step, and
@@ -74,7 +74,7 @@ Loop
 A :class:`~nnodely.Loop` takes a model, the *body* (built here if it is not
 yet), and rolls it out along the outer time of the streams that drive it:
 a stream with one more time axis than the body input it feeds, declared with
-``seq=`` on a window. It is configured with the body
+``seq=`` on an Input. It is configured with the body
 and its recurrence, then called on the streams that drive it,
 ``Loop(f, callback, init=...)(inputs)``:
 
@@ -103,22 +103,22 @@ on the state :math:`s = (x, \dot x)`:
    F_step = Input("F_step")
    next_state = Output(
        "next_state",
-       Linear(features=2, bias=False)([state.last()])
-       + Linear(features=2, bias=False)([F_step.last()]),
+       Linear(features=2, bias=False)([state])
+       + Linear(features=2, bias=False)([F_step]),
    )
    body = Modely("step", inputs=[state, F_step], outputs=[next_state]).build()
 
-   s0 = Input("s0", dim=2)
-   F_seq = Input("F_seq")
+   s0 = Input("s0", dim=2, seq=horizon)
+   F_seq = Input("F_seq", seq=horizon)
    trajectory = Output(
        "trajectory",
-       Loop(f=body, callback={state: next_state}, init={state: s0.last(seq=horizon)})(
-           {F_step: F_seq.last(seq=horizon)}
+       Loop(f=body, callback={state: next_state}, init={state: s0})(
+           {F_step: F_seq}
        ),
    )
 
    simulator = Modely("msd_loop", inputs=[s0, F_seq], outputs=[trajectory])
-   s_next = Input("s_next", dim=2).last(seq=horizon)
+   s_next = Input("s_next", dim=2, seq=horizon)
    simulator.minimize("trajectory", trajectory, s_next)
    simulator.build()
    print(trajectory.shape)   # Shape(T=(20, 1), D=(2,)): 20 steps of 1 sample of 2 states
@@ -140,7 +140,7 @@ contains only predictions. A fed-back output is therefore a single sample, and
 the window of a fed-back input cannot read future samples (``x.sw([p, f])``
 with ``f > 0``, ``x.next()``).
 
-With a dynamic sequence, ``sw(..., seq=-1)``, the rollout follows the length of the
+With a dynamic sequence, ``Input(..., seq=-1)``, the rollout follows the length of the
 data it receives, and no ``length`` is needed. Together
 with ``seq_length="full"`` in the :class:`~nnodely.DataLoader`, this trains on
 whole simulations of different lengths (see :doc:`data`).

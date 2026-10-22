@@ -17,7 +17,7 @@ def test_dataset_creation_and_iteration():
         [4, 2]
     )  ## 4 samples of z in the past and 2 samples of z in the future
 
-    x_stream2 = x.last()  ## 1 sample of x in the past
+    x_stream2 = x  ## 1 sample of x in the past
     y_stream2 = y.next()  ## 1 sample of y in the future
     z_stream2 = z.sw(3)  ## 3 samples of z in the past
 
@@ -84,12 +84,12 @@ def test_dataset_creation_and_iteration():
 
 
 def test_sequence_windows_are_created_on_temporal_windows():
-    x = Input("x", dim=1)
+    x = Input("x", dim=1, seq=3)
     target = Input("target", dim=1)
-    x_window = x.sw(5, seq=3)
+    x_window = x.sw(5)
     output = Output("out", x_window)
     model = Modely("sequence_dataset", inputs=[x], outputs=[output])
-    model.minimize("error", source=output, target=target.last(), loss="mse")
+    model.minimize("error", source=output, target=target, loss="mse")
     model.build()
 
     loader = DataLoader(
@@ -127,7 +127,7 @@ def test_explicit_dataloader_normalization_and_denormalization():
     relation = x.sw(2)
     output = Output("normalization_output", relation)
     model = Modely("normalization_model", inputs=[x], outputs=[output])
-    model.minimize("error", output, target.last(), loss="mse")
+    model.minimize("error", output, target, loss="mse")
     model.build()
 
     loader = DataLoader(
@@ -192,7 +192,7 @@ def test_standard_normalization_handles_constant_inputs():
     model = Modely(
         "constant_normalization_model",
         inputs=[x],
-        outputs=[Output("constant_normalization_output", x.last())],
+        outputs=[Output("constant_normalization_output", x)],
     ).build()
     loader = DataLoader(
         model,
@@ -240,7 +240,7 @@ def test_step_keeps_multiple_inputs_aligned():
         # different times, which are never added together.
         outputs=[
             Output("step_align_out", x.sw(3)),
-            Output("step_align_y_out", y.last()),
+            Output("step_align_y_out", y),
         ],
     ).build()
 
@@ -265,11 +265,11 @@ def test_step_keeps_multiple_inputs_aligned():
 
 
 def test_step_subsamples_sequences():
-    x = Input("step_seq_x", dim=1)
+    x = Input("step_seq_x", dim=1, seq=3)
     model = Modely(
         "step_sequence_model",
         inputs=[x],
-        outputs=[Output("step_seq_out", x.sw(2, seq=3))],
+        outputs=[Output("step_seq_out", x.sw(2))],
     ).build()
 
     loader = DataLoader(
@@ -292,11 +292,11 @@ def test_step_subsamples_sequences():
 
 
 def test_step_subsamples_sequences_with_seq_length():
-    x = Input("step_seq_length_x", dim=1)
+    x = Input("step_seq_length_x", dim=1, seq=-1)
     model = Modely(
         "step_seq_length_model",
         inputs=[x],
-        outputs=[Output("step_seq_length_out", x.sw(2, seq=-1))],
+        outputs=[Output("step_seq_length_out", x.sw(2))],
     ).build()
 
     loader = DataLoader(
@@ -353,7 +353,7 @@ def test_invalid_step_raises():
     model = Modely(
         "step_invalid_model",
         inputs=[x],
-        outputs=[Output("step_invalid_out", x.last())],
+        outputs=[Output("step_invalid_out", x)],
     ).build()
 
     with np.testing.assert_raises(ValueError):
@@ -462,11 +462,11 @@ def test_simulations_are_windowed_independently():
 
 
 def test_multiple_dynamic_sequence_lengths_are_rejected():
-    x = Input("two_dynamic_x", dim=1)
+    x = Input("two_dynamic_x", dim=1, seq=(-1, -1))
     model = Modely(
         "two_dynamic_model",
         inputs=[x],
-        outputs=[Output("two_dynamic_out", x.sw(2, seq=(-1, -1)))],
+        outputs=[Output("two_dynamic_out", x.sw(2))],
     ).build()
 
     with np.testing.assert_raises(ValueError):
@@ -478,11 +478,11 @@ def test_multiple_dynamic_sequence_lengths_are_rejected():
 
 
 def test_full_sequence_spans_each_simulation_and_pads():
-    x = Input("full_x", dim=1)
+    x = Input("full_x", dim=1, seq=-1)
     model = Modely(
         "full_model",
         inputs=[x],
-        outputs=[Output("full_out", x.sw(1, seq=-1))],
+        outputs=[Output("full_out", x.sw(1))],
     ).build()
 
     loader = DataLoader(
@@ -511,11 +511,11 @@ def test_full_sequence_spans_each_simulation_and_pads():
 
 
 def test_full_sequence_leaves_the_inner_levels_alone():
-    x = Input("full_nested_x", dim=1)
+    x = Input("full_nested_x", dim=1, seq=(-1, 2))
     model = Modely(
         "full_nested_model",
         inputs=[x],
-        outputs=[Output("full_nested_out", x.sw(1, seq=(-1, 2)))],
+        outputs=[Output("full_nested_out", x.sw(1))],
     ).build()
 
     loader = DataLoader(
@@ -536,11 +536,11 @@ def test_full_sequence_leaves_the_inner_levels_alone():
 
 
 def test_full_sequence_of_equal_simulations_needs_no_mask():
-    x = Input("uniform_x", dim=1)
+    x = Input("uniform_x", dim=1, seq=-1)
     model = Modely(
         "uniform_model",
         inputs=[x],
-        outputs=[Output("uniform_out", x.sw(1, seq=-1))],
+        outputs=[Output("uniform_out", x.sw(1))],
     ).build()
 
     loader = DataLoader(
@@ -558,11 +558,11 @@ def test_full_sequence_of_equal_simulations_needs_no_mask():
 
 
 def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
-    x = Input("full_step_x", dim=1)
+    x = Input("full_step_x", dim=1, seq=-1)
     model = Modely(
         "full_step_model",
         inputs=[x],
-        outputs=[Output("full_step_out", x.sw(1, seq=-1))],
+        outputs=[Output("full_step_out", x.sw(1))],
     ).build()
 
     ## The sequence already spans the simulation, so there is nothing to step over
@@ -574,11 +574,11 @@ def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
             step=2,
         )
 
-    inner = Input("full_inner_x", dim=1)
+    inner = Input("full_inner_x", dim=1, seq=(2, -1))
     inner_model = Modely(
         "full_inner_model",
         inputs=[inner],
-        outputs=[Output("full_inner_out", inner.sw(1, seq=(2, -1)))],
+        outputs=[Output("full_inner_out", inner.sw(1))],
     ).build()
 
     ## 'full' resolves the outermost sequence only
@@ -591,11 +591,11 @@ def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
 
 
 def test_normalization_ignores_padded_steps():
-    x = Input("padded_norm_x", dim=1)
+    x = Input("padded_norm_x", dim=1, seq=-1)
     model = Modely(
         "padded_norm_model",
         inputs=[x],
-        outputs=[Output("padded_norm_out", x.sw(1, seq=-1))],
+        outputs=[Output("padded_norm_out", x.sw(1))],
     ).build()
 
     loader = DataLoader(
@@ -620,17 +620,17 @@ def test_normalization_ignores_padded_steps():
 
 def test_uncollected_loop_warns_on_simulations_of_different_lengths():
     body_x = Input("warn_body_x", dim=1)
-    body_out = Output("warn_body_out", body_x.last())
+    body_out = Output("warn_body_out", body_x)
     body = Modely("warn_body", inputs=[body_x], outputs=[body_out]).build()
 
-    seed = Input("warn_x", dim=1)
+    seed = Input("warn_x", dim=1, seq=-1)
     loop = Loop(
         f=body,
         callback={body_x: body_out},
         length=4,
         collect=False,
         name="warn_loop",
-        init={body_x: seed.last(seq=-1)},
+        init={body_x: seed},
     )()
     model = Modely(
         "warn_model", inputs=[seed], outputs=[Output("warn_out", loop)]
@@ -675,7 +675,7 @@ def _samples_model():
     x = Input("samples_x")
     y = Input("samples_y")
     window = x.sw(3)
-    pred = Output("samples_pred", x.last() * Parameter(value=[2.0]))
+    pred = Output("samples_pred", x * Parameter(value=[2.0]))
     model = Modely(
         "samples_model", inputs=[x, y], outputs=[pred, Output("samples_window", window)]
     )
@@ -783,7 +783,7 @@ def _csv_model():
     x = Input("csv_x")
     y = Input("csv_y")
     return Modely(
-        "csv_model", inputs=[x, y], outputs=[Output("csv_out", x.last() + y.last())]
+        "csv_model", inputs=[x, y], outputs=[Output("csv_out", x + y)]
     ).build()
 
 

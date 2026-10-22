@@ -14,7 +14,7 @@ def _identity_model(name, *, dim=None, window=1, loss="mse"):
     prediction = Output(f"{name}_prediction", x.sw(window))
 
     model = Modely(name, inputs=[x], outputs=[prediction])
-    reference = target.last() if window == 1 else target.sw(window)
+    reference = target if window == 1 else target.sw(window)
     model.minimize("tracking", source=prediction, target=reference, loss=loss)
     model.build()
     return model
@@ -429,20 +429,20 @@ def _decay_model(name, seq_weights=None):
     """
     body_x = Input(f"{name}_body_x")
     body_out = Output(
-        f"{name}_body_out", Linear(features=1, kernel="ones", bias=False)(body_x.last())
+        f"{name}_body_out", Linear(features=1, kernel="ones", bias=False)(body_x)
     )
     body = Modely(f"{name}_body", inputs=[body_x], outputs=[body_out]).build()
-    seed = Input(f"{name}_x")
+    seed = Input(f"{name}_x", seq=-1)
     loop = Loop(
         f=body,
         callback={body_x: body_out},
         length=6,
-        init={body_x: seed.last(seq=-1)},
+        init={body_x: seed},
     )()
     out = Output(f"{name}_out", loop)
     model = Modely(name, inputs=[seed], outputs=[out])
     model.minimize(
-        "rollout", out, Input(f"{name}_target").last(seq=-1), seq_weights=seq_weights
+        "rollout", out, Input(f"{name}_target", seq=-1), seq_weights=seq_weights
     )
     model.build()
     return model

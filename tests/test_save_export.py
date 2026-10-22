@@ -183,7 +183,7 @@ def _equation_learner_model():
         ),
         name="equation_export",
     )
-    relation = equation(x.last())
+    relation = equation(x)
     model = Modely(
         "onnx_equation_learner",
         inputs=[x],
@@ -223,8 +223,8 @@ def _local_model():
 
 
 def _seq_ops_model():
-    x = Input("seq_ops_x", dim=2)
-    window = x.sw(2, seq=(3, 4))
+    x = Input("seq_ops_x", dim=2, seq=(3, 4))
+    window = x.sw(2)
     return Modely(
         "seq_ops",
         inputs=[x],
@@ -567,8 +567,8 @@ def test_local_model_with_fuzzy_product_round_trips(tmp_path):
     j = Input("save_local_j", dim=1)
     k = Input("save_local_k", dim=1)
     activations = [
-        Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)([j.last()]),
-        Fuzzify(centers=[0.0, 1.0], function=Triangular)([k.last()]),
+        Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)([j]),
+        Fuzzify(centers=[0.0, 1.0], function=Triangular)([k]),
     ]
     cloned = LocalModel(Fir(features=2), output_function=Tanh(), name="save_cloned")(
         [x.sw(3)], activations
@@ -611,7 +611,7 @@ def _roll_model():
     x = Input("roll_x")
     taps = Parameter("roll_taps", value=np.ones(5))
     fir = Fir(features=1, kernel=taps, bias=False, name="roll_fir")(x.sw(5))
-    output = Output("roll_out", fir + x.last())
+    output = Output("roll_out", fir + x)
     model = Modely("roll_model", inputs=[x], outputs=[output])
     model.rollback({x: fir}, steps=3, name="rollout")
     model.build()
@@ -726,7 +726,7 @@ def _randomize_trainable_weights(model):
 def _random_inputs(model):
     rng = np.random.default_rng(1)
     return {
-        node.name: rng.uniform(0.1, 1.0, size=(_BATCH, *node.shape.tuple)).astype(
+        node.name: rng.uniform(0.1, 1.0, size=(_BATCH, *node.data_shape.tuple)).astype(
             np.float32
         )
         for node in model.train_inputs
@@ -850,12 +850,12 @@ def _fuzzy_local_model():
     speed = Input("fuzzy_speed", dim=1)
     triangular = Fuzzify(
         centers=[0.0, 0.5, 1.0], function=Triangular, name="fuzzy_triangular"
-    )(gear.last())
+    )(gear)
     rectangular = Fuzzify(
         centers=[0.0, 0.5, 1.0], function=Rectangular, name="fuzzy_rectangular"
-    )(speed.last())
+    )(speed)
     gaussian = Fuzzify(centers=[0.2, 0.8], function=Gaussian, name="fuzzy_gaussian")(
-        speed.last()
+        speed
     )
     # Two fuzzifications combined into joint memberships, one Fir for every cell.
     affine = LocalModel(Fir(features=2), name="fuzzy_affine")(
@@ -887,7 +887,7 @@ def _derivative_model():
     relation = Sin()(Linear(features=1, name="derivative_linear")(u.sw(3)))
     mixed = Linear(features=2, name="derivative_mix")(window)
     relations = {
-        "d_init_stream": Derivative(order=1, dt=dt, init=x0.last())(window),
+        "d_init_stream": Derivative(order=1, dt=dt, init=x0)(window),
         "d_init_number": Derivative(order=2, dt=dt, init=0.5)(window),
         "d_smooth": Derivative(order=1, dt=dt, window=3, poly_order=2)(window),
         "d_of_layer": Derivative(order=1, dt=dt)(mixed),
@@ -912,15 +912,15 @@ def _integrate_model():
     velocity = IntegrateStep(dt=dt, init=0.2)(acceleration.sw(4))
     relations = {
         "i_euler": IntegrateStep(solver="euler", dt=dt)(window),
-        "i_trapezoidal": IntegrateStep(
-            solver="trapezoidal", dt=dt / 2, init=state.last()
-        )(window),
+        "i_trapezoidal": IntegrateStep(solver="trapezoidal", dt=dt / 2, init=state)(
+            window
+        ),
         "i_rectangular": IntegrateStep(solver="rectangular", dt=dt, init=1.5)(window),
         "i_position": IntegrateStep(solver="trapezoidal", dt=dt, init=-0.3)(velocity),
         # Integrating the backward difference with the same initial condition
         # gives the signal back.
-        "i_inverse": IntegrateStep(dt=dt, init=x0.last())(
-            Derivative(dt=dt, init=x0.last())(signal.sw(4))
+        "i_inverse": IntegrateStep(dt=dt, init=x0)(
+            Derivative(dt=dt, init=x0)(signal.sw(4))
         ),
     }
     return Modely(
@@ -939,9 +939,7 @@ def _ode_step_model():
     def field(p, v):
         return [v, -1.0 * stiffness * p - damping * v]
 
-    p_next, v_next = Ode(
-        field, [position.last(), velocity.last()], dt=0.1, method="rk4"
-    )
+    p_next, v_next = Ode(field, [position, velocity], dt=0.1, method="rk4")
     return Modely(
         "ode_step",
         inputs=[position, velocity],
@@ -959,13 +957,13 @@ def _rollback_mechanical_model():
     estimated_velocity = TimeSelect(idx=-1)(Derivative(dt=dt)(position.sw(3)))
     acceleration = (
         Fir(features=1, name="rollback_force_fir")(force.sw(3))
-        - stiffness * position.last()
+        - stiffness * position
         - Linear(features=1, bias=False, name="rollback_damping")(estimated_velocity)
     )
-    velocity_next = IntegrateStep(dt=dt, init=velocity.last(), name="rollback_v_next")(
+    velocity_next = IntegrateStep(dt=dt, init=velocity, name="rollback_v_next")(
         acceleration
     )
-    position_next = IntegrateStep(dt=dt, init=position.last(), name="rollback_p_next")(
+    position_next = IntegrateStep(dt=dt, init=position, name="rollback_p_next")(
         velocity_next
     )
     model = Modely(
@@ -990,9 +988,7 @@ def _composition_model():
     block = Modely(
         "composition_block",
         inputs=[signal],
-        outputs=[
-            Output("composition_state", IntegrateStep(dt=0.1, init=signal.last())(rate))
-        ],
+        outputs=[Output("composition_state", IntegrateStep(dt=0.1, init=signal)(rate))],
     ).build()
 
     a = Input("composition_a", dim=1)
@@ -1013,19 +1009,19 @@ def _loop_final_state_model():
     force = Input("loop_final_force", dim=1)
     next_state = Output(
         "loop_final_next",
-        Linear(features=1, name="loop_final_linear")(state.last()) + force.last(),
+        Linear(features=1, name="loop_final_linear")(state) + force,
     )
     body = Modely(
         "loop_final_body", inputs=[state, force], outputs=[next_state]
     ).build()
 
-    seed = Input("loop_final_seed", dim=1)
+    seed = Input("loop_final_seed", dim=1, seq=4)
     loop = Loop(
         f=body,
         callback={state: next_state},
         collect=False,
         name="loop_final",
-        init={state: seed.last(seq=4)},
+        init={state: seed},
     )()
     return Modely(
         "loop_final",
@@ -1040,12 +1036,10 @@ def _loop_trajectory_model():
     velocity = Input("loop_traj_velocity", dim=1)
     force = Input("loop_traj_force", dim=1)
     window = position.sw(2)
-    acceleration = Fir(features=1, name="loop_traj_force_fir")(
-        force.last()
-    ) - Parameter("loop_traj_damping", value=[0.5]) * TimeSelect(idx=-1)(
-        Derivative(dt=dt)(window)
-    )
-    velocity_step = IntegrateStep(dt=dt, init=velocity.last())(acceleration)
+    acceleration = Fir(features=1, name="loop_traj_force_fir")(force) - Parameter(
+        "loop_traj_damping", value=[0.5]
+    ) * TimeSelect(idx=-1)(Derivative(dt=dt)(window))
+    velocity_step = IntegrateStep(dt=dt, init=velocity)(acceleration)
     position_step = IntegrateStep(
         solver="trapezoidal", dt=dt, init=TimeSelect(idx=-1)(window)
     )(velocity_step)
@@ -1059,14 +1053,14 @@ def _loop_trajectory_model():
 
     # The position window is shifted, the velocity seeded by a constant and the
     # force read one step at a time from its own sequence.
-    p0 = Input("loop_traj_p0", dim=1)
-    force_sequence = Input("loop_traj_force_sequence", dim=1)
+    p0 = Input("loop_traj_p0", dim=1, seq=horizon)
+    force_sequence = Input("loop_traj_force_sequence", dim=1, seq=horizon)
     position_trajectory, velocity_trajectory = Loop(
         f=body,
         callback={position: position_next, velocity: velocity_next},
         name="loop_traj",
-        init={position: p0.sw(2, seq=horizon), velocity: 0.25},
-    )({force: force_sequence.last(seq=horizon)})
+        init={position: p0.sw(2), velocity: 0.25},
+    )({force: force_sequence})
     return Modely(
         "loop_traj",
         inputs=[p0, force_sequence],
@@ -1078,11 +1072,11 @@ def _loop_trajectory_model():
 
 
 def _nested_loop_model():
-    x = Input("nested_save_input", dim=1)
+    x = Input("nested_save_input", dim=1, seq=(3, 5))
     gain = Constant("nested_save_gain", value=2.0)
 
-    inner = Input("nested_save_inner", dim=1)
-    first_output = Output("nested_save_first_out", inner.last(seq=5) * gain)
+    inner = Input("nested_save_inner", dim=1, seq=5)
+    first_output = Output("nested_save_first_out", inner * gain)
     first_body = Modely(
         "nested_save_first_body", inputs=[inner], outputs=[first_output]
     ).build()
@@ -1091,11 +1085,11 @@ def _nested_loop_model():
         callback={inner: first_output},
         name="nested_save_first_loop",
         collect=False,
-        init={inner: x.last(seq=(3, 5))},
+        init={inner: x},
     )()
 
     second = Input("nested_save_second", dim=1)
-    second_output = Output("nested_save_second_out", second.last() * gain)
+    second_output = Output("nested_save_second_out", second * gain)
     second_body = Modely(
         "nested_save_second_body", inputs=[second], outputs=[second_output]
     ).build()
@@ -1118,27 +1112,27 @@ def _shared_body_model():
     gain = Parameter("shared_body_gain", value=[0.5])
     next_state = Output(
         "shared_body_next",
-        Linear(features=1, name="shared_body_linear")(state.last()) * gain,
+        Linear(features=1, name="shared_body_linear")(state) * gain,
     )
     body = Modely("shared_body", inputs=[state], outputs=[next_state]).build()
 
     # One body rolled out by two loops, and its gain read outside it as well:
     # all three places use the same weights.
-    short = Input("shared_body_short", dim=1)
-    long = Input("shared_body_long", dim=1)
+    short = Input("shared_body_short", dim=1, seq=3)
+    long = Input("shared_body_long", dim=1, seq=5)
     first = Loop(
         f=body,
         callback={state: next_state},
         collect=False,
         name="shared_body_first",
-        init={state: short.last(seq=3)},
+        init={state: short},
     )()
     second = Loop(
         f=body,
         callback={state: next_state},
         collect=False,
         name="shared_body_second",
-        init={state: long.last(seq=5)},
+        init={state: long},
     )()
     return Modely(
         "shared_body_model",
@@ -1155,14 +1149,12 @@ def _ode_loop_model():
     rate = Parameter("ode_loop_rate", value=[1.0])
     body_output = Output(
         "ode_loop_next",
-        Ode(lambda state: -1.0 * rate * state, x.last(), 0.05, method="rk4"),
+        Ode(lambda state: -1.0 * rate * state, x, 0.05, method="rk4"),
     )
     body = Modely("ode_loop_body", inputs=[x], outputs=[body_output]).build()
 
-    seed = Input("ode_loop_seed", dim=1)
-    loop = Loop(
-        f=body, callback={x: body_output}, name="ode_loop", init={x: seed.last(seq=6)}
-    )()
+    seed = Input("ode_loop_seed", dim=1, seq=6)
+    loop = Loop(f=body, callback={x: body_output}, name="ode_loop", init={x: seed})()
     return Modely(
         "ode_loop", inputs=[seed], outputs=[Output("ode_loop_out", loop)]
     ).build()
@@ -1174,7 +1166,7 @@ def _roll_layer_model():
     feedback = Output(
         "roll_layer_next",
         Fir(features=1, name="roll_layer_fir")(x.sw(4))
-        + Linear(features=1, name="roll_layer_linear")(u.last()),
+        + Linear(features=1, name="roll_layer_linear")(u),
     )
     body = Modely("roll_layer_body", inputs=[x, u], outputs=[feedback]).build()
     roll = Roll(f=body, callback={x: feedback}, steps=3, name="roll_layer")
@@ -1191,23 +1183,21 @@ def _complete_vehicle_model():
     gear = Input("vehicle_gear", dim=1)
     wheels = Input("vehicle_wheels", dim=4)
 
-    gear_membership = Fuzzify(centers=[0.0, 0.5, 1.0], name="vehicle_gear_fuzzy")(
-        gear.last()
-    )
+    gear_membership = Fuzzify(centers=[0.0, 0.5, 1.0], name="vehicle_gear_fuzzy")(gear)
     engine = LocalModel(Fir(features=1), name="vehicle_engine")(
         [throttle.sw(5)], [gear_membership]
     )
     grip = Sigmoid()(
         PReLU()(
             Linear(features=1, name="vehicle_grip")(
-                BatchNorm(name="vehicle_wheels_norm")(wheels.last())
+                BatchNorm(name="vehicle_wheels_norm")(wheels)
             )
         )
     )
     slope = Interpolation(
         x_points=[0.0, 0.5, 1.0], y_points=[0.0, 0.2, 0.1], name="vehicle_slope"
-    )(speed.last())
-    drag = Parameter("vehicle_drag", value=[0.1]) * speed.last() ** 2
+    )(speed)
+    drag = Parameter("vehicle_drag", value=[0.1]) * speed**2
     gravity = Constant("vehicle_gravity", value=[9.81])
     acceleration = (
         engine * grip
@@ -1221,7 +1211,7 @@ def _complete_vehicle_model():
         outputs=[
             Output(
                 "vehicle_speed_next",
-                IntegrateStep(dt=dt, init=speed.last())(acceleration),
+                IntegrateStep(dt=dt, init=speed)(acceleration),
             ),
             Output(
                 "vehicle_acceleration_estimate",
@@ -1299,13 +1289,11 @@ def test_export_onnx_dynamic_loop_follows_the_data(tmp_path):
     # data instead of the length it was declared with.
     pytest.importorskip("onnxruntime")
     x, u = Input("dyn_onnx_x", dim=1), Input("dyn_onnx_u", dim=1)
-    body_output = Output("dyn_onnx_next", x.last() * 0.5 + u.last())
+    body_output = Output("dyn_onnx_next", x * 0.5 + u)
     body = Modely("dyn_onnx_body", inputs=[x, u], outputs=[body_output]).build()
-    x_seq = Input("dyn_onnx_x_seq", dim=1)
-    u_seq = Input("dyn_onnx_u_seq", dim=1)
-    loop = Loop(f=body, callback={x: body_output}, init={x: x_seq.last(seq=-1)})(
-        {u: u_seq.last(seq=-1)}
-    )
+    x_seq = Input("dyn_onnx_x_seq", dim=1, seq=-1)
+    u_seq = Input("dyn_onnx_u_seq", dim=1, seq=-1)
+    loop = Loop(f=body, callback={x: body_output}, init={x: x_seq})({u: u_seq})
     model = Modely(
         "dyn_onnx_model",
         inputs=[x_seq, u_seq],
@@ -1337,8 +1325,8 @@ def test_export_onnx_seq_ops_follow_the_data(tmp_path):
     # Counted from the end, the selected elements are those of the data, not
     # of the length the graph was declared with.
     pytest.importorskip("onnxruntime")
-    x = Input("dyn_seq_ops_x", dim=1)
-    sequence = x.last(seq=-1)
+    x = Input("dyn_seq_ops_x", dim=1, seq=-1)
+    sequence = x
     model = Modely(
         "dyn_seq_ops",
         inputs=[x],
@@ -1378,9 +1366,9 @@ def test_save_load_behaves_like_original(tmp_path, model_factory):
 
 def _target_for(output):
     """A dataset input shaped like ``output``, the way a user adds a target."""
-    return Input(f"{output.name}_target", dim=output.dim).sw(
-        output.shape.inner_time, seq=output.shape.time[:-1]
-    )
+    return Input(
+        f"{output.name}_target", dim=output.dim, seq=output.shape.time[:-1]
+    ).sw(output.shape.inner_time)
 
 
 @_LAYER_SUITE
@@ -1413,7 +1401,7 @@ def test_fine_tune_a_loaded_model_with_its_own_minimizers(tmp_path):
     prediction = Output("fine_tune_out", Fir(features=1, name="fine_tune_fir")(x.sw(3)))
     model = Modely("fine_tune", inputs=[x], outputs=[prediction])
     model.minimize(
-        "pretrain", source=prediction, target=Input("pretrain_target", dim=1).last()
+        "pretrain", source=prediction, target=Input("pretrain_target", dim=1)
     )
     model.build()
     model.train(
@@ -1436,7 +1424,7 @@ def test_fine_tune_a_loaded_model_with_its_own_minimizers(tmp_path):
     loaded.minimize(
         "fine_tune",
         source="fine_tune_out",
-        target=Input("fine_tune_target", dim=1).last(),
+        target=Input("fine_tune_target", dim=1),
     )
     loaded.build()
     np.testing.assert_allclose(
@@ -1474,15 +1462,15 @@ def test_save_load_odenet(tmp_path, method):
         outputs=[
             Output(
                 f"odenet_save_{method}_dx",
-                Linear(features=2, bias=False)(x.last()),
+                Linear(features=2, bias=False)(x),
             )
         ],
     ).build()
-    t = Input(f"odenet_save_{method}_t", dim=1)
+    t = Input(f"odenet_save_{method}_t", dim=1, seq=points)
     trajectory = OdeNet(
         f=field,
         states={x: f"odenet_save_{method}_dx"},
-        t=t.last(seq=points),
+        t=t,
         method=method,
         steps=2,
         name=f"odenet_save_{method}",
@@ -1516,18 +1504,18 @@ def test_save_load_odenet_with_event(tmp_path):
         "odenet_event_field",
         inputs=[position, velocity],
         outputs=[
-            Output("odenet_event_dp", velocity.last()),
-            Output("odenet_event_dv", 0.0 * position.last() - gravity),
-            Output("odenet_event_guard", position.last() - floor),
-            Output("odenet_event_p_plus", position.last()),
-            Output("odenet_event_v_plus", -1.0 * restitution * velocity.last()),
+            Output("odenet_event_dp", velocity),
+            Output("odenet_event_dv", 0.0 * position - gravity),
+            Output("odenet_event_guard", position - floor),
+            Output("odenet_event_p_plus", position),
+            Output("odenet_event_v_plus", -1.0 * restitution * velocity),
         ],
     ).build()
-    t = Input("odenet_event_t", dim=1)
+    t = Input("odenet_event_t", dim=1, seq=4)
     position_trajectory, velocity_trajectory = OdeNet(
         f=field,
         states={position: "odenet_event_dp", velocity: "odenet_event_dv"},
-        t=t.last(seq=4),
+        t=t,
         steps=20,
         event="odenet_event_guard",
         reset={position: "odenet_event_p_plus", velocity: "odenet_event_v_plus"},
@@ -1557,10 +1545,10 @@ def _minimized_model():
     target = Input("minimized_target", dim=1)
     prediction = Output("minimized_out", Fir(features=1, name="minimized_fir")(x.sw(3)))
     model = Modely("minimized", inputs=[x, target], outputs=[prediction])
-    model.minimize("minimized_fit", source=prediction, target=target.last())
+    model.minimize("minimized_fit", source=prediction, target=target)
     # A stream only a minimizer reads, computed by a weight of its own.
-    auxiliary = Linear(features=1, name="minimized_auxiliary")(x.last())
-    model.minimize("minimized_auxiliary_fit", source=auxiliary, target=target.last())
+    auxiliary = Linear(features=1, name="minimized_auxiliary")(x)
+    model.minimize("minimized_auxiliary_fit", source=auxiliary, target=target)
     return _randomize_trainable_weights(model.build())
 
 
@@ -1726,10 +1714,10 @@ def test_a_loop_closed_over_a_generated_layer_reloads_beside_its_original(tmp_pa
     s = Input("bare_s")
     gain = Parameter("bare_gain", value=[2.0])
     # A body output, unnamed.
-    bare = Fir(features=1, kernel=gain, bias=False)(s.last())
+    bare = Fir(features=1, kernel=gain, bias=False)(s)
     body = Modely("bare_body", inputs=[s], outputs=[bare]).build()
-    seed = Input("bare_seed")
-    loop = Loop(f=body, callback={s: bare}, collect=False, init={s: seed.last(seq=4)})()
+    seed = Input("bare_seed", seq=4)
+    loop = Loop(f=body, callback={s: bare}, collect=False, init={s: seed})()
     model = Modely(
         "bare_top", inputs=[seed], outputs=[Output("bare_out", loop)]
     ).build()
@@ -1816,7 +1804,7 @@ def test_a_linear_initializer_object_is_saved_as_its_config(tmp_path):
         kernel=keras.initializers.Constant(0.5),
         bias=keras.initializers.Constant(-1.0),
         name="initializer_linear",
-    )([x.last()])
+    )([x])
     model = Modely(
         "initializer", inputs=[x], outputs=[Output("initializer_out", linear)]
     ).build()
@@ -1941,19 +1929,15 @@ def _generalized_fuzzify_model():
             return x * x
 
     x = Input("general_fuzzy_x")
-    squares = Fuzzify([0.0, 1.0], function=Square, name="general_fuzzy_square")(
-        [x.last()]
-    )
+    squares = Fuzzify([0.0, 1.0], function=Square, name="general_fuzzy_square")([x])
     mixed = Fuzzify(
         [0.0, 0.5, 1.0],
         function=[Rectangular, Triangular, Gaussian],
         name="general_fuzzy_mixed",
-    )([x.last()])
-    waves = Fuzzify([0.0, 1.0], function=Sin, name="general_fuzzy_sin")([x.last()])
-    bell = Gaussian(center=0.2, sigma=0.3, name="general_bell")([x.last()])
-    leaning = Triangular(center=0.5, radius=(0.5, 1.0), name="general_leaning")(
-        [x.last()]
-    )
+    )([x])
+    waves = Fuzzify([0.0, 1.0], function=Sin, name="general_fuzzy_sin")([x])
+    bell = Gaussian(center=0.2, sigma=0.3, name="general_bell")([x])
+    leaning = Triangular(center=0.5, radius=(0.5, 1.0), name="general_leaning")([x])
     return Modely(
         "general_fuzzy",
         inputs=[x],
@@ -2038,7 +2022,7 @@ def test_fuzzify_sharing_a_keras_layer_saves_and_loads(tmp_path):
         outputs=[
             Output(
                 "scaled_fuzzy_out",
-                Fuzzify([0.0, 1.0, 2.0], function=scaled)([x.last()]),
+                Fuzzify([0.0, 1.0, 2.0], function=scaled)([x]),
             )
         ],
     ).build()
@@ -2062,10 +2046,10 @@ def _moving_centers_model():
         "moving",
         inputs=[x, u],
         outputs=[
-            Output("moving_triangles", Fuzzify(centers)([x.last()])),
-            Output("moving_bells", Fuzzify(centers, function=Gaussian)([x.last()])),
-            Output("moving_waves", Fuzzify(computed, function=Sin)([x.last()])),
-            Output("moving_listed", Fuzzify([0.0, middle, 1.0])([x.last()])),
+            Output("moving_triangles", Fuzzify(centers)([x])),
+            Output("moving_bells", Fuzzify(centers, function=Gaussian)([x])),
+            Output("moving_waves", Fuzzify(computed, function=Sin)([x])),
+            Output("moving_listed", Fuzzify([0.0, middle, 1.0])([x])),
         ],
     ).build()
     # As if trained: the centers moved from where they started.
@@ -2126,8 +2110,7 @@ def test_onnx_outputs_of_one_shape_keep_their_names(tmp_path):
         "same_shape",
         inputs=[x],
         outputs=[
-            Output(name, x.last() * float(index + 1))
-            for index, name in enumerate(names)
+            Output(name, x * float(index + 1)) for index, name in enumerate(names)
         ],
     ).build()
 
@@ -2190,17 +2173,17 @@ def test_a_parameter_read_by_several_models_loads_as_one(tmp_path):
     body = Modely(
         "one_body",
         inputs=[s],
-        outputs=[Output("one_next", s.last() * gain + fir(s.last()))],
+        outputs=[Output("one_next", s * gain + fir(s))],
     ).build()
-    a, c = Input("one_a"), Input("one_c")
-    loop = Loop(f=body, callback={s: "one_next"}, init={s: a.last(seq=3)})()
+    a, c = Input("one_a", seq=3), Input("one_c")
+    loop = Loop(f=body, callback={s: "one_next"}, init={s: a})()
     model = Modely(
         "one_model",
         inputs=[a, c],
         outputs=[
             Output("one_loop", loop),
-            Output("one_block", body([c.last()])),
-            Output("one_out", c.last() * gain + fir(c.last())),
+            Output("one_block", body([c])),
+            Output("one_out", c * gain + fir(c)),
         ],
     ).build()
     assert [p.name for p in model.parameters] == ["one_gain", "one_fir_kernel"]
@@ -2234,13 +2217,11 @@ def test_a_parameter_read_by_several_models_loads_as_one(tmp_path):
 
 def _keras_two_loops():
     s = Input("ks2_s")
-    nxt = Output("ks2_next", Linear(features=1, name="ks2_lin")(s.last()))
+    nxt = Output("ks2_next", Linear(features=1, name="ks2_lin")(s))
     body = Modely("ks2_body", inputs=[s], outputs=[nxt]).build()
-    a = Input("ks2_a")
-    rolled = Loop(f=body, callback={s: nxt}, collect=False, init={s: a.last(seq=3)})()
-    fixed = Loop(
-        f=body, callback={s: nxt}, collect=False, init={s: a.last()}, length=2
-    )()
+    a = Input("ks2_a", seq=3)
+    rolled = Loop(f=body, callback={s: nxt}, collect=False, init={s: a})()
+    fixed = Loop(f=body, callback={s: nxt}, collect=False, init={s: a}, length=2)()
     model = Modely(
         "ks2", inputs=[a], outputs=[Output("ks2_o1", rolled), Output("ks2_o2", fixed)]
     ).build()
@@ -2251,35 +2232,35 @@ def _keras_parameter_inside_and_outside():
     gain = Parameter("ksp_gain", value=1.5)
     s = Input("ksp_s")
     body = Modely(
-        "ksp_body", inputs=[s], outputs=[Output("ksp_next", s.last() * gain)]
+        "ksp_body", inputs=[s], outputs=[Output("ksp_next", s * gain)]
     ).build()
-    a = Input("ksp_a")
-    loop = Loop(f=body, callback={s: "ksp_next"}, init={s: a.last(seq=3)})()
+    a = Input("ksp_a", seq=3)
+    loop = Loop(f=body, callback={s: "ksp_next"}, init={s: a})()
     model = Modely(
         "ksp",
         inputs=[a],
-        outputs=[Output("ksp_loop", loop), Output("ksp_out", a.last() * gain)],
+        outputs=[Output("ksp_loop", loop), Output("ksp_out", a * gain)],
     ).build()
     return model, {"ksp_a": (2, 3, 1, 1)}
 
 
 def _keras_block_and_loop():
     s = Input("ksb_s")
-    nxt = Output("ksb_next", Linear(features=1, name="ksb_lin")(s.last()))
+    nxt = Output("ksb_next", Linear(features=1, name="ksb_lin")(s))
     body = Modely("ksb_body", inputs=[s], outputs=[nxt]).build()
-    a, c = Input("ksb_a"), Input("ksb_c")
-    loop = Loop(f=body, callback={s: nxt}, init={s: a.last(seq=3)})()
+    a, c = Input("ksb_a", seq=3), Input("ksb_c")
+    loop = Loop(f=body, callback={s: nxt}, init={s: a})()
     model = Modely(
         "ksb",
         inputs=[a, c],
-        outputs=[Output("ksb_loop", loop), Output("ksb_block", body([c.last()]))],
+        outputs=[Output("ksb_loop", loop), Output("ksb_block", body([c]))],
     ).build()
     return model, {"ksb_a": (2, 3, 1, 1), "ksb_c": (2, 1, 1)}
 
 
 def _keras_two_differentiate():
     x = Input("ksd_x")
-    relation = Linear(features=1, name="ksd_lin")(x.last()) ** 2
+    relation = Linear(features=1, name="ksd_lin")(x) ** 2
     model = Modely(
         "ksd",
         inputs=[x],
@@ -2295,25 +2276,25 @@ def _keras_loop_in_a_body():
     gain = Parameter("ksn_gain", value=0.9)
     si = Input("ksn_si")
     inner = Modely(
-        "ksn_inner", inputs=[si], outputs=[Output("ksn_inner_next", si.last() * gain)]
+        "ksn_inner", inputs=[si], outputs=[Output("ksn_inner_next", si * gain)]
     ).build()
     m = Input("ksn_m")
     inner_loop = Loop(
         f=inner,
         callback={si: "ksn_inner_next"},
         collect=False,
-        init={si: m.last()},
+        init={si: m},
         length=3,
     )()
     mid = Modely(
         "ksn_mid", inputs=[m], outputs=[Output("ksn_mid_out", inner_loop)]
     ).build()
     m0 = Input("ksn_m0")
-    outer = Loop(f=mid, callback={m: "ksn_mid_out"}, init={m: m0.last()}, length=2)()
+    outer = Loop(f=mid, callback={m: "ksn_mid_out"}, init={m: m0}, length=2)()
     model = Modely(
         "ksn",
         inputs=[m0],
-        outputs=[Output("ksn_out", outer), Output("ksn_direct", m0.last() * gain)],
+        outputs=[Output("ksn_out", outer), Output("ksn_direct", m0 * gain)],
     ).build()
     return model, {"ksn_m0": (2, 1, 1)}
 
@@ -2336,20 +2317,18 @@ def _keras_stateful_and_custom_body():
         outputs=[
             Output(
                 "ksk_next",
-                KerasFunction(scale)([BatchNorm()(s.last())]) + u.last(),
+                KerasFunction(scale)([BatchNorm()(s)]) + u,
             )
         ],
     ).build()
-    s0, us = Input("ksk_s0"), Input("ksk_us")
-    loop = Loop(f=body, callback={s: "ksk_next"}, init={s: s0.last()})(
-        {u: us.last(seq=4)}
-    )
+    s0, us = Input("ksk_s0"), Input("ksk_us", seq=4)
+    loop = Loop(f=body, callback={s: "ksk_next"}, init={s: s0})({u: us})
     model = Modely(
         "ksk",
         inputs=[s0, us],
         outputs=[
             Output("ksk_loop", loop),
-            Output("ksk_scaled", KerasFunction(scale)([s0.last()])),
+            Output("ksk_scaled", KerasFunction(scale)([s0])),
         ],
     ).build()
     return model, {"ksk_s0": (2, 1, 1), "ksk_us": (2, 4, 1, 1)}
@@ -2407,12 +2386,10 @@ def test_keras_export_follows_a_dynamic_rollout(tmp_path):
     body = Modely(
         "ksdyn_body",
         inputs=[s, u],
-        outputs=[Output("ksdyn_next", s.last() * 0.5 + u.last())],
+        outputs=[Output("ksdyn_next", s * 0.5 + u)],
     ).build()
-    s0, us = Input("ksdyn_s0"), Input("ksdyn_us")
-    loop = Loop(f=body, callback={s: "ksdyn_next"}, init={s: s0.last()})(
-        {u: us.last(seq=-1)}
-    )
+    s0, us = Input("ksdyn_s0"), Input("ksdyn_us", seq=-1)
+    loop = Loop(f=body, callback={s: "ksdyn_next"}, init={s: s0})({u: us})
     model = Modely(
         "ksdyn", inputs=[s0, us], outputs=[Output("ksdyn_out", loop)]
     ).build()
@@ -2431,3 +2408,48 @@ def test_keras_export_follows_a_dynamic_rollout(tmp_path):
             expected,
             rtol=1e-6,
         )
+
+
+def test_an_input_read_directly_and_through_a_window_round_trips(tmp_path):
+    ## Read directly x is its newest sample, whatever window the data holds
+    x = Input("rt_direct_x")
+    taps = Parameter("rt_direct_taps", value=[[1.0], [10.0], [100.0]])
+    filtered = Fir(features=1, kernel=taps, bias=False)([x.sw(3)])
+    model = Modely(
+        "rt_direct",
+        inputs=[x],
+        outputs=[Output("rt_direct_out", x * 2.0 + filtered)],
+    ).build()
+    data = {"rt_direct_x": np.array([[[1.0], [2.0], [3.0]]], dtype=np.float32)}
+    expected = [[[3.0 * 2.0 + 1.0 + 20.0 + 300.0]]]
+    np.testing.assert_allclose(to_numpy(model(data)["rt_direct_out"]), expected)
+
+    model.save(tmp_path / "saved")
+    loaded = Modely.load(tmp_path / "saved")
+    np.testing.assert_allclose(to_numpy(loaded(data)["rt_direct_out"]), expected)
+
+    model.export_keras(tmp_path, "rt_direct")
+    imported = Modely.import_keras(str(tmp_path / "rt_direct.keras"))
+    np.testing.assert_allclose(
+        to_numpy(imported(data)["rt_direct_out"]),  # type: ignore[index]
+        expected,
+    )
+
+
+def test_a_parameter_declared_by_its_sizes_round_trips(tmp_path):
+    ## Without time, its variable holds the value as declared, (2, 3)
+    x = Input("rt_sizes_x")
+    gain = Parameter("rt_sizes_gain", dim=(2, 3))
+    model = Modely(
+        "rt_sizes", inputs=[x], outputs=[Output("rt_sizes_out", x * gain)]
+    ).build()
+    assert gain.shape.dimensions == ((1,), (2, 3))
+    assert gain.param is not None and tuple(gain.param.shape) == (2, 3)
+
+    model.save(tmp_path / "saved")
+    loaded = Modely.load(tmp_path / "saved")
+    data = {"rt_sizes_x": np.full((2, 1, 1), 3.0, dtype=np.float32)}
+    np.testing.assert_allclose(
+        to_numpy(loaded(data)["rt_sizes_out"]),
+        to_numpy(model(data)["rt_sizes_out"]),
+    )

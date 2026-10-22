@@ -268,7 +268,7 @@ class Layer(Stream, metaclass=_LayerType):
     # Symbolic graph logic
     # ------------------------------------------------------------------
 
-    def __call__(self, inputs) -> Any:
+    def __call__(self, inputs: Any) -> Any:
         if not isinstance(inputs, (list, tuple)):
             inputs = [inputs]
 
@@ -335,7 +335,8 @@ class BinaryOpImpl(keras.layers.Layer):
     """An elementwise operation between streams of ``time_ranks`` time axes
     and ``dim_ranks`` dim axes.
 
-    An operand without time, or with fewer dim axes, gets the axes it misses
+    An operand of a single sample with fewer time axes, or with fewer dim
+    axes, gets the axes it misses
     where :func:`align` puts them, so it broadcasts along those, as
     :meth:`Shape.broadcast` declares. Aligned from the end instead, as
     broadcasting does by default, a dim axis could line up with a time axis.

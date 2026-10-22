@@ -35,7 +35,7 @@ variable, and trains, validates and exports through Keras. Models saved with
   arithmetic operators do.
 - A model used as a block keeps the shapes it was declared with: each stream
   it is called on must have the shape its graph reads that input with, and
-  another one is refused; an `Input` given whole is read through the block's
+  another one is refused; an `Input` given itself is read through the block's
   own windows.
 - A `Parameter` or `Constant` read by several models - Loop bodies, blocks,
   the outer model - is one object in the saved model too: loaded once,
@@ -142,31 +142,41 @@ variable, and trains, validates and exports through Keras. Models saved with
   `Constant` included: their value is repeated for every sample. The time
   axes come outermost first: the outer time, where a `Loop` rolls out (and
   where a collected rollout is added), then the inner time, the window of
-  samples, where windows, `Fir`, derivatives and integrals act. A stream may
-  have no time axis: a number, a `Parameter` without time, an `Input` read
-  whole. `Shape` holds `time` (a tuple) and `dim`; `shape.dimensions` is
-  `(time, dim)`. The arrays given to a model or built by `DataLoader` are
-  laid out the same, `(samples, *time, *dim)`.
-- The sequence of an `Input`, its outer time, is declared on its windows:
-  `x.sw(3, seq=5)`, `x.last(seq=(4, -1))` (outermost first, `-1` dynamic).
-  An input has one sequence, set once, by its first window: a later window
-  has it and gives no `seq`, which is an error even with the same value.
+  samples, where windows, `Fir`, derivatives and integrals act. Every
+  stream has at least one time axis: a number, a `Parameter` without time
+  and an `Input` read directly are one sample, `T=(1,)`. `Shape` holds `time`
+  (a tuple, never empty) and `dim`; `shape.dimensions` is `(time, dim)`. The
+  arrays given to a model or built by `DataLoader` are laid out the same,
+  `(samples, *time, *dim)`: an `Input` read only directly is
+  `(samples, *seq, 1, *dim)`.
+- The sequence of an `Input`, its outer time, is declared on the Input:
+  `Input("x", seq=5)`, `seq=(4, -1)` (outermost first, `-1` dynamic). Read
+  directly the Input is its current sample, time `(*seq, 1)`, and every
+  window of it keeps the sequence: `x.sw(3)` has time `(*seq, 3)`. There is
+  no `last()` (an Input read directly is its current sample) and windows
+  take no `seq`.
 - A window leaves its `Input` as it is: `build()` gives every Input the
-  union of the windows the model's graph reads, so a window declared but not
-  used widens nothing, and two models of one Input read their own windows;
-  the Input's `shape` reports it once built. An Input read both whole and
-  through windows is refused. `Differentiate(respect_to=x)` has the shape of
-  the window of `x` its relation reads.
-- Arithmetic between streams: streams with time must have the same time
-  axes, and one without time applies to every sample; dims must be equal,
-  or one a scalar; and one stream must already have the shape of the result,
-  so a matrix without time is not combined with the window of a scalar.
-  `Concatenate` repeats a stream without time along the time of the others.
-- A `Parameter` or `Constant` `value` is all dim by default, with no time
-  axis: an array of shape `(2, 3, 2)` is `D=(2, 3, 2)`. Given with a value,
-  `dim` and `time` name its axes, `time` one or several, outermost first
-  (`dim=0, time=(2, 1)` makes it `T=(2, 3), D=(2,)`); without one, they are
-  sizes. `.value` is laid out `(*time, *dim)`.
+  union of the windows the model's graph reads, a direct read counting as
+  one sample, so a window declared but not used widens nothing, and two
+  models of one Input read their own windows; the Input's `data_shape`
+  reports it once built, while its `shape` stays the current sample. An
+  Input can be read directly and through windows in one graph: read
+  directly, it is its newest sample. `Differentiate(respect_to=x)` has the
+  shape of the window of `x` its relation reads.
+- Arithmetic between streams: streams must have the same time axes, and a
+  single sample - every time axis of size 1 - applies to every sample of
+  another's time, padded with leading axes as numpy does; dims must be
+  equal, or one a scalar; and one stream must already have the shape of the
+  result, so a matrix of one sample is not combined with the window of a
+  scalar. `Concatenate` repeats a single sample along the time of the
+  others. `TimeSelect(keep_dim=False)` refuses to drop a stream's only time
+  axis.
+- A `Parameter` or `Constant` `value` is all dim by default, one sample of
+  its stream: an array of shape `(2, 3, 2)` is `T=(1,), D=(2, 3, 2)`, held
+  as given. Given with a value, `dim` and `time` name its axes, `time` one or
+  several, outermost first (`dim=0, time=(2, 1)` makes it `T=(2, 3), D=(2,)`);
+  without one, they are sizes. `.value` and the variable are laid out
+  `(*time, *dim)`, without a time axis when none is given.
 - `BatchNorm` normalizes along the first dim axis by default; `Softmax`,
   `PReLU` and `BatchNorm` take an explicit `axis` as a tensor axis, the batch
   as 0, as Keras does: a negative one counts from the last dim axis.
@@ -176,9 +186,9 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
   history, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
-- The `.nnodely` save format is version 3. Saves and `.keras` exports made
-  with the 2.0 pre-releases, laid out `(batch, *dim, time, *seq)`, do not
-  load.
+- The `.nnodely` save format is version 4. Saves and `.keras` exports made
+  with the 2.0 pre-releases, in which a stream could have no time axis or
+  was laid out `(batch, *dim, time, *seq)`, do not load.
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
 
@@ -194,7 +204,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `model.trainModel(...)` | `model.train(data, val_data=..., epochs=..., batch_size=..., lr=...)` |
 | `model.analyzeModel(...)`, performance reports | `model.validate(data)` |
 | `x.closedLoop(...)`, `x.connect(...)`, `prediction_samples=` | `model.rollback({input: stream}, steps=n)`, `Loop`, `Roll` |
-| `x.tw(seconds)` | `x.sw(samples)`; `x.last()` and `x.next()` for one sample |
+| `x.tw(seconds)` | `x.sw(samples)`; `x` itself, its current sample, and `x.next()` for one sample |
 | `saveModel` / `loadModel` | `model.save(path)` / `Modely.load(path)` |
 | `exportPythonModel`, `saveTorchModel` | `model.export_keras(path)` |
 | `exportONNX` / `onnxInference` | `model.export_onnx(path)` / `Modely.validate_onnx(file, inputs)` |

@@ -40,7 +40,7 @@ class DataLoader:
 
     - Temporal windows, the inner time, come from ``Input.sw()``. All inputs
       are aligned so that every window ends on the same sample.
-    - Sequence windows, the outer time axes, come from ``sw(..., seq=...)``:
+    - Sequence windows, the outer time axes, come from ``Input(..., seq=...)``:
       one sliding window per declared length, applied on top of the temporal
       windows. Only one length may be dynamic (``-1``), and ``seq_length``
       resolves it.
@@ -569,15 +569,11 @@ class DataLoader:
         width = past + future
         last = values.shape[0] - max_future  # one past the last aligned end sample
 
-        if width > 0:
-            # Window i covers values[i:i + width] and ends on sample i + past - 1,
-            # so the shared range of end samples selects the windows to keep.
-            windows = sliding_window_view(values, window_shape=width, axis=0)
-            windows = np.moveaxis(windows[first - past + 1 : last - past + 1], -1, 1)
-        else:
-            # No declared window: the input is read whole, one sample with no
-            # time axis.
-            windows = values[first:last]
+        # Window i covers values[i:i + width] and ends on sample i + past - 1,
+        # so the shared range of end samples selects the windows to keep. An
+        # Input read directly is a window of one sample.
+        windows = sliding_window_view(values, window_shape=width, axis=0)
+        windows = np.moveaxis(windows[first - past + 1 : last - past + 1], -1, 1)
 
         # Each sliding window appends its axis; moved right after the samples it
         # becomes the outermost time, so the innermost outer axis comes first.

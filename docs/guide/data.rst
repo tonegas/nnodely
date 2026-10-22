@@ -14,9 +14,9 @@ created.
 
    x = Input("x")
    u = Input("u", dim=2)
-   y = Output("y", Fir(features=1)([x.sw(3)]) + Fir(features=1)([u.last()]))
+   y = Output("y", Fir(features=1)([x.sw(3)]) + Fir(features=1)([u]))
    model = Modely("example", inputs=[x, u], outputs=[y])
-   model.minimize("fit", y, Input("y_target").last())
+   model.minimize("fit", y, Input("y_target"))
    model.build()
 
 Sources
@@ -98,15 +98,15 @@ indexed, iterated, and converted to the full arrays:
 Sequences
 ---------
 
-An input windowed with ``seq`` carries a trajectory of windows, its outer
+An input declared with ``seq`` carries a trajectory of windows, its outer
 time. The loader builds one sliding window per sequence length, on top of the
 time windows. Sequences are used by rollouts (see :doc:`recurrent`):
 
 .. code-block:: python
 
-   s = Input("s")
+   s = Input("s", seq=20)
    seq_model = Modely(
-       "sequence", inputs=[s], outputs=[Output("s_out", s.last(seq=20) * 2.0)]
+       "sequence", inputs=[s], outputs=[Output("s_out", s * 2.0)]
    )
    seq_model.build()
 
@@ -127,8 +127,8 @@ rolls out over whatever length it is given (see :doc:`recurrent`).
 
 .. code-block:: python
 
-   d = Input("d")
-   dyn_model = Modely("dynamic", inputs=[d], outputs=[Output("d_out", d.last(seq=-1))])
+   d = Input("d", seq=-1)
+   dyn_model = Modely("dynamic", inputs=[d], outputs=[Output("d_out", d)])
    dyn_model.build()
 
    fixed = DataLoader(dyn_model, source={"d": np.arange(100.0)}, seq_length=10)

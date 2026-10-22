@@ -141,7 +141,7 @@ class Triangular(_Membership):
     ``radius`` from it, and 0 beyond. ``radius`` is a number, or a
     ``(left, right)`` pair for a triangle leaning to one side::
 
-        Triangular(center=0.5, radius=0.5)([x.last()])   # 0 at 0 and at 1
+        Triangular(center=0.5, radius=0.5)([x])   # 0 at 0 and at 1
         Triangular(center=1.0, radius=(1.0, 2.0))         # from 0, up at 1, to 3
 
     In a :class:`Fuzzify`, each triangle reaches the centers next to it, so
@@ -182,7 +182,7 @@ class Rectangular(_Membership):
     elsewhere. ``radius`` is a number for both sides, or a ``(left, right)``
     pair::
 
-        Rectangular(center=0.5, radius=0.25)([x.last()])   # 1 on [0.25, 0.75)
+        Rectangular(center=0.5, radius=0.25)([x])   # 1 on [0.25, 0.75)
 
     In a :class:`Fuzzify`, each rectangle reaches halfway to the centers next
     to it, so between the centers exactly one set holds every value.
@@ -221,7 +221,7 @@ class Gaussian(_Membership):
     Gaussian membership: ``exp(-((x - center) / sigma)^2 / 2)``, 1 at
     ``center``::
 
-        Gaussian(center=0.5, sigma=0.1)([x.last()])
+        Gaussian(center=0.5, sigma=0.1)([x])
 
     In a :class:`Fuzzify`, ``sigma`` is a sixth of the span between the
     centers next to it, so three sigmas reach each of them.
@@ -363,13 +363,13 @@ class Fuzzify:
 
     ::
 
-        Fuzzify([0.0, 0.5, 1.0], function=Triangular)([x.last()])
-        Fuzzify([0.0, 0.5, 1.0], function=Sin)([x.last()])           # sin(x - c)
+        Fuzzify([0.0, 0.5, 1.0], function=Triangular)([x])
+        Fuzzify([0.0, 0.5, 1.0], function=Sin)([x])           # sin(x - c)
         Fuzzify([0.0, 0.5, 1.0], function=Gaussian(sigma=0.1))       # one instance, of x - c
         Fuzzify([0.0, 0.5, 1.0], function=[Rectangular, Triangular, Gaussian])
-        Fuzzify([0.0, 0.5, 1.0], function=MyKerasLayer)([x.last()])
-        Fuzzify(Parameter("c", value=[0.0, 0.5, 1.0]))([x.last()])  # trained
-        Fuzzify([0.0, Parameter("m", value=[0.5]), 1.0])([x.last()])
+        Fuzzify([0.0, 0.5, 1.0], function=MyKerasLayer)([x])
+        Fuzzify(Parameter("c", value=[0.0, 0.5, 1.0]))([x])  # trained
+        Fuzzify([0.0, Parameter("m", value=[0.5]), 1.0])([x])
 
     The result is a :class:`Concatenate` of the memberships, named after the
     Fuzzify; calling one Fuzzify again reuses the layers it made.
@@ -536,9 +536,9 @@ def _centers(centers, owner: str) -> list[float] | Stream:
 
 
 def _one_step(stream: Stream) -> bool:
-    """Whether a stream holds one step of inner time, or no time at all; its
-    outer time, if any, must be the signal's."""
-    return not stream.shape.time or stream.shape.time[-1] == 1
+    """Whether a stream holds one step of inner time; its outer time, if any,
+    must be the signal's."""
+    return stream.shape.inner_time == 1
 
 
 def _membership_function(function):

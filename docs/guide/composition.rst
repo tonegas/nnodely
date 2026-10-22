@@ -29,7 +29,7 @@ must have the shape the block's graph reads that input with - here a window
 of 10 samples of one feature - and another shape is refused rather than
 reshaped, so a rollout is not slipped into a block that reads one sample. A
 dynamic sequence matches any length. An :class:`~nnodely.Input` can also be
-given whole, ``smoother([raw])``: the block's own windows then read it, so it
+given itself, ``smoother([raw])``: the block's own windows then read it, so it
 needs the block's dim and sequence.
 
 Weights

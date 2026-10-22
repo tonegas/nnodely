@@ -93,8 +93,9 @@ def _find_input(node, name: str):
 
 def _window_read(node, name: str):
     """The window ``node`` reads from the Input named ``name``: the union
-    ``(past, future)`` of the windows of it among ``node``'s ancestors, and
-    that Input; ``(0, 0, None)`` when it reads none."""
+    ``(past, future)`` of the windows of it among ``node``'s ancestors - a
+    direct read is the current sample - and that Input; ``(0, 0, None)``
+    when it reads none."""
     past = future = 0
     source = None
     seen: set[int] = set()
@@ -105,13 +106,15 @@ def _window_read(node, name: str):
             continue
         seen.add(id(current))
         preds = getattr(current, "preds", None) or []
-        if (
-            isinstance(current, SampleWindow)
-            and isinstance(preds[0], Input)
-            and preds[0].name == name
-        ):
-            past, future = max(past, current.past), max(future, current.future)
-            source = preds[0]
+        for pred in preds:
+            if isinstance(pred, Input) and pred.name == name:
+                read = (
+                    (current.past, current.future)
+                    if isinstance(current, SampleWindow)
+                    else (1, 0)
+                )
+                past, future = max(past, read[0]), max(future, read[1])
+                source = pred
         stack.extend(preds)
     return past, future, source
 
@@ -301,7 +304,7 @@ class TimeDerivativeImpl(keras.layers.Layer):
         # One sample of zeros shaped like the window's first: it both stands
         # in for a missing initial condition and gives a given one the axes it
         # may be broadcasting over - a scalar initial condition carries no dim
-        # size, and one may leave out the outer time axes, or have no time.
+        # size, and one may leave out the outer time axes.
         reference = keras.ops.zeros_like(slice_axis(x, time_axis, slice(0, 1)))
         if init is None:
             history = reference
@@ -415,10 +418,8 @@ class Differentiate(Layer):
         # of the relation: one derivative per sample of the window of the
         # Input the relation reads - known here, whatever else reads it.
         past, future, _ = _window_read(function, self.wrt_name)
-        if past + future == 0:
-            return self.respect_to.shape
         return self.respect_to.shape.replace(
-            time=(*self.respect_to.sequence, past + future)
+            time=(*self.respect_to.sequence, max(past + future, 1))
         )
 
     # ------------------------------------------------------------------

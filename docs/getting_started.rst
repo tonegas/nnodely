@@ -88,7 +88,7 @@ every 50 samples. In a real application these arrays come from measurements.
 
 **The model.** An :class:`~nnodely.Input` is a signal the model reads. Its
 methods select the samples a relation uses: ``x.sw(5)`` is a window of the last
-five samples of ``x``, and ``F.last()`` is the current sample of ``F``.
+five samples of ``x``, and ``F`` read directly is its current sample.
 
 .. code-block:: python
 
@@ -98,7 +98,7 @@ five samples of ``x``, and ``F.last()`` is the current sample of ``F``.
 
    x = Input("x")
    F = Input("F")
-   x_next = Fir(features=1)([x.sw(5)]) + Fir(features=1)([F.last()])
+   x_next = Fir(features=1)([x.sw(5)]) + Fir(features=1)([F])
    x_next_est = Output("x_next_est", x_next)
 
    model = Modely("mass_spring_damper", inputs=[x, F], outputs=[x_next_est])

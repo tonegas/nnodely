@@ -55,7 +55,7 @@ def test_layer_reuse_shares_weights():
     # two applications are separate graph nodes that carry the same name.
     x = Input("reuse_x", dim=1)
     linear = Linear(features=1, kernel="ones", bias=False)
-    first, second = linear(x.last()), linear(x.last() * 2.0)
+    first, second = linear(x), linear(x * 2.0)
     model = Modely(
         "reuse", inputs=[x], outputs=[Output("reuse_out", first + second)]
     ).build()
@@ -77,12 +77,12 @@ def test_model_called_twice_keeps_calls_independent():
     # The body doubles its input, so the two calls have to disagree.
     u = Input("twice_u", dim=1)
     body = Modely(
-        "twice_body", inputs=[u], outputs=[Output("twice_doubled", u.last() * 2.0)]
+        "twice_body", inputs=[u], outputs=[Output("twice_doubled", u * 2.0)]
     ).build()
 
     x = Input("twice_x", dim=1)
-    first = body([x.last()])  # 2 * 1 = 2
-    second = body([x.last() + 1.0])  # 2 * (1 + 1) = 4
+    first = body([x])  # 2 * 1 = 2
+    second = body([x + 1.0])  # 2 * (1 + 1) = 4
     model = Modely(
         "twice_caller", inputs=[x], outputs=[Output("twice_out", first + second)]
     ).build()
@@ -100,14 +100,14 @@ def test_model_called_twice_shares_weights():
     # Each call inlines its own copy of the body, and those copies carry the
     # body's layer names, so one set of weights has to serve every call.
     u = Input("shared_u", dim=1)
-    scaled = Linear(features=1, kernel="ones", bias=False)(u.last())
+    scaled = Linear(features=1, kernel="ones", bias=False)(u)
     body = Modely(
         "shared_body", inputs=[u], outputs=[Output("shared_scaled", scaled)]
     ).build()
 
     x = Input("shared_x", dim=1)
-    first = body([x.last()])
-    second = body([x.last() * 2.0])
+    first = body([x])
+    second = body([x * 2.0])
     model = Modely(
         "shared_caller", inputs=[x], outputs=[Output("shared_out", first + second)]
     ).build()
@@ -136,19 +136,19 @@ def test_nested_model_called_twice():
     inner = Modely(
         "nested_inner",
         inputs=[v],
-        outputs=[Output("nested_inner_out", gain * v.last())],
+        outputs=[Output("nested_inner_out", gain * v)],
     ).build()
 
     w = Input("nested_w", dim=1)
     outer = Modely(
         "nested_outer",
         inputs=[w],
-        outputs=[Output("nested_outer_out", inner([w.last()]) + 1.0)],
+        outputs=[Output("nested_outer_out", inner([w]) + 1.0)],
     ).build()
 
     x = Input("nested_x", dim=1)
-    first = outer([x.last()])
-    second = outer([x.last() + 1.0])
+    first = outer([x])
+    second = outer([x + 1.0])
     model = Modely(
         "nested_caller", inputs=[x], outputs=[Output("nested_out", first + second)]
     ).build()
@@ -167,12 +167,12 @@ def test_model_called_twice_rejects_colliding_output_names():
     # them directly must fail loudly instead of dropping one.
     u = Input("collide_u", dim=1)
     body = Modely(
-        "collide_body", inputs=[u], outputs=[Output("collide_out", u.last() * 2.0)]
+        "collide_body", inputs=[u], outputs=[Output("collide_out", u * 2.0)]
     ).build()
 
     x = Input("collide_x", dim=1)
-    first = body([x.last()])
-    second = body([x.last() + 1.0])
+    first = body([x])
+    second = body([x + 1.0])
     with pytest.raises(ValueError, match="two different outputs named"):
         Modely("collide_caller", inputs=[x], outputs=[first, second]).build()
 
@@ -282,13 +282,13 @@ def test_training_a_composed_model_trains_the_block():
     block's own weights, and the block evaluates with them afterwards."""
     u = Input("train_u", dim=1)
     gain = Parameter("train_gain", value=[0.5])
-    body_fir = Fir(features=1, kernel=gain, bias=False)([u.last()])
+    body_fir = Fir(features=1, kernel=gain, bias=False)([u])
     body = Modely(
         "train_body", inputs=[u], outputs=[Output("train_out", body_fir)]
     ).build()
 
     z = Input("train_z", dim=1)
-    composed_out = Output("composed_out", body([z.last()]))
+    composed_out = Output("composed_out", body([z]))
     composed = Modely("train_composed", inputs=[z], outputs=[composed_out])
     composed.minimize("error", source=composed_out, target=3.0, loss="mse")
     composed.build()
@@ -318,12 +318,12 @@ def test_composition_shares_parameters_and_constants():
     body = Modely(
         "pc_body",
         inputs=[u],
-        outputs=[Output("pc_out", u.last() * gain + offset)],
+        outputs=[Output("pc_out", u * gain + offset)],
     ).build()
 
     z = Input("pc_z", dim=1)
     composed = Modely(
-        "pc_composed", inputs=[z], outputs=[Output("o", body([z.last()]))]
+        "pc_composed", inputs=[z], outputs=[Output("o", body([z]))]
     ).build()
 
     np.testing.assert_allclose(
@@ -349,15 +349,13 @@ def test_composition_rebuilds_layers_that_read_their_predecessor():
     reads the last sample of the stream it is called with - which has the
     shape the block reads, a wider window being refused."""
     u = Input("ctx_u", dim=1)
-    body = Modely(
-        "ctx_body", inputs=[u], outputs=[Output("ctx_out", u.last() * 1.0)]
-    ).build()
+    body = Modely("ctx_body", inputs=[u], outputs=[Output("ctx_out", u * 1.0)]).build()
 
     w = Input("ctx_w", dim=1)
     with pytest.raises(ValueError, match="takes a stream of that shape"):
         body([w.sw(3)])
     composed = Modely(
-        "ctx_composed", inputs=[w], outputs=[Output("o", body([w.last()]))]
+        "ctx_composed", inputs=[w], outputs=[Output("o", body([w]))]
     ).build()
 
     values = np.array([[[10.0]], [[30.0]]], dtype=np.float32)
@@ -373,7 +371,7 @@ def test_rebuilding_a_model_keeps_its_weights():
     """build() is idempotent for the values: a second build reuses the layers
     it already made instead of re-initializing them."""
     u = Input("rebuild_u", dim=1)
-    fir = Fir(features=1, bias=False)([u.last()])
+    fir = Fir(features=1, bias=False)([u])
     model = Modely("rebuild_model", inputs=[u], outputs=[Output("o", fir)]).build()
     fir.kernel.assign(np.full((1, 1), 7.0, dtype=np.float32))
 
@@ -392,14 +390,14 @@ def test_composition_rejects_a_block_whose_input_shape_changes():
     the block's graph: a block called with an input of a different shape
     cannot use them - and its own weights are left alone."""
     u = Input("fit_u", dim=1)
-    body_fir = Fir(features=1, bias=False)([u.last()])
+    body_fir = Fir(features=1, bias=False)([u])
     body = Modely("fit_body", inputs=[u], outputs=[Output("fit_out", body_fir)]).build()
     body_fir.kernel.assign(np.full((1, 1), 5.0, dtype=np.float32))
 
     # Three features where the block was built for one: the call is refused.
     wide = Input("fit_wide", dim=3)
     with pytest.raises(ValueError, match="takes a stream of that shape"):
-        body([wide.last()])
+        body([wide])
 
     # The block still evaluates with the weights it had.
     np.testing.assert_allclose(
@@ -414,7 +412,7 @@ def test_a_model_used_as_a_block_takes_one_stream_per_input():
     a = Input("block_a")
     b = Input("block_b")
     body = Modely(
-        "two_inputs", inputs=[a, b], outputs=[Output("block_sum", a.last() + b.last())]
+        "two_inputs", inputs=[a, b], outputs=[Output("block_sum", a + b)]
     ).build()
     x = Input("block_x")
     y = Input("block_y")
@@ -423,16 +421,16 @@ def test_a_model_used_as_a_block_takes_one_stream_per_input():
     # One stream short: b was once promoted to an input of the outer graph,
     # and a stream too many was dropped without a word.
     with pytest.raises(ValueError, match="2 inputs"):
-        body([x.last()])
+        body([x])
     with pytest.raises(ValueError, match="2 inputs"):
-        body([x.last(), y.last(), z.last()])
+        body([x, y, z])
     with pytest.raises(TypeError, match="list of streams"):
-        body(x.last())
+        body(x)
 
     outer = Modely(
         "uses_block",
         inputs=[x, y],
-        outputs=[Output("outer_sum", body([x.last(), 10.0 * y.last()]))],
+        outputs=[Output("outer_sum", body([x, 10.0 * y]))],
     ).build()
     result = outer(
         {
@@ -477,18 +475,18 @@ def test_layers_created_apart_have_their_own_weights_whatever_their_names():
 def test_a_block_takes_the_shapes_it_was_declared_with():
     x = Input("shaped_x")
     body = Modely(
-        "shaped_body", inputs=[x], outputs=[Output("shaped_out", x.last() * 2.0)]
+        "shaped_body", inputs=[x], outputs=[Output("shaped_out", x * 2.0)]
     ).build()
 
     # A rollout of 3 steps where the block reads one sample was declared as
     # one sample and computed on three; now it is refused, as is a stream of
     # another window or dim.
     with pytest.raises(ValueError, match="takes a stream of that shape"):
-        body([Input("shaped_a").last(seq=3)])
+        body([Input("shaped_a", seq=3)])
     with pytest.raises(ValueError, match="takes a stream of that shape"):
         body([Input("shaped_b").sw(2)])
     with pytest.raises(ValueError, match="takes a stream of that shape"):
-        body([Input("shaped_wide", dim=2).last()])
+        body([Input("shaped_wide", dim=2)])
 
     # An Input given whole is read through the block's own window.
     c = Input("shaped_c")
@@ -501,12 +499,36 @@ def test_a_block_takes_the_shapes_it_was_declared_with():
 
     # A block on a dynamic sequence takes one of any length; an Input given
     # whole needs that sequence.
-    s = Input("shaped_s")
+    s = Input("shaped_s", seq=-1)
     seq_body = Modely(
         "shaped_seq_body",
         inputs=[s],
-        outputs=[Output("shaped_seq_out", s.last(seq=-1) * 2.0)],
+        outputs=[Output("shaped_seq_out", s * 2.0)],
     ).build()
-    assert seq_body([Input("shaped_d").last(seq=5)]).shape.time == (None, 1)
+    assert seq_body([Input("shaped_d", seq=5)]).shape.time == (None, 1)
     with pytest.raises(ValueError, match="sequence"):
         seq_body([Input("shaped_e")])
+
+
+def test_a_block_reads_the_newest_sample_of_a_wider_stream_it_is_bound_to():
+    ## The block reads x directly and through a window of 3. Bound to a
+    ## computed window of 3, its direct read is the newest sample of it
+    x = Input("newest_x")
+    taps = Parameter("newest_taps", value=[[1.0], [1.0], [1.0]])
+    window_sum = Fir(features=1, kernel=taps, bias=False)([x.sw(3)])
+    body = Modely(
+        "newest_body", inputs=[x], outputs=[Output("newest_out", x * 10.0 + window_sum)]
+    ).build()
+
+    u = Input("newest_u")
+    outer = Modely(
+        "newest_outer",
+        inputs=[u],
+        outputs=[Output("newest_result", body([u.sw(3) * 1.0]))],
+    ).build()
+
+    values = np.array([[[1.0], [2.0], [3.0]]], dtype=np.float32)
+    ## 3 * 10, the newest sample, plus 1 + 2 + 3, the window
+    np.testing.assert_allclose(
+        to_numpy(outer({"newest_u": values})["newest_result"]), [[[36.0]]]
+    )

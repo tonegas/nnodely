@@ -128,7 +128,7 @@ def test_visualize_roll(tmp_path):
 def test_visualize_model_roll(tmp_path):
     x = Input("closed_x")
     feedback = Fir(features=1, bias=False, name="closed_fir")(x.sw(5))
-    output = Output("closed_out", feedback + x.last())
+    output = Output("closed_out", feedback + x)
     model = Modely("closed_model", inputs=[x], outputs=[output])
     model.rollback({x: feedback}, steps=3)
     model.build()
@@ -183,11 +183,11 @@ def test_export_html_accepts_a_file_path(tmp_path):
 
 def test_export_html_describes_the_loop_boundary(tmp_path):
     seed_input = Input("in1")
-    body_output = Output("body_out", Linear(features=1)(seed_input.last()))
+    body_output = Output("body_out", Linear(features=1)(seed_input))
     body = Modely("loop_body", inputs=[seed_input], outputs=[body_output]).build()
 
-    seed = Input("in1_seq")
-    seed_window = seed.last(seq=5)
+    seed = Input("in1_seq", seq=5)
+    seed_window = seed
     loop = Loop(
         f=body,
         callback={seed_input: body_output},
@@ -195,7 +195,7 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
         init={seed_input: seed_window},
     )()
     model = Modely("loop_model", inputs=[seed], outputs=[Output("out1", loop)])
-    target = Input("target").last(seq=5)
+    target = Input("target", seq=5)
     model.minimize("err", source=model.outputs[0], target=target)
     model.build()
 
@@ -221,15 +221,15 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
 def test_export_html_layout_survives_feedback_cycles(tmp_path):
     seed_input = Input("in1")
     # Without weights: their Parameters would branch off the chain.
-    body_output = Output("body_out", Sin(seed_input.last()))
+    body_output = Output("body_out", Sin(seed_input))
     body = Modely("cyc_body", inputs=[seed_input], outputs=[body_output]).build()
 
-    seed = Input("in1_seq")
+    seed = Input("in1_seq", seq=5)
     loop = Loop(
         f=body,
         callback={seed_input: body_output},
         name="cyc_block",
-        init={seed_input: seed.last(seq=5)},
+        init={seed_input: seed},
     )()
     model = Modely("cyc_model", inputs=[seed], outputs=[Output("out1", loop)])
     model.build()
@@ -273,11 +273,11 @@ def _assert_no_dangling(page):
 
 def test_flattened_page_inlines_a_loop_body(tmp_path):
     seed_input = Input("in1")
-    body_output = Output("body_out", Linear(features=1)(seed_input.last()))
+    body_output = Output("body_out", Linear(features=1)(seed_input))
     body = Modely("inline_body", inputs=[seed_input], outputs=[body_output]).build()
 
-    seed = Input("in1_seq")
-    seed_window = seed.last(seq=4)
+    seed = Input("in1_seq", seq=4)
+    seed_window = seed
     loop = Loop(
         f=body,
         callback={seed_input: body_output},
@@ -336,7 +336,7 @@ def _minimized_plot_model(name):
     y = Input(f"{name}_y", dim=1)
     out = Output(f"{name}_out", Fir(features=1)([x.sw(3)]))
     model = Modely(name, inputs=[x, y], outputs=[out])
-    model.minimize(f"{name}_fit", out, y.last())
+    model.minimize(f"{name}_fit", out, y)
     return model.build()
 
 
@@ -466,12 +466,12 @@ def _nested_models():
 
 def _looped_model():
     state, force = Input("loop_state"), Input("loop_force")
-    nxt = Output("loop_next", Linear(bias=False)(state.last()) + force.last())
+    nxt = Output("loop_next", Linear(bias=False)(state) + force)
     body = Modely("step_body", inputs=[state, force], outputs=[nxt]).build()
-    seed, forces = Input("loop_seed"), Input("loop_forces")
+    seed, forces = Input("loop_seed"), Input("loop_forces", seq=-1)
     trajectory = Loop(
-        f=body, callback={state: nxt}, name="sim_loop", init={state: seed.last()}
-    )({force: forces.last(seq=-1)})
+        f=body, callback={state: nxt}, name="sim_loop", init={state: seed}
+    )({force: forces})
     return Modely(
         "simulator", inputs=[seed, forces], outputs=[Output("loop_traj", trajectory)]
     ).build()
@@ -504,13 +504,13 @@ def test_plot_draws_every_nested_body_in_an_image_of_its_own(tmp_path, monkeypat
 def test_plot_draws_a_body_called_twice_once(tmp_path, monkeypatch):
     x = Input("twice_x")
     body = Modely(
-        "twice_body", inputs=[x], outputs=[Output("twice_out", Sin(x.last()))]
+        "twice_body", inputs=[x], outputs=[Output("twice_out", Sin(x))]
     ).build()
     y = Input("twice_y")
     model = Modely(
         "twice",
         inputs=[y],
-        outputs=[Output("twice_sum", body([y.last()]) + body([y.last()]))],
+        outputs=[Output("twice_sum", body([y]) + body([y]))],
     ).build()
 
     sources = _dot_sources(model, tmp_path, monkeypatch)
@@ -568,9 +568,7 @@ def test_plot_draws_roll_and_rollback_recurrences(tmp_path, monkeypatch):
     ).build()
     x = Input("closed_x")
     fir = Fir(features=1, bias=False, name="closed_fir")(x.sw(5))
-    closed = Modely(
-        "closed", inputs=[x], outputs=[Output("closed_out", fir + x.last())]
-    )
+    closed = Modely("closed", inputs=[x], outputs=[Output("closed_out", fir + x)])
     closed.rollback({x: fir}, steps=3)
     closed.build()
 
@@ -587,11 +585,11 @@ def test_plot_draws_roll_and_rollback_recurrences(tmp_path, monkeypatch):
 def test_plot_writes_the_shape_on_the_arrows_and_only_the_name_on_the_cards(
     tmp_path, monkeypatch
 ):
-    acc = Input("dyn_acc")
+    acc = Input("dyn_acc", seq=-1)
     model = Modely(
         "dynamic",
         inputs=[acc],
-        outputs=[Output("dyn_vel", Integrate(dt=0.1)(acc.last(seq=-1)))],
+        outputs=[Output("dyn_vel", Integrate(dt=0.1)(acc))],
     ).build()
 
     root = _dot_sources(model, tmp_path, monkeypatch)["dynamic"]

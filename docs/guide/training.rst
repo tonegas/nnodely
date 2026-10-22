@@ -20,7 +20,7 @@ The examples on this page use a small first-order system, :math:`y[t+1] =
 
    y = Input("y")
    u = Input("u")
-   y_next = Output("y_next", Fir(features=1)([y.last()]) + Fir(features=1)([u.last()]))
+   y_next = Output("y_next", Fir(features=1)([y]) + Fir(features=1)([u]))
    model = Modely("first_order", inputs=[y, u], outputs=[y_next])
 
 Objectives
@@ -39,7 +39,7 @@ The **target** is one of:
 
 - a window of an input, read from the data: here ``y.next()``, the sample after
   the current one. An input may be read by the model and be a target at once, or
-  be declared only as a target, such as ``Input("y_measured").last()``;
+  be declared only as a target, such as ``Input("y_measured")``;
 - a number, which is compared with every sample of the source;
 - nothing: ``minimize(name, residual)`` drives ``residual`` to zero, which is
   how physical constraints are imposed (see :doc:`physics`).

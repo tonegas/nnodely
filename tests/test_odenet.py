@@ -37,7 +37,7 @@ def _analytic(times):
 def _spiral_field(name):
     x = Input(f"x_{name}", dim=2)
     A = Parameter(f"A_{name}", value=TRUE_A)
-    relation = Linear(features=2, kernel=A, bias=False)(x.last())
+    relation = Linear(features=2, kernel=A, bias=False)(x)
     field = Modely(
         f"field_{name}", inputs=[x], outputs=[Output(f"dx_{name}", relation)]
     ).build()
@@ -46,12 +46,10 @@ def _spiral_field(name):
 
 def _spiral_model(name, points, **kwargs):
     x, field = _spiral_field(name)
-    t = Input(f"t_{name}", dim=1)
+    t = Input(f"t_{name}", dim=1, seq=points)
     # The helper builds the adaptive solver; the fixed-step tests override it.
     kwargs.setdefault("method", "dopri5")
-    trajectory = OdeNet(
-        f=field, states={x: f"dx_{name}"}, t=t.last(seq=points), **kwargs
-    )
+    trajectory = OdeNet(f=field, states={x: f"dx_{name}"}, t=t, **kwargs)
     model = Modely(
         f"odenet_{name}", inputs=[x, t], outputs=[Output(f"y_{name}", trajectory)]
     ).build()
@@ -131,13 +129,13 @@ def test_odenet_beats_coarse_fixed_step():
     field = Modely(
         "rotation_cmp",
         inputs=[p, q],
-        outputs=[Output("dp_cmp", q.last()), Output("dq_cmp", -1.0 * p.last())],
+        outputs=[Output("dp_cmp", q), Output("dq_cmp", -1.0 * p)],
     ).build()
-    t = Input("t_cmp", dim=1)
+    t = Input("t_cmp", dim=1, seq=2)
     p_traj, q_traj = OdeNet(
         f=field,
         states={p: "dp_cmp", q: "dq_cmp"},
-        t=t.last(seq=2),
+        t=t,
         method="dopri5",
         rtol=1e-7,
         atol=1e-9,
@@ -166,7 +164,7 @@ def test_odenet_beats_coarse_fixed_step():
     # Same field, ten fixed RK4 steps of 1.0s.
     p_fixed = Input("p_fix", dim=1)
     q_fixed = Input("q_fix", dim=1)
-    states = [p_fixed.last(), q_fixed.last()]
+    states = [p_fixed, q_fixed]
     for _ in range(steps):
         states = Ode(_rotation_field(), states, horizon / steps, method="rk4")
     fixed = Modely(
@@ -198,15 +196,15 @@ def test_odenet_multi_state():
     field = Modely(
         "rotation",
         inputs=[p, q],
-        outputs=[Output("dp", q.last()), Output("dq", -1.0 * p.last())],
+        outputs=[Output("dp", q), Output("dq", -1.0 * p)],
     ).build()
 
     points = 4
-    t = Input("t_multi", dim=1)
+    t = Input("t_multi", dim=1, seq=points)
     p_traj, q_traj = OdeNet(
         f=field,
         states={p: "dp", q: "dq"},
-        t=t.last(seq=points),
+        t=t,
         method="dopri5",
         rtol=1e-7,
         atol=1e-9,
@@ -239,18 +237,18 @@ def test_odenet_rejects_driver_inputs():
     field = Modely(
         "driven",
         inputs=[x, u],
-        outputs=[Output("dx_driver", x.last() + u.last())],
+        outputs=[Output("dx_driver", x + u)],
     ).build()
-    t = Input("t_driver", dim=1)
+    t = Input("t_driver", dim=1, seq=3)
     with pytest.raises(ValueError, match="autonomous field"):
-        OdeNet(f=field, states={x: "dx_driver"}, t=t.last(seq=3))
+        OdeNet(f=field, states={x: "dx_driver"}, t=t)
 
 
 def test_odenet_requires_static_time_count():
     x, field = _spiral_field("dynamic")
-    t = Input("t_dynamic", dim=1)
+    t = Input("t_dynamic", dim=1, seq=-1)
     with pytest.raises(ValueError, match="at least two reported times"):
-        OdeNet(f=field, states={x: "dx_dynamic"}, t=t.last(seq=-1))
+        OdeNet(f=field, states={x: "dx_dynamic"}, t=t)
 
 
 @pytest.mark.slow
@@ -308,18 +306,18 @@ def test_odenet_trained_field_matches_analytic_solution(tmp_path):
     field, _ = _linear_field("fit", dict.fromkeys(("a11", "a12", "a21", "a22"), 0.0))
     p = Input("p_fit", dim=1)
     q = Input("q_fit", dim=1)
-    derivatives = field(p.last(), q.last())
+    derivatives = field(p, q)
     body = Modely(
         "fit_field",
         inputs=[p, q],
         outputs=[Output("dp_fit", derivatives[0]), Output("dq_fit", derivatives[1])],
     ).build()
 
-    t = Input("t_fit", dim=1)
+    t = Input("t_fit", dim=1, seq=points)
     p_traj, q_traj = OdeNet(
         f=body,
         states={p: "dp_fit", q: "dq_fit"},
-        t=t.last(seq=points),
+        t=t,
         method="rk4",
         steps=1,
         rtol=1e-7,
@@ -333,13 +331,13 @@ def test_odenet_trained_field_matches_analytic_solution(tmp_path):
     trainer.minimize(
         "err_p",
         source=predicted_p,
-        target=Input("p_fit_target", dim=1).last(seq=points),
+        target=Input("p_fit_target", dim=1, seq=points),
         loss="mse",
     )
     trainer.minimize(
         "err_q",
         source=predicted_q,
-        target=Input("q_fit_target", dim=1).last(seq=points),
+        target=Input("q_fit_target", dim=1, seq=points),
         loss="mse",
     )
     trainer.build()
@@ -489,13 +487,13 @@ def test_unpacking_an_odenet_leaves_its_own_stream_alone():
     field = Modely(
         "unpack_field",
         inputs=[p, v],
-        outputs=[Output("unpack_dp", v.last()), Output("unpack_dv", -1.0 * p.last())],
+        outputs=[Output("unpack_dp", v), Output("unpack_dv", -1.0 * p)],
     ).build()
-    t = Input("unpack_t", dim=1)
+    t = Input("unpack_t", dim=1, seq=3)
     odenet = OdeNet(
         f=field,
         states={p: "unpack_dp", v: "unpack_dv"},
-        t=t.last(seq=3),
+        t=t,
         method="rk4",
         steps=20,
     )
@@ -527,9 +525,9 @@ def test_unpacking_an_odenet_leaves_its_own_stream_alone():
 
 def test_odenet_rejects_unknown_method():
     x, field = _spiral_field("badmethod")
-    t = Input("t_badmethod", dim=1)
+    t = Input("t_badmethod", dim=1, seq=3)
     with pytest.raises(ValueError, match="is not available"):
-        OdeNet(f=field, states={x: "dx_badmethod"}, t=t.last(seq=3), method="dopri8")
+        OdeNet(f=field, states={x: "dx_badmethod"}, t=t, method="dopri8")
 
 
 @pytest.mark.slow
@@ -541,7 +539,7 @@ def test_odenet_trains_a_field_holding_a_shared_layer():
     reference = _analytic(sample_times)
 
     x = Input("x_shared", dim=2)
-    relation = Linear(features=2, bias=False)(x.last())
+    relation = Linear(features=2, bias=False)(x)
     field = Modely(
         "field_shared", inputs=[x], outputs=[Output("dx_shared", relation)]
     ).build()
@@ -554,10 +552,10 @@ def test_odenet_trains_a_field_holding_a_shared_layer():
         f=field, states={x: "dx_shared"}, t=t, method="rk4", steps=1, name="shared_ode"
     )
     predicted = Output("x_shared_pred", trajectory)
-    target = Input("x_shared_target", dim=2)
+    target = Input("x_shared_target", dim=2, seq=2)
 
     trainer = Modely("odenet_train", inputs=[x, target], outputs=[predicted])
-    trainer.minimize("err", source=predicted, target=target.last(seq=2), loss="mse")
+    trainer.minimize("err", source=predicted, target=target, loss="mse")
     trainer.build()
 
     # The loader reads a seq-less input at the end of the window it aligns with,
@@ -638,12 +636,12 @@ def _ball_field(name, gravity=GRAVITY, floor=FLOOR, restitution=RESTITUTION):
         f"ball_{name}",
         inputs=[position, velocity],
         outputs=[
-            Output(f"dp_{name}", velocity.last()),
+            Output(f"dp_{name}", velocity),
             # The state carries the batch axis the parameter alone does not.
-            Output(f"dv_{name}", 0.0 * position.last() - gravity),
-            Output(f"floor_{name}", position.last() - floor),
-            Output(f"p_plus_{name}", position.last()),
-            Output(f"v_plus_{name}", -1.0 * restitution * velocity.last()),
+            Output(f"dv_{name}", 0.0 * position - gravity),
+            Output(f"floor_{name}", position - floor),
+            Output(f"p_plus_{name}", position),
+            Output(f"v_plus_{name}", -1.0 * restitution * velocity),
         ],
     ).build()
     return position, velocity, field
@@ -651,11 +649,11 @@ def _ball_field(name, gravity=GRAVITY, floor=FLOOR, restitution=RESTITUTION):
 
 def _ball_model(name, points, steps, **kwargs):
     position, velocity, field = _ball_field(name)
-    t = Input(f"t_{name}", dim=1)
+    t = Input(f"t_{name}", dim=1, seq=points)
     trajectory, _ = OdeNet(
         f=field,
         states={position: f"dp_{name}", velocity: f"dv_{name}"},
-        t=t.last(seq=points),
+        t=t,
         steps=steps,
         event=f"floor_{name}",
         reset={position: f"p_plus_{name}", velocity: f"v_plus_{name}"},
@@ -769,11 +767,11 @@ def test_odenet_fits_the_event_along_with_the_field(tmp_path):
         restitution=guess["e_fit"],
     )
 
-    window = Input("t_fit", dim=1)
+    window = Input("t_fit", dim=1, seq=points)
     predicted_p, _ = OdeNet(
         f=field,
         states={position: "dp_fit", velocity: "dv_fit"},
-        t=window.last(seq=points),
+        t=window,
         method="rk4",
         steps=1,
         event="floor_fit",
@@ -790,7 +788,7 @@ def test_odenet_fits_the_event_along_with_the_field(tmp_path):
     trainer.minimize(
         "err_p",
         source=p_out,
-        target=Input("p_fit_target", dim=1).last(seq=points),
+        target=Input("p_fit_target", dim=1, seq=points),
         loss="mse",
     )
     trainer.build()
@@ -830,11 +828,11 @@ def test_odenet_fits_the_event_along_with_the_field(tmp_path):
 
     # The whole span from the drop alone, so the fitted bounces have to line up
     # with the exact ones and not just with the window they were fitted on.
-    grid = Input("t_full", dim=1)
+    grid = Input("t_full", dim=1, seq=times.size)
     full_p, full_v = OdeNet(
         f=field,
         states={position: "dp_fit", velocity: "dv_fit"},
-        t=grid.last(seq=times.size),
+        t=grid,
         method="rk4",
         steps=1,
         event="floor_fit",
@@ -881,12 +879,12 @@ def test_odenet_fits_the_event_along_with_the_field(tmp_path):
 
 def test_odenet_event_rejects_the_adaptive_march():
     position, velocity, field = _ball_field("adaptive")
-    t = Input("t_adaptive", dim=1)
+    t = Input("t_adaptive", dim=1, seq=2)
     with pytest.raises(ValueError, match="events need a fixed tableau"):
         OdeNet(
             f=field,
             states={position: "dp_adaptive", velocity: "dv_adaptive"},
-            t=t.last(seq=2),
+            t=t,
             method="dopri5",
             event="floor_adaptive",
             reset={position: "p_plus_adaptive", velocity: "v_plus_adaptive"},
@@ -905,24 +903,24 @@ def test_odenet_event_blocks_the_method_swap():
 
 def test_odenet_event_requires_a_reset():
     position, velocity, field = _ball_field("noreset")
-    t = Input("t_noreset", dim=1)
+    t = Input("t_noreset", dim=1, seq=2)
     with pytest.raises(ValueError, match="event and reset go together"):
         OdeNet(
             f=field,
             states={position: "dp_noreset", velocity: "dv_noreset"},
-            t=t.last(seq=2),
+            t=t,
             event="floor_noreset",
         )
 
 
 def test_odenet_reset_must_cover_every_state():
     position, velocity, field = _ball_field("partial")
-    t = Input("t_partial", dim=1)
+    t = Input("t_partial", dim=1, seq=2)
     with pytest.raises(ValueError, match="reset must map every state"):
         OdeNet(
             f=field,
             states={position: "dp_partial", velocity: "dv_partial"},
-            t=t.last(seq=2),
+            t=t,
             event="floor_partial",
             reset={velocity: "v_plus_partial"},
         )

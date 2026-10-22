@@ -18,7 +18,7 @@ def _single_minimizer_model():
     t = Input("printer_t", dim=1)
     out = Output("printer_pred", Fir(features=1)([x.sw(5)]))
     model = Modely("printer_model", inputs=[x, t], outputs=[out])
-    model.minimize("curv_error", source=out, target=t.last())
+    model.minimize("curv_error", source=out, target=t)
     model.build()
 
     n = 40

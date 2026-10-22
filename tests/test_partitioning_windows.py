@@ -32,7 +32,7 @@ def test_partitioning_windows():
         [4, 2]
     )  ## 4 samples of z in the past and 2 samples of z in the future
 
-    x_stream2 = x.last()  ## 1 sample of x in the past
+    x_stream2 = x  ## 1 sample of x in the past
     y_stream2 = y.next()  ## 1 sample of y in the future
     z_stream2 = z.sw(3)  ## 1 sample of z in the past (same as last())
 
@@ -164,8 +164,8 @@ def _run(name, inputs, relation, data):
 
 
 def test_time_select_fixed_drops_the_axis():
-    x = Input("seq_select_x", dim=2)
-    window = x.sw(2, seq=5)
+    x = Input("seq_select_x", dim=2, seq=5)
+    window = x.sw(2)
     third = TimeSelect(2, axis=0, keep_dim=False)([window])
     last = TimeSelect(-1, axis=0, keep_dim=False)([window])
 
@@ -184,8 +184,8 @@ def test_time_select_fixed_drops_the_axis():
 
 
 def test_time_select_dynamic_counts_from_the_end_of_the_data():
-    x = Input("seq_select_dyn_x")
-    last = TimeSelect(-1, axis=0, keep_dim=False)([x.last(seq=-1)])
+    x = Input("seq_select_dyn_x", seq=-1)
+    last = TimeSelect(-1, axis=0, keep_dim=False)([x])
     assert last.shape.dimensions == ((1,), (1,))
 
     model = Modely(
@@ -198,8 +198,8 @@ def test_time_select_dynamic_counts_from_the_end_of_the_data():
 
 
 def test_time_select_nested_axis():
-    x = Input("seq_select_nested_x")
-    window = x.last(seq=(-1, -1))
+    x = Input("seq_select_nested_x", seq=(-1, -1))
+    window = x
     outer = TimeSelect(0, axis=1, keep_dim=False)([window])
     inner = TimeSelect(-1, axis=0, keep_dim=False)([window])
     assert outer.shape.time == (None, 1)
@@ -216,8 +216,8 @@ def test_time_select_nested_axis():
 
 
 def test_time_range_fixed():
-    x = Input("seq_range_x", dim=2)
-    window = x.last(seq=6)
+    x = Input("seq_range_x", dim=2, seq=6)
+    window = x
     middle = TimeRange(1, 4, axis=0)([window])
     tail = TimeRange(-3, None, axis=0)([window])
     assert middle.shape.time == (3, 1)
@@ -232,8 +232,8 @@ def test_time_range_fixed():
 
 
 def test_time_range_dynamic():
-    x = Input("seq_range_dyn_x")
-    window = x.last(seq=-1)
+    x = Input("seq_range_dyn_x", seq=-1)
+    window = x
     head = TimeRange(0, 2, axis=0)([window])
     tail = TimeRange(-3, None, axis=0)([window])
     open_start = TimeRange(None, 2, axis=0)([window])
@@ -256,12 +256,12 @@ def test_time_range_dynamic():
 
 
 def test_time_concatenate():
-    x = Input("seq_concat_x", dim=2)
-    y = Input("seq_concat_y", dim=2)
-    d = Input("seq_concat_d", dim=2)
-    x_window, y_window = x.last(seq=3), y.last(seq=5)
+    x = Input("seq_concat_x", dim=2, seq=3)
+    y = Input("seq_concat_y", dim=2, seq=5)
+    d = Input("seq_concat_d", dim=2, seq=-1)
+    x_window, y_window = x, y
     joined = TimeConcatenate(axis=0)([x_window, y_window])
-    dynamic = TimeConcatenate(axis=0)([x_window, d.last(seq=-1)])
+    dynamic = TimeConcatenate(axis=0)([x_window, d])
     assert joined.shape.time == (8, 1)
     assert dynamic.shape.time == (None, 1)
 
@@ -289,9 +289,9 @@ def test_time_concatenate():
 
 
 def test_time_concatenate_nested_axis():
-    x = Input("seq_concat_nested_x")
-    y = Input("seq_concat_nested_y")
-    joined = TimeConcatenate(axis=1)([x.last(seq=(-1, 2)), y.last(seq=(-1, 3))])
+    x = Input("seq_concat_nested_x", seq=(-1, 2))
+    y = Input("seq_concat_nested_y", seq=(-1, 3))
+    joined = TimeConcatenate(axis=1)([x, y])
     assert joined.shape.time == (None, 5, 1)
 
     xv = np.random.rand(1, 4, 2, 1, 1).astype(np.float32)
@@ -309,7 +309,7 @@ def test_time_concatenate_nested_axis():
 
 def test_time_stack():
     a, b, c = (Input(f"seq_stack_{name}", dim=2) for name in "abc")
-    stacked = TimeStack(axis=0)([a.last(), b.last(), c.last()])
+    stacked = TimeStack(axis=0)([a, b, c])
     assert stacked.shape.dimensions == ((3, 1), (2,))
 
     values = {
@@ -323,9 +323,9 @@ def test_time_stack():
 
 
 def test_time_stack_new_outer_axis_of_dynamic_sequences():
-    x = Input("seq_stack_dyn_x")
-    y = Input("seq_stack_dyn_y")
-    stacked = TimeStack(axis=1)([x.last(seq=-1), y.last(seq=-1)])
+    x = Input("seq_stack_dyn_x", seq=-1)
+    y = Input("seq_stack_dyn_y", seq=-1)
+    stacked = TimeStack(axis=1)([x, y])
     assert stacked.shape.time == (None, 2, 1)
 
     xv = np.random.rand(1, 6, 1, 1).astype(np.float32)
@@ -342,8 +342,8 @@ def test_time_stack_new_outer_axis_of_dynamic_sequences():
 
 
 def test_time_reverse():
-    x = Input("seq_reverse_x", dim=2)
-    window = x.last(seq=(-1, 3))
+    x = Input("seq_reverse_x", dim=2, seq=(-1, 3))
+    window = x
     inner = TimeReverse(axis=0)([window])
     outer = TimeReverse(axis=1)([window])
     assert inner.shape.time == outer.shape.time == (None, 3, 1)
@@ -359,14 +359,14 @@ def test_time_reverse():
 
 
 def test_time_ops_reject_invalid_declarations():
-    x = Input("seq_invalid_x").last(seq=4)
-    y = Input("seq_invalid_y").last(seq=(2, 4))
+    x = Input("seq_invalid_x", seq=4)
+    y = Input("seq_invalid_y", seq=(2, 4))
     plain = Input("seq_invalid_plain")
 
     with pytest.raises(ValueError, match="out of bounds for time axis"):
         TimeSelect(4, axis=0)([x])
-    with pytest.raises(ValueError, match="out of bounds for time rank 0"):
-        TimeSelect(-1, axis=0)([plain])
+    with pytest.raises(ValueError, match="out of bounds for time rank 1"):
+        TimeSelect(-1, axis=1)([plain])
     with pytest.raises(ValueError, match="out of bounds for time rank 2"):
         TimeReverse(axis=2)([x])
     with pytest.raises(ValueError, match="invalid range"):
@@ -379,15 +379,18 @@ def test_time_ops_reject_invalid_declarations():
         TimeStack(axis=0)([x, y])
     with pytest.raises(ValueError, match="at least two inputs"):
         TimeConcatenate(axis=0)([x])
+    # A stream keeps at least one time axis: the only one is not dropped.
+    with pytest.raises(ValueError, match="keeps at least one time axis"):
+        TimeSelect(-1, keep_dim=False)([plain.sw(3)])
 
 
 def test_select_drops_its_axis_unless_kept():
     x = Input("select_keep_x", dim=(4, 3))
     v = Input("select_keep_v", dim=4)
-    dropped = Select(1)([x.last()])
-    kept = Select(-1, axis=1, keep_dim=True)([x.last()])
+    dropped = Select(1)([x])
+    kept = Select(-1, axis=1, keep_dim=True)([x])
     # A stream always has a dim: the only axis of a vector stays, as a scalar.
-    scalar = Select(2)([v.last()])
+    scalar = Select(2)([v])
     assert dropped.shape.dimensions == ((1,), (3,))
     assert kept.shape.dimensions == ((1,), (4, 1))
     assert scalar.shape.dimensions == ((1,), (1,))
@@ -403,8 +406,8 @@ def test_select_drops_its_axis_unless_kept():
 
 
 def test_time_select_keeps_its_axis_by_default():
-    x = Input("time_keep_x", dim=2)
-    window = x.sw(3, seq=-1)
+    x = Input("time_keep_x", dim=2, seq=-1)
+    window = x.sw(3)
     last_step = TimeSelect(-1, axis=0)([window])
     last_sample = TimeSelect(-1)([window])
     assert last_step.shape.time == (1, 3)
@@ -430,9 +433,9 @@ def test_time_select_keeps_its_axis_by_default():
 
 def test_time_ops_act_on_the_window_by_default():
     # The inner time; the outer time, a sequence, is kept.
-    x = Input("inner_ops_x")
-    y = Input("inner_ops_y")
-    x_window, y_window = x.sw(2, seq=4), y.sw(3, seq=4)
+    x = Input("inner_ops_x", seq=4)
+    y = Input("inner_ops_y", seq=4)
+    x_window, y_window = x.sw(2), y.sw(3)
     newest = TimeSelect(-1)([x_window])
     middle = TimeRange(1, 3)([y_window])
     joined = TimeConcatenate()([x_window, y_window])
@@ -461,10 +464,10 @@ def test_time_ops_act_on_the_window_by_default():
 
 
 def test_a_selected_sample_broadcasts_along_the_window():
-    # Without time, the newest sample combines with every sample of the window.
+    # One sample, the newest, combines with every sample of the window.
     x = Input("relative_x")
     window = x.sw(4)
-    relative = window - TimeSelect(-1, keep_dim=False)([window])
+    relative = window - TimeSelect(-1)([window])
     assert relative.shape.dimensions == ((4,), (1,))
 
     values = np.random.rand(2, 4, 1).astype(np.float32)
@@ -479,17 +482,17 @@ def test_time_select_closes_a_loop_chained_over_chunks():
     # #209: an outer Loop chains the chunks of an inner one, each chunk seeded
     # by the last position and velocity of the one before.
     vx0, px0, ax = Input("chunk_vx0"), Input("chunk_px0"), Input("chunk_ax")
-    outvx = Output("chunk_outvx", vx0.last() + ax.last())
-    outpx = Output("chunk_outpx", px0.last() + vx0.last())
+    outvx = Output("chunk_outvx", vx0 + ax)
+    outpx = Output("chunk_outpx", px0 + vx0)
     step = Modely("chunk_step", inputs=[ax, vx0, px0], outputs=[outvx, outpx]).build()
 
-    ax_sq = Input("chunk_ax_sq")
+    ax_sq = Input("chunk_ax_sq", seq=-1)
     px0_init, vx0_init = Input("chunk_px0_init"), Input("chunk_vx0_init")
     velocity, position = Loop(
         f=step,
         callback={vx0: outvx, px0: outpx},
-        init={vx0: vx0_init.last(), px0: px0_init.last()},
-    )({ax: ax_sq.last(seq=-1)})
+        init={vx0: vx0_init, px0: px0_init},
+    )({ax: ax_sq})
     chunk = Modely(
         "chunk",
         inputs=[ax_sq, px0_init, vx0_init],
@@ -500,13 +503,13 @@ def test_time_select_closes_a_loop_chained_over_chunks():
         ],
     ).build()
 
-    ax_sq_sq = Input("chunk_ax_sq_sq")
+    ax_sq_sq = Input("chunk_ax_sq_sq", seq=(-1, -1))
     px0_seed, vx0_seed = Input("chunk_px0_seed"), Input("chunk_vx0_seed")
     trajectory, _, _ = Loop(
         f=chunk,
         callback={"chunk_px0_init": "chunk_last_px", "chunk_vx0_init": "chunk_last_vx"},
-        init={"chunk_px0_init": px0_seed.last(), "chunk_vx0_init": vx0_seed.last()},
-    )({"chunk_ax_sq": ax_sq_sq.last(seq=(-1, -1))})
+        init={"chunk_px0_init": px0_seed, "chunk_vx0_init": vx0_seed},
+    )({"chunk_ax_sq": ax_sq_sq})
     assert trajectory.shape.time == (None, None, 1)
     model = Modely(
         "chunked",
@@ -542,14 +545,14 @@ def test_one_time_op_applied_to_streams_of_two_shapes():
     # axis of the second. Counted from the inner time, -2 is the time axis
     # right outside the window of both.
     reverse = TimeReverse(axis=-2)
-    c = Input("two_shapes_c")
-    d = Input("two_shapes_d", dim=(2, 2))
+    c = Input("two_shapes_c", seq=(3, 4))
+    d = Input("two_shapes_d", dim=(2, 2), seq=3)
     model = Modely(
         "two_shapes",
         inputs=[c, d],
         outputs=[
-            Output("two_shapes_rc", reverse(c.last(seq=(3, 4)))),
-            Output("two_shapes_rd", reverse(d.last(seq=3))),
+            Output("two_shapes_rc", reverse(c)),
+            Output("two_shapes_rd", reverse(d)),
         ],
     ).build()
     cs = np.arange(12, dtype=np.float32).reshape(1, 3, 4, 1, 1)
@@ -581,7 +584,9 @@ def test_unbounded_temporal_window():
     ).build()
     print(x.shape)
 
-    assert x.shape.time == (3,)  ## it will give (5) which is wrong
+    ## The data holds the windows of the graph; x itself stays one sample
+    assert x.data_shape.time == (3,)
+    assert x.shape.time == (1,)
 
     data_train = DataLoader(
         model,
@@ -596,13 +601,6 @@ def test_unbounded_temporal_window():
     )  # I expect this to be (1, 3, 1) but it's (1, 5, 1) because of the x_window = x.sw(5) line above
 
 
-def test_sequence_allowed_only_once():
-    x = Input("seq_once_x")
-    x.sw(3, seq=3)
-    with pytest.raises(ValueError, match="only once"):
-        x.sw(2, seq=2)
-
-
 def test_each_model_reads_the_windows_of_its_own_graph():
     # Requesting a window leaves the Input as it is: build() finds the windows
     # of the model's graph, so two models of one Input read their own.
@@ -610,14 +608,14 @@ def test_each_model_reads_the_windows_of_its_own_graph():
 
     x = Input("own_windows_x")
     narrow, wide = x.sw(2), x.sw(4)
-    assert x.shape.time == ()  # nothing built yet
+    assert x.shape.time == x.data_shape.time == (1,)  # nothing built yet
     a = Modely(
         "own_a", inputs=[x], outputs=[Output("own_a_out", Fir(features=1)(narrow))]
     ).build()
     b = Modely(
         "own_b", inputs=[x], outputs=[Output("own_b_out", Fir(features=1)(wide))]
     ).build()
-    assert x.shape.time == (4,)  # the last model built
+    assert x.data_shape.time == (4,)  # the last model built
     source = {"own_windows_x": np.arange(10.0).reshape(-1, 1)}
     assert DataLoader(a, source=source).get_samples(1)["own_windows_x"].shape == (
         1,
@@ -630,7 +628,7 @@ def test_each_model_reads_the_windows_of_its_own_graph():
         1,
     )
     # a, built first, still reads its own window.
-    assert a.train_inputs[0].shape.time == (2,)
+    assert a.train_inputs[0].data_shape.time == (2,)
 
 
 def test_a_window_only_a_minimizer_reads_widens_the_training_input():
@@ -644,33 +642,33 @@ def test_a_window_only_a_minimizer_reads_widens_the_training_input():
     assert (x.past, x.future) == (2, 1)
 
 
-def test_an_input_read_whole_and_through_windows_is_refused():
-    from nnodely import Fir
+def test_an_input_read_directly_is_its_current_sample_beside_its_windows():
+    from nnodely import Fir, Parameter
 
     x = Input("whole_and_window_x")
+    taps = Parameter("whole_and_window_taps", value=[[1.0], [10.0], [100.0]])
     model = Modely(
         "whole_and_window",
         inputs=[x],
         outputs=[
             Output("whole", x * 2.0),
-            Output("window", Fir(features=1)(x.sw(3))),
+            Output("window", Fir(features=1, kernel=taps, bias=False)(x.sw(3))),
         ],
-    )
-    with pytest.raises(ValueError, match="reads the Input 'whole_and_window_x' whole"):
-        model.build()
+    ).build()
+
+    ## The data holds the window; read directly, x is its newest sample
+    assert x.shape.time == (1,) and x.data_shape.time == (3,)
+    values = np.array([[[1.0], [2.0], [3.0]], [[4.0], [5.0], [6.0]]], np.float32)
+    result = model({"whole_and_window_x": values})
+    np.testing.assert_allclose(to_numpy(result["whole"]), [[[6.0]], [[12.0]]])
+    np.testing.assert_allclose(to_numpy(result["window"]), [[[321.0]], [[654.0]]])
 
 
-def test_the_sequence_is_set_by_the_first_window_alone():
-    x = Input("first_seq_x")
-    first = x.sw(3, seq=-1)
-    later = x.sw(2)  # inherits it
-    assert first.time == (None, 3) and later.time == (None, 2)
-    # Set again, even to the same value, it is refused: a window made before
-    # would not have it.
-    with pytest.raises(ValueError, match="only once"):
-        x.last(seq=-1)
-    # A first window without one sets "no sequence".
-    y = Input("first_seq_y")
-    y.last()
-    with pytest.raises(ValueError, match="only once"):
-        y.sw(2, seq=4)
+def test_every_window_keeps_the_sequence_of_its_input():
+    x = Input("first_seq_x", seq=-1)
+    assert x.time == (None, 1)  # read directly, the current sample
+    assert x.sw(3).time == (None, 3) and x.sw(2).time == (None, 2)
+    assert x.next().time == (None, 1)
+    # The sequence belongs to the Input: a window takes the window alone.
+    with pytest.raises(TypeError):
+        x.sw(2, seq=4)  # type: ignore[call-arg]

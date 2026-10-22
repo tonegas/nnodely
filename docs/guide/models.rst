@@ -24,9 +24,9 @@ Parameters and constants
 
 A :class:`~nnodely.Parameter` is a trainable tensor used directly in the graph,
 and a :class:`~nnodely.Constant` is a fixed one. A ``value`` sets the shape:
-every axis of the value is a ``dim`` axis and the value has no time axis - it
-applies to every sample, of any stream - unless ``dim`` and ``time`` name the
-axes of the value that play each part: ``Parameter("w", value=np.ones((2, 3)),
+every axis of the value is a ``dim`` axis and the value is one sample, time
+``(1,)`` - it applies to every sample, of any stream - unless ``dim`` and
+``time`` name the axes of the value that play each part: ``Parameter("w", value=np.ones((2, 3)),
 time=1)`` is a 2-feature window of 3 samples, and ``time`` can name several
 axes, outermost first. A constant always takes its shape from its ``value``; a
 parameter can be given ``dim`` and ``time`` as sizes instead, and start from a
@@ -41,7 +41,7 @@ the same value for every sample:
    weights = Parameter("weights", dim=3)                   # random initial value
    gravity = Constant("gravity", value=9.81)
 
-   air_drag = -1.0 * drag * velocity.last() * velocity.last()
+   air_drag = -1.0 * drag * velocity * velocity
 
 Layers
 ------
@@ -127,10 +127,10 @@ The tables group the available layers.
 ``Select`` drops the dim axis it selects from, and ``keep_dim=True`` keeps it
 with length 1; a stream always has a dim, so selecting from a vector gives a
 scalar ``(1,)`` either way. ``TimeSelect`` keeps the time axis with length 1,
-one sample, and ``keep_dim=False`` drops it. Dropped from the only time axis,
-the sample is a stream without time, which combines with every sample of a
-window: ``w - TimeSelect(-1, keep_dim=False)(w)`` subtracts the newest sample
-from each. A range always keeps its axis.
+one sample, which combines with every sample of a window:
+``w - TimeSelect(-1)(w)`` subtracts the newest sample from each.
+``keep_dim=False`` drops the axis, when the stream has another time axis left
+- a stream always has one. A range always keeps its axis.
 
 Some examples:
 
@@ -143,19 +143,19 @@ Some examples:
 
    # a gain scheduled by the gear: one FIR filter per gear, blended
    torque = Input("torque")
-   gear_membership = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function=Triangular)([gear.last()])
+   gear_membership = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function=Triangular)([gear])
    engine_force = LocalModel(lambda cell: Fir(features=1))([torque.sw(10)], [gear_membership])
 
    # a lookup table
-   rolling = Interpolation(x_points=[0.0, 10.0, 30.0], y_points=[0.0, 0.2, 0.3])([velocity.last()])
+   rolling = Interpolation(x_points=[0.0, 10.0, 30.0], y_points=[0.0, 0.2, 0.3])([velocity])
 
    # slope force from the three altitude features
-   slope = Linear(features=1)([altitude.last()])
-   first_altitude = Select(idx=0)([altitude.last()])
+   slope = Linear(features=1)([altitude])
+   first_altitude = Select(idx=0)([altitude])
 
    # symbolic regression over velocity: sin(a), a * b, relu(c)
    learner = EquationLearner(["sin", "multiply", "relu"], linear_out=Linear(features=1))
-   learned = learner([velocity.last()])
+   learned = learner([velocity])
 
    # the oldest sample of a window
    oldest = TimeSelect(idx=0)([velocity.sw(5)])
@@ -181,7 +181,7 @@ more arguments is refused:
        def call(self, x):
            return x * x
 
-   squares = Fuzzify([0.0, 0.5, 1.0], function=Square)([velocity.last()])
+   squares = Fuzzify([0.0, 0.5, 1.0], function=Square)([velocity])
    # (velocity - c)^2 on every center c
 
 To load such a model in another session, define the class first, decorated
@@ -198,8 +198,8 @@ neighbors as they are computed, so the gradient reaches them (a
 .. code-block:: python
 
    centers = Parameter("centers", value=[0.0, 0.5, 1.0])
-   trained = Fuzzify(centers)([velocity.last()])   # where the triangles sit, learned
-   middle = Fuzzify([0.0, Parameter("middle", value=[0.5]), 1.0])([velocity.last()])
+   trained = Fuzzify(centers)([velocity])   # where the triangles sit, learned
+   middle = Fuzzify([0.0, Parameter("middle", value=[0.5]), 1.0])([velocity])
 
 The same wrapping works anywhere in a model: :class:`~nnodely.KerasFunction`
 makes any Keras layer an nnodely layer, its streams passed to ``call`` as
@@ -217,13 +217,13 @@ separate arguments and its output shape read off the result:
        def call(self, x, y):
            return x * x + y
 
-   length = KerasFunction(Norm)([altitude.last()])                       # a class, made here
-   shifted = KerasFunction(Shifted())([velocity.last(), torque.last()])  # an instance
+   length = KerasFunction(Norm)([altitude])                 # a class, made here
+   shifted = KerasFunction(Shifted())([velocity, torque])   # an instance
 
 Weights of such a layer are Keras weights, trained with the model, but not
 :class:`~nnodely.Parameter` objects: freeze them with the layer's
 ``trainable``. The membership functions are layers of
-their own too: ``Triangular(center=0.5, radius=0.5)([velocity.last()])``.
+their own too: ``Triangular(center=0.5, radius=0.5)([velocity])``.
 
 ``LocalModel`` takes the inputs and a list of activations. Several activations
 are multiplied together, so memberships over 4 gears and 5 speeds give 20 local
@@ -270,14 +270,14 @@ passed as they are. The result maps output names to tensors of the active
 backend.
 
 The time axes of an input's array must cover the union of the windows the
-model reads from it, which the input's ``shape`` reports once the model is
-built. Here the model reads ``velocity`` through ``last()`` alone - the
-``sw(5)`` of ``oldest`` above is not part of it, so it widens nothing - and
-``torque`` through ``sw(10)``:
+model reads from it, which the input's ``data_shape`` reports once the model
+is built. Here the model reads ``velocity`` directly, its current sample, alone
+- the ``sw(5)`` of ``oldest`` above is not part of it, so it widens nothing -
+and ``torque`` through ``sw(10)``:
 
 .. code-block:: python
 
-   print(velocity.shape, torque.shape)   # Shape(T=(1,), D=(1,)) Shape(T=(10,), D=(1,))
+   print(velocity.data_shape, torque.data_shape)   # Shape(T=(1,), D=(1,)) Shape(T=(10,), D=(1,))
 
    sample = {
        "velocity": np.full((1, 1, 1), 15.0),
