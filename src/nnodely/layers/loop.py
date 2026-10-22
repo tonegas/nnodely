@@ -445,7 +445,9 @@ class Loop(Layer):
 
     A feedback input declared with a time window (``x.sw(n)``) is closed by
     shifting: the oldest step is dropped and the new output appended, so after
-    ``n`` steps the window is entirely self-predicted.
+    ``n`` steps the window is entirely self-predicted. A fed-back output is
+    therefore a single sample, and the window of its input reads no future
+    samples.
     """
 
     # Set by __call__ on the loop node it returns.
@@ -687,16 +689,26 @@ class Loop(Layer):
                     f"{output_time} does not match the input time {node_time}: the "
                     "outer time axes, the sequence, must be the same."
                 )
-            if output_time == node_time:
-                shift_axes.append(None)
-            elif output_time[-1] == 1 and node_time[-1] > 1:
-                shift_axes.append(node.shape.inner_time_axis)
-            else:
+            # The output is the next sample of the input: a window of outputs
+            # would be shifted in as one step.
+            if output_time and output_time[-1] != 1:
                 raise ValueError(
                     f"Loop callback {node.name!r} -> {output.name!r}: the output must "
-                    f"either cover the whole window of the input ({node_time[-1]}) or "
-                    f"a single step to shift into it, got {output_time[-1]}."
+                    f"be a single sample, the next one of the input, got a window "
+                    f"of {output_time[-1]}."
                 )
+            # The window is shifted to end at the sample fed back, so it cannot
+            # read past the current one.
+            if node.future:
+                raise ValueError(
+                    f"Loop callback {node.name!r} -> {output.name!r}: the input "
+                    f"window reads {node.future} future samples, but a fed-back "
+                    "input can only read up to its current sample."
+                )
+            if output_time == node_time:
+                shift_axes.append(None)
+            else:
+                shift_axes.append(node.shape.inner_time_axis)
         return shift_axes
 
     @staticmethod

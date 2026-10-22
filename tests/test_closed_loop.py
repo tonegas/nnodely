@@ -632,6 +632,32 @@ def test_loop_window_feedback():
     )
 
 
+def test_loop_feedback_is_one_past_sample():
+    # A fed-back output is the next sample of its input, even when the output
+    # covers the whole window of the input.
+    x = Input("one_x", dim=1)
+    body_output = Output("one_window", x.sw(3) * 2.0)
+    body = Modely("one_body", inputs=[x], outputs=[body_output]).build()
+    with pytest.raises(ValueError, match="must be a single sample"):
+        Loop(f=body, callback={x: body_output})
+
+    # The window of a fed-back input ends at its current sample.
+    x = Input("future_x", dim=1)
+    taps = Parameter("future_taps", value=np.ones(3))
+    body_output = Output(
+        "future_next", Fir(features=1, kernel=taps, bias=False)([x.sw([2, 1])])
+    )
+    body = Modely("future_body", inputs=[x], outputs=[body_output]).build()
+    with pytest.raises(ValueError, match="1 future samples"):
+        Loop(f=body, callback={x: body_output})
+
+    x = Input("next_x", dim=1)
+    body_output = Output("next_next", x.next() * 2.0)
+    body = Modely("next_body", inputs=[x], outputs=[body_output]).build()
+    with pytest.raises(ValueError, match="future samples"):
+        Loop(f=body, callback={x: body_output})
+
+
 def test_loop_multi_output():
     position = Input("int_p", dim=1)
     velocity = Input("int_v", dim=1)

@@ -136,7 +136,9 @@ The :class:`~nnodely.DataLoader` cuts the signals into sequences of
 A body with several outputs returns one stream per output, which can be
 unpacked: ``position_traj, velocity_traj = Loop(...)``. A fed-back input with
 a time window, ``x.sw(n)``, is closed by shifting: after ``n`` steps the window
-contains only predictions.
+contains only predictions. A fed-back output is therefore a single sample, and
+the window of a fed-back input cannot read future samples (``x.sw([p, f])``
+with ``f > 0``, ``x.next()``).
 
 With a dynamic sequence, ``sw(..., seq=-1)``, the rollout follows the length of the
 data it receives, and no ``length`` is needed. Together
