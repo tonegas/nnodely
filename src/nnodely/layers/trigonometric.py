@@ -74,8 +74,8 @@ class Atan2(BinaryOp):
     in ``[-pi, pi]``, its quadrant told by the signs of both. With nothing to
     configure, ``Atan2([y, x])`` is ``Atan2()([y, x])``.
 
-    ``y`` and ``x`` broadcast as the arithmetic operators do: one without
-    time applies to every sample of the other, a scalar to every feature.
+    ``y`` and ``x`` broadcast as the arithmetic operators do: a single
+    sample applies to every sample of the other, a scalar to every feature.
     """
 
     operation = "arctan2"

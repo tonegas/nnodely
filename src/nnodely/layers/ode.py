@@ -9,8 +9,9 @@ import keras
 
 from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
-from nnodely.core.shape import OUTER_TIME_AXIS
+from nnodely.core.shape import OUTER_AXIS
 from nnodely.core.stream import Stream
+from nnodely.layers.input import read
 from nnodely.layers.loop import LoopOutputImpl
 
 # Butcher tableaux as (stage coefficients, weights): one row of `a` per stage
@@ -401,9 +402,7 @@ class OdeNetImpl(keras.layers.Layer):
 
         # The reported times are the outermost step of every state.
         results = tuple(
-            keras.ops.stack(
-                [entry[position] for entry in trajectory], axis=OUTER_TIME_AXIS
-            )
+            keras.ops.stack([entry[position] for entry in trajectory], axis=OUTER_AXIS)
             for position in range(state_count)
         )
         if self.return_all_outputs:
@@ -442,13 +441,14 @@ class OdeNetImpl(keras.layers.Layer):
 class OdeNetOutput(Layer):
     """Select one state's trajectory from a multi-state OdeNet."""
 
-    def __init__(self, odenet, index: int, state_node, result_time):
+    def __init__(self, odenet, index: int, state_node, result_shape):
         self.index = int(index)
         super().__init__(
             name=f"{odenet.name}_{state_node.name}",
             preds=[odenet],
             dim=state_node.dim,
-            time=result_time,
+            time=result_shape.time,
+            seq=result_shape.seq,
             index=self.index,
         )
 
@@ -475,11 +475,11 @@ class OdeNet(Layer):
     to be evaluated at the solver's own times, which are not known in advance.
 
     `t` is the stream of times to report, shared across the batch.
-    Its outer time fixes how many points come back, but the values
+    Its outermost sequence axis fixes how many points come back, but the values
     are read at call time: the same trained field can be integrated over any
     horizon by feeding a different `t`, with no rebuild. The first time is the
-    initial condition, and the result gets those points as the new outer time
-    of each state.
+    initial condition, and the result gets those points as the new outermost
+    sequence axis of each state.
 
     `method` picks the integrator. With `dopri5` the controller owns the step
     size, working to `rtol` and `atol` and bounded by `max_steps`: the step
@@ -554,11 +554,10 @@ class OdeNet(Layer):
                 "interpolated at the solver's own step times, which is not supported yet."
             )
         for node, derivative in pairs:
-            if tuple(derivative.dim) != tuple(node.dim) or derivative.time != node.time:
+            if derivative.shape.dimensions != node.shape.dimensions:
                 raise ValueError(
                     f"OdeNet state {node.name!r} -> {derivative.name!r}: the derivative must "
-                    f"match the state's dim {tuple(node.dim)} and time {node.time}, got dim "
-                    f"{tuple(derivative.dim)} and time {derivative.time}."
+                    f"match the state's shape {node.shape}, got {derivative.shape}."
                 )
 
         event_output, reset_outputs = _resolve_event(f, event, reset, state_inputs)
@@ -570,6 +569,7 @@ class OdeNet(Layer):
             )
 
         initial_streams = _resolve_initial(initial, state_inputs)
+        t = read(t)
         self.output_count = _resolve_output_count(t)
 
         self.f = f
@@ -591,10 +591,11 @@ class OdeNet(Layer):
             name=name,
             preds=[*initial_streams, t],
             dim=state_inputs[0].dim,
-            time=(self.output_count, *state_inputs[0].time),
+            time=state_inputs[0].time,
+            seq=(self.output_count, *state_inputs[0].seq),
         )
         self.odenet_outputs = [
-            OdeNetOutput(self, index, node, (self.output_count, *node.time))
+            OdeNetOutput(self, index, node, node.shape.with_seq(self.output_count))
             for index, node in enumerate(state_inputs)
         ]
 
@@ -607,7 +608,7 @@ class OdeNet(Layer):
             twin._layer = twin._layer_signature = None
             twin.return_all_outputs = True
             twin.odenet_outputs = [
-                OdeNetOutput(twin, index, node, output.shape.time)
+                OdeNetOutput(twin, index, node, output.shape)
                 for index, (node, output) in enumerate(
                     zip(self.state_inputs, self.odenet_outputs)
                 )
@@ -623,7 +624,7 @@ class OdeNet(Layer):
             state_output_names=tuple(node.name for node in self.state_outputs),
             model_output_names=tuple(node.name for node in self.f.outputs),
             result_shapes=tuple(
-                node.shape.with_outer_time(self.output_count).tuple
+                node.shape.with_seq(self.output_count).tuple
                 for node in self.state_inputs
             ),
             output_count=self.output_count,
@@ -701,11 +702,11 @@ def _resolve_event(f, event, reset, state_inputs):
         )
 
     event_output = _find_node(f.outputs, event, "event")
-    if tuple(event_output.dim) != (1,) or tuple(event_output.time) not in ((), (1,)):
+    if event_output.shape.dimensions != ((), 1, (1,)):
         raise ValueError(
             f"OdeNet event {event_output.name!r} must be a single value per sample, "
-            f"positive before the event and negative after, got dim "
-            f"{tuple(event_output.dim)} and time {event_output.time}."
+            f"positive before the event and negative after, got "
+            f"{event_output.shape}."
         )
 
     if not isinstance(reset, dict):
@@ -724,11 +725,10 @@ def _resolve_event(f, event, reset, state_inputs):
     reset_outputs = []
     for node in state_inputs:
         output = _find_node(f.outputs, by_name[node.name], "reset")
-        if tuple(output.dim) != tuple(node.dim) or output.time != node.time:
+        if output.shape.dimensions != node.shape.dimensions:
             raise ValueError(
                 f"OdeNet reset {node.name!r} -> {output.name!r}: the reset must match "
-                f"the state's dim {tuple(node.dim)} and time {node.time}, got dim "
-                f"{tuple(output.dim)} and time {output.time}."
+                f"the state's shape {node.shape}, got {output.shape}."
             )
         reset_outputs.append(output)
     return event_output, reset_outputs
@@ -736,11 +736,11 @@ def _resolve_event(f, event, reset, state_inputs):
 
 def _resolve_output_count(t):
     """Number of reported times, which is a tensor axis and so must be static."""
-    count = t.shape.outer_time
+    count = t.shape.outer
     if not isinstance(count, int) or count < 2:
         raise ValueError(
             f"OdeNet needs at least two reported times with a static count, got "
-            f"{count!r} from the outer time of {t.name!r}."
+            f"{count!r} from the outermost sequence axis of {t.name!r}."
         )
     return count
 
@@ -766,13 +766,12 @@ def _resolve_initial(initial, state_inputs):
     streams = []
     for node in state_inputs:
         stream = by_name.get(node.name, node)
-        if stream is not node and (
-            tuple(stream.dim) != tuple(node.dim) or tuple(stream.time) != node.time
-        ):
+        if stream.name != node.name:
+            stream = read(stream)
+        if stream is not node and stream.shape.dimensions != node.shape.dimensions:
             raise ValueError(
-                f"OdeNet initial value for {node.name!r} must have dim {tuple(node.dim)} "
-                f"and time {node.time}, got dim {tuple(stream.dim)} and time "
-                f"{tuple(stream.time)} from {stream.name!r}."
+                f"OdeNet initial value for {node.name!r} must have the shape "
+                f"{node.shape}, got {stream.shape} from {stream.name!r}."
             )
         streams.append(stream)
     return streams

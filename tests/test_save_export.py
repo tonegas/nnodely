@@ -14,7 +14,7 @@ from nnodely import (
     Cos,
     DataLoader,
     Deg2Rad,
-    Derivative,
+    DerivativeStep,
     Differentiate,
     ELU,
     EquationLearner,
@@ -44,9 +44,12 @@ from nnodely import (
     Roll,
     TimeConcatenate,
     TimeRange,
-    TimeReverse,
     TimeSelect,
-    TimeStack,
+    SeqConcatenate,
+    SeqRange,
+    SeqReverse,
+    SeqSelect,
+    SeqStack,
     Sigmoid,
     Sign,
     Sin,
@@ -232,23 +235,23 @@ def _seq_ops_model():
         outputs=[
             Output(
                 "seq_ops_joined",
-                TimeConcatenate(axis=1, name="seq_ops_concat")(
+                SeqConcatenate(axis=1, name="seq_ops_concat")(
                     [
-                        TimeRange(1, 3, axis=1, name="seq_ops_range")([window]),
-                        TimeReverse(axis=1, name="seq_ops_reverse")([window]),
+                        SeqRange(1, 3, axis=1, name="seq_ops_range")([window]),
+                        SeqReverse(axis=1, name="seq_ops_reverse")([window]),
                     ]
                 ),
             ),
             Output(
                 "seq_ops_last",
-                TimeSelect(-1, axis=0, keep_dim=False, name="seq_ops_select")([window]),
+                SeqSelect(-1, name="seq_ops_select")([window]),
             ),
             Output(
                 "seq_ops_stacked",
-                TimeStack(axis=0, name="seq_ops_stack")(
+                SeqStack(axis=0, name="seq_ops_stack")(
                     [
-                        TimeSelect(0, axis=0, keep_dim=False)([window]),
-                        TimeSelect(-1, axis=0, keep_dim=False)([window]),
+                        SeqSelect(0)([window]),
+                        SeqSelect(-1)([window]),
                     ]
                 ),
             ),
@@ -726,7 +729,7 @@ def _randomize_trainable_weights(model):
 def _random_inputs(model):
     rng = np.random.default_rng(1)
     return {
-        node.name: rng.uniform(0.1, 1.0, size=(_BATCH, *node.data_shape.tuple)).astype(
+        node.name: rng.uniform(0.1, 1.0, size=(_BATCH, *node.shape.tuple)).astype(
             np.float32
         )
         for node in model.train_inputs
@@ -887,10 +890,10 @@ def _derivative_model():
     relation = Sin()(Linear(features=1, name="derivative_linear")(u.sw(3)))
     mixed = Linear(features=2, name="derivative_mix")(window)
     relations = {
-        "d_init_stream": Derivative(order=1, dt=dt, init=x0)(window),
-        "d_init_number": Derivative(order=2, dt=dt, init=0.5)(window),
-        "d_smooth": Derivative(order=1, dt=dt, window=3, poly_order=2)(window),
-        "d_of_layer": Derivative(order=1, dt=dt)(mixed),
+        "d_init_stream": DerivativeStep(order=1, dt=dt, init=x0)(window),
+        "d_init_number": DerivativeStep(order=2, dt=dt, init=0.5)(window),
+        "d_smooth": DerivativeStep(order=1, dt=dt, window=3, poly_order=2)(window),
+        "d_of_layer": DerivativeStep(order=1, dt=dt)(mixed),
         "d_wrt_input": Differentiate(order=1, respect_to=u)(relation),
         "d2_wrt_input": Differentiate(order=2, respect_to=u)(relation),
     }
@@ -920,7 +923,7 @@ def _integrate_model():
         # Integrating the backward difference with the same initial condition
         # gives the signal back.
         "i_inverse": IntegrateStep(dt=dt, init=x0)(
-            Derivative(dt=dt, init=x0)(signal.sw(4))
+            DerivativeStep(dt=dt, init=x0)(signal.sw(4))
         ),
     }
     return Modely(
@@ -954,7 +957,7 @@ def _rollback_mechanical_model():
     force = Input("rollback_force", dim=1)
     stiffness = Parameter("rollback_stiffness", value=[1.0])
     # The damping reads the velocity estimated from the position window.
-    estimated_velocity = TimeSelect(idx=-1)(Derivative(dt=dt)(position.sw(3)))
+    estimated_velocity = TimeSelect(idx=-1)(DerivativeStep(dt=dt)(position.sw(3)))
     acceleration = (
         Fir(features=1, name="rollback_force_fir")(force.sw(3))
         - stiffness * position
@@ -1038,7 +1041,7 @@ def _loop_trajectory_model():
     window = position.sw(2)
     acceleration = Fir(features=1, name="loop_traj_force_fir")(force) - Parameter(
         "loop_traj_damping", value=[0.5]
-    ) * TimeSelect(idx=-1)(Derivative(dt=dt)(window))
+    ) * TimeSelect(idx=-1)(DerivativeStep(dt=dt)(window))
     velocity_step = IntegrateStep(dt=dt, init=velocity)(acceleration)
     position_step = IntegrateStep(
         solver="trapezoidal", dt=dt, init=TimeSelect(idx=-1)(window)
@@ -1215,7 +1218,7 @@ def _complete_vehicle_model():
             ),
             Output(
                 "vehicle_acceleration_estimate",
-                Derivative(dt=dt, window=3, poly_order=2)(speed.sw(3)),
+                DerivativeStep(dt=dt, window=3, poly_order=2)(speed.sw(3)),
             ),
             Output("vehicle_grip_out", grip),
         ],
@@ -1333,11 +1336,11 @@ def test_export_onnx_seq_ops_follow_the_data(tmp_path):
         outputs=[
             Output(
                 "dyn_seq_ops_last",
-                TimeSelect(-1, axis=0, keep_dim=False)([sequence]),
+                SeqSelect(-1)([sequence]),
             ),
             Output(
                 "dyn_seq_ops_tail",
-                TimeReverse(axis=0)(TimeRange(-2, None, axis=0)([sequence])),
+                SeqReverse()(SeqRange(-2, None)([sequence])),
             ),
         ],
     ).build()
@@ -1366,9 +1369,8 @@ def test_save_load_behaves_like_original(tmp_path, model_factory):
 
 def _target_for(output):
     """A dataset input shaped like ``output``, the way a user adds a target."""
-    return Input(
-        f"{output.name}_target", dim=output.dim, seq=output.shape.time[:-1]
-    ).sw(output.shape.inner_time)
+    seq = tuple(-1 if size is None else size for size in output.shape.seq)
+    return Input(f"{output.name}_target", dim=output.dim, seq=seq).sw(output.shape.time)
 
 
 @_LAYER_SUITE
@@ -2443,7 +2445,7 @@ def test_a_parameter_declared_by_its_sizes_round_trips(tmp_path):
     model = Modely(
         "rt_sizes", inputs=[x], outputs=[Output("rt_sizes_out", x * gain)]
     ).build()
-    assert gain.shape.dimensions == ((1,), (2, 3))
+    assert gain.shape.dimensions == ((), 1, (2, 3))
     assert gain.param is not None and tuple(gain.param.shape) == (2, 3)
 
     model.save(tmp_path / "saved")

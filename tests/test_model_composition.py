@@ -493,7 +493,7 @@ def test_a_block_takes_the_shapes_it_was_declared_with():
     outer = Modely(
         "shaped_outer", inputs=[c], outputs=[Output("shaped_whole", body([c]))]
     ).build()
-    assert c.shape.time == (1,)
+    assert c.shape.dimensions[:2] == ((), 1)
     result = outer({"shaped_c": np.full((2, 1, 1), 3.0, dtype=np.float32)})
     np.testing.assert_allclose(to_numpy(result["shaped_whole"]).ravel(), [6.0, 6.0])
 
@@ -505,7 +505,7 @@ def test_a_block_takes_the_shapes_it_was_declared_with():
         inputs=[s],
         outputs=[Output("shaped_seq_out", s * 2.0)],
     ).build()
-    assert seq_body([Input("shaped_d", seq=5)]).shape.time == (None, 1)
+    assert seq_body([Input("shaped_d", seq=5)]).shape.dimensions[:2] == ((None,), 1)
     with pytest.raises(ValueError, match="sequence"):
         seq_body([Input("shaped_e")])
 

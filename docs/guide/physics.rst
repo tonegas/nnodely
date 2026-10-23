@@ -10,7 +10,8 @@ inferred from the data.
 
    import numpy as np
    from nnodely import (
-       DataLoader, Derivative, Differentiate, Input, Integrate, IntegrateStep, Linear, Loop, Modely,
+       DataLoader, Derivative, DerivativeStep, Differentiate, Input, Integrate, IntegrateStep,
+       Linear, Loop, Modely,
        Ode, OdeNet, Output, Parameter, set_seed, Sin, Tanh,
    )
 
@@ -19,8 +20,9 @@ inferred from the data.
 Derivatives
 -----------
 
-Two layers differentiate a stream: :class:`~nnodely.Differentiate` with respect to an
-input, and :class:`~nnodely.Derivative` with respect to time.
+Three layers differentiate a stream: :class:`~nnodely.Differentiate` with respect to an
+input, and :class:`~nnodely.DerivativeStep` and :class:`~nnodely.Derivative` with
+respect to time, over a window and along a horizon.
 
 **With respect to an input**, ``Differentiate`` computes the derivative by the backend's
 automatic differentiation. It accounts for every relation between the input
@@ -47,7 +49,7 @@ physics-informed neural networks. The model below fits
 
 ``order=2`` gives the second derivative.
 
-**With respect to time**, ``Derivative`` takes the time step ``dt``, as
+**With respect to time**, ``DerivativeStep`` takes the time step ``dt``, as
 ``IntegrateStep`` does, and the derivative is a causal finite difference along the
 stream's time window. The
 window length is preserved. ``init`` is the sample just before the window
@@ -59,9 +61,9 @@ signals at the price of a delay of about ``(window - 1) / 2`` samples:
 
    dt = 0.01
    position = Input("position")
-   velocity = Derivative(dt=dt, init=0.0)(position.sw(10))
-   smooth_velocity = Derivative(dt=dt, window=5)(position.sw(10))
-   print(velocity.shape)   # Shape(T=(10,), D=(1,))
+   velocity = DerivativeStep(dt=dt, init=0.0)(position.sw(10))
+   smooth_velocity = DerivativeStep(dt=dt, window=5)(position.sw(10))
+   print(velocity.shape)   # Shape(S=(), T=10, D=(1,))
 
 Integrators
 -----------
@@ -84,14 +86,14 @@ position can be obtained from acceleration with no rollout:
 
    v_window = IntegrateStep(dt=dt)(acceleration.sw(50))
    x_window = IntegrateStep(dt=dt)(v_window)
-   print(x_window.shape)   # Shape(T=(50,), D=(1,))
+   print(x_window.shape)   # Shape(S=(), T=50, D=(1,))
 
 The Euler rule is the exact inverse of the time derivative with the same
-``init``: ``IntegrateStep(dt=dt, init=x0)(Derivative(dt=dt, init=x0)(x))``
+``init``: ``IntegrateStep(dt=dt, init=x0)(DerivativeStep(dt=dt, init=x0)(x))``
 returns ``x``.
 
-:class:`~nnodely.Integrate` integrates along a **horizon** instead: the outer
-time of the rate, one sample per step. It is a block built from an
+:class:`~nnodely.Integrate` integrates along a **horizon** instead: the
+outermost sequence axis of the rate, one sample per step. It is a block built from an
 ``IntegrateStep`` and a :class:`~nnodely.Loop` that feeds each integrated
 value back as the state of the next step. A dynamic horizon (``seq=-1``)
 follows the length of the data at every call, with no rebuild. The rules, and
@@ -108,6 +110,24 @@ the results on the same samples, are those of ``IntegrateStep``:
    kinematics.build()
    result = kinematics({"acc": np.ones((1, 30, 1, 1)), "v0": np.zeros((1, 1, 1))})
    print(result["position"].shape)   # (1, 30, 1, 1): one value per step
+
+:class:`~nnodely.Derivative` differentiates along a horizon, as ``Integrate``
+integrates: the stencil, its arguments and the results on the same samples
+are those of ``DerivativeStep``. It needs no ``Loop``: a derivative reads the
+earlier steps of the signal, not of its own result, so every step is computed
+at once, whatever the length of the horizon. ``init`` is the value just before
+the first step, or the ``window - 1`` values a longer stencil reads, along its
+window. With the same ``init``, ``Integrate``'s Euler rule inverts it:
+
+.. code-block:: python
+
+   x = Input("x", seq=-1)       # one position per step, e.g. a Loop trajectory
+   x0 = Input("x0")
+   v = Derivative(dt=dt, init=x0)(x)
+   x_again = Integrate(dt=dt, init=x0)(v)
+
+``DerivativeStep`` does not differentiate a trajectory: each step of it is a
+one-sample window, whose derivative reads only ``init``.
 
 One ODE step
 ------------

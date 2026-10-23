@@ -24,14 +24,15 @@ Parameters and constants
 
 A :class:`~nnodely.Parameter` is a trainable tensor used directly in the graph,
 and a :class:`~nnodely.Constant` is a fixed one. A ``value`` sets the shape:
-every axis of the value is a ``dim`` axis and the value is one sample, time
-``(1,)`` - it applies to every sample, of any stream - unless ``dim`` and
-``time`` name the axes of the value that play each part: ``Parameter("w", value=np.ones((2, 3)),
-time=1)`` is a 2-feature window of 3 samples, and ``time`` can name several
-axes, outermost first. A constant always takes its shape from its ``value``; a
-parameter can be given ``dim`` and ``time`` as sizes instead, and start from a
-random value. Like every stream they are laid out ``(batch, *time, *dim)``,
-the same value for every sample:
+every axis of the value is a ``dim`` axis and the value is one sample,
+``T=1`` - it applies to every sample, of any stream - unless ``dim``,
+``time`` and ``seq`` name the axes of the value that play each part:
+``Parameter("w", value=np.ones((2, 3)), time=1)`` is a 2-feature window of 3
+samples; ``time`` names one axis, the window, and ``seq`` one or several,
+outermost first. A constant always takes its shape from its ``value``; a
+parameter can be given ``dim``, ``time`` and ``seq`` as sizes instead, and
+start from a random value. Like every stream they are laid out
+``(batch, *seq, time, *dim)``, the same value for every sample:
 
 .. code-block:: python
 
@@ -110,15 +111,20 @@ The tables group the available layers.
    * - Feature axes
      - :class:`~nnodely.Select` (one index), :class:`~nnodely.Range` (a slice),
        :class:`~nnodely.Concatenate`. ``axis`` counts the dim axes from 0.
-   * - Time axes
-     - :class:`~nnodely.TimeSelect` (one index), :class:`~nnodely.TimeRange`
+   * - Window
+     - :class:`~nnodely.TimeSelect` (one sample), :class:`~nnodely.TimeRange`
        (a slice), :class:`~nnodely.TimeConcatenate`,
-       :class:`~nnodely.TimeStack` (a new axis), :class:`~nnodely.TimeReverse`.
-       ``axis`` counts the time axes outermost first: the default, -1, is the
-       inner time, the window, and 0 the outer time - the rollout of the
-       outermost Loop, or the window without one.
+       :class:`~nnodely.TimeReverse`. They act on the window, ``T``, and
+       always keep it.
+   * - Sequence
+     - :class:`~nnodely.SeqSelect` (one step), :class:`~nnodely.SeqRange`
+       (a slice), :class:`~nnodely.SeqConcatenate`,
+       :class:`~nnodely.SeqStack` (a new axis), :class:`~nnodely.SeqReverse`.
+       ``axis`` counts the sequence axes outermost first: the default, 0, is
+       the outermost one, the rollout of the outermost Loop.
    * - Calculus
-     - :class:`~nnodely.Differentiate`, :class:`~nnodely.Derivative`,
+     - :class:`~nnodely.Differentiate`, :class:`~nnodely.DerivativeStep`,
+       :class:`~nnodely.Derivative`,
        :class:`~nnodely.Integrate`, :class:`~nnodely.IntegrateStep`,
        :func:`~nnodely.Ode`, :class:`~nnodely.OdeNet` (see :doc:`physics`).
    * - Recurrence
@@ -126,11 +132,11 @@ The tables group the available layers.
 
 ``Select`` drops the dim axis it selects from, and ``keep_dim=True`` keeps it
 with length 1; a stream always has a dim, so selecting from a vector gives a
-scalar ``(1,)`` either way. ``TimeSelect`` keeps the time axis with length 1,
-one sample, which combines with every sample of a window:
-``w - TimeSelect(-1)(w)`` subtracts the newest sample from each.
-``keep_dim=False`` drops the axis, when the stream has another time axis left
-- a stream always has one. A range always keeps its axis.
+scalar ``(1,)`` either way. ``TimeSelect`` keeps the window, one sample long,
+which combines with every sample of a window: ``w - TimeSelect(-1)(w)``
+subtracts the newest sample from each. ``SeqSelect`` removes the sequence
+axis it selects from, as does a ``SeqRange`` one step long: ``SeqSelect(-1)``
+takes the last step of a rollout, of any length.
 
 Some examples:
 
@@ -263,21 +269,21 @@ Inference
 ---------
 
 A built model is called with a dictionary that maps input names to arrays of
-shape ``(batch, *time, *dim)``, batch axis included. Inputs only the
+shape ``(batch, *seq, time, *dim)``, batch axis included. Inputs only the
 minimizers read, such as targets, are ignored, so the arrays of a
 :class:`~nnodely.DataLoader` - ``as_dict()`` or ``get_samples(n)`` - can be
 passed as they are. The result maps output names to tensors of the active
 backend.
 
-The time axes of an input's array must cover the union of the windows the
-model reads from it, which the input's ``data_shape`` reports once the model
-is built. Here the model reads ``velocity`` directly, its current sample, alone
+The window of an input's array must cover the union of the windows the
+model reads from it, which the input's ``shape`` reports once the model is
+built. Here the model reads ``velocity`` directly, its current sample, alone
 - the ``sw(5)`` of ``oldest`` above is not part of it, so it widens nothing -
 and ``torque`` through ``sw(10)``:
 
 .. code-block:: python
 
-   print(velocity.data_shape, torque.data_shape)   # Shape(T=(1,), D=(1,)) Shape(T=(10,), D=(1,))
+   print(velocity.shape, torque.shape)   # Shape(S=(), T=1, D=(1,)) Shape(S=(), T=10, D=(1,))
 
    sample = {
        "velocity": np.full((1, 1, 1), 15.0),
@@ -323,7 +329,7 @@ image suffix (``"model.svg"``) names the file and its format.
 
 Each node shows its name, coloured by its role - inputs green, outputs red,
 parameters, constants, sub-models and losses as in the legend - and each arrow
-the shape it carries, a dynamic time axis written ``dyn``. Without
+the shape it carries, a dynamic sequence axis written ``dyn``. Without
 ``flatten``, every block that wraps a model - a sub-model call, a
 :class:`~nnodely.Loop`, a :class:`~nnodely.Roll` - is one sub-model node, and
 its body is drawn in an image of its own named ``<filename>_<body name>``,

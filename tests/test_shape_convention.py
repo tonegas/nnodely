@@ -187,7 +187,7 @@ def test_a_dynamic_sequence_axis_survives_shape_inference():
         "projected": Linear(features=4)([sample]),
     }
     for stream in streams.values():
-        assert stream.shape.time == (None, 1)
+        assert stream.shape.dimensions[:2] == ((None,), 1)
     model = Modely(
         "dynamic_shape",
         inputs=[x],
@@ -215,27 +215,27 @@ def test_only_the_dynamic_sequence_axes_become_dynamic_again():
     # A fixed sequence axis next to a dynamic one keeps its size.
     x = Input("mixed_seq_x", seq=(-1, 3))
     doubled = x * 2.0
-    assert doubled.shape.time == (None, 3, 1)
+    assert doubled.shape.dimensions[:2] == ((None, 3), 1)
     fixed = Input("fixed_seq_x", seq=4) * 2.0
-    assert fixed.shape.time == (4, 1)
+    assert fixed.shape.dimensions[:2] == ((4,), 1)
 
 
 def test_a_shape_prints_its_named_axes():
     # Once a bare (3, 10): three features of ten samples, or the other way round?
-    assert repr(Input("named_x", dim=3).sw(10).shape) == "Shape(T=(10,), D=(3,))"
+    assert repr(Input("named_x", dim=3).sw(10).shape) == "Shape(S=(), T=10, D=(3,))"
     assert (
         repr(Input("named_m", dim=(3, 2), seq=(-1, 4)).shape)
-        == "Shape(T=(dyn, 4, 1), D=(3, 2))"
+        == "Shape(S=(dyn, 4), T=1, D=(3, 2))"
     )
     window = Input("named_w", dim=2).sw(5)
-    assert "shape=Shape(T=(5,), D=(2,))" in repr(window)
+    assert "shape=Shape(S=(), T=5, D=(2,))" in repr(window)
 
 
 def test_concatenation_repeats_a_single_sample_along_a_window():
     x = Input("repeat_join_x")
     parameter = Parameter("repeat_join_parameter", value=[7.0])
     joined = Concatenate()([x.sw(3), parameter])
-    assert joined.shape.dimensions == ((3,), (2,))
+    assert joined.shape.dimensions == ((), 3, (2,))
 
     model = Modely(
         "repeat_join", inputs=[x], outputs=[Output("repeat_join_out", joined)]

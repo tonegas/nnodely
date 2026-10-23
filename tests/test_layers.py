@@ -11,6 +11,7 @@ from nnodely import (
     Parameter,
     Range,
     Select,
+    SeqConcatenate,
     TimeConcatenate,
     TimeRange,
     TimeSelect,
@@ -53,8 +54,8 @@ def test_automatic_layer_output_shape():
     doubled = DoubleFeatures(name="double_features")(x.sw(3))
 
     assert doubled.dim == (4,)
-    assert doubled.time == (3,)
-    assert doubled.shape.time_rank == 1
+    assert doubled.dimensions[:2] == ((), 3)
+    assert doubled.shape.seq_rank == 0
 
     model = Modely(
         "automatic_shape_model",
@@ -76,8 +77,8 @@ def test_time_select():
     selected = TimeSelect(idx=3, name="time_select")(x.sw(5))
 
     assert selected.dim == (1,)
-    assert selected.time == (1,)
-    assert selected.shape.time_rank == 1
+    assert selected.dimensions[:2] == ((), 1)
+    assert selected.shape.seq_rank == 0
 
     model = Modely(
         "time_select_model",
@@ -99,8 +100,8 @@ def test_time_range():
     selected = TimeRange(start=1, end=4, name="time_range")(x.sw(5))
 
     assert selected.dim == (1,)
-    assert selected.time == (3,)
-    assert selected.shape.time_rank == 1
+    assert selected.dimensions[:2] == ((), 3)
+    assert selected.shape.seq_rank == 0
 
     model = Modely(
         "time_range_model",
@@ -122,8 +123,8 @@ def test_range():
     selected = Range(start=1, end=3, axis=0, name="range")(x)
 
     assert selected.dim == (2,)
-    assert selected.time == (1,)
-    assert selected.shape.time_rank == 1
+    assert selected.dimensions[:2] == ((), 1)
+    assert selected.shape.seq_rank == 0
 
     model = Modely(
         "range_model",
@@ -149,7 +150,7 @@ def test_linear_interpolation():
         name="linear_interpolation",
     )(x.sw(5))
 
-    assert interpolated.dimensions == ((5,), (1,))
+    assert interpolated.dimensions == ((), 5, (1,))
     model = Modely(
         "linear_interpolation_model",
         inputs=[x],
@@ -294,8 +295,8 @@ def test_atan2_broadcasts_as_the_operators_do():
     w, u = Input("atan2_w", dim=2), Input("atan2_u", dim=2)
     by_constant = Atan2([x, Constant("atan2_one", value=[1.0])])
     by_whole = Atan2([w.sw(3), u])  # u read directly: one pair per sample
-    assert by_constant.shape.dimensions == ((4, 1), (1,))
-    assert by_whole.shape.dimensions == ((3,), (2,))
+    assert by_constant.shape.dimensions == ((4,), 1, (1,))
+    assert by_whole.shape.dimensions == ((), 3, (2,))
     model = Modely(
         "atan2_broadcast",
         inputs=[x, w, u],
@@ -321,7 +322,7 @@ def test_atan2_broadcasts_as_the_operators_do():
 
     # Like the operators: windows of different lengths are not combined, and
     # Atan2 reads two streams.
-    with pytest.raises(ValueError, match="different time axes"):
+    with pytest.raises(ValueError, match="different sequence or time"):
         Atan2([w.sw(3), Input("atan2_v", dim=2).sw(2)])
     with pytest.raises(ValueError, match="reads two streams"):
         Atan2([w.sw(3)])
@@ -463,7 +464,7 @@ def test_concatenate_multiple_tensors_on_multidimensional_axis():
     )
 
     assert concatenated.dim == (6, 2)
-    assert concatenated.time == (2,)
+    assert concatenated.dimensions[:2] == ((), 2)
     assert result.shape == (1, 2, 6, 2)
     np.testing.assert_array_equal(
         result, np.concatenate([x_data, y_data, z_data], axis=2)
@@ -512,7 +513,7 @@ def test_time_concatenate_multiple_tensors():
     )
 
     assert concatenated.dim == (2,)
-    assert concatenated.time == (6,)
+    assert concatenated.dimensions[:2] == ((), 6)
     assert result.shape == (1, 6, 2)
     np.testing.assert_array_equal(
         result, np.concatenate([x_data, y_data, z_data], axis=1)
@@ -526,7 +527,7 @@ def test_concatenate_rejects_incompatible_shapes():
     with pytest.raises(ValueError, match="matching dimensions"):
         Concatenate(axis=0)([x, y])
 
-    with pytest.raises(ValueError, match="matching dim and time axes except time"):
+    with pytest.raises(ValueError, match="same sequence and dim"):
         TimeConcatenate()([x, y])
 
     with pytest.raises(ValueError, match="at least two inputs"):
@@ -594,8 +595,8 @@ def test_batchnorm_inference_and_training():
     normalized = BatchNorm(name="batchnorm")([x.sw(3)])
 
     assert normalized.dim == (2,)
-    assert normalized.time == (3,)
-    assert normalized.shape.time_rank == 1
+    assert normalized.dimensions[:2] == ((), 3)
+    assert normalized.shape.seq_rank == 0
 
     model = Modely(
         "batchnorm_model",
@@ -794,7 +795,7 @@ def test_linear_projects_the_whole_dim_by_default():
         inputs=[x],
         outputs=[Output("lin_dim_sum", summed), Output("lin_dim_drawn", drawn)],
     ).build()
-    assert summed.shape.dimensions == ((2, 4), (2,))
+    assert summed.shape.dimensions == ((2,), 4, (2,))
     assert drawn.kernel is not None and drawn.bias is not None
     assert tuple(drawn.kernel.shape) == (2, 3, 2)
     assert tuple(drawn.bias.shape) == (2,)
@@ -846,7 +847,7 @@ def test_linear_with_an_axis_projects_that_axis_alone(
     model = Modely(
         "lin_axis_model", inputs=[x], outputs=[Output("lin_axis_out", linear)]
     ).build()
-    assert linear.shape.dimensions == ((2, 4), out_dim)
+    assert linear.shape.dimensions == ((2,), 4, out_dim)
     assert linear.kernel is not None and linear.bias is not None
     assert tuple(linear.kernel.shape) == kernel_shape
     assert tuple(linear.bias.shape) == bias_shape
@@ -1010,7 +1011,7 @@ def test_fir_adds_a_channel_axis_after_the_dim(dim, features, expected, shared_k
     fir = Fir(features=features, shared_kernel=shared_kernel)([x.sw(3)])
     model = Modely("fir_dim_model", inputs=[x], outputs=[Output("fir_dim_out", fir)])
     model.build()
-    assert fir.shape.dimensions == ((1,), expected)
+    assert fir.shape.dimensions == ((), 1, expected)
 
     values = np.ones((2, 3, *dim), dtype=np.float32)
     result = to_numpy(model({"fir_dim_x": values})["fir_dim_out"])
@@ -1085,7 +1086,7 @@ def test_fir_keeps_the_sequence_axes():
     fir = Fir(features=3, name="fir_seq")([x.sw(3)])
     model = Modely("fir_seq_model", inputs=[x], outputs=[Output("fir_seq_out", fir)])
     model.build()
-    assert fir.shape.dimensions == ((4, 1), (2, 3))
+    assert fir.shape.dimensions == ((4,), 1, (2, 3))
 
     kernel = _fir_weights(fir, (2, 3, 3), (2, 3))
     values = np.random.default_rng(1).normal(size=(2, 4, 3, 2)).astype(np.float32)
@@ -1426,7 +1427,7 @@ def test_a_name_passed_positionally_still_only_configures():
         Linear,
         Fir,
         Concatenate,
-        TimeConcatenate,
+        SeqConcatenate,
     ],
 )
 def test_a_layer_with_settings_is_configured_before_it_is_called(layer):
@@ -1456,8 +1457,8 @@ def test_a_layer_that_reads_one_stream_is_applied_to_every_stream():
     }
     for pair in results.values():
         assert [node.shape.dimensions for node in pair] == [
-            ((1,), (1,)),
-            ((2,), (3,)),
+            ((), 1, (1,)),
+            ((), 2, (3,)),
         ]
     # One PReLU object is one layer: its slopes are shared by both streams.
     c, d = Input("every_c", dim=2), Input("every_d", dim=2)
@@ -1535,4 +1536,4 @@ def test_small_layer_messages_and_windows():
     with pytest.raises(ValueError, match="Clamp: min 1.0"):
         nnodely.Clamp(1.0, 0.0)
     # A window as a tuple, like a list.
-    assert Input("tuple_window_x").sw((2, 1)).shape.time == (3,)
+    assert Input("tuple_window_x").sw((2, 1)).shape.dimensions[:2] == ((), 3)

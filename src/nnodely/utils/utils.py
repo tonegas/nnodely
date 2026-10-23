@@ -4,7 +4,7 @@ import math
 import keras
 from typing import Any, Callable, Collection, cast
 
-from nnodely.core.shape import outer_time_view
+from nnodely.core.shape import outer_view
 
 SUPPORTED_OPTIMIZERS = {
     "sgd",
@@ -126,7 +126,7 @@ def _weighted_sequence_loss(loss, y_true, y_pred, weights):
         loss = loss.call  # one value per element, before the Loss reduces them
     values = loss(keras.ops.expand_dims(y_true, -1), keras.ops.expand_dims(y_pred, -1))
     weights = keras.ops.reshape(keras.ops.cast(weights, values.dtype), (1, -1))
-    return keras.ops.mean(values * outer_time_view(weights, len(values.shape)))
+    return keras.ops.mean(values * outer_view(weights, len(values.shape)))
 
 
 def _resolve_optimizer(

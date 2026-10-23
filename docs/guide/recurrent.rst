@@ -72,9 +72,9 @@ Loop
 ----
 
 A :class:`~nnodely.Loop` takes a model, the *body* (built here if it is not
-yet), and rolls it out along the outer time of the streams that drive it:
-a stream with one more time axis than the body input it feeds, declared with
-``seq=`` on an Input. It is configured with the body
+yet), and rolls it out along the outermost sequence axis of the streams that
+drive it: a stream with one more sequence axis than the body input it feeds,
+declared with ``seq=`` on an Input. It is configured with the body
 and its recurrence, then called on the streams that drive it,
 ``Loop(f, callback, init=...)(inputs)``:
 
@@ -82,13 +82,13 @@ and its recurrence, then called on the streams that drive it,
     maps a body input to the body output that feeds it at the next step.
 ``init``
     maps a fed-back input to the stream that seeds it. Step 0 reads the first
-    step of that stream's outer time. A fed-back input left out starts at zero.
+    step of that stream's sequence. A fed-back input left out starts at zero.
 ``inputs`` (the call)
     maps the other body inputs to streams that carry one value per step
     (exogenous signals). Body inputs left out keep a constant value.
 ``collect``
     ``True`` (the default) returns the whole trajectory, with the rollout as
-    its new outer time. ``False`` returns only the last step.
+    its new outermost sequence axis. ``False`` returns only the last step.
 ``length``
     fixes the number of steps. It is needed only when no initial value or
     input carries a rollout.
@@ -121,7 +121,7 @@ on the state :math:`s = (x, \dot x)`:
    s_next = Input("s_next", dim=2, seq=horizon)
    simulator.minimize("trajectory", trajectory, s_next)
    simulator.build()
-   print(trajectory.shape)   # Shape(T=(20, 1), D=(2,)): 20 steps of 1 sample of 2 states
+   print(trajectory.shape)   # Shape(S=(20,), T=1, D=(2,)): 20 steps of 1 sample of 2 states
 
 The :class:`~nnodely.DataLoader` cuts the signals into sequences of
 ``horizon`` steps. The target sequence is the state one step ahead:

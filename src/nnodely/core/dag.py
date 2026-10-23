@@ -2,8 +2,8 @@
 DAG - Lazy/DAG approach. No global graph.
 Each node has predecessors; Model traverses from output backwards.
 
-Axes: a stream is laid out (batch, *time, *dim), see core/shape.py.
-Default: dim=1, one sample (time=1)
+Axes: a stream is laid out (batch, *seq, time, *dim), see core/shape.py.
+Default: dim=1, one sample (time=1), no sequence
 """
 
 from copy import copy
@@ -58,16 +58,12 @@ class Scope:
         self,
         memo: dict[Node, Any] | None = None,
         values: dict[Node, Any] | None = None,
-        samples: dict[Node, Any] | None = None,
     ) -> None:
         self.memo: dict[Node, Any] = {} if memo is None else memo
         self.calls: dict[Node, "Scope"] = {}
         # The Parameters and Constants inlined, one copy each, shared with
         # every call: they are one object in every model that reads them.
         self.values: dict[Node, Any] = {} if values is None else values
-        # The current sample of each stream an Input read directly stands
-        # for, one window each, shared with every call.
-        self.samples: dict[Node, Any] = {} if samples is None else samples
 
     def merged_memo(self) -> dict[Node, Any]:
         """Every node inlined anywhere, with the enclosing scope taking priority.
@@ -88,9 +84,7 @@ class Scope:
 def flatten_node(node: Node, scope: Scope) -> Any:
     from nnodely.core.modely import IntermediateOutput
     from nnodely.core.layer import Layer
-    from nnodely.layers.input import Input, passes_on
     from nnodely.layers.parameter import _Value
-    from nnodely.layers.partitions import SampleWindow
 
     if node in scope.memo:
         return scope.memo[node]
@@ -112,7 +106,7 @@ def flatten_node(node: Node, scope: Scope) -> Any:
                 internal_input: flatten_node(external_input, scope)
                 for internal_input, external_input in model_call.inputs_map.items()
             }
-            call_scope = Scope({**scope.memo, **bindings}, scope.values, scope.samples)
+            call_scope = Scope({**scope.memo, **bindings}, scope.values)
             scope.calls[model_call] = call_scope
 
         internal_output = model_call.outputs_map[node]
@@ -121,20 +115,7 @@ def flatten_node(node: Node, scope: Scope) -> Any:
         scope.memo[node] = flat_output
         return flat_output
 
-    new_preds: list[Node] = [flatten_node(pred, scope) for pred in node.preds]
-    if not isinstance(node, SampleWindow):
-        # Read directly, an Input is its current sample: a block's Input bound
-        # to a stream of a wider window reads the newest sample of it.
-        new_preds = [
-            _current_sample(flat, scope)
-            if isinstance(pred, Input)
-            and isinstance(flat, Stream)
-            and not isinstance(flat, Input)
-            and flat.shape.inner_time != 1
-            and not passes_on(node, pred)
-            else flat
-            for pred, flat in zip(node.preds, new_preds)
-        ]
+    new_preds = [flatten_node(pred, scope) for pred in node.preds]
     new_node = copy(node)
     new_node.preds = new_preds
     if isinstance(new_node, Layer) and not bool(
@@ -145,40 +126,6 @@ def flatten_node(node: Node, scope: Scope) -> Any:
     if isinstance(node, _Value):
         scope.values[node] = new_node
     return new_node
-
-
-def _read_current_samples(outputs, scope: Scope) -> None:
-    """Give every node reading an Input directly the current sample of it,
-    where the graph also reads a wider window of that Input: the data holds
-    the union of the windows the graph reads."""
-    from nnodely.layers.input import Input, passes_on, windows_read
-    from nnodely.layers.partitions import SampleWindow
-
-    order = toposort_outputs(outputs)
-    windows = windows_read(order)
-    for node in order:
-        if isinstance(node, SampleWindow):
-            continue
-        node.preds = [
-            _current_sample(pred, scope)
-            if isinstance(pred, Input)
-            and windows.get(pred, (1, 0)) != (1, 0)
-            and not passes_on(node, pred)
-            else pred
-            for pred in node.preds
-        ]
-
-
-def _current_sample(stream, scope: Scope):
-    """The window of the current sample of ``stream``, one per stream."""
-    from nnodely.layers.partitions import SampleWindow
-
-    window = scope.samples.get(stream)
-    if window is None:
-        window = scope.samples[stream] = SampleWindow(
-            past=1, future=0, name=f"{stream.name}_current"
-        )([stream])
-    return window
 
 
 def flatten(model):
@@ -196,7 +143,6 @@ def _flatten_graph(
 
     scope = Scope()
     flat_outputs: list[Output] = [flatten_node(output, scope) for output in outputs]
-    _read_current_samples(flat_outputs, scope)
     memo = scope.merged_memo()
     flat_inputs: list[Any] = [memo[input] for input in inputs if input in memo]
 

@@ -4,7 +4,7 @@ Inputs, Outputs and Parameters
 .. currentmodule:: nnodely
 
 .. autoclass:: Input
-   :members: sw, next, sequence, data_shape
+   :members: sw, next
 
 .. autoclass:: Output
 

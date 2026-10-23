@@ -136,22 +136,24 @@ class Modely:
         An Input of the calling graph is read through this model's own
         windows, so it needs the dim and the sequence of ``node``; any other
         stream must have the shape this model's graph reads ``node`` with. A
-        dynamic time axis matches any length.
+        dynamic sequence axis matches any length.
         """
         past, future = reads.get(node, (1, 0))
-        expected = Shape(dim=node.dim, time=(*node.sequence, past + future))
+        expected = Shape(dim=node.dim, time=past + future, seq=node.seq)
         if isinstance(stream, Input):
-            fits = _same_time(stream.sequence, node.sequence)
+            fits = _same_sizes(stream.seq, node.seq)
         elif node not in self.order:
             return  # an input this model does not read
         else:
-            fits = _same_time(stream.time, expected.time)
+            fits = _same_sizes(
+                (*stream.seq, stream.time), (*expected.seq, expected.time)
+            )
         if not fits or tuple(stream.dim) != tuple(node.dim):
             raise ValueError(
                 f"Model {self.name!r} reads its input {node.name!r} as "
                 f"{expected}, so used as a block it takes a stream of that shape "
                 f"for it, or an Input of dim {tuple(node.dim)} and sequence "
-                f"{node.sequence}, read through the block's own windows; "
+                f"{node.seq}, read through the block's own windows; "
                 f"{stream.name!r} is {stream.shape}. A block keeps the shapes it "
                 "was declared with: give it a stream of that shape, or declare "
                 "the model on the shape it is used with."
@@ -301,7 +303,7 @@ class Modely:
             },
             output_names=tuple(node.name for node in output_nodes),
             input_time_axes={
-                node.name: node.shape.inner_time_axis for node in self._roll_callbacks
+                node.name: node.shape.time_axis for node in self._roll_callbacks
             },
             steps=cast(int, self._roll_steps),
             name=self._roll_name or f"{self.name}_roll",
@@ -413,8 +415,9 @@ class Modely:
             validated loss stays unweighted, the way Keras logs a
             ``loss_weight``.
         seq_weights:
-            One weight per step of the outer time of the source - the
-            rollout of its outermost Loop, or its window without one - such as
+            One weight per step of the outer axis of the source - the
+            rollout of its outermost Loop, its outermost sequence axis, or its
+            window without one - such as
             ``np.exp(0.1 * np.arange(N))`` to weigh the last predictions more,
             or a callable of the number of steps returning them, such as
             ``lambda n: np.exp(0.1 * np.arange(n))``, for a sequence whose
@@ -817,9 +820,9 @@ class Modely:
         for input_ref, stream_ref in rollback.items():
             input_node = resolve(self.inputs, input_ref, "input")
             stream = resolve(graph_streams, stream_ref, "stream")
-            # One sample of the inner time, within the Input's sequence: the
+            # One sample of the window, within the Input's sequence: the
             # Input read directly.
-            expected = input_node.shape.tuple
+            expected = input_node.shape.replace(time=1).tuple
             if stream.shape.tuple != expected:
                 raise ValueError(
                     f"roll stream {stream.name!r} must produce one temporal "
@@ -944,8 +947,8 @@ class IntermediateOutput(Output):
         self.preds = [model_call]
 
 
-def _same_time(time: tuple, other: tuple) -> bool:
-    """Whether two tuples of time axes match: as many axes, of the same
+def _same_sizes(time: tuple, other: tuple) -> bool:
+    """Whether two tuples of axis sizes match: as many axes, of the same
     lengths, a dynamic one (None) matching any."""
     return len(time) == len(other) and all(
         None in (size, other_size) or size == other_size

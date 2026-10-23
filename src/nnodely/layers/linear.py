@@ -8,14 +8,14 @@ from nnodely.layers.parameter import Parameter, _check_weight_size, _ParameterWe
 @keras.saving.register_keras_serializable(package="nnodely")
 class LinearImpl(keras.layers.Layer):
     """
-    Linear projection of the dim axes, ``x @ kernel + bias``, at every step
-    of every time axis.
+    Linear projection of the dim axes, ``x @ kernel + bias``, at every
+    sample of the window and every step of the sequence.
 
     Input convention:
-        [batch, *time, *dim]
+        [batch, *seq, time, *dim]
 
     Output convention, with ``axis=None``:
-        [batch, *time, features]
+        [batch, *seq, time, features]
 
     With ``axis=k`` only dim axis ``k`` is projected, and ``features``
     takes its place among the dim axes: with a matrix of its own at every
@@ -70,8 +70,8 @@ class LinearImpl(keras.layers.Layer):
         kernel = keras.ops.reshape(kernel[0], self.kernel_shape)
 
         if self.axis is None:
-            # The dim, the last axes of (batch, *time, *dim), contracted with
-            # the first axes of the kernel: (batch, *time, out).
+            # The dim, the last axes of (batch, *seq, time, *dim), contracted
+            # with the first axes of the kernel: (batch, *seq, time, out).
             y = keras.ops.tensordot(x, kernel, axes=self.dim_rank)
             if bias:
                 y = y + keras.ops.reshape(bias[0][0], self.bias_shape)
@@ -103,13 +103,13 @@ def _linear_weight_shapes(dim, features, axis, shared_kernel):
 class Linear(_ParameterWeights):
     """
     Linear projection of the dim axes, ``x @ kernel + bias``, applied at every
-    step of every time axis.
+    sample of the window and every step of the sequence.
 
     With ``axis=None`` the whole dim is projected: every feature of a sample
     feeds every output::
 
-        input:  (batch, *time, *dim)
-        output: (batch, *time, features)
+        input:  (batch, *seq, time, *dim)
+        output: (batch, *seq, time, features)
         kernel: (*dim, features)
         bias:   (features,)
 

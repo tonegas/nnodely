@@ -98,10 +98,10 @@ def _indicators(true: np.ndarray, pred: np.ndarray) -> dict[str, float]:
 
 
 def _step_rmse(error: np.ndarray, real: np.ndarray, dim_rank: int):
-    """RMSE of every channel at every step of the outer time, over the real
-    points of that step; None for a signal with a single time axis.
+    """RMSE of every channel at every step of the outermost sequence axis,
+    over the real points of that step; None for a signal without a sequence.
 
-    ``error`` is laid out ``(samples, *time, *dim)``, ``real`` marks its real
+    ``error`` is laid out ``(samples, *seq, time, *dim)``, ``real`` marks its real
     points ``(samples, *time)``.
     """
     if error.ndim - 1 - dim_rank < 2:
@@ -123,7 +123,7 @@ class SignalScore:
     ``channel_metrics`` each indicator of each channel. ``y_true`` and
     ``y_pred`` are laid out ``(points, channels)``: a point is one sample at
     one time step, a channel one feature, and the padded points are left out.
-    ``step_rmse``, for a signal with an outer time - a rollout - is the RMSE
+    ``step_rmse``, for a signal with a sequence - a rollout - is the RMSE
     of each channel at each of its steps, ``(steps, channels)``.
     """
 

@@ -12,6 +12,8 @@ from nnodely import (
     Tanh,
     IntegrateStep,
     Integrate,
+    Derivative,
+    DerivativeStep,
     Loop,
     DataLoader,
     Parameter,
@@ -24,7 +26,7 @@ from nnodely.layers.fuzzify import Fuzzify, Gaussian, Rectangular, Triangular
 from nnodely.core.layer import Identity
 import keras
 import numpy as np
-from conftest import to_numpy
+from conftest import requires_onnx_export, to_numpy
 
 import pytest
 
@@ -495,7 +497,7 @@ def test_fuzzify_rejects_centers_it_cannot_use():
         Fuzzify(Parameter("bad_count", value=[0.0, 0.5, 1.0]), function=[Sin, Cos])
     # Centers with a sequence axis follow the signal's.
     s = Input("bad_centers_s", seq=2)
-    with pytest.raises(ValueError, match="outer time axes"):
+    with pytest.raises(ValueError, match="with a sequence"):
         Fuzzify(Fir(features=2)(s))([x])
 
 
@@ -585,7 +587,7 @@ def test_membership_functions_are_layers_of_their_own():
         inputs=[x],
         outputs=[Output(f"member_{key}", node) for key, node in outputs.items()],
     ).build()
-    assert all(node.shape.dimensions == ((5,), (1,)) for node in outputs.values())
+    assert all(node.shape.dimensions == ((), 5, (1,)) for node in outputs.values())
 
     samples = np.array([0.0, 0.25, 0.5, 1.4, 2.0], dtype=np.float32)
     result = model({"member_x": samples.reshape(1, 5, 1)})
@@ -608,7 +610,7 @@ def test_membership_functions_keep_the_shape_of_any_stream():
     x = Input("member_shape_x", dim=(2, 3), seq=-1)
     bell = Gaussian()([x.sw(2)])
     for node in (Triangular()([x.sw(2)]), Rectangular()([x.sw(2)]), bell):
-        assert node.shape.dimensions == ((None, 2), (2, 3))
+        assert node.shape.dimensions == ((None,), 2, (2, 3))
     model = Modely(
         "member_shape", inputs=[x], outputs=[Output("member_shape_bell", bell)]
     ).build()
@@ -664,7 +666,7 @@ def test_fuzzify_with_a_single_center():
         "single_model", inputs=[x], outputs=[Output("single_out", fuzzy)]
     ).build()
     assert fuzzy.name == "single_fuzzy"
-    assert fuzzy.shape.dimensions == ((1,), (1,))
+    assert fuzzy.shape.dimensions == ((), 1, (1,))
 
     # A lone triangle reaches 1 on either side.
     values = np.array([-0.5, 0.0, 0.5, 1.5], dtype=np.float32).reshape(-1, 1, 1)
@@ -711,8 +713,8 @@ def test_fuzzify_follows_a_time_window_and_a_dynamic_sequence():
     x = Input("dynamic_fuzzy_x", seq=-1)
     placed = Fuzzify([0.0, 1.0])([x.sw(4)])
     waves = Fuzzify([0.0, 1.0], function=Sin)([x.sw(4)])
-    assert placed.shape.dimensions == ((None, 4), (2,))
-    assert waves.shape.dimensions == ((None, 4), (2,))
+    assert placed.shape.dimensions == ((None,), 4, (2,))
+    assert waves.shape.dimensions == ((None,), 4, (2,))
     model = Modely(
         "dynamic_fuzzy",
         inputs=[x],
@@ -764,7 +766,7 @@ def test_fuzzify_rejects_what_it_cannot_use():
     with pytest.raises(TypeError, match="layer class or instance"):
         Fuzzify([0.0], function=np.sin)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="cannot be made without arguments"):
-        Fuzzify([0.0, 1.0], function=Fir)([x])
+        Fuzzify([0.0, 1.0], function=Select)([x])
     with pytest.raises(ValueError, match="scalar signal"):
         Fuzzify([0.0, 1.0])([v])
     with pytest.raises(TypeError, match="reads one stream"):
@@ -1041,7 +1043,7 @@ def test_local_model_vectorized_fir_on_vector_cells():
         output_function=Tanh(),
         name="vector_cells_per_cell",
     )([x.sw(4)], activations)
-    assert vectorized.shape.dimensions == per_cell.shape.dimensions == ((1,), (2,))
+    assert vectorized.shape.dimensions == per_cell.shape.dimensions == ((), 1, (2,))
 
     model = Modely(
         "vector_cells",
@@ -1317,7 +1319,9 @@ def test_local_model_rejects_mismatched_inputs():
 
     sequence = Input("k_invalid_seq", dim=1, seq=-1)
     sequence_activation = Fuzzify(centers=[0.0, 1.0])([sequence])
-    with pytest.raises(ValueError, match="activation 0 must have shape"):
+    with pytest.raises(
+        ValueError, match="activation 0 must have a window and no sequence"
+    ):
         LocalModel(name="sequence_local")([x.sw(2)], [sequence_activation])
 
 
@@ -1705,7 +1709,7 @@ def test_a_dynamic_integrate_feeds_any_relation():
     # On a dynamic horizon the result is still a stream to compute with.
     acc = Input("dynamic_further_acc", seq=-1)
     vel = Integrate(dt=0.1)(acc)
-    assert vel.shape.time == (None, 1)
+    assert vel.shape.dimensions[:2] == ((None,), 1)
     gain = Parameter("dynamic_further_gain", value=3.0)
     model = Modely(
         "dynamic_further",
@@ -1772,8 +1776,486 @@ def test_integrate_rejects_what_it_cannot_integrate():
         Integrate(dt=0.1, init=Input("long_init", dim=2).sw(2))(rate)
     with pytest.raises(ValueError, match="init has dim"):
         Integrate(dt=0.1, init=Input("wide_init", dim=3))(rate)
-    with pytest.raises(ValueError, match="init has the outer time"):
+    with pytest.raises(ValueError, match="init has the sequence"):
         Integrate(dt=0.1, init=Input("seq_init", dim=2, seq=4))(rate)
+
+
+def test_derivative():
+    # A one-step backward difference: the step reads the previous sample.
+    x = Input("dstep_x")
+    previous = Input("dstep_previous")
+    out = Output("dstep_out", DerivativeStep(dt=0.1, init=previous)(x))
+    model = Modely(
+        name="differentiator",
+        inputs=[x, previous],
+        outputs=[out, Output("dstep_sample", Identity()([x]))],
+    ).build()
+
+    # A loop that rolls the step out along a sequence of samples, feeding each
+    # sample back as the previous one of the next step.
+    x_seq = Input("dstep_x_seq", seq=-1)
+    x0_loop = Input("dstep_x0_loop")
+    derivative, _ = Loop(
+        f=model, callback={previous: "dstep_sample"}, init={previous: x0_loop}
+    )({x: x_seq})
+    model_loop = Modely(
+        name="differentiator_loop",
+        inputs=[x_seq, x0_loop],
+        outputs=[Output("dstep_loop", derivative)],
+    ).build()
+
+    dummy = np.array([1.0, 3.0, 6.0]).reshape(1, 3, 1, 1)
+    start = np.array(0.5).reshape(1, 1, 1)
+    by_hand = to_numpy(
+        model_loop({"dstep_x_seq": dummy, "dstep_x0_loop": start})["dstep_loop"]
+    )
+    np.testing.assert_allclose(by_hand.ravel(), [5.0, 20.0, 30.0], rtol=1e-5)
+
+    # The layer gives the same derivatives along the sequence, with no loop.
+    y = Input("dstep_y", seq=-1)
+    y0 = Input("dstep_y0")
+    new_model = Modely(
+        name="new_differentiator",
+        inputs=[y, y0],
+        outputs=[Output("dstep_y_hat", Derivative(dt=0.1, init=y0)(y))],
+    ).build()
+
+    result = to_numpy(new_model({"dstep_y": dummy, "dstep_y0": start})["dstep_y_hat"])
+    assert result.shape == (1, 3, 1, 1)
+    np.testing.assert_allclose(result, by_hand, rtol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# Derivative: DerivativeStep's stencil along the signal's horizon
+# ---------------------------------------------------------------------------
+
+
+def _derivative_model(name, seq: int | tuple[int, ...] = -1, dim=1, **kwargs):
+    signal = Input(f"{name}_signal", dim=dim, seq=seq)
+    out = Output(f"{name}_out", Derivative(**kwargs)(signal))
+    return Modely(name, inputs=[signal], outputs=[out]).build()
+
+
+@pytest.mark.parametrize(
+    "stencil",
+    [
+        {"order": 1},
+        {"order": 2},
+        {"order": 1, "window": 5},
+        {"order": 1, "window": 3, "poly_order": 2},
+    ],
+    ids=["first", "second", "smoothing", "bdf2"],
+)
+def test_derivative_matches_derivative_step_over_the_same_samples(stencil):
+    # Along a horizon or along a time window, the same stencil on the same
+    # samples.
+    name = "_".join(f"{key}{value}" for key, value in stencil.items())
+    samples = np.array([1.0, -2.0, 4.0, 0.5, 3.0, 2.0], dtype=np.float32)
+    horizon = _derivative_model(f"dalong_{name}", dt=0.1, init=0.7, **stencil)
+    w = Input(f"dwindow_{name}")
+    window = Modely(
+        f"dwindow_{name}",
+        inputs=[w],
+        outputs=[
+            Output(
+                f"dwindow_{name}_out",
+                DerivativeStep(dt=0.1, init=0.7, **stencil)(w.sw(6)),
+            )
+        ],
+    ).build()
+
+    along = to_numpy(
+        horizon({f"dalong_{name}_signal": samples.reshape(1, 6, 1, 1)})[
+            f"dalong_{name}_out"
+        ]
+    )
+    over = to_numpy(
+        window({f"dwindow_{name}": samples.reshape(1, 6, 1)})[f"dwindow_{name}_out"]
+    )
+    np.testing.assert_allclose(along.ravel(), over.ravel(), rtol=1e-5, atol=1e-3)
+
+
+def test_derivative_follows_a_dynamic_horizon_without_rebuilding():
+    # x = k^2: the backward difference is (k^2 - (k - 1)^2) / dt.
+    model = _derivative_model("ddynamic", dt=0.5)
+    for steps in (1, 4, 9):
+        k = np.arange(1, steps + 1, dtype=np.float32)
+        signal = np.tile((k**2).reshape(1, steps, 1, 1), (2, 1, 1, 1))
+        result = to_numpy(model({"ddynamic_signal": signal})["ddynamic_out"])
+        assert result.shape == (2, steps, 1, 1)
+        np.testing.assert_allclose(result[1].ravel(), (k**2 - (k - 1) ** 2) / 0.5)
+
+
+def test_derivative_over_a_fixed_horizon():
+    model = _derivative_model("dfixed", seq=4, dt=1.0)
+    result = to_numpy(
+        model({"dfixed_signal": np.array([1.0, 3.0, 6.0, 10.0]).reshape(1, 4, 1, 1)})[
+            "dfixed_out"
+        ]
+    )
+    np.testing.assert_allclose(result.ravel(), [1.0, 2.0, 3.0, 4.0])
+
+
+def test_derivative_starts_from_none_a_number_or_a_stream():
+    signal = np.array([2.0, 3.0, 5.0], dtype=np.float32).reshape(1, 3, 1, 1)
+    zero = _derivative_model("dfrom_zero", dt=0.1)
+    number = _derivative_model("dfrom_number", dt=0.1, init=1.0)
+    x, x0 = Input("dfrom_stream_signal", seq=-1), Input("dfrom_stream_init")
+    stream = Modely(
+        "dfrom_stream",
+        inputs=[x, x0],
+        outputs=[Output("dfrom_stream_out", Derivative(dt=0.1, init=x0)(x))],
+    ).build()
+
+    np.testing.assert_allclose(
+        to_numpy(zero({"dfrom_zero_signal": signal})["dfrom_zero_out"]).ravel(),
+        [20.0, 10.0, 20.0],
+        rtol=1e-5,
+    )
+    np.testing.assert_allclose(
+        to_numpy(number({"dfrom_number_signal": signal})["dfrom_number_out"]).ravel(),
+        [10.0, 10.0, 20.0],
+        rtol=1e-5,
+    )
+    # One initial value per sample of the batch.
+    result = to_numpy(
+        stream(
+            {
+                "dfrom_stream_signal": np.concatenate([signal, signal]),
+                "dfrom_stream_init": np.array([1.0, -1.0]).reshape(2, 1, 1),
+            }
+        )["dfrom_stream_out"]
+    )
+    np.testing.assert_allclose(result[0].ravel(), [10.0, 10.0, 20.0], rtol=1e-5)
+    np.testing.assert_allclose(result[1].ravel(), [30.0, 10.0, 20.0], rtol=1e-5)
+
+
+def test_derivative_reads_the_history_a_longer_stencil_needs():
+    # The second derivative reads the two steps before the first: one init
+    # sample stands for both, or the two are given, oldest first. On x = k^2
+    # with the true history 0, 1 every second difference is 2.
+    x = Input("dhistory_x", seq=-1)
+    one, two = Input("dhistory_one"), Input("dhistory_two")
+    model = Modely(
+        "dhistory",
+        inputs=[x, one, two],
+        outputs=[
+            Output("dhistory_one_out", Derivative(order=2, dt=1.0, init=one)(x)),
+            Output("dhistory_two_out", Derivative(order=2, dt=1.0, init=two.sw(2))(x)),
+        ],
+    ).build()
+
+    result = model(
+        {
+            "dhistory_x": np.array([4.0, 9.0, 16.0]).reshape(1, 3, 1, 1),
+            "dhistory_one": np.array([1.0]).reshape(1, 1, 1),
+            "dhistory_two": np.array([0.0, 1.0]).reshape(1, 2, 1),
+        }
+    )
+    # 1 - 2*1 + 4, 1 - 2*4 + 9, 4 - 2*9 + 16
+    np.testing.assert_allclose(
+        to_numpy(result["dhistory_one_out"]).ravel(), [3.0, 2.0, 2.0]
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["dhistory_two_out"]).ravel(), [2.0, 2.0, 2.0]
+    )
+
+
+def test_derivative_each_feature_of_a_vector_signal():
+    x, start = Input("dvector_signal", dim=2, seq=-1), Input("dvector_init", dim=2)
+    scalar_start = Input("dvector_scalar_init")
+    model = Modely(
+        "dvector",
+        inputs=[x, start, scalar_start],
+        outputs=[
+            Output("dvector_out", Derivative(dt=1.0, init=start)(x)),
+            Output("dvector_scalar_out", Derivative(dt=1.0, init=scalar_start)(x)),
+        ],
+    ).build()
+    values = np.array([[1.0, 2.0, 4.0], [10.0, 30.0, 60.0]], dtype=np.float32)
+
+    result = model(
+        {
+            "dvector_signal": values.T.reshape(1, 3, 1, 2),
+            "dvector_init": np.array([0.0, 10.0]).reshape(1, 1, 2),
+            "dvector_scalar_init": np.array([1.0]).reshape(1, 1, 1),
+        }
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["dvector_out"]).reshape(3, 2).T, [[1, 1, 2], [0, 20, 30]]
+    )
+    # A scalar initial value starts every feature.
+    np.testing.assert_allclose(
+        to_numpy(result["dvector_scalar_out"]).reshape(3, 2).T,
+        [[0, 1, 2], [9, 20, 30]],
+    )
+
+
+def test_derivative_a_signal_with_an_extra_sequence_axis():
+    # The horizon is the outermost sequence axis; the other sequence axes are
+    # differentiated apart, each from its own initial value.
+    x, x0 = Input("dextra_signal", seq=(-1, 2)), Input("dextra_init", seq=2)
+    model = Modely(
+        "dextra",
+        inputs=[x, x0],
+        outputs=[
+            Output("dextra_out", Derivative(dt=1.0, init=x0)(x)),
+            Output("dextra_zero", Derivative(dt=1.0)(x)),
+        ],
+    ).build()
+    values = np.array([[1.0, 3.0, 6.0], [5.0, 5.0, 4.0]], dtype=np.float32)
+
+    result = model(
+        {
+            "dextra_signal": values.T.reshape(1, 3, 2, 1, 1),
+            "dextra_init": np.array([0.0, 5.0]).reshape(1, 2, 1, 1),
+        }
+    )
+    assert to_numpy(result["dextra_out"]).shape == (1, 3, 2, 1, 1)
+    np.testing.assert_allclose(
+        to_numpy(result["dextra_out"]).reshape(3, 2).T, [[1, 2, 3], [0, 0, -1]]
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["dextra_zero"]).reshape(3, 2).T, [[1, 2, 3], [5, 0, -1]]
+    )
+
+
+def test_integrate_and_derivative_invert_each_other_along_a_horizon():
+    dt = 0.1
+    x, x0 = Input("dinverse_x", seq=-1), Input("dinverse_init")
+    model = Modely(
+        "dinverse",
+        inputs=[x, x0],
+        outputs=[
+            Output(
+                "dinverse_integral_of_derivative",
+                Integrate(dt=dt, init=x0)(Derivative(dt=dt, init=x0)(x)),
+            ),
+            Output(
+                "dinverse_derivative_of_integral",
+                Derivative(dt=dt, init=x0)(Integrate(dt=dt, init=x0)(x)),
+            ),
+        ],
+    ).build()
+    values = np.random.default_rng(0).normal(size=(2, 7, 1, 1)).astype(np.float32)
+
+    result = model(
+        {"dinverse_x": values, "dinverse_init": np.array([0.3, -2.0]).reshape(2, 1, 1)}
+    )
+    for name in ("dinverse_integral_of_derivative", "dinverse_derivative_of_integral"):
+        np.testing.assert_allclose(to_numpy(result[name]), values, atol=1e-4)
+
+
+def test_derivative_of_a_loop_trajectory():
+    # The velocity and the acceleration of a rolled-out position: each
+    # Derivative undoes the Integrate Loop it follows, step by step. Over the
+    # one-sample window of each step, DerivativeStep reads only init.
+    dt, v0, x0 = 0.1, 1.0, 3.0
+    acc = Input("dloop_acc", seq=-1)
+    pos = Integrate(dt=dt, init=x0)(Integrate(dt=dt, init=v0)(acc))
+    vel = Derivative(dt=dt, init=x0)(pos)
+    model = Modely(
+        "dloop",
+        inputs=[acc],
+        outputs=[
+            Output("dloop_vel", vel),
+            Output("dloop_acc_back", Derivative(dt=dt, init=v0)(vel)),
+            Output("dloop_window", DerivativeStep(dt=dt, init=x0)(pos)),
+            Output("dloop_pos", pos),
+        ],
+    ).build()
+    a = np.array([2.0, -1.0, 0.5, 3.0, 0.0], dtype=np.float32).reshape(1, 5, 1, 1)
+
+    result = model({"dloop_acc": a})
+    np.testing.assert_allclose(
+        to_numpy(result["dloop_vel"]).ravel(), v0 + dt * np.cumsum(a), atol=1e-4
+    )
+    np.testing.assert_allclose(to_numpy(result["dloop_acc_back"]), a, atol=1e-3)
+    np.testing.assert_allclose(
+        to_numpy(result["dloop_window"]),
+        (to_numpy(result["dloop_pos"]) - x0) / dt,
+        atol=1e-4,
+    )
+
+
+@pytest.mark.parametrize("layer", [Fir, Linear])
+def test_derivative_of_a_signal_from_a_layer_with_parameter_weights(layer):
+    # signal = 2u + 1 on [1, 2, 4, 7] is [3, 5, 9, 15]; from zero with dt = 1
+    # the differences are [3, 2, 4, 6].
+    name = f"dlayer_{layer.__name__.lower()}"
+    u = Input(f"{name}_u", seq=4)
+    gain = Parameter(f"{name}_gain", value=[2.0])
+    offset = Parameter(f"{name}_offset", value=[1.0])
+    signal = layer(features=1, kernel=gain, bias=offset)(u)
+    model = Modely(
+        name,
+        inputs=[u],
+        outputs=[Output(f"{name}_out", Derivative(dt=1.0)(signal))],
+    ).build()
+
+    values = np.array([1.0, 2.0, 4.0, 7.0]).reshape(1, 4, 1, 1)
+    result = to_numpy(model({f"{name}_u": values})[f"{name}_out"])
+    np.testing.assert_allclose(result.ravel(), [3.0, 2.0, 4.0, 6.0])
+
+
+def test_a_dynamic_derivative_feeds_any_relation():
+    # On a dynamic horizon the result is still a stream to compute with.
+    x = Input("ddynamic_further_x", seq=-1)
+    d = Derivative(dt=0.5)(x)
+    assert d.shape.dimensions[:2] == ((None,), 1)
+    gain = Parameter("ddynamic_further_gain", value=3.0)
+    model = Modely(
+        "ddynamic_further",
+        inputs=[x],
+        outputs=[
+            Output(
+                "ddynamic_further_out",
+                Sin()([d]) * gain + d * 2.0 + Integrate(dt=0.5)(d),
+            )
+        ],
+    ).build()
+
+    for steps in (3, 7):
+        result = to_numpy(
+            model({"ddynamic_further_x": np.ones((2, steps, 1, 1), dtype=np.float32)})[
+                "ddynamic_further_out"
+            ]
+        )
+        # From zero, a constant 1 jumps once: d = [2, 0, 0, ...], and its
+        # integral is the signal again.
+        d_values = np.zeros(steps)
+        d_values[0] = 2.0
+        assert result.shape == (2, steps, 1, 1)
+        np.testing.assert_allclose(
+            result[1].ravel(),
+            3.0 * np.sin(d_values) + 2.0 * d_values + 1.0,
+            rtol=1e-5,
+        )
+
+
+@pytest.mark.slow
+def test_derivative_is_trained_through():
+    # v = Derivative(k * x): the gain is learnt from the derivative of the
+    # trajectory.
+    steps = 8
+    x = Input("dtrained_x", seq=steps)
+    k = Parameter("dtrained_k", value=0.5)
+    v = Output("dtrained_v", Derivative(dt=1.0)(x * k))
+    model = Modely("dtrained", inputs=[x], outputs=[v])
+    model.minimize("fit", v, Input("dtrained_target", seq=steps))
+    model.build()
+    rng = np.random.default_rng(0)
+    positions = np.cumsum(rng.uniform(-1.0, 1.0, (64, steps)), axis=1).astype(
+        np.float32
+    )
+    targets = 2.0 * np.diff(positions, axis=1, prepend=0.0)
+    data = DataLoader(
+        model,
+        source=[
+            {"dtrained_x": positions[i], "dtrained_target": targets[i]}
+            for i in range(len(positions))
+        ],
+    )
+    assert len(data) == len(positions)  # one trajectory per simulation
+
+    model.train(data, epochs=200, batch_size=16, lr=0.05, printer=None)
+
+    np.testing.assert_allclose(to_numpy(k.param).ravel(), [2.0], atol=1e-2)
+
+
+def _saved_derivative_model(name, seq):
+    # A second derivative from a two-sample history: every argument the
+    # sequence layer saves.
+    x, history = Input(f"{name}_x", seq=seq), Input(f"{name}_history")
+    out = Derivative(order=2, dt=0.5, init=history.sw(2))(x)
+    return Modely(
+        name, inputs=[x, history], outputs=[Output(f"{name}_out", out)]
+    ).build()
+
+
+def _saved_derivative_data(name, steps):
+    return {
+        f"{name}_x": np.arange(1.0, steps + 1, dtype=np.float32).reshape(1, steps, 1, 1)
+        ** 3,
+        f"{name}_history": np.array([-1.0, 0.0], dtype=np.float32).reshape(1, 2, 1),
+    }
+
+
+def test_derivative_round_trips_through_save_and_the_keras_file(tmp_path):
+    model = _saved_derivative_model("dsaved", seq=-1)
+    data = _saved_derivative_data("dsaved", 5)
+    expected = to_numpy(model(data)["dsaved_out"])
+
+    model.save(tmp_path / "dsaved")
+    restored = Modely.load(tmp_path / "dsaved")
+    np.testing.assert_allclose(
+        to_numpy(restored(data)["dsaved_out"]), expected, rtol=1e-6
+    )
+
+    model.export_keras(tmp_path)
+    exported = Modely.import_keras(str(tmp_path / "dsaved.keras"))
+    assert isinstance(exported, keras.Model)
+    np.testing.assert_allclose(
+        to_numpy(exported(data)["dsaved_out"]),  # type: ignore
+        expected,
+        rtol=1e-6,
+    )
+
+
+@requires_onnx_export
+def test_derivative_exports_to_onnx(tmp_path):
+    pytest.importorskip("onnxruntime")
+    model = _saved_derivative_model("donnx", seq=5)
+    data = _saved_derivative_data("donnx", 5)
+    model.export_onnx(tmp_path)
+
+    actual = Modely.validate_onnx(tmp_path / "donnx.onnx", data, return_dict=True)
+    np.testing.assert_allclose(
+        to_numpy(actual["donnx_out"]),  # type: ignore
+        to_numpy(model(data)["donnx_out"]),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+
+@pytest.mark.skipif(
+    keras.backend.backend() != "tensorflow",
+    reason="only the tensorflow exporter keeps the sequence axis dynamic",
+)
+@requires_onnx_export
+def test_derivative_exports_to_onnx_following_the_horizon(tmp_path):
+    pytest.importorskip("onnxruntime")
+    model = _saved_derivative_model("donnx_dynamic", seq=-1)
+    model.export_onnx(tmp_path)
+
+    for steps in (2, 6):
+        data = _saved_derivative_data("donnx_dynamic", steps)
+        actual = Modely.validate_onnx(
+            tmp_path / "donnx_dynamic.onnx", data, return_dict=True
+        )["donnx_dynamic_out"]  # type: ignore
+        expected = to_numpy(model(data)["donnx_dynamic_out"])
+        assert expected.shape == (1, steps, 1, 1)
+        np.testing.assert_allclose(to_numpy(actual), expected, rtol=1e-5, atol=1e-5)
+
+
+def test_derivative_rejects_what_it_cannot_differentiate():
+    with pytest.raises(ValueError, match="has none"):
+        Derivative(dt=0.1)(Input("dno_seq"))
+    with pytest.raises(ValueError, match="one sample per step"):
+        Derivative(dt=0.1)(Input("dwindowed", seq=-1).sw(3))
+    with pytest.raises(ValueError, match="requires dt"):
+        Derivative()
+    with pytest.raises(ValueError, match="supports order"):
+        Derivative(order=3, dt=0.1)
+    with pytest.raises(ValueError, match="reads at least"):
+        Derivative(order=2, dt=0.1, window=2)
+    signal = Input("dchecked_signal", dim=2, seq=-1)
+    with pytest.raises(ValueError, match="init must carry"):
+        Derivative(dt=0.1, init=Input("dlong_init", dim=2).sw(3))(signal)
+    with pytest.raises(ValueError, match="init has dim"):
+        Derivative(dt=0.1, init=Input("dwide_init", dim=3))(signal)
+    with pytest.raises(ValueError, match="init has the sequence"):
+        Derivative(dt=0.1, init=Input("dseq_init", dim=2, seq=4))(signal)
 
 
 def test_my_localmodel():
@@ -1861,7 +2343,7 @@ def test_equation_learner_called_twice_applies_one_projection():
 
     # On a dynamic sequence too.
     s = Input("twice_eql_s", seq=-1)
-    assert learner([s]).shape.time == (None, 1)
+    assert learner([s]).shape.dimensions[:2] == ((None,), 1)
 
 
 def test_local_model_with_an_elementwise_function_on_several_inputs():

@@ -33,11 +33,12 @@ def test_parameter_shape_is_inferred_like_constant():
         "parameter_with_axes",
         value=np.ones((1, 3, 4), dtype=np.float32),
         dim=0,
-        time=(2, 1),
+        time=1,
+        seq=2,
     )
 
-    assert parameter.shape.dimensions == ((1,), (2, 3, 4))
-    assert parameter_with_axes.shape.dimensions == ((4, 3), (1,))
+    assert parameter.shape.dimensions == ((), 1, (2, 3, 4))
+    assert parameter_with_axes.shape.dimensions == ((4,), 3, (1,))
 
 
 def test_parameter_constant_model_inference():
@@ -108,10 +109,10 @@ def test_parameter_through_a_layer_keeps_the_batch_axis():
 @pytest.mark.parametrize(
     "value, dimensions",
     [
-        (2.0, ((1,), (1,))),
-        ([1.0, 2.0, 3.0], ((1,), (3,))),
-        (np.ones((2, 4)), ((1,), (2, 4))),
-        (np.ones((2, 4, 3)), ((1,), (2, 4, 3))),
+        (2.0, ((), 1, (1,))),
+        ([1.0, 2.0, 3.0], ((), 1, (3,))),
+        (np.ones((2, 4)), ((), 1, (2, 4))),
+        (np.ones((2, 4, 3)), ((), 1, (2, 4, 3))),
     ],
     ids=["number", "vector", "matrix", "three_axes"],
 )
@@ -128,21 +129,21 @@ def test_a_value_is_laid_out_dim_time_seq(value, dimensions):
 @pytest.mark.parametrize(
     "axes, dimensions, order",
     [
-        ({"dim": 0, "time": (2, 1)}, ((4, 3), (2,)), (2, 1, 0)),
-        # The axes time leaves are the dim axes.
-        ({"time": 1}, ((3,), (2, 4)), (1, 0, 2)),
-        ({"time": (2, 1)}, ((4, 3), (2,)), (2, 1, 0)),
+        ({"dim": 0, "time": 1, "seq": 2}, ((4,), 3, (2,)), (2, 1, 0)),
+        # The axes seq and time leave are the dim axes.
+        ({"time": 1}, ((), 3, (2, 4)), (1, 0, 2)),
+        ({"time": 1, "seq": 2}, ((4,), 3, (2,)), (2, 1, 0)),
         # dim names its axes in the order it wants them.
-        ({"dim": (2, 0), "time": 1}, ((3,), (4, 2)), (1, 2, 0)),
-        ({"dim": -1, "time": (1, 0)}, ((3, 2), (4,)), (1, 0, 2)),
+        ({"dim": (2, 0), "time": 1}, ((), 3, (4, 2)), (1, 2, 0)),
+        ({"dim": -1, "time": 0, "seq": 1}, ((3,), 2, (4,)), (1, 0, 2)),
     ],
-    ids=["all_three", "time_only", "seq_only", "dim_reordered", "negative"],
+    ids=["all_three", "time_only", "seq_and_time", "dim_reordered", "negative"],
 )
 def test_dim_time_and_seq_name_the_axes_of_a_value(axes, dimensions, order):
     values = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
     for node in (Constant(value=values, **axes), Parameter(value=values, **axes)):
         assert node.shape.dimensions == dimensions
-        # The value is laid out (*time, *dim): the axes moved into place.
+        # The value is laid out (*seq, time, *dim): the axes moved into place.
         assert node.value is not None
         np.testing.assert_array_equal(
             node.value, np.transpose(values, order).reshape(node.shape.tuple)
@@ -152,7 +153,7 @@ def test_dim_time_and_seq_name_the_axes_of_a_value(axes, dimensions, order):
 def test_a_value_without_dim_axes_keeps_a_dim_of_one():
     window = Parameter("window", value=[1.0, 2.0, 3.0, 4.0], time=0)
 
-    assert window.shape.dimensions == ((4,), (1,))
+    assert window.shape.dimensions == ((), 4, (1,))
 
 
 def test_a_vector_value_becomes_a_column():
@@ -163,14 +164,14 @@ def test_a_vector_value_becomes_a_column():
 
 def test_a_parameter_without_value_is_drawn_with_the_shape_it_is_given():
     x = Input("drawn_x")
-    parameter = Parameter("drawn", dim=(3, 2), time=(5, 4), initializer="ones")
+    parameter = Parameter("drawn", dim=(3, 2), time=4, seq=5, initializer="ones")
     model = Modely(
         "drawn_model",
         inputs=[x],
         outputs=[Output("drawn_x_out", x), Output("drawn_out", parameter)],
     ).build()
 
-    assert parameter.shape.dimensions == ((5, 4), (3, 2))
+    assert parameter.shape.dimensions == ((5,), 4, (3, 2))
     assert parameter.param is not None
     assert tuple(parameter.param.shape) == (5, 4, 3, 2)
     result = model({"drawn_x": np.zeros((2, 1, 1), dtype=np.float32)})["drawn_out"]
@@ -179,16 +180,18 @@ def test_a_parameter_without_value_is_drawn_with_the_shape_it_is_given():
 
 def test_dim_time_and_seq_must_name_each_axis_of_a_value_once():
     values = np.ones((2, 3, 4))
-    # time names one or more axes, each once.
+    # seq names one or more axes, time one, each once.
     with pytest.raises(ValueError, match="must take each axis"):
-        Parameter("two_times", value=values, time=(1, 1))
+        Parameter("two_times", value=values, seq=(1, 1))
+    with pytest.raises(TypeError, match="one axis of the value"):
+        Parameter("two_windows", value=values, time=(1, 2))
     with pytest.raises(ValueError, match="dim axis 3 is not an axis"):
         Parameter("out_of_range", value=values, dim=3)
     # Axis 2 is left out, and then axis 1 taken twice.
     with pytest.raises(ValueError, match="must take each axis"):
         Parameter("left_out", value=values, dim=0, time=1)
     with pytest.raises(ValueError, match="must take each axis"):
-        Constant("taken_twice", value=values, dim=(0, 1), time=(2, 1))
+        Constant("taken_twice", value=values, dim=(0, 1), time=1, seq=2)
 
 
 def test_a_matrix_value_given_its_time_axis_is_a_dim_by_time_stream():
@@ -200,7 +203,7 @@ def test_a_matrix_value_given_its_time_axis_is_a_dim_by_time_stream():
         "matrix_model", inputs=[x], outputs=[Output("matrix_out", x.sw(4) + parameter)]
     ).build()
 
-    assert parameter.shape.dimensions == ((4,), (3,))
+    assert parameter.shape.dimensions == ((), 4, (3,))
     batch = np.ones((2, 4, 3), dtype=np.float32)
     result = to_numpy(model({"matrix_x": batch})["matrix_out"])
     np.testing.assert_allclose(result, batch + values.T)
@@ -261,8 +264,8 @@ def test_values_given_their_axes_round_trip_through_save(tmp_path):
     )
     assert isinstance(restored_parameter, Parameter)
     assert isinstance(restored_constant, Constant)
-    assert restored_parameter.shape.dimensions == ((3,), (4, 2))
-    assert restored_constant.shape.dimensions == ((3,), (1,))
+    assert restored_parameter.shape.dimensions == ((), 3, (4, 2))
+    assert restored_constant.shape.dimensions == ((), 3, (1,))
     after = restored(data)
     for name in ("axes_parameter_out", "axes_constant_out"):
         np.testing.assert_array_equal(to_numpy(after[name]), to_numpy(before[name]))
@@ -440,13 +443,13 @@ def test_model_parameters_lists_every_parameter_and_prints_a_table():
     assert str(model.parameters) == "\n".join(
         [
             "Parameters of table_model",
-            "name        time  dim        values  trainable",
-            "----------  ----  ---------  ------  ---------",
-            "a           (1,)  (2, 3, 2)  12      yes",
-            "b           (1,)  (2, 3, 2)  12      no",
-            "lin_kernel  (1,)  (2, 3, 2)  12      yes",
-            "lin_bias    (1,)  (2,)       2       yes",
-            "c           (4,)  (1,)       4       yes",
+            "name        seq  time  dim        values  trainable",
+            "----------  ---  ----  ---------  ------  ---------",
+            "a           ()   1     (2, 3, 2)  12      yes",
+            "b           ()   1     (2, 3, 2)  12      no",
+            "lin_kernel  ()   1     (2, 3, 2)  12      yes",
+            "lin_bias    ()   1     (2,)       2       yes",
+            "c           ()   4     (1,)       4       yes",
             "5 parameters, 42 values, 30 trainable",
         ]
     )

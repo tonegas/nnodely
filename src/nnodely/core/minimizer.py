@@ -8,7 +8,7 @@ import numpy as np
 
 from nnodely.core.dag import _streams_from
 from nnodely.core.layer import Layer
-from nnodely.core.shape import OUTER_TIME_AXIS, expand_to_rank, outer_time_view
+from nnodely.core.shape import OUTER_AXIS, expand_to_rank, outer_view
 from nnodely.core.stream import Node, Stream
 from nnodely.layers.input import Input
 from nnodely.utils.utils import MaskedLoss, _resolve_loss, _weighted_sequence_loss
@@ -27,7 +27,7 @@ def _depends_on_dynamic_input(node) -> bool:
         if id(current) in seen:
             continue
         seen.add(id(current))
-        if isinstance(current, Input) and any(n is None for n in current.sequence):
+        if isinstance(current, Input) and any(n is None for n in current.seq):
             return True
         stack.extend(current.preds)
     return False
@@ -97,7 +97,7 @@ def _validate_gain(gain, minimizer: str) -> float:
 
 
 def _seq_weights_for(seq_weights, steps: int | None, minimizer: str):
-    """One weight per step of an outer time ``steps`` long, normalized to mean one.
+    """One weight per step of an outer axis ``steps`` long, normalized to mean one.
 
     A callable is given the number of steps. Weights are not negative, and not
     all zero: a negative weight would maximize the error of its step, and all
@@ -108,7 +108,7 @@ def _seq_weights_for(seq_weights, steps: int | None, minimizer: str):
     if weights.ndim != 1 or steps is not None and weights.shape != (steps,):
         raise ValueError(
             f"The seq_weights of minimizer {minimizer!r} must be one weight per "
-            f"step of the outer time, {steps} of them, got shape {weights.shape}."
+            f"step of the outer axis, {steps} of them, got shape {weights.shape}."
         )
     if not np.isfinite(weights).all() or (weights < 0).any() or not weights.any():
         raise ValueError(
@@ -126,7 +126,7 @@ def _validate_seq_weights(seq_weights, source: Stream, minimizer: str):
     """
     if seq_weights is None:
         return None
-    steps = None if _depends_on_dynamic_input(source) else source.shape.outer_time
+    steps = None if _depends_on_dynamic_input(source) else source.shape.outer
     if callable(seq_weights):
         if steps is not None:
             _seq_weights_for(seq_weights, steps, minimizer)
@@ -150,7 +150,7 @@ class _MinimizerTerm:
     ):
         self.name = name
         self.gain = gain  # weight of this term in the total loss
-        # weight of each step of the outer time, or a callable of its length
+        # weight of each step of the outer axis, or a callable of its length
         self.seq_weights = seq_weights
         self.source = source  # name of the graph output holding the prediction
         self.target = target  # name of the graph output holding the reference
@@ -171,9 +171,9 @@ def _rollout_mask(term, target, y):
     """
     if not term.masked or y is None:
         return None
-    if target.shape[OUTER_TIME_AXIS] not in (None, y.shape[-1]):
+    if target.shape[OUTER_AXIS] not in (None, y.shape[-1]):
         return None
-    return outer_time_view(keras.ops.cast(y, "bool"), len(target.shape))
+    return outer_view(keras.ops.cast(y, "bool"), len(target.shape))
 
 
 class _MinimizerTerms:
@@ -251,7 +251,7 @@ class MinimizerModel(keras.Model):
         if term.seq_weights is not None:
             # The rollout is unrolled, so its length is static here.
             weights = _seq_weights_for(
-                term.seq_weights, source.shape[OUTER_TIME_AXIS], term.name
+                term.seq_weights, source.shape[OUTER_AXIS], term.name
             )
             return _weighted_sequence_loss(term.loss, target, source, weights)
         # A loss function returns one value per sample, a Loss instance the

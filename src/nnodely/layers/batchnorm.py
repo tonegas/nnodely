@@ -13,7 +13,7 @@ class BatchNorm(Layer):
 
     Input and output::
 
-        [batch, *time, *dim]
+        [batch, *seq, time, *dim]
 
     Statistics are accumulated per feature: by default along the first dim
     axis. ``axis`` picks another tensor axis, counted with the batch as 0.
@@ -43,7 +43,7 @@ class BatchNorm(Layer):
         )
 
     def output_shape(self, *inputs):
-        # Normalization preserves every axis, including a dynamic time axis
+        # Normalization preserves every axis, including a dynamic sequence axis
         # that cannot be probed with a dummy tensor.
         return inputs[0].shape
 

@@ -86,8 +86,9 @@ variable, and trains, validates and exports through Keras. Models saved with
   rollout steps padded onto shorter simulations. A rollout also reports its
   RMSE at each step. Figures show prediction, error, parity, error
   distribution and the error along the rollout.
-- Calculus blocks `Differentiate` (with respect to an input), `Derivative`
-  (with respect to time),
+- Calculus blocks `Differentiate` (with respect to an input),
+  `DerivativeStep` (with respect to time, over a window), `Derivative` (the
+  same stencil along a horizon, computed at every step at once),
   `IntegrateStep`, `Integrate` (an `IntegrateStep` rolled out along a
   horizon by a `Loop`), `Ode` (Euler, midpoint, Heun, RK4) and `OdeNet` (neural ODEs,
   adaptive Dormand-Prince, hybrid events).
@@ -101,24 +102,26 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Layers new in 2.0: `BatchNorm`, `LeakyReLU`, `PReLU`, `Swish`, `GELU`,
   `Softplus`, `Asin`, `Acos`, `Atan`, `Exp`, `Log`, `Log10`, `Sqrt`, `Abs`,
   `Floor`, `Ceil`, `Deg2Rad`, `Clamp`, and `DataLoader.get_samples(n)`.
-- Time layers `TimeSelect`, `TimeRange`, `TimeConcatenate`, `TimeStack`
-  and `TimeReverse`, the counterparts of `Select`, `Range` and `Concatenate`
-  on the time axes, fixed or dynamic, counted outermost first: `axis=-1`,
-  the default, is the inner time, the window, and `axis=0` the outer time.
-- `keep_dim` on `Select` and `TimeSelect`. `Select` drops the selected dim
-  axis by default, and `keep_dim=True` keeps it with length 1; a stream
-  keeps at least one dim axis, so selecting from a vector gives a scalar
-  `(1,)`. `TimeSelect` keeps the selected time axis by default, one sample,
-  and `keep_dim=False` drops it: `TimeSelect(-1, axis=0, keep_dim=False)` of
-  a collected trajectory, its last step, can close a `Loop` callback on an
-  input without that axis, and the newest sample of a window, left without
-  time, combines with every sample of it.
+- Window layers `TimeSelect`, `TimeRange`, `TimeConcatenate` and
+  `TimeReverse`, the counterparts of `Select`, `Range` and `Concatenate` on
+  the window: they take no axis and always keep it, so the newest sample of
+  a window, `TimeSelect(-1)`, combines with every sample of it.
+- Sequence layers `SeqSelect`, `SeqRange`, `SeqConcatenate`, `SeqStack` and
+  `SeqReverse`, on a sequence axis, fixed or dynamic, counted outermost
+  first: `axis=0`, the default, is the rollout of the outermost `Loop`.
+  `SeqSelect` removes the axis, and so does `SeqRange` when its range is one
+  step long: `SeqSelect(-1)` of a collected trajectory, its last step, can
+  close a `Loop` callback on an input without that axis. `SeqStack` stacks
+  streams of one shape into a new sequence axis.
+- `keep_dim` on `Select`: it drops the selected dim axis by default, and
+  `keep_dim=True` keeps it with length 1; a stream keeps at least one dim
+  axis, so selecting from a vector gives a scalar `(1,)`.
 - `Fir` on a multi-dimensional input (1.x took scalars only): every element
   is filtered over its window alone, with a kernel of its own or, with
   `shared_kernel=True`, one for all. `features > 1` adds the channels as
   a trailing dim axis, laid out as the bias: `D=(2, 3)` becomes
   `D=(2, 3, 4)` with 4 channels, and a scalar becomes `D=(4,)` as in 1.x.
-- `Fir(features, kernel=..., bias=...)` and `Linear(features,
+- `Fir(features=1, kernel=..., bias=...)` and `Linear(features=1,
   kernel=..., bias=...)`: their weights are `Parameter`s, predecessors of the
   layer in the graph. Each of `kernel` and `bias` is a `Parameter`, of the
   shape of `layer.kernel` or `layer.bias`, or a Keras initializer, by name or
@@ -126,8 +129,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   `"<layer>_bias"`). Assigning, training or freezing the Parameter changes
   the layer, and layers given one Parameter share it. `bias=False` leaves the
   bias out. A Fir draws the filter of each element alone.
-- `Linear` maps the whole dim of a multi-dimensional input, `(*time, *dim)`
-  to `(*time, features)`, or only one dim axis with `axis=k`: with a matrix and a
+- `Linear` maps the whole dim of a multi-dimensional input, `(*seq, time,
+  *dim)` to `(*seq, time, features)`, or only one dim axis with `axis=k`: with a matrix and a
   bias for each position of the other dim axes, as the elements of a `Fir`, or
   with `shared_kernel=True` one for all.
 - `save(path, weights=True)` / `Modely.load(path, weights=True)`, Keras and
@@ -138,45 +141,46 @@ variable, and trains, validates and exports through Keras. Models saved with
 
 ### Changed
 
-- Every stream is laid out `(batch, *time, *dim)`, a `Parameter` or a
-  `Constant` included: their value is repeated for every sample. The time
-  axes come outermost first: the outer time, where a `Loop` rolls out (and
-  where a collected rollout is added), then the inner time, the window of
-  samples, where windows, `Fir`, derivatives and integrals act. Every
-  stream has at least one time axis: a number, a `Parameter` without time
-  and an `Input` read directly are one sample, `T=(1,)`. `Shape` holds `time`
-  (a tuple, never empty) and `dim`; `shape.dimensions` is `(time, dim)`. The
-  arrays given to a model or built by `DataLoader` are laid out the same,
-  `(samples, *time, *dim)`: an `Input` read only directly is
-  `(samples, *seq, 1, *dim)`.
-- The sequence of an `Input`, its outer time, is declared on the Input:
-  `Input("x", seq=5)`, `seq=(4, -1)` (outermost first, `-1` dynamic). Read
-  directly the Input is its current sample, time `(*seq, 1)`, and every
-  window of it keeps the sequence: `x.sw(3)` has time `(*seq, 3)`. There is
-  no `last()` (an Input read directly is its current sample) and windows
-  take no `seq`.
-- A window leaves its `Input` as it is: `build()` gives every Input the
-  union of the windows the model's graph reads, a direct read counting as
-  one sample, so a window declared but not used widens nothing, and two
-  models of one Input read their own windows; the Input's `data_shape`
-  reports it once built, while its `shape` stays the current sample. An
-  Input can be read directly and through windows in one graph: read
-  directly, it is its newest sample. `Differentiate(respect_to=x)` has the
-  shape of the window of `x` its relation reads.
-- Arithmetic between streams: streams must have the same time axes, and a
-  single sample - every time axis of size 1 - applies to every sample of
-  another's time, padded with leading axes as numpy does; dims must be
-  equal, or one a scalar; and one stream must already have the shape of the
-  result, so a matrix of one sample is not combined with the window of a
-  scalar. `Concatenate` repeats a single sample along the time of the
-  others. `TimeSelect(keep_dim=False)` refuses to drop a stream's only time
-  axis.
+- Every stream is laid out `(batch, *seq, time, *dim)`, a `Parameter` or a
+  `Constant` included: their value is repeated for every sample. The
+  sequence axes come first, outermost first: where a `Loop` rolls out (and
+  where a collected rollout is added). Then the window, `time`, where
+  windows, `Fir`, derivatives and integrals act. Then the dims. Every stream
+  has a window of at least one sample: a number, a `Parameter` without time
+  and an `Input` read directly are one sample, `T=1`. `Shape` holds `seq` (a
+  tuple, possibly empty), `time` (an int, 1 by default) and `dim`, and
+  prints as `Shape(S=(5,), T=3, D=(4,))`; `shape.dimensions` is
+  `(seq, time, dim)`. The arrays given to a model or built by `DataLoader`
+  are laid out the same, `(samples, *seq, time, *dim)`: an `Input` read only
+  directly is `(samples, *seq, 1, *dim)`.
+- The sequence of an `Input` is declared on the Input: `Input("x", seq=5)`,
+  `seq=(4, -1)` (outermost first, `-1` dynamic). Read directly the Input is
+  its current sample, `T=1`, and every window of it keeps the sequence:
+  `x.sw(3)` has its `S` and `T=3`. There is no `last()` (an Input read
+  directly is its current sample) and windows take no `seq`.
+- A window leaves its `Input` as it is until `build()`, which gives every
+  Input the union of the windows the model's graph reads, a direct read
+  counting as one sample, so a window declared but not used widens nothing,
+  and two models of one Input read their own windows. Once built, the
+  Input's `shape` is the data it is read from: `Input("x", dim=4, seq=5)`
+  read through `sw(3)` is `Shape(S=(5,), T=3, D=(4,))`. Read directly, before
+  or after the build, it is still its current sample, so an Input can be
+  read directly and through windows in one graph. `Differentiate(
+  respect_to=x)` has the shape of the window of `x` its relation reads.
+- Arithmetic between streams: streams must have the same sequence and
+  window, and a single sample - a window of one and every sequence axis of
+  size 1 - applies to every sample of another's, padded with leading axes as
+  numpy does; dims must be equal, or one a scalar; and one stream must
+  already have the shape of the result, so a matrix of one sample is not
+  combined with the window of a scalar. `Concatenate` repeats a single
+  sample along the sequence and window of the others.
 - A `Parameter` or `Constant` `value` is all dim by default, one sample of
-  its stream: an array of shape `(2, 3, 2)` is `T=(1,), D=(2, 3, 2)`, held
-  as given. Given with a value, `dim` and `time` name its axes, `time` one or
-  several, outermost first (`dim=0, time=(2, 1)` makes it `T=(2, 3), D=(2,)`);
-  without one, they are sizes. `.value` and the variable are laid out
-  `(*time, *dim)`, without a time axis when none is given.
+  its stream: an array of shape `(2, 3, 2)` is `T=1, D=(2, 3, 2)`. Given
+  with a value, `dim`, `time` and `seq` name its axes, `time` one, the
+  window, and `seq` one or several, outermost first (`dim=0, time=1, seq=2`
+  makes a `(2, 3, 4)` value `S=(4,), T=3, D=(2,)`); without one, they are
+  sizes. `.value` and the variable are laid out `(*seq, time, *dim)`,
+  without the window when no `time` is given.
 - `BatchNorm` normalizes along the first dim axis by default; `Softmax`,
   `PReLU` and `BatchNorm` take an explicit `axis` as a tensor axis, the batch
   as 0, as Keras does: a negative one counts from the last dim axis.
@@ -186,9 +190,10 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
   history, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
-- The `.nnodely` save format is version 4. Saves and `.keras` exports made
-  with the 2.0 pre-releases, in which a stream could have no time axis or
-  was laid out `(batch, *dim, time, *seq)`, do not load.
+- The `.nnodely` save format is version 5. Saves and `.keras` exports made
+  with the 2.0 pre-releases, in which a stream could have no time axis, had
+  several time axes or was laid out `(batch, *dim, time, *seq)`, do not
+  load.
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
 
@@ -213,7 +218,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `Relu` | `ReLU` |
 | `Add`, `Sub`, `Mul`, `Div`, `Pow` | `+`, `-`, `*`, `/`, `**` between streams |
 | `Neg` | `Negative` |
-| `Differentiate` | `Differentiate(respect_to=x)` with respect to an input, `Derivative(dt=...)` with respect to time |
+| `Differentiate` | `Differentiate(respect_to=x)` with respect to an input; with respect to time `DerivativeStep(dt=...)` over a window, `Derivative(dt=...)` along a horizon |
 | `ForwardEuler`, `RK2`, `RK4` | `Ode(f, states, dt, method=...)` |
 | `NeuralODE` | `OdeNet` |
 | `Part` | `Range` |

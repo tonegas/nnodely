@@ -48,7 +48,7 @@ def test_keras_function_applies_a_keras_layer_to_a_stream():
         inputs=[x],
         outputs=[Output("kf_cubed", cubed), Output("kf_squared", squared)],
     ).build()
-    assert cubed.shape.dimensions == ((3,), (1,))
+    assert cubed.shape.dimensions == ((), 3, (1,))
 
     values = np.array([[[1.0], [2.0], [-3.0]]], dtype=np.float32)
     result = model({"kf_x": values})
@@ -78,7 +78,7 @@ def test_keras_function_reads_its_output_shape_off_the_layer():
     length = KerasFunction(Norm)([v.sw(2)])
     model = Modely("kf_norm", inputs=[v], outputs=[Output("kf_length", length)]).build()
     # The dim is reduced, the time window and the dynamic sequence kept.
-    assert length.shape.dimensions == ((None, 2), (1,))
+    assert length.shape.dimensions == ((None,), 2, (1,))
 
     for steps in (3, 5):
         values = np.random.default_rng(steps).normal(size=(1, steps, 2, 3))

@@ -44,17 +44,21 @@ from nnodely.layers.function import KerasFunction
 from nnodely.layers.fuzzify import Fuzzify, Gaussian, Rectangular, Triangular
 from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.equationlearner import EquationLearner
-from nnodely.layers.derivative import Derivative, Differentiate
+from nnodely.layers.derivative import Derivative, DerivativeStep, Differentiate
 from nnodely.layers.integrate import Integrate, IntegrateStep
 from nnodely.layers.partitions import (
     Concatenate,
     Range,
     Select,
+    SeqConcatenate,
+    SeqRange,
+    SeqReverse,
+    SeqSelect,
+    SeqStack,
     TimeConcatenate,
     TimeRange,
     TimeReverse,
     TimeSelect,
-    TimeStack,
 )
 from nnodely.layers.batchnorm import BatchNorm
 from nnodely.layers.ode import Ode, OdeNet
@@ -112,6 +116,7 @@ __all__ = [
     "Interpolation",
     "EquationLearner",
     "Derivative",
+    "DerivativeStep",
     "Differentiate",
     "Integrate",
     "IntegrateStep",
@@ -120,8 +125,12 @@ __all__ = [
     "TimeSelect",
     "Select",
     "TimeRange",
-    "TimeStack",
     "TimeReverse",
+    "SeqSelect",
+    "SeqRange",
+    "SeqConcatenate",
+    "SeqStack",
+    "SeqReverse",
     "Range",
     "BatchNorm",
     "Ode",

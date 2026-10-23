@@ -18,7 +18,7 @@ from nnodely import (
     Fir,
     DataLoader,
     BatchNorm,
-    TimeSelect,
+    SeqSelect,
 )
 from nnodely.layers.loop import DYNAMIC_BUILD_LENGTH
 import pytest
@@ -79,7 +79,7 @@ def test_nested_loop(tmp_path):
         collect=False,
         init={inner: x},
     )()
-    assert first_loop.shape.dimensions == ((5, 1), (1,))
+    assert first_loop.shape.dimensions == ((5,), 1, (1,))
 
     second_input = Input("second_input", dim=1)
     second_relation = second_input * gain
@@ -103,7 +103,7 @@ def test_nested_loop(tmp_path):
     result = model({"nested_input": nested_values})
     output = to_numpy(result["nested_output"])[0]
 
-    assert second_loop.shape.dimensions == ((1,), (1,))
+    assert second_loop.shape.dimensions == ((), 1, (1,))
     assert output.shape == (1, 1)
     np.testing.assert_allclose(
         output,
@@ -134,7 +134,7 @@ def test_loop_mechanical_modely(tmp_path):
         collect=False,
         init={"mechanical_state": state_seq},
     )({"external_force": external_force})  # init in the constructor, inputs in the call
-    assert loop.shape.dimensions == ((1,), (1,))
+    assert loop.shape.dimensions == ((), 1, (1,))
     model = Modely(
         "closed_mechanical_model",
         inputs=[state_seq, external_force],
@@ -165,8 +165,8 @@ def test_model_roll():
     test.build()
     roll = Roll(f=test, callback={x: out}, name="roll")
     roll_3 = Roll(f=test, callback={x: out}, steps=3, name="roll_3")
-    assert roll.steps == x.data_shape.inner_time == 5
-    assert roll.shape.tuple == x.data_shape.tuple
+    assert roll.steps == x.shape.time == 5
+    assert roll.shape.tuple == x.shape.tuple
     output = Output("res", roll)
     output_3 = Output("res_3", roll_3)
     model = Modely("test_roll_multi_input", inputs=[x], outputs=[output, output_3])
@@ -472,7 +472,7 @@ def test_loop_bound_inputs(tmp_path):
         init={x: initial},
     )({u: driver})
     assert loop.horizon == 3
-    assert loop.shape.dimensions == ((3, 1), (1,))
+    assert loop.shape.dimensions == ((3,), 1, (1,))
 
     model = Modely(
         "sliced_model",
@@ -542,7 +542,7 @@ def test_loop_dynamic_length():
         init={x: initial_window},
     )({u: driver_window})
     assert loop.horizon == 3
-    assert loop.shape.dimensions == ((3, 1), (1,))
+    assert loop.shape.dimensions == ((3,), 1, (1,))
 
     # A dynamic rollout needs no length: it is only declared with a default one.
     unpinned = Loop(
@@ -614,7 +614,7 @@ def test_loop_window_feedback():
     assert body.built
     # The window of x, (batch, 3, 1), shifts along its inner time, axis 1.
     assert loop.callback_shift_axes == [1]
-    assert loop.shape.dimensions == ((3, 1), (1,))
+    assert loop.shape.dimensions == ((3,), 1, (1,))
 
     model = Modely(
         "window_model",
@@ -936,7 +936,7 @@ def test_callback_from_nested_loop_with_seq_select():
         outputs=[
             Output(
                 "int_last",
-                TimeSelect(-1, axis=0, keep_dim=False)(last({"ax": ax_window})),  # type: ignore
+                SeqSelect(-1)(last({"ax": ax_window})),  # type: ignore
             )
         ],
     ).build()
@@ -994,7 +994,7 @@ def test_unpacking_a_loop_leaves_its_own_stream_alone():
     body = Modely("unpack_body", inputs=[x], outputs=[diagnostic, state]).build()
     seed = Input("unpack_x0", seq=3)
     loop = Loop(f=body, callback={x: state}, init={x: seed})()
-    assert loop.shape.dimensions == ((3, 1), (1,))
+    assert loop.shape.dimensions == ((3,), 1, (1,))
 
     own = Output("unpack_own", loop)
     diagnostic_out, state_out = loop

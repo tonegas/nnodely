@@ -6,8 +6,9 @@ from keras.src.backend.common import stateless_scope
 
 from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
-from nnodely.core.shape import BATCH_AXIS, OUTER_TIME_AXIS, Shape, slice_axis, transpose
+from nnodely.core.shape import BATCH_AXIS, OUTER_AXIS, slice_axis, transpose
 from nnodely.core.stream import Stream
+from nnodely.layers.input import read
 
 
 #: Steps a dynamic rollout is declared with when no ``length`` is given. It
@@ -33,13 +34,14 @@ class LoopOutputImpl(keras.layers.Layer):
 
 
 class LoopOutput(Layer):
-    def __init__(self, loop, index: int, output_node, result_time):
+    def __init__(self, loop, index: int, output_node, result_shape):
         self.index = int(index)
         super().__init__(
             name=f"{loop.name}_{output_node.name}",
             preds=[loop],
             dim=output_node.dim,
-            time=result_time,
+            time=result_shape.time,
+            seq=result_shape.seq,
             index=self.index,
         )
 
@@ -59,11 +61,11 @@ class LoopOutput(Layer):
 class LoopImpl(keras.layers.Layer):
     """Apply a Keras model recurrently with one or more feedback states.
 
-    The rollout runs along the outer time of the inputs that carry it - the
-    ``rolled`` ones: such an input has one more time axis than the body input
-    it feeds, so every step consumes a single slice of its outer time and the
-    body is evaluated exactly once per step. Collected, the steps become the
-    outer time of every result.
+    The rollout runs along the outermost sequence axis of the inputs that
+    carry it - the ``rolled`` ones: such an input has one more sequence axis
+    than the body input it feeds, so every step consumes a single slice of it
+    and the body is evaluated exactly once per step. Collected, the steps
+    become the outermost sequence axis of every result.
 
     The body runs through a backend loop primitive - ``tf.while_loop`` on
     TensorFlow, ``keras.ops.scan`` on the others - so on TensorFlow and JAX the
@@ -121,12 +123,10 @@ class LoopImpl(keras.layers.Layer):
     # ------------------------------------------------------------------
     @staticmethod
     def _swap_steps(value):
-        """Swap the batch and the outer time: the steps to the front for the
+        """Swap the batch and the outer axis: the steps to the front for the
         loop, and back after it."""
         rank = len(value.shape)
-        return transpose(
-            value, [OUTER_TIME_AXIS, BATCH_AXIS, *range(OUTER_TIME_AXIS + 1, rank)]
-        )
+        return transpose(value, [OUTER_AXIS, BATCH_AXIS, *range(OUTER_AXIS + 1, rank)])
 
     @staticmethod
     def _newest_slot(window, axis):
@@ -171,13 +171,13 @@ class LoopImpl(keras.layers.Layer):
         """
         if self.horizon_index is not None:
             value = inputs[self.horizon_index]
-            width = value.shape[OUTER_TIME_AXIS]
+            width = value.shape[OUTER_AXIS]
             if isinstance(width, int):
                 return width
             if keras.backend.backend() == "tensorflow":
                 import tensorflow as tf
 
-                return tf.shape(value)[OUTER_TIME_AXIS]
+                return tf.shape(value)[OUTER_AXIS]
         return self.horizon
 
     def compute_output_spec(self, inputs):
@@ -232,8 +232,8 @@ class LoopImpl(keras.layers.Layer):
         ):
             state = initial
             if rolled:
-                # Seeded by the first step of its outer time.
-                state = slice_axis(state, OUTER_TIME_AXIS, 0)
+                # Seeded by the first step of its outermost sequence axis.
+                state = slice_axis(state, OUTER_AXIS, 0)
             if state_shape is not None:
                 state = self._align_to_shape(state, state_shape)
 
@@ -429,7 +429,7 @@ class Loop(Layer):
     step.
 
     The rollout lives outside the body: every stream that carries it has one
-    more time axis than the body input it feeds, its outer time, which the
+    more sequence axis than the body input it feeds, its outermost, which the
     rollout consumes one step at a time. A feedback input takes that stream
     through ``init`` (step 0 seeds the state), an exogenous one through
     ``inputs``.
@@ -440,8 +440,9 @@ class Loop(Layer):
     given, and without ``length`` its streams are declared with
     ``DYNAMIC_BUILD_LENGTH`` steps.
 
-    ``collect`` returns the whole trajectory, the rollout the new outer time of
-    every output; ``collect=False`` returns only the final step.
+    ``collect`` returns the whole trajectory, the rollout the new outermost
+    sequence axis of every output; ``collect=False`` returns only the final
+    step.
 
     A feedback input declared with a time window (``x.sw(n)``) is closed by
     shifting: the oldest step is dropped and the new output appended, so after
@@ -540,13 +541,13 @@ class Loop(Layer):
         )
         node._configure()
 
-        result_times = [node._result_time(output) for output in self.f.outputs]
+        result_shapes = [node._result_shape(output) for output in self.f.outputs]
         node.preds = [*node.initial_values, *node.static_sources]
         # The node is the stream of the first fed-back output, as it returns.
         primary = self.f.outputs.index(self.callback_outputs[0])
-        node.shape = Shape(dim=self.f.outputs[primary].dim, time=result_times[primary])
+        node.shape = result_shapes[primary]
         node.loop_outputs = [
-            LoopOutput(node, index, output, result_times[index])
+            LoopOutput(node, index, output, result_shapes[index])
             for index, output in enumerate(self.f.outputs)
         ]
         return node
@@ -566,13 +567,12 @@ class Loop(Layer):
         for node, source, rolled in zip(
             self.static_inputs, self.static_sources, self.rolled_static
         ):
-            step = source.shape.without_outer_time() if rolled else source.shape
-            if source is not node and step.time != node.data_shape.time:
+            step = source.shape.without_outer_seq() if rolled else source.shape
+            if source is not node and (step.seq, step.time) != (node.seq, node.time):
                 raise ValueError(
-                    f"Loop input {node.name!r} expects time "
-                    f"{tuple(node.data_shape.time)} or "
-                    f"one more outer time for the rollout, got {tuple(source.time)} "
-                    f"from {source.name!r}."
+                    f"Loop input {node.name!r} expects the sequence and window "
+                    f"{node.shape}, or one more sequence axis for the rollout, got "
+                    f"{source.shape} from {source.name!r}."
                 )
 
         sources = [*self.initial_values, *self.static_sources]
@@ -593,7 +593,7 @@ class Loop(Layer):
         # The rollout needs a static number of steps, so a dynamic rollout is
         # only read from the tensor that carries it, at call time.
         self.horizon_index = next(
-            (index for index, source in driving if source.shape.outer_time is None),
+            (index for index, source in driving if source.shape.seq[0] is None),
             None,
         )
         self.callback_state_shapes = [
@@ -605,9 +605,9 @@ class Loop(Layer):
 
     def _resolve_length(self, loop_sources):
         widths = {
-            int(source.shape.outer_time)
+            int(source.shape.seq[0])
             for _, source in loop_sources
-            if source.shape.outer_time is not None
+            if source.shape.seq[0] is not None
         }
         if self.length is not None:
             return self.length
@@ -627,33 +627,33 @@ class Loop(Layer):
             "carries a rollout, so pass length= to Loop."
         )
 
-    def _result_time(self, output):
-        """The time axes of an output once rolled out: collected, the rollout
-        is its new outer time."""
+    def _result_shape(self, output):
+        """The shape of an output once rolled out: collected, the rollout is
+        its new outermost sequence axis."""
         if self.collect:
             # A rollout as long as its data is declared dynamic, like the
             # inputs it follows; the length it is built with is a placeholder.
             dynamic = self.length is None and self.horizon_index is not None
-            return output.shape.with_outer_time(None if dynamic else self.horizon).time
-        return tuple(output.time)
+            return output.shape.with_seq(None if dynamic else self.horizon)
+        return output.shape
 
     # ------------------------------------------------------------------
     # Declaration helpers
     # ------------------------------------------------------------------
     @staticmethod
     def _rolled(node, source):
-        """Whether ``source`` feeds ``node`` one step of its outer time per step
-        of the rollout: it has one more time axis than the body reads, and the
-        same sequence."""
-        if source.shape.time_rank != node.data_shape.time_rank + 1:
-            return False
-        return tuple(source.time[1:-1]) == tuple(node.sequence)
+        """Whether ``source`` feeds ``node`` one step of its outermost
+        sequence axis per step of the rollout: it has one more sequence axis
+        than the body reads, the others the same."""
+        return source.shape.seq_rank == node.shape.seq_rank + 1 and tuple(
+            source.seq[1:]
+        ) == tuple(node.seq)
 
     @staticmethod
     def _state_shape(node, value, rolled):
         """Shape an initial value must be broadcast to, or None if it fits."""
-        source = value.shape.without_outer_time().tuple if rolled else value.shape.tuple
-        target = tuple(node.data_shape.tuple)
+        source = value.shape.without_outer_seq().tuple if rolled else value.shape.tuple
+        target = tuple(node.shape.tuple)
         if source == target:
             return None
         incompatible = len(source) > len(target) or any(
@@ -679,25 +679,24 @@ class Loop(Layer):
                     f"{tuple(node.dim)}."
                 )
             # The output becomes the input at the next step, so it must carry
-            # the same outer time axes, the sequence; a dynamic one is only
-            # known at run time.
-            output_time, node_time = tuple(output.time), tuple(node.data_shape.time)
-            if len(output_time) != len(node_time) or any(
+            # the same sequence; a dynamic axis is only known at run time.
+            output_seq, node_seq = tuple(output.seq), tuple(node.seq)
+            if len(output_seq) != len(node_seq) or any(
                 None not in (size, node_size) and size != node_size
-                for size, node_size in zip(output_time[:-1], node_time[:-1])
+                for size, node_size in zip(output_seq, node_seq)
             ):
                 raise ValueError(
-                    f"Loop callback {node.name!r} -> {output.name!r}: time "
-                    f"{output_time} does not match the input time {node_time}: the "
-                    "outer time axes, the sequence, must be the same."
+                    f"Loop callback {node.name!r} -> {output.name!r}: the output "
+                    f"is {output.shape}, the input {node.shape}: the sequence must "
+                    "be the same."
                 )
             # The output is the next sample of the input: a window of outputs
             # would be shifted in as one step.
-            if output_time and output_time[-1] != 1:
+            if output.time != 1:
                 raise ValueError(
                     f"Loop callback {node.name!r} -> {output.name!r}: the output must "
                     f"be a single sample, the next one of the input, got a window "
-                    f"of {output_time[-1]}."
+                    f"of {output.time}."
                 )
             # The window is shifted to end at the sample fed back, so it cannot
             # read past the current one.
@@ -707,10 +706,10 @@ class Loop(Layer):
                     f"window reads {node.future} future samples, but a fed-back "
                     "input can only read up to its current sample."
                 )
-            if output_time == node_time:
+            if node.time == 1:
                 shift_axes.append(None)
             else:
-                shift_axes.append(node.shape.inner_time_axis)
+                shift_axes.append(node.shape.time_axis)
         return shift_axes
 
     @staticmethod
@@ -744,6 +743,11 @@ class Loop(Layer):
         sources = []
         for node in static_inputs:
             source = by_name.get(node.name, node)
+            if source.name != node.name:
+                # An outer Input is read as its current sample; a body input
+                # left unbound - or its copy, in a loaded model - is handed on
+                # to the body as its data holds it.
+                source = read(source)
             if source is not node and tuple(source.dim) != tuple(node.dim):
                 raise ValueError(
                     f"Loop input {node.name!r} expects dim {tuple(node.dim)}, got dim "
@@ -771,7 +775,9 @@ class Loop(Layer):
         from nnodely.layers.parameter import Constant
 
         return [
-            value if isinstance(value, Stream) else Constant(name=None, value=value)
+            read(value)
+            if isinstance(value, Stream)
+            else Constant(name=None, value=value)
             for value in values
         ]
 
@@ -798,7 +804,7 @@ class Loop(Layer):
             twin._layer = twin._layer_signature = None
             twin.return_all_outputs = True
             twin.loop_outputs = [
-                LoopOutput(twin, index, output, self._result_time(output))
+                LoopOutput(twin, index, output, self._result_shape(output))
                 for index, output in enumerate(self.f.outputs)
             ]
             twin._unpacked = twin
@@ -819,8 +825,7 @@ class Loop(Layer):
             callback_shift_axes=tuple(self.callback_shift_axes),
             callback_state_shapes=tuple(self.callback_state_shapes),
             result_shapes=tuple(
-                Shape(dim=output.dim, time=self._result_time(output)).tuple
-                for output in self.f.outputs
+                self._result_shape(output).tuple for output in self.f.outputs
             ),
             horizon_index=self.horizon_index,
             primary_output_index=self.f.outputs.index(self.callback_outputs[0]),

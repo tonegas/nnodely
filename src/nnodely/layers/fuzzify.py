@@ -10,6 +10,7 @@ from nnodely.core.dag import next_name
 from nnodely.core.layer import Layer
 from nnodely.core.shape import expand_to_rank, slice_axis
 from nnodely.core.stream import Stream
+from nnodely.layers.input import read
 from nnodely.layers.function import KerasFunction, _is_keras_layer
 from nnodely.layers.parameter import Constant
 from nnodely.layers.partitions import Concatenate, Select
@@ -119,7 +120,7 @@ class _Membership(Layer):
     _one_stream = True
 
     def output_shape(self, *inputs):
-        # Elementwise: every axis kept, a dynamic time axis included.
+        # Elementwise: every axis kept, a dynamic sequence axis included.
         return inputs[0].shape
 
     @classmethod
@@ -462,7 +463,7 @@ class Fuzzify:
         streams = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
         if len(streams) != 1 or not isinstance(streams[0], Stream):
             raise TypeError(f"{self.name}: Fuzzify reads one stream, its signal.")
-        x = streams[0]
+        x = read(streams[0])
         if tuple(x.shape.dim) != (1,):
             raise ValueError(
                 f"{self.name}: Fuzzify reads a scalar signal, got dim {x.shape.dim}."
@@ -470,11 +471,11 @@ class Fuzzify:
         # A membership placed on centers that move reads them with the signal.
         placed_inputs: list[Stream] = [x]
         if isinstance(self.centers, Stream):
-            outer = tuple(self.centers.shape.time[:-1])
-            if outer not in ((), tuple(x.shape.time[:-1])):
+            seq = tuple(self.centers.shape.seq)
+            if seq not in ((), tuple(x.shape.seq)):
                 raise ValueError(
-                    f"{self.name}: centers with outer time axes have the signal's, "
-                    f"{tuple(x.shape.time[:-1])}; got {outer}."
+                    f"{self.name}: centers with a sequence have the signal's, "
+                    f"{tuple(x.shape.seq)}; got {seq}."
                 )
             placed_inputs = [x, self.centers]
         if self._layers is None:
@@ -503,14 +504,14 @@ class Fuzzify:
 
 def _centers(centers, owner: str) -> list[float] | Stream:
     """``centers`` checked: fixed, a list of numbers; or moving, one stream
-    of shape ``(n,)``, of one time step or none, given as it is or
-    concatenated from a list of scalar streams and numbers."""
+    of shape ``(n,)``, of one sample, given as it is or concatenated from a
+    list of scalar streams and numbers."""
     if isinstance(centers, Stream):
+        centers = read(centers)
         if centers.shape.dim_rank != 1 or not _one_step(centers):
             raise ValueError(
                 f"{owner}: a stream of centers is a vector of shape (n,), one "
-                f"sample of inner time or none; got dim {centers.shape.dim}, time "
-                f"{centers.shape.time}."
+                f"sample; got dim {centers.shape.dim}, time {centers.shape.time}."
             )
         return centers
     items = list(centers)
@@ -523,10 +524,10 @@ def _centers(centers, owner: str) -> list[float] | Stream:
     for index, item in enumerate(items):
         if not isinstance(item, Stream):
             item = Constant(f"{owner}_center_{index}", value=[float(item)])
-        elif tuple(item.shape.dim) != (1,) or not _one_step(item):
+        elif tuple(read(item).shape.dim) != (1,) or not _one_step(read(item)):
             raise ValueError(
                 f"{owner}: in a list every center is a number or a scalar "
-                f"stream, dim (1,) and one time step or none; center {index} has "
+                f"stream, dim (1,) and one sample; center {index} has "
                 f"dim {item.shape.dim}, time {item.shape.time}."
             )
         streams.append(item)
@@ -536,9 +537,9 @@ def _centers(centers, owner: str) -> list[float] | Stream:
 
 
 def _one_step(stream: Stream) -> bool:
-    """Whether a stream holds one step of inner time; its outer time, if any,
-    must be the signal's."""
-    return stream.shape.inner_time == 1
+    """Whether a stream holds one sample; its sequence, if any, must be the
+    signal's."""
+    return stream.shape.time == 1
 
 
 def _membership_function(function):

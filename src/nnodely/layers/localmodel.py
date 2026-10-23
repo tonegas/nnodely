@@ -13,6 +13,7 @@ from nnodely.core.dag import next_name
 from nnodely.core.layer import Identity, Layer, Multiply
 from nnodely.core.shape import Shape, _padded, align, slice_axis
 from nnodely.core.stream import Stream
+from nnodely.layers.input import read
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -56,16 +57,16 @@ class FuzzyProductImpl(keras.layers.Layer):
 
     Inputs:  a_k of dim (n_k,)
     Output:  dim (n_1 * n_2 * ...,), row-major: the last input varies
-             fastest; the time axis is kept.
+             fastest; the window is kept.
     """
 
     def call(self, xs):
         xs = list(xs) if isinstance(xs, (list, tuple)) else [xs]
-        # Each activation (batch, *time, n_k), with at most one time axis,
-        # given the time of the others: the product runs over the last axis.
-        time_rank = max(len(activation.shape) - 2 for activation in xs)
+        # Each activation (batch, *seq, time, n_k), given the sequence of the
+        # others: the product runs over the last axis.
+        seq_rank = max(len(activation.shape) - 3 for activation in xs)
         xs = [
-            align(activation, len(activation.shape) - 2, 1, time_rank, 1)
+            align(activation, len(activation.shape) - 3, 1, seq_rank, 1)
             for activation in xs
         ]
         result = xs[0]
@@ -80,11 +81,11 @@ class FuzzyProductImpl(keras.layers.Layer):
 
 class FuzzyProduct(Layer):
     """Outer product of membership vectors, flattened row-major: dim
-    ``(N,)``, time ``(T,)`` or none."""
+    ``(N,)``, the window of the longest."""
 
     def output_shape(self, *inputs):
         cells = prod(activation.dim[0] for activation in inputs)
-        time = max(tuple(activation.time) for activation in inputs)
+        time = max(activation.time for activation in inputs)
         return Shape(dim=(cells,), time=time)
 
     def build_layer(self):
@@ -201,18 +202,20 @@ class CellSumImpl(keras.layers.Layer):
 
 class CellWeight(Multiply):
     """A stack of cells weighted by their memberships, of dim ``(N,)``. Either
-    may hold one sample of inner time, to be weighed along the other's
+    may hold one sample of the window, to be weighed along the other's
     window, a broadcast along time that plain arithmetic refuses:
     :class:`LocalModel` checks the times."""
 
     def output_shape(self, *inputs):
         stack, mu = inputs[0].shape, inputs[1].shape
-        rank = max(stack.time_rank, mu.time_rank)
-        time = tuple(
+        rank = max(len(stack._steps), len(mu._steps))
+        steps = tuple(
             other if size == 1 else size
-            for size, other in zip(_padded(stack.time, rank), _padded(mu.time, rank))
+            for size, other in zip(
+                _padded(stack._steps, rank), _padded(mu._steps, rank)
+            )
         )
-        return stack.replace(time=time)
+        return stack.replace(seq=steps[:-1], time=steps[-1])
 
 
 class CellSum(Layer):
@@ -237,10 +240,11 @@ class LocalModel:
 
         LocalModel(input_function, output_function, vectorized=False)(inputs, activations)
 
-    The activations ``a_k``, of time ``(T,)`` or none and dim ``(n_k,)``, are
+    The activations ``a_k``, of a window ``T`` without sequence and dim
+    ``(n_k,)``, are
     combined into ``N = n_1 * n_2 * ...`` joint memberships ``mu`` (their
     outer product, flattened row-major: cell ``(i_1, i_2)`` is number
-    ``i_1 * n_2 + i_2``). Their time axis is the cells' one, or 1 to weigh
+    ``i_1 * n_2 + i_2``). Their window is the cells' one, or 1 to weigh
     every sample alike. The result is::
 
         sum_i output_function_i(mu_i * input_function_i(inputs))
@@ -305,12 +309,13 @@ class LocalModel:
         )
         if not all(isinstance(stream, Stream) for stream in inputs + activations):
             raise TypeError(f"{self.name}: inputs and activations must be Streams.")
+        inputs, activations = [read(x) for x in inputs], [read(a) for a in activations]
         for index, activation in enumerate(activations):
             shape = activation.shape
-            if shape.time_rank > 1 or shape.dim_rank != 1:
+            if shape.seq or shape.dim_rank != 1:
                 raise ValueError(
-                    f"{self.name}: activation {index} must have shape time (T,) "
-                    f"or none, dim (cells,), got {shape}."
+                    f"{self.name}: activation {index} must have a window and no "
+                    f"sequence, dim (cells,), got {shape}."
                 )
 
         indices = list(np.ndindex(*(activation.dim[0] for activation in activations)))
@@ -343,11 +348,11 @@ class LocalModel:
             stack = CellStack(name=f"{self.name}_inputs")(values)
 
         # The memberships, of dim (N,), line up with the last dim axis of the
-        # stack, its cell axis, and with its inner time.
-        times = {stream.time[-1] for stream in [*activations, stack]}
+        # stack, its cell axis, and with its window.
+        times = {stream.time for stream in [*activations, stack]}
         if len(times - {1}) > 1:
             raise ValueError(
-                f"{self.name}: the activations and the cells have time axes of "
+                f"{self.name}: the activations and the cells have windows of "
                 f"{sorted(times)} samples; they must match, or be 1."
             )
         mu = (

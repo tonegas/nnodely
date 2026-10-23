@@ -11,10 +11,15 @@ class Output(Stream):
     """
 
     def __init__(self, name: str, stream: Stream) -> None:
+        from nnodely.layers.input import read
+
+        # An Input given as it is is read as its current sample.
+        stream = read(stream)
         super().__init__(
             name=name,
             dim=stream.shape.dim,
             time=stream.shape.time,
+            seq=stream.shape.seq,
             preds=[stream],
         )
 

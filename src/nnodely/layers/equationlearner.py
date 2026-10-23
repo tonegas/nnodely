@@ -31,7 +31,7 @@ from nnodely.layers.activations import (
     Swish,
     Tanh,
 )
-from nnodely.layers.input import Input
+from nnodely.layers.input import Input, read
 from nnodely.layers.linear import Linear
 from nnodely.layers.output import Output
 from nnodely.layers.partitions import Concatenate, Select
@@ -122,6 +122,7 @@ class EquationLearner:
         streams = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
         if not streams or not all(isinstance(stream, Stream) for stream in streams):
             raise TypeError("EquationLearner inputs must be Stream objects.")
+        streams = [read(stream) for stream in streams]
         if any(stream.shape.dim_rank != 1 for stream in streams):
             raise ValueError(
                 "EquationLearner currently supports one-dimensional dim shapes."
@@ -133,14 +134,14 @@ class EquationLearner:
         internal_inputs = []
         internal_streams = []
         for index, stream in enumerate(streams):
-            # The stream's shape: its outer time axes, a dynamic one declared
-            # with -1, and a window of its inner time.
-            outer = tuple(-1 if size is None else size for size in stream.time[:-1])
+            # The stream's shape: its sequence, a dynamic axis declared with
+            # -1, and its window.
+            seq = tuple(-1 if size is None else size for size in stream.seq)
             internal_input = Input(
-                f"{call_name}_input_{index}", dim=stream.dim, seq=outer
+                f"{call_name}_input_{index}", dim=stream.dim, seq=seq
             )
             internal_inputs.append(internal_input)
-            window = stream.shape.inner_time
+            window = stream.shape.time
             internal_streams.append(
                 internal_input if window == 1 else internal_input.sw(window)
             )

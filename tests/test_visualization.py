@@ -205,7 +205,9 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
 
     # The block node carries the ports that bind the body to this graph.
     assert '"nested_model": "loop_body"' in page
-    assert f'"body": "in1", "outer": "{seed_window.name}", "role": "initial"' in page
+    # Read directly, the seed is its current sample.
+    outer = f"{seed_window.name}_current"
+    assert f'"body": "in1", "outer": "{outer}", "role": "initial"' in page
     assert '"from": "body_out", "to": "in1"' in page
     assert '"steps": 5' in page
 
@@ -302,7 +304,7 @@ def test_flattened_page_inlines_a_loop_body(tmp_path):
     assert {"inline_block/in1", "inline_block/body_out"} <= flattened_ids
 
     labels = {(e["from"], e["to"]): e["label"] for e in _graph(flattened)[1]}
-    assert labels[(seed_window.name, "inline_block/in1")] == "initial"
+    assert labels[(f"{seed_window.name}_current", "inline_block/in1")] == "initial"
     assert (
         labels[("inline_block/body_out", "inline_block/in1")] == "feedback (x4 steps)"
     )

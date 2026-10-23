@@ -71,7 +71,7 @@ def _solve(model, names, times):
 def test_odenet_matches_analytic_solution():
     points = 6
     model, trajectory, names = _spiral_model("basic", points)
-    assert trajectory.shape.dimensions == ((points, 1), (2,))
+    assert trajectory.shape.dimensions == ((points,), 1, (2,))
 
     times = np.linspace(0.0, 5.0, points, dtype=np.float32)
     solved = _solve(model, names, times)
@@ -424,7 +424,7 @@ def test_odenet_fixed_step_matches_analytic_solution():
     # so the march is unrolled instead of controlled and still hits the solution.
     points = 6
     model, trajectory, names = _spiral_model("fixed", points, method="rk4", steps=20)
-    assert trajectory.shape.dimensions == ((points, 1), (2,))
+    assert trajectory.shape.dimensions == ((points,), 1, (2,))
 
     times = np.linspace(0.0, 5.0, points, dtype=np.float32)
     solved = _solve(model, names, times)
@@ -546,7 +546,7 @@ def test_odenet_trains_a_field_holding_a_shared_layer():
 
     # Two reported times one sample apart: the trajectory is [x(t), x(t + dt)].
     t = Constant(
-        "t_shared", value=np.array([[[0.0, dt]]], dtype=np.float32), time=(2, 1)
+        "t_shared", value=np.array([[[0.0, dt]]], dtype=np.float32), seq=2, time=1
     )
     trajectory = OdeNet(
         f=field, states={x: "dx_shared"}, t=t, method="rk4", steps=1, name="shared_ode"

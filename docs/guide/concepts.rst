@@ -25,32 +25,34 @@ model, and only then are the weights created.
 Shapes
 ------
 
-Every stream has a shape made of two parts, laid out after the batch axis as
+Every stream has a shape made of three parts, laid out after the batch axis
+as
 
-``(batch, *time, *dim)``
+``(batch, *seq, time, *dim)``
 
-- **time**: the time axes, outermost first. The last one, the **inner time**,
-  is the window of consecutive samples the stream carries; the ones before it,
-  the **outer time**, are the steps of a rollout over a trajectory (see
-  :doc:`recurrent`). Every stream has at least one: a number, a
-  :class:`~nnodely.Parameter` declared without time and an input read
-  directly are one sample, ``(1,)``.
-- **dim**: the feature axes. ``Input("u", dim=3)`` is a three-component signal,
-  and ``dim=(3, 2)`` is a 3x2 matrix per sample. The default is one feature.
+- **seq** (``S``): the sequence axes, outermost first, possibly none: the
+  steps of a trajectory, along which a :class:`~nnodely.Loop` rolls out (see
+  :doc:`recurrent`).
+- **time** (``T``): the window, the consecutive samples the stream carries.
+  Every stream has one: a number, a :class:`~nnodely.Parameter` declared
+  without time and an input read directly are one sample, ``T=1``.
+- **dim** (``D``): the feature axes. ``Input("u", dim=3)`` is a
+  three-component signal, and ``dim=(3, 2)`` is a 3x2 matrix per sample. The
+  default is one feature.
 
 .. code-block:: python
 
    u = Input("u", dim=3)
-   print(u.shape)          # Shape(T=(1,), D=(3,)): the current sample
-   print(u.sw(10).shape)   # Shape(T=(10,), D=(3,)): 10 samples of 3 features
-   print(u.dim, u.sw(10).time)
+   print(u.shape)          # Shape(S=(), T=1, D=(3,)): the current sample
+   print(u.sw(10).shape)   # Shape(S=(), T=10, D=(3,)): 10 samples of 3 features
+   print(u.dim, u.sw(10).time, u.sw(10).seq)
 
    w = Input("w", dim=3, seq=5)
-   print(w.sw(10).shape)   # Shape(T=(5, 10), D=(3,)): 5 steps of those
+   print(w.sw(10).shape)   # Shape(S=(5,), T=10, D=(3,)): 5 steps of those
 
 Temporal operations - windows, :class:`~nnodely.Fir`, derivatives and
-integrals - act on the inner time; a :class:`~nnodely.Loop` rolls out along
-the outer time.
+integrals - act on the window; a :class:`~nnodely.Loop` rolls out along the
+outermost sequence axis.
 
 Windows
 -------
@@ -74,19 +76,19 @@ physics needs it, as the ``dt`` of :doc:`derivatives and integrators <physics>`.
    x = Input("x")
    past = x.sw(4)          # x[t-3], x[t-2], x[t-1], x[t]
    around = x.sw([2, 1])   # x[t-1], x[t], x[t+1]
-   print(past.shape, around.shape)   # Shape(T=(4,), D=(1,)) Shape(T=(3,), D=(1,))
+   print(past.shape, around.shape)   # Shape(S=(), T=4, D=(1,)) Shape(S=(), T=3, D=(1,))
 
 An input can be windowed several times, and read directly as well. Requesting
 a window leaves the input as it is: ``build()`` finds the windows the model's
 graph reads, and the data a model needs from an input is their union - a
 window declared but never used widens nothing, and two models of one input
 read their own windows. The :class:`~nnodely.DataLoader` builds samples that
-cover it, and the input's ``data_shape`` reports it once the model is built;
-the input's ``shape`` stays its current sample, which is what reading it
-directly gives, however wide the data. All inputs are aligned on the current
-sample ``t``.
+cover it, and the input's ``shape`` reports it once the model is built.
+Reading the input directly still gives its current sample, however wide the
+data, in a relation declared before the build or after it. All inputs are
+aligned on the current sample ``t``.
 
-``seq=`` declares the input's sequence, its outer time: with
+``seq=`` declares the input's sequence: with
 ``Input("w", seq=5)``, ``w`` is five consecutive samples and ``w.sw(3)`` five
 consecutive windows of three samples; ``seq=(4, 5)`` is four sequences of five
 steps (outermost first, ``-1`` for a length that follows the data). Every
@@ -132,8 +134,9 @@ with numbers. A number becomes a :class:`~nnodely.Constant` of one sample:
 
 Two streams combine when their shapes agree:
 
-- **time**: streams must have the same time axes; different times are never
-  blended. A single sample - a number, a Parameter, an input read directly -
+- **sequence and time**: streams must have the same sequence and window;
+  different ones are never blended. A single sample - every sequence axis and
+  the window of length 1: a number, a Parameter, an input read directly -
   applies to every sample of a window or a rollout.
 - **dim**: the dims must be the same, or one of them a scalar, which applies
   to every feature. A vector is never stretched over a matrix.
@@ -144,9 +147,9 @@ Two streams combine when their shapes agree:
 .. code-block:: python
 
    v = Input("v", dim=3)
-   v * gain                 # (1, 3): the gain applies to every feature
-   v.sw(4) + x.sw(4)        # (4, 3): the scalar window applies to every feature
-   v.sw(4) + x              # (4, 3): the current sample applies to every sample
+   v * gain                 # S=(), T=1, D=(3,): the gain applies to every feature
+   v.sw(4) + x.sw(4)        # S=(), T=4, D=(3,): the scalar window, to every feature
+   v.sw(4) + x              # S=(), T=4, D=(3,): the current sample, to every sample
    # v.sw(4) + x.sw(3) is refused: windows of 4 and of 3 samples
 
 Names

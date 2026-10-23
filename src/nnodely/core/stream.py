@@ -71,22 +71,29 @@ class Stream(Node):
         dim=None,
         time=None,
         preds: list[Node] | None = None,
+        seq=None,
     ):
         super().__init__(name, preds)
-        self.shape = Shape(dim=dim, time=time)
+        self.shape = Shape(dim=dim, time=time, seq=seq)
 
     @property
     def dim(self) -> tuple[int, ...]:
         return self.shape.dim
 
     @property
-    def time(self) -> tuple[int | None, ...]:
+    def time(self) -> int:
+        """The length of the window."""
         return self.shape.time
+
+    @property
+    def seq(self) -> tuple[int | None, ...]:
+        """The sequence axes, outermost first."""
+        return self.shape.seq
 
     @property
     def dimensions(self):
         """
-        Return the time axes and the dim axes separately
+        Return the sequence, the window and the dim axes separately
         """
         return self.shape.dimensions
 

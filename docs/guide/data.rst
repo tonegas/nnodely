@@ -80,14 +80,14 @@ Samples
 -------
 
 Every sample is a dictionary with one array per input, shaped
-``(*time, *dim)``, the layout of the model's streams. The loader can be
+``(*seq, time, *dim)``, the layout of the model's streams. The loader can be
 indexed, iterated, and converted to the full arrays:
 
 .. code-block:: python
 
    sample = loader[0]
    print({name: value.shape for name, value in sample.items()})
-   arrays = loader.as_dict()   # {name: (samples, *time, *dim)}
+   arrays = loader.as_dict()   # {name: (samples, *seq, time, *dim)}
 
 ``step`` sets how many samples separate two consecutive windows:
 

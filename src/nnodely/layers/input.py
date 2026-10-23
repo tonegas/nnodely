@@ -2,15 +2,14 @@
 ``SampleWindow`` nodes."""
 
 from nnodely.layers.partitions import SampleWindow
-from nnodely.core.shape import Shape
 from nnodely.core.stream import Stream
 
 import keras
 
 
-def _outer_time(name: str, seq) -> tuple:
-    """The outer time axes ``seq`` declares, outermost first, a dynamic one
-    as None; ``()`` if not given."""
+def _sequence(name: str, seq) -> tuple:
+    """The sequence axes ``seq`` declares, outermost first, a dynamic one as
+    None; ``()`` if not given."""
     if seq is None:
         return ()
     seq = (seq,) if isinstance(seq, int) else tuple(seq)
@@ -27,16 +26,16 @@ class Input(Stream):
     A signal the model reads from data.
 
     ``dim`` sets the feature axes (one feature by default). ``seq`` sets the
-    sequence: the time axes outside the window, outermost first, used by
+    sequence: the axes outside the window, outermost first, used by
     rollouts; ``-1`` leaves a length dynamic.
 
-    Read directly, an Input is its current sample, time ``(*seq, 1)``. Its
-    windows, requested with :meth:`sw` and :meth:`next`, have the window as
-    their inner time and keep the sequence. Requesting a window leaves the
-    Input as it is: a model reads from it the union of the windows its own
-    graph takes, the current sample included when the graph reads the Input
-    directly, found by ``build()`` - a window declared but never used widens
-    nothing.
+    Read directly, an Input is its current sample, ``S=seq, T=1``. Its
+    windows, requested with :meth:`sw` and :meth:`next`, set the window,
+    ``T``, and keep the sequence. Requesting a window leaves the Input as it
+    is: ``build()`` gives it the union of the windows the model's graph
+    reads, the current sample included when the graph reads the Input
+    directly - a window declared but never used widens nothing - and its
+    ``shape`` then reports the data it is read from.
     """
 
     def __init__(
@@ -46,47 +45,41 @@ class Input(Stream):
         dim: int | tuple | None = None,
         seq: int | tuple[int, ...] | None = None,
     ):
-        sequence = _outer_time(name, seq)
-        super().__init__(name=name, dim=dim, time=(*sequence, 1), preds=None)
-        self._sequence = sequence
-        # The window the graph of the last model built reads, found by build():
-        # the data holds it, the Input itself stays its current sample.
+        super().__init__(name=name, dim=dim, seq=_sequence(name, seq), preds=None)
+        # The window the graph of the last model built reads, found by build().
         self.past, self.future = (1, 0)
         # The window a saved model read, kept by the model loaded from it.
         self._saved_window = (0, 0)
-        self._update_input()
+        # The current sample, the node every direct read of the Input is.
+        self._current_sample = None
+        self._set_window(1, 0)
 
     @property
-    def sequence(self) -> tuple:
-        """The outer time axes of the Input, outermost first, a dynamic one
-        as None: ``()`` without a sequence."""
-        return self._sequence
-
-    @property
-    def data_shape(self) -> Shape:
-        """The shape of one sample of the data the Input is read from: its
-        sequence, then the union of the windows the last model built reads.
-        Before a build, the current sample: the Input's own shape."""
-        return Shape(dim=self.dim, time=(*self.sequence, self.past + self.future))
-
-    def _update_input(self):
-        """The Keras input the data feeds."""
-        self.input = keras.Input(shape=self.data_shape, name=self.name)
+    def _current(self):
+        """The current sample of the Input, as a relation reads it directly:
+        one window, shared by every such read."""
+        if self._current_sample is None:
+            self._current_sample = SampleWindow(
+                past=1, future=0, name=f"{self.name}_current"
+            )([self])
+        return self._current_sample
 
     def _set_window(self, past: int, future: int) -> None:
         """Read through ``past`` samples up to the current one and ``future``
-        after it: the union of the windows of the graph being built."""
+        after it: the union of the windows of the graph being built. The
+        Input's shape and the Keras input the data feeds follow it."""
         self.past, self.future = int(past), int(future)
-        self._update_input()
+        self.shape = self.shape.replace(time=self.past + self.future)
+        self.input = keras.Input(shape=self.shape, name=self.name)
 
     def sw(self, window_size: int | list[int] | tuple[int, int]):
         """Return a window of samples of this input.
 
         ``sw(n)`` is the last ``n`` samples, up to and including the current
         one. ``sw([p, f])`` is ``p`` samples up to and including the current
-        one followed by the next ``f`` samples. The window replaces the inner
-        time and keeps the sequence. The Input itself is left as it is:
-        ``build()`` finds the windows a model reads.
+        one followed by the next ``f`` samples. The window sets ``T`` and
+        keeps the sequence. The Input itself is left as it is: ``build()``
+        finds the windows a model reads.
         """
         if isinstance(window_size, (list, tuple)):
             if len(window_size) != 2:
@@ -107,7 +100,7 @@ class Input(Stream):
         return {
             "name": self.name,
             "dim": tuple(self.dim),
-            "seq": tuple(-1 if length is None else length for length in self.sequence),
+            "seq": tuple(-1 if length is None else length for length in self.seq),
             "past": self.past,
             "future": self.future,
         }
@@ -118,6 +111,12 @@ class Input(Stream):
         node._saved_window = (config["past"], config["future"])
         node._set_window(*node._saved_window)
         return node
+
+
+def read(stream):
+    """``stream`` as a relation reads it: an Input read directly is its
+    current sample, whatever window of it the data holds."""
+    return stream._current if isinstance(stream, Input) else stream
 
 
 def windows_read(order) -> dict[Input, tuple[int, int]]:

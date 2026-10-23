@@ -1,23 +1,24 @@
 """The shape of a stream, and where its axes sit in a tensor.
 
-A stream has two kinds of axes:
+A stream has three kinds of axes:
 
-- ``time``, its time axes, outermost first: ``(T_k, ..., T_2, T_1)``. The
-  inner time ``T_1`` is the window of samples, along which the temporal
-  operations (windows, filters, derivatives) act; a Loop rolls out along
-  the outer time ``T_k``, and adds its rollout as a new outer time. A time
-  axis may be dynamic (``None``), its length known only at run time. Every
-  stream has at least one time axis: a number, a Parameter or an Input read
-  whole is one sample, ``(1,)``.
+- ``seq``, its sequence axes, outermost first, possibly none: the steps of a
+  trajectory. A Loop rolls out along the outermost one, and adds its rollout
+  as a new outermost sequence axis. A sequence axis may be dynamic
+  (``None``), its length known only at run time.
+- ``time``, its window: the consecutive samples along which the temporal
+  operations (windows, filters, derivatives, integrals) act. Every stream
+  has one: a number, a Parameter or an Input read directly are one sample,
+  ``time=1``.
 - ``dim``, its feature axes, one or more.
 
 A tensor holds them after its batch axis::
 
-    (batch, *time, *dim)
+    (batch, *seq, time, *dim)
 
 This module is the only one that knows that layout. A layer asks the Shape
-of its stream where an axis is (:attr:`Shape.inner_time_axis`,
-:attr:`Shape.time_axes`, :attr:`Shape.dim_axes`) and hands its Keras layer
+of its stream where an axis is (:attr:`Shape.seq_axes`,
+:attr:`Shape.time_axis`, :attr:`Shape.dim_axes`) and hands its Keras layer
 the tensor axis to act on; code that sees only tensors uses the helpers at
 the end of this module.
 """
@@ -31,10 +32,13 @@ import keras
 #: The tensor axis of the batch.
 BATCH_AXIS = 0
 
-#: The tensor axis of the outer time of any stream with time: the rollout of
-#: its outermost Loop, or its window when it has none. A rollout mask and
-#: sequence weights run along it, and a new rollout is stacked on it.
-OUTER_TIME_AXIS = 1
+#: The first tensor axis after the batch: the outermost sequence axis - the
+#: rollout of the outermost Loop - or the window of a stream without a
+#: sequence. A rollout mask and sequence weights run along it.
+OUTER_AXIS = 1
+
+#: Given for an argument left as it is.
+_KEEP = object()
 
 
 def _axes(value, default) -> tuple:
@@ -58,77 +62,86 @@ def resolve_axis(axis: int, rank: int, owner: str, kind: str) -> int:
 class Shape:
     """The sizes of the axes of a stream, batch aside.
 
-    ``time`` is the tuple of its time axes, outermost first, at least one;
-    an int is one axis. A stream is one sample, ``(1,)``, and one feature,
-    ``dim=(1,)``, by default.
+    ``seq`` is the tuple of its sequence axes, outermost first, ``()`` for
+    none; an int is one axis. ``time`` is the length of its window, one
+    sample by default. ``dim`` is one feature by default.
     """
 
     dim: tuple[int, ...]
-    time: tuple[int | None, ...]
+    time: int
+    seq: tuple[int | None, ...]
 
-    def __init__(self, dim=None, time=None):
+    def __init__(self, dim=None, time=None, seq=None):
         # Always tuples: a shape read back from JSON arrives as lists, and two
         # shapes that describe the same axes have to compare equal.
         self.dim = _axes(dim, (1,))
-        self.time = _axes(time, (1,))
-        if not self.time:
-            raise ValueError(
-                "A stream has at least one time axis: one sample is time=(1,)."
+        self.seq = _axes(seq, ())
+        if time is None:
+            time = 1
+        if isinstance(time, bool) or not isinstance(time, int) or time < 1:
+            raise TypeError(
+                f"time is the length of the window, a positive int, got {time!r}; "
+                "the axes outside the window are seq."
             )
+        self.time = int(time)
 
     @classmethod
     def from_tensor_shape(
-        cls, shape, *, time_rank: int | None = None, dim_rank: int | None = None
+        cls, shape, *, seq_rank: int | None = None, dim_rank: int | None = None
     ) -> "Shape":
         """The Shape of a tensor of ``shape``, batch axis excluded, told apart
-        by how many time axes, or dim axes, it has."""
+        by how many sequence axes, or dim axes, it has."""
         shape = tuple(shape)
-        if time_rank is None:
-            time_rank = len(shape) - int(dim_rank)  # type: ignore[arg-type]
-        return cls(dim=shape[time_rank:], time=shape[:time_rank])
+        if seq_rank is None:
+            seq_rank = len(shape) - 1 - int(dim_rank)  # type: ignore[arg-type]
+        return cls(
+            dim=shape[seq_rank + 1 :], time=shape[seq_rank], seq=shape[:seq_rank]
+        )
 
-    def replace(self, dim=None, time=None) -> "Shape":
-        """This shape with its dim axes, or all its time axes, changed."""
+    def replace(self, dim=_KEEP, time=_KEEP, seq=_KEEP) -> "Shape":
+        """This shape with its dim axes, its window or its sequence changed."""
         return Shape(
-            dim=self.dim if dim is None else dim,
-            time=self.time if time is None else time,
+            dim=self.dim if dim is _KEEP else dim,
+            time=self.time if time is _KEEP else time,
+            seq=self.seq if seq is _KEEP else seq,
         )
 
     @staticmethod
     def broadcast(shapes, owner: str) -> "Shape":
         """The shape of an elementwise operation between streams of ``shapes``.
 
-        Time is never blended: the streams must have the same time axes - a
-        dynamic axis matches any length and stays dynamic - unless one
-        stream's are a single sample - every axis of size 1 - which broadcasts
-        along the others', as numpy aligns them, from the inner time. The dim
-        axes must be the same, unless one stream's are a scalar - every axis
-        of size 1 - which broadcasts to the others' as numpy aligns them, from
-        the last.
+        Sequence and time are never blended: the streams must have the same
+        ones - a dynamic axis matches any length and stays dynamic - unless
+        one stream is a single sample - every sequence axis and its window of
+        size 1 - which broadcasts along the others', as numpy aligns them,
+        from the window. The dim axes must be the same, unless one stream's
+        are a scalar - every axis of size 1 - which broadcasts to the others'
+        as numpy aligns them, from the last.
 
         And one stream must already have the shape of the result, the others
         broadcasting into it: two streams that would both be broadcast, one
         along the time of the other and the other along its dim - a matrix of
         one sample and the window of a scalar - are not combined.
         """
-        time: tuple | None = None
+        steps: tuple | None = None  # every sequence axis, then the window
         for shape in shapes:
-            if time is None or _is_scalar(time):
-                time = _broadcast_ones(time, shape.time)
-            elif _is_scalar(shape.time):
-                time = _broadcast_ones(shape.time, time)
-            elif _same_time(shape.time, time):
-                time = tuple(
+            if steps is None or _is_scalar(steps):
+                steps = _broadcast_ones(steps, shape._steps)
+            elif _is_scalar(shape._steps):
+                steps = _broadcast_ones(shape._steps, steps)
+            elif _same_steps(shape._steps, steps):
+                steps = tuple(
                     None if None in (size, other) else size
-                    for size, other in zip(shape.time, time)
+                    for size, other in zip(shape._steps, steps)
                 )
             else:
                 raise ValueError(
-                    f"{owner}: streams with different time axes cannot be combined, "
-                    f"got {_sizes(time)} and {_sizes(shape.time)}. Only a single "
-                    "sample, time=(1,), broadcasts along the time of another."
+                    f"{owner}: streams with a different sequence or time cannot "
+                    f"be combined, got {Shape(time=steps[-1], seq=steps[:-1])!r} "
+                    f"and {shape!r}. Only a single sample broadcasts along the "
+                    "sequence and the time of another."
                 )
-        assert time is not None
+        assert steps is not None
 
         dim: tuple[int, ...] | None = None
         for shape in shapes:
@@ -147,7 +160,7 @@ class Shape:
                     "the dims must be the same, or one of them a scalar."
                 )
 
-        result = Shape(dim=dim, time=time)
+        result = Shape(dim=dim, time=steps[-1], seq=steps[:-1])
         if not any(shape._fills(result) for shape in shapes):
             raise ValueError(
                 f"{owner}: streams of {' and '.join(map(repr, shapes))} cannot be "
@@ -157,11 +170,16 @@ class Shape:
             )
         return result
 
+    @property
+    def _steps(self) -> tuple:
+        """Every sequence axis, then the window: the axes before the dim."""
+        return (*self.seq, self.time)
+
     def _fills(self, result: "Shape") -> bool:
         """Whether this shape is already ``result``'s, but for axes of 1: a
         stream of it would not be broadcast to ``result``."""
         return (
-            _same_time(_padded(self.time, len(result.time)), result.time)
+            _same_steps(_padded(self._steps, len(result._steps)), result._steps)
             and _padded(self.dim, len(result.dim)) == result.dim
         )
 
@@ -170,8 +188,8 @@ class Shape:
     # ------------------------------------------------------------------
     @property
     def dimensions(self) -> tuple:
-        """The time axes and the dim axes, in the order of the tensor."""
-        return self.time, self.dim
+        """The sequence, the window and the dim, in the order of the tensor."""
+        return self.seq, self.time, self.dim
 
     @property
     def rank(self) -> int:
@@ -183,41 +201,33 @@ class Shape:
         return len(self.dim)
 
     @property
-    def time_rank(self) -> int:
-        return len(self.time)
+    def seq_rank(self) -> int:
+        return len(self.seq)
 
     def resolve_dim(self, axis: int, owner: str) -> int:
         """Dim axis ``axis``, a negative one counted from the last, checked."""
         return resolve_axis(axis, self.dim_rank, owner, "dim")
 
-    def resolve_time(self, axis: int, owner: str) -> int:
-        """Time axis ``axis``, counted from the outermost, a negative one from
-        the inner time, checked."""
-        return resolve_axis(axis, self.time_rank, owner, "time")
-
-    # ------------------------------------------------------------------
-    # The inner time, where temporal operations act, and the outer time,
-    # where a Loop rolls out
-    # ------------------------------------------------------------------
-    @property
-    def inner_time(self) -> int | None:
-        """Samples of the inner time ``T_1``, the window."""
-        return self.time[-1]
+    def resolve_seq(self, axis: int, owner: str) -> int:
+        """Sequence axis ``axis``, counted from the outermost, a negative one
+        from the innermost, checked."""
+        return resolve_axis(axis, self.seq_rank, owner, "seq")
 
     @property
-    def outer_time(self) -> int | None:
-        """Steps of the outer time ``T_k``: the outermost rollout, or the
-        window without one."""
-        return self.time[0]
+    def outer(self) -> int | None:
+        """Length of the outer axis (:data:`OUTER_AXIS`): the outermost
+        sequence axis, or the window without a sequence."""
+        return self.seq[0] if self.seq else self.time
 
-    def with_outer_time(self, length: int | None) -> "Shape":
+    def with_seq(self, length: int | None) -> "Shape":
         """This shape rolled out by one more Loop, of ``length`` steps: a new
-        outer time."""
-        return self.replace(time=(length, *self.time))
+        outermost sequence axis."""
+        return self.replace(seq=(length, *self.seq))
 
-    def without_outer_time(self) -> "Shape":
-        """The shape of one step of the outer time, as a Loop's body sees it."""
-        return self.replace(time=self.time[1:])
+    def without_outer_seq(self) -> "Shape":
+        """The shape of one step of the outermost sequence axis, as the body
+        of a Loop rolling along it sees it."""
+        return self.replace(seq=self.seq[1:])
 
     # ------------------------------------------------------------------
     # Layout: the tensor axes, counted with the batch axis as 0
@@ -225,37 +235,34 @@ class Shape:
     @property
     def tuple(self) -> tuple:
         """The sizes of the axes of one sample, in the order of the tensor."""
-        return (*self.time, *self.dim)
+        return (*self.seq, self.time, *self.dim)
 
     @property
-    def time_axes(self) -> tuple[int, ...]:
-        """The time axes, outermost first."""
-        return tuple(range(1, 1 + self.time_rank))
+    def seq_axes(self) -> tuple[int, ...]:
+        """The sequence axes, outermost first."""
+        return tuple(range(1, 1 + self.seq_rank))
+
+    @property
+    def time_axis(self) -> int:
+        """The axis of the window."""
+        return 1 + self.seq_rank
 
     @property
     def dim_axes(self) -> tuple[int, ...]:
-        first = 1 + self.time_rank
+        first = 2 + self.seq_rank
         return tuple(range(first, first + self.dim_rank))
-
-    @property
-    def inner_time_axis(self) -> int:
-        """The axis of the inner time ``T_1``."""
-        return self.time_rank
-
-    @property
-    def outer_time_axis(self) -> int:
-        """The axis of the outer time ``T_k``."""
-        return OUTER_TIME_AXIS
 
     # ------------------------------------------------------------------
     # Serialization and display
     # ------------------------------------------------------------------
     def get_config(self):
-        return {"dim": tuple(self.dim), "time": tuple(self.time)}
+        return {"dim": tuple(self.dim), "time": self.time, "seq": tuple(self.seq)}
 
     @classmethod
     def from_config(cls, config: dict) -> "Shape":
-        return cls(dim=config.get("dim"), time=config.get("time"))
+        return cls(
+            dim=config.get("dim"), time=config.get("time"), seq=config.get("seq")
+        )
 
     # A Shape reads as the sizes of one sample, as keras.Input takes them.
     def __iter__(self):
@@ -270,7 +277,7 @@ class Shape:
     def __repr__(self):
         # Named axes: a bare (3, 10) reads as well as three features of ten
         # samples as ten features of three.
-        return f"Shape(T={_sizes(self.time)}, D={_sizes(self.dim)})"
+        return f"Shape(S={_sizes(self.seq)}, T={self.time}, D={_sizes(self.dim)})"
 
 
 def _is_scalar(dim) -> bool:
@@ -283,18 +290,18 @@ def _padded(dim, rank: int) -> tuple:
     return (1,) * (rank - len(dim)) + tuple(dim)
 
 
-def _same_time(time, other) -> bool:
-    """Whether two time axes are the same, a dynamic axis matching any
-    length."""
-    return len(time) == len(other) and all(
-        None in (size, length) or size == length for size, length in zip(time, other)
+def _same_steps(steps, other) -> bool:
+    """Whether two sequences and windows are the same, a dynamic axis
+    matching any length."""
+    return len(steps) == len(other) and all(
+        None in (size, length) or size == length for size, length in zip(steps, other)
     )
 
 
-def _broadcast_ones(ones, time) -> tuple:
-    """``time`` broadcast with ``ones``, a single sample - every axis of
-    size 1 - or None: ``time`` given the leading axes ``ones`` has more."""
-    return tuple(time) if ones is None else _padded(time, len(ones))
+def _broadcast_ones(ones, steps) -> tuple:
+    """``steps`` broadcast with ``ones``, a single sample - every axis of
+    size 1 - or None: ``steps`` given the leading axes ``ones`` has more."""
+    return tuple(steps) if ones is None else _padded(steps, len(ones))
 
 
 def _sizes(values) -> str:
@@ -324,24 +331,24 @@ def transpose(x, permutation):
 
 def align(
     x,
-    time_rank: int,
+    seq_rank: int,
     dim_rank: int,
-    to_time_rank: int,
+    to_seq_rank: int,
     to_dim_rank: int,
     expand_dims: Callable = keras.ops.expand_dims,
 ):
-    """``x``, of ``time_rank`` time and ``dim_rank`` dim axes, given axes of
-    size 1 to broadcast against a tensor of ``to_time_rank`` and
+    """``x``, of ``seq_rank`` sequence and ``dim_rank`` dim axes, given axes
+    of size 1 to broadcast against a tensor of ``to_seq_rank`` and
     ``to_dim_rank``, as :meth:`Shape.broadcast` lines them up.
 
-    A single sample of fewer time axes gets its missing outer ones right
+    A single sample of fewer sequence axes gets its missing outer ones right
     after the batch, and a scalar dim of fewer axes its missing leading ones.
     ``expand_dims`` is ``np.expand_dims`` for numpy.
     """
-    for _ in range(to_time_rank - time_rank):
+    for _ in range(to_seq_rank - seq_rank):
         x = expand_dims(x, 1)
     for _ in range(to_dim_rank - dim_rank):
-        x = expand_dims(x, 1 + to_time_rank)
+        x = expand_dims(x, 2 + to_seq_rank)
     return x
 
 
@@ -349,18 +356,18 @@ def expand_to_rank(x, rank: int, expand_dims: Callable = keras.ops.expand_dims):
     """``x`` given the axes it lacks to have ``rank``, of size 1, so that it
     broadcasts along them.
 
-    An operand may lack the outer time axes: a number or a Constant carries
-    no rollout. ``expand_dims`` is ``np.expand_dims`` for numpy.
+    An operand may lack the outer sequence axes: a number or a Constant
+    carries no rollout. ``expand_dims`` is ``np.expand_dims`` for numpy.
     """
     while len(x.shape) < rank:
         x = expand_dims(x, 1)
     return x
 
 
-def outer_time_view(x, rank: int, expand_dims: Callable = keras.ops.expand_dims):
+def outer_view(x, rank: int, expand_dims: Callable = keras.ops.expand_dims):
     """``x``, laid out ``(batch, steps)``, given axes of size 1 so that it
     broadcasts against a stream of ``rank`` axes with its steps along
-    :data:`OUTER_TIME_AXIS`. ``expand_dims`` is ``np.expand_dims`` for numpy.
+    :data:`OUTER_AXIS`. ``expand_dims`` is ``np.expand_dims`` for numpy.
     """
     for _ in range(rank - 2):
         x = expand_dims(x, -1)

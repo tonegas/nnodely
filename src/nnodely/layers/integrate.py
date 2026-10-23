@@ -1,6 +1,6 @@
 """Time integration of a rate signal along its own time axis.
 
-One form, shaped like ``Derivative`` and exactly inverse to it: the rate
+``IntegrateStep`` is shaped like ``DerivativeStep`` and inverse to it: the rate
 sample of an interval integrates into the value at the end of that interval,
 the window's length is preserved, and ``init`` is the value the signal had
 just before the window.
@@ -26,7 +26,7 @@ _SOLVER_RULE = {
 
 
 def _validate_dt(dt, owner: str = "IntegrateStep") -> float:
-    """The time step, always given explicitly - as in Derivative."""
+    """The time step, always given explicitly - as in DerivativeStep."""
     if dt is None:
         raise ValueError(
             f"{owner}: dt is required. Pass the time step of the signal being "
@@ -116,7 +116,7 @@ class IntegrateImpl(keras.layers.Layer):
             result = keras.ops.moveaxis(result, last_axis, time_axis)
 
         if init is not None:
-            # An initial condition may leave out the outer time axes, and a
+            # An initial condition may leave out the sequence axes, and a
             # scalar one the dim size: adding it broadcasts along both.
             result = result + expand_to_rank(init, len(result.shape))
         return result
@@ -145,7 +145,7 @@ class IntegrateStep(Layer):
         IntegrateStep(solver="euler"|"rectangular"|"trapezoidal", dt=0.01, init=None)(rate)
 
     The window's length is preserved: sample ``i`` of the rate is the rate of
-    the interval *ending* at ``i`` - the interval ``Derivative``'s backward
+    the interval *ending* at ``i`` - the interval ``DerivativeStep``'s backward
     difference produced it from - and integrates into the value at ``i``::
 
         y[i] = y[i-1] + dt * rate[i]                   # "euler"/"rectangular"
@@ -158,14 +158,14 @@ class IntegrateStep(Layer):
       ``velocity + dt * acceleration``, so a recurrence needs no separate form
       of this layer and no ``+`` written around it.
 
-    * **It inverts Derivative exactly**, with the same initial condition and
-      no bookkeeping: ``IntegrateStep(dt=dt, init=x0)(Derivative(dt=dt,
+    * **It inverts DerivativeStep exactly**, with the same initial condition and
+      no bookkeeping: ``IntegrateStep(dt=dt, init=x0)(DerivativeStep(dt=dt,
       init=x0)(x))`` is ``x``, because the rectangular rule sums back exactly
       the increments the backward difference took apart. (The trapezoidal rule
       trades that exactness for second-order accuracy on a smooth rate.)
 
     ``init`` is the constant of integration - the value the signal had at the
-    sample *before* the window, the same instant ``Derivative`` reads its own
+    sample *before* the window, the same instant ``DerivativeStep`` reads its own
     ``init`` at. A Stream (typically the state the window continues), a number
     (kept as a Constant), or ``None`` for zero. It is what turns a relative
     increment into the absolute quantity mechanical models are written in::
@@ -245,24 +245,22 @@ class IntegrateStep(Layer):
         return rate.shape
 
     def _validate_init_shape(self, rate, init):
-        init_dim, init_time = tuple(init.shape.dim), tuple(init.shape.time)
-        # Without time, the initial condition is a single sample.
-        samples = init_time[-1] if init_time else 1
-        if samples != 1:
+        init_dim = tuple(init.shape.dim)
+        if init.shape.time != 1:
             raise ValueError(
                 f"{self.name}: init is the value just before the window, so it "
-                f"must carry a single sample, got {samples}."
+                f"must carry a single sample, got {init.shape.time}."
             )
         if init_dim not in ((1,), tuple(rate.shape.dim)):
             raise ValueError(
                 f"{self.name}: init has dim {init_dim}, which is neither a scalar "
                 f"nor the integrated rate's {tuple(rate.shape.dim)}."
             )
-        outer, rate_outer = init_time[:-1], tuple(rate.shape.time[:-1])
-        if outer not in ((), rate_outer):
+        seq, rate_seq = tuple(init.shape.seq), tuple(rate.shape.seq)
+        if seq not in ((), rate_seq):
             raise ValueError(
-                f"{self.name}: init has the outer time {outer}, which is neither "
-                f"empty nor the integrated rate's {rate_outer}."
+                f"{self.name}: init has the sequence {seq}, which is neither "
+                f"empty nor the integrated rate's {rate_seq}."
             )
 
     # ------------------------------------------------------------------
@@ -272,7 +270,7 @@ class IntegrateStep(Layer):
         return IntegrateImpl(
             dt=self.dt,
             rule=_SOLVER_RULE[self.solver],
-            axis=self.shape.inner_time_axis,
+            axis=self.shape.time_axis,
             name=self.name,
         )
 
@@ -298,13 +296,13 @@ class IntegrateStep(Layer):
 
 
 def _declared_seq(seq) -> tuple[int, ...] | None:
-    """Outer time axes as an Input declares them: -1 for a dynamic one."""
+    """Sequence axes as an Input declares them: -1 for a dynamic one."""
     axes = tuple(-1 if length is None else int(length) for length in seq)
     return axes or None
 
 
 class Integrate:
-    """Integrate a rate along the horizon of its outer time.
+    """Integrate a rate along the horizon of its sequence.
 
     ::
 
@@ -313,10 +311,10 @@ class Integrate:
     The high-level counterpart of :class:`IntegrateStep`: a block built from an
     ``IntegrateStep`` rolled out by a :class:`Loop`, one rate sample per step,
     with the integrated value fed back as the state of the next step. The rate
-    carries the horizon as its outer time, of fixed length (``seq=N``) or
-    dynamic (``seq=-1``, followed at call time), and has one sample of inner
-    time per step. The result is shaped like the rate: its element
-    ``k`` is the value at the end of step ``k``::
+    carries the horizon as its outermost sequence axis, of fixed length
+    (``seq=N``) or dynamic (``seq=-1``, followed at call time), and one sample,
+    ``T=1``, per step. The result is shaped like the rate: its element ``k``
+    is the value at the end of step ``k``::
 
         y[k] = y[k-1] + dt * rate[k]                      # "euler", "rectangular"
         y[k] = y[k-1] + dt/2 * (rate[k-1] + rate[k])      # "trapezoidal"
@@ -324,11 +322,12 @@ class Integrate:
     These are the rules of ``IntegrateStep``, with the same convention for the
     first step, which has no earlier rate sample and keeps the rectangle: laid
     out along a time window instead, the same samples integrate to the same
-    values.
+    values. :class:`Derivative` with the same ``init`` is its inverse along the
+    horizon, as ``DerivativeStep`` is ``IntegrateStep``'s along a window.
 
     ``init`` is the value just before the first step: a Stream of one sample
-    (a scalar, or the rate's dim; its outer time axes are the rate's except
-    the horizon), a number, or ``None`` for zero.
+    (a scalar, or the rate's dim; its sequence is the rate's without the
+    horizon), a number, or ``None`` for zero.
 
     Calling the block returns the ``Loop`` itself, bound to the rate and
     ``init`` it is called with: a stream like any other, to use in further
@@ -364,7 +363,7 @@ class Integrate:
     def __call__(self, rate):
         from nnodely.core.layer import Identity
         from nnodely.core.modely import Modely
-        from nnodely.layers.input import Input
+        from nnodely.layers.input import Input, read
         from nnodely.layers.loop import Loop
         from nnodely.layers.output import Output
 
@@ -378,26 +377,27 @@ class Integrate:
             raise TypeError(
                 f"{self.name}: Integrate expects a Stream, got {type(rate).__name__}."
             )
-        if len(rate.time) < 2:
+        rate = read(rate)
+        if not rate.seq:
             raise ValueError(
-                f"{self.name}: Integrate runs along the outer time of the rate, its "
+                f"{self.name}: Integrate runs along the sequence of the rate, its "
                 "rollout, and this rate has none. Declare it on an Input with a "
                 "sequence, e.g. Input('x', seq=-1), or integrate a time window "
                 "with IntegrateStep."
             )
-        if rate.time[-1] != 1:
+        if rate.time != 1:
             raise ValueError(
                 f"{self.name}: Integrate takes one rate sample per step, but the "
-                f"rate carries {rate.time[-1]} time samples. Integrate a time window "
+                f"rate carries {rate.time} time samples. Integrate a time window "
                 "with IntegrateStep."
             )
 
         self._calls += 1
         call_name = self.name if self._calls == 1 else f"{self.name}_{self._calls}"
         dim = tuple(rate.dim)
-        # A step sees one sample of the rate, within the outer time axes the
+        # A step sees one sample of the rate, within the sequence axes the
         # horizon leaves.
-        step_seq = _declared_seq(rate.time[1:-1])
+        step_seq = _declared_seq(rate.seq[1:])
 
         # One step: the state integrates the rate of that step.
         rate_in = Input(f"{call_name}_rate", dim=dim, seq=step_seq)
@@ -433,12 +433,13 @@ class Integrate:
         if isinstance(self.init, Stream):
             # A scalar init is spread over the rate's dim by the Loop, which
             # broadcasts an initial value to the state it seeds.
-            self._validate_init_shape(rate, self.init)
-            initial[state_in] = self.init
+            init = read(self.init)
+            self._validate_init_shape(rate, init)
+            initial[state_in] = init
         elif self.init is not None:
             initial[state_in] = float(self.init)
         if previous_in is not None:
-            # The rate has one more time axis than the step, the horizon: the
+            # The rate has one more sequence axis than the step, the horizon: the
             # first step reads its first sample, so that step is a rectangle.
             initial[previous_in] = rate
 
@@ -448,13 +449,11 @@ class Integrate:
         )
 
     def _validate_init_shape(self, rate, init):
-        dim, step_outer = tuple(rate.dim), tuple(rate.time[1:-1])
-        init_time = tuple(init.time)
-        # Without time, the initial condition is a single sample.
-        if (init_time[-1] if init_time else 1) != 1:
+        dim, step_seq = tuple(rate.dim), tuple(rate.seq[1:])
+        if init.time != 1:
             raise ValueError(
                 f"{self.name}: init is the value just before the first step, so "
-                f"it must carry a single sample, got {init_time[-1]}."
+                f"it must carry a single sample, got {init.time}."
             )
         if tuple(init.dim) not in (dim, (1,)) or (
             tuple(init.dim) == (1,) and len(dim) > 1
@@ -463,9 +462,9 @@ class Integrate:
                 f"{self.name}: init has dim {tuple(init.dim)}, which is neither "
                 f"the rate's {dim} nor, for a one-axis dim, a scalar."
             )
-        if init_time[:-1] != step_outer:
+        if tuple(init.seq) != step_seq:
             raise ValueError(
-                f"{self.name}: init has the outer time {init_time[:-1]}, but one "
-                "value per sequence of steps needs the rate's outer time without "
-                f"the horizon, {step_outer}."
+                f"{self.name}: init has the sequence {tuple(init.seq)}, but one "
+                "value per sequence of steps needs the rate's sequence without "
+                f"the horizon, {step_seq}."
             )
