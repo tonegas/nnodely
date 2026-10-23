@@ -368,6 +368,26 @@ def test_a_dynamic_time_axis_matches_any_length():
     assert (dynamic + fixed).shape.dimensions == ((None,), 1, (2,))
 
 
+def test_dyn_declares_a_dynamic_sequence_length_as_minus_one_does():
+    from nnodely import Input, Modely, Output
+
+    assert Input("dyn_str", seq="dyn").seq == Input("dyn_int", seq=-1).seq == (None,)
+    mixed = Input("dyn_mixed", dim=2, seq=(4, "dyn"))
+    assert mixed.shape.dimensions == ((4, None), 1, (2,))
+    assert repr(mixed.shape) == "Shape(S=(4, dyn), T=1, D=(2,))"
+    with pytest.raises(ValueError, match="-1 or 'dyn'"):
+        Input("dyn_none", seq=(4, None))  # type: ignore[arg-type]
+
+    # The length is the data's, at every call.
+    x = Input("dyn_data", seq="dyn")
+    model = Modely("dyn_model", inputs=[x], outputs=[Output("dyn_out", x * 2.0)])
+    model.build()
+    for steps in (2, 5):
+        values = np.arange(steps, dtype=np.float32).reshape(1, steps, 1, 1)
+        result = to_numpy(model({"dyn_data": values})["dyn_out"])
+        np.testing.assert_allclose(result, 2.0 * values)
+
+
 def test_broadcast_values_follow_the_shapes():
     # A matrix without time is repeated along the time of the window it is
     # added to, and a scalar window along the dim of the matrix window.

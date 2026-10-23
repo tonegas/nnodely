@@ -113,7 +113,8 @@ time windows. Sequences are used by rollouts (see :doc:`recurrent`):
    seq_loader = DataLoader(seq_model, source={"s": np.arange(100.0)})
    print(seq_loader[0]["s"].shape)   # (20, 1, 1): 20 steps of one sample
 
-A sequence length can be left dynamic with ``seq=-1``. It is then fixed when
+A sequence length can be left dynamic with ``seq=-1``, or ``seq="dyn"`` as
+a shape prints it (``seq=(4, "dyn")`` inside a tuple). It is then fixed when
 the data is loaded:
 
 - ``seq_length=n`` uses sequences of ``n`` steps.

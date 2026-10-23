@@ -12,13 +12,13 @@ def _sequence(name: str, seq) -> tuple:
     None; ``()`` if not given."""
     if seq is None:
         return ()
-    seq = (seq,) if isinstance(seq, int) else tuple(seq)
+    seq = (seq,) if isinstance(seq, (int, str)) else tuple(seq)
     if None in seq:
         raise ValueError(
-            f"{name}: a dynamic sequence length is declared with -1, not None."
+            f"{name}: a dynamic sequence length is declared with -1 or 'dyn', not None."
         )
-    # Keras marks a dynamic axis with None.
-    return tuple(None if length == -1 else length for length in seq)
+    # "dyn" is -1 as a shape prints it; Keras marks a dynamic axis with None.
+    return tuple(None if length in (-1, "dyn") else length for length in seq)
 
 
 class Input(Stream):
@@ -27,7 +27,7 @@ class Input(Stream):
 
     ``dim`` sets the feature axes (one feature by default). ``seq`` sets the
     sequence: the axes outside the window, outermost first, used by
-    rollouts; ``-1`` leaves a length dynamic.
+    rollouts; ``-1`` or ``"dyn"`` leaves a length dynamic.
 
     Read directly, an Input is its current sample, ``S=seq, T=1``. Its
     windows, requested with :meth:`sw` and :meth:`next`, set the window,
@@ -43,7 +43,7 @@ class Input(Stream):
         name: str,
         *,
         dim: int | tuple | None = None,
-        seq: int | tuple[int, ...] | None = None,
+        seq: int | str | tuple[int | str, ...] | None = None,
     ):
         super().__init__(name=name, dim=dim, seq=_sequence(name, seq), preds=None)
         # The window the graph of the last model built reads, found by build().

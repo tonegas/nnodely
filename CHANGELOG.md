@@ -154,10 +154,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   are laid out the same, `(samples, *seq, time, *dim)`: an `Input` read only
   directly is `(samples, *seq, 1, *dim)`.
 - The sequence of an `Input` is declared on the Input: `Input("x", seq=5)`,
-  `seq=(4, -1)` (outermost first, `-1` dynamic). Read directly the Input is
-  its current sample, `T=1`, and every window of it keeps the sequence:
-  `x.sw(3)` has its `S` and `T=3`. There is no `last()` (an Input read
-  directly is its current sample) and windows take no `seq`.
+  `seq=(4, -1)` (outermost first, `-1` or `"dyn"` dynamic). Read directly
+  the Input is its current sample, `T=1`, and every window of it keeps the
+  sequence: `x.sw(3)` has its `S` and `T=3`. There is no `last()` (an Input
+  read directly is its current sample) and windows take no `seq`.
 - A window leaves its `Input` as it is until `build()`, which gives every
   Input the union of the windows the model's graph reads, a direct read
   counting as one sample, so a window declared but not used widens nothing,

@@ -19,7 +19,7 @@ Use this order:
 ## 1. Hard rules
 
 1. **The lifecycle order is fixed:** declare streams → `Modely(name, inputs, outputs)` → `minimize(...)` / `rollback(...)` → `build()` → `DataLoader(model, ...)` → `train` / `validate` / `model(...)` / export. `DataLoader`, `train`, `validate`, inference and export all need a built model. Objectives and rollback must be declared **before** `build()`, and `rollback` after `build` raises. `build()` returns the model, so `Modely(...).build()` chains.
-2. **`Input(name, *, dim=None, seq=None)`**: `dim` and `seq` are keyword-only, so `Input("x", 3)` is an error. `seq` is the Input's sequence, the axes outside the window (§3): `Input("s", seq=H)`, `-1` for a dynamic length. Windows take no `seq`.
+2. **`Input(name, *, dim=None, seq=None)`**: `dim` and `seq` are keyword-only, so `Input("x", 3)` is an error. `seq` is the Input's sequence, the axes outside the window (§3): `Input("s", seq=H)`, `-1` or `"dyn"` for a dynamic length. Windows take no `seq`.
 3. **Every stream has a window, `T >= 1`.** An `Input` read directly is its **current sample**, `T=1` with its sequence, data `(batch, *seq, 1, *dim)` [verified]; there is no `last()`. Windows: `x.sw(n)`, `x.sw([p, f])`, `x.next()`. One Input can be read directly and through windows in the same graph: the direct read stays its current sample, the data holds the union of the windows [verified].
 4. **Stream operators:** `+ - * / **` work between streams and Python numbers; numbers become one-sample `Constant`s, applied to every sample. Operands must have the same sequence and window, or one of them be a single sample (`T=1`, sequence all ones, §3). Unary minus is not supported: `-x` raises `TypeError` [verified], so write `-1.0 * x` or `Negative()(x)`. Also unsupported: `2 ** x`, `@`, indexing `x[0]`, comparisons. For indexing use `Select` / `Range` (dim), `TimeSelect` / `TimeRange` (window) or `SeqSelect` / `SeqRange` (sequence).
 5. **Objective targets** (`minimize(name, source, target, loss)`). `target` is one of:
@@ -100,7 +100,7 @@ Stream attributes: `s.shape` (a `Shape(dim, time, seq)`, tuple-like over `(*seq,
 | `x.next()` | `x[t+1]` (= `sw([0, 1])`) | `()`, `1` |
 | any of these on `Input("x", seq=s)` | `s` consecutive windows, the last ending at `t` (§9) | `s`, as above |
 
-`seq=` (an int or a tuple, outermost first; `-1` dynamic) is the Input's sequence: `Input("x", seq=(4, -1))` is `S=(4, dyn), T=1`, and every window of it keeps that sequence (`x.sw(3)` is `S=(4, dyn), T=3`) [verified]. For another sequence, declare another Input.
+`seq=` (an int or a tuple, outermost first; `-1` or `"dyn"` dynamic) is the Input's sequence: `Input("x", seq=(4, -1))` is `S=(4, dyn), T=1`, and every window of it keeps that sequence (`x.sw(3)` is `S=(4, dyn), T=3`) [verified]. For another sequence, declare another Input.
 
 Requesting a window leaves the Input unchanged. `build()` finds the union of the windows **that model's graph** reads (outputs, minimizer sides, rollback streams; a direct read counts as `sw(1)`): `past = max p`, `future = max f`, and the Input's `shape` becomes the data it is read from, `T = past + future` [verified: `u.sw(10)` and `u.sw([2, 3])` both used give `u.shape` `Shape(S=(), T=13, D=(3,))` after build]. A window declared but unused widens nothing, and each model reads its own windows (`model.train_inputs` hold them; the Input shows the last model built). Read directly, the Input is still its current sample, `T=1`, in relations declared before or after the build. A loaded model keeps at least the window the saved one read. Windows are ordered oldest first; index `-1` along the window is the newest sample.
 
@@ -180,7 +180,7 @@ Install: `pip install "nnodely[torch]"` (or `[tensorflow]` / `[jax]`); add `onnx
 - Read directly, an Input is its current sample, `T=1` with its sequence.
 - Methods: `.sw(n | [p, f])`, `.next()`. Each returns a new `SampleWindow` stream; the Input itself is unchanged (`build()` finds the windows).
 - Attributes: `.shape` (before build `T=1`; after build the per-sample shape of the data the last built model reads, `T = past + future`), `.past`, `.future`, `.seq`, `.dim`, `.time`, `.name`.
-- `seq=N` gives a fixed-length sequence (trajectory): `Input("x", seq=N)` is `S=(N,), T=1`. A tuple gives several sequence axes, outermost first. `seq=-1` gives a dynamic length, resolved by `DataLoader(seq_length=...)` and followed by a `Loop` at call time; only one dynamic axis per input is allowed. Every window keeps the sequence (§3).
+- `seq=N` gives a fixed-length sequence (trajectory): `Input("x", seq=N)` is `S=(N,), T=1`. A tuple gives several sequence axes, outermost first. `seq=-1`, or `seq="dyn"` as a shape prints it (`seq=(4, "dyn")` in a tuple), gives a dynamic length, resolved by `DataLoader(seq_length=...)` and followed by a `Loop` at call time; only one dynamic axis per input is allowed. Every window keeps the sequence (§3).
 - An Input used only as a target (for example `Input("y_meas")`) is read by training and validation (it is in `model.train_inputs`), not by inference (§1.12).
 
 ### Output
