@@ -4,6 +4,7 @@ import pytest
 
 from conftest import to_numpy
 from nnodely import DataLoader, Modely, Input, Output, Fir, Linear, Loop, Parameter
+from nnodely import TimeSelect
 
 
 @pytest.fixture
@@ -17,11 +18,11 @@ def window_size():
 
 
 def test_basic_model_build_and_inference(batch_size, window_size):
-    x = Input("x", dim=1)
-    y = Input("y", dim=1)
+    x = Input("x", dim=1, sw=window_size)
+    y = Input("y", dim=1, sw=window_size)
 
-    x_stream = x.sw(window_size)
-    y_stream = y.sw(window_size)
+    x_stream = x
+    y_stream = y
 
     result_fir = Fir(features=2)([x_stream + y_stream])
     x_out = Output("x_pred", result_fir)
@@ -40,11 +41,11 @@ def test_basic_model_build_and_inference(batch_size, window_size):
 
 def test_model_inference_with_composed_model(batch_size, window_size):
     # ------- Model definition and building -------
-    x = Input("x", dim=1)
-    y = Input("y", dim=1)
+    x = Input("x", dim=1, sw=window_size)
+    y = Input("y", dim=1, sw=window_size)
 
-    x_stream = x.sw(window_size)
-    y_stream = y.sw(window_size)
+    x_stream = x
+    y_stream = y
 
     fir = Fir(features=2)
     result_fir = fir([x_stream + y_stream])
@@ -54,8 +55,8 @@ def test_model_inference_with_composed_model(batch_size, window_size):
     model1.build()
 
     # ------- Model composition -------
-    z = Input("z", dim=1)
-    z_stream = z.sw(window_size)
+    z = Input("z", dim=1, sw=window_size)
+    z_stream = z
     z_fir = Fir(features=1)(model1([z_stream, z_stream]))
     z_out = Output("z_pred", z_fir)
     model2 = Modely("composed_model", inputs=[z], outputs=[z_out])
@@ -77,7 +78,7 @@ def test_model_inference_with_composed_model(batch_size, window_size):
 
 
 def test_inference_accepts_a_backend_tensor():
-    x = Input("backend_tensor_x", dim=1)
+    x = Input("backend_tensor_x", dim=1, sw=1)
     output = Output("backend_tensor_out", x * 2.0)
     model = Modely("backend_tensor_model", inputs=[x], outputs=[output]).build()
 
@@ -102,12 +103,10 @@ def _minimized_model(name):
     The target is an input only the loss reads, and the second minimizer
     regularizes a stream that no declared output exposes.
     """
-    x = Input(f"{name}_x", dim=1)
-    target = Input(f"{name}_target", dim=1)
-    hidden = Linear(features=1, name=f"{name}_hidden")(x)
-    prediction = Output(
-        f"{name}_pred", Fir(features=1, name=f"{name}_fir")(x.sw(3)) + hidden
-    )
+    x = Input(f"{name}_x", dim=1, sw=3)
+    target = Input(f"{name}_target", dim=1, sw=1)
+    hidden = Linear(features=1, name=f"{name}_hidden")(TimeSelect(-1)(x))
+    prediction = Output(f"{name}_pred", Fir(features=1, name=f"{name}_fir")(x) + hidden)
     model = Modely(name, inputs=[x, target], outputs=[prediction])
     model.minimize(f"{name}_fit", source=prediction, target=target)
     model.minimize(f"{name}_small", source=hidden, target=0.0)
@@ -165,7 +164,7 @@ def test_inference_returns_only_declared_outputs():
 
 def test_inference_keeps_an_input_that_outputs_and_minimizers_both_read():
     # A reconstruction: the input is both what the model reads and its target.
-    x = Input("reconstruct_x", dim=1)
+    x = Input("reconstruct_x", dim=1, sw=1)
     rebuilt = Output("reconstruct_out", Linear(features=1)(x))
     model = Modely("reconstruct", inputs=[x], outputs=[rebuilt])
     model.minimize("reconstruct_fit", source=rebuilt, target=x)
@@ -199,13 +198,11 @@ def test_inference_runs_with_the_trained_weights():
 
 
 def test_rollback_inference_does_not_need_minimizer_inputs():
-    x = Input("rollback_inference_x", dim=1)
-    target = Input("rollback_inference_target", dim=1)
+    x = Input("rollback_inference_x", dim=1, sw=5)
+    target = Input("rollback_inference_target", dim=1, sw=1)
     taps = Parameter("rollback_inference_taps", value=np.ones(5))
-    fir = Fir(features=1, kernel=taps, bias=False, name="rollback_inference_fir")(
-        x.sw(5)
-    )
-    output = Output("rollback_inference_out", fir + x)
+    fir = Fir(features=1, kernel=taps, bias=False, name="rollback_inference_fir")(x)
+    output = Output("rollback_inference_out", fir + TimeSelect(-1)(x))
     model = Modely("rollback_inference", inputs=[x, target], outputs=[output])
     model.minimize("rollback_inference_fit", source=output, target=target)
     model.rollback({x: fir}, steps=3)
@@ -223,7 +220,7 @@ def test_rollback_inference_does_not_need_minimizer_inputs():
 
 
 def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
-    state = Input("minimized_body_state", dim=1)
+    state = Input("minimized_body_state", dim=1, sw=1)
     gain = Parameter("minimized_body_gain", value=[2.0])
     relation = Linear(
         features=1, kernel=gain, bias=False, name="minimized_body_linear"
@@ -233,12 +230,12 @@ def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
     body.minimize(
         "minimized_body_fit",
         source=next_state,
-        target=Input("minimized_body_target", dim=1),
+        target=Input("minimized_body_target", dim=1, sw=1),
     )
     body.build()
 
     # The loop runs the body as declared: its target is not an input of the loop.
-    seed = Input("minimized_body_seed", dim=1, seq=4)
+    seed = Input("minimized_body_seed", dim=1, seq=4, sw=1)
     loop = Loop(
         f=body,
         callback={state: next_state},
@@ -277,7 +274,7 @@ def test_a_model_that_reads_no_input_is_refused_at_build():
     with pytest.raises(ValueError, match="reads no Input"):
         only_values.build()
 
-    state = Input("numbers_state")
+    state = Input("numbers_state", sw=1)
     step = Output("numbers_next", Linear(bias=False)(state))
     body = Modely("numbers_body", inputs=[state], outputs=[step]).build()
     driven_by_numbers = Loop(
@@ -293,7 +290,7 @@ def test_a_model_that_reads_no_input_is_refused_at_build():
 def test_two_inputs_of_one_name_are_refused():
     # The data is keyed by input name: two Inputs named alike read one array,
     # and a model with them once ran silently on the wrong values.
-    a, b = Input("twin_name"), Input("twin_name")
+    a, b = Input("twin_name", sw=1), Input("twin_name", sw=1)
     model = Modely("twin_names", inputs=[a, b], outputs=[Output("twin_out", a + b)])
     with pytest.raises(ValueError, match="two different Inputs named 'twin_name'"):
         model.build()
@@ -302,7 +299,7 @@ def test_two_inputs_of_one_name_are_refused():
 def test_a_file_that_is_not_an_nnodely_2_model_is_refused(tmp_path):
     import json
 
-    x = Input("file_check_x")
+    x = Input("file_check_x", sw=1)
     Modely(
         "file_check", inputs=[x], outputs=[Output("file_check_out", x * 2.0)]
     ).build().save(tmp_path / "model")

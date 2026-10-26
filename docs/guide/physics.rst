@@ -33,7 +33,7 @@ physics-informed neural networks. The model below fits
 
 .. code-block:: python
 
-   t = Input("t")
+   t = Input("t")              # one value per sample, no window
    u = Linear(features=1)([Tanh()([Linear(features=16)([t])])])
    du_dt = Differentiate(respect_to=t)(u)
 
@@ -60,9 +60,9 @@ signals at the price of a delay of about ``(window - 1) / 2`` samples:
 .. code-block:: python
 
    dt = 0.01
-   position = Input("position")
-   velocity = DerivativeStep(dt=dt, init=0.0)(position.sw(10))
-   smooth_velocity = DerivativeStep(dt=dt, window=5)(position.sw(10))
+   position = Input("position", sw=10)
+   velocity = DerivativeStep(dt=dt, init=0.0)(position)
+   smooth_velocity = DerivativeStep(dt=dt, window=5)(position)
    print(velocity.shape)   # Shape(S=(), T=10, D=(1,))
 
 Integrators
@@ -75,8 +75,8 @@ step, which is the state update of a recurrent model:
 
 .. code-block:: python
 
-   acceleration = Input("acceleration")
-   v = Input("v")
+   acceleration = Input("acceleration", sw=1)
+   v = Input("v", sw=1)
    v_next = IntegrateStep(dt=dt, init=v)(acceleration)   # v + dt * a
 
 On a longer window it returns the whole integrated trajectory in one pass, so
@@ -84,7 +84,8 @@ position can be obtained from acceleration with no rollout:
 
 .. code-block:: python
 
-   v_window = IntegrateStep(dt=dt)(acceleration.sw(50))
+   acceleration_window = Input("acceleration_window", sw=50)
+   v_window = IntegrateStep(dt=dt)(acceleration_window)
    x_window = IntegrateStep(dt=dt)(v_window)
    print(x_window.shape)   # Shape(S=(), T=50, D=(1,))
 
@@ -101,8 +102,8 @@ the results on the same samples, are those of ``IntegrateStep``:
 
 .. code-block:: python
 
-   acc = Input("acc", seq=-1)   # one acceleration per step
-   v0 = Input("v0")
+   acc = Input("acc", seq=-1, sw=1)   # one acceleration per step
+   v0 = Input("v0", sw=1)
    velocity = Integrate(solver="trapezoidal", dt=dt, init=v0)(acc)
    position = Integrate(solver="trapezoidal", dt=dt, init=0.0)(velocity)
    kinematics = Modely("kinematics", inputs=[acc, v0],
@@ -121,8 +122,8 @@ window. With the same ``init``, ``Integrate``'s Euler rule inverts it:
 
 .. code-block:: python
 
-   x = Input("x", seq=-1)       # one position per step, e.g. a Loop trajectory
-   x0 = Input("x0")
+   x = Input("x", seq=-1, sw=1)       # one position per step, e.g. a Loop trajectory
+   x0 = Input("x0", sw=1)
    v = Derivative(dt=dt, init=x0)(x)
    x_again = Integrate(dt=dt, init=x0)(v)
 
@@ -144,8 +145,8 @@ body of a :class:`~nnodely.Loop`. Here a pendulum with an unknown ratio
    def pendulum(theta, omega, g_over_l):
        return omega, -1.0 * g_over_l * Sin()([theta])
 
-   theta = Input("theta")
-   omega = Input("omega")
+   theta = Input("theta", sw=1)
+   omega = Input("omega", sw=1)
    g_over_l = Parameter("g_over_l", value=5.0)
    theta_next, omega_next = Ode(
        pendulum, [theta, omega], dt=0.05, method="rk4", args=(g_over_l,)
@@ -156,8 +157,8 @@ body of a :class:`~nnodely.Loop`. Here a pendulum with an unknown ratio
        outputs=[Output("theta_next", theta_next), Output("omega_next", omega_next)],
    ).build()
 
-   theta0 = Input("theta0", seq=100)
-   omega0 = Input("omega0", seq=100)
+   theta0 = Input("theta0", seq=100, sw=1)
+   omega0 = Input("omega0", seq=100, sw=1)
    theta_traj, omega_traj = Loop(
        f=step,
        callback={"theta": "theta_next", "omega": "omega_next"},
@@ -186,14 +187,14 @@ time. The field must be autonomous (all its inputs are states).
 
 .. code-block:: python
 
-   z = Input("z", dim=2)
+   z = Input("z", dim=2, sw=1)
    field = Modely(
        "field",
        inputs=[z],
        outputs=[Output("dz", Linear(features=2, bias=False)([z]))],
    ).build()
 
-   report_times = Input("report_times", seq=50)
+   report_times = Input("report_times", seq=50, sw=1)
    z_traj = OdeNet(
        f=field, states={z: "dz"}, t=report_times, method="rk4", steps=2
    )

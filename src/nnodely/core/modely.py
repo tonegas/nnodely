@@ -28,7 +28,6 @@ from nnodely.utils.utils import (
 )
 from nnodely.utils.printers import _resolve_printer
 from nnodely.core.registry import ModelSerializer
-from nnodely.core.shape import Shape
 from nnodely.core.stream import Stream, Node
 from nnodely.layers.parameter import Constant, Parameters
 from nnodely.core.dataloader import DataLoader
@@ -37,7 +36,7 @@ import numpy as np
 from typing import cast
 
 from nnodely.layers.output import Output
-from nnodely.layers.input import Input, resolve_windows, windows_read
+from nnodely.layers.input import Input
 from nnodely.core.layer import Layer, _claim_keras_name
 
 import keras
@@ -78,8 +77,6 @@ class Modely:
         self._roll_callbacks: dict[Input, Stream] = {}
         self._roll_steps: int | None = None
         self._roll_name: str | None = None
-        # The window (past, future) build() found for each Input, by name.
-        self._input_windows: dict[str, tuple[int, int]] = {}
 
     def __repr__(self) -> str:
         items = " \n- ".join(map(str, self.order))
@@ -105,9 +102,8 @@ class Modely:
                     "used as a block it takes one stream for each, in that "
                     f"order, got {len(inputs)}."
                 )
-            reads = windows_read(self.order)
             for node, stream in zip(self.inputs, inputs):
-                self._check_block_input(node, stream, reads)
+                self._check_block_input(node, stream)
             mc = ModelCall(f"{self.name}_call", self)
             mc.preds = list(inputs)
             mc.inputs_map = {old: new for old, new in zip(self.inputs, inputs)}
@@ -129,34 +125,26 @@ class Modely:
         inputs = {inp.name: inputs[inp.name] for inp in self.inference_inputs}
         return self.inference_model(inputs)
 
-    def _check_block_input(self, node: Input, stream, reads: dict) -> None:
+    def _check_block_input(self, node: Input, stream) -> None:
         """Refuse a stream that this model, used as a block, cannot read as
-        its input ``node``: a block keeps the shapes it was declared with.
-
-        An Input of the calling graph is read through this model's own
-        windows, so it needs the dim and the sequence of ``node``; any other
-        stream must have the shape this model's graph reads ``node`` with. A
-        dynamic sequence axis matches any length.
+        its input ``node``: a block keeps the shapes it was declared with, so
+        the stream must have the shape of ``node``. A dynamic sequence axis
+        matches any length.
         """
-        past, future = reads.get(node, (1, 0))
-        expected = Shape(dim=node.dim, time=past + future, seq=node.seq)
-        if isinstance(stream, Input):
-            fits = _same_sizes(stream.seq, node.seq)
-        elif node not in self.order:
+        if node not in self.order:
             return  # an input this model does not read
-        else:
-            fits = _same_sizes(
-                (*stream.seq, stream.time), (*expected.seq, expected.time)
-            )
-        if not fits or tuple(stream.dim) != tuple(node.dim):
+        if (
+            stream.time != node.time
+            or not _same_sizes(stream.seq, node.seq)
+            or tuple(stream.dim) != tuple(node.dim)
+        ):
             raise ValueError(
                 f"Model {self.name!r} reads its input {node.name!r} as "
-                f"{expected}, so used as a block it takes a stream of that shape "
-                f"for it, or an Input of dim {tuple(node.dim)} and sequence "
-                f"{node.seq}, read through the block's own windows; "
-                f"{stream.name!r} is {stream.shape}. A block keeps the shapes it "
-                "was declared with: give it a stream of that shape, or declare "
-                "the model on the shape it is used with."
+                f"{node.shape}, so used as a block it takes a stream of that "
+                "shape for it - the same dim, sequence and window; "
+                f"{stream.name!r} is {stream.shape}. A block keeps "
+                "the shapes it was declared with: give it a stream of that "
+                "shape, or declare the model on the shape it is used with."
             )
 
     @property
@@ -198,14 +186,6 @@ class Modely:
             return_memo=True,
         )
         self.train_inputs = [node for node in flat.order if isinstance(node, Input)]
-        # The window every Input is read through is the union of the windows
-        # this graph takes from it - not every window ever declared on it.
-        # The declared Inputs get it too, to show the shape the data has.
-        windows = resolve_windows(flat.order)
-        self._input_windows = {node.name: window for node, window in windows.items()}
-        for node, flat_node in flatten_memo.items():
-            if isinstance(node, Input) and flat_node in windows:
-                node._set_window(*windows[flat_node])
         if not self.train_inputs:
             # Keras would only say that its outputs are not KerasTensors.
             raise ValueError(
@@ -303,7 +283,8 @@ class Modely:
             },
             output_names=tuple(node.name for node in output_nodes),
             input_time_axes={
-                node.name: node.shape.time_axis for node in self._roll_callbacks
+                node.name: cast(int, node.shape.time_axis)
+                for node in self._roll_callbacks
             },
             steps=cast(int, self._roll_steps),
             name=self._roll_name or f"{self.name}_roll",
@@ -820,8 +801,12 @@ class Modely:
         for input_ref, stream_ref in rollback.items():
             input_node = resolve(self.inputs, input_ref, "input")
             stream = resolve(graph_streams, stream_ref, "stream")
-            # One sample of the window, within the Input's sequence: the
-            # Input read directly.
+            if input_node.time is None:
+                raise ValueError(
+                    f"rollback shifts the window of input {input_node.name!r}, "
+                    "which has none: declare it with sw."
+                )
+            # One sample of the window, within the Input's sequence.
             expected = input_node.shape.replace(time=1).tuple
             if stream.shape.tuple != expected:
                 raise ValueError(

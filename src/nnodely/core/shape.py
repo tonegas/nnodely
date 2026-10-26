@@ -7,14 +7,14 @@ A stream has three kinds of axes:
   as a new outermost sequence axis. A sequence axis may be dynamic
   (``None``), its length known only at run time.
 - ``time``, its window: the consecutive samples along which the temporal
-  operations (windows, filters, derivatives, integrals) act. Every stream
-  has one: a number, a Parameter or an Input read directly are one sample,
-  ``time=1``.
+  operations (filters, derivatives, integrals, time selections) act, or
+  ``None`` for a stream without one - an Input declared without ``sw``, a
+  number, a Parameter or Constant declared without ``time``.
 - ``dim``, its feature axes, one or more.
 
-A tensor holds them after its batch axis::
+A tensor holds them after its batch axis, the window only when there is one::
 
-    (batch, *seq, time, *dim)
+    (batch, *seq, time, *dim)        (batch, *seq, *dim)
 
 This module is the only one that knows that layout. A layer asks the Shape
 of its stream where an axis is (:attr:`Shape.seq_axes`,
@@ -34,7 +34,8 @@ BATCH_AXIS = 0
 
 #: The first tensor axis after the batch: the outermost sequence axis - the
 #: rollout of the outermost Loop - or the window of a stream without a
-#: sequence. A rollout mask and sequence weights run along it.
+#: sequence, or its first dim axis. A rollout mask and sequence weights run
+#: along it.
 OUTER_AXIS = 1
 
 #: Given for an argument left as it is.
@@ -64,84 +65,118 @@ class Shape:
 
     ``seq`` is the tuple of its sequence axes, outermost first, ``()`` for
     none; an int is one axis. ``time`` is the length of its window, one
-    sample by default. ``dim`` is one feature by default.
+    sample by default, or ``None`` for no window. ``dim`` is one feature by
+    default.
     """
 
     dim: tuple[int, ...]
-    time: int
+    time: int | None
     seq: tuple[int | None, ...]
 
-    def __init__(self, dim=None, time=None, seq=None):
+    def __init__(self, dim=None, time: int | None = 1, seq=None):
         # Always tuples: a shape read back from JSON arrives as lists, and two
         # shapes that describe the same axes have to compare equal.
         self.dim = _axes(dim, (1,))
         self.seq = _axes(seq, ())
-        if time is None:
-            time = 1
-        if isinstance(time, bool) or not isinstance(time, int) or time < 1:
+        if time is not None and (
+            isinstance(time, bool) or not isinstance(time, int) or time < 1
+        ):
             raise TypeError(
-                f"time is the length of the window, a positive int, got {time!r}; "
-                "the axes outside the window are seq."
+                f"time is the length of the window, a positive int or None, got "
+                f"{time!r}; the axes outside the window are seq."
             )
-        self.time = int(time)
+        self.time = None if time is None else int(time)
 
     @classmethod
     def from_tensor_shape(
-        cls, shape, *, seq_rank: int | None = None, dim_rank: int | None = None
+        cls,
+        shape,
+        *,
+        seq_rank: int | None = None,
+        dim_rank: int | None = None,
+        time: bool = True,
     ) -> "Shape":
         """The Shape of a tensor of ``shape``, batch axis excluded, told apart
-        by how many sequence axes, or dim axes, it has."""
+        by how many sequence axes, or dim axes, it has, and whether it has a
+        window."""
         shape = tuple(shape)
+        window = 1 if time else 0
         if seq_rank is None:
-            seq_rank = len(shape) - 1 - int(dim_rank)  # type: ignore[arg-type]
+            seq_rank = len(shape) - window - int(dim_rank)  # type: ignore[arg-type]
         return cls(
-            dim=shape[seq_rank + 1 :], time=shape[seq_rank], seq=shape[:seq_rank]
+            dim=shape[seq_rank + window :],
+            time=shape[seq_rank] if time else None,
+            seq=shape[:seq_rank],
         )
 
     def replace(self, dim=_KEEP, time=_KEEP, seq=_KEEP) -> "Shape":
         """This shape with its dim axes, its window or its sequence changed."""
         return Shape(
             dim=self.dim if dim is _KEEP else dim,
-            time=self.time if time is _KEEP else time,
+            time=self.time if time is _KEEP else time,  # type: ignore[arg-type]
             seq=self.seq if seq is _KEEP else seq,
         )
 
     @staticmethod
-    def broadcast(shapes, owner: str) -> "Shape":
+    def broadcast(shapes, owner: str, values=None) -> "Shape":
         """The shape of an elementwise operation between streams of ``shapes``.
 
-        Sequence and time are never blended: the streams must have the same
-        ones - a dynamic axis matches any length and stays dynamic - unless
-        one stream is a single sample - every sequence axis and its window of
-        size 1 - which broadcasts along the others', as numpy aligns them,
-        from the window. The dim axes must be the same, unless one stream's
-        are a scalar - every axis of size 1 - which broadcasts to the others'
-        as numpy aligns them, from the last.
+        ``values`` tells, for each shape, whether its stream is a value - a
+        number, a Parameter or a Constant, or a relation of those alone -
+        rather than read from data.
+
+        The window: equal, or one of them a single sample, ``T=1``, which
+        broadcasts along the other's. A value without one applies to every
+        sample of any stream; a stream from data without one does not combine
+        with a stream that has one.
+
+        The sequence: the same - a dynamic axis matches any length and stays
+        dynamic - unless one stream's is a single step, every sequence axis of
+        size 1, which broadcasts along the other's, as numpy aligns them, from
+        the innermost. The dim axes must be the same, unless one stream's are
+        a scalar - every axis of size 1 - which broadcasts to the others' as
+        numpy aligns them, from the last.
 
         And one stream must already have the shape of the result, the others
         broadcasting into it: two streams that would both be broadcast, one
         along the time of the other and the other along its dim - a matrix of
         one sample and the window of a scalar - are not combined.
         """
-        steps: tuple | None = None  # every sequence axis, then the window
+        values = [False] * len(shapes) if values is None else list(values)
+        windows = [shape.time for shape in shapes if shape.time is not None]
+        time = max(windows) if windows else None
+        for shape, value in zip(shapes, values):
+            if shape.time is None and time is not None and not value:
+                raise ValueError(
+                    f"{owner}: a stream with no time, {shape!r}, cannot be "
+                    f"combined with a stream with a window of {time}. Declare "
+                    "the Input with a window, sw=1 for one sample."
+                )
+            if shape.time not in (None, 1, time):
+                raise ValueError(
+                    f"{owner}: streams with windows of {shape.time} and {time} "
+                    "cannot be combined: only a single sample, T=1, broadcasts "
+                    "along the window of another."
+                )
+
+        seq: tuple | None = None
         for shape in shapes:
-            if steps is None or _is_scalar(steps):
-                steps = _broadcast_ones(steps, shape._steps)
-            elif _is_scalar(shape._steps):
-                steps = _broadcast_ones(shape._steps, steps)
-            elif _same_steps(shape._steps, steps):
-                steps = tuple(
+            if seq is None or _is_scalar(seq):
+                seq = _broadcast_ones(seq, shape.seq)
+            elif _is_scalar(shape.seq):
+                seq = _broadcast_ones(shape.seq, seq)
+            elif _same_steps(shape.seq, seq):
+                seq = tuple(
                     None if None in (size, other) else size
-                    for size, other in zip(shape._steps, steps)
+                    for size, other in zip(shape.seq, seq)
                 )
             else:
                 raise ValueError(
-                    f"{owner}: streams with a different sequence or time cannot "
-                    f"be combined, got {Shape(time=steps[-1], seq=steps[:-1])!r} "
-                    f"and {shape!r}. Only a single sample broadcasts along the "
-                    "sequence and the time of another."
+                    f"{owner}: streams with a different sequence cannot be "
+                    f"combined, got {_sizes(seq)} and {shape!r}. Only a single "
+                    "step broadcasts along the sequence of another."
                 )
-        assert steps is not None
+        assert seq is not None
 
         dim: tuple[int, ...] | None = None
         for shape in shapes:
@@ -160,8 +195,8 @@ class Shape:
                     "the dims must be the same, or one of them a scalar."
                 )
 
-        result = Shape(dim=dim, time=steps[-1], seq=steps[:-1])
-        if not any(shape._fills(result) for shape in shapes):
+        result = Shape(dim=dim, time=time, seq=seq)
+        if not any(shape._fills(result, value) for shape, value in zip(shapes, values)):
             raise ValueError(
                 f"{owner}: streams of {' and '.join(map(repr, shapes))} cannot be "
                 "combined: each would be broadcast, one along the time of another "
@@ -172,14 +207,25 @@ class Shape:
 
     @property
     def _steps(self) -> tuple:
-        """Every sequence axis, then the window: the axes before the dim."""
-        return (*self.seq, self.time)
+        """Every sequence axis, then the window if there is one: the axes
+        before the dim."""
+        return (*self.seq, *self._window)
 
-    def _fills(self, result: "Shape") -> bool:
+    @property
+    def _window(self) -> tuple:
+        """The window as axes: one, or none."""
+        return () if self.time is None else (self.time,)
+
+    def _fills(self, result: "Shape", value: bool = False) -> bool:
         """Whether this shape is already ``result``'s, but for axes of 1: a
-        stream of it would not be broadcast to ``result``."""
+        stream of it would not be broadcast to ``result``. A value without a
+        window counts as one sample of ``result``'s."""
+        time = (
+            1 if value and self.time is None and result.time is not None else self.time
+        )
         return (
-            _same_steps(_padded(self._steps, len(result._steps)), result._steps)
+            time == result.time
+            and _same_steps(_padded(self.seq, len(result.seq)), result.seq)
             and _padded(self.dim, len(result.dim)) == result.dim
         )
 
@@ -216,8 +262,9 @@ class Shape:
     @property
     def outer(self) -> int | None:
         """Length of the outer axis (:data:`OUTER_AXIS`): the outermost
-        sequence axis, or the window without a sequence."""
-        return self.seq[0] if self.seq else self.time
+        sequence axis, or the window without a sequence, or the first dim
+        axis without either."""
+        return self.tuple[0]
 
     def with_seq(self, length: int | None) -> "Shape":
         """This shape rolled out by one more Loop, of ``length`` steps: a new
@@ -235,7 +282,7 @@ class Shape:
     @property
     def tuple(self) -> tuple:
         """The sizes of the axes of one sample, in the order of the tensor."""
-        return (*self.seq, self.time, *self.dim)
+        return (*self.seq, *self._window, *self.dim)
 
     @property
     def seq_axes(self) -> tuple[int, ...]:
@@ -243,13 +290,13 @@ class Shape:
         return tuple(range(1, 1 + self.seq_rank))
 
     @property
-    def time_axis(self) -> int:
-        """The axis of the window."""
-        return 1 + self.seq_rank
+    def time_axis(self) -> int | None:
+        """The axis of the window, None without one."""
+        return None if self.time is None else 1 + self.seq_rank
 
     @property
     def dim_axes(self) -> tuple[int, ...]:
-        first = 2 + self.seq_rank
+        first = 1 + self.seq_rank + len(self._window)
         return tuple(range(first, first + self.dim_rank))
 
     # ------------------------------------------------------------------
@@ -336,19 +383,26 @@ def align(
     to_seq_rank: int,
     to_dim_rank: int,
     expand_dims: Callable = keras.ops.expand_dims,
+    *,
+    window: bool = True,
+    to_window: bool = True,
 ):
-    """``x``, of ``seq_rank`` sequence and ``dim_rank`` dim axes, given axes
-    of size 1 to broadcast against a tensor of ``to_seq_rank`` and
-    ``to_dim_rank``, as :meth:`Shape.broadcast` lines them up.
+    """``x``, of ``seq_rank`` sequence and ``dim_rank`` dim axes and a window
+    or not, given axes of size 1 to broadcast against a tensor of
+    ``to_seq_rank`` and ``to_dim_rank`` and a window or not, as
+    :meth:`Shape.broadcast` lines them up.
 
     A single sample of fewer sequence axes gets its missing outer ones right
-    after the batch, and a scalar dim of fewer axes its missing leading ones.
-    ``expand_dims`` is ``np.expand_dims`` for numpy.
+    after the batch, a value without a window gets one, and a scalar dim of
+    fewer axes its missing leading ones. ``expand_dims`` is
+    ``np.expand_dims`` for numpy.
     """
     for _ in range(to_seq_rank - seq_rank):
         x = expand_dims(x, 1)
+    if to_window and not window:
+        x = expand_dims(x, 1 + to_seq_rank)
     for _ in range(to_dim_rank - dim_rank):
-        x = expand_dims(x, 2 + to_seq_rank)
+        x = expand_dims(x, 1 + to_seq_rank + int(to_window))
     return x
 
 

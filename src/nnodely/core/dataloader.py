@@ -38,8 +38,9 @@ class DataLoader:
 
     Windows:
 
-    - Temporal windows, the time ``T``, come from ``Input.sw()``. All inputs
-      are aligned so that every window ends on the same sample.
+    - Temporal windows, the time ``T``, come from ``Input(..., sw=...)``. All
+      inputs are aligned so that every window ends on the same sample; an
+      Input without a window reads that sample, with no time axis.
     - Sequence windows, the sequence axes, come from ``Input(..., seq=...)``:
       one sliding window per declared length, applied on top of the temporal
       windows. Only one length may be dynamic (``-1``), and ``seq_length``
@@ -56,12 +57,12 @@ class DataLoader:
 
     Final dataset format, laid out as the model's tensors::
 
-        {name: np.ndarray of shape (N, *time, *dim)}
+        {name: np.ndarray of shape (N, *seq, time, *dim)}
 
     Example::
 
-        x = Input("x")
-        y = Output("y", Fir(features=1)([x.sw(5)]))
+        x = Input("x", sw=5)
+        y = Output("y", Fir(features=1)([x]))
         model = Modely("model", inputs=[x], outputs=[y]).build()
 
         loader = DataLoader(model, source={"x": np.arange(10.0)})
@@ -566,16 +567,19 @@ class DataLoader:
         sequence: tuple[int, ...],
     ) -> np.ndarray:
         """Temporal windows of one input, then one sliding window per
-        sequence axis, laid out ``(N, *seq, time, *dim)``."""
+        sequence axis, laid out ``(N, *seq, time, *dim)``, or ``(N, *dim)``
+        for an input without a window."""
         past, future = self.input_specs[name]
         width = past + future
         last = values.shape[0] - max_future  # one past the last aligned end sample
 
         # Window i covers values[i:i + width] and ends on sample i + past - 1,
         # so the shared range of end samples selects the windows to keep. An
-        # Input read directly is a window of one sample.
+        # Input without a window is the one sample, without the window axis.
         windows = sliding_window_view(values, window_shape=width, axis=0)
         windows = np.moveaxis(windows[first - past + 1 : last - past + 1], -1, 1)
+        if self.input_nodes[name].shape.time is None:
+            windows = windows[:, 0]
 
         # Each sliding window appends its axis; moved right after the samples it
         # becomes the outermost time, so the innermost outer axis comes first.
@@ -640,7 +644,8 @@ class DataLoader:
             values = source[name].astype(np.float64, copy=False)
             # One statistic per feature: over the samples and every step.
             shape = self.input_nodes[name].shape
-            reduce_axes = (BATCH_AXIS, *shape.seq_axes, shape.time_axis)
+            window_axes = () if shape.time_axis is None else (shape.time_axis,)
+            reduce_axes = (BATCH_AXIS, *shape.seq_axes, *window_axes)
 
             # Padded rollout steps are repeats, not observations, so they are
             # left out of the statistics while still being transformed.

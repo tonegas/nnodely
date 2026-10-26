@@ -153,7 +153,12 @@ class Roll(Layer):
         callback_input = self._find_node(f.inputs, callback_input, "input")
         callback_output = self._find_node(f.outputs, callback_output, "output")
 
-        # One sample of the window, the input read directly.
+        if callback_input.time is None:
+            raise ValueError(
+                f"Roll shifts the window of its callback input, and "
+                f"{callback_input.name!r} has none: declare it with sw."
+            )
+        # One sample of the window.
         expected_output_shape = callback_input.shape.replace(time=1).tuple
         if callback_output.shape.tuple != expected_output_shape:
             raise ValueError(
@@ -161,8 +166,7 @@ class Roll(Layer):
                 f"{expected_output_shape}, got {callback_output.shape.tuple}."
             )
 
-        # The window the body reads, the Input's shape once built, is the one
-        # rolled.
+        # The window of the Input is the one rolled.
         window = callback_input.shape
         if steps is None:
             steps = window.time

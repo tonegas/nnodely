@@ -73,7 +73,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   it, and `Modely.freeze()` / `unfreeze()` do it for every Parameter a model
   computes with, those of the models it calls and of its Loop, Roll and
   OdeNet bodies included. Before or after `build()`; saved with the model.
-  `Modely.parameters` lists them all, and prints as a table of their names,
+  `Modely.parameters` lists them all, finds one by name
+  (`model.parameters["kernel"]`), and prints as a table of their names,
   shapes, numbers of values and trainable flags.
 - Early stopping in `train()`: the name of a monitored loss (made into a Keras
   `EarlyStopping` with `early_stopping_kwargs`), its configuration, or any
@@ -144,43 +145,43 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Every stream is laid out `(batch, *seq, time, *dim)`, a `Parameter` or a
   `Constant` included: their value is repeated for every sample. The
   sequence axes come first, outermost first: where a `Loop` rolls out (and
-  where a collected rollout is added). Then the window, `time`, where
-  windows, `Fir`, derivatives and integrals act. Then the dims. Every stream
-  has a window of at least one sample: a number, a `Parameter` without time
-  and an `Input` read directly are one sample, `T=1`. `Shape` holds `seq` (a
-  tuple, possibly empty), `time` (an int, 1 by default) and `dim`, and
-  prints as `Shape(S=(5,), T=3, D=(4,))`; `shape.dimensions` is
+  where a collected rollout is added). Then the window, `time`, where `Fir`,
+  derivatives, integrals and the time selections act - or no window at all:
+  `(batch, *seq, *dim)`. Then the dims. `Shape` holds `seq` (a tuple,
+  possibly empty), `time` (an int, or `None` without a window) and `dim`,
+  and prints as `Shape(S=(5,), T=3, D=(4,))`; `shape.dimensions` is
   `(seq, time, dim)`. The arrays given to a model or built by `DataLoader`
-  are laid out the same, `(samples, *seq, time, *dim)`: an `Input` read only
-  directly is `(samples, *seq, 1, *dim)`.
-- The sequence of an `Input` is declared on the Input: `Input("x", seq=5)`,
-  `seq=(4, -1)` (outermost first, `-1` or `"dyn"` dynamic). Read directly
-  the Input is its current sample, `T=1`, and every window of it keeps the
-  sequence: `x.sw(3)` has its `S` and `T=3`. There is no `last()` (an Input
-  read directly is its current sample) and windows take no `seq`.
-- A window leaves its `Input` as it is until `build()`, which gives every
-  Input the union of the windows the model's graph reads, a direct read
-  counting as one sample, so a window declared but not used widens nothing,
-  and two models of one Input read their own windows. Once built, the
-  Input's `shape` is the data it is read from: `Input("x", dim=4, seq=5)`
-  read through `sw(3)` is `Shape(S=(5,), T=3, D=(4,))`. Read directly, before
-  or after the build, it is still its current sample, so an Input can be
-  read directly and through windows in one graph. `Differentiate(
-  respect_to=x)` has the shape of the window of `x` its relation reads.
-- Arithmetic between streams: streams must have the same sequence and
-  window, and a single sample - a window of one and every sequence axis of
-  size 1 - applies to every sample of another's, padded with leading axes as
-  numpy does; dims must be equal, or one a scalar; and one stream must
-  already have the shape of the result, so a matrix of one sample is not
-  combined with the window of a scalar. `Concatenate` repeats a single
-  sample along the sequence and window of the others.
-- A `Parameter` or `Constant` `value` is all dim by default, one sample of
-  its stream: an array of shape `(2, 3, 2)` is `T=1, D=(2, 3, 2)`. Given
-  with a value, `dim`, `time` and `seq` name its axes, `time` one, the
-  window, and `seq` one or several, outermost first (`dim=0, time=1, seq=2`
-  makes a `(2, 3, 4)` value `S=(4,), T=3, D=(2,)`); without one, they are
-  sizes. `.value` and the variable are laid out `(*seq, time, *dim)`,
-  without the window when no `time` is given.
+  are laid out the same, `(samples, *seq, time, *dim)`.
+- An `Input` is declared once, with the shape of the data it reads, and does
+  not change: `Input("x", dim=4, seq=5, sw=3)` is
+  `Shape(S=(5,), T=3, D=(4,))`. `sw=n` is the last `n` samples up to and
+  including the current one, `sw=(past, future)` adds future samples,
+  `T = past + future`. Without `sw` the Input has no window: one value per
+  sample, `(samples, *dim)` in the data. A sequence, `seq=5` or
+  `seq=(4, -1)` (outermost first, `-1` or `"dyn"` dynamic), needs a window.
+  There is no `sw()`, `next()` or `last()` on an Input: the layers that read
+  it take what they need of its window, `TimeSelect(-1)(x)` its newest
+  sample, `TimeRange(0, 3)(x)` its first three. `Differentiate(respect_to=x)`
+  has the shape of `x`.
+- Arithmetic between streams: windows must be equal, or one of them a single
+  sample, `T=1`, which applies to every sample of the other's; a stream
+  without a window read from data does not combine with one that has a
+  window, while a value without one - a number, a `Parameter`, a
+  `Constant` - applies to every sample of any stream. Sequences must be the
+  same, or one a single step, padded with leading axes as numpy does; dims
+  must be equal, or one a scalar; and one stream must already have the
+  shape of the result, so a matrix of one sample is not combined with the
+  window of a scalar. `Concatenate` repeats a single sample along the
+  sequence and window of the others. The layers that act on the window -
+  `Fir`, the `Time*` layers, `DerivativeStep`, `IntegrateStep`, `Roll`,
+  `rollback` - refuse a stream without one.
+- A `Parameter` or `Constant` `value` is all dim by default, without a
+  window: an array of shape `(2, 3, 2)` is `D=(2, 3, 2)`. Given with a
+  value, `dim`, `time` and `seq` name its axes, `time` one, the window, and
+  `seq` one or several, outermost first (`dim=0, time=1, seq=2` makes a
+  `(2, 3, 4)` value `S=(4,), T=3, D=(2,)`); without one, they are sizes.
+  `.value` and the variable are laid out `(*seq, time, *dim)`, without the
+  window when no `time` is given.
 - `BatchNorm` normalizes along the first dim axis by default; `Softmax`,
   `PReLU` and `BatchNorm` take an explicit `axis` as a tensor axis, the batch
   as 0, as Keras does: a negative one counts from the last dim axis.
@@ -190,10 +191,10 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
   history, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
-- The `.nnodely` save format is version 5. Saves and `.keras` exports made
-  with the 2.0 pre-releases, in which a stream could have no time axis, had
-  several time axes or was laid out `(batch, *dim, time, *seq)`, do not
-  load.
+- The `.nnodely` save format is version 6. Saves and `.keras` exports made
+  with the 2.0 pre-releases, in which windows were taken from an Input,
+  streams had several time axes or were laid out `(batch, *dim, time,
+  *seq)`, do not load.
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
 
@@ -209,7 +210,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `model.trainModel(...)` | `model.train(data, val_data=..., epochs=..., batch_size=..., lr=...)` |
 | `model.analyzeModel(...)`, performance reports | `model.validate(data)` |
 | `x.closedLoop(...)`, `x.connect(...)`, `prediction_samples=` | `model.rollback({input: stream}, steps=n)`, `Loop`, `Roll` |
-| `x.tw(seconds)` | `x.sw(samples)`; `x` itself, its current sample, and `x.next()` for one sample |
+| `x.tw(seconds)`, `x.sw(samples)` | `Input("x", sw=samples)` or `sw=(past, future)`, declared once; `TimeSelect` / `TimeRange` take parts of the window |
 | `saveModel` / `loadModel` | `model.save(path)` / `Modely.load(path)` |
 | `exportPythonModel`, `saveTorchModel` | `model.export_keras(path)` |
 | `exportONNX` / `onnxInference` | `model.export_onnx(path)` / `Modely.validate_onnx(file, inputs)` |

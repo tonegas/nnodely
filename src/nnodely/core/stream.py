@@ -64,6 +64,10 @@ class Node:
 class Stream(Node):
     _literal_constant_cache = {}
     shape: Shape
+    #: Whether the stream is a value - a number, a Parameter or a Constant, or
+    #: a relation of those alone - rather than read from data. A value without
+    #: a window applies to every sample of any stream.
+    _is_value = False
 
     def __init__(
         self,
@@ -81,8 +85,8 @@ class Stream(Node):
         return self.shape.dim
 
     @property
-    def time(self) -> int:
-        """The length of the window."""
+    def time(self) -> int | None:
+        """The length of the window, None without one."""
         return self.shape.time
 
     @property

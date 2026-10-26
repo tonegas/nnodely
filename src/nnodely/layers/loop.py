@@ -8,7 +8,6 @@ from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
 from nnodely.core.shape import BATCH_AXIS, OUTER_AXIS, slice_axis, transpose
 from nnodely.core.stream import Stream
-from nnodely.layers.input import read
 
 
 #: Steps a dynamic rollout is declared with when no ``length`` is given. It
@@ -444,11 +443,12 @@ class Loop(Layer):
     sequence axis of every output; ``collect=False`` returns only the final
     step.
 
-    A feedback input declared with a time window (``x.sw(n)``) is closed by
-    shifting: the oldest step is dropped and the new output appended, so after
-    ``n`` steps the window is entirely self-predicted. A fed-back output is
+    A feedback input declared with a window (``sw=n``) is closed by shifting:
+    the oldest step is dropped and the new output appended, so after ``n``
+    steps the window is entirely self-predicted. A fed-back output is
     therefore a single sample, and the window of its input reads no future
-    samples.
+    samples. A feedback input without a window is replaced by an output
+    without one.
     """
 
     # Set by __call__ on the loop node it returns.
@@ -652,6 +652,12 @@ class Loop(Layer):
     @staticmethod
     def _state_shape(node, value, rolled):
         """Shape an initial value must be broadcast to, or None if it fits."""
+        if value.shape.time is None and node.time is not None and not value._is_value:
+            raise ValueError(
+                f"Loop initial value {value.name!r} has no window, {value.shape}, "
+                f"and callback input {node.name!r} has one, {node.shape}: declare "
+                "the Input with sw=1."
+            )
         source = value.shape.without_outer_seq().tuple if rolled else value.shape.tuple
         target = tuple(node.shape.tuple)
         if source == target:
@@ -690,6 +696,16 @@ class Loop(Layer):
                     f"is {output.shape}, the input {node.shape}: the sequence must "
                     "be the same."
                 )
+            # Without a window, the output replaces the input as it is.
+            if node.time is None or output.time is None:
+                if (node.time, output.time) != (None, None):
+                    raise ValueError(
+                        f"Loop callback {node.name!r} -> {output.name!r}: the "
+                        f"output is {output.shape}, the input {node.shape}: both "
+                        "have a window, or neither."
+                    )
+                shift_axes.append(None)
+                continue
             # The output is the next sample of the input: a window of outputs
             # would be shifted in as one step.
             if output.time != 1:
@@ -742,12 +758,8 @@ class Loop(Layer):
 
         sources = []
         for node in static_inputs:
+            # A body input left unbound is handed on to the body as it is.
             source = by_name.get(node.name, node)
-            if source.name != node.name:
-                # An outer Input is read as its current sample; a body input
-                # left unbound - or its copy, in a loaded model - is handed on
-                # to the body as its data holds it.
-                source = read(source)
             if source is not node and tuple(source.dim) != tuple(node.dim):
                 raise ValueError(
                     f"Loop input {node.name!r} expects dim {tuple(node.dim)}, got dim "
@@ -775,9 +787,7 @@ class Loop(Layer):
         from nnodely.layers.parameter import Constant
 
         return [
-            read(value)
-            if isinstance(value, Stream)
-            else Constant(name=None, value=value)
+            value if isinstance(value, Stream) else Constant(name=None, value=value)
             for value in values
         ]
 

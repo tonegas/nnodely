@@ -12,11 +12,11 @@ created.
    import pandas as pd
    from nnodely import DataLoader, Fir, Input, Modely, Output
 
-   x = Input("x")
-   u = Input("u", dim=2)
-   y = Output("y", Fir(features=1)([x.sw(3)]) + Fir(features=1)([u]))
+   x = Input("x", sw=3)
+   u = Input("u", dim=2, sw=1)
+   y = Output("y", Fir(features=1)([x]) + Fir(features=1)([u]))
    model = Modely("example", inputs=[x, u], outputs=[y])
-   model.minimize("fit", y, Input("y_target"))
+   model.minimize("fit", y, Input("y_target", sw=1))
    model.build()
 
 Sources
@@ -80,7 +80,8 @@ Samples
 -------
 
 Every sample is a dictionary with one array per input, shaped
-``(*seq, time, *dim)``, the layout of the model's streams. The loader can be
+``(*seq, time, *dim)``, the layout of the model's streams - ``(*dim)`` for an
+input declared without a window, its current sample. The loader can be
 indexed, iterated, and converted to the full arrays:
 
 .. code-block:: python
@@ -98,13 +99,14 @@ indexed, iterated, and converted to the full arrays:
 Sequences
 ---------
 
-An input declared with ``seq`` carries a trajectory of windows, its outer
-time. The loader builds one sliding window per sequence length, on top of the
-time windows. Sequences are used by rollouts (see :doc:`recurrent`):
+An input declared with ``seq`` carries a trajectory of windows, ``seq``
+steps of its window. The loader builds one sliding window per sequence
+length, on top of the time windows. Sequences are used by rollouts (see
+:doc:`recurrent`):
 
 .. code-block:: python
 
-   s = Input("s", seq=20)
+   s = Input("s", seq=20, sw=1)
    seq_model = Modely(
        "sequence", inputs=[s], outputs=[Output("s_out", s * 2.0)]
    )
@@ -128,7 +130,7 @@ rolls out over whatever length it is given (see :doc:`recurrent`).
 
 .. code-block:: python
 
-   d = Input("d", seq=-1)
+   d = Input("d", seq=-1, sw=1)
    dyn_model = Modely("dynamic", inputs=[d], outputs=[Output("d_out", d)])
    dyn_model.build()
 

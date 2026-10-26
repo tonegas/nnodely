@@ -64,7 +64,7 @@ def test_a_stream_has_a_window_of_at_least_one_sample():
     assert shape.time_axis == 1 and shape.seq_axes == ()
     ## The window is one axis, its length an int: the others are seq
     with pytest.raises(TypeError, match="length of the window"):
-        Shape(dim=2, time=(5, 4))
+        Shape(dim=2, time=(5, 4))  # type: ignore
     with pytest.raises(TypeError, match="length of the window"):
         Shape(dim=2, time=0)
 
@@ -122,6 +122,7 @@ def test_replace_changes_only_the_axes_given():
 def test_slice_axis_indexes_one_axis():
     shape = Shape(dim=(2, 3), time=4, seq=5)
     x = _tensor(shape)
+    assert shape.time_axis is not None
     window = slice_axis(x, shape.time_axis, slice(1, 3))
     assert window.shape[shape.time_axis] == 2
     np.testing.assert_array_equal(
@@ -175,57 +176,91 @@ def test_a_value_names_its_sequence_and_window_axes():
     # Without a value, seq and time give the sizes.
     sized = Parameter("q_time", dim=3, time=4, seq=5)
     assert sized.shape.dimensions == ((5,), 4, (3,))
-    # Without them, a value is one sample.
-    assert Parameter("r_time", value=[1.0, 2.0]).shape.dimensions == ((), 1, (2,))
+    # Without them, a value has no time: it applies to every sample.
+    assert Parameter("r_time", value=[1.0, 2.0]).shape.dimensions == ((), None, (2,))
     # The window is one axis of the value.
     with pytest.raises(TypeError, match="one axis of the value"):
         Parameter("s_time", value=value, time=(2, 1))
 
 
+## NEW INPUT DEFINITION: Time set only at declaration level
 def test_sanity_check():
-    from nnodely import Input, Output, Modely
+    from nnodely import Input
 
     # this is allowed: you can change the time (as it always does)
-    x = Input("x", dim=1)
-    window = x.sw(3)
-    fir = Fir(features=1)(window)
-    other_window = x.sw([2, 4])
-    fir2 = Fir(features=1)(other_window)
-    assert window.shape.tuple == (3, 1)
-    assert other_window.shape.tuple == (6, 1)
+    x = Input("x", dim=1, sw=3)
+    fir = Fir(features=1)(x)
+    x_new = Input("x_new", dim=1, sw=(2, 4))
+
+    fir2 = Fir(features=1)(x_new)
+    assert x.shape.tuple == (3, 1)
+    assert x_new.shape.tuple == (6, 1)
     assert fir.shape.tuple == fir2.shape.tuple == (1, 1)
 
     # the sequence belongs to the Input: every window of it keeps it
-    x = Input("x", dim=(2, 3), seq=5)
-    window = x.sw(3)
-    fir = Fir(features=1)(window)
-    assert x.shape.tuple == (5, 1, 2, 3)
-    assert window.shape.tuple == (5, 3, 2, 3)
-    assert fir.shape.tuple == (5, 1, 2, 3)
-    assert x.sw(2).shape.tuple == (5, 2, 2, 3)
-
-    out = Output("out", fir)
-    model = Modely("sanity", inputs=[x], outputs=[out]).build()
-    ## after the build the correct time shape should be collected for every input,
-    # otherwise i cannot save the model with the correct dimensions
-    assert x.shape.tuple == (5, 3, 2, 3)
-    assert model.inputs[0].shape.tuple == (5, 3, 2, 3)
-
-    # the sequence belongs to the Input: every window of it keeps it
-    x = Input("x", dim=(2, 3), seq=5)
-    window = x.sw(3)
+    x = Input("x", dim=(2, 3), sw=3, seq=5)
     fir = Fir(features=1)(x)
-    assert x.shape.tuple == (5, 1, 2, 3)
-    assert window.shape.tuple == (5, 3, 2, 3)
+    assert x.shape.tuple == (5, 3, 2, 3)
     assert fir.shape.tuple == (5, 1, 2, 3)
-    assert x.sw(2).shape.tuple == (5, 2, 2, 3)
 
-    out = Output("out", fir)
-    model = Modely("sanity", inputs=[x], outputs=[out]).build()
-    ## after the build the correct time shape should be 1 because the sw(3) does not belong to the keras model graph,
-    # no operation has sw(3) inside the predecessors.
-    assert x.shape.tuple == (5, 1, 2, 3)
-    assert model.inputs[0].shape.tuple == (5, 1, 2, 3)
+    # An Input is immutable: its window is the one it was declared with.
+    assert (x.past, x.future) == (3, 0)
+    assert (x_new.past, x_new.future) == (2, 4)
+
+
+def test_a_shape_without_time_has_no_window_axis():
+    shape = Shape(dim=(2, 3), time=None)
+    assert shape.dimensions == ((), None, (2, 3))
+    assert shape.tuple == (2, 3)
+    assert shape.time_axis is None and shape.dim_axes == (1, 2)
+    assert repr(shape) == "Shape(S=(), T=None, D=(2, 3))"
+    sizes = _tensor(shape).shape[1:]
+    assert Shape.from_tensor_shape(sizes, seq_rank=0, time=False).dimensions == (
+        shape.dimensions
+    )
+    assert Shape(dim=2, time=3).replace(time=None).tuple == (2,)
+
+
+def test_an_input_declares_its_window_once():
+    from nnodely import Input
+
+    ## Without sw, no time axis
+    assert Input("no_window", dim=2).shape.dimensions == ((), None, (2,))
+    ## sw=n: n samples up to the current one; (past, future) adds future ones
+    assert Input("past_window", sw=4).shape.dimensions == ((), 4, (1,))
+    assert Input("both_window", sw=(2, 3)).shape.dimensions == ((), 5, (1,))
+    assert Input("next_only", sw=(0, 1)).shape.dimensions == ((), 1, (1,))
+    ## A sequence needs a window
+    with pytest.raises(ValueError, match="sequence needs a window"):
+        Input("seq_no_window", seq=3)
+    for sw in (0, -1, (0, 0), (2, -1), (1, 2, 3), 1.5):
+        with pytest.raises(ValueError, match="sw"):
+            Input("bad_window", sw=sw)  # type: ignore[arg-type]
+    ## Windows are not taken from an Input any more
+    assert not hasattr(Input("plain", sw=2), "sw")
+
+
+def test_a_value_without_time_combines_with_every_stream():
+    from nnodely import Input, Parameter
+
+    timeless = Input("value_timeless", dim=3)
+    window = Input("value_window", dim=3, sw=4)
+    gain = Parameter("value_gain", value=2.0)
+    offsets = Parameter("value_offsets", value=[1.0, 2.0, 3.0])
+    assert (timeless * gain + offsets).shape.dimensions == ((), None, (3,))
+    assert (window * gain + offsets).shape.dimensions == ((), 4, (3,))
+    assert (timeless * 2.0 + 1.0).shape.dimensions == ((), None, (3,))
+    assert (window * 2.0 + 1.0).shape.dimensions == ((), 4, (3,))
+    ## A stream without time read from data does not: time is never invented
+    with pytest.raises(ValueError, match="no time"):
+        _ = timeless + window
+
+
+def test_a_temporal_layer_needs_a_window():
+    from nnodely import Input
+
+    with pytest.raises(ValueError, match="window"):
+        Fir(features=1)(Input("fir_no_window", dim=1))
 
 
 ## New test, for the convention [B, S*, T, D*] of the stream tensor
@@ -247,53 +282,61 @@ def _check(allowed, refused):
 def test_arithmetic_shape():
     from nnodely import Input
 
-    ## Time is always at least 1: read directly, an Input is one sample
-    x1 = Input("x1", dim=1)  # shape [B, 1, 1]
-    x2 = Input("x2", dim=(4,))  # shape [B, 1, 4]
-    x3 = Input("x3", dim=(2, 3))  # shape [B, 1, 2, 3]
+    ## Without sw an Input has no time axis
+    x1 = Input("x1", dim=1)  # shape [B, 1]
+    x2 = Input("x2", dim=(4,))  # shape [B, 4]
+    x3 = Input("x3", dim=(2, 3))  # shape [B, 2, 3]
 
-    ## .sw() reads a sliding window, which sets the time
-    x1t = Input("x1t", dim=1).sw(2)  # shape [B, 2, 1]
-    x2t = Input("x2t", dim=(4,)).sw(2)  # shape [B, 2, 4]
-    x3t = Input("x3t", dim=(2, 3)).sw(2)  # shape [B, 2, 2, 3]
+    ## sw declares the window, which sets the time
+    x1t = Input("x1t", dim=1, sw=1)  # shape [B, 1, 1]
+    x2t = Input("x2t", dim=(4,), sw=1)  # shape [B, 1, 4]
+    x3t = Input("x3t", dim=(2, 3), sw=1)  # shape [B, 1, 2, 3]
 
-    x1tm = Input("x1tm", dim=1).sw(3)  # shape [B, 3, 1]
-    x2tm = Input("x2tm", dim=(4,)).sw(3)  # shape [B, 3, 4]
-    x3tm = Input("x3tm", dim=(2, 3)).sw(3)  # shape [B, 3, 2, 3]
+    x1tm = Input("x1tm", dim=1, sw=3)  # shape [B, 3, 1]
+    x2tm = Input("x2tm", dim=(4,), sw=3)  # shape [B, 3, 4]
+    x3tm = Input("x3tm", dim=(2, 3), sw=3)  # shape [B, 3, 2, 3]
 
     ## Should be allowed: equal time
     allowed = [
-        (x1, x1, (1, 1)),
-        (x1, x2, (1, 4)),  # broadcast the scalar to the whole vector
-        (x1, x3, (1, 2, 3)),  # broadcast the scalar to the whole matrix
-        (x1t, x2t, (2, 4)),  # broadcast the scalar to the whole vector (same time)
-        (x1t, x3t, (2, 2, 3)),  # broadcast the scalar to the whole matrix (same time)
+        (x1, x1, (1,)),
+        (x1, x2, (4,)),  # broadcast the scalar to the whole vector
+        (x1, x3, (2, 3)),  # broadcast the scalar to the whole matrix
+        (x1t, x2t, (1, 4)),  # broadcast the scalar to the whole vector (same time)
+        (x1t, x3t, (1, 2, 3)),  # broadcast the scalar to the whole matrix (same time)
         ## if time is 1 it can be broadcast to any time, but not the other way around
-        (x1, x1t, (2, 1)),
-        (x1, x2t, (2, 4)),  # broadcast the scalar to the whole vector
-        (x1, x3t, (2, 2, 3)),  # broadcast the scalar to the whole matrix
-        (x2, x2t, (2, 4)),
-        (x1, x1tm, (3, 1)),
-        (x1, x2tm, (3, 4)),  # broadcast the scalar to the whole vector
-        (x1, x3tm, (3, 2, 3)),  # broadcast the scalar to the whole matrix
-        (x2, x2tm, (3, 4)),
+        (x1t, x1t, (1, 1)),
+        (x1t, x2t, (1, 4)),  # broadcast the scalar to the whole vector
+        (x1t, x3t, (1, 2, 3)),  # broadcast the scalar to the whole matrix
+        (x2t, x2t, (1, 4)),
+        (x1t, x1tm, (3, 1)),
+        (x1t, x2tm, (3, 4)),  # broadcast the scalar to the whole vector
+        (x1t, x3tm, (3, 2, 3)),  # broadcast the scalar to the whole matrix
+        (x2t, x2tm, (3, 4)),
     ]
 
     ## should not be allowed
     refused = [
         (x2, x3),  # cannot broadcast the vector to the matrix
-        (x2, x3t),  # cannot broadcast the vector to the matrix
         (x3, x2t),  # cannot broadcast the vector to the matrix
         (x2t, x3t),  # cannot broadcast the vector to the matrix
-        (x1t, x1tm),  # different time cannot be allowed
-        (x1t, x2tm),  # different time cannot be allowed
-        (x1t, x3tm),  # different time cannot be allowed
-        (x2t, x1tm),  # different time cannot be allowed
-        (x2t, x2tm),  # different time cannot be allowed
-        (x2t, x3tm),  # different time cannot be allowed
-        (x3t, x1tm),  # different time cannot be allowed
-        (x3t, x2tm),  # different time cannot be allowed
-        (x3t, x3tm),  # different time cannot be allowed
+        (x1, x1t),  # different time cannot be allowed
+        (x1, x2t),  # different time cannot be allowed
+        (x1, x3t),  # different time cannot be allowed
+        (x2, x1t),  # different time cannot be allowed
+        (x2, x2t),  # different time cannot be allowed
+        (x2, x3t),  # different time cannot be allowed
+        (x3, x1t),  # different time cannot be allowed
+        (x3, x2t),  # different time cannot be allowed
+        (x3, x3t),  # different time cannot be allowed
+        (x1, x1tm),  # different time cannot be allowed
+        (x1, x2tm),  # different time cannot be allowed
+        (x1, x3tm),  # different time cannot be allowed
+        (x2, x1tm),  # different time cannot be allowed
+        (x2, x2tm),  # different time cannot be allowed
+        (x2, x3tm),  # different time cannot be allowed
+        (x3, x1tm),  # different time cannot be allowed
+        (x3, x2tm),  # different time cannot be allowed
+        (x3, x3tm),  # different time cannot be allowed
         # merging a temporal quantity with a spatial matrix: x3 would be
         # broadcast along the time of x1t, and x1t along the dim of x3
         (x3, x1t),
@@ -305,18 +348,18 @@ def test_arithmetic_shape():
 def test_only_a_scalar_dim_broadcasts():
     from nnodely import Input
 
-    ## Time is always at least 1
-    row = Input("row", dim=3)  # shape [B, 1, 3]
-    matrix = Input("matrix", dim=(2, 3))  # shape [B, 1, 2, 3]
-    scalar = Input("scalar", dim=(1, 1))  # shape [B, 1, 1, 1]
-    row_t = Input("row_t", dim=3).sw(2)  # shape [B, 2, 3]
-    matrix_t = Input("matrix_t", dim=(2, 3)).sw(2)  # shape [B, 2, 2, 3]
+    ## Without sw, no time axis
+    row = Input("row", dim=3)  # shape [B, 3]
+    matrix = Input("matrix", dim=(2, 3))  # shape [B, 2, 3]
+    scalar = Input("scalar", dim=(1, 1))  # shape [B, 1, 1]
+    row_t = Input("row_t", dim=3, sw=2)  # shape [B, 2, 3]
+    matrix_t = Input("matrix_t", dim=(2, 3), sw=2)  # shape [B, 2, 2, 3]
 
     # A vector does not broadcast to a matrix, even one whose rows it fits.
     _check(
         allowed=[
-            (scalar, matrix, (1, 2, 3)),  # every axis of size 1: a scalar
-            (scalar, row, (1, 1, 3)),  # padded with a leading axis, as numpy does
+            (scalar, matrix, (2, 3)),  # every axis of size 1: a scalar
+            (scalar, row, (1, 3)),  # padded with a leading axis, as numpy does
         ],
         refused=[(row, matrix), (row_t, matrix_t)],
     )
@@ -325,13 +368,14 @@ def test_only_a_scalar_dim_broadcasts():
 def test_arithmetic_shape_sequence():
     from nnodely import Input
 
-    x1st = Input("x1t", dim=1, seq=(5,))  # shape [B, 5, 1, 1]
-    x2st = Input("x2t", dim=4, seq=(5,))  # shape [B, 5, 1, 4]
-    x3st = Input("x3t", dim=(2, 3), seq=(5,))  # shape [B, 5, 1, 2, 3]
+    ## A sequence needs a window
+    x1st = Input("x1t", dim=1, seq=(5,), sw=1)  # shape [B, 5, 1, 1]
+    x2st = Input("x2t", dim=4, seq=(5,), sw=1)  # shape [B, 5, 1, 4]
+    x3st = Input("x3t", dim=(2, 3), seq=(5,), sw=1)  # shape [B, 5, 1, 2, 3]
 
-    x1smtm = Input("x1tm", dim=1, seq=(5, 2)).sw(3)  # shape [B, 5, 2, 3, 1]
-    x2smtm = Input("x2tm", dim=4, seq=(5, 2)).sw(3)  # shape [B, 5, 2, 3, 4]
-    x3smtm = Input("x3tm", dim=(2, 3), seq=(5, 2)).sw(3)  # shape [B, 5, 2, 3, 2, 3]
+    x1smtm = Input("x1tm", dim=1, seq=(5, 2), sw=3)  # shape [B, 5, 2, 3, 1]
+    x2smtm = Input("x2tm", dim=4, seq=(5, 2), sw=3)  # shape [B, 5, 2, 3, 4]
+    x3smtm = Input("x3tm", dim=(2, 3), seq=(5, 2), sw=3)  # shape [B, 5, 2, 3, 2, 3]
 
     ## Should be allowed
     allowed = [
@@ -363,23 +407,27 @@ def test_arithmetic_shape_sequence():
 def test_a_dynamic_time_axis_matches_any_length():
     from nnodely import Input
 
-    dynamic = Input("dyn", dim=2, seq=-1)
-    fixed = Input("fixed", dim=2, seq=4)
+    dynamic = Input("dyn", dim=2, seq=-1, sw=1)
+    fixed = Input("fixed", dim=2, seq=4, sw=1)
     assert (dynamic + fixed).shape.dimensions == ((None,), 1, (2,))
 
 
 def test_dyn_declares_a_dynamic_sequence_length_as_minus_one_does():
     from nnodely import Input, Modely, Output
 
-    assert Input("dyn_str", seq="dyn").seq == Input("dyn_int", seq=-1).seq == (None,)
-    mixed = Input("dyn_mixed", dim=2, seq=(4, "dyn"))
+    assert (
+        Input("dyn_str", seq="dyn", sw=1).seq
+        == Input("dyn_int", seq=-1, sw=1).seq
+        == (None,)
+    )
+    mixed = Input("dyn_mixed", dim=2, seq=(4, "dyn"), sw=1)
     assert mixed.shape.dimensions == ((4, None), 1, (2,))
     assert repr(mixed.shape) == "Shape(S=(4, dyn), T=1, D=(2,))"
     with pytest.raises(ValueError, match="-1 or 'dyn'"):
-        Input("dyn_none", seq=(4, None))  # type: ignore[arg-type]
+        Input("dyn_none", seq=(4, None), sw=1)  # type: ignore[arg-type]
 
     # The length is the data's, at every call.
-    x = Input("dyn_data", seq="dyn")
+    x = Input("dyn_data", seq="dyn", sw=1)
     model = Modely("dyn_model", inputs=[x], outputs=[Output("dyn_out", x * 2.0)])
     model.build()
     for steps in (2, 5):
@@ -393,11 +441,11 @@ def test_broadcast_values_follow_the_shapes():
     # added to, and a scalar window along the dim of the matrix window.
     from nnodely import Input, Modely, Output, Parameter
 
-    x = Input("bx", dim=(2, 3))
-    s = Input("bs", dim=1)
+    x = Input("bx", dim=(2, 3), sw=2)
+    s = Input("bs", dim=1, sw=2)
     offsets = [[10.0, 20.0, 30.0], [40.0, 50.0, 60.0]]
-    matrix = Parameter("bmatrix", value=offsets)  # S=(), T=1, D=(2, 3)
-    out = x.sw(2) + matrix + s.sw(2)
+    matrix = Parameter("bmatrix", value=offsets)  # no time, D=(2, 3)
+    out = x + matrix + s
     assert out.shape.tuple == (2, 2, 3)
 
     model = Modely("broadcast", inputs=[x, s], outputs=[Output("bo", out)]).build()
@@ -411,9 +459,9 @@ def test_broadcast_values_follow_the_shapes():
 def test_fir_filters_the_window_at_every_step_of_the_sequence():
     from nnodely import Input, Modely, Output, Parameter
 
-    x = Input("fir_x", dim=1, seq=2)
+    x = Input("fir_x", dim=1, seq=2, sw=3)
     kernel = Parameter("fir_kernel", value=[[1.0], [10.0], [100.0]])  # (window, 1)
-    out = Fir(features=1, kernel=kernel, bias=False)(x.sw(3))
+    out = Fir(features=1, kernel=kernel, bias=False)(x)
     assert out.shape.dimensions == ((2,), 1, (1,))
 
     model = Modely("fir_inner", inputs=[x], outputs=[Output("fir_out", out)]).build()

@@ -101,7 +101,8 @@ class PReLU(Layer):
         shared_axes = self.shared_axes
         if shared_axes is None:
             shape = self.preds[0].shape  # type: ignore[union-attr]
-            shared_axes = [*shape.seq_axes, shape.time_axis]
+            window = [] if shape.time_axis is None else [shape.time_axis]
+            shared_axes = [*shape.seq_axes, *window]
         return keras.layers.PReLU(shared_axes=shared_axes, name=self.name)
 
 

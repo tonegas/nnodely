@@ -96,10 +96,6 @@ class Layer(Stream, metaclass=_LayerType):
     # is applied to each of them, and returns one result per stream.
     _one_stream = False
 
-    #: Whether the layer reads an Input as its data holds it, a window of it,
-    #: rather than its current sample, as every other layer does.
-    _reads_data = False
-
     def __init__(self, name=None, preds=None, time=None, dim=None, seq=None, **kwargs):
         self._properties = dict(kwargs)
         self.inputs = None
@@ -174,10 +170,14 @@ class Layer(Stream, metaclass=_LayerType):
                 f"{self.name}: {type(self).__name__} reads one stream, got "
                 f"{len(inputs)}."
             )
+        # The result has a window if a stream it is computed from has one.
+        window = any(input_node.shape.time is not None for input_node in inputs)
         inferred = [
             self._restore_dynamic_axes(
                 self._shape_from_tensor(
-                    output, max(input_node.shape.seq_rank for input_node in inputs)
+                    output,
+                    max(input_node.shape.seq_rank for input_node in inputs),
+                    window,
                 ),
                 inputs,
             )
@@ -209,13 +209,13 @@ class Layer(Stream, metaclass=_LayerType):
             )
         )
 
-    def _shape_from_tensor(self, tensor, seq_rank: int):
+    def _shape_from_tensor(self, tensor, seq_rank: int, window: bool = True):
         shape = tuple(tensor.shape)[1:]
         # A layer may consume sequence axes (for example a recurrent body
         # relation reduced to one step), so preserve only those still
-        # present, a window and at least one dim axis.
-        seq_rank = min(seq_rank, max(0, len(shape) - 2))
-        if len(shape) < 2:
+        # present, the window if any and at least one dim axis.
+        seq_rank = min(seq_rank, max(0, len(shape) - 1 - int(window)))
+        if len(shape) < 1 + int(window):
             raise ValueError(
                 f"{self.name}: inferred tensor shape {shape} has no dim axis. "
                 "Implement output_shape() to describe this layer's axes."
@@ -227,8 +227,17 @@ class Layer(Stream, metaclass=_LayerType):
             )
 
         return Shape.from_tensor_shape(
-            tuple(int(axis) for axis in shape), seq_rank=seq_rank
+            tuple(int(axis) for axis in shape), seq_rank=seq_rank, time=window
         )
+
+    def _needs_window(self, stream) -> None:
+        """Refuse ``stream`` if it has no window, the axis this layer acts on."""
+        if stream.shape.time is None:
+            raise ValueError(
+                f"{self.name}: {type(self).__name__} acts on the window of its "
+                f"stream, and {stream.name!r} has none, {stream.shape}. Declare "
+                "the Input with a window, sw=n for its last n samples."
+            )
 
     # ------------------------------------------------------------------
     # Keras layer logic
@@ -280,12 +289,6 @@ class Layer(Stream, metaclass=_LayerType):
         # Symbolic mode: Layer(Stream, ...) -> new Stream node
         ret = []
         if all(isinstance(x, Stream) for x in inputs):
-            if not self._reads_data:
-                # Read directly, an Input is its current sample, whatever
-                # window of it the data holds.
-                from nnodely.layers.input import read
-
-                inputs = [read(x) for x in inputs]
             if self._one_stream and len(inputs) > 1:
                 # A layer that reads one stream, such as an activation, is
                 # applied to each of several: one result per stream, in order.
@@ -302,9 +305,11 @@ class Layer(Stream, metaclass=_LayerType):
                 node = self.__class__(name=self.name, **self._properties)
                 node._source = self._source
                 node.inputs = inputs
-                # A copy: the shape of an Input changes as windows are taken.
-                node.shape = out_shape.replace()
+                node.shape = out_shape
                 node.preds = inputs  # type: ignore
+                # Computed from values alone - numbers, Parameters, Constants -
+                # a result is a value too.
+                node._is_value = all(x._is_value for x in inputs)
                 ret.append(node)
             return ret if len(ret) > 1 else ret[0]
 
@@ -344,27 +349,41 @@ _BINARY_OPERATIONS = {
 @keras.saving.register_keras_serializable(package="nnodely")
 class BinaryOpImpl(keras.layers.Layer):
     """An elementwise operation between streams of ``seq_ranks`` sequence
-    axes and ``dim_ranks`` dim axes.
+    axes, a window or not (``windows``), and ``dim_ranks`` dim axes.
 
-    An operand of a single sample with fewer sequence axes, or with fewer dim
-    axes, gets the axes it misses where :func:`align` puts them, so it
-    broadcasts along those, as :meth:`Shape.broadcast` declares. Aligned from
-    the end instead, as broadcasting does by default, a dim axis could line
-    up with the window.
+    An operand of a single sample with fewer sequence axes, a value without
+    a window, or one with fewer dim axes, gets the axes it misses where
+    :func:`align` puts them, so it broadcasts along those, as
+    :meth:`Shape.broadcast` declares. Aligned from the end instead, as
+    broadcasting does by default, a dim axis could line up with the window.
     """
 
-    def __init__(self, operation: str, seq_ranks=(), dim_ranks=(), **kwargs):
+    def __init__(
+        self, operation: str, seq_ranks=(), dim_ranks=(), windows=(), **kwargs
+    ):
         super().__init__(**kwargs)
         self.operation = operation
         self.seq_ranks = tuple(int(rank) for rank in seq_ranks)
         self.dim_ranks = tuple(int(rank) for rank in dim_ranks)
+        self.windows = tuple(bool(window) for window in windows) or (True,) * len(
+            self.seq_ranks
+        )
 
     def call(self, xs):
         seq_rank, dim_rank = max(self.seq_ranks), max(self.dim_ranks)
+        to_window = any(self.windows)
         values = [
-            align(value, value_seq_rank, value_dim_rank, seq_rank, dim_rank)
-            for value, value_seq_rank, value_dim_rank in zip(
-                xs, self.seq_ranks, self.dim_ranks
+            align(
+                value,
+                value_seq_rank,
+                value_dim_rank,
+                seq_rank,
+                dim_rank,
+                window=window,
+                to_window=to_window,
+            )
+            for value, value_seq_rank, value_dim_rank, window in zip(
+                xs, self.seq_ranks, self.dim_ranks, self.windows
             )
         ]
 
@@ -381,6 +400,7 @@ class BinaryOpImpl(keras.layers.Layer):
                 "operation": self.operation,
                 "seq_ranks": self.seq_ranks,
                 "dim_ranks": self.dim_ranks,
+                "windows": self.windows,
             }
         )
         return config
@@ -399,6 +419,7 @@ class BinaryOp(Layer):
             operation=self.operation,
             seq_ranks=tuple(shape.seq_rank for shape in shapes),
             dim_ranks=tuple(shape.dim_rank for shape in shapes),
+            windows=tuple(shape.time is not None for shape in shapes),
             name=self.name,
         )
 
@@ -406,7 +427,11 @@ class BinaryOp(Layer):
         # Declared rather than probed: a dynamic sequence axis cannot be given to
         # a dummy tensor, and which operands may broadcast is a rule of the
         # streams, not of their tensors.
-        return Shape.broadcast([input_node.shape for input_node in inputs], self.name)
+        return Shape.broadcast(
+            [input_node.shape for input_node in inputs],
+            self.name,
+            values=[input_node._is_value for input_node in inputs],
+        )
 
 
 class Add(BinaryOp):

@@ -35,9 +35,9 @@ import pytest
 )
 def test_arithmetic(layer_class, reference, low, high):
     # ------- Test arithmetic layers -------
-    x = Input("x", dim=1)
+    x = Input("x", dim=1, sw=3)
     window = 3
-    out = Output("out", layer_class()([x.sw(window)]))
+    out = Output("out", layer_class()([x]))
     model = Modely(
         f"arithmetic_{layer_class.__name__.lower()}_model",
         inputs=[x],
@@ -61,8 +61,8 @@ def test_arithmetic(layer_class, reference, low, high):
 
 def test_arithmetic_chain():
     # ------- Test chained arithmetic layers -------
-    x = Input("x", dim=1)
-    out = Output("out", Log(name="log")(Abs()(Exp()([x.sw(2)]))))
+    x = Input("x", dim=1, sw=2)
+    out = Output("out", Log(name="log")(Abs()(Exp()([x]))))
     model = Modely("arithmetic_chain_model", inputs=[x], outputs=[out])
     model.build()
 
@@ -77,8 +77,8 @@ def test_arithmetic_chain():
 
 def test_arithmetic_save_load(tmp_path):
     # ------- Test arithmetic layer serialization -------
-    x = Input("x", dim=1)
-    out = Output("out", Sqrt(name="sqrt")([x.sw(3)]))
+    x = Input("x", dim=1, sw=3)
+    out = Output("out", Sqrt(name="sqrt")([x]))
     model = Modely("arithmetic_save_model", inputs=[x], outputs=[out])
     model.build()
 
@@ -106,9 +106,9 @@ def test_arithmetic_save_load(tmp_path):
 )
 def test_clamp(minimum, maximum):
     # ------- Test clamp bounds -------
-    x = Input("x", dim=1)
+    x = Input("x", dim=1, sw=3)
     window = 3
-    out = Output("out", Clamp(min=minimum, max=maximum)([x.sw(window)]))
+    out = Output("out", Clamp(min=minimum, max=maximum)([x]))
     model = Modely("arithmetic_clamp_model", inputs=[x], outputs=[out])
     model.build()
 
@@ -144,9 +144,9 @@ def test_clamp_invalid_bounds():
 )
 def test_sum(axis, reference_axis, expected_dim):
     # ------- Test sum over the dim axes -------
-    x = Input("x", dim=(2, 3))
+    x = Input("x", dim=(2, 3), sw=4)
     window = 4
-    out = Output("out", Sum(axis=axis)([x.sw(window)]))
+    out = Output("out", Sum(axis=axis)([x]))
     model = Modely("arithmetic_sum_model", inputs=[x], outputs=[out])
     model.build()
 
@@ -164,17 +164,15 @@ def test_sum(axis, reference_axis, expected_dim):
 
 def test_sum_axis_out_of_bounds():
     # ------- Test sum axis validation -------
-    x = Input("x", dim=(2, 3))
+    x = Input("x", dim=(2, 3), sw=2)
     with pytest.raises(ValueError):
-        Sum(axis=2)([x.sw(2)])
+        Sum(axis=2)([x])
 
 
 def test_clamp_sum_save_load(tmp_path):
     # ------- Test clamp and sum serialization -------
-    x = Input("x", dim=(2, 3))
-    out = Output(
-        "out", Sum(name="sum")(Clamp(min=-0.5, max=0.5, name="clamp")([x.sw(3)]))
-    )
+    x = Input("x", dim=(2, 3), sw=3)
+    out = Output("out", Sum(name="sum")(Clamp(min=-0.5, max=0.5, name="clamp")([x])))
     model = Modely("arithmetic_clamp_sum_save_model", inputs=[x], outputs=[out])
     model.build()
 

@@ -111,7 +111,7 @@ class Fir(_ParameterWeights):
     of zeros, and ``bias=False`` leaves it out::
 
         W = Parameter("W", dim=(3, 5, 4))   # (*dim, window, features)
-        Fir(features=4, kernel=W, bias=False)([x.sw(5)])  # x with dim=3
+        Fir(features=4, kernel=W, bias=False)([x])  # x = Input("x", dim=3, sw=5)
     """
 
     def __init__(
@@ -133,6 +133,8 @@ class Fir(_ParameterWeights):
         )
 
     def _weight_shapes(self, x):
+        # The kernel runs along the window: there has to be one.
+        self._needs_window(x)
         dim = tuple(x.dim)
         elements = () if self.shared_kernel or dim == (1,) else dim
         return (*elements, x.shape.time, self.features), (

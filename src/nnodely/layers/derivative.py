@@ -29,7 +29,6 @@ from nnodely.core.layer import Layer
 from nnodely.core.shape import expand_to_rank, slice_axis
 from nnodely.core.stream import Stream
 from nnodely.layers.input import Input
-from nnodely.layers.partitions import SampleWindow
 
 #: Only first and second derivatives are supported, in both modes.
 _SUPPORTED_ORDERS = (1, 2)
@@ -49,8 +48,8 @@ def _stencil_coefficients(
     the weights are the textbook backward differences ((-1, 1)/dt for the
     first derivative, (1, -2, 1)/dt^2 for the second); a longer window turns
     the same expression into a smoothing estimate, which is what measured
-    signals need. The weights are ordered oldest -> newest, matching the
-    SampleWindow time-axis convention.
+    signals need. The weights are ordered oldest -> newest, as the samples
+    of a window are.
     """
     offsets = np.arange(-(window - 1), 1, dtype=np.float64)
     design = np.vander(offsets, poly_order + 1, increasing=True)
@@ -92,34 +91,6 @@ def _find_input(node, name: str):
             return current
         stack.extend(getattr(current, "preds", None) or [])
     return None
-
-
-def _window_read(node, name: str):
-    """The window ``node`` reads from the Input named ``name``: the union
-    ``(past, future)`` of the windows of it among ``node``'s ancestors - a
-    direct read is the current sample - and that Input; ``(0, 0, None)``
-    when it reads none."""
-    past = future = 0
-    source = None
-    seen: set[int] = set()
-    stack = [node]
-    while stack:
-        current = stack.pop()
-        if id(current) in seen:
-            continue
-        seen.add(id(current))
-        preds = getattr(current, "preds", None) or []
-        for pred in preds:
-            if isinstance(pred, Input) and pred.name == name:
-                read = (
-                    (current.past, current.future)
-                    if isinstance(current, SampleWindow)
-                    else (1, 0)
-                )
-                past, future = max(past, read[0]), max(future, read[1])
-                source = pred
-        stack.extend(preds)
-    return past, future, source
 
 
 # ----------------------------------------------------------------------
@@ -350,7 +321,8 @@ class SequenceDerivativeImpl(keras.layers.Layer):
 
     The stencil reads ``len(coefficients) - 1`` steps before the first; they
     come from the initial condition - its samples, laid out along its window,
-    moved onto the horizon - or are taken as zero. The derivative of step k
+    moved onto the horizon, or a value without a window (``init_time=0``),
+    reused - or are taken as zero. The derivative of step k
     weighs the padded steps k ... k + past, so each coefficient multiplies
     one shifted slice of the padded horizon, as long as the horizon itself:
     its length need not be known when the layer is built.
@@ -381,8 +353,11 @@ class SequenceDerivativeImpl(keras.layers.Layer):
     def _history(self, init, dim_rank: int):
         """The initial condition laid out as steps of the horizon, with axes
         of size 1 along those it broadcasts over."""
-        # Its samples, on its window, become steps of the horizon.
-        if self.init_seq_rank:
+        # Its samples, on its window, become steps of the horizon; a value
+        # without a window is one step.
+        if not self.init_time:
+            init = keras.ops.expand_dims(init, 1)
+        elif self.init_seq_rank:
             init = keras.ops.moveaxis(init, 1 + self.init_seq_rank, 1)
         # The sequence axes besides the horizon, which it may leave out.
         for _ in range(self.seq_rank - 1 - self.init_seq_rank):
@@ -456,14 +431,15 @@ class Differentiate(Layer):
 
         Differentiate(order=1|2, respect_to=x)(fun)     # d fun / d x
 
-    ``fun`` is differentiated with respect to the input's whole temporal window
-    by the backend's automatic differentiation, so every relation between the
-    two - including trainable weights - is taken into account, and the result
-    is itself differentiable (it can be nested, and trained through). The
-    output has the shape of the input's window: for a window longer than one
-    sample it is the derivative of the summed relation with respect to each
-    sample, which is the usual reverse-mode (vector-Jacobian) reading. ``fun``
-    must actually depend on the input. For a derivative over time, see
+    ``fun`` is differentiated with respect to the input as it is declared,
+    its whole window if it has one, by the backend's automatic
+    differentiation, so every relation between the two - including trainable
+    weights - is taken into account, and the result is itself differentiable
+    (it can be nested, and trained through). The output has the shape of the
+    input: for a window longer than one sample it is the derivative of the
+    summed relation with respect to each sample, which is the usual
+    reverse-mode (vector-Jacobian) reading. ``fun`` must actually depend on
+    the input. For a derivative over time, see
     :class:`DerivativeStep` and :class:`Derivative`.
 
     Two notes:
@@ -515,10 +491,8 @@ class Differentiate(Layer):
                 f"got {len(inputs)}."
             )
         # Reverse-mode differentiation yields the shape of the variable, not
-        # of the relation: one derivative per sample of the window of the
-        # Input the relation reads - known here, whatever else reads it.
-        past, future, _ = _window_read(function, self.wrt_name)
-        return self.respect_to.shape.replace(time=max(past + future, 1))
+        # of the relation.
+        return self.respect_to.shape
 
     # ------------------------------------------------------------------
     # Keras layer logic
@@ -554,17 +528,7 @@ class Differentiate(Layer):
                 order=self.order,
                 name=self.name,
             )
-        gradient = self._layer(sources)
-        # The derivative is taken with respect to all the Input the model
-        # reads, which other relations may read through a wider window: the
-        # samples this relation reads are cut from it.
-        past, future, source = _window_read(self.preds[0], self.wrt_name)
-        if source is None or (past, future) == (source.past, source.future):
-            return gradient
-        start = source.past - past
-        return slice_axis(
-            gradient, source.shape.time_axis, slice(start, start + past + future)
-        )
+        return self._layer(sources)
 
     # ------------------------------------------------------------------
     # Serialization
@@ -684,9 +648,18 @@ class _FiniteDifference(Layer):
     def _validate_init(self, function, init, seq, where: str):
         """``init`` holds 1 sample (reused for each) or the ``past`` the
         stencil reads, a scalar or the function's dim, and no sequence or
-        ``seq``, the one ``where`` names."""
+        ``seq``, the one ``where`` names. A value - a number, a Parameter or
+        a Constant - without a window is one sample, and has no sequence."""
         init_dim, samples = tuple(init.shape.dim), init.shape.time
-        if samples not in (1, self.past):
+        if samples is None:
+            if not init._is_value:
+                raise ValueError(
+                    f"{self.name}: init has no window, {init.shape}: the samples "
+                    "before the first need one - declare the Input with sw=1 - "
+                    "unless init is a number, a Parameter or a Constant."
+                )
+            seq = ()
+        elif samples not in (1, self.past):
             raise ValueError(
                 f"{self.name}: init must carry 1 sample (reused for each) or the "
                 f"{self.past} the stencil reads before the first, got {samples}."
@@ -789,6 +762,7 @@ class DerivativeStep(_FiniteDifference):
     def output_shape(self, *inputs):
         function = inputs[0]
         self._check_function(function)
+        self._needs_window(function)
         if len(inputs) > 1:
             self._validate_init(
                 function, inputs[1], function.shape.seq, "the differentiated relation's"
@@ -802,10 +776,11 @@ class DerivativeStep(_FiniteDifference):
         if len(self.preds) > 1:
             init_node = self.preds[1]
             if isinstance(init_node, Stream):
-                init_time = init_node.shape.time
+                # A value without a window is one sample.
+                init_time = init_node.shape.time or 1
         return TimeDerivativeImpl(
             coefficients=self._coefficients(),
-            axis=self.shape.time_axis,
+            axis=self.shape.time_axis,  # type: ignore[arg-type]
             init_time=init_time,
             name=self.name,
         )
@@ -845,6 +820,7 @@ class Derivative(_FiniteDifference):
     def output_shape(self, *inputs):
         function = inputs[0]
         self._check_function(function)
+        self._needs_window(function)
         if not function.seq:
             raise ValueError(
                 f"{self.name}: Derivative runs along the sequence of the signal, "
@@ -875,6 +851,6 @@ class Derivative(_FiniteDifference):
             seq_rank=self.preds[0].shape.seq_rank,  # type: ignore[union-attr]
             init_seq_rank=0 if init is None else init.shape.seq_rank,  # type: ignore[union-attr]
             init_dim_rank=1 if init is None else init.shape.dim_rank,  # type: ignore[union-attr]
-            init_time=1 if init is None else init.shape.time,  # type: ignore[union-attr]
+            init_time=1 if init is None else init.shape.time or 0,  # type: ignore[union-attr]
             name=self.name,
         )

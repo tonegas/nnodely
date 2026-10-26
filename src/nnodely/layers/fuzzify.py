@@ -10,7 +10,6 @@ from nnodely.core.dag import next_name
 from nnodely.core.layer import Layer
 from nnodely.core.shape import expand_to_rank, slice_axis
 from nnodely.core.stream import Stream
-from nnodely.layers.input import read
 from nnodely.layers.function import KerasFunction, _is_keras_layer
 from nnodely.layers.parameter import Constant
 from nnodely.layers.partitions import Concatenate, Select
@@ -463,7 +462,7 @@ class Fuzzify:
         streams = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
         if len(streams) != 1 or not isinstance(streams[0], Stream):
             raise TypeError(f"{self.name}: Fuzzify reads one stream, its signal.")
-        x = read(streams[0])
+        x = streams[0]
         if tuple(x.shape.dim) != (1,):
             raise ValueError(
                 f"{self.name}: Fuzzify reads a scalar signal, got dim {x.shape.dim}."
@@ -507,7 +506,6 @@ def _centers(centers, owner: str) -> list[float] | Stream:
     of shape ``(n,)``, of one sample, given as it is or concatenated from a
     list of scalar streams and numbers."""
     if isinstance(centers, Stream):
-        centers = read(centers)
         if centers.shape.dim_rank != 1 or not _one_step(centers):
             raise ValueError(
                 f"{owner}: a stream of centers is a vector of shape (n,), one "
@@ -524,7 +522,7 @@ def _centers(centers, owner: str) -> list[float] | Stream:
     for index, item in enumerate(items):
         if not isinstance(item, Stream):
             item = Constant(f"{owner}_center_{index}", value=[float(item)])
-        elif tuple(read(item).shape.dim) != (1,) or not _one_step(read(item)):
+        elif tuple(item.shape.dim) != (1,) or not _one_step(item):
             raise ValueError(
                 f"{owner}: in a list every center is a number or a scalar "
                 f"stream, dim (1,) and one sample; center {index} has "
@@ -537,9 +535,9 @@ def _centers(centers, owner: str) -> list[float] | Stream:
 
 
 def _one_step(stream: Stream) -> bool:
-    """Whether a stream holds one sample; its sequence, if any, must be the
-    signal's."""
-    return stream.shape.time == 1
+    """Whether a stream holds one sample - a window of one, or none; its
+    sequence, if any, must be the signal's."""
+    return stream.shape.time in (None, 1)
 
 
 def _membership_function(function):

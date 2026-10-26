@@ -7,7 +7,8 @@ This page lists the blocks a model is made of. Their full signatures are in the
 Inputs and outputs
 ------------------
 
-:class:`~nnodely.Input` declares a signal read from data, and
+:class:`~nnodely.Input` declares a signal read from data, with the window of
+samples the model reads (``sw``, see :doc:`concepts`), and
 :class:`~nnodely.Output` names a stream the model exposes:
 
 .. code-block:: python
@@ -15,24 +16,25 @@ Inputs and outputs
    import numpy as np
    from nnodely import Input, Modely, Output
 
-   velocity = Input("velocity")
-   altitude = Input("altitude", dim=3)      # three features per sample
-   gear = Input("gear")
+   velocity = Input("velocity", sw=1)              # the current sample
+   altitude = Input("altitude", dim=3, sw=1)       # three features per sample
+   gear = Input("gear", sw=1)
 
 Parameters and constants
 ------------------------
 
 A :class:`~nnodely.Parameter` is a trainable tensor used directly in the graph,
 and a :class:`~nnodely.Constant` is a fixed one. A ``value`` sets the shape:
-every axis of the value is a ``dim`` axis and the value is one sample,
-``T=1`` - it applies to every sample, of any stream - unless ``dim``,
-``time`` and ``seq`` name the axes of the value that play each part:
+every axis of the value is a ``dim`` axis and the value has no window - it
+applies to every sample, of any stream - unless ``dim``, ``time`` and ``seq``
+name the axes of the value that play each part:
 ``Parameter("w", value=np.ones((2, 3)), time=1)`` is a 2-feature window of 3
 samples; ``time`` names one axis, the window, and ``seq`` one or several,
 outermost first. A constant always takes its shape from its ``value``; a
 parameter can be given ``dim``, ``time`` and ``seq`` as sizes instead, and
 start from a random value. Like every stream they are laid out
-``(batch, *seq, time, *dim)``, the same value for every sample:
+``(batch, *seq, time, *dim)`` - without the window when they have none - the
+same value for every sample:
 
 .. code-block:: python
 
@@ -148,9 +150,9 @@ Some examples:
    )
 
    # a gain scheduled by the gear: one FIR filter per gear, blended
-   torque = Input("torque")
+   torque = Input("torque", sw=10)
    gear_membership = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function=Triangular)([gear])
-   engine_force = LocalModel(lambda cell: Fir(features=1))([torque.sw(10)], [gear_membership])
+   engine_force = LocalModel(lambda cell: Fir(features=1))([torque], [gear_membership])
 
    # a lookup table
    rolling = Interpolation(x_points=[0.0, 10.0, 30.0], y_points=[0.0, 0.2, 0.3])([velocity])
@@ -163,8 +165,8 @@ Some examples:
    learner = EquationLearner(["sin", "multiply", "relu"], linear_out=Linear(features=1))
    learned = learner([velocity])
 
-   # the oldest sample of a window
-   oldest = TimeSelect(idx=0)([velocity.sw(5)])
+   # the oldest sample of the torque window
+   oldest = TimeSelect(idx=0)([torque])
 
 ``Fuzzify`` places a membership function on each center: a
 :class:`~nnodely.Triangular`, :class:`~nnodely.Rectangular` or
@@ -275,11 +277,9 @@ minimizers read, such as targets, are ignored, so the arrays of a
 passed as they are. The result maps output names to tensors of the active
 backend.
 
-The window of an input's array must cover the union of the windows the
-model reads from it, which the input's ``shape`` reports once the model is
-built. Here the model reads ``velocity`` directly, its current sample, alone
-- the ``sw(5)`` of ``oldest`` above is not part of it, so it widens nothing -
-and ``torque`` through ``sw(10)``:
+The array of an input has the shape the input is declared with, which its
+``shape`` reports: here one sample of ``velocity`` and the ten samples of
+``torque``:
 
 .. code-block:: python
 

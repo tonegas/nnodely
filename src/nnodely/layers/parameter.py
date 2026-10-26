@@ -15,8 +15,7 @@ class ParameterImpl(keras.layers.Layer):
 
     It is called with a tensor of the graph, of which it reads only the batch
     size: the value, held as ``value_shape``, comes out ``(batch,
-    *stream_shape)`` like every stream - a value given without time as one
-    sample of it.
+    *value_shape)`` like every stream.
     """
 
     trainable_value = True
@@ -26,18 +25,12 @@ class ParameterImpl(keras.layers.Layer):
         value_shape,
         value=None,
         initializer="random_normal",
-        stream_shape=None,
         name=None,
         **kwargs,
     ):
         super().__init__(name=name, **kwargs)
 
         self.value_shape = tuple(int(axis) for axis in value_shape)
-        self.stream_shape = (
-            self.value_shape
-            if stream_shape is None
-            else tuple(int(axis) for axis in stream_shape)
-        )
         self.value = (
             None
             if value is None
@@ -52,7 +45,6 @@ class ParameterImpl(keras.layers.Layer):
                 "value_shape": self.value_shape,
                 "value": None if self.value is None else self.value.tolist(),
                 "initializer": self.initializer,
-                "stream_shape": self.stream_shape,
             }
         )
         return config
@@ -74,11 +66,11 @@ class ParameterImpl(keras.layers.Layer):
         super().build(input_shape)
 
     def call(self, anchor):
-        value = keras.ops.reshape(self.variable, (1, *self.stream_shape))
+        value = keras.ops.expand_dims(self.variable, 0)
         if anchor is None:
             return value
         batch = keras.ops.shape(anchor)[0]
-        return keras.ops.broadcast_to(value, (batch, *self.stream_shape))
+        return keras.ops.broadcast_to(value, (batch, *self.value_shape))
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -92,8 +84,8 @@ def _value_layout(value, dim, time, seq, owner: str):
     its own - and of its sequence axes.
 
     Without ``dim``, ``time`` and ``seq``, every axis of ``value`` is a dim
-    axis and the value has no window of its own: its stream is one sample,
-    ``T=1``, and like a number it broadcasts along the time of any stream.
+    axis and the value has no window: like a number, it applies to every
+    sample of any stream.
     Otherwise they name the axes of ``value`` that play each part: ``seq`` an
     axis or a tuple of axes, outermost first, ``time`` one axis, the window.
     The axes they leave are the dim axes, unless ``dim`` names them; a value
@@ -156,6 +148,8 @@ class _Value(Layer):
 
     _impl: type[ParameterImpl] = ParameterImpl
     _trainable = True
+    # Not read from data: without a window it applies to any stream's.
+    _is_value = True
 
     def __init__(self, name, value, initializer, dim, time, seq):
         if value is not None:
@@ -174,19 +168,13 @@ class _Value(Layer):
             value=None if value is None else value.tolist(),
             initializer=initializer,
         )
-        # The value as it is held: its sequence axes, its window when it has
-        # one of its own - without one it is one sample of the stream - then
-        # its dim.
-        self.value_shape = (
-            *self.shape.seq,
-            *(() if time is None else (self.shape.time,)),
-            *self.shape.dim,
-        )
+        # The value as it is held: its sequence axes, its window if it has
+        # one, then its dim - the shape of one sample of its stream.
+        self.value_shape = self.shape.tuple
 
     def build_layer(self):
         return self._impl(
             value_shape=self.value_shape,
-            stream_shape=self.shape.tuple,
             value=self.value,
             initializer=self.initializer,
             trainable=self._trainable,
@@ -199,10 +187,7 @@ class _Value(Layer):
         # laid out (*seq, time, *dim), with the axes that play each part.
         config = Stream.get_config(self)
         seq_rank = self.shape.seq_rank
-        has_time = len(self.value_shape) > seq_rank + self.shape.dim_rank
-        if not has_time:
-            # Without a window of its own, it is loaded back as one sample.
-            config["time"] = None
+        has_time = self.shape.time is not None
         if self.value is not None:
             first_dim = seq_rank + int(has_time)
             config.update(
@@ -230,18 +215,18 @@ class Parameter(_Value):
 
     Without ``value``, ``dim``, ``time`` and ``seq`` are the sizes of its
     axes - ``seq`` outermost first - and ``initializer``, any Keras
-    initializer, draws its initial value. Without ``time`` and ``seq`` it is
-    one sample, ``T=1``, and broadcasts along the time of any stream.
+    initializer, draws its initial value. Without ``time`` it has no window,
+    and applies to every sample of any stream.
 
     ``value`` sets the shape and the initial value. Every axis of the value is
-    a dim axis, and the value is one sample, unless ``dim``, ``time`` and
+    a dim axis, and the value has no window, unless ``dim``, ``time`` and
     ``seq`` say otherwise: given with a value they are axes of the value -
     ``seq`` an axis or a tuple of axes, outermost first, ``time`` one axis -
     and the axes they leave are the dim axes. :attr:`value` and the variable
     hold the value laid out ``(*seq, time, *dim)``, without the window when
     none is given::
 
-        Parameter("p", value=np.ones((2, 3, 2)))                     # S=(), T=1, D=(2, 3, 2)
+        Parameter("p", value=np.ones((2, 3, 2)))                     # S=(), T=None, D=(2, 3, 2)
         Parameter("p", value=np.ones((2, 3, 2)), dim=0, time=1, seq=2)  # S=(2,), T=3, D=(2,)
         Parameter("p", value=[[1.0, 2.0, 3.0]], time=1)               # S=(), T=3, D=(1,)
 
@@ -252,7 +237,7 @@ class Parameter(_Value):
     Like every stream it is laid out with a batch axis first, the same value
     for every sample::
 
-        (batch, *seq, time, *dim)
+        (batch, *seq, [time,] *dim)
     """
 
     def __init__(
@@ -318,6 +303,18 @@ class Parameters(list):
         super().__init__(parameters)
         self.title = title
 
+    def __getitem__(self, key):  # type: ignore[override]
+        """A Parameter by its name, or by position as in a list."""
+        if isinstance(key, str):
+            for parameter in self:
+                if parameter.name == key:
+                    return parameter
+            raise KeyError(
+                f"{self.title or 'Parameters'}: no Parameter named {key!r}; "
+                f"the names are {[parameter.name for parameter in self]}."
+            )
+        return super().__getitem__(key)
+
     def __str__(self):
         header = ("name", "seq", "time", "dim", "values", "trainable")
         rows = [
@@ -359,11 +356,10 @@ class Constant(_Value):
     Non-trainable symbolic constant layer.
 
     ``value`` sets its shape as for a :class:`Parameter`: every axis of the
-    value is a dim axis, and the value is one sample, ``T=1``, unless
-    ``dim``, ``time`` and ``seq`` name the axes of the value that play each
-    part::
+    value is a dim axis, and the value has no window, unless ``dim``,
+    ``time`` and ``seq`` name the axes of the value that play each part::
 
-        Constant("c", value=[1.0, 2.0, 3.0])                 # S=(), T=1, D=(3,)
+        Constant("c", value=[1.0, 2.0, 3.0])                 # S=(), T=None, D=(3,)
         Constant("c", value=[[1.0, 2.0, 3.0]], time=1)       # S=(), T=3, D=(1,)
 
     Numbers used in arithmetic with a stream become constants automatically.
@@ -371,7 +367,7 @@ class Constant(_Value):
     Like every stream it is laid out with a batch axis first, the same value
     for every sample::
 
-        (batch, *seq, time, *dim)
+        (batch, *seq, [time,] *dim)
     """
 
     _impl = ConstantImpl
@@ -404,7 +400,7 @@ class WeightImpl(ParameterImpl):
     """A layer's weight: a variable of the weight's own shape.
 
     The layer reads it whole, not one value per sample, so it comes out with
-    a batch axis of one: ``(1, *weight_shape, 1)``. The initializer fills it
+    a batch axis of one: ``(1, *weight_shape)``. The initializer fills it
     with draws of ``draw_shape``.
     """
 
@@ -469,7 +465,6 @@ class Weight(Parameter):
             name,
             initializer=initializer,
             dim=self.weight_shape,
-            time=1,
             trainable=trainable,
         )
 

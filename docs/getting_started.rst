@@ -86,19 +86,22 @@ every 50 samples. In a real application these arrays come from measurements.
        velocity[i + 1] = velocity[i] + dt * acceleration
        position[i + 1] = position[i] + dt * velocity[i + 1]
 
-**The model.** An :class:`~nnodely.Input` is a signal the model reads. Its
-methods select the samples a relation uses: ``x.sw(5)`` is a window of the last
-five samples of ``x``, and ``F`` read directly is its current sample.
+**The model.** An :class:`~nnodely.Input` is a signal the model reads,
+declared with the window of samples it reads: ``sw=(5, 1)`` is the last five
+samples of ``x`` and the next one, and ``sw=1`` is the current sample of
+``F``. :class:`~nnodely.TimeRange` and :class:`~nnodely.TimeSelect` take
+parts of a window.
 
 .. code-block:: python
 
    from nnodely import DataLoader, Fir, Input, Modely, Output, set_seed
+   from nnodely import TimeRange, TimeSelect
 
    set_seed(0)
 
-   x = Input("x")
-   F = Input("F")
-   x_next = Fir(features=1)([x.sw(5)]) + Fir(features=1)([F])
+   x = Input("x", sw=(5, 1))
+   F = Input("F", sw=1)
+   x_next = Fir(features=1)([TimeRange(0, 5)(x)]) + Fir(features=1)([F])
    x_next_est = Output("x_next_est", x_next)
 
    model = Modely("mass_spring_damper", inputs=[x, F], outputs=[x_next_est])
@@ -115,13 +118,13 @@ coefficients are unknown. Choosing it is what makes this network
 *model-structured*.
 
 **The objective.** :meth:`~nnodely.Modely.minimize` declares what training
-has to reduce. Here it's the error between the estimate and ``x.next()``, the
-next sample of the position. After that,
+has to reduce. Here it's the error between the estimate and
+``TimeSelect(-1)(x)``, the next sample of the position. After that,
 :meth:`~nnodely.Modely.build` turns the graph into a Keras model.
 
 .. code-block:: python
 
-   model.minimize("next_position", x_next_est, x.next(), loss="mse")
+   model.minimize("next_position", x_next_est, TimeSelect(-1)(x), loss="mse")
    model.build()
 
 **Training.** A :class:`~nnodely.DataLoader` cuts the signals into the windows

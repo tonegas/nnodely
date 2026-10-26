@@ -65,9 +65,8 @@ from nnodely import *
 
 set_seed(42)
 
-x = Input("x")
-window = x.sw(2)  # [x[t-1], x[t]]
-prev, cur = TimeSelect(0)(window), TimeSelect(1)(window)
+x = Input("x", sw=2)  # a window of two samples: [x[t-1], x[t]]
+prev, cur = TimeSelect(0)(x), TimeSelect(1)(x)
 out = Output("out", Parameter("A") * prev + Parameter("B") * cur)
 
 model = Modely("Fibonacci", inputs=[x], outputs=[out])
@@ -78,7 +77,7 @@ data = DataLoader(model, source={"x": np.random.uniform(-1.0, 1.0, 200)})
 model.train(data, epochs=50, batch_size=32, lr=0.05)  # Train the model
 
 # Run it closed loop: each prediction is fed back into x, for 10 steps
-loop = Loop(f=model, callback={x: out}, init={x: window}, length=10)()
+loop = Loop(f=model, callback={x: out}, init={x: x}, length=10)()
 fib = Output("fib", loop)
 generator = Modely("FibonacciGenerator", inputs=[x], outputs=[fib]).build()
 

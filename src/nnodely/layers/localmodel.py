@@ -11,9 +11,8 @@ import numpy as np
 
 from nnodely.core.dag import next_name
 from nnodely.core.layer import Identity, Layer, Multiply
-from nnodely.core.shape import Shape, _padded, align, slice_axis
+from nnodely.core.shape import Shape, slice_axis
 from nnodely.core.stream import Stream
-from nnodely.layers.input import read
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -62,13 +61,9 @@ class FuzzyProductImpl(keras.layers.Layer):
 
     def call(self, xs):
         xs = list(xs) if isinstance(xs, (list, tuple)) else [xs]
-        # Each activation (batch, *seq, time, n_k), given the sequence of the
-        # others: the product runs over the last axis.
-        seq_rank = max(len(activation.shape) - 3 for activation in xs)
-        xs = [
-            align(activation, len(activation.shape) - 3, 1, seq_rank, 1)
-            for activation in xs
-        ]
+        # Each activation (batch, time, n_k), or (batch, n_k) without a
+        # window: the product runs over the last axis, a window of one sample
+        # broadcasting along a longer one.
         result = xs[0]
         for activation in xs[1:]:
             cells = result.shape[-1] * activation.shape[-1]  # type: ignore
@@ -85,8 +80,8 @@ class FuzzyProduct(Layer):
 
     def output_shape(self, *inputs):
         cells = prod(activation.dim[0] for activation in inputs)
-        time = max(activation.time for activation in inputs)
-        return Shape(dim=(cells,), time=time)
+        windows = [activation.time for activation in inputs if activation.time]
+        return Shape(dim=(cells,), time=max(windows) if windows else None)
 
     def build_layer(self):
         return FuzzyProductImpl(name=self.name)
@@ -201,21 +196,16 @@ class CellSumImpl(keras.layers.Layer):
 
 
 class CellWeight(Multiply):
-    """A stack of cells weighted by their memberships, of dim ``(N,)``. Either
-    may hold one sample of the window, to be weighed along the other's
-    window, a broadcast along time that plain arithmetic refuses:
-    :class:`LocalModel` checks the times."""
+    """A stack of cells weighted by their memberships, of dim ``(N,)``, which
+    line up with the stack's last dim axis, a broadcast plain arithmetic
+    refuses. Either may hold one sample of the window, weighed along the
+    other's: :class:`LocalModel` checks the windows."""
 
     def output_shape(self, *inputs):
         stack, mu = inputs[0].shape, inputs[1].shape
-        rank = max(len(stack._steps), len(mu._steps))
-        steps = tuple(
-            other if size == 1 else size
-            for size, other in zip(
-                _padded(stack._steps, rank), _padded(mu._steps, rank)
-            )
-        )
-        return stack.replace(seq=steps[:-1], time=steps[-1])
+        if stack.time is None:
+            return stack
+        return stack.replace(time=max(stack.time, mu.time))
 
 
 class CellSum(Layer):
@@ -309,13 +299,12 @@ class LocalModel:
         )
         if not all(isinstance(stream, Stream) for stream in inputs + activations):
             raise TypeError(f"{self.name}: inputs and activations must be Streams.")
-        inputs, activations = [read(x) for x in inputs], [read(a) for a in activations]
         for index, activation in enumerate(activations):
             shape = activation.shape
             if shape.seq or shape.dim_rank != 1:
                 raise ValueError(
-                    f"{self.name}: activation {index} must have a window and no "
-                    f"sequence, dim (cells,), got {shape}."
+                    f"{self.name}: activation {index} must have no sequence, dim "
+                    f"(cells,), got {shape}."
                 )
 
         indices = list(np.ndindex(*(activation.dim[0] for activation in activations)))
@@ -350,6 +339,11 @@ class LocalModel:
         # The memberships, of dim (N,), line up with the last dim axis of the
         # stack, its cell axis, and with its window.
         times = {stream.time for stream in [*activations, stack]}
+        if None in times and len(times) > 1:
+            raise ValueError(
+                f"{self.name}: the activations and the cells all have a window, "
+                f"or none of them; got {[stream.shape for stream in [*activations, stack]]}."
+            )
         if len(times - {1}) > 1:
             raise ValueError(
                 f"{self.name}: the activations and the cells have windows of "

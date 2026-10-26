@@ -11,7 +11,6 @@ from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
 from nnodely.core.shape import OUTER_AXIS
 from nnodely.core.stream import Stream
-from nnodely.layers.input import read
 from nnodely.layers.loop import LoopOutputImpl
 
 # Butcher tableaux as (stage coefficients, weights): one row of `a` per stage
@@ -569,7 +568,6 @@ class OdeNet(Layer):
             )
 
         initial_streams = _resolve_initial(initial, state_inputs)
-        t = read(t)
         self.output_count = _resolve_output_count(t)
 
         self.f = f
@@ -766,8 +764,6 @@ def _resolve_initial(initial, state_inputs):
     streams = []
     for node in state_inputs:
         stream = by_name.get(node.name, node)
-        if stream.name != node.name:
-            stream = read(stream)
         if stream is not node and stream.shape.dimensions != node.shape.dimensions:
             raise ValueError(
                 f"OdeNet initial value for {node.name!r} must have the shape "

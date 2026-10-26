@@ -170,7 +170,7 @@ class IntegrateStep(Layer):
     (kept as a Constant), or ``None`` for zero. It is what turns a relative
     increment into the absolute quantity mechanical models are written in::
 
-        velocity = IntegrateStep(dt=dt, init=v0)(acceleration.sw(n))
+        velocity = IntegrateStep(dt=dt, init=v0)(acceleration)  # Input(..., sw=n)
         position = IntegrateStep(dt=dt, init=x0)(velocity)
 
     Both of those come out of one forward pass over the whole window, so a
@@ -238,6 +238,7 @@ class IntegrateStep(Layer):
                 f"{self.name}: IntegrateStep expects a Stream input, got "
                 f"{type(rate).__name__}."
             )
+        self._needs_window(rate)
         if len(inputs) > 1:
             self._validate_init_shape(rate, inputs[1])
         # One integrated sample per rate sample: the result stays aligned with
@@ -246,17 +247,18 @@ class IntegrateStep(Layer):
 
     def _validate_init_shape(self, rate, init):
         init_dim = tuple(init.shape.dim)
-        if init.shape.time != 1:
-            raise ValueError(
-                f"{self.name}: init is the value just before the window, so it "
-                f"must carry a single sample, got {init.shape.time}."
-            )
+        _check_single_sample(self.name, init, "window")
         if init_dim not in ((1,), tuple(rate.shape.dim)):
             raise ValueError(
                 f"{self.name}: init has dim {init_dim}, which is neither a scalar "
                 f"nor the integrated rate's {tuple(rate.shape.dim)}."
             )
         seq, rate_seq = tuple(init.shape.seq), tuple(rate.shape.seq)
+        if init.shape.time is None and seq:
+            raise ValueError(
+                f"{self.name}: init is a value without a window, so it has no "
+                f"sequence either, got {seq}."
+            )
         if seq not in ((), rate_seq):
             raise ValueError(
                 f"{self.name}: init has the sequence {seq}, which is neither "
@@ -293,6 +295,21 @@ class IntegrateStep(Layer):
         if preds:
             return layer(preds[0])
         return layer
+
+
+def _check_single_sample(owner: str, init, where: str) -> None:
+    """Refuse an initial condition that is not one sample: a window of one,
+    or a value - a number, a Parameter, a Constant - without a window."""
+    if init.shape.time is None and not init._is_value:
+        raise ValueError(
+            f"{owner}: init has no window, {init.shape}, and is read from data: "
+            "declare the Input with sw=1, one sample."
+        )
+    if init.shape.time not in (None, 1):
+        raise ValueError(
+            f"{owner}: init is the value just before the {where}, so it must "
+            f"carry a single sample, got {init.shape.time}."
+        )
 
 
 def _declared_seq(seq) -> tuple[int, ...] | None:
@@ -363,7 +380,7 @@ class Integrate:
     def __call__(self, rate):
         from nnodely.core.layer import Identity
         from nnodely.core.modely import Modely
-        from nnodely.layers.input import Input, read
+        from nnodely.layers.input import Input
         from nnodely.layers.loop import Loop
         from nnodely.layers.output import Output
 
@@ -377,7 +394,6 @@ class Integrate:
             raise TypeError(
                 f"{self.name}: Integrate expects a Stream, got {type(rate).__name__}."
             )
-        rate = read(rate)
         if not rate.seq:
             raise ValueError(
                 f"{self.name}: Integrate runs along the sequence of the rate, its "
@@ -400,8 +416,8 @@ class Integrate:
         step_seq = _declared_seq(rate.seq[1:])
 
         # One step: the state integrates the rate of that step.
-        rate_in = Input(f"{call_name}_rate", dim=dim, seq=step_seq)
-        state_in = Input(f"{call_name}_state", dim=dim, seq=step_seq)
+        rate_in = Input(f"{call_name}_rate", dim=dim, seq=step_seq, sw=1)
+        state_in = Input(f"{call_name}_state", dim=dim, seq=step_seq, sw=1)
         rate_step = rate_in
         trapezoidal = _SOLVER_RULE[self.solver] == "trapezoidal"
         step_rate = rate_step
@@ -409,7 +425,9 @@ class Integrate:
         if trapezoidal:
             # The trapezoid of a step averages its rate with the previous one,
             # which the loop feeds back like the state.
-            previous_in = Input(f"{call_name}_previous_rate", dim=dim, seq=step_seq)
+            previous_in = Input(
+                f"{call_name}_previous_rate", dim=dim, seq=step_seq, sw=1
+            )
             step_rate = (previous_in + rate_step) * 0.5
         step = IntegrateStep(
             solver="euler",
@@ -433,9 +451,8 @@ class Integrate:
         if isinstance(self.init, Stream):
             # A scalar init is spread over the rate's dim by the Loop, which
             # broadcasts an initial value to the state it seeds.
-            init = read(self.init)
-            self._validate_init_shape(rate, init)
-            initial[state_in] = init
+            self._validate_init_shape(rate, self.init)
+            initial[state_in] = self.init
         elif self.init is not None:
             initial[state_in] = float(self.init)
         if previous_in is not None:
@@ -450,11 +467,7 @@ class Integrate:
 
     def _validate_init_shape(self, rate, init):
         dim, step_seq = tuple(rate.dim), tuple(rate.seq[1:])
-        if init.time != 1:
-            raise ValueError(
-                f"{self.name}: init is the value just before the first step, so "
-                f"it must carry a single sample, got {init.time}."
-            )
+        _check_single_sample(self.name, init, "first step")
         if tuple(init.dim) not in (dim, (1,)) or (
             tuple(init.dim) == (1,) and len(dim) > 1
         ):

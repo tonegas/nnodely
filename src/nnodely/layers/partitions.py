@@ -1,10 +1,10 @@
-"""Partitions of a stream: the windows, selections and slices of its dim
-axes, its window and its sequence axes, and the concatenations that join
-streams along them.
+"""Partitions of a stream: the selections and slices of its dim axes, its
+window and its sequence axes, and the concatenations that join streams along
+them.
 
 The dim operations count the dim axes from 0. The time operations act on
-the window, ``T``, of which a stream has one: they take no axis, and always
-keep it. The sequence operations act on a sequence axis, counted outermost
+the window, ``T``, of which a stream has one or none: they take no axis,
+always keep it, and refuse a stream without one. The sequence operations act on a sequence axis, counted outermost
 first: ``axis=0``, their default, is the outermost one - the rollout of the
 outermost Loop; a sequence axis may be dynamic (``None``), its length known
 only at run time. Each layer resolves the axis it acts on with the
@@ -16,98 +16,6 @@ import keras
 from nnodely.core.layer import Layer
 from nnodely.core.shape import _is_scalar, expand_to_rank, resolve_axis, slice_axis
 from nnodely.core.stream import Stream
-
-
-@keras.saving.register_keras_serializable(package="nnodely")
-class SampleWindowImpl(keras.layers.Layer):
-    def __init__(
-        self,
-        start: int,
-        window_size: int,
-        axis: int,
-        name=None,
-        **kwargs,
-    ):
-        super().__init__(name=name, **kwargs)
-        self.start = int(start)
-        self.window_size = int(window_size)
-        self.axis = int(axis)
-
-    def call(self, x):
-        # A window that covers the whole time axis is the tensor itself. Taking
-        # it as a slice anyway costs an op whose own derivative (a scatter into
-        # a zero tensor) has no ONNX equivalent, so a differentiated graph would
-        # stop exporting for no reason.
-        if self.start == 0 and self.window_size == x.shape[self.axis]:
-            return x
-
-        return slice_axis(
-            x, self.axis, slice(self.start, self.start + self.window_size)
-        )
-
-    def compute_output_shape(self, input_shape):
-        output_shape = list(input_shape)
-        output_shape[self.axis] = self.window_size
-        return tuple(output_shape)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "start": self.start,
-                "window_size": self.window_size,
-                "axis": self.axis,
-            }
-        )
-        return config
-
-
-class SampleWindow(Layer):
-    """
-    A window of an Input: its ``past`` samples up to the current one and its
-    ``future`` samples after it, cut from the union of the Input's windows.
-    """
-
-    # The window is cut from the data of the Input, not its current sample.
-    _reads_data = True
-
-    def __init__(self, past: int, future: int, name=None):
-        self.past = int(past)
-        self.future = int(future)
-        self.window_size = self.past + self.future
-        super().__init__(
-            name=name,
-            time=self.window_size,
-            past=self.past,
-            future=self.future,
-        )
-
-    def output_shape(self, *inputs):
-        # The window replaces T; the sequence is kept.
-        return inputs[0].shape.replace(time=self.window_size)
-
-    def build_layer(self):
-        from nnodely.layers.input import Input
-
-        if self.window_size <= 0:
-            raise ValueError(
-                f"{self.name}: past + future must be positive, got {self.window_size}."
-            )
-
-        predecessor = self.preds[0]
-        pred_past = (
-            predecessor.past
-            if isinstance(predecessor, (Input, SampleWindow))
-            else predecessor.shape.time  # type: ignore[union-attr]
-        )
-        start = pred_past - self.past
-
-        return SampleWindowImpl(
-            start=start,
-            window_size=self.window_size,
-            axis=predecessor.shape.time_axis,  # type: ignore[union-attr]
-            name=self.name,
-        )
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -300,6 +208,7 @@ class TimeSelect(Layer):
         super().__init__(name=name, idx=self.idx)
 
     def output_shape(self, *inputs):
+        self._needs_window(inputs[0])
         shape = inputs[0].shape
         _index(self.name, self.idx, shape.time, "the window")
         return shape.replace(time=1)
@@ -333,6 +242,7 @@ class TimeRange(Layer):
         super().__init__(name=name, start=self.start, end=self.end)
 
     def output_shape(self, *inputs):
+        self._needs_window(inputs[0])
         shape = inputs[0].shape
         return shape.replace(
             time=_range_length(self.name, self.start, self.end, shape.time)
@@ -391,6 +301,8 @@ class TimeConcatenate(Layer):
     def output_shape(self, *inputs):
         self.inputs = list(inputs)
         inputs = _concatenation_inputs(self)
+        for input_node in inputs:
+            self._needs_window(input_node)
         shape = inputs[0].shape
         for input_node in inputs[1:]:
             other = input_node.shape
@@ -399,12 +311,14 @@ class TimeConcatenate(Layer):
                     f"{self.name}: all inputs must have the same sequence and dim, "
                     f"got {shape} and {other}."
                 )
-        return shape.replace(time=sum(node.shape.time for node in inputs))
+        return shape.replace(time=sum(node.shape.time for node in inputs))  # type: ignore[misc]
 
     def build_layer(self):
         shape = _concatenation_inputs(self)[0].shape
         return TimeConcatenateImpl(
-            axis=shape.time_axis, input_rank=shape.rank, name=self.name
+            axis=shape.time_axis,  # type: ignore[arg-type]
+            input_rank=shape.rank,
+            name=self.name,
         )
 
 
@@ -421,6 +335,7 @@ class TimeReverse(Layer):
         super().__init__(name=name)
 
     def output_shape(self, *inputs):
+        self._needs_window(inputs[0])
         return inputs[0].shape
 
     def build_layer(self):
@@ -691,9 +606,9 @@ class ConcatenateImpl(keras.layers.Layer):
 class Concatenate(Layer):
     """Concatenate two or more streams along a selected dim axis.
 
-    The streams must have the same sequence and window; a single sample - a
-    Parameter, a number, an Input read directly - is repeated along the
-    others', as arithmetic broadcasts it.
+    The streams must have the same sequence and window; a single sample,
+    ``T=1``, or a value without a window - a Parameter, a number - is
+    repeated along the others', as arithmetic broadcasts it.
     """
 
     def __init__(self, axis: int = 0, name=None):
@@ -716,9 +631,13 @@ class Concatenate(Layer):
                 for index, size in enumerate(shape.dim)
                 if index != axis
             )
-            if not compatible_dim or not (
-                shape._steps == reference._steps or _is_scalar(shape._steps)
-            ):
+            # A single sample broadcasts as arithmetic broadcasts it: with a
+            # window of one, or as a value; data without a window does not
+            # take one.
+            single = _is_scalar(shape._steps) and (
+                shape.time is not None or input_node._is_value or reference.time is None
+            )
+            if not compatible_dim or not (shape._steps == reference._steps or single):
                 raise ValueError(
                     f"{self.name}: all inputs must have matching dimensions "
                     f"except dim axis {self.axis}, and the same sequence and "
@@ -749,7 +668,7 @@ def _concatenation_values(xs, input_rank):
         raise ValueError("Concatenate implementations require at least two tensors.")
     if any(len(value.shape) != input_rank + 1 for value in xs):
         raise ValueError(
-            "All tensors must be laid out (batch, *seq, time, *dim), of rank "
+            "All tensors must be laid out (batch, *seq, [time,] *dim), of rank "
             f"{input_rank + 1}."
         )
     return list(xs)

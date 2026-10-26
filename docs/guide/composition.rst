@@ -10,12 +10,12 @@ its outputs as streams of the outer graph:
    import numpy as np
    from nnodely import Fir, Input, Linear, Modely, Output, ReLU
 
-   signal = Input("signal")
-   filtered = Output("filtered", Fir(features=1)([signal.sw(10)]))
+   signal = Input("signal", sw=10)
+   filtered = Output("filtered", Fir(features=1)([signal]))
    smoother = Modely("smoother", inputs=[signal], outputs=[filtered]).build()
 
-   raw = Input("raw")
-   smoothed = smoother([raw.sw(10)])
+   raw = Input("raw", sw=10)
+   smoothed = smoother([raw])
    command = Output("command", ReLU()([Linear(features=1)([smoothed])]))
 
    controller = Modely("controller", inputs=[raw], outputs=[command]).build()
@@ -25,18 +25,19 @@ A model with several outputs returns them as a list:
 ``first, second = block([a, b])``.
 
 A block keeps the shapes it was declared with. Every stream it is called on
-must have the shape the block's graph reads that input with - here a window
-of 10 samples of one feature - and another shape is refused rather than
-reshaped, so a rollout is not slipped into a block that reads one sample. A
-dynamic sequence matches any length. An :class:`~nnodely.Input` can also be
-given itself, ``smoother([raw])``: the block's own windows then read it, so it
-needs the block's dim and sequence.
+must have the shape of the block's input - here a window of 10 samples of one
+feature - the same dim, sequence and window; another shape is refused rather
+than reshaped, so a rollout is not slipped into a block that reads one
+sample. A dynamic sequence matches any length. An :class:`~nnodely.Input` of
+that shape is given as it is, as ``raw`` above.
 
 Weights
 -------
 
 A block brings its weights along. A model trained on its own can be inserted in
-a larger one, and the larger model starts from the trained weights. Training
+a larger one, and the larger model starts from the trained weights - also a
+model loaded with :meth:`~nnodely.Modely.load`: building the larger model
+initializes only its new layers. Training
 the outer model trains the block too. To keep a block fixed, freeze it:
 ``block.freeze()`` keeps every Parameter it computes with as it is through
 training, until ``block.unfreeze()``.
@@ -46,9 +47,9 @@ reusing a layer does:
 
 .. code-block:: python
 
-   left = Input("left")
-   right = Input("right")
-   both = Output("both", smoother([left.sw(10)]) + smoother([right.sw(10)]))
+   left = Input("left", sw=10)
+   right = Input("right", sw=10)
+   both = Output("both", smoother([left]) + smoother([right]))
    stereo = Modely("stereo", inputs=[left, right], outputs=[both]).build()
 
 Each call returns outputs named after the block's own outputs, so two calls
