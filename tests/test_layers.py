@@ -1453,7 +1453,7 @@ def test_a_layer_that_reads_one_stream_is_applied_to_every_stream():
     results = {
         "sin": Sin(streams),  # applied on creation, to each
         "relu": ReLU(max_value=1.0)(streams),
-        "triangle": Triangular(center=0.5, radius=0.5)(streams),
+        "triangle": Triangular(radius=0.5)([s - 0.5 for s in streams]),
     }
     for pair in results.values():
         assert [node.shape.dimensions for node in pair] == [

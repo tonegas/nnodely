@@ -1938,8 +1938,8 @@ def _generalized_fuzzify_model():
         name="general_fuzzy_mixed",
     )([x])
     waves = Fuzzify([0.0, 1.0], function=Sin, name="general_fuzzy_sin")([x])
-    bell = Gaussian(center=0.2, sigma=0.3, name="general_bell")([x])
-    leaning = Triangular(center=0.5, radius=(0.5, 1.0), name="general_leaning")([x])
+    bell = Gaussian(sigma=0.3, name="general_bell")([x - 0.2])
+    leaning = Triangular(radius=(0.5, 1.0), name="general_leaning")([x - 0.5])
     return Modely(
         "general_fuzzy",
         inputs=[x],
@@ -2044,6 +2044,9 @@ def _moving_centers_model():
     centers = Parameter("moving_centers", value=[0.0, 0.5, 1.0])
     computed = Fir(features=3, bias=False)(u)  # each sample its own
     middle = Parameter("moving_middle", value=[0.4])
+    # Widths trained with the model, as Parameters.
+    width = Parameter("moving_width", value=[0.3, 0.6])
+    sigma = Parameter("moving_sigma", value=[0.4])
     model = Modely(
         "moving",
         inputs=[x, u],
@@ -2062,10 +2065,17 @@ def _moving_centers_model():
                 "moving_inner",
                 Fuzzify([0.0, middle, 1.0], function=Gaussian, bounds=(0.2, 0.9))([x]),
             ),
+            Output(
+                "moving_widths",
+                Fuzzify(centers, function=Triangular(radius=width))([x]),
+            ),
+            Output("moving_sigma_out", Gaussian(sigma=sigma)([x - 0.5])),
         ],
     ).build()
-    # As if trained: the centers moved from where they started.
+    # As if trained: the centers and the widths moved from where they started.
     centers.param.assign(np.array([-0.2, 0.6, 1.3], dtype=np.float32))  # type: ignore
+    width.param.assign(np.array([0.5, 0.8], dtype=np.float32))  # type: ignore
+    sigma.param.assign(np.array([0.7], dtype=np.float32))  # type: ignore
     return model
 
 
@@ -2076,6 +2086,8 @@ _MOVING_OUTPUTS = (
     "moving_listed",
     "moving_bounded",
     "moving_inner",
+    "moving_widths",
+    "moving_sigma_out",
 )
 _MOVING_DATA = {
     "moving_x": np.linspace(-0.5, 1.5, 5, dtype=np.float32).reshape(-1, 1, 1),

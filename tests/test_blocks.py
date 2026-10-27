@@ -19,7 +19,7 @@ from nnodely import (
     Parameter,
 )
 
-from nnodely.core.layer import Add
+from nnodely.core.layer import Add, Layer
 from nnodely.layers.fir import FirImpl
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.fuzzify import Fuzzify, Gaussian, Rectangular, Triangular
@@ -51,8 +51,6 @@ def test_fuzzify(tmp_path):
             return keras.ops.power(x, 2) + y
 
     x = Input("x", dim=1, sw=1)
-    # Rectangles and triangles already add up to one, or to zero beyond the
-    # centers: normalized, they are what they were.
     fuzzy_rectangular = Fuzzify(centers=[0.0, 0.5, 1.0], function=Rectangular)
     fuzzy_triangular = Fuzzify(centers=[0.0, 0.5, 1.0], function=Triangular)
     # The functions themselves, not normalized.
@@ -72,7 +70,9 @@ def test_fuzzify(tmp_path):
     # Bounded by the outer centers, x beyond them is in the outer set; or by
     # 0.2 and 0.9, where two triangles meet.
     bounded = {
-        function: Fuzzify(centers=[0.0, 0.5, 1.0], function=function, bounds=True)
+        function: Fuzzify(
+            centers=[0.0, 0.5, 1.0], function=function, bounds=True, normalize=True
+        )
         for function in (Rectangular, Triangular, Gaussian)
     }
     fuzzy_inner = Fuzzify(
@@ -276,10 +276,10 @@ def test_fuzzify_multi_temporal():
     )
     # Bounded by the outer centers, and normalized at each step on its own.
     fuzzy_bounded_triangular = Fuzzify(
-        centers=[0.0, 0.5, 1.0], function=Triangular, bounds=True
+        centers=[0.0, 0.5, 1.0], function=Triangular, bounds=True, normalize=True
     )
     fuzzy_bounded_gaussian = Fuzzify(
-        centers=[0.0, 0.5, 1.0], function=Gaussian, bounds=True
+        centers=[0.0, 0.5, 1.0], function=Gaussian, bounds=True, normalize=True
     )
     x_out_rectangular = Output("x_pred_rectangular", fuzzy_rectangular([x_window]))
     x_out_triangular = Output("x_pred_triangular", fuzzy_triangular([x_window]))
@@ -687,14 +687,15 @@ def test_fuzzify_learns_where_its_triangles_sit():
 def test_membership_functions_are_layers_of_their_own():
     x = Input("member_x", sw=5)
     window = x
+    # Centered at 0: each reads the window shifted by its center.
     layers = {
-        "triangle": Triangular(center=0.5, radius=0.5),
-        "leaning": Triangular(center=1.0, radius=(1.0, 2.0)),
-        "rectangle": Rectangular(center=0.5, radius=0.25),
-        "lopsided": Rectangular(center=0.5, radius=(0.25, 1.0)),
-        "bell": Gaussian(center=0.5, sigma=0.25),
+        "triangle": (Triangular(radius=0.5), 0.5),
+        "leaning": (Triangular(radius=(1.0, 2.0)), 1.0),
+        "rectangle": (Rectangular(radius=0.25), 0.5),
+        "lopsided": (Rectangular(radius=(0.25, 1.0)), 0.5),
+        "bell": (Gaussian(sigma=0.25), 0.5),
     }
-    outputs = {key: layer([window]) for key, layer in layers.items()}
+    outputs = {key: layer([window - c]) for key, (layer, c) in layers.items()}
     model = Modely(
         "member_model",
         inputs=[x],
@@ -767,16 +768,16 @@ def test_fuzzify_sorts_its_centers_with_their_functions():
     ).build()
 
     # Sorted, center 0 keeps its Rectangular and center 1 its Gaussian, whose
-    # sigma is (1 + 1) / 6: at x = 0, three sigmas away. Normalized, they add
-    # up to one.
+    # sigma is (1 + 1) / 6: at x = 0, three sigmas away.
     result = to_numpy(model({"sorted_x": np.zeros((1, 1, 1))})["sorted_out"])
-    expected = np.array([1.0, np.exp(-4.5)])
-    np.testing.assert_allclose(result.ravel(), expected / expected.sum(), rtol=1e-5)
+    np.testing.assert_allclose(result.ravel(), [1.0, np.exp(-4.5)], rtol=1e-5)
 
 
 def test_fuzzify_with_a_single_center():
     x = Input("single_x", sw=1)
-    fuzzy = Fuzzify([0.0], function=Triangular, name="single_fuzzy")([x])
+    fuzzy = Fuzzify([0.0], function=Triangular, normalize=True, name="single_fuzzy")(
+        [x]
+    )
     raw = Fuzzify([0.0], function=Triangular, normalize=False, name="single_raw")([x])
     model = Modely(
         "single_model",
@@ -949,6 +950,311 @@ def test_fuzzify_shares_a_keras_layer_instance_between_its_centers():
     np.testing.assert_allclose(
         to_numpy(result["keras_instance_out"]).ravel(), [6.0, 3.0, 0.0], rtol=1e-6
     )
+
+
+def test_fuzzify_is_one_layer():
+    # The bounds, every membership and their normalization are one layer,
+    # reading the signal and the centers that move.
+    x = Input("one_layer_x", sw=3)
+    centers = Parameter("one_layer_centers", value=[0.0, 1.0, 2.0])
+    middle = Parameter("one_layer_middle", value=[1.0])
+    moving = Fuzzify(centers, function=Triangular, bounds=True)([x])
+    listed = Fuzzify([0.0, middle, 2.0], function=Gaussian, bounds=(0.0, 2.0))([x])
+    model = Modely(
+        "one_layer",
+        inputs=[x],
+        outputs=[
+            Output("one_layer_moving", moving),
+            Output("one_layer_listed", listed),
+        ],
+    ).build()
+
+    assert isinstance(moving, Layer) and moving.preds == [x, centers]
+    assert listed.preds == [x, middle]
+    assert sorted(type(node).__name__ for node in model.order) == [
+        "Fuzzify",
+        "Fuzzify",
+        "Input",
+        "Output",
+        "Output",
+        "Parameter",
+        "Parameter",
+    ]
+
+
+def test_placed_memberships_follow_their_centers():
+    # Sized by the centers as they are, the sets move with them, their
+    # widths too: the centers of a triangle are those of its neighbors.
+    x = Input("follow_x", sw=1)
+    centers = Parameter("follow_centers", value=[0.0, 1.0, 2.0])
+    model = Modely(
+        "follow",
+        inputs=[x],
+        outputs=[
+            Output(
+                "follow_triangles",
+                Fuzzify(centers, function=Triangular, normalize=False)([x]),
+            ),
+            Output(
+                "follow_boxes",
+                Fuzzify(centers, function=Rectangular, normalize=False)([x]),
+            ),
+        ],
+    ).build()
+    values = {"follow_x": np.array([[[1.0]], [[2.5]]], dtype=np.float32)}
+
+    result = model(values)
+    np.testing.assert_allclose(
+        to_numpy(result["follow_triangles"])[:, 0], [[0, 1, 0], [0, 0, 0.5]]
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["follow_boxes"])[:, 0], [[0, 1, 0], [0, 0, 0]]
+    )
+    # The middle center moves to 2: the triangles of 0 and 2 reach each
+    # other, 2 away, and the rectangle of 3 starts halfway to 2.
+    centers.param.assign(np.array([0.0, 2.0, 3.0], dtype=np.float32))  # type: ignore
+    result = model(values)
+    np.testing.assert_allclose(
+        to_numpy(result["follow_triangles"])[:, 0], [[0.5, 0.5, 0], [0, 0.5, 0.5]]
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["follow_boxes"])[:, 0], [[0, 1, 0], [0, 0, 1]]
+    )
+
+
+def test_membership_widths_take_a_parameter():
+    x = Input("width_x", sw=1)
+    radius = Parameter("width_radius", value=[1.0, 2.0])  # (left, right)
+    sigma = Parameter("width_sigma", value=[0.5])
+    leaning = Triangular(radius=radius)([x - 1.0])
+    bell = Gaussian(sigma=sigma)([x])
+    # An instance in a Fuzzify: the same widths on every center.
+    fuzzy = Fuzzify([0.0, 2.0], function=Triangular(radius=radius), normalize=False)
+    shifted = fuzzy([x])
+    model = Modely(
+        "width",
+        inputs=[x],
+        outputs=[
+            Output("width_leaning", leaning),
+            Output("width_bell", bell),
+            Output("width_fuzzy", shifted),
+        ],
+    ).build()
+    # The Parameters are predecessors, of the Fuzzify too.
+    assert leaning.preds[1] is radius and bell.preds[1] is sigma
+    assert shifted.preds == [x, radius]
+
+    values = {"width_x": np.array([[[0.5]], [[2.0]]], dtype=np.float32)}
+    result = model(values)
+    expected = {
+        # Up from 0 to 1 at 1, down to 0 at 3.
+        "width_leaning": [0.5, 0.5],
+        "width_bell": np.exp(-0.5 * (np.array([0.5, 2.0]) / 0.5) ** 2),
+        "width_fuzzy": [[0.75, 0.0], [0.0, 1.0]],
+    }
+    for name, value in expected.items():
+        np.testing.assert_allclose(
+            to_numpy(result[name]).reshape(np.shape(value)), value, rtol=1e-5
+        )
+    radius.param.assign(np.array([0.5, 0.5], dtype=np.float32))  # type: ignore
+    np.testing.assert_allclose(
+        to_numpy(model(values)["width_leaning"]).ravel(), [0.0, 0.0]
+    )
+
+    with pytest.raises(ValueError, match="Parameter of dim"):
+        Triangular(radius=Parameter("width_bad", value=[1.0, 2.0, 3.0]))
+    with pytest.raises(ValueError, match="Parameter of dim"):
+        Gaussian(sigma=radius)  # a pair is no sigma
+    with pytest.raises(ValueError, match="Parameter of dim"):
+        Rectangular(radius=x)  # nor an input a width
+
+
+@pytest.mark.slow
+def test_membership_widths_train():
+    # Triangles of radius 0.5 and a bell of sigma 0.5 fitted to a radius and
+    # a sigma of 1.
+    x = Input("train_width_x", sw=1)
+    radius = Parameter("train_radius", value=[0.5])
+    sigma = Parameter("train_sigma", value=[0.5])
+    triangles = Output(
+        "train_triangles",
+        Fuzzify([0.0, 1.0, 2.0], function=Triangular(radius=radius), normalize=False)(
+            [x]
+        ),
+    )
+    bell = Output("train_bell", Gaussian(sigma=sigma)([x - 1.0]))
+    model = Modely("train_width", inputs=[x], outputs=[triangles, bell])
+    target = Fuzzify([0.0, 1.0, 2.0], function=Triangular(radius=1.0), normalize=False)
+    model.minimize("train_triangles_fit", triangles, target([x]))
+    model.minimize("train_bell_fit", bell, Gaussian(sigma=1.0)([x - 1.0]))
+    model.build()
+    samples = np.linspace(-1.0, 3.0, 81, dtype=np.float32).reshape(-1, 1)
+    data = DataLoader(model, source={"train_width_x": samples})
+
+    model.train(
+        data, epochs=200, batch_size=81, optimizer="adam", lr=0.02, printer=None
+    )
+    np.testing.assert_allclose(np.ravel(radius.value_numpy), [1.0], atol=0.01)  # type: ignore
+    np.testing.assert_allclose(np.ravel(sigma.value_numpy), [1.0], atol=0.01)  # type: ignore
+
+
+@pytest.mark.slow
+@pytest.mark.filterwarnings("ignore:Gradients do not exist")
+def test_a_parameter_read_by_rectangles_trains_where_it_is_read_elsewhere():
+    # A step has no gradient: centers and a radius read by rectangles alone
+    # stay where they are. Read by triangles too, they train there, toward
+    # the same targets, and the rectangles follow them.
+    def fit(name, shared):
+        x = Input(f"{name}_x", sw=1)
+        centers = Parameter(f"{name}_centers", value=[0.0, 1.0, 2.0])
+        radius = Parameter(f"{name}_radius", value=[0.5])
+        boxes = Output(f"{name}_boxes", Fuzzify(centers, function=Rectangular)([x]))
+        narrow = Output(f"{name}_narrow", Rectangular(radius=radius)([x - 1.0]))
+        model = Modely(name, inputs=[x], outputs=[boxes, narrow])
+        targets = Fuzzify([0.0, 1.4, 2.0], function=Rectangular)([x])
+        model.minimize(f"{name}_boxes_fit", boxes, targets)
+        model.minimize(f"{name}_narrow_fit", narrow, Rectangular(1.0)([x - 1.0]))
+        # Something else to train, so that every backend trains.
+        gain = Parameter(f"{name}_gain", value=[0.5])
+        model.minimize(f"{name}_gain_fit", Output(f"{name}_gain", gain * x), 2.0 * x)
+        if shared:
+            triangles = Fuzzify(centers, function=Triangular)([x])
+            targets = Fuzzify([0.0, 1.4, 2.0], function=Triangular)([x])
+            model.minimize(f"{name}_triangles_fit", triangles, targets)
+            wide = Triangular(radius=radius)([x - 1.0])
+            model.minimize(f"{name}_wide_fit", wide, Triangular(1.0)([x - 1.0]))
+        model.build()
+        samples = np.linspace(-0.5, 2.5, 31, dtype=np.float32).reshape(-1, 1)
+        data = DataLoader(model, source={f"{name}_x": samples})
+        model.train(
+            data, epochs=100, batch_size=31, optimizer="adam", lr=0.05, printer=None
+        )
+        return np.ravel(centers.value_numpy), np.ravel(radius.value_numpy)  # type: ignore
+
+    centers, radius = fit("rect_alone", shared=False)
+    np.testing.assert_array_equal(centers, [0.0, 1.0, 2.0])
+    np.testing.assert_array_equal(radius, [0.5])
+    centers, radius = fit("rect_shared", shared=True)
+    np.testing.assert_allclose(centers, [0.0, 1.4, 2.0], atol=0.01)
+    np.testing.assert_allclose(radius, [1.0], atol=0.01)
+
+
+def test_membership_widths_of_zero_or_below_give_no_nan():
+    # A width at zero or below is held at 1e-7: its set collapses, and
+    # neither the memberships nor the gradients become NaN. So do centers
+    # that meet.
+    x = Input("nan_x", sw=1)
+    radius = Parameter("nan_radius", value=[0.5])
+    sigma = Parameter("nan_sigma", value=[0.5])
+    centers = Parameter("nan_centers", value=[0.0, 0.0, 1.0])
+    outputs = [
+        Output("nan_triangle", Triangular(radius=radius)([x])),
+        Output("nan_box", Rectangular(radius=radius)([x])),
+        Output("nan_bell", Gaussian(sigma=sigma)([x])),
+        Output("nan_fuzzy", Fuzzify(centers, function=Triangular)([x])),
+    ]
+    model = Modely("nan_model", inputs=[x], outputs=outputs)
+    for output in outputs:
+        model.minimize(f"{output.name}_fit", output, 0.5)
+    model.build()
+    samples = np.array([-1.0, 0.0, 0.5], dtype=np.float32).reshape(-1, 1)
+    data = DataLoader(model, source={"nan_x": samples})
+
+    for width in (0.0, -1.0):
+        radius.param.assign(np.array([width], dtype=np.float32))  # type: ignore
+        sigma.param.assign(np.array([width], dtype=np.float32))  # type: ignore
+        result = model({"nan_x": samples.reshape(-1, 1, 1)})
+        assert all(np.isfinite(to_numpy(value)).all() for value in result.values())
+        model.train(data, epochs=1, batch_size=3, optimizer="sgd", printer=None)
+        for parameter in (radius, sigma, centers):
+            assert np.isfinite(parameter.value_numpy).all()  # type: ignore
+
+
+def test_fuzzify_takes_the_shape_its_functions_give():
+    # The memberships side by side as the functions give them: two features
+    # each, or the one sample a Fir makes of a window.
+    x = Input("given_shape_x", sw=3)
+    features = Fuzzify([0.0, 1.0], function=Linear(features=2), normalize=False)
+    filtered = Fuzzify([0.0, 1.0], function=Fir, normalize=False)
+    pairs, samples = features([x]), filtered([x])
+    assert pairs.shape.dimensions == ((), 3, (4,))
+    assert samples.shape.dimensions == ((), 1, (2,))
+    model = Modely(
+        "given_shape",
+        inputs=[x],
+        outputs=[Output("given_pairs", pairs), Output("given_samples", samples)],
+    ).build()
+    result = model({"given_shape_x": np.ones((2, 3, 1), dtype=np.float32)})
+    assert tuple(result["given_pairs"].shape) == (2, 3, 4)
+    assert tuple(result["given_samples"].shape) == (2, 1, 2)
+    # A window beside one sample cannot be put side by side.
+    with pytest.raises(ValueError, match="cannot be put side by side"):
+        Fuzzify([0.0, 1.0], function=[Triangular, Fir])([x])
+
+
+def _drawn(ax, count):
+    """The signal, the ``count`` memberships drawn on ``ax`` and the centers
+    marked after them."""
+    lines = ax.get_lines()
+    values = np.stack([np.asarray(line.get_ydata()) for line in lines[:count]], axis=1)
+    marks = [np.asarray(line.get_xdata())[0] for line in lines[count:]]
+    return np.asarray(lines[0].get_xdata()), values, marks
+
+
+def test_fuzzify_plot_draws_the_memberships_as_they_are_now():
+    # plot() draws what the layer computes, its Parameters at their current
+    # values: centers moved after the model is built are drawn moved, by the
+    # Fuzzify and by the stream it gave alike.
+    import matplotlib.pyplot as plt
+
+    def triangles(grid, centers, radius):
+        return np.maximum(1 - np.abs(grid[:, None] - np.array(centers)) / radius, 0)
+
+    x = Input("plot_x", sw=1)
+    centers = Parameter("plot_centers", value=[0.0, 1.0, 2.0])
+    fuzzy = Fuzzify(centers, function=Triangular, normalize=False)
+    memberships = fuzzy([x])
+    Modely("plot", inputs=[x], outputs=[Output("plot_mu", memberships)]).build()
+
+    grid, values, marks = _drawn(fuzzy.plot(x_range=(-1.0, 3.0), points=9), 3)
+    np.testing.assert_allclose(grid, np.linspace(-1.0, 3.0, 9))
+    np.testing.assert_allclose(values, triangles(grid, [0, 1, 2], 1.0), atol=1e-6)
+    np.testing.assert_allclose(marks, [0.0, 1.0, 2.0])
+
+    # By default the outer gap beyond each end is drawn too.
+    centers.param.assign(np.array([0.0, 2.0, 4.0], dtype=np.float32))  # type: ignore
+    for layer in (fuzzy, memberships):
+        grid, values, marks = _drawn(layer.plot(points=9), 3)
+        np.testing.assert_allclose(grid, np.linspace(-2.0, 6.0, 9))
+        np.testing.assert_allclose(values, triangles(grid, [0, 2, 4], 2.0), atol=1e-6)
+        np.testing.assert_allclose(marks, [0.0, 2.0, 4.0])
+    # The stream knows its signal, and names it.
+    assert memberships.plot().get_xlabel() == "plot_x"
+    plt.close("all")
+
+
+def test_fuzzify_plot_draws_a_fuzzify_not_applied_yet():
+    # Applied to no signal, a Fuzzify draws its functions with the values its
+    # Parameters were given; centers computed from the inputs have none.
+    import matplotlib.pyplot as plt
+
+    cosines = Fuzzify([0.0, 1.0, 2.0], function=Cos, normalize=False)
+    grid, values, _ = _drawn(cosines.plot(points=5), 3)
+    np.testing.assert_allclose(grid, np.linspace(-1.0, 3.0, 5))
+    expected = np.cos(grid[:, None] - np.array([0.0, 1.0, 2.0]))
+    np.testing.assert_allclose(values, expected, atol=1e-6)
+
+    radius = Parameter("plot_radius", value=[0.5])
+    narrow = Fuzzify([0.0, 1.0], function=Triangular(radius=radius), normalize=False)
+    _, ax = plt.subplots()
+    assert narrow.plot(x_range=(0.0, 1.0), points=5, ax=ax) is ax
+    _, values, _ = _drawn(ax, 2)
+    np.testing.assert_allclose(values[:, 0], [1.0, 0.5, 0.0, 0.0, 0.0], atol=1e-6)
+
+    computed = Fuzzify(Linear(features=3)([Input("plot_u", sw=1)]), function=Triangular)
+    with pytest.raises(ValueError, match="is computed, with no value of its own"):
+        computed.plot()
+    plt.close("all")
 
 
 def test_local_model_with_user_functions():

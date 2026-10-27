@@ -48,35 +48,48 @@ variable, and trains, validates and exports through Keras. Models saved with
 - `KerasFunction(function)`: any Keras layer, class or instance, as an
   nnodely layer - a custom function in the graph, its streams passed to
   `call` as separate arguments. The model saves, loads and exports with it.
-- Membership functions as layers of their own: `Triangular(center, radius)`,
-  `Rectangular(center, radius)`, 1 on `[center - left, center + right)` (a
-  `radius` can be a `(left, right)` pair),
-  and `Gaussian(center, sigma)`.
+- Membership functions as elementwise layers of their own, 1 at 0:
+  `Triangular(radius)`, `Rectangular(radius)`, 1 on `[-left, right)`, and
+  `Gaussian(sigma)`; the signal is shifted to center them,
+  `Triangular(radius=0.5)([x - c])`. A `radius` is a number, a
+  `(left, right)` pair or a `Parameter` of dim `(1,)` or `(2,)`, and `sigma`
+  a number or a `Parameter` of dim `(1,)`: a Parameter is trained with the
+  model. A width trained to zero or below is held at 1e-7, so the set
+  collapses rather than giving NaN. A step has no gradient: a Parameter read
+  by rectangles alone does not train, one read elsewhere too trains there.
 - `Fuzzify(centers, function=...)` takes any nnodely layer: a membership class
   placed on each center as before, any other layer class or instance applied
   to `x - center` (`function=Sin` gives `sin(x - c)`), or a list of one
   function per center. The membership names (`"Triangular"`, ...) still work.
   A custom function is a Keras layer, class or instance, evaluated on every
   center and saved and exported with the model; its `call` reads one
-  argument, `x - c`, and one needing more is refused. The layer of each
-  center is named after its class, such as `Fuzzify1_Triangular_0`.
+  argument, `x - c`, and one needing more is refused. `function` has no
+  default.
+- `Fuzzify` is one layer: its Keras layer computes every membership at once,
+  those placed on the centers in one operation for all of them, the bounds
+  and the normalization included. The layers it applies to `x - center` are
+  computed inside it, and the Parameters they read are predecessors of the
+  Fuzzify.
 - Trainable `Fuzzify` centers: besides numbers, `centers` is one stream of
   shape `(n,)` - a `Parameter` vector, trained with the model, or a stream
   computed from the inputs, such as a `Fir` with `features=n`, which gives
   every sample its own centers - or a list of scalar streams and numbers.
   The memberships are placed on them and sized by their neighbors as they are
-  computed, so the gradient reaches them; they are used in the order given,
-  ascending. A matrix, a time window or a list item that is not a scalar is
+  computed, so the sets move with them, widths included, and the gradient
+  reaches them through both; they are used in the order given, ascending. A matrix, a time window or a list item that is not a scalar is
   refused.
 - `Fuzzify(..., normalize=True)`: the memberships of each sample are divided
-  by their sum, so that they add up to one (all zeros stay zeros);
-  `normalize=False` keeps the values of the functions, as for `Sin` or a
-  custom function.
+  by their sum, so that they add up to one (all zeros stay zeros), for
+  memberships that are not negative; `normalize=False`, the default, keeps
+  the values of the functions.
 - `Fuzzify(..., bounds=...)` holds the signal within bounds before the
   functions read it: `True` between the lowest and the highest center
   (moving centers as they are computed), so a value beyond the centers is in
   the outer set instead of in none; `(left, right)` between two numbers;
   `False`, the default, not at all.
+- `Fuzzify.plot()` draws the memberships with matplotlib as the layer
+  computes them now, its Parameters at their current values: after
+  training, the trained centers and widths.
 - Freezing: `Parameter.freeze()` / `unfreeze()` (or `trainable`, also a
   constructor argument) keep one Parameter fixed through training or release
   it, and `Modely.freeze()` / `unfreeze()` do it for every Parameter a model
@@ -204,10 +217,10 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
   history, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
-- The `.nnodely` save format is version 6. Saves and `.keras` exports made
+- The `.nnodely` save format is version 7. Saves and `.keras` exports made
   with the 2.0 pre-releases, in which windows were taken from an Input,
   streams had several time axes or were laid out `(batch, *dim, time,
-  *seq)`, do not load.
+  *seq)`, or a `Fuzzify` was a graph of one layer per center, do not load.
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
 
@@ -240,7 +253,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `SampleSelect` | `TimeSelect` (`Select` is the same in both) |
 | `Integrate(stream, method=...)` | `IntegrateStep(dt=...)(init, rate)`; 2.0's `Integrate` integrates along a horizon |
 | `LocalModel(input_function, output_function, pass_indexes=...)` | `LocalModel(input_function, output_function, vectorized=False)(inputs, activations)`: a function is a factory of the cell index, a layer instance is shared by every cell |
-| `Fuzzify(output_dimension, range=..., functions=...)` | `Fuzzify(centers, function=...)`: the centers listed explicitly; the memberships are normalized to add up to one unless `normalize=False` |
+| `Fuzzify(output_dimension, range=..., functions=...)` | `Fuzzify(centers, function=...)`: the centers listed explicitly; `normalize=True` makes the memberships add up to one |
 | `Optimizer`, `SGD`, `Adam` | `train(optimizer="sgd" / "adam" / a Keras optimizer)` |
 | `Parameter(name, dimensions, sw=..., values=..., init=...)`, `Constant(name, values, sw=...)` | `Parameter(name, value=..., time=...)` or `Parameter(name, dim=..., time=..., initializer=...)`, `Constant(name, value=..., time=...)` |
 | `ParamFun` | the function written with streams and `Parameter`s, or a custom `Layer` |

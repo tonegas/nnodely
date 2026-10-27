@@ -89,12 +89,12 @@ The tables group the available layers.
      - What it does
    * - :class:`~nnodely.Fuzzify`
      - Memberships of a scalar signal to sets placed on given centers, one
-       feature per center, normalized to add up to one: a membership function
-       on each, or any layer of ``x - center``.
+       feature per center: a membership function on each, or any layer of
+       ``x - center``; ``normalize=True`` makes them add up to one.
    * - Membership functions
      - :class:`~nnodely.Triangular`, :class:`~nnodely.Rectangular`,
-       :class:`~nnodely.Gaussian`: layers of their own, applied to every value
-       of a stream.
+       :class:`~nnodely.Gaussian`: layers of their own, 1 at 0, applied to
+       every value of a stream; their width can be a Parameter.
    * - :class:`~nnodely.Interpolation`
      - One-dimensional lookup table, linear or polynomial.
    * - Activations
@@ -170,12 +170,15 @@ Some examples:
 
 ``Fuzzify`` places a membership function on each center: a
 :class:`~nnodely.Triangular`, :class:`~nnodely.Rectangular` or
-:class:`~nnodely.Gaussian` (the default is ``Triangular``), sized by the
-centers next to it - the triangles reach the neighboring centers and add up to
-one between them. Its ``function`` can also be any other layer class, made
-anew for each center, or a layer instance, shared by all of them: they read
-``x - center``, so ``Fuzzify(centers, function=Sin)`` gives ``sin(x - c)``. A
-list gives one function per center, such as
+:class:`~nnodely.Gaussian`, given as a class or by name, sized by the centers
+next to it - the triangles reach the neighboring centers and add up to one
+between them, the rectangles reach halfway to them, and a Gaussian's sigma is
+a sixth of the span between them. Its ``function`` can also be any other
+layer class, made anew for each center, or a layer instance, shared by all of
+them: they read ``x - center``, so ``Fuzzify(centers, function=Sin)`` gives
+``sin(x - c)``, and ``function=Triangular(radius=0.2)`` puts a triangle of
+that radius on every center. A ``Fuzzify`` is one layer, which computes all
+its memberships at once. A list gives one function per center, such as
 ``[Rectangular, Triangular, Gaussian]``. A custom function is a Keras layer
 whose ``call`` reads one argument, ``x - center``, evaluated on every center
 like any layer and saved and exported with the model; a ``call`` that needs
@@ -200,31 +203,34 @@ vector of shape ``(n,)`` trains them; a stream computed from the inputs, such
 as a ``Fir`` with ``features=n``, gives every sample its own; a list mixes
 scalar streams with fixed numbers. They are used in the order given, which
 should be ascending, and the memberships are placed on them and sized by their
-neighbors as they are computed, so the gradient reaches them (a
-``Rectangular`` has none):
+neighbors as they are computed: the sets move with the centers, their widths
+included, and the gradient reaches the centers through both. A step has none,
+so centers read by rectangles alone do not train:
 
 .. code-block:: python
 
    centers = Parameter("centers", value=[0.0, 0.5, 1.0])
-   trained = Fuzzify(centers)([velocity])   # where the triangles sit, learned
-   middle = Fuzzify([0.0, Parameter("middle", value=[0.5]), 1.0])([velocity])
+   trained = Fuzzify(centers, function=Triangular)([velocity])   # learned
+   middle = Parameter("middle", value=[0.5])
+   listed = Fuzzify([0.0, middle, 1.0], function=Triangular)([velocity])
 
-The memberships of a sample are normalized: each is divided by their sum, so
-that they add up to one, and a sample in no set stays all zeros.
-``normalize=False`` keeps the values of the functions, as a ``Sin`` or a
-custom function needs. Beyond the outer centers a sample is in no triangle or
-rectangle, and only in the vanishing tail of a Gaussian. ``bounds=True`` holds
-the signal between the lowest and the highest center - centers that move as
-they are computed - so that it is in the outer set instead, and
-``bounds=(left, right)`` holds it between two numbers:
+The memberships are the values of the functions. ``normalize=True`` divides
+those of a sample by their sum, so that they add up to one, and a sample in no
+set stays all zeros; it is meant for memberships that are not negative, unlike
+a ``Sin`` or a custom function. Beyond the outer centers a sample is in no
+triangle or rectangle, and only in the vanishing tail of a Gaussian.
+``bounds=True`` holds the signal between the lowest and the highest center -
+centers that move as they are computed - so that it is in the outer set
+instead, and ``bounds=(left, right)`` holds it between two numbers:
 
 .. code-block:: python
 
-   from nnodely import Sin
+   from nnodely import Gaussian, Sin
 
-   regimes = Fuzzify([0.0, 0.5, 1.0], bounds=True)([velocity])
+   regimes = Fuzzify([0.0, 0.5, 1.0], function=Triangular, bounds=True)([velocity])
    # velocity 3.0 reads 1.0: [0, 0, 1]; velocity -2.0 reads 0.0: [1, 0, 0]
-   waves = Fuzzify([0.0, 0.5, 1.0], function=Sin, normalize=False)([velocity])
+   shares = Fuzzify([0.0, 0.5, 1.0], function=Gaussian, normalize=True)([velocity])
+   waves = Fuzzify([0.0, 0.5, 1.0], function=Sin)([velocity])   # sin(velocity - c)
 
 The same wrapping works anywhere in a model: :class:`~nnodely.KerasFunction`
 makes any Keras layer an nnodely layer, its streams passed to ``call`` as
@@ -247,8 +253,37 @@ separate arguments and its output shape read off the result:
 
 Weights of such a layer are Keras weights, trained with the model, but not
 :class:`~nnodely.Parameter` objects: freeze them with the layer's
-``trainable``. The membership functions are layers of
-their own too: ``Triangular(center=0.5, radius=0.5)([velocity])``.
+``trainable``.
+
+The membership functions are layers of their own too, 1 at 0: the signal is
+shifted to center them. A radius - a number, or a ``(left, right)`` pair - or
+a Gaussian's sigma can be a :class:`~nnodely.Parameter`, trained with the
+model, in a ``Fuzzify`` as well:
+
+.. code-block:: python
+
+   radius = Parameter("radius", value=[0.5])
+   bump = Triangular(radius=radius)([velocity - 0.5])   # 0 at 0 and at 1
+   shaped = Fuzzify([0.0, 0.5, 1.0], function=Triangular(radius=radius))([velocity])
+
+A width trained to zero or below is held at 1e-7: its set collapses, and no
+NaN appears. A rectangle has no gradient, being a step: a radius Parameter
+read by rectangles alone does not train, one read elsewhere too trains there
+and the rectangles follow it.
+
+``plot()`` draws a ``Fuzzify`` with matplotlib as it computes its memberships
+now - its Parameters at their current values, so after training the trained
+centers and widths - over the centers and the outer gap beyond each end, or
+over ``x_range``. It draws on ``ax`` if given and returns the axes. It works
+on a ``Fuzzify`` not applied yet, and on the stream it gives; centers computed
+from the inputs have no value to draw, and raise ``ValueError``:
+
+.. code-block:: python
+
+   from nnodely import Gaussian
+
+   Fuzzify([0.0, 0.5, 1.0], function=Gaussian).plot()
+   trained.plot(x_range=(-0.5, 1.5))
 
 ``LocalModel`` takes the inputs and a list of activations. Several activations
 are multiplied together, so memberships over 4 gears and 5 speeds give 20 local
