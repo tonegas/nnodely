@@ -51,15 +51,33 @@ def test_fuzzify(tmp_path):
             return keras.ops.power(x, 2) + y
 
     x = Input("x", dim=1, sw=1)
+    # Rectangles and triangles already add up to one, or to zero beyond the
+    # centers: normalized, they are what they were.
     fuzzy_rectangular = Fuzzify(centers=[0.0, 0.5, 1.0], function=Rectangular)
     fuzzy_triangular = Fuzzify(centers=[0.0, 0.5, 1.0], function=Triangular)
-    fuzzy_gaussian = Fuzzify(centers=[0.0, 0.5, 1.0], function=Gaussian)
-    fuzzy_sin = Fuzzify(centers=[0.0, 0.5, 1.0], function=Sin)
-    fuzzy_cos = Fuzzify(centers=[0.0, 0.5, 1.0], function=Cos)
-    fuzzy_multiple = Fuzzify(
-        centers=[0.0, 0.5, 1.0], function=[Rectangular, Triangular, Gaussian]
+    # The functions themselves, not normalized.
+    fuzzy_gaussian = Fuzzify(
+        centers=[0.0, 0.5, 1.0], function=Gaussian, normalize=False
     )
-    fuzzy_custom = Fuzzify(centers=[0.0, 0.5, 1.0], function=CustomFunction)
+    fuzzy_sin = Fuzzify(centers=[0.0, 0.5, 1.0], function=Sin, normalize=False)
+    fuzzy_cos = Fuzzify(centers=[0.0, 0.5, 1.0], function=Cos, normalize=False)
+    fuzzy_multiple = Fuzzify(
+        centers=[0.0, 0.5, 1.0],
+        function=[Rectangular, Triangular, Gaussian],
+        normalize=False,
+    )
+    fuzzy_custom = Fuzzify(
+        centers=[0.0, 0.5, 1.0], function=CustomFunction, normalize=False
+    )
+    # Bounded by the outer centers, x beyond them is in the outer set; or by
+    # 0.2 and 0.9, where two triangles meet.
+    bounded = {
+        function: Fuzzify(centers=[0.0, 0.5, 1.0], function=function, bounds=True)
+        for function in (Rectangular, Triangular, Gaussian)
+    }
+    fuzzy_inner = Fuzzify(
+        centers=[0.0, 0.5, 1.0], function=Triangular, bounds=(0.2, 0.9)
+    )
     # A custom function reads x - center alone, as a class or an instance.
     for function in (CustomFunctionMultiInputs, CustomFunctionMultiInputs()):
         with pytest.raises(TypeError, match="reads one argument"):
@@ -71,6 +89,11 @@ def test_fuzzify(tmp_path):
     x_out_cos = Output("x_pred_cos", fuzzy_cos([x]))
     x_out_multiple = Output("x_pred_multiple", fuzzy_multiple([x]))
     x_out_custom = Output("x_pred_custom", fuzzy_custom([x]))
+    x_out_bounded = [
+        Output(f"x_bounded_{function.__name__}", fuzzy([x]))
+        for function, fuzzy in bounded.items()
+    ]
+    x_out_inner = Output("x_pred_inner", fuzzy_inner([x]))
     model1 = Modely(
         "model1",
         inputs=[x],
@@ -82,6 +105,8 @@ def test_fuzzify(tmp_path):
             x_out_cos,
             x_out_multiple,
             x_out_custom,
+            *x_out_bounded,
+            x_out_inner,
         ],
     )
     model1.build()
@@ -195,6 +220,24 @@ def test_fuzzify(tmp_path):
         atol=1e-5,
     )
 
+    # Bounded, -7 reads 0 and 5 reads 1: no sample is in no set, and the
+    # Gaussians, normalized, add up to one.
+    bells = np.array(
+        [[gaussian(x - c) for c in (0.0, 0.5, 1.0)] for x in (0.0, 0.5, 0.8, 1.0)]
+    )
+    expected = {
+        "x_bounded_Rectangular": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+        "x_bounded_Triangular": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.4, 0.6], [0.0, 0.0, 1.0]],
+        "x_bounded_Gaussian": bells / bells.sum(axis=1, keepdims=True),
+        # -7 reads 0.2 and 5 reads 0.9.
+        "x_pred_inner": [[0.6, 0.4, 0.0], [0.0, 1.0, 0.0], [0.0, 0.4, 0.6], [0.0, 0.2, 0.8]],
+    }  # fmt: skip
+    for name, values in expected.items():
+        assert result1[name].shape == (4, 1, 3)
+        np.testing.assert_allclose(
+            to_numpy(result1[name])[:, 0], values, rtol=1e-5, atol=1e-6
+        )
+
     model1.plot(out_dir=tmp_path, filename="fuzzify")
     model1.export_html(out_dir=tmp_path, filename="fuzzify")
 
@@ -217,13 +260,27 @@ def test_fuzzify_multi_temporal():
     x_window = x  # temporal window of length 2
     fuzzy_rectangular = Fuzzify(centers=[0.0, 0.5, 1.0], function=Rectangular)
     fuzzy_triangular = Fuzzify(centers=[0.0, 0.5, 1.0], function=Triangular)
-    fuzzy_gaussian = Fuzzify(centers=[0.0, 0.5, 1.0], function=Gaussian)
-    fuzzy_sin = Fuzzify(centers=[0.0, 0.5, 1.0], function=Sin)
-    fuzzy_cos = Fuzzify(centers=[0.0, 0.5, 1.0], function=Cos)
-    fuzzy_multiple = Fuzzify(
-        centers=[0.0, 0.5, 1.0], function=[Rectangular, Triangular, Gaussian]
+    # The functions themselves, not normalized.
+    fuzzy_gaussian = Fuzzify(
+        centers=[0.0, 0.5, 1.0], function=Gaussian, normalize=False
     )
-    fuzzy_custom = Fuzzify(centers=[0.0, 0.5, 1.0], function=CustomFunction)
+    fuzzy_sin = Fuzzify(centers=[0.0, 0.5, 1.0], function=Sin, normalize=False)
+    fuzzy_cos = Fuzzify(centers=[0.0, 0.5, 1.0], function=Cos, normalize=False)
+    fuzzy_multiple = Fuzzify(
+        centers=[0.0, 0.5, 1.0],
+        function=[Rectangular, Triangular, Gaussian],
+        normalize=False,
+    )
+    fuzzy_custom = Fuzzify(
+        centers=[0.0, 0.5, 1.0], function=CustomFunction, normalize=False
+    )
+    # Bounded by the outer centers, and normalized at each step on its own.
+    fuzzy_bounded_triangular = Fuzzify(
+        centers=[0.0, 0.5, 1.0], function=Triangular, bounds=True
+    )
+    fuzzy_bounded_gaussian = Fuzzify(
+        centers=[0.0, 0.5, 1.0], function=Gaussian, bounds=True
+    )
     x_out_rectangular = Output("x_pred_rectangular", fuzzy_rectangular([x_window]))
     x_out_triangular = Output("x_pred_triangular", fuzzy_triangular([x_window]))
     x_out_gaussian = Output("x_pred_gaussian", fuzzy_gaussian([x_window]))
@@ -231,6 +288,12 @@ def test_fuzzify_multi_temporal():
     x_out_cos = Output("x_pred_cos", fuzzy_cos([x_window]))
     x_out_multiple = Output("x_pred_multiple", fuzzy_multiple([x_window]))
     x_out_custom = Output("x_pred_custom", fuzzy_custom([x_window]))
+    x_out_bounded_triangular = Output(
+        "x_bounded_triangular", fuzzy_bounded_triangular([x_window])
+    )
+    x_out_bounded_gaussian = Output(
+        "x_bounded_gaussian", fuzzy_bounded_gaussian([x_window])
+    )
     model1 = Modely(
         "model1",
         inputs=[x],
@@ -242,6 +305,8 @@ def test_fuzzify_multi_temporal():
             x_out_cos,
             x_out_multiple,
             x_out_custom,
+            x_out_bounded_triangular,
+            x_out_bounded_gaussian,
         ],
     )
     model1.build()
@@ -264,12 +329,19 @@ def test_fuzzify_multi_temporal():
         # Each triangle reaches the next centers, 0.5 away.
         return max(0.0, 1.0 - abs(distance) / 0.5)
 
-    def matrix(function):
+    def matrix(function, bounds=(-np.inf, np.inf)):
         """function(x_t - c, y_t) on every center (rows) at every step
-        (columns), for each sample: (batch, centers, time)."""
+        (columns), for each sample: (batch, centers, time); x_t held within
+        the bounds."""
         return np.array(
             [
-                [[function(x_t - c, y_t) for x_t, y_t in zip(xs, ys)] for c in centers]
+                [
+                    [
+                        function(np.clip(x_t, *bounds) - c, y_t)
+                        for x_t, y_t in zip(xs, ys)
+                    ]
+                    for c in centers
+                ]
                 for xs, ys in zip(samples_x, samples_y)
             ]
         )
@@ -281,7 +353,11 @@ def test_fuzzify_multi_temporal():
         "x_pred_sin": matrix(lambda d, _: np.sin(d)),
         "x_pred_cos": matrix(lambda d, _: np.cos(d)),
         "x_pred_custom": matrix(lambda d, _: d**2),
+        "x_bounded_triangular": matrix(lambda d, _: triangular(d), (0.0, 1.0)),
     }
+    # The Gaussians of each step, x = -7 and -6 read as 0, add up to one.
+    bells = matrix(lambda d, _: gaussian(d), (0.0, 1.0))
+    expected["x_bounded_gaussian"] = bells / bells.sum(axis=1, keepdims=True)
     # One function per center: Rectangular on 0, Triangular on 0.5, Gaussian on 1.
     expected["x_pred_multiple"] = np.stack(
         [
@@ -300,6 +376,10 @@ def test_fuzzify_multi_temporal():
         expected["x_pred_triangular"][1],
         [[0.0, 0.0], [1.0, 0.4], [0.0, 0.6]],
         atol=1e-12,
+    )
+    # The first, bounded: in the first set at both steps.
+    np.testing.assert_allclose(
+        expected["x_bounded_triangular"][0], [[1.0, 1.0], [0.0, 0.0], [0.0, 0.0]]
     )
 
     for name, values in expected.items():
@@ -340,7 +420,8 @@ def test_fuzzify_with_trainable_centers():
         kernel=Parameter("fir2_kernel", value=[[0.0], [0.0], [-1.0]]),
         bias=False,
     )(fir_input)
-    fuzzy_fir = Fuzzify(centers=fir, function=Triangular)
+    # Bounded by the lowest and the highest of each sample's centers.
+    fuzzy_fir = Fuzzify(centers=fir, function=Triangular, bounds=True)
     ## Fuzzy can take a Parameter that is monodimensional and compatible with the centers
     fuzzy_param = Fuzzify(
         centers=Parameter(name="param", value=[0.0, 0.5, 1.0, 1.5]),
@@ -352,17 +433,18 @@ def test_fuzzify_with_trainable_centers():
         Parameter(name="b", value=[0.5]),
         Parameter(name="c", value=[1.0]),
     )
-    fuzzy_multiple_param = Fuzzify(centers=[a, b, c], function=Sin)
+    fuzzy_multiple_param = Fuzzify(centers=[a, b, c], function=Sin, normalize=False)
     fuzzy_fir2 = Fuzzify(
-        centers=[fir2, a], function=Triangular
+        centers=[fir2, a], function=Triangular, normalize=False
     )  # this has two centers because fir2 exit with 1 and parameter has one
 
     fuzzy_trainable_function = Fuzzify(
-        centers=[0.0, 0.5, 1.0, 1.5], function=CustomFunction
+        centers=[0.0, 0.5, 1.0, 1.5], function=CustomFunction, normalize=False
     )
     fuzzy_trainable_function_and_centers = Fuzzify(
         centers=Parameter(name="param2", value=[0.0, 0.5, 1.0, 1.5]),
         function=CustomFunction,
+        normalize=False,
     )
     x_out_fir = Output("out_fir", fuzzy_fir(x))
     x_out_param = Output("out_param", fuzzy_param(x))
@@ -404,9 +486,9 @@ def test_fuzzify_with_trainable_centers():
     xs = np.array([-7.0, 0.5, 1.2]).reshape(3, 1, 1)
     centers = np.array([0.0, 0.5, 1.0, 1.5]).reshape(1, 1, 4)
     expected = {
-        # Triangles on each sample's centers: 1.2 is 0.8 of the way back
-        # from 2 to 1 on the last one.
-        "out_fir": [[[0.0, 0.0, 0.0, 0.0]],
+        # Triangles on each sample's centers: -7 reads 0, its lowest one,
+        # and 1.2 is 0.8 of the way back from 2 to 1 on the last one.
+        "out_fir": [[[1.0, 0.0, 0.0, 0.0]],
                     [[0.0, 1.0, 0.0, 0.0]],
                     [[0.0, 0.8, 0.2, 0.0]]],
         # Rectangles reaching halfway to the next center, 0.25 either side.
@@ -432,11 +514,14 @@ def test_fuzzify_with_trainable_centers():
 def test_fuzzify_on_moving_centers_matches_fixed_centers():
     # Untrained, centers in a Parameter give what the same numbers give - uneven
     # ones too, on a time window and a dynamic sequence - and so do a lone
-    # center and a list of numbers and scalar Parameters.
+    # center and a list of numbers and scalar Parameters, bounded or not.
     x = Input("same_x", seq=-1, sw=2)
     values = [0.0, 0.5, 2.0]
     pairs = {
-        "triangular": (Fuzzify(values), Fuzzify(Parameter("same_t", value=values))),
+        "triangular": (
+            Fuzzify(values, function=Triangular),
+            Fuzzify(Parameter("same_t", value=values), function=Triangular),
+        ),
         "rectangular": (
             Fuzzify(values, function=Rectangular),
             Fuzzify(Parameter("same_r", value=values), function=Rectangular),
@@ -456,10 +541,27 @@ def test_fuzzify_on_moving_centers_matches_fixed_centers():
             Fuzzify(values, function=Sin),
             Fuzzify(Parameter("same_s", value=values), function=Sin),
         ),
-        "lone": (Fuzzify([0.5]), Fuzzify(Parameter("same_lone", value=[0.5]))),
+        "lone": (
+            Fuzzify([0.5], function=Triangular),
+            Fuzzify(Parameter("same_lone", value=[0.5]), function=Triangular),
+        ),
         "listed": (
-            Fuzzify(values),
-            Fuzzify([0.0, Parameter("same_mid", value=[0.5]), 2.0]),
+            Fuzzify(values, function=Triangular),
+            Fuzzify(
+                [0.0, Parameter("same_mid", value=[0.5]), 2.0], function=Triangular
+            ),
+        ),
+        "bounded": (
+            Fuzzify(values, function=Gaussian, bounds=True),
+            Fuzzify(Parameter("same_b", value=values), function=Gaussian, bounds=True),
+        ),
+        "inner": (
+            Fuzzify(values, function=Triangular, bounds=(0.2, 1.5)),
+            Fuzzify(
+                Parameter("same_i", value=values),
+                function=Triangular,
+                bounds=(0.2, 1.5),
+            ),
         ),
     }
     outputs = []
@@ -489,17 +591,19 @@ def test_fuzzify_rejects_centers_it_cannot_use():
     x = Input("bad_centers_x", seq=3, sw=1)
     u = Input("bad_centers_u", sw=3)
     with pytest.raises(ValueError, match="vector of shape"):
-        Fuzzify(Parameter("bad_matrix", value=[[0.0, 1.0], [2.0, 3.0]]))
+        Fuzzify(
+            Parameter("bad_matrix", value=[[0.0, 1.0], [2.0, 3.0]]), function=Triangular
+        )
     with pytest.raises(ValueError, match="vector of shape"):
-        Fuzzify(u)  # a time window, not one sample
+        Fuzzify(u, function=Triangular)  # a time window, not one sample
     with pytest.raises(ValueError, match="center 1 has dim"):
-        Fuzzify([0.0, Parameter("bad_pair", value=[0.5, 1.0])])
+        Fuzzify([0.0, Parameter("bad_pair", value=[0.5, 1.0])], function=Triangular)
     with pytest.raises(ValueError, match="2 functions for 3 centers"):
         Fuzzify(Parameter("bad_count", value=[0.0, 0.5, 1.0]), function=[Sin, Cos])
     # Centers with a sequence axis follow the signal's.
     s = Input("bad_centers_s", seq=2, sw=1)
     with pytest.raises(ValueError, match="with a sequence"):
-        Fuzzify(Fir(features=2)(s))([x])
+        Fuzzify(Fir(features=2)(s), function=Triangular)([x])
 
 
 @pytest.mark.slow
@@ -509,9 +613,12 @@ def test_fuzzify_centers_follow_the_gradient():
     # step at lr 0.5 moves every center halfway to its target.
     x = Input("step_x", sw=1)
     centers = Parameter("step_centers", value=[0.0, 1.0])
-    shifted = Output("step_out", Fuzzify(centers, function=Identity)([x]))
+    shifted = Output(
+        "step_out", Fuzzify(centers, function=Identity, normalize=False)([x])
+    )
     model = Modely("step_model", inputs=[x], outputs=[shifted])
-    model.minimize("step_fit", shifted, Fuzzify([1.0, 3.0], function=Identity)([x]))
+    target = Fuzzify([1.0, 3.0], function=Identity, normalize=False)([x])
+    model.minimize("step_fit", shifted, target)
     model.build()
     data = DataLoader(model, source={"step_x": np.array([[0.3], [-1.2]], np.float32)})
 
@@ -529,9 +636,12 @@ def test_fuzzify_centers_follow_the_gradient():
     y, u = Input("fir_step_x", sw=1), Input("fir_step_u", sw=1)
     kernel = Parameter("fir_step_kernel", value=[[0.0, 1.0]])
     computed = Fir(features=2, kernel=kernel, bias=False)(u)
-    out = Output("fir_step_out", Fuzzify(computed, function=Identity)([y]))
+    out = Output(
+        "fir_step_out", Fuzzify(computed, function=Identity, normalize=False)([y])
+    )
     model = Modely("fir_step", inputs=[y, u], outputs=[out])
-    model.minimize("fir_step_fit", out, Fuzzify([2.0, 6.0], function=Identity)([y]))
+    target = Fuzzify([2.0, 6.0], function=Identity, normalize=False)([y])
+    model.minimize("fir_step_fit", out, target)
     model.build()
     data = DataLoader(
         model,
@@ -550,9 +660,11 @@ def test_fuzzify_learns_where_its_triangles_sit():
     # middle center moves to 1.4, the outer ones stay where they are.
     x = Input("learn_x", sw=1)
     centers = Parameter("learn_centers", value=[0.0, 1.0, 2.0])
-    learned = Output("learn_out", Fuzzify(centers)([x]))
+    learned = Output("learn_out", Fuzzify(centers, function=Triangular)([x]))
     model = Modely("learn_model", inputs=[x], outputs=[learned])
-    model.minimize("learn_fit", learned, Fuzzify([0.0, 1.4, 2.0])([x]))
+    model.minimize(
+        "learn_fit", learned, Fuzzify([0.0, 1.4, 2.0], function=Triangular)([x])
+    )
     model.build()
     samples = np.linspace(-0.5, 2.5, 61, dtype=np.float32).reshape(-1, 1)
     data = DataLoader(model, source={"learn_x": samples})
@@ -655,30 +767,41 @@ def test_fuzzify_sorts_its_centers_with_their_functions():
     ).build()
 
     # Sorted, center 0 keeps its Rectangular and center 1 its Gaussian, whose
-    # sigma is (1 + 1) / 6: at x = 0, three sigmas away.
+    # sigma is (1 + 1) / 6: at x = 0, three sigmas away. Normalized, they add
+    # up to one.
     result = to_numpy(model({"sorted_x": np.zeros((1, 1, 1))})["sorted_out"])
-    np.testing.assert_allclose(result.ravel(), [1.0, np.exp(-4.5)], rtol=1e-5)
+    expected = np.array([1.0, np.exp(-4.5)])
+    np.testing.assert_allclose(result.ravel(), expected / expected.sum(), rtol=1e-5)
 
 
 def test_fuzzify_with_a_single_center():
     x = Input("single_x", sw=1)
-    fuzzy = Fuzzify([0.0], name="single_fuzzy")([x])
+    fuzzy = Fuzzify([0.0], function=Triangular, name="single_fuzzy")([x])
+    raw = Fuzzify([0.0], function=Triangular, normalize=False, name="single_raw")([x])
     model = Modely(
-        "single_model", inputs=[x], outputs=[Output("single_out", fuzzy)]
+        "single_model",
+        inputs=[x],
+        outputs=[Output("single_out", fuzzy), Output("single_raw_out", raw)],
     ).build()
-    assert fuzzy.name == "single_fuzzy"
-    assert fuzzy.shape.dimensions == ((), 1, (1,))
+    assert (fuzzy.name, raw.name) == ("single_fuzzy", "single_raw")
+    assert fuzzy.shape.dimensions == raw.shape.dimensions == ((), 1, (1,))
 
-    # A lone triangle reaches 1 on either side.
+    # A lone triangle reaches 1 on either side; normalized, a sample is in
+    # its set or in none.
     values = np.array([-0.5, 0.0, 0.5, 1.5], dtype=np.float32).reshape(-1, 1, 1)
-    result = to_numpy(model({"single_x": values})["single_out"])
-    np.testing.assert_allclose(result.ravel(), [0.5, 1.0, 0.5, 0.0], atol=1e-6)
+    result = model({"single_x": values})
+    np.testing.assert_allclose(
+        to_numpy(result["single_raw_out"]).ravel(), [0.5, 1.0, 0.5, 0.0], atol=1e-6
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["single_out"]).ravel(), [1.0, 1.0, 1.0, 0.0], atol=1e-6
+    )
 
 
 def test_fuzzify_with_a_layer_instance_or_a_weighted_layer_class():
     x = Input("instance_x", sw=1)
     # An instance is shared by every center and reads x - center.
-    bell = Fuzzify([0.0, 1.0], function=Gaussian(sigma=0.5))([x])
+    bell = Fuzzify([0.0, 1.0], function=Gaussian(sigma=0.5), normalize=False)([x])
     # A class is made anew for each center: two Linear, with their own weights,
     # shared again by a second call of the same Fuzzify.
     linear = Fuzzify([0.0, 1.0], function=Linear, name="linear_fuzzy")
@@ -712,8 +835,8 @@ def test_fuzzify_with_a_layer_instance_or_a_weighted_layer_class():
 
 def test_fuzzify_follows_a_time_window_and_a_dynamic_sequence():
     x = Input("dynamic_fuzzy_x", seq=-1, sw=4)
-    placed = Fuzzify([0.0, 1.0])([x])
-    waves = Fuzzify([0.0, 1.0], function=Sin)([x])
+    placed = Fuzzify([0.0, 1.0], function=Triangular, bounds=True)([x])
+    waves = Fuzzify([0.0, 1.0], function=Sin, normalize=False)([x])
     assert placed.shape.dimensions == ((None,), 4, (2,))
     assert waves.shape.dimensions == ((None,), 4, (2,))
     model = Modely(
@@ -732,7 +855,10 @@ def test_fuzzify_follows_a_time_window_and_a_dynamic_sequence():
             rtol=1e-5,
             atol=1e-6,
         )
-        assert to_numpy(result["dynamic_placed"]).shape == (1, length, 4, 2)
+        # Bounded and normalized: every sample at every step adds up to one.
+        placed_values = to_numpy(result["dynamic_placed"])
+        assert placed_values.shape == (1, length, 4, 2)
+        np.testing.assert_allclose(placed_values.sum(axis=-1), 1.0, rtol=1e-6)
 
 
 def test_fuzzify_takes_a_membership_name_for_its_class():
@@ -759,7 +885,7 @@ def test_fuzzify_rejects_what_it_cannot_use():
     x = Input("bad_fuzzy_x", sw=1)
     v = Input("bad_fuzzy_v", dim=2, sw=1)
     with pytest.raises(ValueError, match="at least one center"):
-        Fuzzify([])
+        Fuzzify([], function=Triangular)
     with pytest.raises(ValueError, match="2 functions for 3 centers"):
         Fuzzify([0.0, 1.0, 2.0], function=[Triangular, Gaussian])
     with pytest.raises(ValueError, match="Unsupported fuzzify function"):
@@ -769,11 +895,14 @@ def test_fuzzify_rejects_what_it_cannot_use():
     with pytest.raises(TypeError, match="cannot be made without arguments"):
         Fuzzify([0.0, 1.0], function=Select)([x])
     with pytest.raises(ValueError, match="scalar signal"):
-        Fuzzify([0.0, 1.0])([v])
+        Fuzzify([0.0, 1.0], function=Triangular)([v])
     with pytest.raises(TypeError, match="reads one stream"):
-        Fuzzify([0.0, 1.0])([x, x])
+        Fuzzify([0.0, 1.0], function=Triangular)([x, x])
     with pytest.raises(TypeError, match="reads one stream"):
-        Fuzzify([0.0, 1.0])([])
+        Fuzzify([0.0, 1.0], function=Triangular)([])
+    for bounds in ((1.0, 0.0), (0.0,), (0.0, 1.0, 2.0), ("a", 1.0), (True, 1.0), 0.5):
+        with pytest.raises(ValueError, match="bounds is True, False or"):
+            Fuzzify([0.0, 1.0], function=Triangular, bounds=bounds)  # type: ignore[arg-type]
 
     class NeedsArguments(keras.layers.Layer):
         def __init__(self, power):
@@ -808,7 +937,7 @@ def test_fuzzify_shares_a_keras_layer_instance_between_its_centers():
 
     x = Input("keras_instance_x", sw=1)
     scaled = Scaled()
-    fuzzy = Fuzzify([0.0, 1.0, 2.0], function=scaled)([x])
+    fuzzy = Fuzzify([0.0, 1.0, 2.0], function=scaled, normalize=False)([x])
     model = Modely(
         "keras_instance", inputs=[x], outputs=[Output("keras_instance_out", fuzzy)]
     ).build()
@@ -1108,7 +1237,7 @@ def test_local_model_passes_cell_index():
 def test_local_model_repeated_call_shares_weights():
     x = Input("shared_local_x", sw=3)
     g = Input("shared_local_g", sw=1)
-    mu = Fuzzify(centers=[0.0, 1.0])(g)
+    mu = Fuzzify(centers=[0.0, 1.0], function=Triangular)(g)
     local = LocalModel(lambda index: Fir(features=1), name="shared_local")
     model = Modely(
         "shared_local_model",
@@ -1171,8 +1300,8 @@ def test_local_model_matrix_input_two_fuzzy_functions_by_hand():
     X = Input("X_hand", dim=(2, 2), sw=1)
     a = Input("a_hand", sw=1)
     b = Input("b_hand", sw=1)
-    mu_a = Fuzzify(centers=[0.0, 1.0, 2.0])(a)
-    mu_b = Fuzzify(centers=[0.0, 1.0])(b)
+    mu_a = Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)(a)
+    mu_b = Fuzzify(centers=[0.0, 1.0], function=Triangular)(b)
     # Cell c filters every entry of X with the gain c + 1, entry by entry.
     Y = LocalModel(
         lambda index: Fir(
@@ -1217,8 +1346,8 @@ def test_local_model_matrix_input_without_input_function_by_hand():
     X = Input("X_plain", dim=(2, 2), sw=3)
     a = Input("a_plain", sw=1)
     b = Input("b_plain", sw=1)
-    mu_a = Fuzzify(centers=[0.0, 1.0, 2.0])(a)
-    mu_b = Fuzzify(centers=[0.0, 1.0])(b)
+    mu_a = Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)(a)
+    mu_b = Fuzzify(centers=[0.0, 1.0], function=Triangular)(b)
     weighted = LocalModel()([X], [mu_a, mu_b])
     vectorized = LocalModel(
         output_function=lambda streams: Sin()(streams), vectorized=True
@@ -1255,8 +1384,12 @@ def test_local_model_memberships_along_the_window_by_hand():
     x = Input("x_window", sw=3)
     a = Input("a_window", sw=3)
     b = Input("b_window", sw=1)
-    mu_a = Fuzzify(centers=[0.0, 1.0, 2.0])(a)  # one membership per sample
-    mu_b = Fuzzify(centers=[0.0, 1.0])(b)  # the same for every sample
+    mu_a = Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)(
+        a
+    )  # one membership per sample
+    mu_b = Fuzzify(centers=[0.0, 1.0], function=Triangular)(
+        b
+    )  # the same for every sample
     y = LocalModel(
         lambda index: lambda streams: streams[0] * float(index[0] * 2 + index[1] + 1),
         name="window_local",
@@ -1317,7 +1450,7 @@ def test_local_model_rejects_mismatched_inputs():
         LocalModel(name="windowed_local")([x], [windowed_activation])
 
     sequence = Input("k_invalid_seq", dim=1, seq=-1, sw=1)
-    sequence_activation = Fuzzify(centers=[0.0, 1.0])([sequence])
+    sequence_activation = Fuzzify(centers=[0.0, 1.0], function=Triangular)([sequence])
     with pytest.raises(ValueError, match="activation 0 must have no sequence"):
         LocalModel(name="sequence_local")([x], [sequence_activation])
 
@@ -2265,8 +2398,8 @@ def test_my_localmodel():
     x = Input("x_local", dim=(2, 2), sw=4)
     g = Input("g_local", dim=1, sw=1)
     k = Input("k_local", dim=1, sw=1)
-    mu = Fuzzify(centers=[0.0, 1.0, 2.0])(g)
-    mu_k = Fuzzify(centers=[0.0, 1.0])(k)
+    mu = Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)(g)
+    mu_k = Fuzzify(centers=[0.0, 1.0], function=Triangular)(k)
     local = LocalModel(
         Linear(features=6), Fir(features=1), name="local_model", vectorized=True
     )
@@ -2322,7 +2455,7 @@ def test_fuzzify_rectangles_hold_every_value_once():
 
 def test_local_model_refuses_a_layer_class():
     x = Input("class_cells_x", sw=1)
-    mu = Fuzzify([0.0, 1.0])([x])
+    mu = Fuzzify([0.0, 1.0], function=Triangular)([x])
     with pytest.raises(TypeError, match="pass a layer instance"):
         LocalModel(Tanh)([x], [mu])
 
@@ -2352,6 +2485,6 @@ def test_equation_learner_called_twice_applies_one_projection():
 def test_local_model_with_an_elementwise_function_on_several_inputs():
     # The function is applied to each input, and a cell is one stream.
     x, y = Input("several_cells_x", sw=1), Input("several_cells_y", sw=1)
-    mu = Fuzzify([0.0, 1.0])([x])
+    mu = Fuzzify([0.0, 1.0], function=Triangular)([x])
     with pytest.raises(ValueError, match="a cell is one stream"):
         LocalModel(Tanh())([x, y], [mu])

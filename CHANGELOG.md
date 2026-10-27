@@ -68,6 +68,15 @@ variable, and trains, validates and exports through Keras. Models saved with
   computed, so the gradient reaches them; they are used in the order given,
   ascending. A matrix, a time window or a list item that is not a scalar is
   refused.
+- `Fuzzify(..., normalize=True)`: the memberships of each sample are divided
+  by their sum, so that they add up to one (all zeros stay zeros);
+  `normalize=False` keeps the values of the functions, as for `Sin` or a
+  custom function.
+- `Fuzzify(..., bounds=...)` holds the signal within bounds before the
+  functions read it: `True` between the lowest and the highest center
+  (moving centers as they are computed), so a value beyond the centers is in
+  the outer set instead of in none; `(left, right)` between two numbers;
+  `False`, the default, not at all.
 - Freezing: `Parameter.freeze()` / `unfreeze()` (or `trainable`, also a
   constructor argument) keep one Parameter fixed through training or release
   it, and `Modely.freeze()` / `unfreeze()` do it for every Parameter a model
@@ -231,7 +240,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `SampleSelect` | `TimeSelect` (`Select` is the same in both) |
 | `Integrate(stream, method=...)` | `IntegrateStep(dt=...)(init, rate)`; 2.0's `Integrate` integrates along a horizon |
 | `LocalModel(input_function, output_function, pass_indexes=...)` | `LocalModel(input_function, output_function, vectorized=False)(inputs, activations)`: a function is a factory of the cell index, a layer instance is shared by every cell |
-| `Fuzzify(output_dimension, range=..., functions=...)` | `Fuzzify(centers, function=...)`: the centers listed explicitly |
+| `Fuzzify(output_dimension, range=..., functions=...)` | `Fuzzify(centers, function=...)`: the centers listed explicitly; the memberships are normalized to add up to one unless `normalize=False` |
 | `Optimizer`, `SGD`, `Adam` | `train(optimizer="sgd" / "adam" / a Keras optimizer)` |
 | `Parameter(name, dimensions, sw=..., values=..., init=...)`, `Constant(name, values, sw=...)` | `Parameter(name, value=..., time=...)` or `Parameter(name, dim=..., time=..., initializer=...)`, `Constant(name, value=..., time=...)` |
 | `ParamFun` | the function written with streams and `Parameter`s, or a custom `Layer` |

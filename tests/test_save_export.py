@@ -1183,7 +1183,9 @@ def _complete_vehicle_model():
     gear = Input("vehicle_gear", dim=1, sw=1)
     wheels = Input("vehicle_wheels", dim=4, sw=1)
 
-    gear_membership = Fuzzify(centers=[0.0, 0.5, 1.0], name="vehicle_gear_fuzzy")(gear)
+    gear_membership = Fuzzify(
+        centers=[0.0, 0.5, 1.0], function=Triangular, name="vehicle_gear_fuzzy"
+    )(gear)
     engine = LocalModel(Fir(features=1), name="vehicle_engine")(
         [throttle], [gear_membership]
     )
@@ -1932,6 +1934,7 @@ def _generalized_fuzzify_model():
     mixed = Fuzzify(
         [0.0, 0.5, 1.0],
         function=[Rectangular, Triangular, Gaussian],
+        bounds=True,
         name="general_fuzzy_mixed",
     )([x])
     waves = Fuzzify([0.0, 1.0], function=Sin, name="general_fuzzy_sin")([x])
@@ -2021,7 +2024,7 @@ def test_fuzzify_sharing_a_keras_layer_saves_and_loads(tmp_path):
         outputs=[
             Output(
                 "scaled_fuzzy_out",
-                Fuzzify([0.0, 1.0, 2.0], function=scaled)([x]),
+                Fuzzify([0.0, 1.0, 2.0], function=scaled, normalize=False)([x]),
             )
         ],
     ).build()
@@ -2045,10 +2048,20 @@ def _moving_centers_model():
         "moving",
         inputs=[x, u],
         outputs=[
-            Output("moving_triangles", Fuzzify(centers)([x])),
+            Output("moving_triangles", Fuzzify(centers, function=Triangular)([x])),
             Output("moving_bells", Fuzzify(centers, function=Gaussian)([x])),
             Output("moving_waves", Fuzzify(computed, function=Sin)([x])),
-            Output("moving_listed", Fuzzify([0.0, middle, 1.0])([x])),
+            Output(
+                "moving_listed", Fuzzify([0.0, middle, 1.0], function=Triangular)([x])
+            ),
+            Output(
+                "moving_bounded",
+                Fuzzify(computed, function=Triangular, bounds=True)([x]),
+            ),
+            Output(
+                "moving_inner",
+                Fuzzify([0.0, middle, 1.0], function=Gaussian, bounds=(0.2, 0.9))([x]),
+            ),
         ],
     ).build()
     # As if trained: the centers moved from where they started.
@@ -2056,7 +2069,14 @@ def _moving_centers_model():
     return model
 
 
-_MOVING_OUTPUTS = ("moving_triangles", "moving_bells", "moving_waves", "moving_listed")
+_MOVING_OUTPUTS = (
+    "moving_triangles",
+    "moving_bells",
+    "moving_waves",
+    "moving_listed",
+    "moving_bounded",
+    "moving_inner",
+)
 _MOVING_DATA = {
     "moving_x": np.linspace(-0.5, 1.5, 5, dtype=np.float32).reshape(-1, 1, 1),
     "moving_u": np.linspace(-1.0, 1.0, 10, dtype=np.float32).reshape(5, 2, 1),

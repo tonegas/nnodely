@@ -89,8 +89,8 @@ The tables group the available layers.
      - What it does
    * - :class:`~nnodely.Fuzzify`
      - Memberships of a scalar signal to sets placed on given centers, one
-       feature per center: a membership function on each, or any layer of
-       ``x - center``.
+       feature per center, normalized to add up to one: a membership function
+       on each, or any layer of ``x - center``.
    * - Membership functions
      - :class:`~nnodely.Triangular`, :class:`~nnodely.Rectangular`,
        :class:`~nnodely.Gaussian`: layers of their own, applied to every value
@@ -208,6 +208,23 @@ neighbors as they are computed, so the gradient reaches them (a
    centers = Parameter("centers", value=[0.0, 0.5, 1.0])
    trained = Fuzzify(centers)([velocity])   # where the triangles sit, learned
    middle = Fuzzify([0.0, Parameter("middle", value=[0.5]), 1.0])([velocity])
+
+The memberships of a sample are normalized: each is divided by their sum, so
+that they add up to one, and a sample in no set stays all zeros.
+``normalize=False`` keeps the values of the functions, as a ``Sin`` or a
+custom function needs. Beyond the outer centers a sample is in no triangle or
+rectangle, and only in the vanishing tail of a Gaussian. ``bounds=True`` holds
+the signal between the lowest and the highest center - centers that move as
+they are computed - so that it is in the outer set instead, and
+``bounds=(left, right)`` holds it between two numbers:
+
+.. code-block:: python
+
+   from nnodely import Sin
+
+   regimes = Fuzzify([0.0, 0.5, 1.0], bounds=True)([velocity])
+   # velocity 3.0 reads 1.0: [0, 0, 1]; velocity -2.0 reads 0.0: [1, 0, 0]
+   waves = Fuzzify([0.0, 0.5, 1.0], function=Sin, normalize=False)([velocity])
 
 The same wrapping works anywhere in a model: :class:`~nnodely.KerasFunction`
 makes any Keras layer an nnodely layer, its streams passed to ``call`` as

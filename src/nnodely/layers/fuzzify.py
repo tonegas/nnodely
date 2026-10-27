@@ -10,6 +10,7 @@ from nnodely.core.dag import next_name
 from nnodely.core.layer import Layer
 from nnodely.core.shape import expand_to_rank, slice_axis
 from nnodely.core.stream import Stream
+from nnodely.layers.arithmetic import Clamp
 from nnodely.layers.function import KerasFunction, _is_keras_layer
 from nnodely.layers.parameter import Constant
 from nnodely.layers.partitions import Concatenate, Select
@@ -331,6 +332,65 @@ class MovingMembership(Layer):
         )
 
 
+@keras.saving.register_keras_serializable(package="nnodely")
+class CentersBoundsImpl(keras.layers.Layer):
+    """The signal held between the lowest and the highest of the centers,
+    which lie along the tensor axis ``axis``."""
+
+    def __init__(self, axis, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.axis = int(axis)
+
+    def call(self, inputs):
+        x, centers = inputs
+        rank = len(x.shape)
+        low = expand_to_rank(
+            keras.ops.min(centers, axis=self.axis, keepdims=True), rank
+        )
+        high = expand_to_rank(
+            keras.ops.max(centers, axis=self.axis, keepdims=True), rank
+        )
+        return keras.ops.minimum(keras.ops.maximum(x, low), high)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"axis": self.axis})
+        return config
+
+
+class CentersBounds(Layer):
+    """The signal of :class:`Fuzzify` held between the lowest and the highest
+    of a stream of centers, read with it as ``[x, centers]``."""
+
+    def output_shape(self, *inputs):
+        return inputs[0].shape
+
+    def build_layer(self):
+        # The centers lie along their one dim axis.
+        centers = self.preds[1].shape  # type: ignore[union-attr]
+        return CentersBoundsImpl(axis=centers.dim_axes[0], name=self.name)
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class NormalizeMembershipsImpl(keras.layers.Layer):
+    """Memberships divided by their sum, along the last axis; memberships
+    that are all zero stay zero."""
+
+    def call(self, x):
+        total = keras.ops.sum(x, axis=-1, keepdims=True)
+        return x / keras.ops.where(total == 0, 1.0, total)
+
+
+class NormalizeMemberships(Layer):
+    """The memberships of :class:`Fuzzify` made to sum to one."""
+
+    def output_shape(self, *inputs):
+        return inputs[0].shape
+
+    def build_layer(self):
+        return NormalizeMembershipsImpl(name=self.name)
+
+
 class Fuzzify:
     """
     Membership degrees of a scalar signal to fuzzy sets placed on
@@ -371,22 +431,32 @@ class Fuzzify:
         Fuzzify(Parameter("c", value=[0.0, 0.5, 1.0]))([x])  # trained
         Fuzzify([0.0, Parameter("m", value=[0.5]), 1.0])([x])
 
-    The result is a :class:`Concatenate` of the memberships, named after the
-    Fuzzify; calling one Fuzzify again reuses the layers it made.
+    ``bounds`` holds the signal within ``(left, right)`` before the functions
+    read it: below ``left`` it is read as ``left``, above ``right`` as
+    ``right``. ``True`` takes the lowest and the highest center (centers that
+    move as they are computed), so a signal beyond the centers belongs to the
+    outer set rather than to none; ``False``, the default, leaves it as it is.
+
+    ``normalize``, ``True`` by default, divides the memberships by their sum,
+    so that they add up to one; memberships that are all zero stay zero.
+    It is meant for memberships that are not negative.
+
+    The result is named after the Fuzzify: the memberships made to sum to
+    one, or with ``normalize=False`` their :class:`Concatenate`. Calling one
+    Fuzzify again reuses the layers it made.
     """
 
     def __init__(
         self,
         centers,
-        function: str
-        | type[Layer]
-        | Layer
-        | type[keras.layers.Layer]
-        | keras.layers.Layer
-        | list = Triangular,
+        function,
+        bounds: bool | tuple[float, float] = False,
+        normalize: bool = True,
         name=None,
     ):
         self.name = next_name("Fuzzify") if name is None else name
+        self.bounds = _bounds(bounds, self.name)
+        self.normalize = bool(normalize)
         centers = _centers(centers, self.name)
         count = centers.shape.dim[0] if isinstance(centers, Stream) else len(centers)
         functions = (
@@ -432,10 +502,10 @@ class Fuzzify:
                 layers.append((function, False))
                 continue
             # Named after its class; a lone layer is the result itself, so it
-            # takes the name of the Fuzzify.
+            # takes the name of the Fuzzify, unless it is normalized.
             name = (
                 self.name
-                if len(self.functions) == 1
+                if len(self.functions) == 1 and not self.normalize
                 else f"{self.name}_{function.__name__}_{index}"
             )
             if issubclass(function, _Membership):
@@ -480,13 +550,31 @@ class Fuzzify:
         if self._layers is None:
             self._layers = self._make_layers()
 
+        # The functions read the signal held within the bounds: the outer
+        # centers, as they are computed when they move, or numbers.
+        bounds = self.bounds
+        if bounds is True and not isinstance(self.centers, Stream):
+            bounds = (self.centers[0], self.centers[-1])
+        if isinstance(bounds, tuple):
+            x = Clamp(min=bounds[0], max=bounds[1], name=f"{self.name}_bounds")([x])
+            placed_inputs = [x, *placed_inputs[1:]]
+        elif bounds:
+            x = CentersBounds(name=f"{self.name}_bounds")([x, self.centers])
+            placed_inputs = [x, *placed_inputs[1:]]
+
         memberships = [
             layer(placed_inputs if placed else [x - center])
             for (layer, placed), center in zip(self._layers, self._each_center())
         ]
-        if len(memberships) == 1:
-            return memberships[0]
-        return Concatenate(axis=0, name=self.name)(memberships)
+        name = f"{self.name}_memberships" if self.normalize else self.name
+        result = (
+            memberships[0]
+            if len(memberships) == 1
+            else Concatenate(axis=0, name=name)(memberships)
+        )
+        if self.normalize:
+            result = NormalizeMemberships(name=self.name)([result])
+        return result
 
     def _each_center(self):
         """Every center as a function reads it: a number, or a scalar
@@ -499,6 +587,24 @@ class Fuzzify:
             )
             for index in range(len(self.functions))
         ]
+
+
+def _bounds(bounds, owner: str) -> bool | tuple[float, float]:
+    """``bounds`` checked: a bool, or ``(left, right)`` numbers in order."""
+    if isinstance(bounds, bool):
+        return bounds
+    if isinstance(bounds, (list, tuple)) and len(bounds) == 2:
+        left, right = bounds
+        numbers = all(
+            isinstance(value, (int, float)) and not isinstance(value, bool)
+            for value in (left, right)
+        )
+        if numbers and left <= right:
+            return float(left), float(right)
+    raise ValueError(
+        f"{owner}: bounds is True, False or (left, right), two numbers with "
+        f"left <= right; got {bounds!r}."
+    )
 
 
 def _centers(centers, owner: str) -> list[float] | Stream:
