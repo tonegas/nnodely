@@ -29,6 +29,7 @@ from nnodely.core.layer import Layer
 from nnodely.core.shape import expand_to_rank, slice_axis
 from nnodely.core.stream import Stream
 from nnodely.layers.input import Input
+from nnodely.layers.integrate import _signal_and_init
 
 #: Only first and second derivatives are supported, in both modes.
 _SUPPORTED_ORDERS = (1, 2)
@@ -565,10 +566,10 @@ class _FiniteDifference(Layer):
         self,
         order: int = 1,
         dt: float | None = None,
-        init: Stream | float | None = None,
         window: int | None = None,
         poly_order: int | None = None,
         name=None,
+        **properties,
     ):
         layer = type(self).__name__
         self.order = _check_order(layer, order)
@@ -585,7 +586,6 @@ class _FiniteDifference(Layer):
         # widening the window always buys smoothing; a higher degree buys
         # accuracy back at the cost of noise.
         self.poly_order = self.order if poly_order is None else int(poly_order)
-        self.init = init
         if self.window < self.order + 1:
             raise ValueError(
                 f"{layer}: a derivative of order {self.order} reads at least "
@@ -602,9 +602,9 @@ class _FiniteDifference(Layer):
             name=name,
             order=self.order,
             dt=self.dt,
-            init=self.init,
             window=self.window,
             poly_order=self.poly_order,
+            **properties,
         )
 
     # ------------------------------------------------------------------
@@ -617,23 +617,6 @@ class _FiniteDifference(Layer):
 
     def _coefficients(self) -> np.ndarray:
         return _stencil_coefficients(self.order, self.window, self.poly_order, self.dt)
-
-    def _init_stream(self):
-        """The initial condition as a node of the graph, if there is one."""
-        if self.init is None or isinstance(self.init, Stream):
-            return self.init
-        return Stream._coerce_operand(float(self.init))
-
-    def __call__(self, inputs):
-        if not isinstance(inputs, (list, tuple)):
-            inputs = [inputs]
-        # The initial condition is a predecessor like any other, but it is
-        # configured on the layer rather than passed at the call, so it is
-        # appended here and reconnected the same way when reloading.
-        if inputs and all(isinstance(value, Stream) for value in inputs):
-            init = self._init_stream()
-            inputs = [inputs[0]] if init is None else [inputs[0], init]
-        return super().__call__(inputs)
 
     # ------------------------------------------------------------------
     # Shape logic
@@ -701,17 +684,17 @@ class _FiniteDifference(Layer):
     @classmethod
     def from_config(cls, config: dict, preds=None):
         # The initial condition was serialized as this node's second
-        # predecessor, so it is rebuilt with the rest of the graph.
+        # predecessor, so it is rebuilt with the rest of the graph: the layer
+        # is called on it, then on the signal.
         layer = cls(
             order=config.get("order", 1),
             dt=config["dt"],
-            init=preds[1] if preds and len(preds) > 1 else None,
             window=config.get("window"),
             poly_order=config.get("poly_order"),
             name=config["name"],
         )
         if preds:
-            return layer(preds[0])
+            return layer(*preds[::-1])
         return layer
 
 
@@ -719,24 +702,26 @@ class DerivativeStep(_FiniteDifference):
     """
     Derivative of a Stream with respect to time, over its own window::
 
-        DerivativeStep(order=1|2, dt=0.1)(fun)     # d fun / d t
+        DerivativeStep(order=1|2, dt=0.1)(fun)           # d fun / d t
+        DerivativeStep(order=1|2, dt=0.1)(init, fun)
 
     A causal finite difference along ``fun``'s time axis, with the time step
     ``dt`` given explicitly as for :class:`IntegrateStep`. **The window's length is
     preserved**: a window of n samples gives n derivatives, the i-th one
     estimated from the samples up to i, so the result stays aligned with the
     signal and composes with ``IntegrateStep``, whose cumulative form is its
-    inverse: integrating ``DerivativeStep(dt=dt, init=x0)(x)`` with the same
+    inverse: integrating ``DerivativeStep(dt=dt)(x0, x)`` with the same
     ``init`` returns ``x`` (exactly for the default first-order, two-sample
     stencil). A one-sample window is one step, ``(x - init) / dt``. Along the
     sequence of a stream - a rollout - see :class:`Derivative`; for a
     derivative with respect to an Input, see :class:`Differentiate`.
 
-    * ``init`` - the initial condition, the sample(s) just before the window,
-      which the oldest derivative needs. A Stream (typically the state the
-      window continues, so a rollout stays continuous across chunks), a number
-      (kept as a Constant), or ``None`` for zero. A Stream of one sample is
-      reused for every sample of history a longer stencil needs.
+    * ``init``, given first when the layer is called - the initial condition,
+      the sample(s) just before the window, which the oldest derivative needs.
+      A Stream (typically the state the window continues, so a rollout stays
+      continuous across chunks), or a number (kept as a Constant); called on
+      the signal alone, the layer reads zero before it. A Stream of one sample
+      is reused for every sample of history a longer stencil needs.
 
     * ``window`` - how many samples each derivative reads, ``order + 1`` by
       default (the textbook backward difference). A longer window fits a
@@ -758,6 +743,11 @@ class DerivativeStep(_FiniteDifference):
       Smooth simulated signals want the higher degree, measured ones the
       default.
     """
+
+    def __call__(self, *inputs):
+        # The initial condition is a predecessor like any other, after the
+        # signal, so that it is reconnected the same way when reloading.
+        return super().__call__(_signal_and_init("DerivativeStep", inputs))
 
     def output_shape(self, *inputs):
         function = inputs[0]
@@ -817,6 +807,42 @@ class Derivative(_FiniteDifference):
     horizon. A number (kept as a Constant), or ``None`` for zero.
     """
 
+    def __init__(
+        self,
+        order: int = 1,
+        dt: float | None = None,
+        init: Stream | float | None = None,
+        window: int | None = None,
+        poly_order: int | None = None,
+        name=None,
+    ):
+        self.init = init
+        super().__init__(
+            order=order,
+            dt=dt,
+            window=window,
+            poly_order=poly_order,
+            name=name,
+            init=init,
+        )
+
+    def _init_stream(self):
+        """The initial condition as a node of the graph, if there is one."""
+        if self.init is None or isinstance(self.init, Stream):
+            return self.init
+        return Stream._coerce_operand(float(self.init))
+
+    def __call__(self, inputs):
+        if not isinstance(inputs, (list, tuple)):
+            inputs = [inputs]
+        # The initial condition is a predecessor like any other, but it is
+        # configured on the layer rather than passed at the call, so it is
+        # appended here and reconnected the same way when reloading.
+        if inputs and all(isinstance(value, Stream) for value in inputs):
+            init = self._init_stream()
+            inputs = [inputs[0]] if init is None else [inputs[0], init]
+        return super().__call__(inputs)
+
     def output_shape(self, *inputs):
         function = inputs[0]
         self._check_function(function)
@@ -854,3 +880,19 @@ class Derivative(_FiniteDifference):
             init_time=1 if init is None else init.shape.time or 0,  # type: ignore[union-attr]
             name=self.name,
         )
+
+    @classmethod
+    def from_config(cls, config: dict, preds=None):
+        # The initial condition was serialized as this node's second
+        # predecessor, so it is rebuilt with the rest of the graph.
+        layer = cls(
+            order=config.get("order", 1),
+            dt=config["dt"],
+            init=preds[1] if preds and len(preds) > 1 else None,
+            window=config.get("window"),
+            poly_order=config.get("poly_order"),
+            name=config["name"],
+        )
+        if preds:
+            return layer(preds[0])
+        return layer

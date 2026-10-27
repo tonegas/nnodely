@@ -67,9 +67,9 @@ Use this order:
 | Gain scheduling / operating regimes | `Fuzzify(centers)` → `LocalModel(lambda i: Fir(features=1))([x], [membership])`, `x` with `sw=n` |
 | Symbolic regression of an unknown law | `EquationLearner(["sin", "multiply", ...], linear_out=Linear(1))` |
 | `du/dx` exact (PINN residual, Sobolev) | `Differentiate(order=1, respect_to=x_input)(u)` |
-| `dx/dt` from a sampled window | `DerivativeStep(dt=dt, init=..., window=...)(x)`, `x` with `sw=n` |
+| `dx/dt` from a sampled window | `DerivativeStep(dt=dt, window=...)(init, x)`, `x` with `sw=n` |
 | `dx/dt` along a horizon (a trajectory, one sample per step) | `Derivative(dt=dt, init=x0)(x)` with `x = Input("x", seq=-1, sw=1)` or a `Loop` output: the inverse of `Integrate` |
-| `∫ rate dt` over a window / one Euler state update | `IntegrateStep(solver="euler", dt=dt, init=state)(rate)` |
+| `∫ rate dt` over a window / one Euler state update | `IntegrateStep(solver="euler", dt=dt)(state, rate)` |
 | `∫ rate dt` along a horizon (one rate sample per step) | `Integrate(solver="euler", dt=dt, init=x0)(rate)` with `rate = Input("rate", seq=-1, sw=1)`: the horizon is the rate's outermost sequence axis |
 | One explicit RK step of `dx/dt = f(x, u, θ)` | `Ode(f, [states], dt, method="rk4", args=(...))` |
 | Learned vector field integrated over reported times | `OdeNet(f=field_model, states={...}, t=times_stream)` |
@@ -395,21 +395,21 @@ Reproducibility: call `set_seed(int)` before creating layers and data. It seeds 
 
 ## 11. Physics layers
 
-### 11.1 `Differentiate(order=1, respect_to=<Input>, name=None)(stream)`, `DerivativeStep(order=1, dt=<float>, init=None, window=None, poly_order=None, name=None)(stream)` and `Derivative(...)` (the same arguments)
+### 11.1 `Differentiate(order=1, respect_to=<Input>, name=None)(stream)`, `DerivativeStep(order=1, dt=<float>, window=None, poly_order=None, name=None)(init, stream)` (or `(stream)`) and `Derivative(order=1, dt=<float>, init=None, window=None, poly_order=None, name=None)(stream)`
 Orders 1 and 2 are supported by all three. Passing a number to `Differentiate` raises `TypeError` pointing to `DerivativeStep` and `Derivative`; both require a positive `dt`.
 - **`Differentiate`, with respect to an Input** (autodiff, exact): the result is `d(Σ stream)/d(input window)` (a VJP), shaped like the window of the Input the stream reads. It includes the trainable weights, can be nested, and can be trained through. It takes no `init`, `window` or `poly_order`. The stream must depend on that Input. Typical use is a PINN residual: `minimize("physics", Differentiate(respect_to=t)(u) + u)`. For `u` with dim>1 the result is the gradient of the sum of the components; take `Select` first to get one component. ONNX export: TensorFlow only, with batch fixed to 1. Torch refuses, and JAX cannot export.
 - **`DerivativeStep`, with respect to time** (`dt: float`, as in `IntegrateStep`): a causal finite difference along the stream's window that **keeps the window length**; the sequence is kept. A one-sample window is one step, `(x - init)/dt`.
-  - `init` is the sample(s) just before the window: a stream of 1 sample (reused for each) or `window-1` samples, its dim a scalar or the stream's, its sequence none or the stream's [verified]; a number; or `None` (zero).
+  - `init`, **the first argument of the call**, `DerivativeStep(dt=dt)(init, x)`, is the sample(s) just before the window: a stream of 1 sample (reused for each) or `window-1` samples, its dim a scalar or the stream's, its sequence none or the stream's [verified]; or a number. Called on `x` alone, it is zero.
   - `window` defaults to `order+1`, the plain backward difference. Larger values fit a polynomial by least squares (Savitzky–Golay style): they smooth noise at the cost of about `(window-1)/2` samples of delay.
   - `poly_order` ranges over `order..window-1` and defaults to `order`.
-  - With the default `window` and `order=1` it is the exact inverse of `IntegrateStep(solver="euler")` with the same `init`; a longer, smoothing `window` is not inverted.
+  - With the default `window` and `order=1` it is the exact inverse of `IntegrateStep(solver="euler")` with the same `init`: `IntegrateStep(dt=dt)(x0, DerivativeStep(dt=dt)(x0, x))` is `x`; a longer, smoothing `window` is not inverted.
 - **`Derivative`, with respect to time along a horizon**: `DerivativeStep`'s stencil along the stream's **outermost sequence axis** (`x = Input("x", seq=N, sw=1)` or `seq=-1`, or a `Loop` / `Integrate` output), one sample per step (`T=1`); the result is shaped like the stream, step k the derivative at step k [verified]. The same samples give the same values as `DerivativeStep` on a window. A stream without a sequence, or with a window longer than 1, raises and points to `DerivativeStep` [verified]. No `Loop`: every step is computed at once from shifted slices, any dynamic length, exports to ONNX (dynamic on TensorFlow).
   - `init` is the value just before the first step: a stream of 1 sample (reused for each) or the `window-1` samples a longer stencil reads, oldest first, **along its window** (`Input("x_hist", sw=2)` for `order=2`); its dim a scalar or the stream's; its sequence none or the stream's without the horizon [verified]; a number; or `None` (zero). Further sequence axes (`seq=(H, M)`) are differentiated apart.
   - `Integrate(dt=dt, init=x0)(Derivative(dt=dt, init=x0)(x))` is `x`, and the other way round [verified]. `DerivativeStep` on a trajectory is not its derivative: each step is a one-sample window, so it gives `(x_k - init)/dt`.
 
-### 11.2 `IntegrateStep(solver="euler", dt=<required float>, init=None, name=None)(rate)`
-- `solver` is `"euler"` / `"rectangular"` (y[i] = y[i-1] + dt·r[i]) or `"trapezoidal"`. It integrates along the window and preserves its length. `init` is the value just before the window: a stream of one sample (dim a scalar or the rate's, sequence none or the rate's) [verified]; a number or another value without a window; or `None` = 0. A stream without a window read from data raises.
-- On a one-sample window it is exactly one state update: `IntegrateStep(dt=dt, init=v)(a)` = `v + dt*a`.
+### 11.2 `IntegrateStep(solver="euler", dt=<required float>, name=None)(init, rate)` (or `(rate)`)
+- `solver` is `"euler"` / `"rectangular"` (y[i] = y[i-1] + dt·r[i]) or `"trapezoidal"`. It integrates along the window and preserves its length. `init`, **the first argument of the call**, is the value just before the window: a stream of one sample (dim a scalar or the rate's, sequence none or the rate's) [verified]; or a number or another value without a window. Called on the rate alone it starts from 0. A stream without a window read from data raises.
+- On a one-sample window it is exactly one state update: `IntegrateStep(dt=dt)(v, a)` = `v + dt*a`.
 - On an n-sample window it returns the whole running integral in one pass, with no rollout needed: `x = IntegrateStep(dt=dt)(IntegrateStep(dt=dt)(a))` with `a = Input("a", sw=n)`.
 - The rate needs a window; a stream without one raises.
 - There is no rk4 or heun here; use `Ode` for those.
@@ -684,8 +684,8 @@ from nnodely import Input, IntegrateStep, Linear, Modely, Output
 dt, n = 0.01, 50
 F, v0, x0 = Input("F", sw=n), Input("v0", sw=1), Input("x0", sw=1)
 acc = Linear(features=1)([F])                         # S=(), T=n, D=(1,): per-sample force -> acceleration
-vel = IntegrateStep(dt=dt, init=v0)(acc)                # S=(), T=n, D=(1,)
-pos = IntegrateStep(dt=dt, init=x0)(vel)                # S=(), T=n, D=(1,)
+vel = IntegrateStep(dt=dt)(v0, acc)                    # S=(), T=n, D=(1,)
+pos = IntegrateStep(dt=dt)(x0, vel)                    # S=(), T=n, D=(1,)
 m = Modely("mech", inputs=[F, v0, x0], outputs=[Output("pos", pos)])
 m.minimize("pos_err", m.outputs[0], Input("x_meas", sw=n))
 m.build()

@@ -888,8 +888,8 @@ def _derivative_model():
     relation = Sin()(Linear(features=1, name="derivative_linear")(u))
     mixed = Linear(features=2, name="derivative_mix")(window)
     relations = {
-        "d_init_stream": DerivativeStep(order=1, dt=dt, init=x0)(window),
-        "d_init_number": DerivativeStep(order=2, dt=dt, init=0.5)(window),
+        "d_init_stream": DerivativeStep(order=1, dt=dt)(x0, window),
+        "d_init_number": DerivativeStep(order=2, dt=dt)(0.5, window),
         "d_smooth": DerivativeStep(order=1, dt=dt, window=3, poly_order=2)(window),
         "d_of_layer": DerivativeStep(order=1, dt=dt)(mixed),
         "d_wrt_input": Differentiate(order=1, respect_to=u)(relation),
@@ -910,19 +910,15 @@ def _integrate_model():
     x0 = Input("integrate_x0", dim=1, sw=1)
     acceleration = Input("integrate_acceleration", dim=1, sw=4)
     window = rate
-    velocity = IntegrateStep(dt=dt, init=0.2)(acceleration)
+    velocity = IntegrateStep(dt=dt)(0.2, acceleration)
     relations = {
         "i_euler": IntegrateStep(solver="euler", dt=dt)(window),
-        "i_trapezoidal": IntegrateStep(solver="trapezoidal", dt=dt / 2, init=state)(
-            window
-        ),
-        "i_rectangular": IntegrateStep(solver="rectangular", dt=dt, init=1.5)(window),
-        "i_position": IntegrateStep(solver="trapezoidal", dt=dt, init=-0.3)(velocity),
+        "i_trapezoidal": IntegrateStep(solver="trapezoidal", dt=dt / 2)(state, window),
+        "i_rectangular": IntegrateStep(solver="rectangular", dt=dt)(1.5, window),
+        "i_position": IntegrateStep(solver="trapezoidal", dt=dt)(-0.3, velocity),
         # Integrating the backward difference with the same initial condition
         # gives the signal back.
-        "i_inverse": IntegrateStep(dt=dt, init=x0)(
-            DerivativeStep(dt=dt, init=x0)(signal)
-        ),
+        "i_inverse": IntegrateStep(dt=dt)(x0, DerivativeStep(dt=dt)(x0, signal)),
     }
     return Modely(
         "integrate_suite",
@@ -961,12 +957,10 @@ def _rollback_mechanical_model():
         - stiffness * TimeSelect(-1)(position)
         - Linear(features=1, bias=False, name="rollback_damping")(estimated_velocity)
     )
-    velocity_next = IntegrateStep(dt=dt, init=velocity, name="rollback_v_next")(
-        acceleration
+    velocity_next = IntegrateStep(dt=dt, name="rollback_v_next")(velocity, acceleration)
+    position_next = IntegrateStep(dt=dt, name="rollback_p_next")(
+        TimeSelect(-1)(position), velocity_next
     )
-    position_next = IntegrateStep(
-        dt=dt, init=TimeSelect(-1)(position), name="rollback_p_next"
-    )(velocity_next)
     model = Modely(
         "rollback_mechanical",
         inputs=[position, velocity, force],
@@ -992,7 +986,7 @@ def _composition_model():
         outputs=[
             Output(
                 "composition_state",
-                IntegrateStep(dt=0.1, init=TimeSelect(-1)(signal))(rate),
+                IntegrateStep(dt=0.1)(TimeSelect(-1)(signal), rate),
             )
         ],
     ).build()
@@ -1045,10 +1039,10 @@ def _loop_trajectory_model():
     acceleration = Fir(features=1, name="loop_traj_force_fir")(force) - Parameter(
         "loop_traj_damping", value=[0.5]
     ) * TimeSelect(idx=-1)(DerivativeStep(dt=dt)(window))
-    velocity_step = IntegrateStep(dt=dt, init=velocity)(acceleration)
-    position_step = IntegrateStep(
-        solver="trapezoidal", dt=dt, init=TimeSelect(idx=-1)(window)
-    )(velocity_step)
+    velocity_step = IntegrateStep(dt=dt)(velocity, acceleration)
+    position_step = IntegrateStep(solver="trapezoidal", dt=dt)(
+        TimeSelect(idx=-1)(window), velocity_step
+    )
     position_next = Output("loop_traj_position_next", position_step)
     velocity_next = Output("loop_traj_velocity_next", velocity_step)
     body = Modely(
@@ -1217,7 +1211,7 @@ def _complete_vehicle_model():
         outputs=[
             Output(
                 "vehicle_speed_next",
-                IntegrateStep(dt=dt, init=TimeSelect(-1)(speed))(acceleration),
+                IntegrateStep(dt=dt)(TimeSelect(-1)(speed), acceleration),
             ),
             Output(
                 "vehicle_acceleration_estimate",

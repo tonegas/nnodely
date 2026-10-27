@@ -52,8 +52,9 @@ physics-informed neural networks. The model below fits
 **With respect to time**, ``DerivativeStep`` takes the time step ``dt``, as
 ``IntegrateStep`` does, and the derivative is a causal finite difference along the
 stream's time window. The
-window length is preserved. ``init`` is the sample just before the window
-(zero by default). ``window`` and ``poly_order`` turn the plain backward
+window length is preserved. The initial condition, the sample just before the
+window, is given first when the layer is called, ``DerivativeStep(dt=dt)(init,
+x)``; called on ``x`` alone it is zero. ``window`` and ``poly_order`` turn the plain backward
 difference into a least-squares polynomial fit, which smooths noisy measured
 signals at the price of a delay of about ``(window - 1) / 2`` samples:
 
@@ -61,7 +62,7 @@ signals at the price of a delay of about ``(window - 1) / 2`` samples:
 
    dt = 0.01
    position = Input("position", sw=10)
-   velocity = DerivativeStep(dt=dt, init=0.0)(position)
+   velocity = DerivativeStep(dt=dt)(0.0, position)
    smooth_velocity = DerivativeStep(dt=dt, window=5)(position)
    print(velocity.shape)   # Shape(S=(), T=10, D=(1,))
 
@@ -69,15 +70,17 @@ Integrators
 -----------
 
 :class:`~nnodely.IntegrateStep` integrates a rate along its time window, with the
-``"euler"`` (or ``"rectangular"``) or ``"trapezoidal"`` rule. ``init`` is the
-value before the window. On a one-sample window it is exactly one integration
-step, which is the state update of a recurrent model:
+``"euler"`` (or ``"rectangular"``) or ``"trapezoidal"`` rule. The initial
+condition, the value before the window, is given first when the layer is
+called, ``IntegrateStep(dt=dt)(init, rate)``; called on the rate alone it
+starts from zero. On a one-sample window it is exactly one integration step,
+which is the state update of a recurrent model:
 
 .. code-block:: python
 
    acceleration = Input("acceleration", sw=1)
    v = Input("v", sw=1)
-   v_next = IntegrateStep(dt=dt, init=v)(acceleration)   # v + dt * a
+   v_next = IntegrateStep(dt=dt)(v, acceleration)   # v + dt * a
 
 On a longer window it returns the whole integrated trajectory in one pass, so
 position can be obtained from acceleration with no rollout:
@@ -90,7 +93,7 @@ position can be obtained from acceleration with no rollout:
    print(x_window.shape)   # Shape(S=(), T=50, D=(1,))
 
 The Euler rule is the exact inverse of the time derivative with the same
-``init``: ``IntegrateStep(dt=dt, init=x0)(DerivativeStep(dt=dt, init=x0)(x))``
+``init``: ``IntegrateStep(dt=dt)(x0, DerivativeStep(dt=dt)(x0, x))``
 returns ``x``.
 
 :class:`~nnodely.Integrate` integrates along a **horizon** instead: the

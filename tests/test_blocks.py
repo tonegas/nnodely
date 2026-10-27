@@ -1407,7 +1407,7 @@ def test_integrate():
     # make a simple forward Euler integrator step
     x = Input("x", sw=1)
     x0 = Input("x0", sw=1)
-    integrate = IntegrateStep(solver="euler", dt=0.1, init=x0)(x)
+    integrate = IntegrateStep(solver="euler", dt=0.1)(x0, x)
     out = Output("x_hat", integrate)
     model = Modely(name="integrator", inputs=[x, x0], outputs=[out])
     model.build()
@@ -1461,7 +1461,7 @@ def test_integrate_matches_integrate_step_over_the_same_samples(solver):
         outputs=[
             Output(
                 f"window_{solver}_out",
-                IntegrateStep(solver=solver, dt=0.1, init=0.7)(w),
+                IntegrateStep(solver=solver, dt=0.1)(0.7, w),
             )
         ],
     ).build()
@@ -1784,7 +1784,7 @@ def test_derivative():
     # A one-step backward difference: the step reads the previous sample.
     x = Input("dstep_x", sw=1)
     previous = Input("dstep_previous", sw=1)
-    out = Output("dstep_out", DerivativeStep(dt=0.1, init=previous)(x))
+    out = Output("dstep_out", DerivativeStep(dt=0.1)(previous, x))
     model = Modely(
         name="differentiator",
         inputs=[x, previous],
@@ -1859,7 +1859,7 @@ def test_derivative_matches_derivative_step_over_the_same_samples(stencil):
         outputs=[
             Output(
                 f"dwindow_{name}_out",
-                DerivativeStep(dt=0.1, init=0.7, **stencil)(w),
+                DerivativeStep(dt=0.1, **stencil)(0.7, w),
             )
         ],
     ).build()
@@ -2063,7 +2063,7 @@ def test_derivative_of_a_loop_trajectory():
         outputs=[
             Output("dloop_vel", vel),
             Output("dloop_acc_back", Derivative(dt=dt, init=v0)(vel)),
-            Output("dloop_window", DerivativeStep(dt=dt, init=x0)(pos)),
+            Output("dloop_window", DerivativeStep(dt=dt)(x0, pos)),
             Output("dloop_pos", pos),
         ],
     ).build()

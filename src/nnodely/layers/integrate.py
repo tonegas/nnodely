@@ -39,16 +39,36 @@ def _validate_dt(dt, owner: str = "IntegrateStep") -> float:
     return float(dt)
 
 
-def _validate_init(init):
+def _validate_init(init, owner: str = "Integrate"):
     """The constant of integration, as configured - a Stream, a number or None."""
     if init is None or isinstance(init, Stream):
         return init
     if isinstance(init, bool) or not isinstance(init, (int, float)):
         raise TypeError(
-            "IntegrateStep: init must be a Stream, a number or None, got "
+            f"{owner}: init must be a Stream, a number or None, got "
             f"{type(init).__name__}."
         )
     return init
+
+
+def _signal_and_init(owner: str, inputs) -> list:
+    """The predecessors of a layer called as ``layer(signal)`` or
+    ``layer(init, signal)``: the signal, then the initial condition if there
+    is one, a number made a Constant."""
+    if len(inputs) == 1 and isinstance(inputs[0], (list, tuple)):
+        inputs = tuple(inputs[0])
+    if len(inputs) == 1:
+        return list(inputs)
+    if len(inputs) != 2:
+        raise TypeError(
+            f"{owner} is called on the signal, or on the initial condition and "
+            f"the signal, {owner}(...)(init, signal); got {len(inputs)} arguments."
+        )
+    init, signal = inputs
+    if not isinstance(init, Stream):
+        _validate_init(init, owner)
+        init = Stream._coerce_operand(float(init))
+    return [signal, init]
 
 
 def _operator_matrix(rule: str, window_length: int, dt: float) -> np.ndarray:
@@ -142,7 +162,8 @@ class IntegrateStep(Layer):
     """
     Time integration of a rate signal along its own time axis::
 
-        IntegrateStep(solver="euler"|"rectangular"|"trapezoidal", dt=0.01, init=None)(rate)
+        IntegrateStep(solver="euler"|"rectangular"|"trapezoidal", dt=0.01)(rate)
+        IntegrateStep(solver="euler", dt=0.01)(init, rate)
 
     The window's length is preserved: sample ``i`` of the rate is the rate of
     the interval *ending* at ``i`` - the interval ``DerivativeStep``'s backward
@@ -153,25 +174,27 @@ class IntegrateStep(Layer):
 
     with ``y[-1] = init``. Two things follow from that convention:
 
-    * **A one-sample window is one integration step.** ``IntegrateStep(dt=dt,
-      init=velocity)(acceleration)`` is the state update
+    * **A one-sample window is one integration step.** ``IntegrateStep(dt=dt)(
+      velocity, acceleration)`` is the state update
       ``velocity + dt * acceleration``, so a recurrence needs no separate form
       of this layer and no ``+`` written around it.
 
     * **It inverts DerivativeStep exactly**, with the same initial condition and
-      no bookkeeping: ``IntegrateStep(dt=dt, init=x0)(DerivativeStep(dt=dt,
-      init=x0)(x))`` is ``x``, because the rectangular rule sums back exactly
+      no bookkeeping: ``IntegrateStep(dt=dt)(x0, DerivativeStep(dt=dt)(x0,
+      x))`` is ``x``, because the rectangular rule sums back exactly
       the increments the backward difference took apart. (The trapezoidal rule
       trades that exactness for second-order accuracy on a smooth rate.)
 
-    ``init`` is the constant of integration - the value the signal had at the
-    sample *before* the window, the same instant ``DerivativeStep`` reads its own
-    ``init`` at. A Stream (typically the state the window continues), a number
-    (kept as a Constant), or ``None`` for zero. It is what turns a relative
-    increment into the absolute quantity mechanical models are written in::
+    ``init``, given first when the layer is called, is the constant of
+    integration - the value the signal had at the sample *before* the window,
+    the same instant ``DerivativeStep`` reads its own ``init`` at. A Stream
+    (typically the state the window continues), or a number (kept as a
+    Constant); called on the rate alone, the layer starts from zero. It is
+    what turns a relative increment into the absolute quantity mechanical
+    models are written in::
 
-        velocity = IntegrateStep(dt=dt, init=v0)(acceleration)  # Input(..., sw=n)
-        position = IntegrateStep(dt=dt, init=x0)(velocity)
+        velocity = IntegrateStep(dt=dt)(v0, acceleration)  # Input(..., sw=n)
+        position = IntegrateStep(dt=dt)(x0, velocity)
 
     Both of those come out of one forward pass over the whole window, so a
     multi-step loss on the trajectory needs no ``rollback`` to unroll it.
@@ -191,7 +214,6 @@ class IntegrateStep(Layer):
         self,
         solver: str = "euler",
         dt: float | None = None,
-        init: Stream | float | None = None,
         name=None,
     ):
         if isinstance(solver, Stream):
@@ -205,28 +227,15 @@ class IntegrateStep(Layer):
             )
         self.solver = solver
         self.dt = _validate_dt(dt)
-        self.init = _validate_init(init)
-        super().__init__(name=name, solver=self.solver, dt=self.dt, init=self.init)
+        super().__init__(name=name, solver=self.solver, dt=self.dt)
 
     # ------------------------------------------------------------------
     # Symbolic graph logic
     # ------------------------------------------------------------------
-    def _init_stream(self):
-        """The initial condition as a node of the graph, if there is one."""
-        if self.init is None or isinstance(self.init, Stream):
-            return self.init
-        return Stream._coerce_operand(float(self.init))
-
-    def __call__(self, inputs):
-        if not isinstance(inputs, (list, tuple)):
-            inputs = [inputs]
-        # The initial condition is a predecessor like any other, but it is
-        # configured on the layer rather than passed at the call, so it is
-        # appended here and reconnected the same way when reloading.
-        if inputs and all(isinstance(value, Stream) for value in inputs):
-            init = self._init_stream()
-            inputs = [inputs[0]] if init is None else [inputs[0], init]
-        return super().__call__(inputs)
+    def __call__(self, *inputs):
+        # The initial condition is a predecessor like any other, after the
+        # rate, so that it is reconnected the same way when reloading.
+        return super().__call__(_signal_and_init("IntegrateStep", inputs))
 
     # ------------------------------------------------------------------
     # Shape logic
@@ -286,14 +295,9 @@ class IntegrateStep(Layer):
     def from_config(cls, config: dict, preds=None):
         # The initial condition was serialized as this node's second
         # predecessor, so it is rebuilt with the rest of the graph.
-        layer = cls(
-            solver=config["solver"],
-            dt=config.get("dt"),
-            init=preds[1] if preds and len(preds) > 1 else None,
-            name=config["name"],
-        )
+        layer = cls(solver=config["solver"], dt=config.get("dt"), name=config["name"])
         if preds:
-            return layer(preds[0])
+            return layer(*preds[::-1])
         return layer
 
 
@@ -429,12 +433,9 @@ class Integrate:
                 f"{call_name}_previous_rate", dim=dim, seq=step_seq, sw=1
             )
             step_rate = (previous_in + rate_step) * 0.5
-        step = IntegrateStep(
-            solver="euler",
-            dt=self.dt,
-            init=state_in,
-            name=f"{call_name}_step",
-        )(step_rate)
+        step = IntegrateStep(solver="euler", dt=self.dt, name=f"{call_name}_step")(
+            state_in, step_rate
+        )
         next_out = Output(f"{call_name}_next", step)
         body_inputs, body_outputs = [rate_in, state_in], [next_out]
         callback = {state_in: next_out}

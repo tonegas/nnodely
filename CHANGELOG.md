@@ -92,7 +92,11 @@ variable, and trains, validates and exports through Keras. Models saved with
   same stencil along a horizon, computed at every step at once),
   `IntegrateStep`, `Integrate` (an `IntegrateStep` rolled out along a
   horizon by a `Loop`), `Ode` (Euler, midpoint, Heun, RK4) and `OdeNet` (neural ODEs,
-  adaptive Dormand-Prince, hybrid events).
+  adaptive Dormand-Prince, hybrid events). `IntegrateStep` and
+  `DerivativeStep` take their initial condition, a stream or a number, as the
+  first argument of the call, `IntegrateStep(dt=dt)(init, rate)`, and start
+  from zero when called on the signal alone; `Integrate` and `Derivative`
+  take it at declaration, `init=`.
 - Recurrence: `Modely.rollback()`, `Loop` and `Roll`.
 - `LocalModel(input_function, output_function, vectorized=False)(inputs,
   activations)`: several activations are multiplied into joint memberships; a
@@ -225,7 +229,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `Part` | `Range` |
 | `SamplePart`, `TimePart` | `TimeRange` (in samples) |
 | `SampleSelect` | `TimeSelect` (`Select` is the same in both) |
-| `Integrate(stream, method=...)` | `IntegrateStep(dt=..., init=...)`; 2.0's `Integrate` integrates along a horizon |
+| `Integrate(stream, method=...)` | `IntegrateStep(dt=...)(init, rate)`; 2.0's `Integrate` integrates along a horizon |
 | `LocalModel(input_function, output_function, pass_indexes=...)` | `LocalModel(input_function, output_function, vectorized=False)(inputs, activations)`: a function is a factory of the cell index, a layer instance is shared by every cell |
 | `Fuzzify(output_dimension, range=..., functions=...)` | `Fuzzify(centers, function=...)`: the centers listed explicitly |
 | `Optimizer`, `SGD`, `Adam` | `train(optimizer="sgd" / "adam" / a Keras optimizer)` |
