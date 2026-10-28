@@ -95,7 +95,12 @@ class RollImpl(keras.layers.Layer):
         for _ in range(self.steps):
             model_inputs = {self.callback_input_name: state}
             model_inputs.update(zip(self.static_input_names, static_inputs))
-            feedback = self.model(model_inputs)
+            # Only the inputs the body reads: Keras matches a dict holding more
+            # by position, feeding one input the value of another.
+            taken = {tensor.name for tensor in self.model.inputs}
+            feedback = self.model(
+                {name: value for name, value in model_inputs.items() if name in taken}
+            )
             if isinstance(feedback, dict):
                 feedback = feedback[self.callback_output_name]
 
@@ -176,7 +181,14 @@ class Roll(Layer):
         self.f = f
         self.callback_input = callback_input
         self.callback_output = callback_output
-        self.static_inputs = [node for node in f.inputs if node is not callback_input]
+        # A body input its outputs never read, such as a target, is no input
+        # of the roll.
+        read = {node.name for node in f.inference_inputs}
+        self.static_inputs = [
+            node
+            for node in f.inputs
+            if node is not callback_input and node.name in read
+        ]
         self.steps = steps
 
         super().__init__(

@@ -190,8 +190,15 @@ class OdeNetImpl(keras.layers.Layer):
     # ------------------------------------------------------------------
     def _select(self, states, names):
         """Evaluate the body on one stage and keep the named outputs."""
+        # Only the states the field reads: Keras matches a dict holding more by
+        # position, feeding one state the value of another.
+        taken = {tensor.name for tensor in self.model.inputs}
         outputs = self.model(
-            {name: state for name, state in zip(self.state_input_names, states)}
+            {
+                name: state
+                for name, state in zip(self.state_input_names, states)
+                if name in taken
+            }
         )
         if isinstance(outputs, dict):
             return [outputs[name] for name in names]
@@ -545,7 +552,11 @@ class OdeNet(Layer):
         state_inputs = [pair[0] for pair in pairs]
         state_outputs = [pair[1] for pair in pairs]
 
-        drivers = [node for node in f.inputs if node not in state_inputs]
+        # A body input the field never reads, such as a target, drives nothing.
+        read = {node.name for node in f.inference_inputs}
+        drivers = [
+            node for node in f.inputs if node not in state_inputs and node.name in read
+        ]
         if drivers:
             raise ValueError(
                 f"OdeNet integrates an autonomous field, but {sorted(node.name for node in drivers)} "
