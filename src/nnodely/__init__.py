@@ -28,6 +28,7 @@ from nnodely.utils.random import get_seed, set_seed  # noqa: E402
 
 # Core
 from nnodely.core.modely import Modely
+from nnodely.core.modelyloop import ModelyLoop
 from nnodely.core.dataloader import DataLoader
 from nnodely.utils.printers import TinyPrinter, LegacyPrinter, NNodelyPrinter
 
@@ -39,6 +40,7 @@ from nnodely.layers.linear import Linear
 from nnodely.layers.parameter import Constant, Parameter
 from nnodely.layers.roll import Roll
 from nnodely.layers.loop import Loop
+from nnodely.layers.buffer import Buffer
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.function import KerasFunction
 from nnodely.layers.fuzzify import Fuzzify, Gaussian, Rectangular, Triangular
@@ -95,6 +97,7 @@ __all__ = [
     "set_seed",
     "get_seed",
     "Modely",
+    "ModelyLoop",
     "DataLoader",
     "TinyPrinter",
     "NNodelyPrinter",
@@ -107,6 +110,7 @@ __all__ = [
     "Constant",
     "Roll",
     "Loop",
+    "Buffer",
     "LocalModel",
     "Fuzzify",
     "KerasFunction",

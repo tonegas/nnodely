@@ -97,6 +97,8 @@ Recurrence
 
 .. autoclass:: Roll
 
+.. autoclass:: Buffer
+
 Activations
 -----------
 

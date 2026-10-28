@@ -246,6 +246,42 @@ def test_model_multi_rollback(tmp_path):
     test.export_html(out_dir=tmp_path, filename="test_model_multi_rollback")
 
 
+def test_a_model_with_rollback_is_no_block_and_flattens_with_it():
+    # Called as a block, the model was inlined once and its rollback lost: 6
+    # where calling it gave 20. flatten() lost it as well.
+    x = Input("rb_block_x", sw=3)
+    taps = Parameter("rb_block_taps", value=np.ones(3))
+    fir = Fir(features=1, kernel=taps, bias=False, name="rb_block_fir")(x)
+    model = Modely("rb_block", inputs=[x], outputs=[Output("rb_block_out", fir)])
+    model.rollback({x: fir}, steps=3)
+    outer_x = Input("rb_block_outer_x", sw=3)
+    for _ in ("declared", "built"):
+        with pytest.raises(ValueError, match="'rb_block' has a rollback"):
+            model([outer_x])
+        model.build()
+    taps.param.assign(np.full(3, 2.0, np.float32))
+
+    window = np.array([1.0, 2.0, 3.0], np.float32).reshape(1, 3, 1)
+    # [1, 2, 3] -> 12 -> [2, 3, 12] -> 34 -> [3, 12, 34] -> 98
+    rolled = to_numpy(model({"rb_block_x": window})["rb_block_out"])
+    np.testing.assert_allclose(rolled.ravel(), [98.0])
+    flat = model.flatten().build()
+    np.testing.assert_allclose(
+        to_numpy(flat({"rb_block_x": window})["rb_block_out"]), rolled
+    )
+
+    # As the error says: the one-step model is a Modely of the same graph, and
+    # shares its weights.
+    one_step = Modely("rb_block_step", inputs=model.inputs, outputs=model.outputs)
+    outer = Modely(
+        "rb_block_outer",
+        inputs=[outer_x],
+        outputs=[Output("rb_block_o", one_step([outer_x]))],
+    ).build()
+    result = outer({"rb_block_outer_x": window})["rb_block_o"]
+    np.testing.assert_allclose(to_numpy(result).ravel(), [12.0])
+
+
 def test_nested_closed_loop(tmp_path):
     # ------- Model with closed loop connections -------
     # Define a simple model to be used in the loop
@@ -1020,3 +1056,47 @@ def test_unpacking_a_loop_leaves_its_own_stream_alone():
         to_numpy(result["unpack_d"])[0, :, 0, :],
         np.array([[101.0, 102.0, 104.0]] * 3).T,
     )
+
+
+@pytest.mark.parametrize("target_name", ["aa_unread_target", "zz_unread_target"])
+def test_loop_feeds_its_body_only_the_inputs_it_reads(tmp_path, target_name):
+    # A body declaring an Input its outputs never read - here the target it is
+    # trained on - was handed it anyway, and Keras, matching the inputs by
+    # position, fed its data to another one. The loop leaves it out.
+    s, u = Input("unread_s", sw=1), Input("unread_u", sw=1)
+    target = Input(target_name, sw=1)
+    following = Output("unread_next", s * 0.5 + u)
+    body = Modely("unread_body", inputs=[s, u, target], outputs=[following])
+    body.minimize("unread_error", following, target)
+    body.build()
+
+    drive = Input("unread_drive", seq=3, sw=1)
+    loop = Loop(f=body, callback={s: following}, init={s: 1.0})({u: drive})
+    model = Modely(
+        "unread_model", inputs=[drive], outputs=[Output("unread_out", loop)]
+    ).build()
+    assert [node.name for node in model.inference_inputs] == ["unread_drive"]
+
+    data = {"unread_drive": np.ones((1, 3, 1, 1), dtype=np.float32)}
+    expected = [1.5, 1.75, 1.875]
+    np.testing.assert_allclose(to_numpy(model(data)["unread_out"]).ravel(), expected)
+    model.save(tmp_path / "unread_model")
+    reloaded = Modely.load(tmp_path / "unread_model")
+    np.testing.assert_allclose(to_numpy(reloaded(data)["unread_out"]).ravel(), expected)
+
+
+@pytest.mark.parametrize("unread_name", ["aa_roll_unread", "zz_roll_unread"])
+def test_roll_feeds_its_body_only_the_inputs_it_reads(unread_name):
+    x, unread = Input("roll_read", sw=3), Input(unread_name, sw=3)
+    out = Output("roll_read_next", TimeSelect(-1)(x) * 2.0)
+    body = Modely("roll_unread_body", inputs=[x, unread], outputs=[out]).build()
+    roll = Roll(f=body, callback={x: out}, steps=1)
+    model = Modely(
+        "roll_unread_model", inputs=[x], outputs=[Output("roll_unread_out", roll)]
+    ).build()
+    assert [node.name for node in model.inference_inputs] == ["roll_read"]
+
+    result = model(
+        {"roll_read": np.array([1.0, 2.0, 3.0], np.float32).reshape(1, 3, 1)}
+    )
+    np.testing.assert_allclose(to_numpy(result["roll_unread_out"]).ravel(), [2, 3, 6])

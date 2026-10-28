@@ -316,26 +316,18 @@ def _check_single_sample(owner: str, init, where: str) -> None:
         )
 
 
-def _declared_seq(seq) -> tuple[int, ...] | None:
-    """Sequence axes as an Input declares them: -1 for a dynamic one."""
-    axes = tuple(-1 if length is None else int(length) for length in seq)
-    return axes or None
-
-
 class Integrate:
-    """Integrate a rate along the horizon of its sequence.
+    """Integrate a rate one step at a time, in a :class:`~nnodely.ModelyLoop`.
 
     ::
 
         Integrate(solver="euler"|"rectangular"|"trapezoidal", dt=0.01, init=x0)(rate)
 
-    The high-level counterpart of :class:`IntegrateStep`: a block built from an
-    ``IntegrateStep`` rolled out by a :class:`Loop`, one rate sample per step,
-    with the integrated value fed back as the state of the next step. The rate
-    carries the horizon as its outermost sequence axis, of fixed length
-    (``seq=N``) or dynamic (``seq=-1``, followed at call time), and one sample,
-    ``T=1``, per step. The result is shaped like the rate: its element ``k``
-    is the value at the end of step ``k``::
+    The high-level counterpart of :class:`IntegrateStep`: the rate is one
+    sample of a step, ``T=1`` and no sequence, and the integral is an Input
+    closed with its update, which the ModelyLoop feeds back with all its other
+    closed Inputs, in its one loop - no Loop of its own. The result is the
+    value at the end of the step::
 
         y[k] = y[k-1] + dt * rate[k]                      # "euler", "rectangular"
         y[k] = y[k-1] + dt/2 * (rate[k-1] + rate[k])      # "trapezoidal"
@@ -343,17 +335,14 @@ class Integrate:
     These are the rules of ``IntegrateStep``, with the same convention for the
     first step, which has no earlier rate sample and keeps the rectangle: laid
     out along a time window instead, the same samples integrate to the same
-    values. :class:`Derivative` with the same ``init`` is its inverse along the
-    horizon, as ``DerivativeStep`` is ``IntegrateStep``'s along a window.
+    values. :class:`Derivative` with the same ``init`` is its inverse, as
+    ``DerivativeStep`` is ``IntegrateStep``'s along a window.
 
-    ``init`` is the value just before the first step: a Stream of one sample
-    (a scalar, or the rate's dim; its sequence is the rate's without the
-    horizon), a number, or ``None`` for zero.
-
-    Calling the block returns the ``Loop`` itself, bound to the rate and
-    ``init`` it is called with: a stream like any other, to use in further
-    relations, ``Output`` or ``minimize``. ``body`` is the one-step
-    ``Modely`` the latest call rolls out.
+    ``init`` is the value just before the first step, as :meth:`Input.close`
+    takes it: a number, a Parameter or a Constant, or an Input of one sample
+    (a scalar, or the rate's dim), whose first step the ModelyLoop reads;
+    ``None`` for zero. Built as a :class:`~nnodely.Modely` instead, nothing
+    feeds the integral back: it is read from data, as every closed Input is.
     """
 
     def __init__(
@@ -378,15 +367,10 @@ class Integrate:
         self.dt = _validate_dt(dt, "Integrate")
         self.init = _validate_init(init)
         self.name = next_name("Integrate") if name is None else name
-        self.body = None
         self._calls = 0
 
     def __call__(self, rate):
-        from nnodely.core.layer import Identity
-        from nnodely.core.modely import Modely
         from nnodely.layers.input import Input
-        from nnodely.layers.loop import Loop
-        from nnodely.layers.output import Output
 
         if isinstance(rate, (list, tuple)):
             if len(rate) != 1:
@@ -398,12 +382,12 @@ class Integrate:
             raise TypeError(
                 f"{self.name}: Integrate expects a Stream, got {type(rate).__name__}."
             )
-        if not rate.seq:
+        if rate.seq:
             raise ValueError(
-                f"{self.name}: Integrate runs along the sequence of the rate, its "
-                "rollout, and this rate has none. Declare it on an Input with a "
-                "sequence, e.g. Input('x', seq=-1), or integrate a time window "
-                "with IntegrateStep."
+                f"{self.name}: Integrate takes the rate of one step of a "
+                f"ModelyLoop, and this rate carries a sequence, {rate.shape}. "
+                "Declare it one sample per step, an Input with sw=1 and no seq, "
+                "and build the model with ModelyLoop."
             )
         if rate.time != 1:
             raise ValueError(
@@ -411,63 +395,28 @@ class Integrate:
                 f"rate carries {rate.time} time samples. Integrate a time window "
                 "with IntegrateStep."
             )
+        if isinstance(self.init, Stream):
+            self._validate_init_shape(rate, self.init)
 
         self._calls += 1
         call_name = self.name if self._calls == 1 else f"{self.name}_{self._calls}"
         dim = tuple(rate.dim)
-        # A step sees one sample of the rate, within the sequence axes the
-        # horizon leaves.
-        step_seq = _declared_seq(rate.seq[1:])
-
-        # One step: the state integrates the rate of that step.
-        rate_in = Input(f"{call_name}_rate", dim=dim, seq=step_seq, sw=1)
-        state_in = Input(f"{call_name}_state", dim=dim, seq=step_seq, sw=1)
-        rate_step = rate_in
-        trapezoidal = _SOLVER_RULE[self.solver] == "trapezoidal"
-        step_rate = rate_step
-        previous_in = None
-        if trapezoidal:
-            # The trapezoid of a step averages its rate with the previous one,
-            # which the loop feeds back like the state.
-            previous_in = Input(
-                f"{call_name}_previous_rate", dim=dim, seq=step_seq, sw=1
-            )
-            step_rate = (previous_in + rate_step) * 0.5
+        state = Input(f"{call_name}_state", dim=dim, sw=1)
+        if _SOLVER_RULE[self.solver] == "trapezoidal":
+            # The trapezoid averages the rate with the previous one; the first
+            # step has none, and keeps the rectangle.
+            previous = Input(f"{call_name}_previous_rate", dim=dim, sw=1)
+            first = Input(f"{call_name}_first", sw=1)
+            previous.close(rate)
+            first.close(first * 0.0, init=1.0)
+            rate = (previous + (rate - previous) * first + rate) * 0.5
         step = IntegrateStep(solver="euler", dt=self.dt, name=f"{call_name}_step")(
-            state_in, step_rate
+            state, rate
         )
-        next_out = Output(f"{call_name}_next", step)
-        body_inputs, body_outputs = [rate_in, state_in], [next_out]
-        callback = {state_in: next_out}
-        if previous_in is not None:
-            rate_out = Output(f"{call_name}_rate_out", Identity()([rate_step]))
-            body_inputs.append(previous_in)
-            body_outputs.append(rate_out)
-            callback[previous_in] = rate_out
-        body = Modely(f"{call_name}_body", inputs=body_inputs, outputs=body_outputs)
-
-        # The step rolled out along the rate's horizon, bound to the caller's
-        # streams: the loop is returned as the integrated stream itself.
-        initial: dict = {}
-        if isinstance(self.init, Stream):
-            # A scalar init is spread over the rate's dim by the Loop, which
-            # broadcasts an initial value to the state it seeds.
-            self._validate_init_shape(rate, self.init)
-            initial[state_in] = self.init
-        elif self.init is not None:
-            initial[state_in] = float(self.init)
-        if previous_in is not None:
-            # The rate has one more sequence axis than the step, the horizon: the
-            # first step reads its first sample, so that step is a rectangle.
-            initial[previous_in] = rate
-
-        self.body = body
-        return Loop(f=body, callback=callback, init=initial, name=call_name)(
-            {rate_in: rate}
-        )
+        return state.close(step, init=self.init)
 
     def _validate_init_shape(self, rate, init):
-        dim, step_seq = tuple(rate.dim), tuple(rate.seq[1:])
+        dim = tuple(rate.dim)
         _check_single_sample(self.name, init, "first step")
         if tuple(init.dim) not in (dim, (1,)) or (
             tuple(init.dim) == (1,) and len(dim) > 1
@@ -476,9 +425,8 @@ class Integrate:
                 f"{self.name}: init has dim {tuple(init.dim)}, which is neither "
                 f"the rate's {dim} nor, for a one-axis dim, a scalar."
             )
-        if tuple(init.seq) != step_seq:
+        if init.seq:
             raise ValueError(
-                f"{self.name}: init has the sequence {tuple(init.seq)}, but one "
-                "value per sequence of steps needs the rate's sequence without "
-                f"the horizon, {step_seq}."
+                f"{self.name}: init has the sequence {tuple(init.seq)}, but it is "
+                "the value of one step, which has none."
             )

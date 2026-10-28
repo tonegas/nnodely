@@ -228,6 +228,7 @@ instead, and ``bounds=(left, right)`` holds it between two numbers:
    from nnodely import Gaussian, Sin
 
    regimes = Fuzzify([0.0, 0.5, 1.0], function=Triangular, bounds=True)([velocity])
+   regimes = Fuzzify([0.0, 0.5, 1.0], function=Triangular, bounds=True)([velocity])
    # velocity 3.0 reads 1.0: [0, 0, 1]; velocity -2.0 reads 0.0: [1, 0, 0]
    shares = Fuzzify([0.0, 0.5, 1.0], function=Gaussian, normalize=True)([velocity])
    waves = Fuzzify([0.0, 0.5, 1.0], function=Sin)([velocity])   # sin(velocity - c)

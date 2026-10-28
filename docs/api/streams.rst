@@ -4,6 +4,7 @@ Inputs, Outputs and Parameters
 .. currentmodule:: nnodely
 
 .. autoclass:: Input
+   :members: close
 
 .. autoclass:: Output
 

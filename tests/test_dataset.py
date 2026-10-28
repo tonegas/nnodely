@@ -411,6 +411,23 @@ def test_format_rejects_a_column_count_that_does_not_match_dim():
         )
 
 
+def test_a_matrix_input_reads_its_data_as_dim_or_flat_never_reordered():
+    # Only the number of values was checked before reshaping: (N, 3, 2) fed to
+    # dim=(2, 3) was taken, every matrix scrambled.
+    x = Input("matrix_x", dim=(2, 3), sw=1)
+    model = Modely(
+        "matrix_model", inputs=[x], outputs=[Output("matrix_out", x)]
+    ).build()
+    matrices = np.arange(24, dtype=np.float32).reshape(4, 2, 3)
+    for given in (matrices, matrices.reshape(4, 6), matrices.reshape(4, 1, 2, 3)):
+        loader = DataLoader(model, source={"matrix_x": given})
+        np.testing.assert_array_equal(loader.get_input("matrix_x")[:, 0], matrices)
+    with pytest.raises(
+        ValueError, match=r"laid out \(3, 2\) per timestep, but its dim=\(2, 3\)"
+    ):
+        DataLoader(model, source={"matrix_x": matrices.reshape(4, 3, 2)})
+
+
 def test_on_short_skips_simulations_that_are_too_short():
     x = Input("short_x", dim=1, sw=4)
     model = Modely(

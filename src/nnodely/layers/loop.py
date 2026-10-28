@@ -150,7 +150,12 @@ class LoopImpl(keras.layers.Layer):
         return state + keras.ops.zeros((1, *shape))
 
     def _model_outputs(self, model_inputs):
-        outputs = self.model(model_inputs)
+        # Only the inputs the body reads: Keras matches a dict holding more by
+        # position, feeding one input the value of another.
+        taken = {tensor.name for tensor in self.model.inputs}
+        outputs = self.model(
+            {name: value for name, value in model_inputs.items() if name in taken}
+        )
         if isinstance(outputs, dict):
             return tuple(outputs[name] for name in self.model_output_names)
         if isinstance(outputs, (list, tuple)):
@@ -495,7 +500,14 @@ class Loop(Layer):
         self.init = {} if init is None else init
         self.callback_inputs = callback_inputs
         self.callback_outputs = callback_outputs
-        self.static_inputs = [node for node in f.inputs if node not in callback_inputs]
+        # A body input its outputs never read, such as a target, is no input
+        # of the loop.
+        read = {node.name for node in f.inference_inputs}
+        self.static_inputs = [
+            node
+            for node in f.inputs
+            if node not in callback_inputs and node.name in read
+        ]
         self.callback_shift_axes = self._resolve_feedback(callback_pairs)
         self.length = None if length is None else int(length)
         self.collect = bool(collect)
@@ -753,7 +765,7 @@ class Loop(Layer):
                 )
             if key_name not in static_names:
                 raise ValueError(
-                    f"Loop input {key_name!r} is not an input of the body model."
+                    f"Loop input {key_name!r} is not an input the body model reads."
                 )
 
         sources = []
@@ -858,16 +870,17 @@ class Loop(Layer):
     def from_config(cls, config: dict, preds=None):
         # `f` is the reloaded body (see ModelSerializer). The predecessors are
         # the initial value of every callback, then the source of every other
-        # body input in the body's order. A body input left unbound was its own
-        # source; the reloaded body is a copy of its own, so it is bound to the
-        # node of the same name in the graph the loop is loaded in.
+        # body input it reads, in the body's order. A body input left unbound
+        # was its own source; the reloaded body is a copy of its own, so it is
+        # bound to the node of the same name in the graph the loop is loaded in.
         config = dict(config)
         body, callback = config.pop("f"), config.pop("callback")
         preds = list(preds or [])
-        static_names = [node.name for node in body.inputs if node.name not in callback]
-        return cls(
+        loop = cls(
             f=body,
             callback=callback,
             init=dict(zip(callback, preds[: len(callback)])),
             **config,
-        )(dict(zip(static_names, preds[len(callback) :])))
+        )
+        static_names = [node.name for node in loop.static_inputs]
+        return loop(dict(zip(static_names, preds[len(callback) :])))

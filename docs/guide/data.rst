@@ -23,7 +23,9 @@ Sources
 -------
 
 A **dictionary** maps every input name to one array per signal. The first axis
-is time, the remaining ones are the input's features:
+is time, the remaining ones are the input's features: laid out as its ``dim``,
+or flat in row-major order. Another layout of as many values raises an error
+rather than being reordered:
 
 .. code-block:: python
 
@@ -126,7 +128,11 @@ the data is loaded:
   ignores the padded steps.
 
 Dynamic sequences are meant to be consumed by a :class:`~nnodely.Loop`, which
-rolls out over whatever length it is given (see :doc:`recurrent`).
+rolls out over whatever length it is given, or by a
+:class:`~nnodely.ModelyLoop`, every Input of which carries the horizon as a
+dynamic sequence (see :doc:`recurrent`). A closed Input that a ModelyLoop
+lists among its inputs is optional: the data may leave it out, in a dict or a
+DataFrame, and it then reads zeros.
 
 .. code-block:: python
 

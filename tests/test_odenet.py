@@ -924,3 +924,57 @@ def test_odenet_reset_must_cover_every_state():
             event="floor_partial",
             reset={velocity: "v_plus_partial"},
         )
+
+
+def test_odenet_feeds_its_field_only_the_states_it_reads():
+    # dx/dt = y, dy/dt = 1: the field never reads x, which Keras, matching the
+    # states by position, was once fed in place of y.
+    x, y = Input("unread_x", sw=1), Input("unread_y", sw=1)
+    field = Modely(
+        "unread_field",
+        inputs=[x, y],
+        outputs=[Output("unread_dx", y * 1.0), Output("unread_dy", y * 0.0 + 1.0)],
+    ).build()
+    t = Input("unread_t", seq=3, sw=1)
+    x_traj, y_traj = OdeNet(
+        f=field, states={x: "unread_dx", y: "unread_dy"}, t=t, method="rk4"
+    )
+    model = Modely(
+        "unread_odenet",
+        inputs=[x, y, t],
+        outputs=[Output("unread_X", x_traj), Output("unread_Y", y_traj)],
+    ).build()
+    result = model(
+        {
+            "unread_x": np.full((1, 1, 1), 10.0, dtype=np.float32),
+            "unread_y": np.zeros((1, 1, 1), dtype=np.float32),
+            "unread_t": np.array([0.0, 1.0, 2.0], np.float32).reshape(1, 3, 1, 1),
+        }
+    )
+    np.testing.assert_allclose(to_numpy(result["unread_X"]).ravel(), [10, 10.5, 12])
+    np.testing.assert_allclose(to_numpy(result["unread_Y"]).ravel(), [0, 1, 2])
+
+
+def test_odenet_field_may_declare_its_target():
+    # An Input the field never reads, such as the target it was fitted on, is
+    # not an exogenous driver.
+    x, target = Input("target_x", sw=1), Input("target_x_true", sw=1)
+    derivative = Output("target_dx", -1.0 * x)
+    field = Modely("target_field", inputs=[x, target], outputs=[derivative])
+    field.minimize("target_error", derivative, target)
+    field.build()
+    t = Input("target_t", seq=3, sw=1)
+    trajectory = OdeNet(f=field, states={x: derivative}, t=t, method="rk4", steps=20)
+    model = Modely(
+        "target_odenet", inputs=[x, t], outputs=[Output("target_X", trajectory)]
+    ).build()
+    times = np.array([0.0, 1.0, 2.0], np.float32)
+    result = model(
+        {
+            "target_x": np.ones((1, 1, 1), dtype=np.float32),
+            "target_t": times.reshape(1, 3, 1, 1),
+        }
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["target_X"]).ravel(), np.exp(-times), rtol=1e-5
+    )

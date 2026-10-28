@@ -16,7 +16,6 @@ from nnodely import (
     Cos,
     Sin,
     Roll,
-    Integrate,
 )
 from nnodely import TimeSelect
 
@@ -594,7 +593,7 @@ def test_plot_writes_the_shape_on_the_arrows_and_only_the_name_on_the_cards(
     model = Modely(
         "dynamic",
         inputs=[acc],
-        outputs=[Output("dyn_vel", Integrate(dt=0.1)(acc))],
+        outputs=[Output("dyn_vel", Sin()([acc]))],
     ).build()
 
     root = _dot_sources(model, tmp_path, monkeypatch)["dynamic"]

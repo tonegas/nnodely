@@ -233,7 +233,7 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
             for port in port_map["inputs"]:
                 outer, body = outer_id(port["outer"]), body_id(port["body"])
                 # A block can read another block spliced before it - one
-                # Integrate integrating another - whose node is gone: bind to
+                # Loop rolling out another's result - whose node is gone: bind to
                 # the body output that node stood for, as its consumers are.
                 if port["outer"] in block_results:
                     outer = block_results[port["outer"]]["primary"]
