@@ -2446,3 +2446,21 @@ def test_local_model_with_an_elementwise_function_on_several_inputs():
     mu = Fuzzify([0.0, 1.0], function=Triangular)([x])
     with pytest.raises(ValueError, match="a cell is one stream"):
         LocalModel(Tanh())([x, y], [mu])
+
+
+@pytest.mark.parametrize("call_first", [True, False])
+def test_a_block_shares_an_input_it_does_not_declare_with_its_caller(call_first):
+    # A call once saw only what its caller had inlined before it: reached
+    # first, it made an Input of its own, and the model read two Inputs x.
+    x, u, r = Input("shared_x", sw=1), Input("shared_u", sw=1), Input("shared_r", sw=1)
+    block = Modely("shared_block", inputs=[r], outputs=[Output("shared_bo", x + r)])
+    y = block([u]) + x if call_first else x + block([u])
+    model = Modely("shared_model", inputs=[x, u], outputs=[Output("shared_y", y)])
+    model.build()
+    result = model(
+        {
+            "shared_x": np.ones((1, 1, 1), np.float32),
+            "shared_u": np.full((1, 1, 1), 10.0, np.float32),
+        }
+    )
+    np.testing.assert_allclose(to_numpy(result["shared_y"]).ravel(), [12.0])

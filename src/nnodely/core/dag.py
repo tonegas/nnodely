@@ -64,7 +64,9 @@ class Scope:
         self.memo: dict[Node, Any] = {} if memo is None else memo
         self.calls: dict[Node, "Scope"] = {}
         # The Parameters and Constants inlined, one copy each, shared with
-        # every call: they are one object in every model that reads them.
+        # every call: they are one object in every model that reads them. So
+        # is an Input read from data - one array, whatever reads it - unless a
+        # call binds it; a closed Input is one state per call in a ModelyLoop.
         self.values: dict[Node, Any] = {} if values is None else values
         # The closed Inputs inlined, with the scope of each, when what closes
         # them is inlined too (see flatten_closed); None leaves them as they are.
@@ -101,7 +103,10 @@ def flatten_node(node: Node, scope: Scope) -> Any:
 
     if node in scope.memo:
         return scope.memo[node]
-    if isinstance(node, _Value) and node in scope.values:
+    shared = isinstance(node, _Value) or (
+        isinstance(node, Input) and (node.update is None or not scope.loop)
+    )
+    if shared and node in scope.values:
         scope.memo[node] = scope.values[node]
         return scope.values[node]
 
@@ -134,9 +139,10 @@ def flatten_node(node: Node, scope: Scope) -> Any:
                 for internal_input, argument in arguments.items()
                 if internal_input not in inits
             }
-            call_scope = Scope(
-                {**scope.memo, **bindings}, scope.values, scope.pending, scope.loop
-            )
+            # A call starts from its bindings alone: what the caller has
+            # inlined so far depends on the order the graph is walked in, and
+            # sharing it made the result depend on that order too.
+            call_scope = Scope(bindings, scope.values, scope.pending, scope.loop)
             call_scope.inits = inits
             scope.calls[model_call] = call_scope
 
@@ -154,7 +160,7 @@ def flatten_node(node: Node, scope: Scope) -> Any:
     ):
         new_node._layer = None
     scope.memo[node] = new_node
-    if isinstance(node, _Value):
+    if shared:
         scope.values[node] = new_node
     if (
         scope.pending is not None

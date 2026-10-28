@@ -39,6 +39,28 @@ def _closed(roots) -> list[Input]:
     return closed
 
 
+def _closed_across_calls(
+    scope: Scope, enclosing: frozenset = frozenset()
+) -> list[tuple[str, str]]:
+    """The name of every closed Input a call inlines while a graph enclosing
+    it inlines it too, with the name of the model called: one state per call,
+    the call's is not the caller's."""
+    found = []
+    here = enclosing | {
+        node
+        for node in scope.memo
+        if isinstance(node, Input) and node.update is not None
+    }
+    for model_call, call_scope in scope.calls.items():
+        found += [
+            (node.name, cast(Any, model_call).model.name)
+            for node in call_scope.memo
+            if node in here
+        ]
+        found += _closed_across_calls(call_scope, here)
+    return sorted(found)
+
+
 def _free_name(name: str, taken: set[str]) -> str:
     """``name``, or the first ``name_<i>`` not in ``taken``."""
     candidate, index = name, 2
@@ -106,6 +128,18 @@ class ModelyLoop(Modely):
         scope = Scope(pending=[], loop=True)
         step_outputs = [flatten_node(output, scope) for output in outputs]
         flatten_closed(scope)
+        crossing = _closed_across_calls(scope)
+        if crossing:
+            state, model = crossing[0]
+            raise ValueError(
+                f"ModelyLoop {name!r} reads the closed Input {state!r} both in "
+                f"the graph that calls {model!r} and inside it, where {model!r} "
+                "does not declare it. A closed Input inside a called model is "
+                "one state per call, so these would be two states. To read the "
+                f"state of the call, make it an output of {model!r}; to give "
+                f"{model!r} the state of the caller, declare an Input in "
+                f"{model!r} for it and pass {state!r} in the call."
+            )
         closed = _closed(step_outputs)
         if not closed:
             raise ValueError(

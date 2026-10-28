@@ -610,3 +610,61 @@ def test_saving_warns_of_feedback_the_loaded_model_would_lose(tmp_path):
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         block.build().save(tmp_path / "oc_warn_block")
+
+
+@pytest.mark.parametrize("call_first", [True, False])
+def test_a_closed_input_a_call_and_its_caller_both_read_is_refused(call_first):
+    # One state per call: the caller's x and the call's were two, and which
+    # one the data started depended on which was reached first.
+    u, r = Input("oc_cross_u", sw=1), Input("oc_cross_r", sw=1)
+    x = Input("oc_cross_x", sw=1)
+    x.close(x + u)
+    block = Modely("oc_cross_block", inputs=[r], outputs=[Output("oc_cross_bo", x + r)])
+    y = block([u]) + x if call_first else x + block([u])
+    with pytest.raises(
+        ValueError,
+        match="closed Input 'oc_cross_x' both in the graph that calls "
+        "'oc_cross_block' and inside it",
+    ):
+        ModelyLoop("oc_cross", inputs=[u, x], outputs=[Output("oc_cross_y", y)])
+
+    # As the message says: the block declares an Input for the state, and
+    # the caller gives it x.
+    s = Input("oc_cross_s", sw=1)
+    block = Modely(
+        "oc_cross_given", inputs=[r, s], outputs=[Output("oc_cross_go", s + r)]
+    )
+    y = block([u, x]) + x if call_first else x + block([u, x])
+    model = ModelyLoop(
+        "oc_cross_ok",
+        inputs=[u, x],
+        outputs=[Output("oc_cross_y", y), Output("oc_cross_xo", x)],
+    ).build()
+    result = model({"oc_cross_u": _ramp(3), "oc_cross_x": np.full((1, 3, 1, 1), 100.0)})
+    np.testing.assert_allclose(to_numpy(result["oc_cross_xo"]).ravel(), [100, 101, 103])
+    np.testing.assert_allclose(to_numpy(result["oc_cross_y"]).ravel(), [201, 204, 209])
+
+
+def test_a_closed_input_inside_a_block_called_twice_is_no_output_of_the_caller():
+    # Which call's level would it be? It was refused as reading the inflow
+    # of the tank, which nothing closes.
+    inflow, level = Input("oc_tank_q", sw=1), Input("oc_tank_h", sw=1)
+    tank = Modely(
+        "oc_tank",
+        inputs=[inflow],
+        outputs=[Output("oc_tank_level", level.close(level * 0.5 + inflow))],
+    )
+    source = Input("oc_tank_source", sw=1)
+    first = tank([source])
+    with pytest.raises(
+        ValueError, match="closed Input 'oc_tank_h' both in the graph that calls"
+    ):
+        ModelyLoop(
+            "oc_tank_cascade",
+            inputs=[source],
+            outputs=[
+                Output("oc_tank_h_out", level),
+                Output("oc_tank_1", first),
+                Output("oc_tank_2", tank([first])),
+            ],
+        )
