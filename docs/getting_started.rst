@@ -152,5 +152,6 @@ Where to go next
 
 - :doc:`guide/concepts` explains streams, shapes and windows.
 - :doc:`guide/models` lists the building blocks.
-- :doc:`guide/recurrent` and :doc:`guide/physics` cover multi-step prediction
-  and physics-based layers.
+- :doc:`guide/recurrent` and :doc:`guide/physics` cover multi-step prediction,
+  models declared one step at a time with ``ModelyLoop``, and physics-based
+  layers.

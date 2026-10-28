@@ -168,10 +168,9 @@ Some examples:
    # the oldest sample of the torque window
    oldest = TimeSelect(idx=0)([torque])
 
-``Fuzzify`` places a membership function on each center: a
-:class:`~nnodely.Triangular`, :class:`~nnodely.Rectangular` or
-:class:`~nnodely.Gaussian` (the default is ``Triangular``), sized by the
-centers next to it - the triangles reach the neighboring centers and add up to
+``Fuzzify`` places a membership function on each center, given as its
+``function``: a :class:`~nnodely.Triangular`, :class:`~nnodely.Rectangular` or
+:class:`~nnodely.Gaussian`, sized by the centers next to it - the triangles reach the neighboring centers and add up to
 one between them. Its ``function`` can also be any other layer class, made
 anew for each center, or a layer instance, shared by all of them: they read
 ``x - center``, so ``Fuzzify(centers, function=Sin)`` gives ``sin(x - c)``. A
@@ -206,8 +205,8 @@ neighbors as they are computed, so the gradient reaches them (a
 .. code-block:: python
 
    centers = Parameter("centers", value=[0.0, 0.5, 1.0])
-   trained = Fuzzify(centers)([velocity])   # where the triangles sit, learned
-   middle = Fuzzify([0.0, Parameter("middle", value=[0.5]), 1.0])([velocity])
+   trained = Fuzzify(centers, function=Triangular)([velocity])   # where the triangles sit, learned
+   middle = Fuzzify([0.0, Parameter("middle", value=[0.5]), 1.0], function=Triangular)([velocity])
 
 The memberships of a sample are normalized: each is divided by their sum, so
 that they add up to one, and a sample in no set stays all zeros.
@@ -222,7 +221,7 @@ they are computed - so that it is in the outer set instead, and
 
    from nnodely import Sin
 
-   regimes = Fuzzify([0.0, 0.5, 1.0], bounds=True)([velocity])
+   regimes = Fuzzify([0.0, 0.5, 1.0], function=Triangular, bounds=True)([velocity])
    # velocity 3.0 reads 1.0: [0, 0, 1]; velocity -2.0 reads 0.0: [1, 0, 0]
    waves = Fuzzify([0.0, 0.5, 1.0], function=Sin, normalize=False)([velocity])
 

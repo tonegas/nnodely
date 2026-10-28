@@ -31,6 +31,15 @@ than reshaped, so a rollout is not slipped into a block that reads one
 sample. A dynamic sequence matches any length. An :class:`~nnodely.Input` of
 that shape is given as it is, as ``raw`` above.
 
+An Input that a block reads without declaring it is not replaced by the call:
+it is the Input of the outer model too, read from the same data. A model with
+a :meth:`~nnodely.Modely.rollback` cannot be a block, which would evaluate it
+once: call instead a ``Modely`` declared on its inputs and outputs, its
+one-step model, which shares its weights. A closed Input that a block declares
+reads the stream given for it at every step; in a
+:class:`~nnodely.ModelyLoop` it keeps its feedback instead, and the stream is
+its initial value (see :doc:`recurrent`).
+
 Weights
 -------
 

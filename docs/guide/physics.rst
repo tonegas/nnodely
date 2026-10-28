@@ -11,7 +11,7 @@ inferred from the data.
    import numpy as np
    from nnodely import (
        DataLoader, Derivative, DerivativeStep, Differentiate, Input, Integrate, IntegrateStep,
-       Linear, Loop, Modely,
+       Linear, Loop, Modely, ModelyLoop,
        Ode, OdeNet, Output, Parameter, set_seed, Sin, Tanh,
    )
 

@@ -18,7 +18,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   of a larger model.
 - `DataLoader` for dicts, DataFrames and CSV files or folders, with several
   simulations, sequences, padding masks and normalization. `delimiter` and
-  `header` are passed to `pandas.read_csv`; n/a values are reported.
+  `header` are passed to `pandas.read_csv`; n/a values are reported. An array
+  holds the features of each sample laid out as the input's `dim`, or flat in
+  row-major order; another layout of as many values is refused rather than
+  reordered.
 - `minimize()` with any Keras loss, a `gain` per objective and `seq_weights`
   along a rollout; targets can be computed streams or numbers.
 - A layer whose constructor takes only `name` is applied as it is created:
@@ -36,7 +39,10 @@ variable, and trains, validates and exports through Keras. Models saved with
 - A model used as a block keeps the shapes it was declared with: each stream
   it is called on must have the shape its graph reads that input with, and
   another one is refused; an `Input` given itself is read through the block's
-  own windows.
+  own windows. An Input the block reads without declaring it is the caller's
+  Input too. A model with a `rollback` is refused as a block, which would
+  evaluate it once: its one-step model is a `Modely` declared on the same
+  inputs and outputs, sharing its weights.
 - A `Parameter` or `Constant` read by several models - Loop bodies, blocks,
   the outer model - is one object in the saved model too: loaded once,
   listed once, frozen once.
@@ -45,6 +51,28 @@ variable, and trains, validates and exports through Keras. Models saved with
   out by two Loops, a Parameter read inside and outside a body, a block also
   used in a Loop, several `Differentiate` of one relation - is written once
   per graph, with the same value. Keras could not rebuild such a file.
+- `ModelyLoop(name, inputs, outputs, length=None)`: a model declared one step
+  at a time, whose closed Inputs are all fed back by a single rollout. Every
+  listed Input carries the horizon as its outermost sequence axis - `length`
+  steps, or as many as the data has - and every output is a trajectory. A
+  closed Input starts from its `init`; without one, from the first window of
+  its data when it is listed, zeros where the data leaves it out, and from
+  zero when it is not. A model called as a block keeps the feedback of its
+  closed Inputs, one per call. `minimize` compares the trajectories of
+  streams of the step, and `body` is the one-step `Modely`.
+- `Input.close(stream, init=None)`: feeds `stream`, one sample of the Input,
+  back into it at the next step, and returns `stream`. The Inputs of a step
+  read each other's previous values, so coupled dynamics are written as they
+  are, one Input per state variable. A `ModelyLoop` feeds them back; built as
+  a `Modely`, the same graph is the one-step model, reading them from data.
+- `Buffer(sw=n, init=None)(signal)`: the last `n` values of a signal computed
+  one sample per step, the current one included - the window a model reads of
+  what another computes, such as a controller's commands fed to a plant. Its
+  past values are an Input closed with the signal.
+- `Modely.all_inputs`: every Input a model reads - declared or not, inside
+  the models it calls, or only by an objective - printed as a table of its
+  shape and how it is fed: declared, the stream it is closed with, what the
+  data must hold of it and what it starts from.
 - `KerasFunction(function)`: any Keras layer, class or instance, as an
   nnodely layer - a custom function in the graph, its streams passed to
   `call` as separate arguments. The model saves, loads and exports with it.
@@ -98,15 +126,20 @@ variable, and trains, validates and exports through Keras. Models saved with
   distribution and the error along the rollout.
 - Calculus blocks `Differentiate` (with respect to an input),
   `DerivativeStep` (with respect to time, over a window), `Derivative` (the
-  same stencil along a horizon, computed at every step at once),
-  `IntegrateStep`, `Integrate` (an `IntegrateStep` rolled out along a
-  horizon by a `Loop`), `Ode` (Euler, midpoint, Heun, RK4) and `OdeNet` (neural ODEs,
-  adaptive Dormand-Prince, hybrid events). `IntegrateStep` and
-  `DerivativeStep` take their initial condition, a stream or a number, as the
-  first argument of the call, `IntegrateStep(dt=dt)(init, rate)`, and start
-  from zero when called on the signal alone; `Integrate` and `Derivative`
-  take it at declaration, `init=`.
-- Recurrence: `Modely.rollback()`, `Loop` and `Roll`.
+  same stencil one step at a time, in a `ModelyLoop`), `IntegrateStep`,
+  `Integrate` (its rules one step at a time, in a `ModelyLoop`), `Ode`
+  (Euler, midpoint, Heun, RK4) and `OdeNet` (neural ODEs, adaptive
+  Dormand-Prince, hybrid events). `Integrate` and `Derivative` read one
+  sample per step: the integral, or the samples before the step, are an
+  Input closed with its update, fed back by the `ModelyLoop` with all its
+  other closed Inputs, so they need no `Loop` of their own. `IntegrateStep`
+  and `DerivativeStep` take their initial condition, a stream or a number, as
+  the first argument of the call, `IntegrateStep(dt=dt)(init, rate)`, and
+  start from zero when called on the signal alone; `Integrate` and
+  `Derivative` take it at declaration, `init=`.
+- Recurrence: `ModelyLoop` with `Input.close()`, `Modely.rollback()`, `Loop`
+  and `Roll`. A body input its outputs never read, such as the target it is
+  trained on, is not an input of a `Loop`, `Roll` or `OdeNet`.
 - `LocalModel(input_function, output_function, vectorized=False)(inputs,
   activations)`: several activations are multiplied into joint memberships; a
   function is a factory of the cell index, giving each cell a layer of its
@@ -204,10 +237,11 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
   history, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
-- The `.nnodely` save format is version 6. Saves and `.keras` exports made
+- The `.nnodely` save format is version 7: a closed Input is saved with the
+  stream it is closed with and its `init`. Saves and `.keras` exports made
   with the 2.0 pre-releases, in which windows were taken from an Input,
   streams had several time axes or were laid out `(batch, *dim, time,
-  *seq)`, do not load.
+  *seq)`, or closed Inputs were saved open, do not load.
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
 
@@ -222,7 +256,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `model.loadData(name, source)` | `data = DataLoader(model, source=...)` |
 | `model.trainModel(...)` | `model.train(data, val_data=..., epochs=..., batch_size=..., lr=...)` |
 | `model.analyzeModel(...)`, performance reports | `model.validate(data)` |
-| `x.closedLoop(...)`, `x.connect(...)`, `prediction_samples=` | `model.rollback({input: stream}, steps=n)`, `Loop`, `Roll` |
+| `x.closedLoop(...)`, `x.connect(...)`, `prediction_samples=` | `x.close(stream)` in a `ModelyLoop`; `model.rollback({input: stream}, steps=n)`, `Loop`, `Roll` |
 | `x.tw(seconds)`, `x.sw(samples)` | `Input("x", sw=samples)` or `sw=(past, future)`, declared once; `TimeSelect` / `TimeRange` take parts of the window |
 | `saveModel` / `loadModel` | `model.save(path)` / `Modely.load(path)` |
 | `exportPythonModel`, `saveTorchModel` | `model.export_keras(path)` |
@@ -232,15 +266,15 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `Relu` | `ReLU` |
 | `Add`, `Sub`, `Mul`, `Div`, `Pow` | `+`, `-`, `*`, `/`, `**` between streams |
 | `Neg` | `Negative` |
-| `Differentiate` | `Differentiate(respect_to=x)` with respect to an input; with respect to time `DerivativeStep(dt=...)` over a window, `Derivative(dt=...)` along a horizon |
+| `Differentiate` | `Differentiate(respect_to=x)` with respect to an input; with respect to time `DerivativeStep(dt=...)` over a window, `Derivative(dt=...)` one step at a time in a `ModelyLoop` |
 | `ForwardEuler`, `RK2`, `RK4` | `Ode(f, states, dt, method=...)` |
 | `NeuralODE` | `OdeNet` |
 | `Part` | `Range` |
 | `SamplePart`, `TimePart` | `TimeRange` (in samples) |
 | `SampleSelect` | `TimeSelect` (`Select` is the same in both) |
-| `Integrate(stream, method=...)` | `IntegrateStep(dt=...)(init, rate)`; 2.0's `Integrate` integrates along a horizon |
+| `Integrate(stream, method=...)` | `IntegrateStep(dt=...)(init, rate)`; 2.0's `Integrate` integrates one step at a time in a `ModelyLoop` |
 | `LocalModel(input_function, output_function, pass_indexes=...)` | `LocalModel(input_function, output_function, vectorized=False)(inputs, activations)`: a function is a factory of the cell index, a layer instance is shared by every cell |
-| `Fuzzify(output_dimension, range=..., functions=...)` | `Fuzzify(centers, function=...)`: the centers listed explicitly; the memberships are normalized to add up to one unless `normalize=False` |
+| `Fuzzify(output_dimension, range=..., functions=...)` | `Fuzzify(centers, function=...)`: the centers listed explicitly and the function always given, e.g. `function=Triangular`; the memberships are normalized to add up to one unless `normalize=False` |
 | `Optimizer`, `SGD`, `Adam` | `train(optimizer="sgd" / "adam" / a Keras optimizer)` |
 | `Parameter(name, dimensions, sw=..., values=..., init=...)`, `Constant(name, values, sw=...)` | `Parameter(name, value=..., time=...)` or `Parameter(name, dim=..., time=..., initializer=...)`, `Constant(name, value=..., time=...)` |
 | `ParamFun` | the function written with streams and `Parameter`s, or a custom `Layer` |
