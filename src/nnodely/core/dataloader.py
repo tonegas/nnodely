@@ -437,6 +437,18 @@ class DataLoader:
                 f"Input '{name}' in '{label}' provides {feature_size} values per "
                 f"timestep, but its dim={dim} requires {expected_size}."
             )
+        # The values are reshaped to dim, which keeps their order: laid out
+        # as dim, or flat, they land where they belong; any other layout of
+        # as many values would be reordered without a word. Axes of one value
+        # place nothing, so they are left out of the comparison.
+        layout = tuple(size for size in values.shape[1:] if size != 1)
+        if len(layout) > 1 and layout != tuple(size for size in dim if size != 1):
+            raise ValueError(
+                f"Input '{name}' in '{label}' is laid out {values.shape[1:]} per "
+                f"timestep, but its dim={dim}: give it as (timesteps, *dim), or "
+                f"flat, (timesteps, {expected_size}), the features in row-major "
+                "order."
+            )
         # A cell pandas reads as n/a - empty, "n/a", "NaN" - stays a NaN, and a
         # NaN reaching a minimizer turns its loss, and every weight it trains,
         # into NaN.

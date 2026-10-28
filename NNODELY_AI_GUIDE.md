@@ -331,7 +331,7 @@ Reproducibility: call `set_seed(int)` before creating layers and data. It seeds 
 `DataLoader(model, source, format=None, csv_glob="*.csv", delimiter=",", header="infer", dtype=np.float32, seq_length=None, step=1, on_short="error")`. The model must be built.
 
 **Sources**
-- A dict `{input_name: array (T,) or (T, *dim)}`. Keys must be the model's input names, including target-only inputs. `format` is ignored for dicts.
+- A dict `{input_name: array (T,) or (T, *dim)}`, or flat `(T, prod(dim))` in row-major order; another layout of as many values raises `ValueError` rather than being reordered (axes of size 1 aside). Keys must be the model's input names, including target-only inputs. `format` is ignored for dicts.
 - A `pd.DataFrame`, a `.csv` path, or a folder of CSVs matching `csv_glob`. CSV files are read with `pd.read_csv(sep=delimiter, header=header)`. `format={"input": "col" | int_index | ["c1","c2",...]}` maps inputs to columns; a list is used for `dim>1`. Unmapped columns are ignored, and an input not listed in `format` is looked up by its own name. n/a cells are kept as NaN, with a warning.
 - A list of dicts or DataFrames, or a folder with several files: several **simulations**. Windows never cross simulations, and lengths may differ.
 

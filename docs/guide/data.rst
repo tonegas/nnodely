@@ -23,7 +23,9 @@ Sources
 -------
 
 A **dictionary** maps every input name to one array per signal. The first axis
-is time, the remaining ones are the input's features:
+is time, the remaining ones are the input's features: laid out as its ``dim``,
+or flat in row-major order. Another layout of as many values raises an error
+rather than being reordered:
 
 .. code-block:: python
 
