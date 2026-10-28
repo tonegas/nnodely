@@ -350,13 +350,22 @@ class DataLoader:
             raise ValueError(f"'{label}' is empty.")
 
         missing = []
+        left_out = set()
         for name in self.input_specs:
+            absent = []
             for column in self._columns(name):
                 if isinstance(column, (int, np.integer)):
                     if not 0 <= column < df.shape[1]:
-                        missing.append(f"{name} -> index {column}")
+                        absent.append(f"{name} -> index {column}")
                 elif column not in df.columns:
-                    missing.append(f"{name} -> '{column}'")
+                    absent.append(f"{name} -> '{column}'")
+            # An optional input none of whose columns is there reads zeros.
+            if name in self.model.optional_inputs and len(absent) == len(
+                self._columns(name)
+            ):
+                left_out.add(name)
+            else:
+                missing.extend(absent)
         if missing:
             raise ValueError(
                 f"'{label}' is missing required columns or indices: {missing}"
@@ -364,6 +373,11 @@ class DataLoader:
 
         data = {}
         for name in self.input_specs:
+            if name in left_out:
+                data[name] = np.zeros(
+                    (len(df), *self.input_nodes[name].dim), self.dtype
+                )
+                continue
             values = np.stack(
                 [
                     (
@@ -379,12 +393,17 @@ class DataLoader:
         return data
 
     def _read_mapping(self, mapping: dict, label: str) -> Dict[str, np.ndarray]:
-        missing = [name for name in self.input_specs if name not in mapping]
-        if missing:
-            raise ValueError(f"'{label}' is missing required inputs: {missing}")
+        absent = [name for name in self.input_specs if name not in mapping]
+        missing = [name for name in absent if name not in self.model.optional_inputs]
+        if missing or len(absent) == len(self.input_specs):
+            raise ValueError(
+                f"'{label}' is missing required inputs: {missing or absent}"
+            )
 
         data = {}
         for name in self.input_specs:
+            if name in absent:
+                continue
             values = mapping[name]
             if isinstance(values, (pd.Series, pd.DataFrame)):
                 values = values.to_numpy(dtype=self.dtype)
@@ -395,7 +414,14 @@ class DataLoader:
             raise ValueError(f"Input arrays are not aligned in length: {lengths}.")
         if min(lengths.values()) == 0:
             raise ValueError(f"'{label}' contains an empty input array.")
-        return data
+        # An optional input left out reads zeros.
+        length = next(iter(lengths.values()))
+        return {
+            name: data[name]
+            if name in data
+            else np.zeros((length, *self.input_nodes[name].dim), self.dtype)
+            for name in self.input_specs
+        }
 
     def _as_samples(self, name: str, values: Any, label: str) -> np.ndarray:
         """Check the feature count against dim and lay the input out as [samples, *dim]."""

@@ -22,7 +22,7 @@ Derivatives
 
 Three layers differentiate a stream: :class:`~nnodely.Differentiate` with respect to an
 input, and :class:`~nnodely.DerivativeStep` and :class:`~nnodely.Derivative` with
-respect to time, over a window and along a horizon.
+respect to time, over a window and step by step in a ModelyLoop.
 
 **With respect to an input**, ``Differentiate`` computes the derivative by the backend's
 automatic differentiation. It accounts for every relation between the input
@@ -96,42 +96,40 @@ The Euler rule is the exact inverse of the time derivative with the same
 ``init``: ``IntegrateStep(dt=dt)(x0, DerivativeStep(dt=dt)(x0, x))``
 returns ``x``.
 
-:class:`~nnodely.Integrate` integrates along a **horizon** instead: the
-outermost sequence axis of the rate, one sample per step. It is a block built from an
-``IntegrateStep`` and a :class:`~nnodely.Loop` that feeds each integrated
-value back as the state of the next step. A dynamic horizon (``seq=-1``)
-follows the length of the data at every call, with no rebuild. The rules, and
-the results on the same samples, are those of ``IntegrateStep``:
+:class:`~nnodely.Integrate` integrates one step at a time instead, in a
+:class:`~nnodely.ModelyLoop`: the rate is one sample of a step, and the
+integral is an Input closed with its update, which the ModelyLoop feeds back
+with all its other closed Inputs, in a single loop. The rules, and the results
+on the same samples, are those of ``IntegrateStep``. Every Input of a
+ModelyLoop carries the horizon, one element per step, and ``init`` reads its
+first step:
 
 .. code-block:: python
 
-   acc = Input("acc", seq=-1, sw=1)   # one acceleration per step
+   acc = Input("acc", sw=1)           # one acceleration per step
    v0 = Input("v0", sw=1)
    velocity = Integrate(solver="trapezoidal", dt=dt, init=v0)(acc)
    position = Integrate(solver="trapezoidal", dt=dt, init=0.0)(velocity)
-   kinematics = Modely("kinematics", inputs=[acc, v0],
-                       outputs=[Output("velocity", velocity), Output("position", position)])
+   kinematics = ModelyLoop("kinematics", inputs=[acc, v0],
+                           outputs=[Output("velocity", velocity), Output("position", position)])
    kinematics.build()
-   result = kinematics({"acc": np.ones((1, 30, 1, 1)), "v0": np.zeros((1, 1, 1))})
+   result = kinematics({"acc": np.ones((1, 30, 1, 1)), "v0": np.zeros((1, 30, 1, 1))})
    print(result["position"].shape)   # (1, 30, 1, 1): one value per step
 
-:class:`~nnodely.Derivative` differentiates along a horizon, as ``Integrate``
-integrates: the stencil, its arguments and the results on the same samples
-are those of ``DerivativeStep``. It needs no ``Loop``: a derivative reads the
-earlier steps of the signal, not of its own result, so every step is computed
-at once, whatever the length of the horizon. ``init`` is the value just before
-the first step, or the ``window - 1`` values a longer stencil reads, along its
-window. With the same ``init``, ``Integrate``'s Euler rule inverts it:
+:class:`~nnodely.Derivative` differentiates one step at a time, as
+``Integrate`` integrates: the ``window - 1`` samples before the step are an
+Input closed with the signal, and the stencil, its arguments and the results
+on the same samples are those of ``DerivativeStep``. ``init`` is the value
+just before the first step, or the ``window - 1`` values a longer stencil
+reads, along its window. With the same ``init``, ``Integrate``'s Euler rule
+inverts it:
 
 .. code-block:: python
 
-   x = Input("x", seq=-1, sw=1)       # one position per step, e.g. a Loop trajectory
+   x = Input("x", sw=1)               # one position per step
    x0 = Input("x0", sw=1)
    v = Derivative(dt=dt, init=x0)(x)
-   x_again = Integrate(dt=dt, init=x0)(v)
-
-``DerivativeStep`` does not differentiate a trajectory: each step of it is a
-one-sample window, whose derivative reads only ``init``.
+   x_again = Integrate(dt=dt, init=x0)(v)   # x again, in a ModelyLoop on x and x0
 
 One ODE step
 ------------

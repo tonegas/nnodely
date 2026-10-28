@@ -58,12 +58,19 @@ class Scope:
         self,
         memo: dict[Node, Any] | None = None,
         values: dict[Node, Any] | None = None,
+        pending: list | None = None,
     ) -> None:
         self.memo: dict[Node, Any] = {} if memo is None else memo
         self.calls: dict[Node, "Scope"] = {}
         # The Parameters and Constants inlined, one copy each, shared with
         # every call: they are one object in every model that reads them.
         self.values: dict[Node, Any] = {} if values is None else values
+        # The closed Inputs inlined, with the scope of each, when what closes
+        # them is inlined too (see flatten_closed); None leaves them as they are.
+        self.pending = pending
+        # The streams a call gives the closed Inputs its model declares, when
+        # what closes them is inlined: their initial values.
+        self.inits: dict[Node, Any] = {}
 
     def merged_memo(self) -> dict[Node, Any]:
         """Every node inlined anywhere, with the enclosing scope taking priority.
@@ -85,6 +92,7 @@ def flatten_node(node: Node, scope: Scope) -> Any:
     from nnodely.core.modely import IntermediateOutput
     from nnodely.core.layer import Layer
     from nnodely.layers.parameter import _Value
+    from nnodely.layers.input import Input
 
     if node in scope.memo:
         return scope.memo[node]
@@ -102,11 +110,27 @@ def flatten_node(node: Node, scope: Scope) -> Any:
             # The arguments belong to the calling graph, so they are inlined in
             # the enclosing scope and stay shared between calls; only the
             # bindings they produce are local to this one.
-            bindings = {
+            arguments = {
                 internal_input: flatten_node(external_input, scope)
                 for internal_input, external_input in model_call.inputs_map.items()
             }
-            call_scope = Scope({**scope.memo, **bindings}, scope.values)
+            # A closed Input the model declares reads its argument as data: at
+            # every step in a Modely; in a ModelyLoop it keeps its feedback,
+            # and the argument is its initial value.
+            inits: dict[Node, Any] = {
+                internal_input: argument
+                for internal_input, argument in arguments.items()
+                if scope.pending is not None
+                and isinstance(internal_input, Input)
+                and internal_input.update is not None
+            }
+            bindings = {
+                internal_input: argument
+                for internal_input, argument in arguments.items()
+                if internal_input not in inits
+            }
+            call_scope = Scope({**scope.memo, **bindings}, scope.values, scope.pending)
+            call_scope.inits = inits
             scope.calls[model_call] = call_scope
 
         internal_output = model_call.outputs_map[node]
@@ -125,7 +149,31 @@ def flatten_node(node: Node, scope: Scope) -> Any:
     scope.memo[node] = new_node
     if isinstance(node, _Value):
         scope.values[node] = new_node
+    if (
+        scope.pending is not None
+        and isinstance(node, Input)
+        and node.update is not None
+    ):
+        scope.pending.append((new_node, node, scope))
     return new_node
+
+
+def flatten_closed(scope: Scope) -> None:
+    """Inline the stream every closed Input inlined in ``scope`` is closed
+    with, and its init, each in the call the Input was inlined in, and so on
+    for the closed Inputs those read in turn.
+
+    They are no predecessors of the Input, and wait for the graph to be
+    inlined: an update can read the output of a call whose arguments read the
+    Input, and inlined on reaching the Input it would make that call twice.
+    """
+    while scope.pending:
+        inlined, source, source_scope = scope.pending.pop(0)
+        inlined.update = flatten_node(source.update, source_scope)
+        if source in source_scope.inits:
+            inlined.init = source_scope.inits[source]
+        elif isinstance(source.init, Node):
+            inlined.init = flatten_node(source.init, source_scope)
 
 
 def flatten(model):
@@ -214,6 +262,18 @@ def toposort_outputs(outputs: list[Output]) -> list[Node]:
             dfs(output)
 
     return order
+
+
+def _read_inputs(roots) -> dict[str, Any]:
+    """Every Input ``roots`` read, by name, inside the models they call too,
+    in the order the graph reaches them."""
+    from nnodely.layers.input import Input
+
+    scope = Scope()
+    flat = [flatten_node(root, scope) for root in roots]
+    return {
+        node.name: node for node in toposort_outputs(flat) if isinstance(node, Input)
+    }
 
 
 def _streams_from(roots) -> list[Stream]:

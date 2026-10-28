@@ -103,6 +103,7 @@ class ModelSerializer:
                     if model._roll_callbacks
                     else None
                 ),
+                "optional_inputs": sorted(model.optional_inputs),
             },
             "nodes": nodes,
             "inputs": [node_ids[x] for x in flat.inputs],
@@ -173,6 +174,7 @@ class ModelSerializer:
             inputs=inputs,
             outputs=outputs,
         )
+        model.optional_inputs = set(data["model"].get("optional_inputs", ()))
         roll = data["model"].get("roll")
         if roll is not None:
             model.rollback(

@@ -5,7 +5,7 @@ every other layer::
 
     Differentiate(order=1, respect_to=x)(fun)   # d fun / d x   (automatic differentiation)
     DerivativeStep(order=1, dt=0.1)(fun)        # d fun / d t   over its window
-    Derivative(order=1, dt=0.1)(fun)            # d fun / d t   along its sequence
+    Derivative(order=1, dt=0.1)(fun)            # d fun / d t   step by step
 
 ``Differentiate`` is exact: the sub-graph that produces ``fun`` is differentiated
 by the backend's automatic differentiation, so any relation in between
@@ -13,7 +13,7 @@ by the backend's automatic differentiation, so any relation in between
 ``DerivativeStep`` is a causal finite difference along ``fun``'s own window
 that keeps its length: one derivative per sample, the oldest one reading the
 ``init`` condition; it is the inverse of ``IntegrateStep``. ``Derivative`` is
-the same stencil along the horizon of ``fun``'s sequence, the inverse of
+the same stencil across the steps of a ModelyLoop, the inverse of
 ``Integrate``.
 """
 
@@ -309,106 +309,6 @@ class TimeDerivativeImpl(keras.layers.Layer):
             {
                 "coefficients": self.coefficients,
                 "axis": self.axis,
-                "init_time": self.init_time,
-            }
-        )
-        return config
-
-
-@keras.saving.register_keras_serializable(package="nnodely")
-class SequenceDerivativeImpl(keras.layers.Layer):
-    """Causal finite difference along the horizon, tensor axis 1: one
-    derivative per step, however many steps there are.
-
-    The stencil reads ``len(coefficients) - 1`` steps before the first; they
-    come from the initial condition - its samples, laid out along its window,
-    moved onto the horizon, or a value without a window (``init_time=0``),
-    reused - or are taken as zero. The derivative of step k
-    weighs the padded steps k ... k + past, so each coefficient multiplies
-    one shifted slice of the padded horizon, as long as the horizon itself:
-    its length need not be known when the layer is built.
-    """
-
-    def __init__(
-        self,
-        coefficients,
-        seq_rank: int,
-        init_seq_rank: int = 0,
-        init_dim_rank: int = 1,
-        init_time: int = 1,
-        name=None,
-        **kwargs,
-    ):
-        super().__init__(name=name, **kwargs)
-        self.coefficients = tuple(float(c) for c in coefficients)
-        self.seq_rank = int(seq_rank)
-        self.init_seq_rank = int(init_seq_rank)
-        self.init_dim_rank = int(init_dim_rank)
-        self.init_time = int(init_time)
-
-    @property
-    def past(self) -> int:
-        """Steps of history the stencil reads before the horizon's first."""
-        return len(self.coefficients) - 1
-
-    def _history(self, init, dim_rank: int):
-        """The initial condition laid out as steps of the horizon, with axes
-        of size 1 along those it broadcasts over."""
-        # Its samples, on its window, become steps of the horizon; a value
-        # without a window is one step.
-        if not self.init_time:
-            init = keras.ops.expand_dims(init, 1)
-        elif self.init_seq_rank:
-            init = keras.ops.moveaxis(init, 1 + self.init_seq_rank, 1)
-        # The sequence axes besides the horizon, which it may leave out.
-        for _ in range(self.seq_rank - 1 - self.init_seq_rank):
-            init = keras.ops.expand_dims(init, 2)
-        # The window of each step, and the leading dims a scalar leaves out.
-        init = keras.ops.expand_dims(init, 1 + self.seq_rank)
-        for _ in range(dim_rank - self.init_dim_rank):
-            init = keras.ops.expand_dims(init, 2 + self.seq_rank)
-        return init
-
-    def call(self, inputs):
-        if isinstance(inputs, (list, tuple)):
-            x, init = inputs[0], inputs[1] if len(inputs) > 1 else None
-        else:
-            x, init = inputs, None
-
-        # One step of zeros shaped like the first: it stands in for a missing
-        # initial condition and spreads a given one over the axes it
-        # broadcasts along.
-        reference = keras.ops.zeros_like(slice_axis(x, 1, slice(0, 1)))
-        if init is None:
-            history = reference
-        else:
-            dim_rank = len(x.shape) - 2 - self.seq_rank
-            history = self._history(init, dim_rank) + reference
-        if self.init_time != self.past:
-            history = keras.ops.repeat(history, self.past, axis=1)
-
-        padded = keras.ops.concatenate([history, x], axis=1)
-        result = None
-        for offset, coefficient in enumerate(self.coefficients):
-            # The steps offset ... offset + horizon of the padded horizon.
-            steps = slice_axis(padded, 1, slice(offset, offset - self.past or None))
-            term = coefficient * steps
-            result = term if result is None else result + term
-        return result
-
-    def compute_output_shape(self, input_shape):
-        if isinstance(input_shape[0], (list, tuple)):
-            return tuple(input_shape[0])
-        return tuple(input_shape)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "coefficients": self.coefficients,
-                "seq_rank": self.seq_rank,
-                "init_seq_rank": self.init_seq_rank,
-                "init_dim_rank": self.init_dim_rank,
                 "init_time": self.init_time,
             }
         )
@@ -712,9 +612,9 @@ class DerivativeStep(_FiniteDifference):
     signal and composes with ``IntegrateStep``, whose cumulative form is its
     inverse: integrating ``DerivativeStep(dt=dt)(x0, x)`` with the same
     ``init`` returns ``x`` (exactly for the default first-order, two-sample
-    stencil). A one-sample window is one step, ``(x - init) / dt``. Along the
-    sequence of a stream - a rollout - see :class:`Derivative`; for a
-    derivative with respect to an Input, see :class:`Differentiate`.
+    stencil). A one-sample window is one step, ``(x - init) / dt``. Across
+    the steps of a ModelyLoop, see :class:`Derivative`; for a derivative
+    with respect to an Input, see :class:`Differentiate`.
 
     * ``init``, given first when the layer is called - the initial condition,
       the sample(s) just before the window, which the oldest derivative needs.
@@ -778,33 +678,30 @@ class DerivativeStep(_FiniteDifference):
 
 class Derivative(_FiniteDifference):
     """
-    Derivative of a Stream with respect to time, along the horizon of its
-    sequence::
+    Derivative of a Stream with respect to time, one step at a time, in a
+    :class:`~nnodely.ModelyLoop`::
 
         Derivative(order=1|2, dt=0.1, init=x0)(fun)     # d fun / d t
 
-    The counterpart of :class:`DerivativeStep` along a sequence, as
-    :class:`Integrate` is :class:`IntegrateStep`'s: ``fun`` carries the
-    horizon as its outermost sequence axis, of fixed length (``seq=N``) or
-    dynamic (``seq=-1``, followed at call time), and one sample, ``T=1``, per
-    step - the trajectory of a :class:`Loop`, or an Input with a sequence.
-    The result is shaped like ``fun``: its element ``k`` is the derivative at
-    step ``k``, estimated from the steps up to ``k``. The stencil is
-    ``DerivativeStep``'s - ``order``, ``window`` and ``poly_order`` mean the
-    same - so laid out along a time window instead, the same samples give
-    the same derivatives, and ``Integrate`` with the same ``init`` inverts it
-    (exactly for the default first-order, two-sample stencil).
+    The counterpart of :class:`DerivativeStep` across the steps of a
+    ModelyLoop, as :class:`Integrate` is :class:`IntegrateStep`'s: ``fun`` is
+    one sample of a step, ``T=1`` and no sequence, and the ``window - 1``
+    samples before it are an Input closed with ``fun``, which the ModelyLoop
+    feeds back with all its other closed Inputs - no Loop of its own. The
+    result is the derivative at this step, estimated from the steps up to it.
+    The stencil is ``DerivativeStep``'s - ``order``, ``window`` and
+    ``poly_order`` mean the same - so laid out along a time window instead,
+    the same samples give the same derivatives, and ``Integrate`` with the
+    same ``init`` inverts it (exactly for the default first-order, two-sample
+    stencil).
 
-    No :class:`Loop` is needed: a derivative reads the earlier steps of the
-    signal, not of its own result, so every step is computed at once from
-    shifted slices of the horizon. Further sequence axes (``seq=(H, M)``:
-    horizon H) are differentiated apart.
-
-    ``init`` is the value just before the first step: a Stream of one sample
-    (reused for every step of history a longer stencil reads) or of the
-    ``window - 1`` samples it reads, oldest first, along its window; its dim
-    a scalar or ``fun``'s; its sequence none or ``fun``'s without the
-    horizon. A number (kept as a Constant), or ``None`` for zero.
+    ``init`` is the value just before the first step, as :meth:`Input.close`
+    takes it: one sample (reused for every step of history a longer stencil
+    reads) or the ``window - 1`` samples it reads, oldest first, along its
+    window, its dim a scalar or ``fun``'s - a number, a Parameter or a
+    Constant, or an Input, whose first step the ModelyLoop reads; ``None``
+    for zero. Built as a :class:`~nnodely.Modely` instead, nothing feeds the
+    past samples back: they are read from data, as every closed Input is.
     """
 
     def __init__(
@@ -817,6 +714,7 @@ class Derivative(_FiniteDifference):
         name=None,
     ):
         self.init = init
+        self._calls = 0
         super().__init__(
             order=order,
             dt=dt,
@@ -826,73 +724,46 @@ class Derivative(_FiniteDifference):
             init=init,
         )
 
-    def _init_stream(self):
-        """The initial condition as a node of the graph, if there is one."""
-        if self.init is None or isinstance(self.init, Stream):
-            return self.init
-        return Stream._coerce_operand(float(self.init))
-
-    def __call__(self, inputs):
-        if not isinstance(inputs, (list, tuple)):
-            inputs = [inputs]
-        # The initial condition is a predecessor like any other, but it is
-        # configured on the layer rather than passed at the call, so it is
-        # appended here and reconnected the same way when reloading.
-        if inputs and all(isinstance(value, Stream) for value in inputs):
-            init = self._init_stream()
-            inputs = [inputs[0]] if init is None else [inputs[0], init]
-        return super().__call__(inputs)
-
-    def output_shape(self, *inputs):
-        function = inputs[0]
-        self._check_function(function)
-        self._needs_window(function)
-        if not function.seq:
-            raise ValueError(
-                f"{self.name}: Derivative runs along the sequence of the signal, "
-                "its rollout, and this signal has none. Declare it on an Input "
-                "with a sequence, e.g. Input('x', seq=-1), or differentiate a "
-                "time window with DerivativeStep."
+    def __call__(self, function):
+        if isinstance(function, (list, tuple)) and len(function) == 1:
+            function = function[0]
+        if not isinstance(function, Stream):
+            raise TypeError(
+                f"{self.name}: Derivative expects a Stream input, got "
+                f"{type(function).__name__}."
             )
+        if function.seq:
+            raise ValueError(
+                f"{self.name}: Derivative takes the signal of one step of a "
+                f"ModelyLoop, and this signal carries a sequence, {function.shape}. "
+                "Declare it one sample per step, an Input with sw=1 and no seq, "
+                "and build the model with ModelyLoop."
+            )
+        self._needs_window(function)
         if function.time != 1:
             raise ValueError(
                 f"{self.name}: Derivative takes one sample per step, but the "
                 f"signal carries {function.time} time samples. Differentiate a "
                 "time window with DerivativeStep."
             )
-        if len(inputs) > 1:
-            self._validate_init(
-                function,
-                inputs[1],
-                function.seq[1:],
-                "the signal's without the horizon",
-            )
-        # One derivative per step: the result stays aligned with the signal.
-        return function.shape
+        if isinstance(self.init, Stream):
+            self._validate_init(function, self.init, (), "the signal's")
+
+        self._calls += 1
+        call_name = self.name if self._calls == 1 else f"{self.name}_{self._calls}"
+        past = Input(f"{call_name}_past", dim=function.dim, sw=self.past)
+        derivative = DerivativeStep(
+            order=self.order,
+            dt=self.dt,
+            window=self.window,
+            poly_order=self.poly_order,
+            name=f"{call_name}_step",
+        )(past, function)
+        past.close(function, init=self.init)
+        return derivative
 
     def build_layer(self):
-        init = self.preds[1] if len(self.preds) > 1 else None
-        return SequenceDerivativeImpl(
-            coefficients=self._coefficients(),
-            seq_rank=self.preds[0].shape.seq_rank,  # type: ignore[union-attr]
-            init_seq_rank=0 if init is None else init.shape.seq_rank,  # type: ignore[union-attr]
-            init_dim_rank=1 if init is None else init.shape.dim_rank,  # type: ignore[union-attr]
-            init_time=1 if init is None else init.shape.time or 0,  # type: ignore[union-attr]
-            name=self.name,
+        raise RuntimeError(
+            f"{self.name}: a Derivative is the DerivativeStep it calls on an "
+            "Input closed with its signal, not a layer of its own."
         )
-
-    @classmethod
-    def from_config(cls, config: dict, preds=None):
-        # The initial condition was serialized as this node's second
-        # predecessor, so it is rebuilt with the rest of the graph.
-        layer = cls(
-            order=config.get("order", 1),
-            dt=config["dt"],
-            init=preds[1] if preds and len(preds) > 1 else None,
-            window=config.get("window"),
-            poly_order=config.get("poly_order"),
-            name=config["name"],
-        )
-        if preds:
-            return layer(preds[0])
-        return layer

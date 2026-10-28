@@ -9,6 +9,7 @@ from nnodely.core.dag import (
     flatten,
     _flatten_graph,
     _parameters,
+    _read_inputs,
     _source_input_tensors,
     _source_names,
 )
@@ -36,7 +37,7 @@ import numpy as np
 from typing import cast
 
 from nnodely.layers.output import Output
-from nnodely.layers.input import Input
+from nnodely.layers.input import Input, Inputs
 from nnodely.core.layer import Layer, _claim_keras_name
 
 import keras
@@ -72,6 +73,8 @@ class Modely:
             None  # Keras model of the declared outputs only, without minimizers
         )
         self.inference_inputs = []  # List of Input nodes the declared outputs read (no minimizer-only input)
+        # Inputs the data may leave out: they read zeros.
+        self.optional_inputs: set[str] = set()
         self.minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
         self._minimizer_outputs: dict[Node, str] = {}  # minimizer side -> graph output
         self._roll_callbacks: dict[Input, Stream] = {}
@@ -116,13 +119,34 @@ class Modely:
         # minimizer reads, such as a target, is neither needed nor passed on.
         if self.inference_model is None:
             raise ValueError("Model is not built. Call build() before calling it.")
-        missing = [inp.name for inp in self.inference_inputs if inp.name not in inputs]
+        given = [
+            inputs[inp.name] for inp in self.inference_inputs if inp.name in inputs
+        ]
+        left_out = [inp for inp in self.inference_inputs if inp.name not in inputs]
+        missing = [
+            inp.name
+            for inp in left_out
+            if inp.name not in self.optional_inputs or not given
+        ]
         if missing:
             raise ValueError(
                 f"Model {self.name!r} reads the inputs {missing}, which are "
                 "missing from the data it was called with."
             )
-        inputs = {inp.name: inputs[inp.name] for inp in self.inference_inputs}
+        # An optional input left out reads zeros, one step of a dynamic
+        # sequence: a ModelyLoop starts from the first step of it alone.
+        batch = np.shape(given[0])[0] if given else 0
+        zeros = {
+            inp.name: np.zeros(
+                (batch, *(1 if size is None else size for size in inp.shape.tuple)),
+                np.float32,
+            )
+            for inp in left_out
+        }
+        inputs = {
+            inp.name: inputs[inp.name] if inp.name in inputs else zeros[inp.name]
+            for inp in self.inference_inputs
+        }
         return self.inference_model(inputs)
 
     def _check_block_input(self, node: Input, stream) -> None:
@@ -205,6 +229,25 @@ class Modely:
                     f"{node.name!r}. The data is fed by input name, so every "
                     "Input of a model needs a name of its own."
                 )
+        # A closed Input the model declares among its inputs is fed from data
+        # on purpose; any other is a feedback a ModelyLoop was meant to close.
+        declared = {node.name for node in self.inputs}
+        open_feedback = sorted(
+            {
+                node.name
+                for node in self.train_inputs
+                if node.update is not None and node.name not in declared
+            }
+        )
+        if open_feedback:
+            warnings.warn(
+                f"Model {self.name!r} reads the closed Inputs {open_feedback}, "
+                "which only a ModelyLoop feeds back: built as a Modely, they are "
+                "read from data, one step at a time. Build the model that closes "
+                "them with ModelyLoop, or declare them among the inputs.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         flat_graph_outputs = [flatten_memo[node] for node in graph_outputs]
         keras_inputs, keras_outputs = self._resolve_graph(
@@ -486,6 +529,49 @@ class Modely:
         list of the Parameter objects, printed as a table of their names,
         shapes, numbers of values and whether training changes them."""
         return Parameters(_parameters(self), title=f"Parameters of {self.name}")
+
+    @property
+    def all_inputs(self) -> Inputs:
+        """Every Input the model reads - declared or not, inside the models it
+        calls, or only by a minimizer - and, in a ModelyLoop, every Input fed
+        back inside its step. A list of the Input objects, printed as a table
+        of their shapes and of how each is fed: whether it is declared, the
+        stream it is closed with, what the data must hold of it and, fed back
+        in a ModelyLoop, what it starts from."""
+        return Inputs(self._input_rows(), title=f"Inputs of {self.name}")
+
+    def _input_rows(self) -> list[dict]:
+        """A row of :attr:`all_inputs` per Input the graph reads."""
+        declared = {node.name for node in self.inputs}
+        sides = [
+            side
+            for minimizer in self.minimizers
+            for side in (minimizer["source"], minimizer["target"])
+        ]
+        forward = _read_inputs(self.outputs)
+        rollback = {
+            node.name: f"{stream.name} (rollback)"
+            for node, stream in self._roll_callbacks.items()
+        }
+        rows = []
+        for name, node in _read_inputs([*self.outputs, *sides]).items():
+            if name not in forward:
+                data = "target"
+            else:
+                data = "optional" if name in self.optional_inputs else "required"
+            rows.append(
+                {
+                    "input": node,
+                    "seq": tuple(node.seq),
+                    "declared": name in declared,
+                    "closed with": rollback.get(
+                        name, None if node.update is None else node.update.name
+                    ),
+                    "data": data,
+                    "starts from": None,
+                }
+            )
+        return rows
 
     def freeze(self):
         """Keep every Parameter of the model as it is through training: those
