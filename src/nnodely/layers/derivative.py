@@ -417,18 +417,21 @@ class Differentiate(Layer):
                 "replaced by the streams it is called with, so differentiate in "
                 "the model where the input is declared."
             )
-        if self._layer is None:
-            function_model = keras.Model(
-                inputs=sources,
-                outputs=tensor,
-                name=f"{self.name}_function",
-            )
-            self._layer = InputDerivativeImpl(
-                function_model=function_model,
-                wrt_index=names.index(self.wrt_name),
-                order=self.order,
-                name=self.name,
-            )
+        # Built for the relation of this application: one built for another -
+        # in an earlier graph, or by another call of the block holding it -
+        # would compute that one. Its weights are those of the relation's
+        # layers, shared through their own nodes, so none is lost.
+        function_model = keras.Model(
+            inputs=sources,
+            outputs=tensor,
+            name=f"{self.name}_function",
+        )
+        self._layer = InputDerivativeImpl(
+            function_model=function_model,
+            wrt_index=names.index(self.wrt_name),
+            order=self.order,
+            name=self.name,
+        )
         return self._layer(sources)
 
     # ------------------------------------------------------------------

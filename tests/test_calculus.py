@@ -202,6 +202,39 @@ def test_differentiate_through_a_linear_with_parameter_weights():
     np.testing.assert_allclose(result.ravel(), [1.0, 1.0, 2.0], rtol=1e-5)
 
 
+@pytest.mark.parametrize("block_first", [True, False])
+def test_differentiate_in_a_block_differentiates_the_relation_of_each_call(
+    block_first,
+):
+    # The function model was built once, in the first graph, and fed the
+    # sources of every later relation: the call on 2c gave 3c, 21 where 42.
+    a, b = Input("dcall_a", sw=1), Input("dcall_b", sw=1)
+    weight = Parameter("dcall_w", value=[[3.0]])
+    relation = Linear(features=1, kernel=weight, bias=False)(a) * b  # d/da = 3b
+    derivative = Differentiate(respect_to=a)(relation)
+    block = Modely(
+        "dcall_block", inputs=[a, b], outputs=[Output("dcall_d", derivative)]
+    )
+    c = Input("dcall_c", sw=1)
+    outer = Modely(
+        "dcall_outer",
+        inputs=[a, c],
+        outputs=[
+            Output("dcall_once", block([a, c])),
+            Output("dcall_twice", block([a, c * 2.0])),
+        ],
+    )
+    for model in (block, outer) if block_first else (outer, block):
+        model.build()
+
+    one = np.ones((1, 1, 1), np.float32)
+    inner = block({"dcall_a": one, "dcall_b": one * 5.0})["dcall_d"]
+    np.testing.assert_allclose(to_numpy(inner).ravel(), [15.0])
+    result = outer({"dcall_a": one, "dcall_c": one * 7.0})
+    np.testing.assert_allclose(to_numpy(result["dcall_once"]).ravel(), [21.0])
+    np.testing.assert_allclose(to_numpy(result["dcall_twice"]).ravel(), [42.0])
+
+
 @pytest.mark.slow
 def test_differentiate_trains_a_parameter_kernel():
     # The derivative of k * x is k: one SGD step on (k - 3)^2 at lr 0.25 moves
