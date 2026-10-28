@@ -98,6 +98,15 @@ class Modely:
                     "it, or with a list of streams, one per input, to use it as "
                     f"a block; got {type(inputs).__name__}."
                 )
+            # A block is inlined once, so the rollback would be lost.
+            if self._roll_callbacks:
+                raise ValueError(
+                    f"Model {self.name!r} has a rollback, which a block cannot "
+                    "carry: inlined, it would be evaluated once. For its one-step "
+                    "model, call a Modely declared on its inputs and outputs "
+                    "without rollback, which shares its weights; to unroll it "
+                    "inside a graph, use Roll or Loop."
+                )
             if len(inputs) != len(self.inputs):
                 names = [node.name for node in self.inputs]
                 raise ValueError(

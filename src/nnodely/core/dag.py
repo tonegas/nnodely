@@ -190,7 +190,20 @@ def flatten_closed(scope: Scope) -> None:
 
 
 def flatten(model):
-    return _flatten_graph(model.name, model.inputs, model.outputs, closed=True)
+    flat, memo = _flatten_graph(
+        model.name, model.inputs, model.outputs, return_memo=True, closed=True
+    )
+    # The rollback is the model's, not its graph's: carried over to the copies.
+    if model._roll_callbacks:
+        flat.rollback(
+            {
+                memo[node]: memo[stream]
+                for node, stream in model._roll_callbacks.items()
+            },
+            steps=model._roll_steps,
+            name=model._roll_name,
+        )
+    return flat
 
 
 def _flatten_graph(

@@ -246,6 +246,42 @@ def test_model_multi_rollback(tmp_path):
     test.export_html(out_dir=tmp_path, filename="test_model_multi_rollback")
 
 
+def test_a_model_with_rollback_is_no_block_and_flattens_with_it():
+    # Called as a block, the model was inlined once and its rollback lost: 6
+    # where calling it gave 20. flatten() lost it as well.
+    x = Input("rb_block_x", sw=3)
+    taps = Parameter("rb_block_taps", value=np.ones(3))
+    fir = Fir(features=1, kernel=taps, bias=False, name="rb_block_fir")(x)
+    model = Modely("rb_block", inputs=[x], outputs=[Output("rb_block_out", fir)])
+    model.rollback({x: fir}, steps=3)
+    outer_x = Input("rb_block_outer_x", sw=3)
+    for _ in ("declared", "built"):
+        with pytest.raises(ValueError, match="'rb_block' has a rollback"):
+            model([outer_x])
+        model.build()
+    taps.param.assign(np.full(3, 2.0, np.float32))
+
+    window = np.array([1.0, 2.0, 3.0], np.float32).reshape(1, 3, 1)
+    # [1, 2, 3] -> 12 -> [2, 3, 12] -> 34 -> [3, 12, 34] -> 98
+    rolled = to_numpy(model({"rb_block_x": window})["rb_block_out"])
+    np.testing.assert_allclose(rolled.ravel(), [98.0])
+    flat = model.flatten().build()
+    np.testing.assert_allclose(
+        to_numpy(flat({"rb_block_x": window})["rb_block_out"]), rolled
+    )
+
+    # As the error says: the one-step model is a Modely of the same graph, and
+    # shares its weights.
+    one_step = Modely("rb_block_step", inputs=model.inputs, outputs=model.outputs)
+    outer = Modely(
+        "rb_block_outer",
+        inputs=[outer_x],
+        outputs=[Output("rb_block_o", one_step([outer_x]))],
+    ).build()
+    result = outer({"rb_block_outer_x": window})["rb_block_o"]
+    np.testing.assert_allclose(to_numpy(result).ravel(), [12.0])
+
+
 def test_nested_closed_loop(tmp_path):
     # ------- Model with closed loop connections -------
     # Define a simple model to be used in the loop

@@ -366,7 +366,8 @@ Reproducibility: call `set_seed(int)` before creating layers and data. It seeds 
 - It evaluates the model `steps` times. After each evaluation, the stream's one-sample value is appended to the input's window and the oldest sample is dropped. Model outputs are those of the **final** evaluation.
 - Inputs that are not fed back, and targets, are held at their window values for every step. Align the target yourself: `data = {"x": x[:-k], "F": F[:-k], "x_ahead": x[k:]}` with target `Input("x_ahead", sw=1)` (recipe R8).
 - Several feedbacks at once: `rollback({"x": "x_next", "v": "v_next"}, steps=10)`.
-- Supports `save` / `load`.
+- Supports `save` / `load`; `flatten()` keeps it.
+- A model with a rollback cannot be called as a block (`ValueError`): inlined, it would be evaluated once. For its one-step model call `Modely(name, inputs=m.inputs, outputs=m.outputs)`, declared without rollback, which shares the weights; to unroll inside a graph use `Roll` or `Loop`.
 
 ### 10.2 `Loop(f, callback, init=None, name=None, length=None, collect=True)(inputs=None)`
 - `f`: the body `Modely` (built automatically if needed). Its own objectives are ignored (§1.11).

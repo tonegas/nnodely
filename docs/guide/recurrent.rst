@@ -68,6 +68,11 @@ aligned in the data:
 Several inputs can be fed back at once: ``rollback({"x": "x_next", "v":
 "v_next"}, steps=10)``. Inputs and streams can be given by name.
 
+A model with a rollback cannot be called as a block, which would evaluate it
+once. Its one-step model is a ``Modely`` declared on the same inputs and
+outputs without rollback, sharing its weights; to unroll a model inside a
+graph, use ``Roll`` or ``Loop``.
+
 Loop
 ----
 
