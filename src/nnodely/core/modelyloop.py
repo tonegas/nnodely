@@ -103,7 +103,7 @@ class ModelyLoop(Modely):
 
         # The step, with every model it calls inlined: a closed Input inside
         # one is copied once per call, together with what closes it.
-        scope = Scope(pending=[])
+        scope = Scope(pending=[], loop=True)
         step_outputs = [flatten_node(output, scope) for output in outputs]
         flatten_closed(scope)
         closed = _closed(step_outputs)

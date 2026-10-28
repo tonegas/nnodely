@@ -59,6 +59,7 @@ class Scope:
         memo: dict[Node, Any] | None = None,
         values: dict[Node, Any] | None = None,
         pending: list | None = None,
+        loop: bool = False,
     ) -> None:
         self.memo: dict[Node, Any] = {} if memo is None else memo
         self.calls: dict[Node, "Scope"] = {}
@@ -68,6 +69,10 @@ class Scope:
         # The closed Inputs inlined, with the scope of each, when what closes
         # them is inlined too (see flatten_closed); None leaves them as they are.
         self.pending = pending
+        # Whether the graph is the step of a ModelyLoop: a call then keeps the
+        # feedback of the closed Inputs its model declares, where a Modely
+        # reads the argument given for one as its data.
+        self.loop = loop
         # The streams a call gives the closed Inputs its model declares, when
         # what closes them is inlined: their initial values.
         self.inits: dict[Node, Any] = {}
@@ -120,7 +125,7 @@ def flatten_node(node: Node, scope: Scope) -> Any:
             inits: dict[Node, Any] = {
                 internal_input: argument
                 for internal_input, argument in arguments.items()
-                if scope.pending is not None
+                if scope.loop
                 and isinstance(internal_input, Input)
                 and internal_input.update is not None
             }
@@ -129,7 +134,9 @@ def flatten_node(node: Node, scope: Scope) -> Any:
                 for internal_input, argument in arguments.items()
                 if internal_input not in inits
             }
-            call_scope = Scope({**scope.memo, **bindings}, scope.values, scope.pending)
+            call_scope = Scope(
+                {**scope.memo, **bindings}, scope.values, scope.pending, scope.loop
+            )
             call_scope.inits = inits
             scope.calls[model_call] = call_scope
 
@@ -177,7 +184,7 @@ def flatten_closed(scope: Scope) -> None:
 
 
 def flatten(model):
-    return _flatten_graph(model.name, model.inputs, model.outputs)
+    return _flatten_graph(model.name, model.inputs, model.outputs, closed=True)
 
 
 def _flatten_graph(
@@ -186,11 +193,16 @@ def _flatten_graph(
     outputs: list[Stream],
     *,
     return_memo: bool = False,
+    closed: bool = False,
 ) -> Any:
+    """``closed`` inlines the stream every closed Input is closed with, and
+    its init, too: without it they are left as they are, in the graph of the
+    model that declared them."""
     from nnodely.core.modely import Modely
 
-    scope = Scope()
+    scope = Scope(pending=[] if closed else None)
     flat_outputs: list[Output] = [flatten_node(output, scope) for output in outputs]
+    flatten_closed(scope)
     memo = scope.merged_memo()
     flat_inputs: list[Any] = [memo[input] for input in inputs if input in memo]
 

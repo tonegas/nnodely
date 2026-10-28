@@ -491,3 +491,122 @@ def test_close_and_modelyloop_reject_what_they_cannot_feed_back():
     )
     with pytest.raises(ValueError, match="computed inside the step"):
         model.minimize("bad", inner_next * 2.0, rate)
+
+
+def test_a_saved_plant_keeps_its_feedback_in_a_modelyloop(tmp_path):
+    # The one-step plant of examples/open_callbacks/03: saved, the window of
+    # positions loaded as a plain Input, and the plant ran open-loop.
+    x, force = Input("oc_plant_x", sw=3), Input("oc_plant_F", sw=3)
+    x_kernel = Parameter("oc_plant_kx", value=np.full((3, 1), 0.3))
+    f_kernel = Parameter("oc_plant_kf", value=np.full((3, 1), 0.1))
+    x_n = Output(
+        "oc_plant_x_n",
+        Fir(kernel=x_kernel, bias=False)([x])
+        + Fir(kernel=f_kernel, bias=False)([force]),
+    )
+    x.close(x_n)
+    plant = Modely("oc_plant", inputs=[x, force], outputs=[x_n]).build()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        plant.save(tmp_path / "oc_plant")
+    loaded = Modely.load(tmp_path / "oc_plant")
+    loaded_x = next(node for node in loaded.inputs if node.name == "oc_plant_x")
+    assert loaded_x.update is not None and loaded_x.update.name == "oc_plant_x_n"
+
+    def looped(model, tag):
+        x0, u = Input(f"{tag}_x0", sw=3), Input(f"{tag}_u", sw=1)
+        position = model([x0, Buffer(sw=3)(u)])
+        return ModelyLoop(
+            tag, inputs=[x0, u], outputs=[Output(f"{tag}_out", position)]
+        ).build()
+
+    def run(model, tag):
+        data = {
+            f"{tag}_x0": np.ones((1, 6, 3, 1), np.float32),
+            f"{tag}_u": np.ones((1, 6, 1, 1), np.float32),
+        }
+        return to_numpy(looped(model, tag)(data)[f"{tag}_out"])
+
+    np.testing.assert_allclose(
+        run(loaded, "oc_plant_back"), run(plant, "oc_plant_orig"), rtol=1e-6
+    )
+
+
+def test_a_saved_model_keeps_what_closes_its_inputs_and_where_they_start(tmp_path):
+    # Closed with streams that are no outputs, from a number, a Parameter and
+    # an Input, and by an Integrate: once loaded, none of them was closed.
+    error = Input("oc_keep_e", sw=1)
+    level, total = Input("oc_keep_level", sw=1), Input("oc_keep_total", sw=1)
+    count, count0 = Input("oc_keep_count", sw=1), Input("oc_keep_count0", sw=1)
+    gain = Parameter("oc_keep_gain", value=0.5)
+    level.close(level * gain + error, init=2.0)
+    total.close(total + error, init=Parameter("oc_keep_start", value=3.0))
+    count.close(count + 1.0, init=count0)
+    control = Output("oc_keep_u", level + total + count + Integrate(dt=0.1)(error))
+    with pytest.warns(UserWarning, match="closed Inputs"):
+        controller = Modely("oc_keep", inputs=[error], outputs=[control]).build()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        controller.save(tmp_path / "oc_keep")
+    with pytest.warns(UserWarning, match="closed Inputs"):
+        loaded = Modely.load(tmp_path / "oc_keep")
+    # The same block, called by a model that is saved in turn.
+    drive = Input("oc_keep_drive", sw=1)
+    outer = Modely(
+        "oc_keep_outer",
+        inputs=[drive],
+        outputs=[Output("oc_keep_v", controller([drive]))],
+    )
+    with pytest.warns(UserWarning, match="closed Inputs"):
+        outer.build()
+    outer.save(tmp_path / "oc_keep_outer")
+    with pytest.warns(UserWarning, match="closed Inputs"):
+        loaded_outer = Modely.load(tmp_path / "oc_keep_outer")
+
+    def run(model, tag):
+        e, start = Input(f"{tag}_e", sw=1), Input("oc_keep_count0", sw=1)
+        looped = ModelyLoop(
+            tag, inputs=[e, start], outputs=[Output(f"{tag}_out", model([e]))]
+        ).build()
+        data = {f"{tag}_e": _ramp(5), "oc_keep_count0": np.full((1, 5, 1, 1), 10.0)}
+        return to_numpy(looped(data)[f"{tag}_out"])
+
+    expected = run(controller, "oc_keep_orig")
+    np.testing.assert_allclose(run(loaded, "oc_keep_back"), expected, rtol=1e-6)
+    np.testing.assert_allclose(
+        run(loaded_outer, "oc_keep_outer_back"), expected, rtol=1e-6
+    )
+
+
+def test_saving_warns_of_feedback_the_loaded_model_would_lose(tmp_path):
+    # A weight only an update reads: the model does not compute it, so the
+    # weights file does not hold its current value.
+    gain = Parameter("oc_warn_gain", value=0.5)
+    u, s = Input("oc_warn_u", sw=1), Input("oc_warn_s", sw=1)
+    s.close(s * gain + u)
+    y = Output("oc_warn_y", s * 2.0)
+    ModelyLoop("oc_warn_loop", inputs=[u], outputs=[y]).build()
+    with pytest.warns(UserWarning, match="closed Inputs"):
+        plain = Modely("oc_warn_plain", inputs=[u], outputs=[y]).build()
+    with pytest.warns(UserWarning, match=r"without the weights of \['oc_warn_gain'\]"):
+        plain.save(tmp_path / "oc_warn_plain")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        plain.save(tmp_path / "oc_warn_plain_arch", weights=False)
+
+    # A call giving a stream for a closed Input its model declares: flattened,
+    # the stream replaces the Input.
+    state, drive = Input("oc_warn_state", sw=1), Input("oc_warn_drive", sw=1)
+    following = Output("oc_warn_next", state * 0.5 + drive)
+    state.close(following)
+    block = Modely("oc_warn_block", inputs=[state, drive], outputs=[following])
+    a, b = Input("oc_warn_a", sw=1), Input("oc_warn_b", sw=1)
+    outer = Modely(
+        "oc_warn_outer", inputs=[a, b], outputs=[Output("oc_warn_o", block([a, b]))]
+    ).build()
+    with pytest.warns(UserWarning, match=r"closed Inputs \['oc_warn_state'\]"):
+        outer.save(tmp_path / "oc_warn_outer")
+    # The model that declares it saves it closed, and does not warn.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        block.build().save(tmp_path / "oc_warn_block")
