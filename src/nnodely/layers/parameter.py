@@ -4,7 +4,7 @@ from typing import cast
 import numpy as np
 import keras
 
-from nnodely.core.layer import Layer
+from nnodely.core.layer import Layer, _refuse_uncalled
 from nnodely.core.stream import Stream
 from nnodely.utils.utils import _per_slice_initializer, _serialized_initializer
 
@@ -557,6 +557,16 @@ class _ParameterWeights(Layer):
         # The weights are predecessors like the input, but configured on the
         # layer, so they are appended here and reconnected when reloading.
         if inputs and all(isinstance(value, Stream) for value in inputs):
+            # The weights take the place of any further stream, which would
+            # otherwise be dropped without a word.
+            if len(inputs) > 1:
+                raise ValueError(
+                    f"{self.name}: {type(self).__name__} reads one stream, got "
+                    f"{len(inputs)}. Apply one to each, or join them first, "
+                    "with Concatenate or TimeConcatenate."
+                )
+            # Before the weights are sized on it.
+            _refuse_uncalled(inputs)
             inputs = [inputs[0], *self._parameters(inputs[0])]
         return super().__call__(inputs)
 

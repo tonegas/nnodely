@@ -38,7 +38,7 @@ from typing import cast
 
 from nnodely.layers.output import Output
 from nnodely.layers.input import Input, Inputs
-from nnodely.core.layer import Layer, _claim_keras_name
+from nnodely.core.layer import Layer, _claim_keras_name, _refuse_uncalled
 
 import keras
 
@@ -66,6 +66,8 @@ class Modely:
         self.inputs = inputs
         self.outputs = outputs
         self.order = toposort(self)
+        # Read as an output, or bound to a Loop, it passed no layer call.
+        _refuse_uncalled(self.order)
         self.model = None  # Keras model build from this DAG
         self.train_inputs = []  # List of Input nodes that are required for training (derived from minimizers)
         self.train_outputs = []  # List of Output nodes that are required for training (derived from minimizers)

@@ -1537,3 +1537,24 @@ def test_small_layer_messages_and_windows():
         nnodely.Clamp(1.0, 0.0)
     # A window as a tuple, like a list.
     assert Input("tuple_window_x", sw=(2, 1)).shape.dimensions[:2] == ((), 3)
+
+
+@pytest.mark.parametrize("layer", [Fir, Linear])
+def test_fir_and_linear_read_one_stream(layer):
+    # The streams after the first were dropped without a word.
+    x, y = Input("one_stream_x", sw=3), Input("one_stream_y", sw=3)
+    with pytest.raises(ValueError, match=r"reads one stream, got 2"):
+        layer()([x, y])
+    assert layer()([x]).preds[0] is x
+
+
+def test_a_layer_never_called_on_a_stream_is_refused():
+    # Read as a stream, it had no input, and the model ran it on one of its
+    # own: b + Exp() gave 10 + e**10.
+    a, b = Input("uncalled_a", sw=1), Input("uncalled_b", sw=1)
+    with pytest.raises(ValueError, match=r"never called on a stream.*Sin\(\)\(x\)"):
+        Modely("uncalled", inputs=[a, b], outputs=[Output("uncalled_y", b + Sin())])
+    with pytest.raises(ValueError, match="never called on a stream"):
+        Modely("uncalled_out", inputs=[a], outputs=[Output("uncalled_o", Sin())])
+    with pytest.raises(ValueError, match="never called on a stream"):
+        Fir()([Sin()])

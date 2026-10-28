@@ -26,6 +26,25 @@ def _claim_keras_name(layer, taken: dict[str, Any]) -> None:
     taken[layer.name] = layer
 
 
+def _refuse_uncalled(streams) -> None:
+    """Refuse a layer among ``streams`` that was never called on a stream:
+    it reads nothing, and a model ran it on an arbitrary input of its own.
+    Parameters and Constants read no stream by design."""
+    from nnodely.layers.parameter import _Value
+
+    for node in streams:
+        if isinstance(node, Layer) and not node.preds and not isinstance(node, _Value):
+            # A layer bound some other way, as a Loop, says how itself.
+            _ = node.shape
+            kind = type(node).__name__
+            raise ValueError(
+                f"The {kind} {node.name!r} was never called on a stream, so it "
+                f"has nothing to compute on: call it on the streams it reads, "
+                f"as in {kind}()(x), and use what that returns rather than the "
+                "layer itself."
+            )
+
+
 def _are_streams(value) -> bool:
     """A Stream, or a non-empty list or tuple of Streams."""
     if isinstance(value, Stream):
@@ -289,6 +308,7 @@ class Layer(Stream, metaclass=_LayerType):
         # Symbolic mode: Layer(Stream, ...) -> new Stream node
         ret = []
         if all(isinstance(x, Stream) for x in inputs):
+            _refuse_uncalled(inputs)
             if self._one_stream and len(inputs) > 1:
                 # A layer that reads one stream, such as an activation, is
                 # applied to each of several: one result per stream, in order.
