@@ -232,6 +232,59 @@ def test_integrate_and_derivative_close_inputs_of_their_own():
     assert _loops(model) == 1
 
 
+def test_a_modely_starts_integrate_derivative_and_buffer_from_their_init(tmp_path):
+    # Built as a Modely, nothing feeds back the state Integrate, Derivative and
+    # Buffer keep: the step starts from their init, zero without one, as the
+    # first step of a ModelyLoop does, and no Input of their own is read from
+    # data.
+    rate, v0 = Input("oc_one_rate", sw=1), Input("oc_one_v0", sw=1)
+    past0 = Input("oc_one_past0", sw=2)
+    trapezoidal = Integrate(solver="trapezoidal", dt=0.5, init=1.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        model = Modely(
+            "oc_one",
+            inputs=[rate, v0, past0],
+            outputs=[
+                Output("oc_one_int", Integrate(dt=0.5, init=v0)(rate)),
+                Output("oc_one_int_zero", Integrate(dt=0.5)(rate)),
+                Output("oc_one_trap", trapezoidal(rate)),
+                Output("oc_one_der", Derivative(dt=0.5, init=v0)(rate)),
+                Output("oc_one_der_zero", Derivative(order=2, dt=0.5)(rate)),
+                Output("oc_one_buf", Buffer(sw=3, init=v0)(rate)),
+                Output("oc_one_buf_zero", Buffer(sw=3)(rate)),
+                Output("oc_one_buf_past", Buffer(sw=3, init=past0)(rate)),
+            ],
+        ).build()
+    names = ["oc_one_past0", "oc_one_rate", "oc_one_v0"]
+    assert sorted(node.name for node in model.inference_inputs) == names
+    assert sorted(node.name for node in model.all_inputs) == names
+
+    data = {
+        "oc_one_rate": np.full((2, 1, 1), 4.0, np.float32),
+        "oc_one_v0": np.array([1.0, -2.0], np.float32).reshape(2, 1, 1),
+        "oc_one_past0": np.array([5.0, 6.0, 7.0, 8.0], np.float32).reshape(2, 2, 1),
+    }
+    expected = {
+        "int": [3.0, 0.0],
+        "int_zero": [2.0, 2.0],
+        "trap": [3.0, 3.0],
+        "der": [6.0, 12.0],
+        "der_zero": [16.0, 16.0],
+        "buf": [1.0, 1.0, 4.0, -2.0, -2.0, 4.0],
+        "buf_zero": [0.0, 0.0, 4.0, 0.0, 0.0, 4.0],
+        "buf_past": [5.0, 6.0, 4.0, 7.0, 8.0, 4.0],
+    }
+    model.save(tmp_path / "oc_one")
+    loaded = Modely.load(tmp_path / "oc_one")
+    for built in (model, loaded):
+        result = built(data)
+        for name, values in expected.items():
+            np.testing.assert_allclose(
+                to_numpy(result[f"oc_one_{name}"]).ravel(), values, rtol=1e-6
+            )
+
+
 def test_a_call_gives_a_declared_closed_input_its_data():
     rate = Input("oc_decl_rate", sw=1)
     level = Input("oc_decl_level", sw=1)
@@ -460,6 +513,10 @@ def test_close_and_modelyloop_reject_what_they_cannot_feed_back():
         Input("oc_err_future", sw=(1, 1)).close(rate)
     with pytest.raises(TypeError, match=r"Buffer\(sw=3\)\(u\)"):
         Buffer(rate)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="1 sample"):
+        Buffer(sw=3, init=Input("oc_err_long", sw=4))(rate)
+    with pytest.raises(ValueError, match="neither a scalar"):
+        Buffer(sw=3, init=Input("oc_err_wide", dim=2, sw=1))(rate)
 
     state.close(state + rate)
     with pytest.raises(ValueError, match="already closed"):

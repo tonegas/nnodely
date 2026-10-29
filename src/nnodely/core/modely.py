@@ -219,6 +219,7 @@ class Modely:
             self.inputs,
             graph_outputs,
             return_memo=True,
+            one_step=True,
         )
         self.train_inputs = [node for node in flat.order if isinstance(node, Input)]
         if not self.train_inputs:
@@ -559,13 +560,13 @@ class Modely:
             for minimizer in self.minimizers
             for side in (minimizer["source"], minimizer["target"])
         ]
-        forward = _read_inputs(self.outputs)
+        forward = _read_inputs(self.outputs, self.inputs)
         rollback = {
             node.name: f"{stream.name} (rollback)"
             for node, stream in self._roll_callbacks.items()
         }
         rows = []
-        for name, node in _read_inputs([*self.outputs, *sides]).items():
+        for name, node in _read_inputs([*self.outputs, *sides], self.inputs).items():
             if name not in forward:
                 data = "target"
             else:

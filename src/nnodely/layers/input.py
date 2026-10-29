@@ -109,6 +109,10 @@ class Input(Stream):
         # step. None while the Input is open, read from data.
         self.update: Stream | None = None
         self.init: Stream | float | None = None
+        # Set by a layer that keeps its state in the Input - Integrate,
+        # Derivative, Buffer - so the user has no handle on it: a Modely that
+        # does not declare it reads its init in its place, not data.
+        self._hidden = False
 
     def close(self, stream: Stream, init: Stream | float | None = None) -> Stream:
         """Feed ``stream`` back into this Input, and return it: the value of

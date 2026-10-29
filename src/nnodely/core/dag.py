@@ -60,6 +60,7 @@ class Scope:
         values: dict[Node, Any] | None = None,
         pending: list | None = None,
         loop: bool = False,
+        declared: set | None = None,
     ) -> None:
         self.memo: dict[Node, Any] = {} if memo is None else memo
         self.calls: dict[Node, "Scope"] = {}
@@ -78,6 +79,11 @@ class Scope:
         # The streams a call gives the closed Inputs its model declares, when
         # what closes them is inlined: their initial values.
         self.inits: dict[Node, Any] = {}
+        # The Inputs a Modely being built declares, or None outside one: a
+        # hidden closed Input it does not declare is nothing it feeds back,
+        # and reads its init - zero without one - as the first step of a
+        # ModelyLoop would.
+        self.declared = declared
 
     def merged_memo(self) -> dict[Node, Any]:
         """Every node inlined anywhere, with the enclosing scope taking priority.
@@ -102,6 +108,15 @@ def flatten_node(node: Node, scope: Scope) -> Any:
     from nnodely.layers.input import Input
 
     if node in scope.memo:
+        return scope.memo[node]
+    if (
+        scope.declared is not None
+        and isinstance(node, Input)
+        and node._hidden
+        and node not in scope.declared
+    ):
+        init = Stream._coerce_operand(0.0 if node.init is None else node.init)
+        scope.memo[node] = flatten_node(init, scope)
         return scope.memo[node]
     shared = isinstance(node, _Value) or (
         isinstance(node, Input) and (node.update is None or not scope.loop)
@@ -142,7 +157,9 @@ def flatten_node(node: Node, scope: Scope) -> Any:
             # A call starts from its bindings alone: what the caller has
             # inlined so far depends on the order the graph is walked in, and
             # sharing it made the result depend on that order too.
-            call_scope = Scope(bindings, scope.values, scope.pending, scope.loop)
+            call_scope = Scope(
+                bindings, scope.values, scope.pending, scope.loop, scope.declared
+            )
             call_scope.inits = inits
             scope.calls[model_call] = call_scope
 
@@ -213,13 +230,17 @@ def _flatten_graph(
     *,
     return_memo: bool = False,
     closed: bool = False,
+    one_step: bool = False,
 ) -> Any:
     """``closed`` inlines the stream every closed Input is closed with, and
     its init, too: without it they are left as they are, in the graph of the
-    model that declared them."""
+    model that declared them. ``one_step`` reads the init of every hidden
+    closed Input not among ``inputs`` in its place, as a Modely is built."""
     from nnodely.core.modely import Modely
 
-    scope = Scope(pending=[] if closed else None)
+    scope = Scope(
+        pending=[] if closed else None, declared=set(inputs) if one_step else None
+    )
     flat_outputs: list[Output] = [flatten_node(output, scope) for output in outputs]
     flatten_closed(scope)
     memo = scope.merged_memo()
@@ -295,12 +316,13 @@ def toposort_outputs(outputs: list[Output]) -> list[Node]:
     return order
 
 
-def _read_inputs(roots) -> dict[str, Any]:
+def _read_inputs(roots, declared=None) -> dict[str, Any]:
     """Every Input ``roots`` read, by name, inside the models they call too,
-    in the order the graph reaches them."""
+    in the order the graph reaches them; with ``declared``, the inputs of a
+    Modely, as it reads them (see Scope.declared)."""
     from nnodely.layers.input import Input
 
-    scope = Scope()
+    scope = Scope(declared=None if declared is None else set(declared))
     flat = [flatten_node(root, scope) for root in roots]
     return {
         node.name: node for node in toposort_outputs(flat) if isinstance(node, Input)

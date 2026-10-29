@@ -342,7 +342,8 @@ class Integrate:
     takes it: a number, a Parameter or a Constant, or an Input of one sample
     (a scalar, or the rate's dim), whose first step the ModelyLoop reads;
     ``None`` for zero. Built as a :class:`~nnodely.Modely` instead, nothing
-    feeds the integral back: it is read from data, as every closed Input is.
+    feeds the integral back: the step starts from ``init``, as the first step
+    of the ModelyLoop does, and reads no Input of its own.
     """
 
     def __init__(
@@ -402,11 +403,13 @@ class Integrate:
         call_name = self.name if self._calls == 1 else f"{self.name}_{self._calls}"
         dim = tuple(rate.dim)
         state = Input(f"{call_name}_state", dim=dim, sw=1)
+        state._hidden = True
         if _SOLVER_RULE[self.solver] == "trapezoidal":
             # The trapezoid averages the rate with the previous one; the first
             # step has none, and keeps the rectangle.
             previous = Input(f"{call_name}_previous_rate", dim=dim, sw=1)
             first = Input(f"{call_name}_first", sw=1)
+            previous._hidden = first._hidden = True
             previous.close(rate)
             first.close(first * 0.0, init=1.0)
             rate = (previous + (rate - previous) * first + rate) * 0.5

@@ -704,7 +704,8 @@ class Derivative(_FiniteDifference):
     window, its dim a scalar or ``fun``'s - a number, a Parameter or a
     Constant, or an Input, whose first step the ModelyLoop reads; ``None``
     for zero. Built as a :class:`~nnodely.Modely` instead, nothing feeds the
-    past samples back: they are read from data, as every closed Input is.
+    past samples back: the step reads ``init`` as them, as the first step of
+    the ModelyLoop does, and no Input of its own.
     """
 
     def __init__(
@@ -755,6 +756,7 @@ class Derivative(_FiniteDifference):
         self._calls += 1
         call_name = self.name if self._calls == 1 else f"{self.name}_{self._calls}"
         past = Input(f"{call_name}_past", dim=function.dim, sw=self.past)
+        past._hidden = True
         derivative = DerivativeStep(
             order=self.order,
             dt=self.dt,

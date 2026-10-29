@@ -216,7 +216,10 @@ The :class:`~nnodely.DataLoader` cuts the signals into sequences of
 Built as a :class:`~nnodely.Modely`, the same graph is the one-step model:
 nothing feeds the closed Inputs back, and they are read from data at every
 step, as any Input. A closed Input that the Modely does not declare is read
-from data too, with a warning.
+from data too, with a warning. The state that :class:`~nnodely.Integrate`,
+:class:`~nnodely.Derivative` and :class:`~nnodely.Buffer` keep is not an Input
+of yours: built as a Modely, it starts from their ``init``, zero without one,
+as at the first step of a ModelyLoop.
 
 .. code-block:: python
 

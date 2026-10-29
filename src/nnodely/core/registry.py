@@ -174,6 +174,7 @@ class ModelSerializer:
                         if isinstance(node.init, Node)
                         else node.init
                     ),
+                    "hidden": node._hidden,
                 }
             if isinstance(node, Layer):
                 node_data["layer"] = layer_ids.setdefault(
@@ -285,6 +286,7 @@ class ModelSerializer:
                     node_map[closed["update"]],
                     init=node_map[init] if isinstance(init, str) else init,
                 )
+                node_map[node_data["id"]]._hidden = closed.get("hidden", False)
 
         inputs = [node_map[node_id] for node_id in data["inputs"]]
         outputs = [node_map[node_id] for node_id in data["outputs"]]
