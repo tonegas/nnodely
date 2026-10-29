@@ -7,7 +7,7 @@ import math
 import keras
 
 from nnodely.core.layer import Layer
-from nnodely.utils.utils import _serialized_initializer
+from nnodely.layers.parameter import Parameter, _check_weight_size, _ParameterWeights
 
 
 def _pair(value) -> tuple[int, int]:
@@ -17,27 +17,38 @@ def _pair(value) -> tuple[int, int]:
     return int(first), int(second)
 
 
+def _refuse_several(layer, inputs) -> None:
+    """Refuse several streams to a layer that reads one, rather than dropping
+    the others."""
+    if len(inputs) > 1:
+        raise ValueError(
+            f"{layer.name}: {type(layer).__name__} reads one stream, got "
+            f"{len(inputs)}. Apply one to each."
+        )
+
+
 @keras.saving.register_keras_serializable(package="nnodely")
 class Conv2DImpl(keras.layers.Layer):
     """A 2D convolution of every image of a stream.
 
     Input convention:
-        [batch, *time, height, width, channels]
+        [batch, *seq, time, height, width, channels], or without the window
 
     Output convention:
-        [batch, *time, height', width', filters]
+        [batch, *seq, time, height', width', filters]
+
+    It owns no weight: it is called on ``[x, kernel]`` or ``[x, kernel,
+    bias]``, the values of the Parameters holding them, and reads their first
+    sample.
     """
 
     def __init__(
         self,
         filters: int,
         kernel_size,
-        strides=1,
+        strides: int | tuple[int, int] = 1,
         padding: str = "valid",
-        use_bias: bool = True,
         name=None,
-        initializer: str | keras.initializers.Initializer = "glorot_uniform",
-        bias_initializer: str | keras.initializers.Initializer = "glorot_uniform",
         **kwargs,
     ):
         super().__init__(name=name, **kwargs)
@@ -45,19 +56,6 @@ class Conv2DImpl(keras.layers.Layer):
         self.kernel_size = _pair(kernel_size)
         self.strides = _pair(strides)
         self.padding = padding
-        self.use_bias = bool(use_bias)
-        # Channels last, as the dim axes end: TensorFlow has no channels-first
-        # convolution on CPU either.
-        self.conv = keras.layers.Conv2D(
-            self.filters,
-            self.kernel_size,
-            strides=self.strides,
-            padding=self.padding,
-            use_bias=self.use_bias,
-            data_format="channels_last",
-            kernel_initializer=initializer,  # type: ignore[arg-type]
-            bias_initializer=bias_initializer,  # type: ignore[arg-type]
-        )
 
     def get_config(self):
         config = super().get_config()
@@ -67,42 +65,71 @@ class Conv2DImpl(keras.layers.Layer):
                 "kernel_size": self.kernel_size,
                 "strides": self.strides,
                 "padding": self.padding,
-                "use_bias": self.use_bias,
-                "initializer": self.conv.kernel_initializer,
-                "bias_initializer": self.conv.bias_initializer,
             }
         )
         return config
 
     def build(self, input_shape):
-        self.conv.build((None, *(int(axis) for axis in input_shape[-3:])))
+        channels = int(input_shape[0][-1])
+        self.kernel_shape = (*self.kernel_size, channels, self.filters)
+        self.bias_shape = (self.filters,)
+        for label, shape, expected in zip(
+            ("kernel", "bias"), input_shape[1:], (self.kernel_shape, self.bias_shape)
+        ):
+            _check_weight_size(self.name, label, shape, expected)
         super().build(input_shape)
 
-    def call(self, x):
+    def call(self, inputs):
+        x, kernel, *bias = inputs
         rank = len(x.shape)
         image = tuple(int(axis) for axis in x.shape[-3:])
 
-        # [batch, *time, H, W, C]: every image of the batch and time axes is
-        # one conv sample.
+        # [batch, *seq, time, H, W, C]: every image of the batch, the sequence
+        # and the window is one conv sample. Channels last, as the dim axes
+        # end: TensorFlow has no channels-first convolution on CPU either.
         lead = keras.ops.shape(x)[: rank - 3]
-        y = self.conv(keras.ops.reshape(x, (-1, *image)))
+        y = keras.ops.conv(
+            keras.ops.reshape(x, (-1, *image)),
+            keras.ops.reshape(kernel[0], self.kernel_shape),
+            strides=self.strides,  # type: ignore[arg-type]
+            padding=self.padding,
+            data_format="channels_last",
+        )
+        if bias:
+            y = y + keras.ops.reshape(bias[0][0], self.bias_shape)
 
-        # [samples, H', W', F] -> [batch, *time, H', W', F]
+        # [samples, H', W', F] -> [batch, *seq, time, H', W', F]
         return keras.ops.reshape(y, (*lead, *y.shape[1:]))
 
 
-class Conv2D(Layer):
+class Conv2D(_ParameterWeights):
     """
     2D convolution of a stream of images, laid out channels last on the dim
-    axes. The same kernels are applied at every step of every time axis::
+    axes. The same kernels are applied to every image, at every sample of
+    the window and every step of the sequence::
 
-        input:  (batch, *time, height, width, channels)
-        output: (batch, *time, height', width', filters)
+        input:  (batch, *seq, time, height, width, channels)
+        output: (batch, *seq, time, height', width', filters)
+        kernel: (kernel_height, kernel_width, channels, filters)
+        bias:   (filters,)
 
-    ``padding="valid"`` gives ``height' = (height - kernel) // stride + 1``,
-    ``padding="same"`` gives ``height' = ceil(height / stride)``; the same for
-    the width.
+    A stream without a window is convolved too, ``(batch, *seq, height,
+    width, channels)``. ``padding="valid"`` gives ``height' = (height -
+    kernel) // stride + 1``, ``padding="same"`` gives ``height' = ceil(height
+    / stride)``; the same for the width.
+
+    ``kernel`` and ``bias`` are Parameters, predecessors of the layer, as for
+    :class:`Linear`: assigning, training or freezing them changes the
+    convolution. Each is given as a :class:`Parameter`, of the shape of the
+    weight (axes of size 1 aside), or as a Keras initializer, by name or
+    object, from which the layer makes one, named ``"<name>_kernel"`` or
+    ``"<name>_bias"``; the kernel is drawn whole, as Keras draws a
+    convolution kernel, its fans counted over the receptive field.
+    ``bias=True`` draws the bias with ``"glorot_uniform"``, and
+    ``bias=False`` leaves it out.
     """
+
+    _bias_initializer = "glorot_uniform"
 
     def __init__(
         self,
@@ -110,10 +137,9 @@ class Conv2D(Layer):
         kernel_size: int | tuple[int, int],
         strides: int | tuple[int, int] = 1,
         padding: str = "valid",
-        use_bias: bool = True,
+        kernel: Parameter | str | keras.initializers.Initializer = "glorot_uniform",
+        bias: Parameter | str | keras.initializers.Initializer | bool = True,
         name=None,
-        initializer: str | keras.initializers.Initializer = "glorot_uniform",
-        bias_initializer: str | keras.initializers.Initializer = "glorot_uniform",
     ):
         if padding not in ("valid", "same"):
             raise ValueError(f'padding must be "valid" or "same", got {padding!r}.')
@@ -121,30 +147,40 @@ class Conv2D(Layer):
         self.kernel_size = _pair(kernel_size)
         self.strides = _pair(strides)
         self.padding = padding
-        self.use_bias = bool(use_bias)
-        self.initializer = initializer
-        self.bias_initializer = bias_initializer
         super().__init__(
-            name=name,
+            name,
+            kernel,
+            bias,
             filters=self.filters,
             kernel_size=self.kernel_size,
             strides=self.strides,
             padding=self.padding,
-            use_bias=self.use_bias,
-            initializer=initializer,
-            bias_initializer=bias_initializer,
         )
 
-    def output_shape(self, *inputs):
-        # Declared rather than probed with a dummy tensor, which a time axis
-        # left dynamic cannot be given.
-        shape = inputs[0].shape
+    def _image(self, shape) -> tuple[int, int, int]:
+        """The height, width and channels of the images of ``shape``."""
         if shape.dim_rank != 3:
             raise ValueError(
                 f"{self.name}: Conv2D takes images with dim (height, width, channels), "
                 f"got dim {tuple(shape.dim)}."
             )
-        *image, _ = shape.dim
+        height, width, channels = shape.dim
+        return height, width, channels
+
+    def _weight_shapes(self, x):
+        *_, channels = self._image(x.shape)
+        return (*self.kernel_size, channels, self.filters), (self.filters,)
+
+    def _draw_shapes(self, kernel_shape, bias_shape):
+        # The kernel whole: Keras counts the fans of a convolution kernel over
+        # its receptive field, which the Weight's default matrix would not.
+        return kernel_shape, None
+
+    def output_shape(self, *inputs):
+        # Declared rather than probed with dummy tensors, which would have to
+        # stand in for the weights too.
+        shape = inputs[0].shape
+        *image, _ = self._image(shape)
         size = []
         for length, kernel, stride in zip(image, self.kernel_size, self.strides):
             if self.padding == "same":
@@ -164,35 +200,8 @@ class Conv2D(Layer):
             kernel_size=self.kernel_size,
             strides=self.strides,
             padding=self.padding,
-            use_bias=self.use_bias,
             name=self.name,
-            initializer=self.initializer,
-            bias_initializer=self.bias_initializer,
         )
-
-    def get_config(self):
-        return {
-            "name": self.name,
-            "filters": self.filters,
-            "kernel_size": self.kernel_size,
-            "strides": self.strides,
-            "padding": self.padding,
-            "use_bias": self.use_bias,
-            "initializer": _serialized_initializer(self.initializer),
-            "bias_initializer": _serialized_initializer(self.bias_initializer),
-        }
-
-    @property
-    def kernel(self):
-        if self._layer is not None:
-            return self._layer.conv.kernel
-        return None
-
-    @property
-    def bias(self):
-        if self._layer is not None and self._layer.use_bias:
-            return self._layer.conv.bias
-        return None
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -212,8 +221,8 @@ class FlattenImpl(keras.layers.Layer):
         rank = len(x.shape)
         features = math.prod(int(axis) for axis in x.shape[rank - self.dim_rank :])
 
-        # [batch, *time, *dim] -> [batch, *time, features]: the dim axes, last
-        # and contiguous, merge into one.
+        # [batch, *seq, time, *dim] -> [batch, *seq, time, features]: the dim
+        # axes, last and contiguous, merge into one.
         lead = keras.ops.shape(x)[: rank - self.dim_rank]
         return keras.ops.reshape(x, (*lead, features))
 
@@ -223,14 +232,17 @@ class Flatten(Layer):
     Merges the dim axes of a stream into one, in C order, so that a layer
     acting on the first dim axis sees every feature::
 
-        input:  (batch, *time, *dim)
-        output: (batch, *time, prod(dim))
+        input:  (batch, *seq, time, *dim)
+        output: (batch, *seq, time, prod(dim))
+
+    The sequence and the window, if any, are kept.
     """
 
     def __init__(self, name=None):
         super().__init__(name=name)
 
     def output_shape(self, *inputs):
+        _refuse_several(self, inputs)
         shape = inputs[0].shape
         return shape.replace(dim=(math.prod(shape.dim),))
 
@@ -253,8 +265,8 @@ class ReshapeImpl(keras.layers.Layer):
         return config
 
     def call(self, x):
-        # [batch, *time, *dim] -> [batch, *time, *shape]: the dim axes, last
-        # and contiguous, take the new shape.
+        # [batch, *seq, time, *dim] -> [batch, *seq, time, *shape]: the dim
+        # axes, last and contiguous, take the new shape.
         lead = keras.ops.shape(x)[: len(x.shape) - self.dim_rank]
         return keras.ops.reshape(x, (*lead, *self.target_shape))
 
@@ -264,10 +276,11 @@ class Reshape(Layer):
     Lays the dim axes of a stream out as ``shape``, in C order - the inverse
     of ``Flatten``, which turns a flat feature vector back into an image::
 
-        input:  (batch, *time, *dim)
-        output: (batch, *time, *shape)
+        input:  (batch, *seq, time, *dim)
+        output: (batch, *seq, time, *shape)
 
-    ``shape`` must hold as many features as ``dim``.
+    ``shape`` must hold as many features as ``dim``. The sequence and the
+    window, if any, are kept.
     """
 
     def __init__(self, shape: int | tuple[int, ...], name=None):
@@ -275,6 +288,7 @@ class Reshape(Layer):
         super().__init__(name=name, shape=self.target)
 
     def output_shape(self, *inputs):
+        _refuse_several(self, inputs)
         shape = inputs[0].shape
         if math.prod(shape.dim) != math.prod(self.target):
             raise ValueError(
