@@ -105,7 +105,34 @@ def export_keras(model, path: str | os.PathLike, filename: str | None = None) ->
     if not isinstance(model.inference_model, keras.Model):
         raise TypeError(f"Expected keras.Model, got {type(model.inference_model)}.")
 
-    model.inference_model.save(_export_file(path, filename, model.name, ".keras"))
+    _standalone_copy(model.inference_model).save(
+        _export_file(path, filename, model.name, ".keras")
+    )
+
+
+def _standalone_copy(keras_model: keras.Model) -> keras.Model:
+    """A copy of ``keras_model`` that a ``.keras`` file can hold and give back.
+
+    nnodely shares layers between Keras graphs: a body rolled out by two
+    Loops, a Parameter read inside a Loop body and outside it, the sub-graphs
+    a Differentiate evaluates again. Keras saves such a layer once, but
+    cannot rebuild a layer called by two graphs - it replays the calls of
+    each graph by their position. Serialized outside a sharing scope, every
+    nested model and layer is written in full wherever it is used, so the
+    copy calls each layer from one graph only; the values of the model are
+    then copied in, layer by layer.
+    """
+    config = keras.saving.serialize_keras_object(keras_model)
+    copy = keras.saving.deserialize_keras_object(config)
+    for source, target in zip(keras_model.layers, copy.layers):
+        if len(source.weights) != len(target.weights):
+            raise RuntimeError(
+                f"The Keras copy of layer {source.name!r} has "
+                f"{len(target.weights)} weights where it has {len(source.weights)}."
+            )
+        for value, variable in zip(source.weights, target.weights):
+            variable.assign(value)
+    return copy
 
 
 def import_keras(filename: str, safe_mode: bool = True):

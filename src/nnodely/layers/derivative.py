@@ -1,17 +1,20 @@
 """Derivatives of a Stream: with respect to an Input, or with respect to time.
 
-Both are configured first and then called on the Stream to differentiate, like
+They are configured first and then called on the Stream to differentiate, like
 every other layer::
 
     Differentiate(order=1, respect_to=x)(fun)   # d fun / d x   (automatic differentiation)
-    Derivative(order=1, dt=0.1)(fun)            # d fun / d t   (finite difference)
+    DerivativeStep(order=1, dt=0.1)(fun)        # d fun / d t   over its window
+    Derivative(order=1, dt=0.1)(fun)            # d fun / d t   step by step
 
 ``Differentiate`` is exact: the sub-graph that produces ``fun`` is differentiated
 by the backend's automatic differentiation, so any relation in between
 (activations, Fir/Linear weights, a whole sub-network) is taken into account.
-``Derivative`` is a causal finite difference along ``fun``'s own time axis
-that keeps the window's length: one derivative per sample, the oldest one
-reading the ``init`` condition. It is the exact inverse of ``IntegrateStep``.
+``DerivativeStep`` is a causal finite difference along ``fun``'s own window
+that keeps its length: one derivative per sample, the oldest one reading the
+``init`` condition; it is the inverse of ``IntegrateStep``. ``Derivative`` is
+the same stencil across the steps of a ModelyLoop, the inverse of
+``Integrate``.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from nnodely.core.layer import Layer
 from nnodely.core.shape import expand_to_rank, slice_axis
 from nnodely.core.stream import Stream
 from nnodely.layers.input import Input
+from nnodely.layers.integrate import _signal_and_init
 
 #: Only first and second derivatives are supported, in both modes.
 _SUPPORTED_ORDERS = (1, 2)
@@ -45,8 +49,8 @@ def _stencil_coefficients(
     the weights are the textbook backward differences ((-1, 1)/dt for the
     first derivative, (1, -2, 1)/dt^2 for the second); a longer window turns
     the same expression into a smoothing estimate, which is what measured
-    signals need. The weights are ordered oldest -> newest, matching the
-    SampleWindow time-axis convention.
+    signals need. The weights are ordered oldest -> newest, as the samples
+    of a window are.
     """
     offsets = np.arange(-(window - 1), 1, dtype=np.float64)
     design = np.vander(offsets, poly_order + 1, increasing=True)
@@ -275,7 +279,7 @@ class TimeDerivativeImpl(keras.layers.Layer):
         # One sample of zeros shaped like the window's first: it both stands
         # in for a missing initial condition and gives a given one the axes it
         # may be broadcasting over - a scalar initial condition carries no dim
-        # size, and one may leave out the outer time axes, or have no time.
+        # size, and one may leave out the sequence axes.
         reference = keras.ops.zeros_like(slice_axis(x, time_axis, slice(0, 1)))
         if init is None:
             history = reference
@@ -328,15 +332,16 @@ class Differentiate(Layer):
 
         Differentiate(order=1|2, respect_to=x)(fun)     # d fun / d x
 
-    ``fun`` is differentiated with respect to the input's whole temporal window
-    by the backend's automatic differentiation, so every relation between the
-    two - including trainable weights - is taken into account, and the result
-    is itself differentiable (it can be nested, and trained through). The
-    output has the shape of the input's window: for a window longer than one
-    sample it is the derivative of the summed relation with respect to each
-    sample, which is the usual reverse-mode (vector-Jacobian) reading. ``fun``
-    must actually depend on the input. For a derivative over time, see
-    :class:`Derivative`.
+    ``fun`` is differentiated with respect to the input as it is declared,
+    its whole window if it has one, by the backend's automatic
+    differentiation, so every relation between the two - including trainable
+    weights - is taken into account, and the result is itself differentiable
+    (it can be nested, and trained through). The output has the shape of the
+    input: for a window longer than one sample it is the derivative of the
+    summed relation with respect to each sample, which is the usual
+    reverse-mode (vector-Jacobian) reading. ``fun`` must actually depend on
+    the input. For a derivative over time, see
+    :class:`DerivativeStep` and :class:`Derivative`.
 
     Two notes:
 
@@ -357,7 +362,8 @@ class Differentiate(Layer):
         self.order = _check_order("Differentiate", order)
         if not isinstance(respect_to, Input):
             hint = (
-                " For a derivative over time, use Derivative(dt=...)."
+                " For a derivative over time, use DerivativeStep(dt=...) or "
+                "Derivative(dt=...)."
                 if isinstance(respect_to, (int, float))
                 and not isinstance(respect_to, bool)
                 else ""
@@ -386,7 +392,7 @@ class Differentiate(Layer):
                 f"got {len(inputs)}."
             )
         # Reverse-mode differentiation yields the shape of the variable, not
-        # of the relation: one derivative per sample of the input's window.
+        # of the relation.
         return self.respect_to.shape
 
     # ------------------------------------------------------------------
@@ -411,18 +417,21 @@ class Differentiate(Layer):
                 "replaced by the streams it is called with, so differentiate in "
                 "the model where the input is declared."
             )
-        if self._layer is None:
-            function_model = keras.Model(
-                inputs=sources,
-                outputs=tensor,
-                name=f"{self.name}_function",
-            )
-            self._layer = InputDerivativeImpl(
-                function_model=function_model,
-                wrt_index=names.index(self.wrt_name),
-                order=self.order,
-                name=self.name,
-            )
+        # Built for the relation of this application: one built for another -
+        # in an earlier graph, or by another call of the block holding it -
+        # would compute that one. Its weights are those of the relation's
+        # layers, shared through their own nodes, so none is lost.
+        function_model = keras.Model(
+            inputs=sources,
+            outputs=tensor,
+            name=f"{self.name}_function",
+        )
+        self._layer = InputDerivativeImpl(
+            function_model=function_model,
+            wrt_index=names.index(self.wrt_name),
+            order=self.order,
+            name=self.name,
+        )
         return self._layer(sources)
 
     # ------------------------------------------------------------------
@@ -449,68 +458,30 @@ class Differentiate(Layer):
         return layer(preds[0])
 
 
-class Derivative(Layer):
-    """
-    Derivative of a Stream with respect to time, over its own window::
-
-        Derivative(order=1|2, dt=0.1)(fun)     # d fun / d t
-
-    A causal finite difference along ``fun``'s time axis, with the time step
-    ``dt`` given explicitly as for :class:`IntegrateStep`. **The window's length is
-    preserved**: a window of n samples gives n derivatives, the i-th one
-    estimated from the samples up to i, so the result stays aligned with the
-    signal and composes with ``IntegrateStep``, whose cumulative form is its exact
-    inverse: integrating ``Derivative(...)(x)`` with the same ``init``
-    returns ``x``. For a derivative with respect to an Input, see
-    :class:`Differentiate`.
-
-    * ``init`` - the initial condition, the sample(s) just before the window,
-      which the oldest derivative needs. A Stream (typically the state the
-      window continues, so a rollout stays continuous across chunks), a number
-      (kept as a Constant), or ``None`` for zero. A Stream of one sample is
-      reused for every sample of history a longer stencil needs.
-
-    * ``window`` - how many samples each derivative reads, ``order + 1`` by
-      default (the textbook backward difference). A longer window fits a
-      polynomial of degree ``poly_order`` by least squares and differentiates
-      that: still causal, still one matmul, but a *smoothing* estimate. This
-      is the knob that matters for measured mechanical signals, where the
-      two-sample difference multiplies sensor noise by sqrt(2)/dt - at
-      dt = 1 ms, a 0.1 mm encoder ripple becomes 0.14 m/s of velocity. Its
-      noise gain falls roughly as ``window^-3/2`` (0.32/dt at ``window=5``,
-      0.13/dt at ``window=9``), paid for with a group delay of about
-      ``(window - 1) / 2`` samples: widen it until the delay approaches the
-      time constant of the dynamics being modelled, not beyond.
-
-    * ``poly_order`` - the degree of that fit, the derivative's own ``order``
-      by default (maximum smoothing). Raising it removes delay and bias at
-      the price of noise: ``window=3, poly_order=2`` is the second-order
-      accurate backward difference (BDF2), exact on a parabola, but it
-      amplifies noise about 1.8x more than the plain two-sample difference.
-      Smooth simulated signals want the higher degree, measured ones the
-      default.
+class _FiniteDifference(Layer):
+    """What :class:`DerivativeStep` and :class:`Derivative` share: a causal
+    finite-difference stencil of ``order``, ``window`` and ``poly_order``, the
+    time step ``dt``, and the initial condition ``init``, the sample(s) just
+    before the first one differentiated.
     """
 
     def __init__(
         self,
         order: int = 1,
         dt: float | None = None,
-        init: Stream | float | None = None,
         window: int | None = None,
         poly_order: int | None = None,
         name=None,
+        **properties,
     ):
-        self.order = _check_order("Derivative", order)
+        layer = type(self).__name__
+        self.order = _check_order(layer, order)
         if dt is None:
-            raise ValueError("Derivative requires dt, the time step.")
+            raise ValueError(f"{layer} requires dt, the time step.")
         if not isinstance(dt, (int, float)) or isinstance(dt, bool):
-            raise TypeError(
-                f"Derivative: dt must be a number, got {type(dt).__name__}."
-            )
+            raise TypeError(f"{layer}: dt must be a number, got {type(dt).__name__}.")
         if dt <= 0:
-            raise ValueError(
-                f"Derivative: the time step dt must be positive, got {dt}."
-            )
+            raise ValueError(f"{layer}: the time step dt must be positive, got {dt}.")
         self.dt = float(dt)
 
         self.window = self.order + 1 if window is None else int(window)
@@ -518,15 +489,14 @@ class Derivative(Layer):
         # widening the window always buys smoothing; a higher degree buys
         # accuracy back at the cost of noise.
         self.poly_order = self.order if poly_order is None else int(poly_order)
-        self.init = init
         if self.window < self.order + 1:
             raise ValueError(
-                f"Derivative: a derivative of order {self.order} reads at least "
+                f"{layer}: a derivative of order {self.order} reads at least "
                 f"{self.order + 1} samples, got window={self.window}."
             )
         if not self.order <= self.poly_order <= self.window - 1:
             raise ValueError(
-                f"Derivative: poly_order must be between the derivative's order "
+                f"{layer}: poly_order must be between the derivative's order "
                 f"({self.order}) and window - 1 ({self.window - 1}), got "
                 f"{self.poly_order}."
             )
@@ -535,9 +505,9 @@ class Derivative(Layer):
             name=name,
             order=self.order,
             dt=self.dt,
-            init=self.init,
             window=self.window,
             poly_order=self.poly_order,
+            **properties,
         )
 
     # ------------------------------------------------------------------
@@ -545,81 +515,55 @@ class Derivative(Layer):
     # ------------------------------------------------------------------
     @property
     def past(self) -> int:
-        """Samples of history the stencil needs before the window's first."""
+        """Samples of history the stencil needs before the first one."""
         return self.window - 1
 
-    def _init_stream(self):
-        """The initial condition as a node of the graph, if there is one."""
-        if self.init is None or isinstance(self.init, Stream):
-            return self.init
-        return Stream._coerce_operand(float(self.init))
-
-    def __call__(self, inputs):
-        if not isinstance(inputs, (list, tuple)):
-            inputs = [inputs]
-        # The initial condition is a predecessor like any other, but it is
-        # configured on the layer rather than passed at the call, so it is
-        # appended here and reconnected the same way when reloading.
-        if inputs and all(isinstance(value, Stream) for value in inputs):
-            init = self._init_stream()
-            inputs = [inputs[0]] if init is None else [inputs[0], init]
-        return super().__call__(inputs)
+    def _coefficients(self) -> np.ndarray:
+        return _stencil_coefficients(self.order, self.window, self.poly_order, self.dt)
 
     # ------------------------------------------------------------------
     # Shape logic
     # ------------------------------------------------------------------
-    def output_shape(self, *inputs):
-        function = inputs[0]
+    def _check_function(self, function):
         if not isinstance(function, Stream):
             raise TypeError(
-                f"{self.name}: Derivative expects a Stream input, got "
+                f"{self.name}: {type(self).__name__} expects a Stream input, got "
                 f"{type(function).__name__}."
             )
-        if len(inputs) > 1:
-            self._validate_init(function, inputs[1])
-        # One derivative per sample: the window is preserved, so the result
-        # stays aligned with the signal it came from.
-        return function.shape
 
-    def _validate_init(self, function, init):
-        init_dim, init_time = tuple(init.shape.dim), tuple(init.shape.time)
-        # Without time, the initial condition is one sample, reused for each.
-        samples = init_time[-1] if init_time else 1
-        if samples not in (1, self.past):
+    def _validate_init(self, function, init, seq, where: str):
+        """``init`` holds 1 sample (reused for each) or the ``past`` the
+        stencil reads, a scalar or the function's dim, and no sequence or
+        ``seq``, the one ``where`` names. A value - a number, a Parameter or
+        a Constant - without a window is one sample, and has no sequence."""
+        init_dim, samples = tuple(init.shape.dim), init.shape.time
+        if samples is None:
+            if not init._is_value:
+                raise ValueError(
+                    f"{self.name}: init has no window, {init.shape}: the samples "
+                    "before the first need one - declare the Input with sw=1 - "
+                    "unless init is a number, a Parameter or a Constant."
+                )
+            seq = ()
+        elif samples not in (1, self.past):
             raise ValueError(
                 f"{self.name}: init must carry 1 sample (reused for each) or the "
-                f"{self.past} the stencil reads before the window, got {samples}."
+                f"{self.past} the stencil reads before the first, got {samples}."
             )
         if init_dim not in ((1,), tuple(function.shape.dim)):
             raise ValueError(
                 f"{self.name}: init has dim {init_dim}, which is neither a "
                 f"scalar nor the differentiated relation's {tuple(function.shape.dim)}."
             )
-        outer, function_outer = init_time[:-1], tuple(function.shape.time[:-1])
-        if outer not in ((), function_outer):
+        if tuple(init.shape.seq) not in ((), tuple(seq)):
             raise ValueError(
-                f"{self.name}: init has the outer time {outer}, which is neither "
-                f"empty nor the differentiated relation's {function_outer}."
+                f"{self.name}: init has the sequence {tuple(init.shape.seq)}, "
+                f"which is neither empty nor {where}, {tuple(seq)}."
             )
 
     # ------------------------------------------------------------------
     # Keras layer logic
     # ------------------------------------------------------------------
-    def build_layer(self):
-        init_time = 1
-        if len(self.preds) > 1:
-            init_node = self.preds[1]
-            if isinstance(init_node, Stream) and init_node.shape.time:
-                init_time = int(init_node.shape.inner_time)  # type: ignore[arg-type]
-        return TimeDerivativeImpl(
-            coefficients=_stencil_coefficients(
-                self.order, self.window, self.poly_order, self.dt
-            ),
-            axis=self.shape.inner_time_axis,
-            init_time=init_time,
-            name=self.name,
-        )
-
     def call(self, xs):
         signature = self.input_signature(xs)
         stale = self._layer_signature is not None and self._layer_signature != signature
@@ -643,15 +587,186 @@ class Derivative(Layer):
     @classmethod
     def from_config(cls, config: dict, preds=None):
         # The initial condition was serialized as this node's second
-        # predecessor, so it is rebuilt with the rest of the graph.
+        # predecessor, so it is rebuilt with the rest of the graph: the layer
+        # is called on it, then on the signal.
         layer = cls(
             order=config.get("order", 1),
             dt=config["dt"],
-            init=preds[1] if preds and len(preds) > 1 else None,
             window=config.get("window"),
             poly_order=config.get("poly_order"),
             name=config["name"],
         )
         if preds:
-            return layer(preds[0])
+            return layer(*preds[::-1])
         return layer
+
+
+class DerivativeStep(_FiniteDifference):
+    """
+    Derivative of a Stream with respect to time, over its own window::
+
+        DerivativeStep(order=1|2, dt=0.1)(fun)           # d fun / d t
+        DerivativeStep(order=1|2, dt=0.1)(init, fun)
+
+    A causal finite difference along ``fun``'s time axis, with the time step
+    ``dt`` given explicitly as for :class:`IntegrateStep`. **The window's length is
+    preserved**: a window of n samples gives n derivatives, the i-th one
+    estimated from the samples up to i, so the result stays aligned with the
+    signal and composes with ``IntegrateStep``, whose cumulative form is its
+    inverse: integrating ``DerivativeStep(dt=dt)(x0, x)`` with the same
+    ``init`` returns ``x`` (exactly for the default first-order, two-sample
+    stencil). A one-sample window is one step, ``(x - init) / dt``. Across
+    the steps of a ModelyLoop, see :class:`Derivative`; for a derivative
+    with respect to an Input, see :class:`Differentiate`.
+
+    * ``init``, given first when the layer is called - the initial condition,
+      the sample(s) just before the window, which the oldest derivative needs.
+      A Stream (typically the state the window continues, so a rollout stays
+      continuous across chunks), or a number (kept as a Constant); called on
+      the signal alone, the layer reads zero before it. A Stream of one sample
+      is reused for every sample of history a longer stencil needs.
+
+    * ``window`` - how many samples each derivative reads, ``order + 1`` by
+      default (the textbook backward difference). A longer window fits a
+      polynomial of degree ``poly_order`` by least squares and differentiates
+      that: still causal, still one matmul, but a *smoothing* estimate. This
+      is the knob that matters for measured mechanical signals, where the
+      two-sample difference multiplies sensor noise by sqrt(2)/dt - at
+      dt = 1 ms, a 0.1 mm encoder ripple becomes 0.14 m/s of velocity. Its
+      noise gain falls roughly as ``window^-3/2`` (0.32/dt at ``window=5``,
+      0.13/dt at ``window=9``), paid for with a group delay of about
+      ``(window - 1) / 2`` samples: widen it until the delay approaches the
+      time constant of the dynamics being modelled, not beyond.
+
+    * ``poly_order`` - the degree of that fit, the derivative's own ``order``
+      by default (maximum smoothing). Raising it removes delay and bias at
+      the price of noise: ``window=3, poly_order=2`` is the second-order
+      accurate backward difference (BDF2), exact on a parabola, but it
+      amplifies noise about 1.8x more than the plain two-sample difference.
+      Smooth simulated signals want the higher degree, measured ones the
+      default.
+    """
+
+    def __call__(self, *inputs):
+        # The initial condition is a predecessor like any other, after the
+        # signal, so that it is reconnected the same way when reloading.
+        return super().__call__(_signal_and_init("DerivativeStep", inputs))
+
+    def output_shape(self, *inputs):
+        function = inputs[0]
+        self._check_function(function)
+        self._needs_window(function)
+        if len(inputs) > 1:
+            self._validate_init(
+                function, inputs[1], function.shape.seq, "the differentiated relation's"
+            )
+        # One derivative per sample: the window is preserved, so the result
+        # stays aligned with the signal it came from.
+        return function.shape
+
+    def build_layer(self):
+        init_time = 1
+        if len(self.preds) > 1:
+            init_node = self.preds[1]
+            if isinstance(init_node, Stream):
+                # A value without a window is one sample.
+                init_time = init_node.shape.time or 1
+        return TimeDerivativeImpl(
+            coefficients=self._coefficients(),
+            axis=self.shape.time_axis,  # type: ignore[arg-type]
+            init_time=init_time,
+            name=self.name,
+        )
+
+
+class Derivative(_FiniteDifference):
+    """
+    Derivative of a Stream with respect to time, one step at a time, in a
+    :class:`~nnodely.ModelyLoop`::
+
+        Derivative(order=1|2, dt=0.1, init=x0)(fun)     # d fun / d t
+
+    The counterpart of :class:`DerivativeStep` across the steps of a
+    ModelyLoop, as :class:`Integrate` is :class:`IntegrateStep`'s: ``fun`` is
+    one sample of a step, ``T=1`` and no sequence, and the ``window - 1``
+    samples before it are an Input closed with ``fun``, which the ModelyLoop
+    feeds back with all its other closed Inputs - no Loop of its own. The
+    result is the derivative at this step, estimated from the steps up to it.
+    The stencil is ``DerivativeStep``'s - ``order``, ``window`` and
+    ``poly_order`` mean the same - so laid out along a time window instead,
+    the same samples give the same derivatives, and ``Integrate`` with the
+    same ``init`` inverts it (exactly for the default first-order, two-sample
+    stencil).
+
+    ``init`` is the value just before the first step, as :meth:`Input.close`
+    takes it: one sample (reused for every step of history a longer stencil
+    reads) or the ``window - 1`` samples it reads, oldest first, along its
+    window, its dim a scalar or ``fun``'s - a number, a Parameter or a
+    Constant, or an Input, whose first step the ModelyLoop reads; ``None``
+    for zero. Built as a :class:`~nnodely.Modely` instead, nothing feeds the
+    past samples back: they are read from data, as every closed Input is.
+    """
+
+    def __init__(
+        self,
+        order: int = 1,
+        dt: float | None = None,
+        init: Stream | float | None = None,
+        window: int | None = None,
+        poly_order: int | None = None,
+        name=None,
+    ):
+        self.init = init
+        self._calls = 0
+        super().__init__(
+            order=order,
+            dt=dt,
+            window=window,
+            poly_order=poly_order,
+            name=name,
+            init=init,
+        )
+
+    def __call__(self, function):
+        if isinstance(function, (list, tuple)) and len(function) == 1:
+            function = function[0]
+        if not isinstance(function, Stream):
+            raise TypeError(
+                f"{self.name}: Derivative expects a Stream input, got "
+                f"{type(function).__name__}."
+            )
+        if function.seq:
+            raise ValueError(
+                f"{self.name}: Derivative takes the signal of one step of a "
+                f"ModelyLoop, and this signal carries a sequence, {function.shape}. "
+                "Declare it one sample per step, an Input with sw=1 and no seq, "
+                "and build the model with ModelyLoop."
+            )
+        self._needs_window(function)
+        if function.time != 1:
+            raise ValueError(
+                f"{self.name}: Derivative takes one sample per step, but the "
+                f"signal carries {function.time} time samples. Differentiate a "
+                "time window with DerivativeStep."
+            )
+        if isinstance(self.init, Stream):
+            self._validate_init(function, self.init, (), "the signal's")
+
+        self._calls += 1
+        call_name = self.name if self._calls == 1 else f"{self.name}_{self._calls}"
+        past = Input(f"{call_name}_past", dim=function.dim, sw=self.past)
+        derivative = DerivativeStep(
+            order=self.order,
+            dt=self.dt,
+            window=self.window,
+            poly_order=self.poly_order,
+            name=f"{call_name}_step",
+        )(past, function)
+        past.close(function, init=self.init)
+        return derivative
+
+    def build_layer(self):
+        raise RuntimeError(
+            f"{self.name}: a Derivative is the DerivativeStep it calls on an "
+            "Input closed with its signal, not a layer of its own."
+        )

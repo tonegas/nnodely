@@ -133,17 +133,17 @@ class EquationLearner:
         internal_inputs = []
         internal_streams = []
         for index, stream in enumerate(streams):
-            internal_input = Input(f"{call_name}_input_{index}", dim=stream.dim)
-            internal_inputs.append(internal_input)
-            if not stream.shape.time:
-                internal_streams.append(internal_input)
-                continue
-            # The stream's shape: a window of its inner time, with its outer
-            # time axes, a dynamic one declared with -1.
-            outer = tuple(-1 if size is None else size for size in stream.time[:-1])
-            internal_streams.append(
-                internal_input.sw(stream.shape.inner_time, seq=outer or None)
+            # The stream's shape: its sequence, a dynamic axis declared with
+            # -1, and its window.
+            seq = tuple(-1 if size is None else size for size in stream.seq)
+            internal_input = Input(
+                f"{call_name}_input_{index}",
+                dim=stream.dim,
+                seq=seq or None,
+                sw=stream.shape.time,
             )
+            internal_inputs.append(internal_input)
+            internal_streams.append(internal_input)
 
         combined = (
             internal_streams[0]

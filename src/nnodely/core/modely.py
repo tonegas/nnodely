@@ -9,6 +9,7 @@ from nnodely.core.dag import (
     flatten,
     _flatten_graph,
     _parameters,
+    _read_inputs,
     _source_input_tensors,
     _source_names,
 )
@@ -36,8 +37,8 @@ import numpy as np
 from typing import cast
 
 from nnodely.layers.output import Output
-from nnodely.layers.input import Input
-from nnodely.core.layer import Layer, _claim_keras_name
+from nnodely.layers.input import Input, Inputs
+from nnodely.core.layer import Layer, _claim_keras_name, _refuse_uncalled
 
 import keras
 
@@ -65,6 +66,8 @@ class Modely:
         self.inputs = inputs
         self.outputs = outputs
         self.order = toposort(self)
+        # Read as an output, or bound to a Loop, it passed no layer call.
+        _refuse_uncalled(self.order)
         self.model = None  # Keras model build from this DAG
         self.train_inputs = []  # List of Input nodes that are required for training (derived from minimizers)
         self.train_outputs = []  # List of Output nodes that are required for training (derived from minimizers)
@@ -72,6 +75,8 @@ class Modely:
             None  # Keras model of the declared outputs only, without minimizers
         )
         self.inference_inputs = []  # List of Input nodes the declared outputs read (no minimizer-only input)
+        # Inputs the data may leave out: they read zeros.
+        self.optional_inputs: set[str] = set()
         self.minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
         self._minimizer_outputs: dict[Node, str] = {}  # minimizer side -> graph output
         self._roll_callbacks: dict[Input, Stream] = {}
@@ -95,6 +100,15 @@ class Modely:
                     "it, or with a list of streams, one per input, to use it as "
                     f"a block; got {type(inputs).__name__}."
                 )
+            # A block is inlined once, so the rollback would be lost.
+            if self._roll_callbacks:
+                raise ValueError(
+                    f"Model {self.name!r} has a rollback, which a block cannot "
+                    "carry: inlined, it would be evaluated once. For its one-step "
+                    "model, call a Modely declared on its inputs and outputs "
+                    "without rollback, which shares its weights; to unroll it "
+                    "inside a graph, use Roll or Loop."
+                )
             if len(inputs) != len(self.inputs):
                 names = [node.name for node in self.inputs]
                 raise ValueError(
@@ -102,6 +116,8 @@ class Modely:
                     "used as a block it takes one stream for each, in that "
                     f"order, got {len(inputs)}."
                 )
+            for node, stream in zip(self.inputs, inputs):
+                self._check_block_input(node, stream)
             mc = ModelCall(f"{self.name}_call", self)
             mc.preds = list(inputs)
             mc.inputs_map = {old: new for old, new in zip(self.inputs, inputs)}
@@ -114,14 +130,57 @@ class Modely:
         # minimizer reads, such as a target, is neither needed nor passed on.
         if self.inference_model is None:
             raise ValueError("Model is not built. Call build() before calling it.")
-        missing = [inp.name for inp in self.inference_inputs if inp.name not in inputs]
+        given = [
+            inputs[inp.name] for inp in self.inference_inputs if inp.name in inputs
+        ]
+        left_out = [inp for inp in self.inference_inputs if inp.name not in inputs]
+        missing = [
+            inp.name
+            for inp in left_out
+            if inp.name not in self.optional_inputs or not given
+        ]
         if missing:
             raise ValueError(
                 f"Model {self.name!r} reads the inputs {missing}, which are "
                 "missing from the data it was called with."
             )
-        inputs = {inp.name: inputs[inp.name] for inp in self.inference_inputs}
+        # An optional input left out reads zeros, one step of a dynamic
+        # sequence: a ModelyLoop starts from the first step of it alone.
+        batch = np.shape(given[0])[0] if given else 0
+        zeros = {
+            inp.name: np.zeros(
+                (batch, *(1 if size is None else size for size in inp.shape.tuple)),
+                np.float32,
+            )
+            for inp in left_out
+        }
+        inputs = {
+            inp.name: inputs[inp.name] if inp.name in inputs else zeros[inp.name]
+            for inp in self.inference_inputs
+        }
         return self.inference_model(inputs)
+
+    def _check_block_input(self, node: Input, stream) -> None:
+        """Refuse a stream that this model, used as a block, cannot read as
+        its input ``node``: a block keeps the shapes it was declared with, so
+        the stream must have the shape of ``node``. A dynamic sequence axis
+        matches any length.
+        """
+        if node not in self.order:
+            return  # an input this model does not read
+        if (
+            stream.time != node.time
+            or not _same_sizes(stream.seq, node.seq)
+            or tuple(stream.dim) != tuple(node.dim)
+        ):
+            raise ValueError(
+                f"Model {self.name!r} reads its input {node.name!r} as "
+                f"{node.shape}, so used as a block it takes a stream of that "
+                "shape for it - the same dim, sequence and window; "
+                f"{stream.name!r} is {stream.shape}. A block keeps "
+                "the shapes it was declared with: give it a stream of that "
+                "shape, or declare the model on the shape it is used with."
+            )
 
     @property
     def built(self):
@@ -181,6 +240,25 @@ class Modely:
                     f"{node.name!r}. The data is fed by input name, so every "
                     "Input of a model needs a name of its own."
                 )
+        # A closed Input the model declares among its inputs is fed from data
+        # on purpose; any other is a feedback a ModelyLoop was meant to close.
+        declared = {node.name for node in self.inputs}
+        open_feedback = sorted(
+            {
+                node.name
+                for node in self.train_inputs
+                if node.update is not None and node.name not in declared
+            }
+        )
+        if open_feedback:
+            warnings.warn(
+                f"Model {self.name!r} reads the closed Inputs {open_feedback}, "
+                "which only a ModelyLoop feeds back: built as a Modely, they are "
+                "read from data, one step at a time. Build the model that closes "
+                "them with ModelyLoop, or declare them among the inputs.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         flat_graph_outputs = [flatten_memo[node] for node in graph_outputs]
         keras_inputs, keras_outputs = self._resolve_graph(
@@ -259,7 +337,8 @@ class Modely:
             },
             output_names=tuple(node.name for node in output_nodes),
             input_time_axes={
-                node.name: node.shape.inner_time_axis for node in self._roll_callbacks
+                node.name: cast(int, node.shape.time_axis)
+                for node in self._roll_callbacks
             },
             steps=cast(int, self._roll_steps),
             name=self._roll_name or f"{self.name}_roll",
@@ -306,7 +385,14 @@ class Modely:
                 )
                 _claim_keras_name(node._layer, keras_names)
             else:  ## Output or other non-Layer node
-                tensor_map[node] = tensor_map[node.preds[0]]
+                tensor = tensor_map[node.preds[0]]
+                if isinstance(node.preds[0], Input):
+                    # A Keras model exposes what its layers compute, never one
+                    # of its own inputs: an Input read out is passed through.
+                    identity = keras.layers.Identity(name=f"{node.name}_identity")
+                    _claim_keras_name(identity, keras_names)
+                    tensor = identity(tensor)
+                tensor_map[node] = tensor
 
         keras_inputs = {node.name: tensor_map[node] for node in self.train_inputs}
         output_nodes = self.train_outputs if output_nodes is None else output_nodes
@@ -364,8 +450,9 @@ class Modely:
             validated loss stays unweighted, the way Keras logs a
             ``loss_weight``.
         seq_weights:
-            One weight per step of the outer time of the source - the
-            rollout of its outermost Loop, or its window without one - such as
+            One weight per step of the outer axis of the source - the
+            rollout of its outermost Loop, its outermost sequence axis, or its
+            window without one - such as
             ``np.exp(0.1 * np.arange(N))`` to weigh the last predictions more,
             or a callable of the number of steps returning them, such as
             ``lambda n: np.exp(0.1 * np.arange(n))``, for a sequence whose
@@ -454,6 +541,49 @@ class Modely:
         shapes, numbers of values and whether training changes them."""
         return Parameters(_parameters(self), title=f"Parameters of {self.name}")
 
+    @property
+    def all_inputs(self) -> Inputs:
+        """Every Input the model reads - declared or not, inside the models it
+        calls, or only by a minimizer - and, in a ModelyLoop, every Input fed
+        back inside its step. A list of the Input objects, printed as a table
+        of their shapes and of how each is fed: whether it is declared, the
+        stream it is closed with, what the data must hold of it and, fed back
+        in a ModelyLoop, what it starts from."""
+        return Inputs(self._input_rows(), title=f"Inputs of {self.name}")
+
+    def _input_rows(self) -> list[dict]:
+        """A row of :attr:`all_inputs` per Input the graph reads."""
+        declared = {node.name for node in self.inputs}
+        sides = [
+            side
+            for minimizer in self.minimizers
+            for side in (minimizer["source"], minimizer["target"])
+        ]
+        forward = _read_inputs(self.outputs)
+        rollback = {
+            node.name: f"{stream.name} (rollback)"
+            for node, stream in self._roll_callbacks.items()
+        }
+        rows = []
+        for name, node in _read_inputs([*self.outputs, *sides]).items():
+            if name not in forward:
+                data = "target"
+            else:
+                data = "optional" if name in self.optional_inputs else "required"
+            rows.append(
+                {
+                    "input": node,
+                    "seq": tuple(node.seq),
+                    "declared": name in declared,
+                    "closed with": rollback.get(
+                        name, None if node.update is None else node.update.name
+                    ),
+                    "data": data,
+                    "starts from": None,
+                }
+            )
+        return rows
+
     def freeze(self):
         """Keep every Parameter of the model as it is through training: those
         of its relations and of the weights of its layers, of the models it
@@ -486,10 +616,14 @@ class Modely:
     ) -> ValidationResult:
         """Score the built model on ``val_data`` and draw what it did.
 
-        Every minimizer is evaluated on the validation set and reported with
-        the loss it was trained on plus the indicators a mechanical
-        system-identification report is read for: RMSE, MAE, peak error, bias,
-        NRMSE, the FIT percentage, R2 and correlation.
+        Every minimizer is evaluated as training evaluates it: the same
+        forward pass, the same target and padding mask, and its loss as
+        :meth:`train` logs it for ``val_data``. It is reported with that loss
+        plus the indicators a mechanical system-identification report is
+        read for: RMSE, MAE, peak error, bias, error std, NRMSE, FIT, R2, VAF
+        and correlation. They are computed for each channel of the signal on
+        its own scale, and over the real points only: the rollout steps padded
+        onto shorter simulations are left out.
 
         Parameters
         ----------
@@ -764,10 +898,13 @@ class Modely:
         for input_ref, stream_ref in rollback.items():
             input_node = resolve(self.inputs, input_ref, "input")
             stream = resolve(graph_streams, stream_ref, "stream")
-            # One sample of the inner time; the outer time axes are kept.
-            expected = input_node.shape.replace(
-                time=(*input_node.shape.time[:-1], 1)
-            ).tuple
+            if input_node.time is None:
+                raise ValueError(
+                    f"rollback shifts the window of input {input_node.name!r}, "
+                    "which has none: declare it with sw."
+                )
+            # One sample of the window, within the Input's sequence.
+            expected = input_node.shape.replace(time=1).tuple
             if stream.shape.tuple != expected:
                 raise ValueError(
                     f"roll stream {stream.name!r} must produce one temporal "
@@ -890,3 +1027,12 @@ class IntermediateOutput(Output):
         super().__init__(name=out.name, stream=out)
         self.pred = model_call
         self.preds = [model_call]
+
+
+def _same_sizes(time: tuple, other: tuple) -> bool:
+    """Whether two tuples of axis sizes match: as many axes, of the same
+    lengths, a dynamic one (None) matching any."""
+    return len(time) == len(other) and all(
+        None in (size, other_size) or size == other_size
+        for size, other_size in zip(time, other)
+    )

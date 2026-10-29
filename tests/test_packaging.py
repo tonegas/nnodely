@@ -47,8 +47,8 @@ def test_newer_pythons_are_not_turned_away():
 def test_the_html_logo_ships_with_the_package(tmp_path):
     # Once read from the repository's imgs/ folder: an installed copy had none.
     logo = _PACKAGE / "utils" / "templates" / "logo.png"
-    x = Input("logo_x")
-    model = Modely("logo", inputs=[x], outputs=[Output("logo_out", Fir(1)([x.sw(2)]))])
+    x = Input("logo_x", sw=2)
+    model = Modely("logo", inputs=[x], outputs=[Output("logo_out", Fir(1)([x]))])
 
     model.build().export_html(tmp_path)
 

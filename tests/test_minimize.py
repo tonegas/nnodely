@@ -32,6 +32,7 @@ from nnodely import (
     Tanh,
 )
 from conftest import CONVERGED, to_numpy
+from nnodely import TimeRange, TimeSelect
 
 
 DATASETS = os.path.join(os.path.dirname(__file__), "datasets")
@@ -136,9 +137,9 @@ def _value(parameter):
 
 def _gain_model(gain=2.0):
     """``pred = gain * x``: a prediction whose value is known before training."""
-    x = Input("x")
+    x = Input("x", sw=1)
     k = Parameter(value=[gain])
-    pred = x.last() * k
+    pred = x * k
     out = Output("pred", pred)
     return x, k, pred, out
 
@@ -152,7 +153,7 @@ def test_minimize_returns_the_model_for_chaining():
     x, _, _, out = _gain_model()
     model = Modely("model", inputs=[x], outputs=[out])
 
-    returned = model.minimize("a", out, Input("y").last()).minimize("b", out, 1.0)
+    returned = model.minimize("a", out, Input("y", sw=1)).minimize("b", out, 1.0)
 
     assert returned is model
     assert [m["name"] for m in model.minimizers] == ["a", "b"]
@@ -160,7 +161,7 @@ def test_minimize_returns_the_model_for_chaining():
 
 def test_minimize_stores_source_target_and_resolved_loss():
     x, _, _, out = _gain_model()
-    target = Input("y").last()
+    target = Input("y", sw=1)
     model = Modely("model", inputs=[x], outputs=[out])
 
     model.minimize("error", out, target, loss="mae")
@@ -178,7 +179,7 @@ def test_minimize_default_loss_is_mse():
     x, _, _, out = _gain_model()
     model = Modely("model", inputs=[x], outputs=[out])
 
-    model.minimize("error", out, Input("y").last())
+    model.minimize("error", out, Input("y", sw=1))
 
     value = model.minimizers[0]["loss"](_f32([[1.0]]), _f32([[4.0]]))
     np.testing.assert_allclose(to_numpy(value), [9.0])
@@ -224,7 +225,7 @@ def test_minimize_keeps_an_explicit_constant_target():
 def test_minimize_with_an_existing_name_replaces_it_and_warns():
     x, _, _, out = _gain_model()
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("error", out, Input("y").last())
+    model.minimize("error", out, Input("y", sw=1))
     model.minimize("other", out, 2.0)
 
     with pytest.warns(UserWarning, match="'error' already exists"):
@@ -239,9 +240,9 @@ def test_minimize_with_an_existing_name_replaces_it_and_warns():
 
 def test_a_replaced_minimizer_is_the_one_trained():
     x, _, _, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=1)
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("error", out, y.last())
+    model.minimize("error", out, y)
     with pytest.warns(UserWarning):
         model.minimize("error", out, 3.0)
     model.build()
@@ -277,8 +278,8 @@ def test_minimize_rejects_a_target_that_is_not_a_stream_a_name_or_a_number():
 
 def test_minimize_resolves_the_names_of_the_model_streams():
     x, _, pred, out = _gain_model()
-    y = Input("y")
-    reference = Output("y_ref", y.last())
+    y = Input("y", sw=1)
+    reference = Output("y_ref", y)
     model = Modely("model", inputs=[x, y], outputs=[out, reference])
 
     model.minimize("outputs", "pred", "y_ref")
@@ -293,8 +294,8 @@ def test_minimize_resolves_the_names_of_the_model_streams():
 
 def test_minimize_by_name_trains_on_the_named_streams():
     x, _, _, out = _gain_model()
-    y = Input("y")
-    reference = Output("y_ref", y.last())
+    y = Input("y", sw=1)
+    reference = Output("y_ref", y)
     model = Modely("model", inputs=[x, y], outputs=[out, reference])
     model.minimize("error", "pred", "y_ref")
     model.build()
@@ -317,10 +318,10 @@ def test_minimize_rejects_a_name_the_model_does_not_have(side):
 
 def test_minimize_rejects_a_name_shared_by_several_streams():
     # One named layer applied twice gives two streams that carry its name.
-    x = Input("x")
+    x = Input("x", sw=2)
     shared = Linear(features=1, name="shared_linear")
-    first = Output("first", shared(x.last()))
-    second = Output("second", shared(x.sw(2)))
+    first = Output("first", shared(TimeSelect(-1)(x)))
+    second = Output("second", shared(x))
     model = Modely("model", inputs=[x], outputs=[first, second])
 
     with pytest.raises(ValueError, match="ambiguous"):
@@ -383,7 +384,7 @@ def test_a_removed_name_can_be_registered_again():
 def test_train_after_removing_every_minimizer_raises():
     x, _, _, out = _gain_model()
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("error", out, Input("y").last())
+    model.minimize("error", out, Input("y", sw=1))
     model.build()
     data = _load(model)
 
@@ -403,25 +404,25 @@ def test_train_after_removing_every_minimizer_raises():
 
 def _case_output_vs_input_window():
     x, _, _, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=1)
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("error", out, y.last())
+    model.minimize("error", out, y)
     X, Y = _column("data_1"), _column("data_3")
     return model, {"error": _mse(Y, 2 * X)}
 
 
 def _case_stream_vs_input_window():
     x, _, pred, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=1)
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("error", pred, y.last())
+    model.minimize("error", pred, y)
     X, Y = _column("data_1"), _column("data_3")
     return model, {"error": _mse(Y, 2 * X)}
 
 
 def _case_output_vs_input():
     # The Input itself is read whole, without time: so is the prediction.
-    x, y = Input("x"), Input("y")
+    x, y = Input("x", sw=1), Input("y", sw=1)
     out = Output("pred", x * Parameter(value=[2.0]))
     model = Modely("model", inputs=[x], outputs=[out])
     model.minimize("error", out, y)
@@ -431,7 +432,7 @@ def _case_output_vs_input():
 
 def _case_input_vs_output():
     # The Input itself is read whole, without time: so is the prediction.
-    x, y = Input("x"), Input("y")
+    x, y = Input("x", sw=1), Input("y", sw=1)
     out = Output("pred", x * Parameter(value=[2.0]))
     model = Modely("model", inputs=[x], outputs=[out])
     model.minimize("error", y, out)
@@ -442,9 +443,9 @@ def _case_input_vs_output():
 def _case_input_window_vs_output():
     # The orientation examples/mass_estimation uses: the measured signal first.
     x, _, _, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=1)
     model = Modely("model", inputs=[x, y], outputs=[out])
-    model.minimize("error", y.last(), out)
+    model.minimize("error", y, out)
     X, Y = _column("data_1"), _column("data_3")
     return model, {"error": _mse(2 * X, Y)}
 
@@ -452,9 +453,9 @@ def _case_input_window_vs_output():
 def _case_input_window_vs_input_window():
     # No trainable weight on either side: a baseline between two measurements.
     x, _, _, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=1)
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("error", x.last(), y.last())
+    model.minimize("error", x, y)
     X, Y = _column("data_1"), _column("data_3")
     return model, {"error": _mse(Y, X)}
 
@@ -501,9 +502,9 @@ def _case_stream_vs_float():
 
 def _case_output_vs_computed_stream():
     x, _, _, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=1)
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("error", out, y.last() * 0.5)
+    model.minimize("error", out, y * 0.5)
     X, Y = _column("data_1"), _column("data_3")
     return model, {"error": _mse(0.5 * Y, 2 * X)}
 
@@ -511,16 +512,16 @@ def _case_output_vs_computed_stream():
 def _case_output_vs_layer_of_one_input():
     # A single-input layer on the target: the target is tanh(y), not y.
     x, _, _, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=1)
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("error", out, Tanh()(y.last()))
+    model.minimize("error", out, Tanh()(y))
     X, Y = _column("data_1"), _column("data_3")
     return model, {"error": _mse(np.tanh(Y), 2 * X)}
 
 
 def _case_output_vs_output():
     x, _, _, out = _gain_model()
-    other = Output("pred_unit", x.last() * Parameter(value=[1.0]))
+    other = Output("pred_unit", x * Parameter(value=[1.0]))
     model = Modely("model", inputs=[x], outputs=[out, other])
     model.minimize("error", out, other)
     X = _column("data_1")
@@ -529,8 +530,8 @@ def _case_output_vs_output():
 
 def _case_output_vs_output_of_an_input_window():
     x, _, _, out = _gain_model()
-    y = Input("y")
-    reference = Output("y_ref", y.last())
+    y = Input("y", sw=1)
+    reference = Output("y_ref", y)
     model = Modely("model", inputs=[x, y], outputs=[out, reference])
     model.minimize("error", out, reference)
     X, Y = _column("data_1"), _column("data_3")
@@ -539,9 +540,9 @@ def _case_output_vs_output_of_an_input_window():
 
 def _case_one_source_two_targets():
     x, _, _, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=1)
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("to_y", out, y.last())
+    model.minimize("to_y", out, y)
     model.minimize("to_zero", out, 0.0)
     X, Y = _column("data_1"), _column("data_3")
     return model, {"to_y": _mse(Y, 2 * X), "to_zero": _mse(0.0, 2 * X)}
@@ -549,9 +550,9 @@ def _case_one_source_two_targets():
 
 def _case_one_target_two_sources():
     x, _, _, out = _gain_model()
-    y = Input("y")
-    target = y.last()
-    other = Output("pred_unit", x.last() * Parameter(value=[1.0]))
+    y = Input("y", sw=1)
+    target = y
+    other = Output("pred_unit", x * Parameter(value=[1.0]))
     model = Modely("model", inputs=[x], outputs=[out, other])
     model.minimize("double", out, target)
     model.minimize("unit", other, target, loss="mae")
@@ -562,10 +563,10 @@ def _case_one_target_two_sources():
 def _case_target_narrower_than_its_input():
     # y carries a 3-sample window elsewhere; the target is its last sample only.
     x, _, _, out = _gain_model()
-    y = Input("y")
-    history = Output("y_history", y.sw(3))
+    y = Input("y", sw=3)
+    history = Output("y_history", y)
     model = Modely("model", inputs=[x, y], outputs=[out, history])
-    model.minimize("error", out, y.last())
+    model.minimize("error", out, TimeSelect(-1)(y))
     X, Y = _column("data_1", past=3), _column("data_3", past=3)
     return model, {"error": _mse(Y, 2 * X)}
 
@@ -573,33 +574,33 @@ def _case_target_narrower_than_its_input():
 def _case_next_target_with_a_past_window():
     # Autoregressive shape: y's past is an input, y's next sample the target.
     x, _, _, out = _gain_model()
-    y = Input("y")
-    history = Output("y_history", y.sw(2))
+    y = Input("y", sw=(2, 1))
+    history = Output("y_history", TimeRange(0, 2)(y))
     model = Modely("model", inputs=[x, y], outputs=[out, history])
-    model.minimize("error", out, y.next())
+    model.minimize("error", out, TimeSelect(-1)(y))
     X = _column("data_1", past=2, future=1)
     Y_next = _column("data_3", past=2, future=1, shift=1)
     return model, {"error": _mse(Y_next, 2 * X)}
 
 
 def _case_next_source_vs_output():
-    # examples/mass_estimation: minimize(name, signal.next(), Output)
+    # examples/mass_estimation: minimize(name, TimeSelect(-1)(signal), Output)
     x, _, _, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=(0, 1))
     model = Modely("model", inputs=[x, y], outputs=[out])
-    model.minimize("error", y.next(), out)
+    model.minimize("error", y, out)
     X = _column("data_1", future=1)
     Y_next = _column("data_3", future=1, shift=1)
     return model, {"error": _mse(2 * X, Y_next)}
 
 
 def _case_multi_dimensional_signals():
-    x2 = Input("x2", dim=2)
-    y2 = Input("y2", dim=2)
-    pred = x2.last() * Parameter(value=[2.0])
+    x2 = Input("x2", dim=2, sw=1)
+    y2 = Input("y2", dim=2, sw=1)
+    pred = x2 * Parameter(value=[2.0])
     out = Output("pred", pred)
     model = Modely("model", inputs=[x2], outputs=[out])
-    model.minimize("to_y", out, y2.last())
+    model.minimize("to_y", out, y2)
     model.minimize("to_three", out, 3.0)
     X = _column("data_1", "data_2")
     Y = _column("data_3", "a")
@@ -675,10 +676,10 @@ def test_training_on_no_trainable_weight_is_refused():
 
 def test_a_minimizer_without_trainable_weights_warns_and_adds_a_constant():
     x, _, _, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=1)
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("fit", out, y.last())
-    model.minimize("baseline", x.last(), y.last())
+    model.minimize("fit", out, y)
+    model.minimize("baseline", x, y)
     model.build()
     data = _load(model)
 
@@ -708,9 +709,9 @@ LOSS_TYPES = {
 def test_each_loss_type_is_the_one_trained_and_validated(kind):
     loss, reference = LOSS_TYPES[kind]
     x, _, _, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=1)
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("error", out, y.last(), loss=loss)
+    model.minimize("error", out, y, loss=loss)
     model.build()
     data = _load(model)
     X, Y = _column("data_1"), _column("data_3")
@@ -726,12 +727,12 @@ def test_each_loss_type_is_the_one_trained_and_validated(kind):
 def test_source_is_the_prediction_and_target_the_reference(swapped):
     """An asymmetric loss sees ``y_true = target`` and ``y_pred = source``."""
     x, _, _, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=1)
     model = Modely("model", inputs=[x], outputs=[out])
     if swapped:
-        model.minimize("error", y.last(), out, loss=signed_error_loss)
+        model.minimize("error", y, out, loss=signed_error_loss)
     else:
-        model.minimize("error", out, y.last(), loss=signed_error_loss)
+        model.minimize("error", out, y, loss=signed_error_loss)
     model.build()
     data = _load(model)
     X, Y = _column("data_1"), _column("data_3")
@@ -754,9 +755,9 @@ def _proportional_data(model, gain=3.0, samples=8):
 
 
 def test_float_target_drives_the_source_to_it():
-    x = Input("x")
+    x = Input("x", sw=1)
     k = Parameter(value=[1.0])
-    out = Output("pred", x.last() * k)
+    out = Output("pred", x * k)
     model = Modely("model", inputs=[x], outputs=[out])
     model.minimize("error", out, 6.0)
     model.build()
@@ -770,15 +771,15 @@ def test_float_target_drives_the_source_to_it():
 @pytest.mark.slow
 @pytest.mark.parametrize("swapped", [False, True], ids=["source_first", "target_first"])
 def test_output_is_trained_whichever_side_it_is_declared_on(swapped):
-    x = Input("x")
-    y = Input("y")
+    x = Input("x", sw=1)
+    y = Input("y", sw=1)
     k = Parameter(value=[1.0])
-    out = Output("pred", x.last() * k)
+    out = Output("pred", x * k)
     model = Modely("model", inputs=[x, y], outputs=[out])
     if swapped:
-        model.minimize("error", y.last(), out)
+        model.minimize("error", y, out)
     else:
-        model.minimize("error", out, y.last())
+        model.minimize("error", out, y)
     model.build()
 
     _fit(model, _proportional_data(model), epochs=300, lr=0.2, **CONVERGED)
@@ -788,12 +789,12 @@ def test_output_is_trained_whichever_side_it_is_declared_on(swapped):
 
 @pytest.mark.slow
 def test_computed_target_is_trained_against():
-    x = Input("x")
-    y = Input("y")
+    x = Input("x", sw=1)
+    y = Input("y", sw=1)
     k = Parameter(value=[1.0])
-    out = Output("pred", x.last() * k)
+    out = Output("pred", x * k)
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("error", out, y.last() * 0.5)
+    model.minimize("error", out, y * 0.5)
     model.build()
 
     _fit(model, _proportional_data(model, gain=6.0), epochs=300, lr=0.2, **CONVERGED)
@@ -803,14 +804,14 @@ def test_computed_target_is_trained_against():
 
 @pytest.mark.slow
 def test_output_vs_output_trains_both_sides():
-    x = Input("x")
-    y = Input("y")
+    x = Input("x", sw=1)
+    y = Input("y", sw=1)
     k_fit = Parameter(value=[1.0])
     k_follow = Parameter(value=[0.0])
-    fit = Output("fit", x.last() * k_fit)
-    follow = Output("follow", x.last() * k_follow)
+    fit = Output("fit", x * k_fit)
+    follow = Output("follow", x * k_follow)
     model = Modely("model", inputs=[x], outputs=[fit, follow])
-    model.minimize("fit_error", fit, y.last())
+    model.minimize("fit_error", fit, y)
     model.minimize("follow_error", follow, fit)
     model.build()
     data = DataLoader(
@@ -830,14 +831,14 @@ def test_output_vs_output_trains_both_sides():
 @pytest.mark.slow
 @pytest.mark.parametrize("rebuild", [True, False], ids=["rebuilt", "not_rebuilt"])
 def test_a_removed_minimizer_no_longer_trains_its_weights(rebuild):
-    x = Input("x")
-    y = Input("y")
+    x = Input("x", sw=1)
+    y = Input("y", sw=1)
     k_kept = Parameter(value=[1.0])
     k_removed = Parameter(value=[1.0])
-    kept = Output("kept", x.last() * k_kept)
-    removed = Output("removed", x.last() * k_removed)
+    kept = Output("kept", x * k_kept)
+    removed = Output("removed", x * k_removed)
     model = Modely("model", inputs=[x], outputs=[kept, removed])
-    model.minimize("kept_error", kept, y.last())
+    model.minimize("kept_error", kept, y)
     model.minimize("removed_error", removed, 10.0)
     model.build()
 
@@ -852,9 +853,9 @@ def test_a_removed_minimizer_no_longer_trains_its_weights(rebuild):
 
 def test_removed_minimizer_is_not_validated():
     x, _, _, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=1)
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("kept", out, y.last())
+    model.minimize("kept", out, y)
     model.minimize("removed", out, 3.0)
     model.build()
     model.remove_minimizer("removed")
@@ -870,9 +871,9 @@ def test_removed_minimizer_is_not_validated():
 
 def test_minimizer_added_after_build_is_trained_after_rebuilding():
     x, k, pred, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=1)
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("to_y", out, y.last())
+    model.minimize("to_y", out, y)
     model.build()
 
     model.minimize("stream_to_three", pred, 3.0)
@@ -887,9 +888,9 @@ def test_minimizer_added_after_build_is_trained_after_rebuilding():
 def test_training_a_minimizer_added_after_build_asks_for_a_rebuild():
     """A minimizer on a stream the built graph does not expose needs build()."""
     x, _, pred, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=1)
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("to_y", out, y.last())
+    model.minimize("to_y", out, y)
     model.build()
     data = _load(model)
 
@@ -901,11 +902,11 @@ def test_training_a_minimizer_added_after_build_asks_for_a_rebuild():
 
 def test_streams_of_different_shapes_are_not_broadcast():
     """One sample against a whole window is an error, not a broadcast loss."""
-    x, _, _, _ = _gain_model()
-    y = Input("y")
-    window = Output("window", x.sw(3) * Parameter(value=[2.0]))
+    x = Input("x", sw=3)
+    y = Input("y", sw=1)
+    window = Output("window", x * Parameter(value=[2.0]))
     model = Modely("model", inputs=[x], outputs=[window])
-    model.minimize("error", window, y.last())
+    model.minimize("error", window, y)
     model.build()
     data = _load(model)
 
@@ -930,10 +931,10 @@ def test_minimize_default_gain_is_one():
 def test_gains_weight_the_total_loss_but_not_the_logged_losses():
     """As Keras does with loss_weights: each minimizer logs its own loss."""
     x, _, _, out = _gain_model()
-    y = Input("y")
-    unit = Output("pred_unit", x.last() * Parameter(value=[1.0]))
+    y = Input("y", sw=1)
+    unit = Output("pred_unit", x * Parameter(value=[1.0]))
     model = Modely("model", inputs=[x], outputs=[out, unit])
-    model.minimize("half", out, y.last(), gain=0.5)
+    model.minimize("half", out, y, gain=0.5)
     model.minimize("double", unit, 3.0, gain=2)
     model.build()
     data = _load(model)
@@ -962,10 +963,10 @@ def test_two_minimizers_on_one_source_each_log_their_own_loss():
     # Keyed by their source, both were once logged as "pred_loss": the history
     # kept one of the two, and the printer showed it in both columns.
     x, _, _, out = _gain_model()
-    y = Input("y")
+    y = Input("y", sw=1)
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("squared", out, y.last(), loss="mse")
-    model.minimize("absolute", out, y.last(), loss="mae")
+    model.minimize("squared", out, y, loss="mse")
+    model.minimize("absolute", out, y, loss="mae")
     model.build()
     data = _load(model)
     X, Y = _column("data_1"), _column("data_3")
@@ -989,9 +990,9 @@ def test_two_minimizers_on_one_source_each_log_their_own_loss():
 @pytest.mark.parametrize("gain", [0.0, 0.5, 1.0, 2.0])
 def test_a_gain_scales_the_step_its_minimizer_takes(gain):
     # loss = gain * (k - 3)^2 at x = 1: one SGD step moves k by 2 * lr * gain * 2
-    x = Input("x")
+    x = Input("x", sw=1)
     k = Parameter(value=[1.0])
-    out = Output("pred", x.last() * k)
+    out = Output("pred", x * k)
     model = Modely("model", inputs=[x], outputs=[out])
     model.minimize("error", out, 3.0, gain=gain)
     model.build()
@@ -1004,9 +1005,9 @@ def test_a_gain_scales_the_step_its_minimizer_takes(gain):
 
 def test_gains_set_the_trade_off_between_conflicting_minimizers():
     # gain 1 pulls pred to 0, gain 2 pulls it to 3: the optimum is (0 + 2 * 3) / 3
-    x = Input("x")
+    x = Input("x", sw=1)
     k = Parameter(value=[1.0])
-    out = Output("pred", x.last() * k)
+    out = Output("pred", x * k)
     model = Modely("model", inputs=[x], outputs=[out])
     model.minimize("to_zero", out, 0.0, gain=1)
     model.minimize("to_three", out, 3.0, gain=2)
@@ -1052,12 +1053,12 @@ def _windows(name, width):
 
 
 def _window_model(**minimize_options):
-    """``pred = 2 * x.sw(3)`` against ``y.sw(3)``: a known error at every step."""
-    x = Input("x")
-    y = Input("y")
-    out = Output("pred", x.sw(3) * Parameter(value=[2.0]))
+    """``pred = 2 * x`` against ``y``, windows of 3: a known error at every step."""
+    x = Input("x", sw=3)
+    y = Input("y", sw=3)
+    out = Output("pred", x * Parameter(value=[2.0]))
     model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("error", out, y.sw(3), **minimize_options)
+    model.minimize("error", out, y, **minimize_options)
     model.build()
     X, Y = _windows("data_1", 3), _windows("data_3", 3)
     return model, X, Y
@@ -1129,19 +1130,16 @@ def test_minimize_default_seq_weights_are_none():
 
 def test_seq_weights_weigh_the_rollout_steps_of_a_loop():
     # c = 0, d = 2: the loop predicts 2 * y at every step, whatever it feeds back
-    x, y = Input("x"), Input("y")
-    step = x.last() * Parameter("c", value=[0.0]) + y.last() * Parameter(
-        "d", value=[2.0]
-    )
+    x, y = Input("x", sw=1), Input("y", sw=1)
+    step = x * Parameter("c", value=[0.0]) + y * Parameter("d", value=[2.0])
     body = Modely("body", inputs=[x, y], outputs=[Output("step", step)]).build()
-    x_seq, y_seq, t_seq = Input("x_seq"), Input("y_seq"), Input("t_seq")
-    loop = Loop(f=body, callback={"x": "step"}, init={"x": x_seq.last(seq=4)})(
-        {"y": y_seq.last(seq=4)}
-    )
+    x_seq, y_seq = Input("x_seq", seq=4, sw=1), Input("y_seq", seq=4, sw=1)
+    t_seq = Input("t_seq", seq=4, sw=1)
+    loop = Loop(f=body, callback={"x": "step"}, init={"x": x_seq})({"y": y_seq})
     out = Output("rollout", loop)
     model = Modely("model", inputs=[x_seq, y_seq], outputs=[out])
     weights = np.exp(np.arange(4))
-    model.minimize("error", out, t_seq.last(seq=4), seq_weights=weights)
+    model.minimize("error", out, t_seq, seq_weights=weights)
     model.build()
     rng = np.random.default_rng(0)
     raw = {
@@ -1168,12 +1166,12 @@ def test_seq_weights_weigh_the_rollout_steps_of_a_loop():
     ids=["wrong_length", "negative", "nan", "all_zero", "two_dimensional"],
 )
 def test_minimize_rejects_invalid_seq_weights(seq_weights):
-    x, y = Input("x"), Input("y")
-    out = Output("pred", x.sw(3) * Parameter(value=[2.0]))
+    x, y = Input("x", sw=3), Input("y", sw=3)
+    out = Output("pred", x * Parameter(value=[2.0]))
     model = Modely("model", inputs=[x], outputs=[out])
 
     with pytest.raises(ValueError, match="seq_weights"):
-        model.minimize("error", out, y.sw(3), seq_weights=seq_weights)
+        model.minimize("error", out, y, seq_weights=seq_weights)
     assert model.minimizers == []
 
 
@@ -1187,19 +1185,17 @@ def test_callable_seq_weights_are_evaluated_with_the_sequence_length():
 
 def _dynamic_loop_model(seq_weights):
     """A rollout of dynamic length predicting ``2 * y`` at every step."""
-    x, y = Input("x"), Input("y")
-    step = x.last() * Parameter("c", value=[0.0]) + y.last() * Parameter(
-        "d", value=[2.0]
-    )
+    x, y = Input("x", sw=1), Input("y", sw=1)
+    step = x * Parameter("c", value=[0.0]) + y * Parameter("d", value=[2.0])
     body = Modely("body", inputs=[x, y], outputs=[Output("step", step)]).build()
-    x_seq, y_seq = Input("x_seq"), Input("y_seq")
-    t_seq = Input("t_seq")
-    loop = Loop(
-        f=body, callback={"x": "step"}, length=3, init={"x": x_seq.last(seq=-1)}
-    )({"y": y_seq.last(seq=-1)})
+    x_seq, y_seq = Input("x_seq", seq=-1, sw=1), Input("y_seq", seq=-1, sw=1)
+    t_seq = Input("t_seq", seq=-1, sw=1)
+    loop = Loop(f=body, callback={"x": "step"}, length=3, init={"x": x_seq})(
+        {"y": y_seq}
+    )
     out = Output("rollout", loop)
     model = Modely("model", inputs=[x_seq, y_seq], outputs=[out])
-    model.minimize("error", out, t_seq.last(seq=-1), seq_weights=seq_weights)
+    model.minimize("error", out, t_seq, seq_weights=seq_weights)
     model.build()
     rng = np.random.default_rng(0)
     raw = {
@@ -1240,12 +1236,12 @@ def test_array_seq_weights_on_a_dynamic_rollout_match_the_data_length():
 
 
 def test_minimize_rejects_a_callable_giving_the_wrong_number_of_weights():
-    x, y = Input("x"), Input("y")
-    out = Output("pred", x.sw(3) * Parameter(value=[2.0]))
+    x, y = Input("x", sw=3), Input("y", sw=3)
+    out = Output("pred", x * Parameter(value=[2.0]))
     model = Modely("model", inputs=[x], outputs=[out])
 
     with pytest.raises(ValueError, match="seq_weights"):
-        model.minimize("error", out, y.sw(3), seq_weights=lambda n: np.ones(n + 1))
+        model.minimize("error", out, y, seq_weights=lambda n: np.ones(n + 1))
     assert model.minimizers == []
 
 
@@ -1253,13 +1249,13 @@ def test_seq_weights_weigh_a_padded_rollout_with_a_loss_instance():
     # On padded simulations the loss is masked, and a Loss instance reduced
     # every step to one value before the weights were applied: they were lost.
     def history(loss, seq_weights):
-        u = Input("padded_u")
-        out = Output("padded_out", u.last(seq=-1) * Parameter("padded_k", value=1.0))
+        u = Input("padded_u", seq=-1, sw=1)
+        out = Output("padded_out", u * Parameter("padded_k", value=1.0))
         model = Modely("padded", inputs=[u], outputs=[out])
         model.minimize(
             "fit",
             out,
-            Input("padded_t").last(seq=-1),
+            Input("padded_t", seq=-1, sw=1),
             loss=loss,
             seq_weights=seq_weights,
         )

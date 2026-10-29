@@ -88,8 +88,8 @@ class ELU(Layer):
 class PReLU(Layer):
     """Wrapper for keras.layers.PReLU.
 
-    It learns one slope per feature, shared by every step of every time axis
-    - a dynamic one included. ``shared_axes`` shares the slopes along other
+    It learns one slope per feature, shared by every sample of the window
+    and every step of the sequence - a dynamic one included. ``shared_axes`` shares the slopes along other
     axes instead, given as Keras counts them, the batch axis as 0.
     """
 
@@ -100,15 +100,17 @@ class PReLU(Layer):
     def build_layer(self):
         shared_axes = self.shared_axes
         if shared_axes is None:
-            shared_axes = list(self.preds[0].shape.time_axes)  # type: ignore
+            shape = self.preds[0].shape  # type: ignore[union-attr]
+            window = [] if shape.time_axis is None else [shape.time_axis]
+            shared_axes = [*shape.seq_axes, *window]
         return keras.layers.PReLU(shared_axes=shared_axes, name=self.name)
 
 
 class Softmax(Layer):
     """Wrapper for keras.layers.Softmax.
 
-    By default a sample is normalized as a whole: its values over every time
-    and dim axis sum to one, as any other activation reads every value of
+    By default a sample is normalized as a whole: its values over its
+    sequence, window and dim sum to one, as any other activation reads every value of
     it. ``axis`` normalizes along one axis of the tensor instead, counted
     with the batch axis as 0.
     """

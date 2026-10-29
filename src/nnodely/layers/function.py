@@ -39,14 +39,14 @@ class KerasFunction(Layer):
     A custom function in the graph: an nnodely layer computing with
     ``function``, a Keras layer - a ``keras.layers.Layer`` subclass, made
     here without arguments, or an instance. Its streams are passed to
-    ``call`` as separate arguments, laid out ``(batch, *time, *dim)``,
+    ``call`` as separate arguments, laid out ``(batch, *seq, time, *dim)``,
     and its output is a stream whose shape is read off the result::
 
         class Shifted(keras.layers.Layer):
             def call(self, x, y):
                 return x * x + y
 
-        shifted = KerasFunction(Shifted)([a.last(), b.last()])
+        shifted = KerasFunction(Shifted)([a, b])
 
     A class is made anew for every KerasFunction; an instance keeps its
     weights, shared wherever it is used. Weights of the Keras layer are Keras

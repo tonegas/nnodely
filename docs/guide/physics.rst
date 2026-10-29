@@ -10,7 +10,8 @@ inferred from the data.
 
    import numpy as np
    from nnodely import (
-       DataLoader, Derivative, Differentiate, Input, Integrate, IntegrateStep, Linear, Loop, Modely,
+       DataLoader, Derivative, DerivativeStep, Differentiate, Input, Integrate, IntegrateStep,
+       Linear, Loop, Modely, ModelyLoop,
        Ode, OdeNet, Output, Parameter, set_seed, Sin, Tanh,
    )
 
@@ -19,8 +20,9 @@ inferred from the data.
 Derivatives
 -----------
 
-Two layers differentiate a stream: :class:`~nnodely.Differentiate` with respect to an
-input, and :class:`~nnodely.Derivative` with respect to time.
+Three layers differentiate a stream: :class:`~nnodely.Differentiate` with respect to an
+input, and :class:`~nnodely.DerivativeStep` and :class:`~nnodely.Derivative` with
+respect to time, over a window and step by step in a ModelyLoop.
 
 **With respect to an input**, ``Differentiate`` computes the derivative by the backend's
 automatic differentiation. It accounts for every relation between the input
@@ -31,13 +33,13 @@ physics-informed neural networks. The model below fits
 
 .. code-block:: python
 
-   t = Input("t")
-   u = Linear(features=1)([Tanh()([Linear(features=16)([t.last()])])])
+   t = Input("t")              # one value per sample, no window
+   u = Linear(features=1)([Tanh()([Linear(features=16)([t])])])
    du_dt = Differentiate(respect_to=t)(u)
 
    u_out = Output("u", u)
    decay = Modely("decay", inputs=[t], outputs=[u_out])
-   decay.minimize("data", u_out, Input("u_meas").last())
+   decay.minimize("data", u_out, Input("u_meas"))
    decay.minimize("physics", du_dt + u)       # no target: the residual goes to zero
    decay.build()
 
@@ -47,69 +49,87 @@ physics-informed neural networks. The model below fits
 
 ``order=2`` gives the second derivative.
 
-**With respect to time**, ``Derivative`` takes the time step ``dt``, as
+**With respect to time**, ``DerivativeStep`` takes the time step ``dt``, as
 ``IntegrateStep`` does, and the derivative is a causal finite difference along the
 stream's time window. The
-window length is preserved. ``init`` is the sample just before the window
-(zero by default). ``window`` and ``poly_order`` turn the plain backward
+window length is preserved. The initial condition, the sample just before the
+window, is given first when the layer is called, ``DerivativeStep(dt=dt)(init,
+x)``; called on ``x`` alone it is zero. ``window`` and ``poly_order`` turn the plain backward
 difference into a least-squares polynomial fit, which smooths noisy measured
 signals at the price of a delay of about ``(window - 1) / 2`` samples:
 
 .. code-block:: python
 
    dt = 0.01
-   position = Input("position")
-   velocity = Derivative(dt=dt, init=0.0)(position.sw(10))
-   smooth_velocity = Derivative(dt=dt, window=5)(position.sw(10))
-   print(velocity.shape)   # Shape(T=(10,), D=(1,))
+   position = Input("position", sw=10)
+   velocity = DerivativeStep(dt=dt)(0.0, position)
+   smooth_velocity = DerivativeStep(dt=dt, window=5)(position)
+   print(velocity.shape)   # Shape(S=(), T=10, D=(1,))
 
 Integrators
 -----------
 
 :class:`~nnodely.IntegrateStep` integrates a rate along its time window, with the
-``"euler"`` (or ``"rectangular"``) or ``"trapezoidal"`` rule. ``init`` is the
-value before the window. On a one-sample window it is exactly one integration
-step, which is the state update of a recurrent model:
+``"euler"`` (or ``"rectangular"``) or ``"trapezoidal"`` rule. The initial
+condition, the value before the window, is given first when the layer is
+called, ``IntegrateStep(dt=dt)(init, rate)``; called on the rate alone it
+starts from zero. On a one-sample window it is exactly one integration step,
+which is the state update of a recurrent model:
 
 .. code-block:: python
 
-   acceleration = Input("acceleration")
-   v = Input("v")
-   v_next = IntegrateStep(dt=dt, init=v.last())(acceleration.last())   # v + dt * a
+   acceleration = Input("acceleration", sw=1)
+   v = Input("v", sw=1)
+   v_next = IntegrateStep(dt=dt)(v, acceleration)   # v + dt * a
 
 On a longer window it returns the whole integrated trajectory in one pass, so
 position can be obtained from acceleration with no rollout:
 
 .. code-block:: python
 
-   v_window = IntegrateStep(dt=dt)(acceleration.sw(50))
+   acceleration_window = Input("acceleration_window", sw=50)
+   v_window = IntegrateStep(dt=dt)(acceleration_window)
    x_window = IntegrateStep(dt=dt)(v_window)
-   print(x_window.shape)   # Shape(T=(50,), D=(1,))
+   print(x_window.shape)   # Shape(S=(), T=50, D=(1,))
 
 The Euler rule is the exact inverse of the time derivative with the same
-``init``: ``IntegrateStep(dt=dt, init=x0)(Derivative(dt=dt, init=x0)(x))``
+``init``: ``IntegrateStep(dt=dt)(x0, DerivativeStep(dt=dt)(x0, x))``
 returns ``x``.
 
-:class:`~nnodely.Integrate` integrates along a **horizon** instead: the outer
-time of the rate, one sample per step. It is a block built from an
-``IntegrateStep`` and a :class:`~nnodely.Loop` that feeds each integrated
-value back as the state of the next step. A dynamic horizon (``seq=-1``)
-follows the length of the data at every call, with no rebuild. The rules, and
-the results on the same samples, are those of ``IntegrateStep``:
+:class:`~nnodely.Integrate` integrates one step at a time instead, in a
+:class:`~nnodely.ModelyLoop`: the rate is one sample of a step, and the
+integral is an Input closed with its update, which the ModelyLoop feeds back
+with all its other closed Inputs, in a single loop. The rules, and the results
+on the same samples, are those of ``IntegrateStep``. Every Input of a
+ModelyLoop carries the horizon, one element per step, and ``init`` reads its
+first step:
 
 .. code-block:: python
 
-   acc = Input("acc")
-   v0 = Input("v0")
-   velocity = Integrate(solver="trapezoidal", dt=dt, init=v0.last())(
-       acc.last(seq=-1)                          # one acceleration per step
-   )
+   acc = Input("acc", sw=1)           # one acceleration per step
+   v0 = Input("v0", sw=1)
+   velocity = Integrate(solver="trapezoidal", dt=dt, init=v0)(acc)
    position = Integrate(solver="trapezoidal", dt=dt, init=0.0)(velocity)
-   kinematics = Modely("kinematics", inputs=[acc, v0],
-                       outputs=[Output("velocity", velocity), Output("position", position)])
+   kinematics = ModelyLoop("kinematics", inputs=[acc, v0],
+                           outputs=[Output("velocity", velocity), Output("position", position)])
    kinematics.build()
-   result = kinematics({"acc": np.ones((1, 30, 1, 1)), "v0": np.zeros((1, 1, 1))})
+   result = kinematics({"acc": np.ones((1, 30, 1, 1)), "v0": np.zeros((1, 30, 1, 1))})
    print(result["position"].shape)   # (1, 30, 1, 1): one value per step
+
+:class:`~nnodely.Derivative` differentiates one step at a time, as
+``Integrate`` integrates: the ``window - 1`` samples before the step are an
+Input closed with the signal, and the stencil, its arguments and the results
+on the same samples are those of ``DerivativeStep``. ``init`` is the value
+just before the first step, or the ``window - 1`` values a longer stencil
+reads, along its window. With the same ``init``, ``Integrate``'s Euler rule
+inverts it:
+
+.. code-block:: python
+
+   x = Input("x", sw=1)               # one position per step
+   x0 = Input("x0", sw=1)
+   v = Derivative(dt=dt, init=x0)(x)
+   x_again = Integrate(dt=dt, init=x0)(v)   # x again, in a ModelyLoop on x and x0
 
 One ODE step
 ------------
@@ -126,11 +146,11 @@ body of a :class:`~nnodely.Loop`. Here a pendulum with an unknown ratio
    def pendulum(theta, omega, g_over_l):
        return omega, -1.0 * g_over_l * Sin()([theta])
 
-   theta = Input("theta")
-   omega = Input("omega")
+   theta = Input("theta", sw=1)
+   omega = Input("omega", sw=1)
    g_over_l = Parameter("g_over_l", value=5.0)
    theta_next, omega_next = Ode(
-       pendulum, [theta.last(), omega.last()], dt=0.05, method="rk4", args=(g_over_l,)
+       pendulum, [theta, omega], dt=0.05, method="rk4", args=(g_over_l,)
    )
    step = Modely(
        "pendulum_step",
@@ -138,12 +158,12 @@ body of a :class:`~nnodely.Loop`. Here a pendulum with an unknown ratio
        outputs=[Output("theta_next", theta_next), Output("omega_next", omega_next)],
    ).build()
 
-   theta0 = Input("theta0")
-   omega0 = Input("omega0")
+   theta0 = Input("theta0", seq=100, sw=1)
+   omega0 = Input("omega0", seq=100, sw=1)
    theta_traj, omega_traj = Loop(
        f=step,
        callback={"theta": "theta_next", "omega": "omega_next"},
-       init={"theta": theta0.last(seq=100), "omega": omega0.last(seq=100)},
+       init={"theta": theta0, "omega": omega0},
    )()
    simulator = Modely(
        "pendulum",
@@ -168,16 +188,16 @@ time. The field must be autonomous (all its inputs are states).
 
 .. code-block:: python
 
-   z = Input("z", dim=2)
+   z = Input("z", dim=2, sw=1)
    field = Modely(
        "field",
        inputs=[z],
-       outputs=[Output("dz", Linear(features=2, bias=False)([z.last()]))],
+       outputs=[Output("dz", Linear(features=2, bias=False)([z]))],
    ).build()
 
-   report_times = Input("report_times")
+   report_times = Input("report_times", seq=50, sw=1)
    z_traj = OdeNet(
-       f=field, states={z: "dz"}, t=report_times.last(seq=50), method="rk4", steps=2
+       f=field, states={z: "dz"}, t=report_times, method="rk4", steps=2
    )
    node = Modely("neural_ode", inputs=[z, report_times], outputs=[Output("z_traj", z_traj)]).build()
 

@@ -2,8 +2,8 @@
 DAG - Lazy/DAG approach. No global graph.
 Each node has predecessors; Model traverses from output backwards.
 
-Axes: a stream is laid out (batch, *time, *dim), see core/shape.py.
-Default: dim=1, no time
+Axes: a stream is laid out (batch, *seq, time, *dim), or (batch, *seq, *dim)
+without a window, see core/shape.py. Default: dim=1, no window, no sequence.
 """
 
 from copy import copy
@@ -54,9 +54,30 @@ class Scope:
     body exists once in its definition but is evaluated once per enclosing call.
     """
 
-    def __init__(self, memo: dict[Node, Any] | None = None) -> None:
+    def __init__(
+        self,
+        memo: dict[Node, Any] | None = None,
+        values: dict[Node, Any] | None = None,
+        pending: list | None = None,
+        loop: bool = False,
+    ) -> None:
         self.memo: dict[Node, Any] = {} if memo is None else memo
         self.calls: dict[Node, "Scope"] = {}
+        # The Parameters and Constants inlined, one copy each, shared with
+        # every call: they are one object in every model that reads them. So
+        # is an Input read from data - one array, whatever reads it - unless a
+        # call binds it; a closed Input is one state per call in a ModelyLoop.
+        self.values: dict[Node, Any] = {} if values is None else values
+        # The closed Inputs inlined, with the scope of each, when what closes
+        # them is inlined too (see flatten_closed); None leaves them as they are.
+        self.pending = pending
+        # Whether the graph is the step of a ModelyLoop: a call then keeps the
+        # feedback of the closed Inputs its model declares, where a Modely
+        # reads the argument given for one as its data.
+        self.loop = loop
+        # The streams a call gives the closed Inputs its model declares, when
+        # what closes them is inlined: their initial values.
+        self.inits: dict[Node, Any] = {}
 
     def merged_memo(self) -> dict[Node, Any]:
         """Every node inlined anywhere, with the enclosing scope taking priority.
@@ -77,9 +98,17 @@ class Scope:
 def flatten_node(node: Node, scope: Scope) -> Any:
     from nnodely.core.modely import IntermediateOutput
     from nnodely.core.layer import Layer
+    from nnodely.layers.parameter import _Value
+    from nnodely.layers.input import Input
 
     if node in scope.memo:
         return scope.memo[node]
+    shared = isinstance(node, _Value) or (
+        isinstance(node, Input) and (node.update is None or not scope.loop)
+    )
+    if shared and node in scope.values:
+        scope.memo[node] = scope.values[node]
+        return scope.values[node]
 
     if type(node) is IntermediateOutput:
         model_call = node.pred
@@ -91,11 +120,30 @@ def flatten_node(node: Node, scope: Scope) -> Any:
             # The arguments belong to the calling graph, so they are inlined in
             # the enclosing scope and stay shared between calls; only the
             # bindings they produce are local to this one.
-            bindings = {
+            arguments = {
                 internal_input: flatten_node(external_input, scope)
                 for internal_input, external_input in model_call.inputs_map.items()
             }
-            call_scope = Scope({**scope.memo, **bindings})
+            # A closed Input the model declares reads its argument as data: at
+            # every step in a Modely; in a ModelyLoop it keeps its feedback,
+            # and the argument is its initial value.
+            inits: dict[Node, Any] = {
+                internal_input: argument
+                for internal_input, argument in arguments.items()
+                if scope.loop
+                and isinstance(internal_input, Input)
+                and internal_input.update is not None
+            }
+            bindings = {
+                internal_input: argument
+                for internal_input, argument in arguments.items()
+                if internal_input not in inits
+            }
+            # A call starts from its bindings alone: what the caller has
+            # inlined so far depends on the order the graph is walked in, and
+            # sharing it made the result depend on that order too.
+            call_scope = Scope(bindings, scope.values, scope.pending, scope.loop)
+            call_scope.inits = inits
             scope.calls[model_call] = call_scope
 
         internal_output = model_call.outputs_map[node]
@@ -112,11 +160,50 @@ def flatten_node(node: Node, scope: Scope) -> Any:
     ):
         new_node._layer = None
     scope.memo[node] = new_node
+    if shared:
+        scope.values[node] = new_node
+    if (
+        scope.pending is not None
+        and isinstance(node, Input)
+        and node.update is not None
+    ):
+        scope.pending.append((new_node, node, scope))
     return new_node
 
 
+def flatten_closed(scope: Scope) -> None:
+    """Inline the stream every closed Input inlined in ``scope`` is closed
+    with, and its init, each in the call the Input was inlined in, and so on
+    for the closed Inputs those read in turn.
+
+    They are no predecessors of the Input, and wait for the graph to be
+    inlined: an update can read the output of a call whose arguments read the
+    Input, and inlined on reaching the Input it would make that call twice.
+    """
+    while scope.pending:
+        inlined, source, source_scope = scope.pending.pop(0)
+        inlined.update = flatten_node(source.update, source_scope)
+        if source in source_scope.inits:
+            inlined.init = source_scope.inits[source]
+        elif isinstance(source.init, Node):
+            inlined.init = flatten_node(source.init, source_scope)
+
+
 def flatten(model):
-    return _flatten_graph(model.name, model.inputs, model.outputs)
+    flat, memo = _flatten_graph(
+        model.name, model.inputs, model.outputs, return_memo=True, closed=True
+    )
+    # The rollback is the model's, not its graph's: carried over to the copies.
+    if model._roll_callbacks:
+        flat.rollback(
+            {
+                memo[node]: memo[stream]
+                for node, stream in model._roll_callbacks.items()
+            },
+            steps=model._roll_steps,
+            name=model._roll_name,
+        )
+    return flat
 
 
 def _flatten_graph(
@@ -125,11 +212,16 @@ def _flatten_graph(
     outputs: list[Stream],
     *,
     return_memo: bool = False,
+    closed: bool = False,
 ) -> Any:
+    """``closed`` inlines the stream every closed Input is closed with, and
+    its init, too: without it they are left as they are, in the graph of the
+    model that declared them."""
     from nnodely.core.modely import Modely
 
-    scope = Scope()
+    scope = Scope(pending=[] if closed else None)
     flat_outputs: list[Output] = [flatten_node(output, scope) for output in outputs]
+    flatten_closed(scope)
     memo = scope.merged_memo()
     flat_inputs: list[Any] = [memo[input] for input in inputs if input in memo]
 
@@ -201,6 +293,18 @@ def toposort_outputs(outputs: list[Output]) -> list[Node]:
             dfs(output)
 
     return order
+
+
+def _read_inputs(roots) -> dict[str, Any]:
+    """Every Input ``roots`` read, by name, inside the models they call too,
+    in the order the graph reaches them."""
+    from nnodely.layers.input import Input
+
+    scope = Scope()
+    flat = [flatten_node(root, scope) for root in roots]
+    return {
+        node.name: node for node in toposort_outputs(flat) if isinstance(node, Input)
+    }
 
 
 def _streams_from(roots) -> list[Stream]:

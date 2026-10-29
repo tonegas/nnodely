@@ -7,7 +7,8 @@ This page lists the blocks a model is made of. Their full signatures are in the
 Inputs and outputs
 ------------------
 
-:class:`~nnodely.Input` declares a signal read from data, and
+:class:`~nnodely.Input` declares a signal read from data, with the window of
+samples the model reads (``sw``, see :doc:`concepts`), and
 :class:`~nnodely.Output` names a stream the model exposes:
 
 .. code-block:: python
@@ -15,23 +16,25 @@ Inputs and outputs
    import numpy as np
    from nnodely import Input, Modely, Output
 
-   velocity = Input("velocity")
-   altitude = Input("altitude", dim=3)      # three features per sample
-   gear = Input("gear")
+   velocity = Input("velocity", sw=1)              # the current sample
+   altitude = Input("altitude", dim=3, sw=1)       # three features per sample
+   gear = Input("gear", sw=1)
 
 Parameters and constants
 ------------------------
 
 A :class:`~nnodely.Parameter` is a trainable tensor used directly in the graph,
 and a :class:`~nnodely.Constant` is a fixed one. A ``value`` sets the shape:
-every axis of the value is a ``dim`` axis and the value has no time axis - it
-applies to every sample, of any stream - unless ``dim`` and ``time`` name the
-axes of the value that play each part: ``Parameter("w", value=np.ones((2, 3)),
-time=1)`` is a 2-feature window of 3 samples, and ``time`` can name several
-axes, outermost first. A constant always takes its shape from its ``value``; a
-parameter can be given ``dim`` and ``time`` as sizes instead, and start from a
-random value. Like every stream they are laid out ``(batch, *time, *dim)``,
-the same value for every sample:
+every axis of the value is a ``dim`` axis and the value has no window - it
+applies to every sample, of any stream - unless ``dim``, ``time`` and ``seq``
+name the axes of the value that play each part:
+``Parameter("w", value=np.ones((2, 3)), time=1)`` is a 2-feature window of 3
+samples; ``time`` names one axis, the window, and ``seq`` one or several,
+outermost first. A constant always takes its shape from its ``value``; a
+parameter can be given ``dim``, ``time`` and ``seq`` as sizes instead, and
+start from a random value. Like every stream they are laid out
+``(batch, *seq, time, *dim)`` - without the window when they have none - the
+same value for every sample:
 
 .. code-block:: python
 
@@ -41,7 +44,7 @@ the same value for every sample:
    weights = Parameter("weights", dim=3)                   # random initial value
    gravity = Constant("gravity", value=9.81)
 
-   air_drag = -1.0 * drag * velocity.last() * velocity.last()
+   air_drag = -1.0 * drag * velocity * velocity
 
 Layers
 ------
@@ -87,11 +90,11 @@ The tables group the available layers.
    * - :class:`~nnodely.Fuzzify`
      - Memberships of a scalar signal to sets placed on given centers, one
        feature per center: a membership function on each, or any layer of
-       ``x - center``.
+       ``x - center``; ``normalize=True`` makes them add up to one.
    * - Membership functions
      - :class:`~nnodely.Triangular`, :class:`~nnodely.Rectangular`,
-       :class:`~nnodely.Gaussian`: layers of their own, applied to every value
-       of a stream.
+       :class:`~nnodely.Gaussian`: layers of their own, 1 at 0, applied to
+       every value of a stream; their width can be a Parameter.
    * - :class:`~nnodely.Interpolation`
      - One-dimensional lookup table, linear or polynomial.
    * - Activations
@@ -110,15 +113,20 @@ The tables group the available layers.
    * - Feature axes
      - :class:`~nnodely.Select` (one index), :class:`~nnodely.Range` (a slice),
        :class:`~nnodely.Concatenate`. ``axis`` counts the dim axes from 0.
-   * - Time axes
-     - :class:`~nnodely.TimeSelect` (one index), :class:`~nnodely.TimeRange`
+   * - Window
+     - :class:`~nnodely.TimeSelect` (one sample), :class:`~nnodely.TimeRange`
        (a slice), :class:`~nnodely.TimeConcatenate`,
-       :class:`~nnodely.TimeStack` (a new axis), :class:`~nnodely.TimeReverse`.
-       ``axis`` counts the time axes outermost first: the default, -1, is the
-       inner time, the window, and 0 the outer time - the rollout of the
-       outermost Loop, or the window without one.
+       :class:`~nnodely.TimeReverse`. They act on the window, ``T``, and
+       always keep it.
+   * - Sequence
+     - :class:`~nnodely.SeqSelect` (one step), :class:`~nnodely.SeqRange`
+       (a slice), :class:`~nnodely.SeqConcatenate`,
+       :class:`~nnodely.SeqStack` (a new axis), :class:`~nnodely.SeqReverse`.
+       ``axis`` counts the sequence axes outermost first: the default, 0, is
+       the outermost one, the rollout of the outermost Loop.
    * - Calculus
-     - :class:`~nnodely.Differentiate`, :class:`~nnodely.Derivative`,
+     - :class:`~nnodely.Differentiate`, :class:`~nnodely.DerivativeStep`,
+       :class:`~nnodely.Derivative`,
        :class:`~nnodely.Integrate`, :class:`~nnodely.IntegrateStep`,
        :func:`~nnodely.Ode`, :class:`~nnodely.OdeNet` (see :doc:`physics`).
    * - Recurrence
@@ -126,11 +134,11 @@ The tables group the available layers.
 
 ``Select`` drops the dim axis it selects from, and ``keep_dim=True`` keeps it
 with length 1; a stream always has a dim, so selecting from a vector gives a
-scalar ``(1,)`` either way. ``TimeSelect`` keeps the time axis with length 1,
-one sample, and ``keep_dim=False`` drops it. Dropped from the only time axis,
-the sample is a stream without time, which combines with every sample of a
-window: ``w - TimeSelect(-1, keep_dim=False)(w)`` subtracts the newest sample
-from each. A range always keeps its axis.
+scalar ``(1,)`` either way. ``TimeSelect`` keeps the window, one sample long,
+which combines with every sample of a window: ``w - TimeSelect(-1)(w)``
+subtracts the newest sample from each. ``SeqSelect`` removes the sequence
+axis it selects from, as does a ``SeqRange`` one step long: ``SeqSelect(-1)``
+takes the last step of a rollout, of any length.
 
 Some examples:
 
@@ -142,32 +150,35 @@ Some examples:
    )
 
    # a gain scheduled by the gear: one FIR filter per gear, blended
-   torque = Input("torque")
-   gear_membership = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function=Triangular)([gear.last()])
-   engine_force = LocalModel(lambda cell: Fir(features=1))([torque.sw(10)], [gear_membership])
+   torque = Input("torque", sw=10)
+   gear_membership = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function=Triangular)([gear])
+   engine_force = LocalModel(lambda cell: Fir(features=1))([torque], [gear_membership])
 
    # a lookup table
-   rolling = Interpolation(x_points=[0.0, 10.0, 30.0], y_points=[0.0, 0.2, 0.3])([velocity.last()])
+   rolling = Interpolation(x_points=[0.0, 10.0, 30.0], y_points=[0.0, 0.2, 0.3])([velocity])
 
    # slope force from the three altitude features
-   slope = Linear(features=1)([altitude.last()])
-   first_altitude = Select(idx=0)([altitude.last()])
+   slope = Linear(features=1)([altitude])
+   first_altitude = Select(idx=0)([altitude])
 
    # symbolic regression over velocity: sin(a), a * b, relu(c)
    learner = EquationLearner(["sin", "multiply", "relu"], linear_out=Linear(features=1))
-   learned = learner([velocity.last()])
+   learned = learner([velocity])
 
-   # the oldest sample of a window
-   oldest = TimeSelect(idx=0)([velocity.sw(5)])
+   # the oldest sample of the torque window
+   oldest = TimeSelect(idx=0)([torque])
 
 ``Fuzzify`` places a membership function on each center: a
 :class:`~nnodely.Triangular`, :class:`~nnodely.Rectangular` or
-:class:`~nnodely.Gaussian` (the default is ``Triangular``), sized by the
-centers next to it - the triangles reach the neighboring centers and add up to
-one between them. Its ``function`` can also be any other layer class, made
-anew for each center, or a layer instance, shared by all of them: they read
-``x - center``, so ``Fuzzify(centers, function=Sin)`` gives ``sin(x - c)``. A
-list gives one function per center, such as
+:class:`~nnodely.Gaussian`, given as a class or by name, sized by the centers
+next to it - the triangles reach the neighboring centers and add up to one
+between them, the rectangles reach halfway to them, and a Gaussian's sigma is
+a sixth of the span between them. Its ``function`` can also be any other
+layer class, made anew for each center, or a layer instance, shared by all of
+them: they read ``x - center``, so ``Fuzzify(centers, function=Sin)`` gives
+``sin(x - c)``, and ``function=Triangular(radius=0.2)`` puts a triangle of
+that radius on every center. A ``Fuzzify`` is one layer, which computes all
+its memberships at once. A list gives one function per center, such as
 ``[Rectangular, Triangular, Gaussian]``. A custom function is a Keras layer
 whose ``call`` reads one argument, ``x - center``, evaluated on every center
 like any layer and saved and exported with the model; a ``call`` that needs
@@ -181,7 +192,7 @@ more arguments is refused:
        def call(self, x):
            return x * x
 
-   squares = Fuzzify([0.0, 0.5, 1.0], function=Square)([velocity.last()])
+   squares = Fuzzify([0.0, 0.5, 1.0], function=Square)([velocity])
    # (velocity - c)^2 on every center c
 
 To load such a model in another session, define the class first, decorated
@@ -192,14 +203,35 @@ vector of shape ``(n,)`` trains them; a stream computed from the inputs, such
 as a ``Fir`` with ``features=n``, gives every sample its own; a list mixes
 scalar streams with fixed numbers. They are used in the order given, which
 should be ascending, and the memberships are placed on them and sized by their
-neighbors as they are computed, so the gradient reaches them (a
-``Rectangular`` has none):
+neighbors as they are computed: the sets move with the centers, their widths
+included, and the gradient reaches the centers through both. A step has none,
+so centers read by rectangles alone do not train:
 
 .. code-block:: python
 
    centers = Parameter("centers", value=[0.0, 0.5, 1.0])
-   trained = Fuzzify(centers)([velocity.last()])   # where the triangles sit, learned
-   middle = Fuzzify([0.0, Parameter("middle", value=[0.5]), 1.0])([velocity.last()])
+   trained = Fuzzify(centers, function=Triangular)([velocity])   # learned
+   middle = Parameter("middle", value=[0.5])
+   listed = Fuzzify([0.0, middle, 1.0], function=Triangular)([velocity])
+
+The memberships are the values of the functions. ``normalize=True`` divides
+those of a sample by their sum, so that they add up to one, and a sample in no
+set stays all zeros; it is meant for memberships that are not negative, unlike
+a ``Sin`` or a custom function. Beyond the outer centers a sample is in no
+triangle or rectangle, and only in the vanishing tail of a Gaussian.
+``bounds=True`` holds the signal between the lowest and the highest center -
+centers that move as they are computed - so that it is in the outer set
+instead, and ``bounds=(left, right)`` holds it between two numbers:
+
+.. code-block:: python
+
+   from nnodely import Gaussian, Sin
+
+   regimes = Fuzzify([0.0, 0.5, 1.0], function=Triangular, bounds=True)([velocity])
+   regimes = Fuzzify([0.0, 0.5, 1.0], function=Triangular, bounds=True)([velocity])
+   # velocity 3.0 reads 1.0: [0, 0, 1]; velocity -2.0 reads 0.0: [1, 0, 0]
+   shares = Fuzzify([0.0, 0.5, 1.0], function=Gaussian, normalize=True)([velocity])
+   waves = Fuzzify([0.0, 0.5, 1.0], function=Sin)([velocity])   # sin(velocity - c)
 
 The same wrapping works anywhere in a model: :class:`~nnodely.KerasFunction`
 makes any Keras layer an nnodely layer, its streams passed to ``call`` as
@@ -217,13 +249,42 @@ separate arguments and its output shape read off the result:
        def call(self, x, y):
            return x * x + y
 
-   length = KerasFunction(Norm)([altitude.last()])                       # a class, made here
-   shifted = KerasFunction(Shifted())([velocity.last(), torque.last()])  # an instance
+   length = KerasFunction(Norm)([altitude])                 # a class, made here
+   shifted = KerasFunction(Shifted())([velocity, torque])   # an instance
 
 Weights of such a layer are Keras weights, trained with the model, but not
 :class:`~nnodely.Parameter` objects: freeze them with the layer's
-``trainable``. The membership functions are layers of
-their own too: ``Triangular(center=0.5, radius=0.5)([velocity.last()])``.
+``trainable``.
+
+The membership functions are layers of their own too, 1 at 0: the signal is
+shifted to center them. A radius - a number, or a ``(left, right)`` pair - or
+a Gaussian's sigma can be a :class:`~nnodely.Parameter`, trained with the
+model, in a ``Fuzzify`` as well:
+
+.. code-block:: python
+
+   radius = Parameter("radius", value=[0.5])
+   bump = Triangular(radius=radius)([velocity - 0.5])   # 0 at 0 and at 1
+   shaped = Fuzzify([0.0, 0.5, 1.0], function=Triangular(radius=radius))([velocity])
+
+A width trained to zero or below is held at 1e-7: its set collapses, and no
+NaN appears. A rectangle has no gradient, being a step: a radius Parameter
+read by rectangles alone does not train, one read elsewhere too trains there
+and the rectangles follow it.
+
+``plot()`` draws a ``Fuzzify`` with matplotlib as it computes its memberships
+now - its Parameters at their current values, so after training the trained
+centers and widths - over the centers and the outer gap beyond each end, or
+over ``x_range``. It draws on ``ax`` if given and returns the axes. It works
+on a ``Fuzzify`` not applied yet, and on the stream it gives; centers computed
+from the inputs have no value to draw, and raise ``ValueError``:
+
+.. code-block:: python
+
+   from nnodely import Gaussian
+
+   Fuzzify([0.0, 0.5, 1.0], function=Gaussian).plot()
+   trained.plot(x_range=(-0.5, 1.5))
 
 ``LocalModel`` takes the inputs and a list of activations. Several activations
 are multiplied together, so memberships over 4 gears and 5 speeds give 20 local
@@ -263,22 +324,22 @@ Inference
 ---------
 
 A built model is called with a dictionary that maps input names to arrays of
-shape ``(batch, *time, *dim)``, batch axis included. Inputs only the
+shape ``(batch, *seq, time, *dim)``, batch axis included. Inputs only the
 minimizers read, such as targets, are ignored, so the arrays of a
 :class:`~nnodely.DataLoader` - ``as_dict()`` or ``get_samples(n)`` - can be
 passed as they are. The result maps output names to tensors of the active
 backend.
 
-The time axes of an input's array must cover the union of all its windows,
-which the input's ``shape`` reports. Here ``velocity`` is read through
-``sw(5)``, so it needs five samples:
+The array of an input has the shape the input is declared with, which its
+``shape`` reports: here one sample of ``velocity`` and the ten samples of
+``torque``:
 
 .. code-block:: python
 
-   print(velocity.shape, torque.shape)   # Shape(T=(5,), D=(1,)) Shape(T=(10,), D=(1,))
+   print(velocity.shape, torque.shape)   # Shape(S=(), T=1, D=(1,)) Shape(S=(), T=10, D=(1,))
 
    sample = {
-       "velocity": np.full((1, 5, 1), 15.0),
+       "velocity": np.full((1, 1, 1), 15.0),
        "torque": np.ones((1, 10, 1)),
        "gear": np.full((1, 1, 1), 2.0),
        "altitude": np.zeros((1, 1, 3)),
@@ -321,7 +382,7 @@ image suffix (``"model.svg"``) names the file and its format.
 
 Each node shows its name, coloured by its role - inputs green, outputs red,
 parameters, constants, sub-models and losses as in the legend - and each arrow
-the shape it carries, a dynamic time axis written ``dyn``. Without
+the shape it carries, a dynamic sequence axis written ``dyn``. Without
 ``flatten``, every block that wraps a model - a sub-model call, a
 :class:`~nnodely.Loop`, a :class:`~nnodely.Roll` - is one sub-model node, and
 its body is drawn in an image of its own named ``<filename>_<body name>``,

@@ -27,8 +27,8 @@ A built model can be stored in three formats:
    import numpy as np
    from nnodely import Fir, Input, Modely, Output, ReLU
 
-   x = Input("x")
-   y = Output("y", ReLU()([Fir(features=1)([x.sw(10)])]))
+   x = Input("x", sw=10)
+   y = Output("y", ReLU()([Fir(features=1)([x])]))
    model = Modely("filter", inputs=[x], outputs=[y]).build()
    sample = {"x": np.random.rand(1, 10, 1).astype("float32")}
 
@@ -64,6 +64,16 @@ Both exporters write into the folder they are given and name the file after
 the model, unless ``filename`` names it; the ``.keras`` or ``.onnx`` suffix is
 added when missing. ``import_keras`` returns a ``keras.Model``, which runs on
 any Keras backend.
+
+The ``.keras`` file is a stand-alone copy of the model, made for inference. In
+*nnodely* one weight can be read from several places - a body rolled out by
+two Loops, a Parameter read inside a Loop body and outside it, a block also
+used in a Loop, the sub-graphs a ``Differentiate`` evaluates again - but Keras
+cannot rebuild a layer that two of its graphs call. The file therefore holds a
+copy of such a weight for each place that reads it, all with the same value:
+the imported model gives the same outputs. Trained further as a plain Keras
+model, those copies would drift apart; to keep training with the weights
+shared, use :meth:`~nnodely.Modely.save` and :meth:`~nnodely.Modely.load`.
 
 ONNX
 ----

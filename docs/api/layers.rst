@@ -49,8 +49,8 @@ Feature axis
 
 .. autoclass:: Sum
 
-Time axes
----------
+Window
+------
 
 .. autoclass:: TimeSelect
 
@@ -58,14 +58,27 @@ Time axes
 
 .. autoclass:: TimeConcatenate
 
-.. autoclass:: TimeStack
-
 .. autoclass:: TimeReverse
+
+Sequence
+--------
+
+.. autoclass:: SeqSelect
+
+.. autoclass:: SeqRange
+
+.. autoclass:: SeqConcatenate
+
+.. autoclass:: SeqStack
+
+.. autoclass:: SeqReverse
 
 Calculus
 --------
 
 .. autoclass:: Differentiate
+
+.. autoclass:: DerivativeStep
 
 .. autoclass:: Derivative
 
@@ -83,6 +96,8 @@ Recurrence
 .. autoclass:: Loop
 
 .. autoclass:: Roll
+
+.. autoclass:: Buffer
 
 Activations
 -----------

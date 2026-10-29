@@ -1,127 +1,256 @@
-"""Input: a signal read from data, a root of the graph. Its windows are
-``SampleWindow`` nodes."""
+"""Input: a signal read from data, a root of the graph."""
 
-from nnodely.layers.partitions import SampleWindow
-from nnodely.core.shape import Shape
 from nnodely.core.stream import Stream
 
 import keras
 
 
-def _outer_time(name: str, seq) -> tuple | None:
-    """The outer time axes a window's ``seq`` declares, outermost first, a
-    dynamic one as None; None if not given."""
+def _sequence(name: str, seq) -> tuple:
+    """The sequence axes ``seq`` declares, outermost first, a dynamic one as
+    None; ``()`` if not given."""
     if seq is None:
-        return None
-    seq = (seq,) if isinstance(seq, int) else tuple(seq)
+        return ()
+    seq = (seq,) if isinstance(seq, (int, str)) else tuple(seq)
     if None in seq:
         raise ValueError(
-            f"{name}: a dynamic sequence length is declared with -1, not None."
+            f"{name}: a dynamic sequence length is declared with -1 or 'dyn', not None."
         )
-    # Keras marks a dynamic axis with None.
-    return tuple(None if length == -1 else length for length in seq)
+    # "dyn" is -1 as a shape prints it; Keras marks a dynamic axis with None.
+    return tuple(None if length in (-1, "dyn") else length for length in seq)
+
+
+def _window(name: str, sw) -> tuple[int, int] | None:
+    """The samples ``sw`` declares, ``(past, future)``; None without a window."""
+    if sw is None:
+        return None
+    window = tuple(sw) if isinstance(sw, (list, tuple)) else (sw, 0)
+    if (
+        len(window) != 2
+        or not all(isinstance(n, int) and not isinstance(n, bool) for n in window)
+        or min(window) < 0
+        or sum(window) < 1
+    ):
+        raise ValueError(
+            f"{name}: sw is the window, n samples up to and including the "
+            "current one, or (past, future) samples, at least one in all; got "
+            f"{sw!r}."
+        )
+    return window
+
+
+def _validate_init(owner: str, init):
+    """The value before the first step, as configured - a Stream, a number or None."""
+    if init is None or isinstance(init, Stream):
+        return init
+    if isinstance(init, bool) or not isinstance(init, (int, float)):
+        raise TypeError(
+            f"{owner}: init must be a Stream, a number or None, got "
+            f"{type(init).__name__}."
+        )
+    return float(init)
 
 
 class Input(Stream):
     """
-    A signal the model reads from data.
+    A signal the model reads from data, declared once with the shape of that
+    data.
 
-    ``dim`` sets the feature axes (one feature by default). Read whole, an
-    Input has no time axis. Its windows, requested with :meth:`sw`,
-    :meth:`last` and :meth:`next`, have the window as their inner time, and
-    the Input's own is the union of them. A window's ``seq`` sets the
-    sequence: the outer time axes, outermost first, used by rollouts; ``-1``
-    leaves a length dynamic. An Input has one sequence, set by its first
-    window, and every window has it: a later one may leave it out, but not
-    change it.
+    ``sw`` sets the window, ``T``: ``sw=n`` is the last ``n`` samples, up to
+    and including the current one, and ``sw=(past, future)`` is ``past``
+    samples up to the current one followed by the next ``future``, so
+    ``T = past + future``. Without ``sw`` the Input has no window: one value
+    per sample, which does not combine with a stream that has one. ``dim``
+    sets the feature axes, one feature by default. ``seq`` sets the
+    sequence: the axes outside the window, outermost first, used by
+    rollouts; ``-1`` or ``"dyn"`` leaves a length dynamic. A sequence needs
+    a window.
+
+    An Input does not change: the layers that read it - ``TimeSelect``,
+    ``TimeRange`` and the others - take what they need of its window.
+
+    An Input can also be fed back, the value at the end of the previous step,
+    with :meth:`close`::
+
+        x = Input("x", sw=1)                          # x[k-1]
+        x_next = x.close(IntegrateStep(dt=dt)(x, v))  # x[k]
+
+    It is declared before the stream it is closed with, so the streams of a
+    step can read each other's previous values, and coupled dynamics are
+    written as they are, one Input per state variable.
     """
 
-    def __init__(self, name: str, *, dim: int | tuple | None = None):
-        super().__init__(name=name, dim=dim, preds=None)
-        self.past, self.future = (0, 0)
-        # The time axes outside the window, fixed by the first window.
-        self._outer_time: tuple | None = None
-        self._update_shape()
-
-    def _update_shape(self):
-        """The time axes of the union of the windows: the outer ones, then
-        the window; none before the first window."""
-        time = (
-            ()
-            if self._outer_time is None
-            else (*self._outer_time, self.past + self.future)
-        )
-        self.shape = Shape(dim=self.shape.dim, time=time)
-        self.input = keras.Input(shape=self.shape, name=self.name)
-
-    def _check_sequence(self, seq):
-        """Fix the Input's outer time with its first window; ``seq`` may not
-        change it afterwards."""
-        outer_time = _outer_time(self.name, seq)
-        if self._outer_time is None:
-            self._outer_time = () if outer_time is None else outer_time
-        elif outer_time is not None and outer_time != self._outer_time:
-            raise ValueError(
-                f"{self.name}: every window of an Input has the Input's sequence "
-                f"{self._outer_time}, so a window cannot have seq={outer_time}. "
-                "Windows may differ only in their inner time; for another "
-                "sequence, declare another Input."
-            )
-
-    def sw(
+    def __init__(
         self,
-        window_size: int | list[int] | tuple[int, int],
-        seq: int | tuple[int, ...] | None = None,
+        name: str,
+        *,
+        dim: int | tuple | None = None,
+        seq: int | str | tuple[int | str, ...] | None = None,
+        sw: int | tuple[int, int] | None = None,
     ):
-        """Return a window of samples of this input.
-
-        ``sw(n)`` is the last ``n`` samples, up to and including the current
-        one. ``sw([p, f])`` is ``p`` samples up to and including the current
-        one followed by the next ``f`` samples. The input's own window grows to
-        cover every window requested from it. ``seq`` is the sequence of the
-        Input, its outer time axes, outermost first (see :class:`Input`).
-        """
-        if isinstance(window_size, (list, tuple)):
-            if len(window_size) != 2:
-                raise ValueError(
-                    f"{self.name}: window_size list must have length 2, got {len(window_size)}."
-                )
-            local_past, local_future = window_size[0], window_size[1]
-        else:
-            local_past, local_future = window_size, 0
-
-        self._check_sequence(seq)
-        self.past, self.future = (
-            max(self.past, local_past),
-            max(self.future, local_future),
+        sequence = _sequence(name, seq)
+        window = _window(name, sw)
+        if sequence and window is None:
+            raise ValueError(
+                f"{name}: a sequence needs a window: declare sw as well, sw=1 "
+                "for one sample per step."
+            )
+        super().__init__(
+            name=name,
+            dim=dim,
+            time=None if window is None else sum(window),
+            seq=sequence,
+            preds=None,
         )
-        self._update_shape()
-        return SampleWindow(past=local_past, future=local_future)([self])
+        # The samples read up to and including the current one, and after it:
+        # without a window, the current one alone.
+        self.past, self.future = (1, 0) if window is None else window
+        self.input = keras.Input(shape=self.shape.tuple, name=self.name)
+        # Set by close(): the stream fed back and the value before the first
+        # step. None while the Input is open, read from data.
+        self.update: Stream | None = None
+        self.init: Stream | float | None = None
 
-    def last(self, seq: int | tuple[int, ...] | None = None):
-        """The current sample, the same as ``sw(1)``."""
-        return self.sw(1, seq=seq)
+    def close(self, stream: Stream, init: Stream | float | None = None) -> Stream:
+        """Feed ``stream`` back into this Input, and return it: the value of
+        the next step, one sample, shifted into the window after the step.
 
-    def next(self, seq: int | tuple[int, ...] | None = None):
-        """The next sample, the same as ``sw([0, 1])``."""
-        return self.sw([0, 1], seq=seq)
+        Nothing rolls out until a :class:`~nnodely.ModelyLoop` closes the
+        model: every closed Input it reads, inside the models it calls too,
+        becomes one feedback of a single loop. Built as a
+        :class:`~nnodely.Modely` instead, the Input is read from data - the
+        one-step model of the same graph - and the model warns unless it is
+        among the declared inputs.
+
+        ``init`` is the value before the first step: a number, a Parameter or
+        a Constant, or an Input, of which the ModelyLoop reads the first step.
+        With None, the Input starts from the first window of its own data when
+        it is among the inputs of the ModelyLoop, from zero when the data
+        leaves it out or the ModelyLoop does not list it.
+
+        A model that declares the Input among its inputs, called as a block,
+        reads the stream given for it as it would read its data: at every step
+        inside a Modely; inside a ModelyLoop the Input keeps its feedback, and
+        the stream is its initial value, in place of ``init``.
+        """
+        if self.future:
+            raise ValueError(
+                f"Input {self.name!r} reads future samples, sw=({self.past}, "
+                f"{self.future}): closed, it holds values already computed, so "
+                "its window reads no future samples."
+            )
+        if not isinstance(stream, Stream):
+            raise TypeError(
+                f"Input {self.name!r} is closed with a Stream, got "
+                f"{type(stream).__name__}."
+            )
+        if self.update is not None:
+            raise ValueError(
+                f"Input {self.name!r} is already closed with {self.update.name!r}."
+            )
+        # One sample of the Input, or no window for an Input without one.
+        sample = self.shape.replace(time=None if self.time is None else 1)
+        if (
+            stream.time != sample.time
+            or tuple(stream.dim) != tuple(sample.dim)
+            or tuple(stream.seq) != tuple(sample.seq)
+        ):
+            raise ValueError(
+                f"Input {self.name!r} is closed with the value of one step, "
+                f"{sample}; {stream.name!r} is {stream.shape}."
+            )
+        self.init = _validate_init(self.name, init)
+        self.update = stream
+        return stream
 
     def get_config(self):
         return {
             "name": self.name,
             "dim": tuple(self.dim),
-            "seq": None
-            if self._outer_time is None
-            else tuple(-1 if length is None else length for length in self._outer_time),
-            "past": self.past,
-            "future": self.future,
+            "seq": tuple(-1 if length is None else length for length in self.seq),
+            "sw": None if self.time is None else (self.past, self.future),
         }
 
     @classmethod
     def from_config(cls, config: dict, preds=None):
-        node = cls(name=config["name"], dim=config["dim"])
-        node._outer_time = _outer_time(node.name, config["seq"])
-        node.past = config["past"]
-        node.future = config["future"]
-        node._update_shape()
-        return node
+        sw = config["sw"]
+        return cls(
+            name=config["name"],
+            dim=config["dim"],
+            seq=config["seq"] or None,
+            sw=None if sw is None else tuple(sw),
+        )
+
+
+def _seq_cell(seq) -> str:
+    """Sequence axes as a shape prints them, ``dyn`` for a dynamic one."""
+    axes = ["dyn" if length is None else str(length) for length in seq]
+    return f"({', '.join(axes)}{',' if len(axes) == 1 else ''})"
+
+
+def _sw_cell(node: Input) -> str:
+    """The window as ``sw`` declares it: n samples, or (past, future)."""
+    if node.time is None:
+        return "-"
+    return str(node.past) if not node.future else f"({node.past}, {node.future})"
+
+
+class Inputs(list):
+    """The Inputs of a model, as :attr:`Modely.all_inputs` lists them: a list
+    of the Input objects, printed as a table of their shapes and of how each
+    is fed - whether it is declared, the stream it is closed with, what the
+    data must hold of it and, fed back in a ModelyLoop, what it starts from."""
+
+    _HEADER = (
+        "name",
+        "seq",
+        "sw",
+        "dim",
+        "declared",
+        "closed with",
+        "data",
+        "starts from",
+    )
+
+    def __init__(self, rows: list[dict], title: str = ""):
+        super().__init__(row["input"] for row in rows)
+        self.rows = rows
+        self.title = title
+
+    def __str__(self):
+        cells = [
+            (
+                row["input"].name,
+                _seq_cell(row["seq"]),
+                _sw_cell(row["input"]),
+                str(tuple(row["input"].dim)),
+                "yes" if row["declared"] else "no",
+                row["closed with"] or "-",
+                row["data"] or "-",
+                row["starts from"] or "-",
+            )
+            for row in self.rows
+        ]
+        widths = [
+            max(len(line[column]) for line in (self._HEADER, *cells))
+            for column in range(len(self._HEADER))
+        ]
+
+        def line(row):
+            return "  ".join(cell.ljust(width) for cell, width in zip(row, widths))
+
+        closed = sum(row["closed with"] is not None for row in self.rows)
+        return "\n".join(
+            [
+                *([self.title] if self.title else []),
+                line(self._HEADER).rstrip(),
+                line(tuple("-" * width for width in widths)).rstrip(),
+                *(line(row).rstrip() for row in cells),
+                f"{len(self)} inputs, {closed} closed",
+                "closed with: the stream a ModelyLoop feeds back into the Input at "
+                "the next step; a Modely reads the Input from data instead",
+                "data: required, optional (zeros where left out), target (to train "
+                "and validate) or - (fed back only)",
+            ]
+        )
+
+    __repr__ = __str__

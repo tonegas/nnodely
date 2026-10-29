@@ -28,6 +28,7 @@ from nnodely.utils.random import get_seed, set_seed  # noqa: E402
 
 # Core
 from nnodely.core.modely import Modely
+from nnodely.core.modelyloop import ModelyLoop
 from nnodely.core.dataloader import DataLoader
 from nnodely.utils.printers import TinyPrinter, LegacyPrinter, NNodelyPrinter
 
@@ -39,22 +40,27 @@ from nnodely.layers.linear import Linear
 from nnodely.layers.parameter import Constant, Parameter
 from nnodely.layers.roll import Roll
 from nnodely.layers.loop import Loop
+from nnodely.layers.buffer import Buffer
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.function import KerasFunction
 from nnodely.layers.fuzzify import Fuzzify, Gaussian, Rectangular, Triangular
 from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.equationlearner import EquationLearner
-from nnodely.layers.derivative import Derivative, Differentiate
+from nnodely.layers.derivative import Derivative, DerivativeStep, Differentiate
 from nnodely.layers.integrate import Integrate, IntegrateStep
 from nnodely.layers.partitions import (
     Concatenate,
     Range,
     Select,
+    SeqConcatenate,
+    SeqRange,
+    SeqReverse,
+    SeqSelect,
+    SeqStack,
     TimeConcatenate,
     TimeRange,
     TimeReverse,
     TimeSelect,
-    TimeStack,
 )
 from nnodely.layers.batchnorm import BatchNorm
 from nnodely.layers.conv import Conv2D, Flatten, Reshape
@@ -92,6 +98,7 @@ __all__ = [
     "set_seed",
     "get_seed",
     "Modely",
+    "ModelyLoop",
     "DataLoader",
     "TinyPrinter",
     "NNodelyPrinter",
@@ -104,6 +111,7 @@ __all__ = [
     "Constant",
     "Roll",
     "Loop",
+    "Buffer",
     "LocalModel",
     "Fuzzify",
     "KerasFunction",
@@ -113,6 +121,7 @@ __all__ = [
     "Interpolation",
     "EquationLearner",
     "Derivative",
+    "DerivativeStep",
     "Differentiate",
     "Integrate",
     "IntegrateStep",
@@ -121,8 +130,12 @@ __all__ = [
     "TimeSelect",
     "Select",
     "TimeRange",
-    "TimeStack",
     "TimeReverse",
+    "SeqSelect",
+    "SeqRange",
+    "SeqConcatenate",
+    "SeqStack",
+    "SeqReverse",
     "Range",
     "BatchNorm",
     "Conv2D",

@@ -95,7 +95,12 @@ class RollImpl(keras.layers.Layer):
         for _ in range(self.steps):
             model_inputs = {self.callback_input_name: state}
             model_inputs.update(zip(self.static_input_names, static_inputs))
-            feedback = self.model(model_inputs)
+            # Only the inputs the body reads: Keras matches a dict holding more
+            # by position, feeding one input the value of another.
+            taken = {tensor.name for tensor in self.model.inputs}
+            feedback = self.model(
+                {name: value for name, value in model_inputs.items() if name in taken}
+            )
             if isinstance(feedback, dict):
                 feedback = feedback[self.callback_output_name]
 
@@ -153,32 +158,45 @@ class Roll(Layer):
         callback_input = self._find_node(f.inputs, callback_input, "input")
         callback_output = self._find_node(f.outputs, callback_output, "output")
 
-        # One sample of the inner time; the outer time axes are kept.
-        expected_output_shape = callback_input.shape.replace(
-            time=(*callback_input.time[:-1], 1)
-        ).tuple
+        if callback_input.time is None:
+            raise ValueError(
+                f"Roll shifts the window of its callback input, and "
+                f"{callback_input.name!r} has none: declare it with sw."
+            )
+        # One sample of the window.
+        expected_output_shape = callback_input.shape.replace(time=1).tuple
         if callback_output.shape.tuple != expected_output_shape:
             raise ValueError(
                 "callback output must produce one temporal sample with shape "
                 f"{expected_output_shape}, got {callback_output.shape.tuple}."
             )
 
+        # The window of the Input is the one rolled.
+        window = callback_input.shape
         if steps is None:
-            steps = callback_input.shape.inner_time
+            steps = window.time
         if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
             raise ValueError("steps must be a positive integer.")
 
         self.f = f
         self.callback_input = callback_input
         self.callback_output = callback_output
-        self.static_inputs = [node for node in f.inputs if node is not callback_input]
+        # A body input its outputs never read, such as a target, is no input
+        # of the roll.
+        read = {node.name for node in f.inference_inputs}
+        self.static_inputs = [
+            node
+            for node in f.inputs
+            if node is not callback_input and node.name in read
+        ]
         self.steps = steps
 
         super().__init__(
             name=name,
             preds=[callback_input, *self.static_inputs],
             dim=callback_input.dim,
-            time=callback_input.time,
+            time=window.time,
+            seq=window.seq,
         )
 
     @staticmethod
@@ -202,7 +220,7 @@ class Roll(Layer):
             callback_output_name=self.callback_output.name,
             static_input_names=tuple(node.name for node in self.static_inputs),
             steps=self.steps,
-            time_axis=self.callback_input.shape.inner_time_axis,
+            time_axis=self.callback_input.shape.time_axis,
             name=self.name,
         )
 

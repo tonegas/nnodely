@@ -8,7 +8,7 @@ The examples on this page use a small first-order system, :math:`y[t+1] =
 
    import numpy as np
    import keras
-   from nnodely import DataLoader, Fir, Input, Modely, Output, set_seed
+   from nnodely import DataLoader, Fir, Input, Modely, Output, TimeSelect, set_seed
 
    set_seed(42)
 
@@ -18,9 +18,13 @@ The examples on this page use a small first-order system, :math:`y[t+1] =
    for t in range(999):
        y_data[t + 1] = 0.9 * y_data[t] + 0.5 * u_data[t]
 
-   y = Input("y")
-   u = Input("u")
-   y_next = Output("y_next", Fir(features=1)([y.last()]) + Fir(features=1)([u.last()]))
+   y = Input("y", sw=(1, 1))   # the current sample and the next one
+   u = Input("u", sw=1)
+   y_now = TimeSelect(0)(y)
+   y_next = Output(
+       "y_next",
+       Fir(features=1, name="fir_y")([y_now]) + Fir(features=1, name="fir_u")([u]),
+   )
    model = Modely("first_order", inputs=[y, u], outputs=[y_next])
 
 Objectives
@@ -32,14 +36,15 @@ and validation. Objectives are declared before :meth:`~nnodely.Modely.build`.
 
 .. code-block:: python
 
-   model.minimize("one_step", y_next, y.next(), loss="mse")
+   model.minimize("one_step", y_next, TimeSelect(-1)(y), loss="mse")
    model.build()
 
 The **target** is one of:
 
-- a window of an input, read from the data: here ``y.next()``, the sample after
-  the current one. An input may be read by the model and be a target at once, or
-  be declared only as a target, such as ``Input("y_measured").last()``;
+- an input, or a part of its window, read from the data: here
+  ``TimeSelect(-1)(y)``, the sample after the current one. An input may be
+  read by the model and be a target at once, or be declared only as a
+  target, such as ``Input("y_measured", sw=1)``;
 - a number, which is compared with every sample of the source;
 - nothing: ``minimize(name, residual)`` drives ``residual`` to zero, which is
   how physical constraints are imposed (see :doc:`physics`).
@@ -65,18 +70,22 @@ so set ``trainable`` on their Keras layer instead.
    model.unfreeze()   # trained again
 
 :attr:`~nnodely.Modely.parameters` lists them, in the order the graph reaches
-them, and prints as a table:
+them, and prints as a table. A Parameter is also found by its name, and its
+``param`` is the Keras variable the built model computes with - ``value`` is
+the value it was declared with:
 
 .. code-block:: python
 
    print(model.parameters)
    # Parameters of first_order
-   # name         time  dim     values  trainable
-   # -----------  ----  ------  ------  ---------
-   # Fir1_kernel  (1,)  (1, 1)  1       yes
-   # Fir1_bias    (1,)  (1,)    1       yes
-   # ...
+   # name          seq  time  dim     values  trainable
+   # ------------  ---  ----  ------  ------  ---------
+   # fir_y_kernel  ()   None  (1, 1)  1       yes
+   # fir_y_bias    ()   None  (1,)    1       yes
+   # fir_u_kernel  ()   None  (1, 1)  1       yes
+   # fir_u_bias    ()   None  (1,)    1       yes
    # 4 parameters, 4 values, 4 trainable
+   kernel = model.parameters["fir_y_kernel"].param   # the trained values
 
 A model used as a block is frozen the same way, ``block.freeze()``, to train
 the rest of a larger model around it.

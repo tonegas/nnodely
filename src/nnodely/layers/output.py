@@ -15,6 +15,7 @@ class Output(Stream):
             name=name,
             dim=stream.shape.dim,
             time=stream.shape.time,
+            seq=stream.shape.seq,
             preds=[stream],
         )
 

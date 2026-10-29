@@ -28,7 +28,6 @@ from nnodely.layers.loop import Loop
 from nnodely.layers.output import Output
 from nnodely.layers.parameter import Constant, Parameter
 from nnodely.layers.roll import Roll
-from nnodely.layers.partitions import SampleWindow
 from nnodely.utils.html_export import _block_ports, _collect_graph
 
 _LOGO = Path(__file__).with_name("templates") / "logo.png"
@@ -110,7 +109,7 @@ def _role(node) -> str:
 
 
 def _shape(node) -> str:
-    """The shape as ``(*time, *dim)``, a dynamic axis written ``dyn``."""
+    """The shape as ``(*seq, time, *dim)``, a dynamic axis written ``dyn``."""
     shape = getattr(node, "shape", None)
     if shape is None:
         return ""
@@ -242,14 +241,6 @@ def _minimizers(drawing: _Drawing, model: Modely) -> None:
             if getattr(endpoint, "name", None) is None:
                 continue
             shown = endpoint
-            # A target is usually a window of an Input no output reads, so the
-            # traversal never reached it: the Input it reads stands for it.
-            if (
-                endpoint.name not in drawing.nodes
-                and isinstance(endpoint, SampleWindow)
-                and endpoint.preds
-            ):
-                shown = endpoint.preds[0]
             if shown.name not in drawing.nodes:
                 drawing.node(shown.name, shown.name, _role(shown))
             drawing.dot.edge(
