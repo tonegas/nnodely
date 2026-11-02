@@ -504,7 +504,7 @@ def test_seq_select_closes_a_loop_chained_over_chunks():
     px0_init, vx0_init = Input("chunk_px0_init", sw=1), Input("chunk_vx0_init", sw=1)
     velocity, position = Loop(
         f=step,
-        callback={vx0: outvx, px0: outpx},
+        feedback={vx0: outvx, px0: outpx},
         init={vx0: vx0_init, px0: px0_init},
     )({ax: ax_sq})
     chunk = Modely(
@@ -521,7 +521,7 @@ def test_seq_select_closes_a_loop_chained_over_chunks():
     px0_seed, vx0_seed = Input("chunk_px0_seed", sw=1), Input("chunk_vx0_seed", sw=1)
     trajectory, _, _ = Loop(
         f=chunk,
-        callback={"chunk_px0_init": "chunk_last_px", "chunk_vx0_init": "chunk_last_vx"},
+        feedback={"chunk_px0_init": "chunk_last_px", "chunk_vx0_init": "chunk_last_vx"},
         init={"chunk_px0_init": px0_seed, "chunk_vx0_init": vx0_seed},
     )({"chunk_ax_sq": ax_sq_sq})
     assert trajectory.shape.dimensions == ((None, None), 1, (1,))

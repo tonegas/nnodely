@@ -52,26 +52,41 @@ variable, and trains, validates and exports through Keras. Models saved with
   used in a Loop, several `Differentiate` of one relation - is written once
   per graph, with the same value. Keras could not rebuild such a file.
 - `ModelyLoop(name, inputs, outputs, length=None)`: a model declared one step
-  at a time, whose closed Inputs are all fed back by a single rollout. Every
-  listed Input carries the horizon as its outermost sequence axis - `length`
-  steps, or as many as the data has - and every output is a trajectory. A
-  closed Input starts from its `init`; without one, from the first window of
-  its data when it is listed, zeros where the data leaves it out, and from
+  at a time, whose fed-back Inputs are all fed back by a single rollout - one
+  `Loop` over its step. Every listed Input carries the horizon as its
+  outermost sequence axis - `length` steps, or as many as the data has - and
+  every output is a trajectory. A fed-back Input starts from the first window
+  of its data when it is listed, zeros where the data leaves it out, and from
   zero when it is not. A model called as a block keeps the feedback of its
-  closed Inputs, one per call. `minimize` compares the trajectories of
+  fed-back Inputs, one per call. `minimize` compares the trajectories of
   streams of the step, and `body` is the one-step `Modely`.
-- `Input.close(stream, init=None)`: feeds `stream`, one sample of the Input,
-  back into it at the next step, and returns `stream`. The Inputs of a step
-  read each other's previous values, so coupled dynamics are written as they
-  are, one Input per state variable. A `ModelyLoop` feeds them back; built as
-  a `Modely`, the same graph is the one-step model, reading them from data.
+- `Input.feedback(stream)`: feeds `stream`, one sample of the Input, back
+  into it at the next step, and returns `stream`. The Inputs of a step read
+  each other's previous values, so coupled dynamics are written as they are,
+  one Input per state variable. A `Loop` or a `ModelyLoop` feeds them back;
+  built as a `Modely`, the same graph is the one-step model, reading them
+  from data. The initial value is given where the feedback is applied:
+  `Loop(init=)`, or the data of the Input in a `ModelyLoop`.
+- `Loop` finds the Inputs its body feeds back - with `Input.feedback`, inside
+  the models it calls, or kept by `Integrate`, `Derivative` and `Buffer` - as
+  a `ModelyLoop` does, adding an output for an update that is not one:
+  `Loop(f=step)(inputs)`. `feedback=` adds to them, for a model that is built
+  or loaded, or to reuse one step with different feedbacks. `init=` takes
+  only the fed-back Inputs, the inputs of the call only the others, and a
+  state has one initial value: two are an error. The `init` of `Integrate`
+  that is an Input of the step is an input of the `Loop`, bound to a stream
+  of the outer graph. A `Loop` returns every output of its body, in its
+  order: with one, it is that output, a stream; with more, it is all of
+  them, unpacked (`x, v = Loop(...)(inputs)`) or indexed (`loop[1]`), and
+  read as one stream it is an error. An output it adds for an update is not
+  returned.
 - `Buffer(sw=n, init=None)(signal)`: the last `n` values of a signal computed
   one sample per step, the current one included - the window a model reads of
   what another computes, such as a controller's commands fed to a plant. Its
-  past values are an Input closed with the signal.
+  past values are a hidden Input fed back with the signal.
 - `Modely.all_inputs`: every Input a model reads - declared or not, inside
   the models it calls, or only by an objective - printed as a table of its
-  shape and how it is fed: declared, the stream it is closed with, what the
+  shape and how it is fed: declared, the stream it is fed back with, what the
   data must hold of it and what it starts from.
 - `KerasFunction(function)`: any Keras layer, class or instance, as an
   nnodely layer - a custom function in the graph, its streams passed to
@@ -143,14 +158,15 @@ variable, and trains, validates and exports through Keras. Models saved with
   `Integrate` (its rules one step at a time, in a `ModelyLoop`), `Ode`
   (Euler, midpoint, Heun, RK4) and `OdeNet` (neural ODEs, adaptive
   Dormand-Prince, hybrid events). `Integrate` and `Derivative` read one
-  sample per step: the integral, or the samples before the step, are an
-  Input closed with its update, fed back by the `ModelyLoop` with all its
-  other closed Inputs, so they need no `Loop` of their own. `IntegrateStep`
+  sample per step: the integral, or the samples before the step, are a
+  hidden Input fed back with its update, by the `ModelyLoop` or `Loop` with
+  all its other fed-back Inputs, so they need no `Loop` of their own; their
+  `init` is the only initial value of that state. `IntegrateStep`
   and `DerivativeStep` take their initial condition, a stream or a number, as
   the first argument of the call, `IntegrateStep(dt=dt)(init, rate)`, and
   start from zero when called on the signal alone; `Integrate` and
   `Derivative` take it at declaration, `init=`.
-- Recurrence: `ModelyLoop` with `Input.close()`, `Modely.rollback()`, `Loop`
+- Recurrence: `ModelyLoop` with `Input.feedback()`, `Modely.rollback()`, `Loop`
   and `Roll`. A body input its outputs never read, such as the target it is
   trained on, is not an input of a `Loop`, `Roll` or `OdeNet`.
 - `LocalModel(input_function, output_function, vectorized=False)(inputs,
@@ -171,7 +187,7 @@ variable, and trains, validates and exports through Keras. Models saved with
   first: `axis=0`, the default, is the rollout of the outermost `Loop`.
   `SeqSelect` removes the axis, and so does `SeqRange` when its range is one
   step long: `SeqSelect(-1)` of a collected trajectory, its last step, can
-  close a `Loop` callback on an input without that axis. `SeqStack` stacks
+  be fed back by a `Loop` into an input without that axis. `SeqStack` stacks
   streams of one shape into a new sequence axis.
 - `keep_dim` on `Select`: it drops the selected dim axis by default, and
   `keep_dim=True` keeps it with length 1; a stream keeps at least one dim
@@ -250,11 +266,24 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
   history, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
-- The `.nnodely` save format is version 7: a closed Input is saved with the
-  stream it is closed with and its `init`. Saves and `.keras` exports made
+- The `.nnodely` save format is version 8: a fed-back Input is saved with
+  the stream it is fed back with and the `init` of the layer that keeps it,
+  and a `Loop` with the outputs it returns. Saves and `.keras` exports made
   with the 2.0 pre-releases, in which windows were taken from an Input,
   streams had several time axes or were laid out `(batch, *dim, time,
-  *seq)`, or closed Inputs were saved open, or a `Fuzzify` was a graph of one layer per center, do not load.
+  *seq)`, or fed-back Inputs were saved open, or a `Fuzzify` was a graph of one layer per center, do not load;
+  nor do saves of an earlier format version.
+- The stream fed back into an Input is named `feedback` everywhere:
+  `Input.feedback(stream)`, `Loop(feedback=)` (was `callback=`),
+  `Roll(feedback=)` (was `callback=`) and `Modely.rollback(feedback, steps)`
+  (was `rollback=`). The old names are gone, and so is `Input.close`; the
+  initial value of a fed-back Input is given where the feedback is applied.
+  The Keras layers of a `Loop`, a `Roll` and a rollback name it `feedback` in
+  their configuration too, so a `.keras` export of one made with 2.0.0 does
+  not load.
+- A `Loop` over a body with several outputs is no longer a stream of its
+  first `callback` output: it returns them all, and read as one stream it
+  raises.
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
 
@@ -269,7 +298,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `model.loadData(name, source)` | `data = DataLoader(model, source=...)` |
 | `model.trainModel(...)` | `model.train(data, val_data=..., epochs=..., batch_size=..., lr=...)` |
 | `model.analyzeModel(...)`, performance reports | `model.validate(data)` |
-| `x.closedLoop(...)`, `x.connect(...)`, `prediction_samples=` | `x.close(stream)` in a `ModelyLoop`; `model.rollback({input: stream}, steps=n)`, `Loop`, `Roll` |
+| `x.closedLoop(...)`, `x.connect(...)`, `prediction_samples=` | `x.feedback(stream)` in a `ModelyLoop` or a `Loop`; `model.rollback({input: stream}, steps=n)`, `Loop`, `Roll` |
 | `x.tw(seconds)`, `x.sw(samples)` | `Input("x", sw=samples)` or `sw=(past, future)`, declared once; `TimeSelect` / `TimeRange` take parts of the window |
 | `saveModel` / `loadModel` | `model.save(path)` / `Modely.load(path)` |
 | `exportPythonModel`, `saveTorchModel` | `model.export_keras(path)` |

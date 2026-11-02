@@ -36,7 +36,7 @@ def test_loop(tmp_path):
     seed = Input("in1_seq", seq=5, sw=1)
     loop = Loop(
         f=body,
-        callback={input1: body_output},
+        feedback={input1: body_output},
         collect=False,
         init={input1: seed},
     )()
@@ -75,7 +75,7 @@ def test_nested_loop(tmp_path):
     ).build()
     first_loop = Loop(
         f=first_body,
-        callback={inner: first_body_output},
+        feedback={inner: first_body_output},
         name="first_loop",
         collect=False,
         init={inner: x},
@@ -90,7 +90,7 @@ def test_nested_loop(tmp_path):
     ).build()
     second_loop = Loop(
         f=second_body,
-        callback={second_input: second_body_output},
+        feedback={second_input: second_body_output},
         name="second_loop",
         collect=False,
         init={second_input: first_loop},
@@ -128,13 +128,14 @@ def test_loop_mechanical_modely(tmp_path):
     mechanical_model.export_html(out_dir=tmp_path, filename="mechanical_model")
 
     state_seq = Input("mechanical_state_seq", dim=1, seq=5, sw=1)
-    loop = Loop(
+    # init in the constructor, inputs in the call; one stream per output.
+    loop, _ = Loop(
         f=mechanical_model,
-        callback={"mechanical_state": "next_state"},
+        feedback={"mechanical_state": "next_state"},
         name="mechanical_loop",
         collect=False,
         init={"mechanical_state": state_seq},
-    )({"external_force": external_force})  # init in the constructor, inputs in the call
+    )({"external_force": external_force})
     assert loop.shape.dimensions == ((), 1, (1,))
     model = Modely(
         "closed_mechanical_model",
@@ -164,8 +165,8 @@ def test_model_roll():
     out = Output("out", fir)
     test = Modely("body", inputs=[x], outputs=[out])
     test.build()
-    roll = Roll(f=test, callback={x: out}, name="roll")
-    roll_3 = Roll(f=test, callback={x: out}, steps=3, name="roll_3")
+    roll = Roll(f=test, feedback={x: out}, name="roll")
+    roll_3 = Roll(f=test, feedback={x: out}, steps=3, name="roll_3")
     assert roll.steps == x.shape.time == 5
     assert roll.shape.tuple == x.shape.tuple
     output = Output("res", roll)
@@ -300,7 +301,7 @@ def test_nested_closed_loop(tmp_path):
     y_seq = Input(name="y_seq", dim=1, seq=4, sw=1)
     loop_fn = Loop(
         f=model_add,
-        callback={"x": "out1"},
+        feedback={"x": "out1"},
         name="loop_model_add",
         init={"x": x_seq},
     )({"y": y_seq})
@@ -312,7 +313,7 @@ def test_nested_closed_loop(tmp_path):
     z = Input(name="z", dim=1, seq=(2, 4), sw=1)
     loop_fn2 = Loop(
         f=model_in,
-        callback={"y_seq": "out"},
+        feedback={"y_seq": "out"},
         name="loop_model_in",
         init={"y_seq": z},
     )()
@@ -378,7 +379,7 @@ def test_simple_model_loop(tmp_path):
     x_seq = Input(name="x_seq", dim=1, seq=4, sw=1)
     loop_fn = Loop(
         f=model_add,
-        callback={"x": "y"},
+        feedback={"x": "y"},
         name="loop_model_add",
         init={"x": x_seq},
     )()
@@ -430,7 +431,7 @@ def test_simple_model2(tmp_path):
     z_seq = Input(name="z_seq", dim=1, seq=4, sw=1)
     loop_out1, loop_out2 = Loop(
         f=model_add,
-        callback={"x": "y", "z": "y2"},
+        feedback={"x": "y", "z": "y2"},
         name="loop_model_add",
         init={"x": x_seq, "z": z_seq},
     )()
@@ -504,7 +505,7 @@ def test_loop_bound_inputs(tmp_path):
     driver = Input("sliced_u_seq", dim=1, seq=3, sw=1)
     loop = Loop(
         f=body,
-        callback={x: body_output},
+        feedback={x: body_output},
         name="sliced_loop",
         init={x: initial},
     )({u: driver})
@@ -566,14 +567,14 @@ def test_loop_dynamic_length():
     with pytest.raises(ValueError, match="cannot determine the rollout length"):
         Loop(
             f=body,
-            callback={x: body_output},
+            feedback={x: body_output},
             name="dyn_loop_no_axis",
             init={x: Input("dyn_x_plain", dim=1, sw=1)},
         )()
 
     loop = Loop(
         f=body,
-        callback={x: body_output},
+        feedback={x: body_output},
         name="dyn_loop",
         length=3,
         init={x: initial_window},
@@ -584,7 +585,7 @@ def test_loop_dynamic_length():
     # A dynamic rollout needs no length: it is only declared with a default one.
     unpinned = Loop(
         f=body,
-        callback={x: body_output},
+        feedback={x: body_output},
         name="dyn_loop_unpinned",
         init={x: initial_window},
     )({u: driver_window})
@@ -643,14 +644,14 @@ def test_loop_window_feedback():
     initial = Input("window_x0", dim=1, seq=3, sw=3)
     loop = Loop(
         f=body,
-        callback={x: body_output},
+        feedback={x: body_output},
         name="window_loop",
         init={x: initial},
     )()
     # Loop builds the body when it is handed an unbuilt one
     assert body.built
     # The window of x, (batch, 3, 1), shifts along its inner time, axis 1.
-    assert loop.callback_shift_axes == [1]
+    assert loop.feedback_shift_axes == [1]
     assert loop.shape.dimensions == ((3,), 1, (1,))
 
     model = Modely(
@@ -676,7 +677,7 @@ def test_loop_feedback_is_one_past_sample():
     body_output = Output("one_window", x * 2.0)
     body = Modely("one_body", inputs=[x], outputs=[body_output]).build()
     with pytest.raises(ValueError, match="must be a single sample"):
-        Loop(f=body, callback={x: body_output})
+        Loop(f=body, feedback={x: body_output})
 
     # The window of a fed-back input ends at its current sample.
     x = Input("future_x", dim=1, sw=(3, 1))
@@ -684,13 +685,13 @@ def test_loop_feedback_is_one_past_sample():
     body_output = Output("future_next", Fir(features=1, kernel=taps, bias=False)([x]))
     body = Modely("future_body", inputs=[x], outputs=[body_output]).build()
     with pytest.raises(ValueError, match="1 future samples"):
-        Loop(f=body, callback={x: body_output})
+        Loop(f=body, feedback={x: body_output})
 
     x = Input("next_x", dim=1, sw=(0, 1))
     body_output = Output("next_next", x * 2.0)
     body = Modely("next_body", inputs=[x], outputs=[body_output]).build()
     with pytest.raises(ValueError, match="future samples"):
-        Loop(f=body, callback={x: body_output})
+        Loop(f=body, feedback={x: body_output})
 
 
 def test_loop_multi_output():
@@ -710,7 +711,7 @@ def test_loop_multi_output():
     a_seq = Input("int_a_seq", dim=1, seq=-1, sw=1)
     position_out, velocity_out = Loop(
         f=body,
-        callback={position: position_next, velocity: velocity_next},
+        feedback={position: position_next, velocity: velocity_next},
         name="integrator_loop",
         length=3,
         init={position: p0, velocity: v0},
@@ -746,7 +747,7 @@ def test_loop_collects_output_that_is_not_fed_back():
     body = Modely("extra_body", inputs=[x], outputs=[state, diagnostic]).build()
 
     seed = Input("extra_x0", dim=1, seq=4, sw=1)
-    loop = Loop(f=body, callback={x: state}, name="extra_loop", init={x: seed})()
+    loop = Loop(f=body, feedback={x: state}, name="extra_loop", init={x: seed})()
     state_out, diagnostic_out = loop
 
     model = Modely(
@@ -782,7 +783,7 @@ def test_loop_constant_initial_batched():
     body = Modely("cst_body", inputs=[x, u], outputs=[body_output]).build()
 
     driver = Input("cst_u_seq", dim=1, seq=3, sw=1)
-    loop = Loop(f=body, callback={x: body_output}, name="cst_loop")({u: driver})
+    loop = Loop(f=body, feedback={x: body_output}, name="cst_loop")({u: driver})
 
     model = Modely(
         "cst_model", inputs=[driver], outputs=[Output("cst_out", loop)]
@@ -816,7 +817,7 @@ def test_loop_with_batchnorm_train():
     body = Modely("bn_body", inputs=[x, u], outputs=[body_output]).build()
 
     driver = Input("bn_u_seq", dim=1, seq=3, sw=1)
-    loop = Loop(f=body, callback={x: body_output}, name="bn_loop")({u: driver})
+    loop = Loop(f=body, feedback={x: body_output}, name="bn_loop")({u: driver})
 
     model = Modely("bn_model", inputs=[driver], outputs=[Output("bn_out", loop)])
     model.minimize(
@@ -850,20 +851,20 @@ def test_loop_with_batchnorm_train():
 
 
 def test_loop_binds_initial_and_inputs_at_call():
-    # The dicts are required at call time; a callback input left out of
-    # `initial` starts at zero, and one Loop can be bound more than once.
+    # The dicts are required at call time; a fed-back input left out of
+    # `init` starts at zero, and one Loop can be bound more than once.
     x = Input("bind_x", dim=1, sw=1)
     u = Input("bind_u", dim=1, sw=1)
     body_output = Output("bind_next", x + u)
     body = Modely("bind_body", inputs=[x, u], outputs=[body_output]).build()
-    loop = Loop(f=body, callback={x: body_output}, name="bind_loop")
+    loop = Loop(f=body, feedback={x: body_output}, name="bind_loop")
 
     with pytest.raises(TypeError, match="init must be a dict"):
-        Loop(f=body, callback={x: body_output}, init=0.0)  # type: ignore
+        Loop(f=body, feedback={x: body_output}, init=0.0)  # type: ignore
     with pytest.raises(TypeError, match="inputs must be a dict"):
         loop(0.0)  # type: ignore
-    with pytest.raises(ValueError, match="not callback inputs"):
-        Loop(f=body, callback={x: body_output}, init={u: 1.0})()
+    with pytest.raises(ValueError, match="'bind_u' is not fed back"):
+        Loop(f=body, feedback={x: body_output}, init={u: 1.0})()
     with pytest.raises(ValueError, match="is not bound"):
         Output("bind_unbound", loop)
     with pytest.raises(ValueError, match="is not bound"):
@@ -874,7 +875,7 @@ def test_loop_binds_initial_and_inputs_at_call():
     driver_window = driver
     from_zero = loop({u: driver_window})
     from_seed = Loop(
-        f=body, callback={x: body_output}, init={x: seed}, name="bind_loop"
+        f=body, feedback={x: body_output}, init={x: seed}, name="bind_loop"
     )({u: driver_window})
     model = Modely(
         "bind_model",
@@ -905,7 +906,7 @@ def test_a_parameter_is_one_weight_for_a_loop_body_and_the_outer_model():
         outputs=[Output("shared_next", Linear(kernel=g, bias=False)(q))],
     ).build()
     seed = Input("shared_seed", seq=3, sw=1)
-    loop = Loop(f=body, callback={q: "shared_next"}, init={q: seed})()
+    loop = Loop(f=body, feedback={q: "shared_next"}, init={q: seed})()
     outer = Linear(kernel=g, bias=False)(seed)
     model = Modely(
         "shared_model",
@@ -935,7 +936,7 @@ def test_a_parameter_is_one_weight_for_a_loop_body_and_the_outer_model():
     )
 
 
-def test_callback_from_nested_loop_with_seq_select():
+def test_feedback_from_nested_loop_with_seq_select():
     vx0 = Input("vx0", sw=1)
     px0 = Input("px0", sw=1)
     ax = Input("ax", sw=1)
@@ -947,11 +948,11 @@ def test_callback_from_nested_loop_with_seq_select():
     ax_sq = Input("ax_sq", seq=-1, sw=1)
     px0_init = Input("px0_init", sw=1)
     ax_window = ax_sq
-    loop = Loop(f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init})
+    loop = Loop(f=modelStep, feedback={vx0: outvx, px0: outpx}, init={px0: px0_init})
     model = Modely(
         "Int",
         inputs=[ax_sq, px0_init],
-        outputs=[Output("int_loop1", loop({"ax": ax_window}))],
+        outputs=[Output("int_loop1", loop({"ax": ax_window})[0])],
     ).build()
 
     # outer: chain the chunks, the last position of a chunk seeds the next one
@@ -961,22 +962,22 @@ def test_callback_from_nested_loop_with_seq_select():
     # The collected trajectory has a sequence axis the scalar px0_init has not,
     # so it cannot be fed back: the loop is refused when it is declared.
     with pytest.raises(ValueError, match="seq"):
-        Loop(f=model, callback={"px0_init": "int_loop1"}, init={"px0_init": px0_seed})
+        Loop(f=model, feedback={"px0_init": "int_loop1"}, init={"px0_init": px0_seed})
 
     # Returning only the last step drops that axis, so it can be fed back.
-    last = Loop(f=modelStep, callback={vx0: outvx, px0: outpx}, init={px0: px0_init})
+    last = Loop(f=modelStep, feedback={vx0: outvx, px0: outpx}, init={px0: px0_init})
     model_last = Modely(
         "IntLast",
         inputs=[ax_sq, px0_init],
         outputs=[
             Output(
                 "int_last",
-                SeqSelect(-1)(last({"ax": ax_window})),  # type: ignore
+                SeqSelect(-1)(last({"ax": ax_window})[0]),  # type: ignore
             )
         ],
     ).build()
     outer = Loop(
-        f=model_last, callback={"px0_init": "int_last"}, init={"px0_init": px0_seed}
+        f=model_last, feedback={"px0_init": "int_last"}, init={"px0_init": px0_seed}
     )
     model22 = Modely(
         "Int22",
@@ -1003,7 +1004,7 @@ def test_loop_steps_follow_the_inputs_that_drive_it():
         Input("drive_dynamic", seq=-1, sw=1),
         Input("drive_fixed", seq=5, sw=1),
     ):
-        trajectory = Loop(f=body, callback={x: following}, init={x: x0})({u: drive})
+        trajectory = Loop(f=body, feedback={x: following}, init={x: x0})({u: drive})
         model = Modely(
             f"{drive.name}_model",
             inputs=[x0, drive],
@@ -1020,10 +1021,9 @@ def test_loop_steps_follow_the_inputs_that_drive_it():
         )
 
 
-def test_unpacking_a_loop_leaves_its_own_stream_alone():
-    # Unpacking once switched the node itself to return every body output, so
-    # an Output of it got them all; and its shape was the first body output's,
-    # not the fed-back one it returns.
+def test_a_loop_with_several_outputs_is_unpacked():
+    # A loop returns every output of its body, in its order: read as one
+    # stream, it raises, whichever output is fed back.
     from nnodely import Concatenate
 
     x = Input("unpack_x", sw=1)
@@ -1031,25 +1031,21 @@ def test_unpacking_a_loop_leaves_its_own_stream_alone():
     state = Output("unpack_state", x * 2.0)
     body = Modely("unpack_body", inputs=[x], outputs=[diagnostic, state]).build()
     seed = Input("unpack_x0", seq=3, sw=1)
-    loop = Loop(f=body, callback={x: state}, init={x: seed})()
-    assert loop.shape.dimensions == ((3,), 1, (1,))
+    loop = Loop(f=body, feedback={x: state}, init={x: seed})()
+    with pytest.raises(ValueError, match="returns the 2 outputs"):
+        Output("unpack_own", loop)
 
-    own = Output("unpack_own", loop)
     diagnostic_out, state_out = loop
+    assert state_out.shape.dimensions == ((3,), 1, (1,))
     model = Modely(
         "unpack_model",
         inputs=[seed],
-        outputs=[
-            own,
-            Output("unpack_d", diagnostic_out),
-            Output("unpack_s", state_out),
-        ],
+        outputs=[Output("unpack_d", diagnostic_out), Output("unpack_s", state_out)],
     ).build()
     result = model(
         {"unpack_x0": np.array([1.0, 2.0, 3.0], dtype=np.float32).reshape(1, 3, 1, 1)}
     )
-    for name in ("unpack_own", "unpack_s"):
-        np.testing.assert_allclose(to_numpy(result[name]).ravel(), [2.0, 4.0, 8.0])
+    np.testing.assert_allclose(to_numpy(result["unpack_s"]).ravel(), [2.0, 4.0, 8.0])
     assert to_numpy(result["unpack_d"]).shape == (1, 3, 1, 3)
     # (step, feature): every feature of a step is that step's value.
     np.testing.assert_allclose(
@@ -1071,7 +1067,7 @@ def test_loop_feeds_its_body_only_the_inputs_it_reads(tmp_path, target_name):
     body.build()
 
     drive = Input("unread_drive", seq=3, sw=1)
-    loop = Loop(f=body, callback={s: following}, init={s: 1.0})({u: drive})
+    loop = Loop(f=body, feedback={s: following}, init={s: 1.0})({u: drive})
     model = Modely(
         "unread_model", inputs=[drive], outputs=[Output("unread_out", loop)]
     ).build()
@@ -1090,7 +1086,7 @@ def test_roll_feeds_its_body_only_the_inputs_it_reads(unread_name):
     x, unread = Input("roll_read", sw=3), Input(unread_name, sw=3)
     out = Output("roll_read_next", TimeSelect(-1)(x) * 2.0)
     body = Modely("roll_unread_body", inputs=[x, unread], outputs=[out]).build()
-    roll = Roll(f=body, callback={x: out}, steps=1)
+    roll = Roll(f=body, feedback={x: out}, steps=1)
     model = Modely(
         "roll_unread_model", inputs=[x], outputs=[Output("roll_unread_out", roll)]
     ).build()

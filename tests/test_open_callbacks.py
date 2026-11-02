@@ -31,18 +31,18 @@ def _loops(model):
     return sum(isinstance(layer, LoopImpl) for layer in model.inference_model.layers)
 
 
-def test_chained_closed_inputs_are_one_loop_as_chained_integrates():
+def test_chained_fed_back_inputs_are_one_loop_as_chained_integrates():
     dt = 0.1
     acc = Input("oc_chain_acc", sw=1)
     vel, pos = Input("oc_chain_v", sw=1), Input("oc_chain_x", sw=1)
-    vel_next = vel.close(IntegrateStep(dt=dt)(vel, acc))
-    pos_next = pos.close(IntegrateStep(dt=dt)(pos, vel_next))
+    vel_next = vel.feedback(IntegrateStep(dt=dt)(vel, acc))
+    pos_next = pos.feedback(IntegrateStep(dt=dt)(pos, vel_next))
     model = ModelyLoop(
         "oc_chain",
         inputs=[acc],
         outputs=[Output("oc_chain_vel", vel_next), Output("oc_chain_pos", pos_next)],
     ).build()
-    # Integrate closes the same feedbacks by itself.
+    # Integrate feeds back the same states by itself.
     blocks = ModelyLoop(
         "oc_chain_blocks",
         inputs=[acc],
@@ -62,13 +62,14 @@ def test_chained_closed_inputs_are_one_loop_as_chained_integrates():
 
 
 def test_coupled_states_simulate_a_mass_spring_damper():
-    # Each closed Input reads the other: a cycle no chain of Loops can express.
+    # Each fed-back Input reads the other: a cycle no chain of Loops can
+    # express.
     dt, k, c, m = 0.05, 4.0, 0.5, 2.0
     force = Input("oc_msd_force", sw=1)
     x, v = Input("oc_msd_x", sw=1), Input("oc_msd_v", sw=1)
     acceleration = (force - x * k - v * c) / m
-    v_next = v.close(IntegrateStep(dt=dt)(v, acceleration))
-    x.close(IntegrateStep(dt=dt)(x, v_next))
+    v_next = v.feedback(IntegrateStep(dt=dt)(v, acceleration))
+    x.feedback(IntegrateStep(dt=dt)(x, v_next))
     model = ModelyLoop(
         "oc_msd",
         inputs=[force, x, v],
@@ -101,7 +102,7 @@ def test_buffer_holds_the_current_sample_and_shifts_after_the_step():
     u = Input("oc_buf_u", sw=1)
     window = Buffer(sw=3)(u)
     counter = Input("oc_buf_counter", sw=1)
-    counter.close(counter + 1.0)
+    counter.feedback(counter + 1.0)
     model = ModelyLoop(
         "oc_buf",
         inputs=[u],
@@ -118,7 +119,7 @@ def test_buffer_holds_the_current_sample_and_shifts_after_the_step():
 def test_buffer_of_a_signal_without_a_window_starts_from_init():
     u = Input("oc_buf_init_u", sw=1)
     count = Input("oc_buf_init_count")
-    signal = count.close(count + 1.0)  # 1, 2, 3, ... with no window
+    signal = count.feedback(count + 1.0)  # 1, 2, 3, ... with no window
     window = Buffer(sw=3, init=-1.0)(signal)
     model = ModelyLoop(
         "oc_buf_init",
@@ -149,7 +150,7 @@ def test_buffer_feeds_a_plant_that_reads_a_window_of_the_command():
             )
         ],
     )
-    y_next = y.close(plant([Buffer(sw=3)(u)]))
+    y_next = y.feedback(plant([Buffer(sw=3)(u)]))
     model = ModelyLoop(
         "oc_ctrl", inputs=[reference], outputs=[Output("oc_ctrl_out", y_next)]
     ).build()
@@ -164,10 +165,10 @@ def test_buffer_feeds_a_plant_that_reads_a_window_of_the_command():
     np.testing.assert_allclose(
         to_numpy(result["oc_ctrl_out"]).ravel(), outputs, rtol=1e-5
     )
-    # The plant's output closes y, which its own argument reads: still a
+    # The plant's output feeds y back, which its own argument reads: still a
     # single call of the plant, one buffer.
-    closed = [node for node in model.body.inputs if node.update is not None]
-    assert len(closed) == 2
+    fed_back = [node for node in model.body.inputs if node.update is not None]
+    assert len(fed_back) == 2
 
 
 def test_a_model_called_twice_has_a_feedback_per_call():
@@ -176,7 +177,7 @@ def test_a_model_called_twice_has_a_feedback_per_call():
     tank = Modely(
         "oc_tank",
         inputs=[inflow],
-        outputs=[Output("oc_tank_level", level.close(level * 0.5 + inflow))],
+        outputs=[Output("oc_tank_level", level.feedback(level * 0.5 + inflow))],
     )
     source = Input("oc_tank_source", sw=1)
     first = tank([source])
@@ -201,7 +202,7 @@ def test_a_model_called_twice_has_a_feedback_per_call():
     ]
 
 
-def test_integrate_and_derivative_close_inputs_of_their_own():
+def test_integrate_and_derivative_feed_back_inputs_of_their_own():
     dt, steps = 0.1, 8
     data = np.random.default_rng(2).standard_normal((2, steps, 1, 1)).astype(np.float32)
     acc, v0 = Input("oc_hl_acc", sw=1), Input("oc_hl_v0", sw=1)
@@ -285,10 +286,10 @@ def test_a_modely_starts_integrate_derivative_and_buffer_from_their_init(tmp_pat
             )
 
 
-def test_a_call_gives_a_declared_closed_input_its_data():
+def test_a_call_gives_a_declared_fed_back_input_its_data():
     rate = Input("oc_decl_rate", sw=1)
     level = Input("oc_decl_level", sw=1)
-    level_next = level.close(level * 0.5 + rate, init=5.0)
+    level_next = level.feedback(level * 0.5 + rate)
     # The tank declares its level: built as a Modely, the one-step model.
     tank = Modely(
         "oc_decl_tank", inputs=[level, rate], outputs=[Output("oc_decl", level_next)]
@@ -296,8 +297,7 @@ def test_a_call_gives_a_declared_closed_input_its_data():
     start, source = Input("oc_decl_start", sw=1), Input("oc_decl_source", sw=1)
 
     # In a ModelyLoop the level keeps its feedback, and the stream the call
-    # gives it is its initial value, in place of its init: only the first
-    # step of it is read.
+    # gives it is its initial value: only the first step of it is read.
     loop = ModelyLoop(
         "oc_decl_loop",
         inputs=[start, source],
@@ -322,7 +322,7 @@ def test_a_call_gives_a_declared_closed_input_its_data():
         outputs=[Output("oc_decl_plain_out", tank([start, source]))],
     )
     with warnings.catch_warnings():
-        warnings.simplefilter("error")  # no closed Input left to read
+        warnings.simplefilter("error")  # no fed-back Input left to read
         plain.build()
     result = plain(
         {
@@ -341,15 +341,22 @@ def test_a_call_gives_a_declared_closed_input_its_data():
             inputs=[start, source],
             outputs=[Output("oc_decl_expr_out", tank([start * 2.0, source]))],
         )
+    # Listed too, the level would start from its data as well.
+    with pytest.raises(ValueError, match="'oc_decl_level' has an initial value"):
+        ModelyLoop(
+            "oc_decl_both",
+            inputs=[start, source, level],
+            outputs=[Output("oc_decl_both_out", tank([start, source]))],
+        )
 
 
-def test_modely_warns_about_closed_inputs_and_reads_them_from_data():
+def test_modely_warns_about_fed_back_inputs_and_reads_them_from_data():
     rate = Input("oc_open_rate", sw=1)
     state = Input("oc_open_state", sw=1)
-    one_step = Output("oc_open_next", state.close(state + rate))
+    one_step = Output("oc_open_next", state.feedback(state + rate))
     model = Modely("oc_open", inputs=[rate], outputs=[one_step])
     with pytest.warns(
-        UserWarning, match=r"reads the closed Inputs \['oc_open_state'\]"
+        UserWarning, match=r"reads the fed-back Inputs \['oc_open_state'\]"
     ):
         model.build()
     result = model(
@@ -370,7 +377,7 @@ def test_modely_warns_about_closed_inputs_and_reads_them_from_data():
 def test_all_inputs_tells_how_each_input_is_fed():
     rate = Input("oc_tab_rate", sw=1)
     level = Input("oc_tab_level", sw=1)
-    level_next = level.close(level * 0.5 + rate)
+    level_next = level.feedback(level * 0.5 + rate)
     tank = Modely(
         "oc_tab_tank", inputs=[rate], outputs=[Output("oc_tab_out", level_next)]
     )
@@ -380,10 +387,10 @@ def test_all_inputs_tells_how_each_input_is_fed():
     assert [node.name for node in tank.all_inputs] == list(rows)
     assert rows.keys() == {"oc_tab_level", "oc_tab_rate", "oc_tab_target"}
     assert rows["oc_tab_level"]["declared"] is False
-    assert rows["oc_tab_level"]["closed with"] == level_next.name
+    assert rows["oc_tab_level"]["fed back with"] == level_next.name
     assert rows["oc_tab_level"]["data"] == "required"  # a Modely reads it from data
     assert (
-        rows["oc_tab_rate"]["declared"] and rows["oc_tab_rate"]["closed with"] is None
+        rows["oc_tab_rate"]["declared"] and rows["oc_tab_rate"]["fed back with"] is None
     )
     assert rows["oc_tab_target"]["data"] == "target"
 
@@ -407,7 +414,7 @@ def test_all_inputs_tells_how_each_input_is_fed():
     (state,) = [row for name, row in rows.items() if name.endswith("_state")]
     assert state["data"] is None and state["starts from"] == "oc_tab_x0, first step"
     text = str(loop.all_inputs)
-    assert text.startswith("Inputs of oc_tab_loop") and "4 inputs, 2 closed" in text
+    assert text.startswith("Inputs of oc_tab_loop") and "4 inputs, 2 fed back" in text
 
 
 def test_training_identifies_a_spring_from_a_measured_trajectory(tmp_path):
@@ -423,19 +430,25 @@ def test_training_identifies_a_spring_from_a_measured_trajectory(tmp_path):
         position += dt * velocity
 
     force = Input("oc_fit_force", sw=1)
-    x_meas, v_meas = Input("oc_fit_x", sw=1), Input("oc_fit_v", sw=1)
     k = Parameter("oc_fit_k", value=1.0)
-    x, v = Input("oc_fit_x_state", sw=1), Input("oc_fit_v_state", sw=1)
-    v_next = v.close(IntegrateStep(dt=dt)(v, force - k * x), init=v_meas)
-    x.close(IntegrateStep(dt=dt)(x, v_next), init=x_meas)
+    # Among the inputs, the states start from the first step of their data.
+    x, v = Input("oc_fit_x", sw=1), Input("oc_fit_v", sw=1)
+    v_next = v.feedback(IntegrateStep(dt=dt)(v, force - k * x))
+    x.feedback(IntegrateStep(dt=dt)(x, v_next))
     x_hat = Output("oc_fit_x_hat", x)
-    model = ModelyLoop("oc_fit", inputs=[force, x_meas, v_meas], outputs=[x_hat])
+    x_meas = Input("oc_fit_x_meas", sw=1)
+    model = ModelyLoop("oc_fit", inputs=[force, x, v], outputs=[x_hat])
     # Step streams: the output and the measured Input, compared as trajectories.
     model.minimize("fit", x_hat, x_meas)
     model.build()
     data = DataLoader(
         model,
-        source={"oc_fit_force": forces, "oc_fit_x": positions, "oc_fit_v": velocities},
+        source={
+            "oc_fit_force": forces,
+            "oc_fit_x": positions,
+            "oc_fit_v": velocities,
+            "oc_fit_x_meas": positions,
+        },
         seq_length=20,
     )
     model.train(data, epochs=100, batch_size=32, lr=0.05, printer=None)
@@ -454,7 +467,7 @@ def test_training_identifies_a_spring_from_a_measured_trajectory(tmp_path):
 def test_a_dynamic_horizon_follows_the_data_and_length_pins_it():
     rate = Input("oc_len_rate", sw=1)
     total = Input("oc_len_total", sw=1)
-    total_next = total.close(total + rate)
+    total_next = total.feedback(total + rate)
     dynamic = ModelyLoop(
         "oc_len_dynamic", inputs=[rate], outputs=[Output("oc_len_out", total_next)]
     ).build()
@@ -471,10 +484,10 @@ def test_a_dynamic_horizon_follows_the_data_and_length_pins_it():
     assert fixed.inputs[0].seq == (5,)
 
 
-def test_a_closed_input_starts_from_its_data_if_listed_else_from_zero(tmp_path):
+def test_a_fed_back_input_starts_from_its_data_if_listed_else_from_zero(tmp_path):
     rate = Input("oc_seed_rate", sw=1)
     total = Input("oc_seed_total", sw=1)
-    total_next = total.close(total + rate)
+    total_next = total.feedback(total + rate)
     ones = np.ones((1, 3, 1, 1), np.float32)
     tens = np.full((1, 3, 1, 1), 10.0, np.float32)
 
@@ -504,13 +517,13 @@ def test_a_closed_input_starts_from_its_data_if_listed_else_from_zero(tmp_path):
     np.testing.assert_allclose(to_numpy(run).ravel(), [1, 2, 3])
 
 
-def test_close_and_modelyloop_reject_what_they_cannot_feed_back():
+def test_feedback_and_modelyloop_reject_what_they_cannot_feed_back():
     rate = Input("oc_err_rate", sw=1)
     state = Input("oc_err_state", sw=1)
-    with pytest.raises(ValueError, match="closed with the value of one step"):
-        state.close(Input("oc_err_window", sw=3))
+    with pytest.raises(ValueError, match="fed back with the value of one step"):
+        state.feedback(Input("oc_err_window", sw=3))
     with pytest.raises(ValueError, match="no future samples"):
-        Input("oc_err_future", sw=(1, 1)).close(rate)
+        Input("oc_err_future", sw=(1, 1)).feedback(rate)
     with pytest.raises(TypeError, match=r"Buffer\(sw=3\)\(u\)"):
         Buffer(rate)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="1 sample"):
@@ -518,31 +531,24 @@ def test_close_and_modelyloop_reject_what_they_cannot_feed_back():
     with pytest.raises(ValueError, match="neither a scalar"):
         Buffer(sw=3, init=Input("oc_err_wide", dim=2, sw=1))(rate)
 
-    state.close(state + rate)
-    with pytest.raises(ValueError, match="already closed"):
-        state.close(rate)
-    with pytest.raises(ValueError, match="nothing closes and are not among its inputs"):
+    state.feedback(state + rate)
+    with pytest.raises(ValueError, match="already fed back"):
+        state.feedback(rate)
+    with pytest.raises(
+        ValueError, match="nothing feeds back and are not among its inputs"
+    ):
         ModelyLoop("oc_err_unlisted", inputs=[], outputs=[Output("oc_err_o1", state)])
-    with pytest.raises(ValueError, match="reads no closed Input"):
+    with pytest.raises(ValueError, match="reads no fed-back Input"):
         ModelyLoop("oc_err_none", inputs=[rate], outputs=[Output("oc_err_o3", rate)])
 
-    seeded = Input("oc_err_seeded", sw=1)
-    seeded.close(seeded + rate, init=Input("oc_err_init", sw=1) * 2.0)
+    seeded = Integrate(dt=1.0, init=Input("oc_err_init", sw=1) * 2.0)(rate)
     with pytest.raises(ValueError, match="computed from the Inputs"):
         ModelyLoop(
             "oc_err_init_expr", inputs=[rate], outputs=[Output("oc_err_o4", seeded)]
         )
-    started = Input("oc_err_started", sw=1)
-    started.close(started + rate, init=1.0)
-    with pytest.raises(ValueError, match="has an initial value"):
-        ModelyLoop(
-            "oc_err_both",
-            inputs=[rate, started],
-            outputs=[Output("oc_err_o6", started)],
-        )
 
     inner = Input("oc_err_inner", sw=1)
-    inner_next = inner.close(inner + rate)
+    inner_next = inner.feedback(inner + rate)
     model = ModelyLoop(
         "oc_err_minimize", inputs=[rate], outputs=[Output("oc_err_o5", inner_next)]
     )
@@ -561,7 +567,7 @@ def test_a_saved_plant_keeps_its_feedback_in_a_modelyloop(tmp_path):
         Fir(kernel=x_kernel, bias=False)([x])
         + Fir(kernel=f_kernel, bias=False)([force]),
     )
-    x.close(x_n)
+    x.feedback(x_n)
     plant = Modely("oc_plant", inputs=[x, force], outputs=[x_n]).build()
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
@@ -589,23 +595,29 @@ def test_a_saved_plant_keeps_its_feedback_in_a_modelyloop(tmp_path):
     )
 
 
-def test_a_saved_model_keeps_what_closes_its_inputs_and_where_they_start(tmp_path):
-    # Closed with streams that are no outputs, from a number, a Parameter and
-    # an Input, and by an Integrate: once loaded, none of them was closed.
+def test_a_saved_model_keeps_what_feeds_its_inputs_back_and_where_they_start(
+    tmp_path,
+):
+    # Fed back with a stream that is no output, and by Integrates that start
+    # from a number, a Parameter and an Input: once loaded, none of them was
+    # fed back.
     error = Input("oc_keep_e", sw=1)
-    level, total = Input("oc_keep_level", sw=1), Input("oc_keep_total", sw=1)
-    count, count0 = Input("oc_keep_count", sw=1), Input("oc_keep_count0", sw=1)
+    level, count0 = Input("oc_keep_level", sw=1), Input("oc_keep_count0", sw=1)
     gain = Parameter("oc_keep_gain", value=0.5)
-    level.close(level * gain + error, init=2.0)
-    total.close(total + error, init=Parameter("oc_keep_start", value=3.0))
-    count.close(count + 1.0, init=count0)
-    control = Output("oc_keep_u", level + total + count + Integrate(dt=0.1)(error))
-    with pytest.warns(UserWarning, match="closed Inputs"):
+    level.feedback(level * gain + error)
+    control = Output(
+        "oc_keep_u",
+        level
+        + Integrate(dt=0.1, init=2.0)(error)
+        + Integrate(dt=0.1, init=Parameter("oc_keep_start", value=3.0))(error)
+        + Integrate(dt=0.1, init=count0)(error),
+    )
+    with pytest.warns(UserWarning, match="fed-back Inputs"):
         controller = Modely("oc_keep", inputs=[error], outputs=[control]).build()
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         controller.save(tmp_path / "oc_keep")
-    with pytest.warns(UserWarning, match="closed Inputs"):
+    with pytest.warns(UserWarning, match="fed-back Inputs"):
         loaded = Modely.load(tmp_path / "oc_keep")
     # The same block, called by a model that is saved in turn.
     drive = Input("oc_keep_drive", sw=1)
@@ -614,10 +626,10 @@ def test_a_saved_model_keeps_what_closes_its_inputs_and_where_they_start(tmp_pat
         inputs=[drive],
         outputs=[Output("oc_keep_v", controller([drive]))],
     )
-    with pytest.warns(UserWarning, match="closed Inputs"):
+    with pytest.warns(UserWarning, match="fed-back Inputs"):
         outer.build()
     outer.save(tmp_path / "oc_keep_outer")
-    with pytest.warns(UserWarning, match="closed Inputs"):
+    with pytest.warns(UserWarning, match="fed-back Inputs"):
         loaded_outer = Modely.load(tmp_path / "oc_keep_outer")
 
     def run(model, tag):
@@ -640,10 +652,10 @@ def test_saving_warns_of_feedback_the_loaded_model_would_lose(tmp_path):
     # weights file does not hold its current value.
     gain = Parameter("oc_warn_gain", value=0.5)
     u, s = Input("oc_warn_u", sw=1), Input("oc_warn_s", sw=1)
-    s.close(s * gain + u)
+    s.feedback(s * gain + u)
     y = Output("oc_warn_y", s * 2.0)
     ModelyLoop("oc_warn_loop", inputs=[u], outputs=[y]).build()
-    with pytest.warns(UserWarning, match="closed Inputs"):
+    with pytest.warns(UserWarning, match="fed-back Inputs"):
         plain = Modely("oc_warn_plain", inputs=[u], outputs=[y]).build()
     with pytest.warns(UserWarning, match=r"without the weights of \['oc_warn_gain'\]"):
         plain.save(tmp_path / "oc_warn_plain")
@@ -651,36 +663,36 @@ def test_saving_warns_of_feedback_the_loaded_model_would_lose(tmp_path):
         warnings.simplefilter("error", UserWarning)
         plain.save(tmp_path / "oc_warn_plain_arch", weights=False)
 
-    # A call giving a stream for a closed Input its model declares: flattened,
-    # the stream replaces the Input.
+    # A call giving a stream for a fed-back Input its model declares:
+    # flattened, the stream replaces the Input.
     state, drive = Input("oc_warn_state", sw=1), Input("oc_warn_drive", sw=1)
     following = Output("oc_warn_next", state * 0.5 + drive)
-    state.close(following)
+    state.feedback(following)
     block = Modely("oc_warn_block", inputs=[state, drive], outputs=[following])
     a, b = Input("oc_warn_a", sw=1), Input("oc_warn_b", sw=1)
     outer = Modely(
         "oc_warn_outer", inputs=[a, b], outputs=[Output("oc_warn_o", block([a, b]))]
     ).build()
-    with pytest.warns(UserWarning, match=r"closed Inputs \['oc_warn_state'\]"):
+    with pytest.warns(UserWarning, match=r"fed-back Inputs \['oc_warn_state'\]"):
         outer.save(tmp_path / "oc_warn_outer")
-    # The model that declares it saves it closed, and does not warn.
+    # The model that declares it saves it fed back, and does not warn.
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         block.build().save(tmp_path / "oc_warn_block")
 
 
 @pytest.mark.parametrize("call_first", [True, False])
-def test_a_closed_input_a_call_and_its_caller_both_read_is_refused(call_first):
+def test_a_fed_back_input_a_call_and_its_caller_both_read_is_refused(call_first):
     # One state per call: the caller's x and the call's were two, and which
     # one the data started depended on which was reached first.
     u, r = Input("oc_cross_u", sw=1), Input("oc_cross_r", sw=1)
     x = Input("oc_cross_x", sw=1)
-    x.close(x + u)
+    x.feedback(x + u)
     block = Modely("oc_cross_block", inputs=[r], outputs=[Output("oc_cross_bo", x + r)])
     y = block([u]) + x if call_first else x + block([u])
     with pytest.raises(
         ValueError,
-        match="closed Input 'oc_cross_x' both in the graph that calls "
+        match="fed-back Input 'oc_cross_x' both in the graph that calls "
         "'oc_cross_block' and inside it",
     ):
         ModelyLoop("oc_cross", inputs=[u, x], outputs=[Output("oc_cross_y", y)])
@@ -702,19 +714,19 @@ def test_a_closed_input_a_call_and_its_caller_both_read_is_refused(call_first):
     np.testing.assert_allclose(to_numpy(result["oc_cross_y"]).ravel(), [201, 204, 209])
 
 
-def test_a_closed_input_inside_a_block_called_twice_is_no_output_of_the_caller():
+def test_a_fed_back_input_inside_a_block_called_twice_is_no_output_of_the_caller():
     # Which call's level would it be? It was refused as reading the inflow
-    # of the tank, which nothing closes.
+    # of the tank, which nothing feeds back.
     inflow, level = Input("oc_tank_q", sw=1), Input("oc_tank_h", sw=1)
     tank = Modely(
         "oc_tank",
         inputs=[inflow],
-        outputs=[Output("oc_tank_level", level.close(level * 0.5 + inflow))],
+        outputs=[Output("oc_tank_level", level.feedback(level * 0.5 + inflow))],
     )
     source = Input("oc_tank_source", sw=1)
     first = tank([source])
     with pytest.raises(
-        ValueError, match="closed Input 'oc_tank_h' both in the graph that calls"
+        ValueError, match="fed-back Input 'oc_tank_h' both in the graph that calls"
     ):
         ModelyLoop(
             "oc_tank_cascade",

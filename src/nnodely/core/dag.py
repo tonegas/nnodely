@@ -67,22 +67,23 @@ class Scope:
         # The Parameters and Constants inlined, one copy each, shared with
         # every call: they are one object in every model that reads them. So
         # is an Input read from data - one array, whatever reads it - unless a
-        # call binds it; a closed Input is one state per call in a ModelyLoop.
+        # call binds it; a fed-back Input is one state per call in a loop.
         self.values: dict[Node, Any] = {} if values is None else values
-        # The closed Inputs inlined, with the scope of each, when what closes
-        # them is inlined too (see flatten_closed); None leaves them as they are.
+        # The fed-back Inputs inlined, with the scope of each, when the
+        # streams they are fed back with are inlined too (see
+        # flatten_fed_back); None leaves them as they are.
         self.pending = pending
-        # Whether the graph is the step of a ModelyLoop: a call then keeps the
-        # feedback of the closed Inputs its model declares, where a Modely
+        # Whether the graph is the step of a loop: a call then keeps the
+        # feedback of the fed-back Inputs its model declares, where a Modely
         # reads the argument given for one as its data.
         self.loop = loop
-        # The streams a call gives the closed Inputs its model declares, when
-        # what closes them is inlined: their initial values.
+        # The streams a call gives the fed-back Inputs its model declares, when
+        # their feedback is inlined: their initial values.
         self.inits: dict[Node, Any] = {}
         # The Inputs a Modely being built declares, or None outside one: a
-        # hidden closed Input it does not declare is nothing it feeds back,
+        # hidden fed-back Input it does not declare is nothing it feeds back,
         # and reads its init - zero without one - as the first step of a
-        # ModelyLoop would.
+        # loop would.
         self.declared = declared
 
     def merged_memo(self) -> dict[Node, Any]:
@@ -139,9 +140,9 @@ def flatten_node(node: Node, scope: Scope) -> Any:
                 internal_input: flatten_node(external_input, scope)
                 for internal_input, external_input in model_call.inputs_map.items()
             }
-            # A closed Input the model declares reads its argument as data: at
-            # every step in a Modely; in a ModelyLoop it keeps its feedback,
-            # and the argument is its initial value.
+            # A fed-back Input the model declares reads its argument as data:
+            # at every step in a Modely; in a loop it keeps its feedback, and
+            # the argument is its initial value.
             inits: dict[Node, Any] = {
                 internal_input: argument
                 for internal_input, argument in arguments.items()
@@ -188,10 +189,10 @@ def flatten_node(node: Node, scope: Scope) -> Any:
     return new_node
 
 
-def flatten_closed(scope: Scope) -> None:
-    """Inline the stream every closed Input inlined in ``scope`` is closed
-    with, and its init, each in the call the Input was inlined in, and so on
-    for the closed Inputs those read in turn.
+def flatten_fed_back(scope: Scope) -> None:
+    """Inline the stream every fed-back Input inlined in ``scope`` is fed
+    back with, and its init, each in the call the Input was inlined in, and so
+    on for the fed-back Inputs those read in turn.
 
     They are no predecessors of the Input, and wait for the graph to be
     inlined: an update can read the output of a call whose arguments read the
@@ -201,6 +202,13 @@ def flatten_closed(scope: Scope) -> None:
         inlined, source, source_scope = scope.pending.pop(0)
         inlined.update = flatten_node(source.update, source_scope)
         if source in source_scope.inits:
+            # A state starts from one value.
+            if source.init is not None:
+                raise ValueError(
+                    f"{source.name!r} has two initial values: the init of the "
+                    "block that keeps it, and the stream a call gives it as an "
+                    "input of its model. Give one of them."
+                )
             inlined.init = source_scope.inits[source]
         elif isinstance(source.init, Node):
             inlined.init = flatten_node(source.init, source_scope)
@@ -208,15 +216,12 @@ def flatten_closed(scope: Scope) -> None:
 
 def flatten(model):
     flat, memo = _flatten_graph(
-        model.name, model.inputs, model.outputs, return_memo=True, closed=True
+        model.name, model.inputs, model.outputs, return_memo=True, fed_back=True
     )
     # The rollback is the model's, not its graph's: carried over to the copies.
-    if model._roll_callbacks:
+    if model._roll_feedback:
         flat.rollback(
-            {
-                memo[node]: memo[stream]
-                for node, stream in model._roll_callbacks.items()
-            },
+            {memo[node]: memo[stream] for node, stream in model._roll_feedback.items()},
             steps=model._roll_steps,
             name=model._roll_name,
         )
@@ -229,20 +234,20 @@ def _flatten_graph(
     outputs: list[Stream],
     *,
     return_memo: bool = False,
-    closed: bool = False,
+    fed_back: bool = False,
     one_step: bool = False,
 ) -> Any:
-    """``closed`` inlines the stream every closed Input is closed with, and
-    its init, too: without it they are left as they are, in the graph of the
-    model that declared them. ``one_step`` reads the init of every hidden
-    closed Input not among ``inputs`` in its place, as a Modely is built."""
+    """``fed_back`` inlines the stream every fed-back Input is fed back with,
+    and its init, too: without it they are left as they are, in the graph of
+    the model that declared them. ``one_step`` reads the init of every hidden
+    fed-back Input not among ``inputs`` in its place, as a Modely is built."""
     from nnodely.core.modely import Modely
 
     scope = Scope(
-        pending=[] if closed else None, declared=set(inputs) if one_step else None
+        pending=[] if fed_back else None, declared=set(inputs) if one_step else None
     )
     flat_outputs: list[Output] = [flatten_node(output, scope) for output in outputs]
-    flatten_closed(scope)
+    flatten_fed_back(scope)
     memo = scope.merged_memo()
     flat_inputs: list[Any] = [memo[input] for input in inputs if input in memo]
 

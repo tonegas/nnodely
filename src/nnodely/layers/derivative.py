@@ -689,8 +689,8 @@ class Derivative(_FiniteDifference):
     The counterpart of :class:`DerivativeStep` across the steps of a
     ModelyLoop, as :class:`Integrate` is :class:`IntegrateStep`'s: ``fun`` is
     one sample of a step, ``T=1`` and no sequence, and the ``window - 1``
-    samples before it are an Input closed with ``fun``, which the ModelyLoop
-    feeds back with all its other closed Inputs - no Loop of its own. The
+    samples before it are a hidden Input fed back with ``fun``, which the loop
+    feeds back with all its other fed-back Inputs - no Loop of its own. The
     result is the derivative at this step, estimated from the steps up to it.
     The stencil is ``DerivativeStep``'s - ``order``, ``window`` and
     ``poly_order`` mean the same - so laid out along a time window instead,
@@ -698,14 +698,16 @@ class Derivative(_FiniteDifference):
     same ``init`` inverts it (exactly for the default first-order, two-sample
     stencil).
 
-    ``init`` is the value just before the first step, as :meth:`Input.close`
-    takes it: one sample (reused for every step of history a longer stencil
-    reads) or the ``window - 1`` samples it reads, oldest first, along its
-    window, its dim a scalar or ``fun``'s - a number, a Parameter or a
-    Constant, or an Input, whose first step the ModelyLoop reads; ``None``
-    for zero. Built as a :class:`~nnodely.Modely` instead, nothing feeds the
-    past samples back: the step reads ``init`` as them, as the first step of
-    the ModelyLoop does, and no Input of its own.
+    ``init`` is the value just before the first step, and the only one: the
+    past samples cannot be named, so no loop gives them another. One sample
+    (reused for every step of history a longer stencil reads) or the
+    ``window - 1`` samples it reads, oldest first, along its window, its dim
+    a scalar or ``fun``'s - a number, a Parameter or a Constant, or an Input
+    of the step, whose first step a ModelyLoop reads and to which a Loop
+    binds a stream of its outer graph; ``None`` for zero. Built as a
+    :class:`~nnodely.Modely` instead, nothing feeds the past samples back:
+    the step reads ``init`` as them, as the first step of a loop does, and
+    no Input of its own.
     """
 
     def __init__(
@@ -764,11 +766,11 @@ class Derivative(_FiniteDifference):
             poly_order=self.poly_order,
             name=f"{call_name}_step",
         )(past, function)
-        past.close(function, init=self.init)
+        past._feed_back(function, init=self.init)
         return derivative
 
     def build_layer(self):
         raise RuntimeError(
             f"{self.name}: a Derivative is the DerivativeStep it calls on an "
-            "Input closed with its signal, not a layer of its own."
+            "Input fed back with its signal, not a layer of its own."
         )

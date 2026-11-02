@@ -85,7 +85,7 @@ def _block_ports(node):
             "detail": {"steps": node.horizon, "collect": node.collect},
             "inputs": [
                 {"body": body.name, "outer": outer.name, "role": "initial"}
-                for body, outer in zip(node.callback_inputs, node.initial_values)
+                for body, outer in zip(node.feedback_inputs, node.initial_values)
             ]
             + [
                 {"body": body.name, "outer": outer.name, "role": "input"}
@@ -93,12 +93,12 @@ def _block_ports(node):
             ],
             "outputs": [
                 {"body": body.name, "outer": outer.name}
-                for body, outer in zip(node.f.outputs, node.loop_outputs)
+                for body, outer in zip(node.returns, node.loop_outputs)
             ],
             "feedback": [
                 {"from": output.name, "to": input_node.name}
                 for input_node, output in zip(
-                    node.callback_inputs, node.callback_outputs
+                    node.feedback_inputs, node.feedback_outputs
                 )
             ],
         }
@@ -110,8 +110,8 @@ def _block_ports(node):
             "detail": {"steps": node.steps},
             "inputs": [
                 {
-                    "body": node.callback_input.name,
-                    "outer": node.callback_input.name,
+                    "body": node.feedback_input.name,
+                    "outer": node.feedback_input.name,
                     "role": "state",
                 }
             ]
@@ -119,9 +119,9 @@ def _block_ports(node):
                 {"body": body.name, "outer": body.name, "role": "input"}
                 for body in node.static_inputs
             ],
-            "outputs": [{"body": node.callback_output.name, "outer": node.name}],
+            "outputs": [{"body": node.feedback_output.name, "outer": node.name}],
             "feedback": [
-                {"from": node.callback_output.name, "to": node.callback_input.name}
+                {"from": node.feedback_output.name, "to": node.feedback_input.name}
             ],
         }
 
@@ -543,7 +543,7 @@ def export_html(
             if src in visible_node_ids and dst in visible_node_ids:
                 vis_edges.append(_feedback_edge(src, dst, label, attrs))
 
-        for input_node, stream in getattr(model_obj, "_roll_callbacks", {}).items():
+        for input_node, stream in getattr(model_obj, "_roll_feedback", {}).items():
             src = stream.name
             dst = input_node.name
             if src not in visible_node_ids or dst not in visible_node_ids:

@@ -12,7 +12,7 @@ class ModelRollImpl(keras.layers.Layer):
     def __init__(
         self,
         model,
-        callbacks: dict[str, str],
+        feedback: dict[str, str],
         output_names: tuple[str, ...],
         input_time_axes: dict[str, int],
         steps: int,
@@ -20,7 +20,7 @@ class ModelRollImpl(keras.layers.Layer):
     ):
         super().__init__(**kwargs)
         self.model = model
-        self.callbacks = dict(callbacks)
+        self.feedback = dict(feedback)
         self.output_names = tuple(output_names)
         self.input_time_axes = dict(input_time_axes)
         self.steps = int(steps)
@@ -33,12 +33,12 @@ class ModelRollImpl(keras.layers.Layer):
                 values = dict(zip(self.model.output_names, values))
 
             next_states = dict(states)
-            for input_name, stream_name in self.callbacks.items():
+            for input_name, stream_name in self.feedback.items():
                 state = states[input_name]
-                feedback = values[stream_name]
+                sample = values[stream_name]
                 time_axis = self.input_time_axes[input_name]
                 next_states[input_name] = keras.ops.concatenate(
-                    [slice_axis(state, time_axis, slice(1, None)), feedback],
+                    [slice_axis(state, time_axis, slice(1, None)), sample],
                     axis=time_axis,
                 )
             states = next_states
@@ -50,7 +50,7 @@ class ModelRollImpl(keras.layers.Layer):
         config.update(
             {
                 "model": keras.saving.serialize_keras_object(self.model),
-                "callbacks": self.callbacks,
+                "feedback": self.feedback,
                 "output_names": self.output_names,
                 "input_time_axes": self.input_time_axes,
                 "steps": self.steps,
@@ -72,8 +72,8 @@ class RollImpl(keras.layers.Layer):
     def __init__(
         self,
         model,
-        callback_input_name: str,
-        callback_output_name: str,
+        feedback_input_name: str,
+        feedback_output_name: str,
         static_input_names: tuple[str, ...],
         steps: int,
         time_axis: int,
@@ -81,8 +81,8 @@ class RollImpl(keras.layers.Layer):
     ):
         super().__init__(**kwargs)
         self.model = model
-        self.callback_input_name = callback_input_name
-        self.callback_output_name = callback_output_name
+        self.feedback_input_name = feedback_input_name
+        self.feedback_output_name = feedback_output_name
         self.static_input_names = tuple(static_input_names)
         self.steps = int(steps)
         self.time_axis = int(time_axis)
@@ -93,7 +93,7 @@ class RollImpl(keras.layers.Layer):
         state, *static_inputs = inputs
 
         for _ in range(self.steps):
-            model_inputs = {self.callback_input_name: state}
+            model_inputs = {self.feedback_input_name: state}
             model_inputs.update(zip(self.static_input_names, static_inputs))
             # Only the inputs the body reads: Keras matches a dict holding more
             # by position, feeding one input the value of another.
@@ -102,7 +102,7 @@ class RollImpl(keras.layers.Layer):
                 {name: value for name, value in model_inputs.items() if name in taken}
             )
             if isinstance(feedback, dict):
-                feedback = feedback[self.callback_output_name]
+                feedback = feedback[self.feedback_output_name]
 
             state = keras.ops.concatenate(
                 [slice_axis(state, self.time_axis, slice(1, None)), feedback],
@@ -116,8 +116,8 @@ class RollImpl(keras.layers.Layer):
         config.update(
             {
                 "model": keras.saving.serialize_keras_object(self.model),
-                "callback_input_name": self.callback_input_name,
-                "callback_output_name": self.callback_output_name,
+                "feedback_input_name": self.feedback_input_name,
+                "feedback_output_name": self.feedback_output_name,
                 "static_input_names": self.static_input_names,
                 "steps": self.steps,
                 "time_axis": self.time_axis,
@@ -135,7 +135,7 @@ class RollImpl(keras.layers.Layer):
 class Roll(Layer):
     """Unroll a built Modely over a temporal feedback window.
 
-    ``callback`` holds one ``{input: output}`` pair, the output one sample of
+    ``feedback`` holds one ``{input: output}`` pair, the output one sample of
     the input's shape. Every step evaluates ``f`` and appends that sample to
     the input's window, dropping the oldest; after ``steps`` evaluations - by
     default the window length, so that every sample of it is a prediction -
@@ -145,56 +145,56 @@ class Roll(Layer):
     def __init__(
         self,
         f: Modely,
-        callback: dict,
+        feedback: dict,
         steps: int | None = None,
         name=None,
     ):
         if not f.built:
             raise ValueError("Modely body must be built before creating Roll.")
-        if not isinstance(callback, dict) or len(callback) != 1:
-            raise ValueError("callback must contain exactly one input: output pair.")
+        if not isinstance(feedback, dict) or len(feedback) != 1:
+            raise ValueError("feedback must contain exactly one input: output pair.")
 
-        callback_input, callback_output = next(iter(callback.items()))
-        callback_input = self._find_node(f.inputs, callback_input, "input")
-        callback_output = self._find_node(f.outputs, callback_output, "output")
+        feedback_input, feedback_output = next(iter(feedback.items()))
+        feedback_input = self._find_node(f.inputs, feedback_input, "input")
+        feedback_output = self._find_node(f.outputs, feedback_output, "output")
 
-        if callback_input.time is None:
+        if feedback_input.time is None:
             raise ValueError(
-                f"Roll shifts the window of its callback input, and "
-                f"{callback_input.name!r} has none: declare it with sw."
+                f"Roll shifts the window of its fed-back input, and "
+                f"{feedback_input.name!r} has none: declare it with sw."
             )
         # One sample of the window.
-        expected_output_shape = callback_input.shape.replace(time=1).tuple
-        if callback_output.shape.tuple != expected_output_shape:
+        expected_output_shape = feedback_input.shape.replace(time=1).tuple
+        if feedback_output.shape.tuple != expected_output_shape:
             raise ValueError(
-                "callback output must produce one temporal sample with shape "
-                f"{expected_output_shape}, got {callback_output.shape.tuple}."
+                "feedback output must produce one temporal sample with shape "
+                f"{expected_output_shape}, got {feedback_output.shape.tuple}."
             )
 
         # The window of the Input is the one rolled.
-        window = callback_input.shape
+        window = feedback_input.shape
         if steps is None:
             steps = window.time
         if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
             raise ValueError("steps must be a positive integer.")
 
         self.f = f
-        self.callback_input = callback_input
-        self.callback_output = callback_output
+        self.feedback_input = feedback_input
+        self.feedback_output = feedback_output
         # A body input its outputs never read, such as a target, is no input
         # of the roll.
         read = {node.name for node in f.inference_inputs}
         self.static_inputs = [
             node
             for node in f.inputs
-            if node is not callback_input and node.name in read
+            if node is not feedback_input and node.name in read
         ]
         self.steps = steps
 
         super().__init__(
             name=name,
-            preds=[callback_input, *self.static_inputs],
-            dim=callback_input.dim,
+            preds=[feedback_input, *self.static_inputs],
+            dim=feedback_input.dim,
             time=window.time,
             seq=window.seq,
         )
@@ -204,11 +204,11 @@ class Roll(Layer):
         if isinstance(value, str):
             matches = [node for node in nodes if node.name == value]
             if len(matches) != 1:
-                raise ValueError(f"Roll callback {kind} {value!r} was not found.")
+                raise ValueError(f"Roll feedback {kind} {value!r} was not found.")
             return matches[0]
         if value not in nodes:
             raise ValueError(
-                f"Roll callback {kind} {getattr(value, 'name', value)!r} "
+                f"Roll feedback {kind} {getattr(value, 'name', value)!r} "
                 "does not belong to the provided Modely."
             )
         return value
@@ -216,18 +216,18 @@ class Roll(Layer):
     def build_layer(self):
         return RollImpl(
             model=self.f.inference_model,
-            callback_input_name=self.callback_input.name,
-            callback_output_name=self.callback_output.name,
+            feedback_input_name=self.feedback_input.name,
+            feedback_output_name=self.feedback_output.name,
             static_input_names=tuple(node.name for node in self.static_inputs),
             steps=self.steps,
-            time_axis=self.callback_input.shape.time_axis,
+            time_axis=self.feedback_input.shape.time_axis,
             name=self.name,
         )
 
     def get_config(self):
         return {
             "name": self.name,
-            "callback": {self.callback_input.name: self.callback_output.name},
+            "feedback": {self.feedback_input.name: self.feedback_output.name},
             "steps": self.steps,
         }
 

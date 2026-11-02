@@ -55,17 +55,17 @@ class Buffer(Layer):
     - the buffer holds the past ones. The newest sample is the signal at this
     step, which reaches the model within the step, as if connected to it; the
     window shifts after the step, when the newest becomes a past one. An
-    Input closed with the signal is the other way round: its window ends at
+    Input fed back with the signal is the other way round: its window ends at
     the previous step.
 
-    The past ``sw - 1`` values are an Input closed with the signal, fed back
-    by the :class:`~nnodely.ModelyLoop` like any other. ``init`` holds them
-    before the first step: a number, a Parameter or Constant, or an Input -
-    one sample, repeated, or ``sw - 1`` of them, oldest first; ``None`` for
-    zeros. Built as a :class:`~nnodely.Modely` instead, nothing feeds them
-    back: the step reads ``init`` as them, as the first step of the
-    ModelyLoop does, and no Input of its own. The signal is one sample,
-    ``sw=1``, or has no window.
+    The past ``sw - 1`` values are a hidden Input fed back with the signal,
+    by the :class:`~nnodely.ModelyLoop` or :class:`~nnodely.Loop` like any
+    other. ``init`` holds them before the first step: a number, a Parameter
+    or Constant, or an Input - one sample, repeated, or ``sw - 1`` of them,
+    oldest first; ``None`` for zeros. Built as a :class:`~nnodely.Modely`
+    instead, nothing feeds them back: the step reads ``init`` as them, as the
+    first step of a loop does, and no Input of its own. The signal is one
+    sample, ``sw=1``, or has no window.
     """
 
     def __init__(self, sw: int, init: Stream | float | None = None, name=None):
@@ -111,7 +111,7 @@ class Buffer(Layer):
         )
         past._hidden = True
         window = super().__call__([past, stream])
-        past.close(
+        past._feed_back(
             stream if stream.time == 1 else TimeSelect(-1)(window), init=self.init
         )
         return window

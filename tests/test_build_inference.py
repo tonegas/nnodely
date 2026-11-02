@@ -238,7 +238,7 @@ def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
     seed = Input("minimized_body_seed", dim=1, seq=4, sw=1)
     loop = Loop(
         f=body,
-        callback={state: next_state},
+        feedback={state: next_state},
         collect=False,
         init={state: seed},
     )()
@@ -278,7 +278,7 @@ def test_a_model_that_reads_no_input_is_refused_at_build():
     step = Output("numbers_next", Linear(bias=False)(state))
     body = Modely("numbers_body", inputs=[state], outputs=[step]).build()
     driven_by_numbers = Loop(
-        f=body, callback={state: step}, length=4, init={state: 1.0}
+        f=body, feedback={state: step}, length=4, init={state: 1.0}
     )()
     looped = Modely(
         "numbers_loop", inputs=[], outputs=[Output("numbers_traj", driven_by_numbers)]

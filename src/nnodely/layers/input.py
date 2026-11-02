@@ -69,12 +69,12 @@ class Input(Stream):
     ``TimeRange`` and the others - take what they need of its window.
 
     An Input can also be fed back, the value at the end of the previous step,
-    with :meth:`close`::
+    with :meth:`feedback`::
 
-        x = Input("x", sw=1)                          # x[k-1]
-        x_next = x.close(IntegrateStep(dt=dt)(x, v))  # x[k]
+        x = Input("x", sw=1)                             # x[k-1]
+        x_next = x.feedback(IntegrateStep(dt=dt)(x, v))  # x[k]
 
-    It is declared before the stream it is closed with, so the streams of a
+    It is declared before the stream it is fed back with, so the streams of a
     step can read each other's previous values, and coupled dynamics are
     written as they are, one Input per state variable.
     """
@@ -105,51 +105,57 @@ class Input(Stream):
         # without a window, the current one alone.
         self.past, self.future = (1, 0) if window is None else window
         self.input = keras.Input(shape=self.shape.tuple, name=self.name)
-        # Set by close(): the stream fed back and the value before the first
-        # step. None while the Input is open, read from data.
+        # Set by feedback(): the stream fed back. None while the Input is read
+        # from data.
         self.update: Stream | None = None
+        # The value before the first step, given with the feedback: only a
+        # layer that keeps its state in the Input has one of its own.
         self.init: Stream | float | None = None
         # Set by a layer that keeps its state in the Input - Integrate,
         # Derivative, Buffer - so the user has no handle on it: a Modely that
         # does not declare it reads its init in its place, not data.
         self._hidden = False
 
-    def close(self, stream: Stream, init: Stream | float | None = None) -> Stream:
+    def feedback(self, stream: Stream) -> Stream:
         """Feed ``stream`` back into this Input, and return it: the value of
         the next step, one sample, shifted into the window after the step.
 
-        Nothing rolls out until a :class:`~nnodely.ModelyLoop` closes the
-        model: every closed Input it reads, inside the models it calls too,
-        becomes one feedback of a single loop. Built as a
-        :class:`~nnodely.Modely` instead, the Input is read from data - the
-        one-step model of the same graph - and the model warns unless it is
-        among the declared inputs.
+        Nothing rolls out until a :class:`~nnodely.Loop` or a
+        :class:`~nnodely.ModelyLoop` applies the feedback: every fed-back
+        Input the model reads, inside the models it calls too, becomes one
+        feedback of a single loop. Built as a :class:`~nnodely.Modely`
+        instead, the Input is read from data - the one-step model of the same
+        graph - and the model warns unless it is among the declared inputs.
 
-        ``init`` is the value before the first step: a number, a Parameter or
-        a Constant, or an Input, of which the ModelyLoop reads the first step.
-        With None, the Input starts from the first window of its own data when
-        it is among the inputs of the ModelyLoop, from zero when the data
-        leaves it out or the ModelyLoop does not list it.
+        The value before the first step is given where the feedback is
+        applied: ``Loop(init={x: x0})``, or, in a ModelyLoop, the first window
+        of the data of the Input when it is among the inputs. Without one, the
+        Input starts from zero.
 
         A model that declares the Input among its inputs, called as a block,
         reads the stream given for it as it would read its data: at every step
-        inside a Modely; inside a ModelyLoop the Input keeps its feedback, and
-        the stream is its initial value, in place of ``init``.
+        inside a Modely; inside a loop the Input keeps its feedback, and the
+        stream is its initial value.
         """
+        return self._feed_back(stream)
+
+    def _feed_back(self, stream: Stream, init: Stream | float | None = None) -> Stream:
+        """:meth:`feedback`, with the value before the first step: how a layer
+        that keeps its state in an Input of its own starts it."""
         if self.future:
             raise ValueError(
                 f"Input {self.name!r} reads future samples, sw=({self.past}, "
-                f"{self.future}): closed, it holds values already computed, so "
+                f"{self.future}): fed back, it holds values already computed, so "
                 "its window reads no future samples."
             )
         if not isinstance(stream, Stream):
             raise TypeError(
-                f"Input {self.name!r} is closed with a Stream, got "
+                f"Input {self.name!r} is fed back with a Stream, got "
                 f"{type(stream).__name__}."
             )
         if self.update is not None:
             raise ValueError(
-                f"Input {self.name!r} is already closed with {self.update.name!r}."
+                f"Input {self.name!r} is already fed back with {self.update.name!r}."
             )
         # One sample of the Input, or no window for an Input without one.
         sample = self.shape.replace(time=None if self.time is None else 1)
@@ -159,7 +165,7 @@ class Input(Stream):
             or tuple(stream.seq) != tuple(sample.seq)
         ):
             raise ValueError(
-                f"Input {self.name!r} is closed with the value of one step, "
+                f"Input {self.name!r} is fed back with the value of one step, "
                 f"{sample}; {stream.name!r} is {stream.shape}."
             )
         self.init = _validate_init(self.name, init)
@@ -201,7 +207,7 @@ def _sw_cell(node: Input) -> str:
 class Inputs(list):
     """The Inputs of a model, as :attr:`Modely.all_inputs` lists them: a list
     of the Input objects, printed as a table of their shapes and of how each
-    is fed - whether it is declared, the stream it is closed with, what the
+    is fed - whether it is declared, the stream it is fed back with, what the
     data must hold of it and, fed back in a ModelyLoop, what it starts from."""
 
     _HEADER = (
@@ -210,7 +216,7 @@ class Inputs(list):
         "sw",
         "dim",
         "declared",
-        "closed with",
+        "fed back with",
         "data",
         "starts from",
     )
@@ -228,7 +234,7 @@ class Inputs(list):
                 _sw_cell(row["input"]),
                 str(tuple(row["input"].dim)),
                 "yes" if row["declared"] else "no",
-                row["closed with"] or "-",
+                row["fed back with"] or "-",
                 row["data"] or "-",
                 row["starts from"] or "-",
             )
@@ -242,15 +248,15 @@ class Inputs(list):
         def line(row):
             return "  ".join(cell.ljust(width) for cell, width in zip(row, widths))
 
-        closed = sum(row["closed with"] is not None for row in self.rows)
+        fed_back = sum(row["fed back with"] is not None for row in self.rows)
         return "\n".join(
             [
                 *([self.title] if self.title else []),
                 line(self._HEADER).rstrip(),
                 line(tuple("-" * width for width in widths)).rstrip(),
                 *(line(row).rstrip() for row in cells),
-                f"{len(self)} inputs, {closed} closed",
-                "closed with: the stream a ModelyLoop feeds back into the Input at "
+                f"{len(self)} inputs, {fed_back} fed back",
+                "fed back with: the stream a loop feeds back into the Input at "
                 "the next step; a Modely reads the Input from data instead",
                 "data: required, optional (zeros where left out), target (to train "
                 "and validate) or - (fed back only)",

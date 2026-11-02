@@ -4,8 +4,8 @@ from pathlib import Path
 from nnodely.core.stream import NODE_REGISTRY, Node
 
 
-def _bound_closed(model) -> list[str]:
-    """The closed Inputs ``model``, or a model it calls, gives a stream for
+def _bound_fed_back(model) -> list[str]:
+    """The fed-back Inputs ``model``, or a model it calls, gives a stream for
     when it calls a model that declares them: flattened, the call reads that
     stream in their place, and their feedback is gone."""
     from nnodely.core.modely import ModelCall
@@ -34,7 +34,7 @@ def _bound_closed(model) -> list[str]:
 
 def _saved_order(flat) -> list:
     """The nodes of ``flat`` to save, every one after its predecessors: those
-    its outputs are computed from, and those its closed Inputs are closed
+    its outputs are computed from, and those its fed-back Inputs are fed back
     with, and start from, which are no predecessors of theirs."""
     from nnodely.core.dag import toposort_outputs
     from nnodely.layers.input import Input
@@ -91,7 +91,7 @@ class _Loading:
 
 class ModelSerializer:
     FORMAT = "nnodely"
-    VERSION = 7
+    VERSION = 8
 
     @staticmethod
     def serialize(model, path, *, weights=True, layer_ids=None):
@@ -113,15 +113,15 @@ class ModelSerializer:
 
         # What a ModelyLoop calling the loaded model would feed back other
         # than it feeds back the saved one.
-        bound = _bound_closed(model)
+        bound = _bound_fed_back(model)
         if bound:
             warnings.warn(
-                f"Model {model.name!r} calls models that declare the closed "
+                f"Model {model.name!r} calls models that declare the fed-back "
                 f"Inputs {bound}, giving a stream for each: saved, it reads that "
                 "stream in their place, as a Modely does, and keeps nothing of "
-                "their feedback, so a ModelyLoop that calls the loaded model "
-                "does not feed them back. Save the ModelyLoop that closes them "
-                "instead.",
+                "their feedback, so a loop that calls the loaded model does not "
+                "feed them back. Save the Loop or ModelyLoop that feeds them "
+                "back instead.",
                 UserWarning,
                 stacklevel=3,
             )
@@ -145,10 +145,11 @@ class ModelSerializer:
             if unsaved:
                 warnings.warn(
                     f"Model {model.name!r} is saved without the weights of "
-                    f"{unsaved}: only the streams its closed Inputs are closed "
-                    "with read them, and the model does not compute those, so "
-                    "they load back as declared. Save the ModelyLoop that "
-                    "computes them, or declare those streams among the outputs.",
+                    f"{unsaved}: only the streams its fed-back Inputs are fed "
+                    "back with read them, and the model does not compute those, "
+                    "so they load back as declared. Save the Loop or ModelyLoop "
+                    "that computes them, or declare those streams among the "
+                    "outputs.",
                     UserWarning,
                     stacklevel=3,
                 )
@@ -163,11 +164,11 @@ class ModelSerializer:
                 "config": node.get_config(),
                 "preds": [node_ids[pred] for pred in node.preds],
             }
-            # A closed Input keeps the stream it is closed with and its init,
-            # a number or a node: a ModelyLoop that calls the loaded model
+            # A fed-back Input keeps the stream it is fed back with and its
+            # init, a number or a node: a loop that calls the loaded model
             # feeds it back as it would the saved one.
             if isinstance(node, Input) and node.update is not None:
-                node_data["closed"] = {
+                node_data["feedback"] = {
                     "update": node_ids[node.update],
                     "init": (
                         node_ids[node.init]
@@ -203,14 +204,14 @@ class ModelSerializer:
                 "name": model.name,
                 "roll": (
                     {
-                        "callbacks": {
+                        "feedback": {
                             input_node.name: stream.name
-                            for input_node, stream in model._roll_callbacks.items()
+                            for input_node, stream in model._roll_feedback.items()
                         },
                         "steps": model._roll_steps,
                         "name": model._roll_name,
                     }
-                    if model._roll_callbacks
+                    if model._roll_feedback
                     else None
                 ),
                 "optional_inputs": sorted(model.optional_inputs),
@@ -277,16 +278,17 @@ class ModelSerializer:
                 loading.values[layer_id] = node
             node_map[node_data["id"]] = node
 
-        # Closed once the streams they are closed with, which read them, exist.
+        # Fed back once the streams they are fed back with, which read them,
+        # exist.
         for node_data in data["nodes"]:
-            closed = node_data.get("closed")
-            if closed is not None:
-                init = closed["init"]
-                node_map[node_data["id"]].close(
-                    node_map[closed["update"]],
+            feedback = node_data.get("feedback")
+            if feedback is not None:
+                init = feedback["init"]
+                node_map[node_data["id"]]._feed_back(
+                    node_map[feedback["update"]],
                     init=node_map[init] if isinstance(init, str) else init,
                 )
-                node_map[node_data["id"]]._hidden = closed.get("hidden", False)
+                node_map[node_data["id"]]._hidden = feedback["hidden"]
 
         inputs = [node_map[node_id] for node_id in data["inputs"]]
         outputs = [node_map[node_id] for node_id in data["outputs"]]
@@ -299,7 +301,7 @@ class ModelSerializer:
         roll = data["model"].get("roll")
         if roll is not None:
             model.rollback(
-                roll["callbacks"],
+                roll["feedback"],
                 steps=roll["steps"],
                 name=roll.get("name"),
             )

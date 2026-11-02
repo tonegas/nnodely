@@ -79,7 +79,7 @@ class Modely:
         self.optional_inputs: set[str] = set()
         self.minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
         self._minimizer_outputs: dict[Node, str] = {}  # minimizer side -> graph output
-        self._roll_callbacks: dict[Input, Stream] = {}
+        self._roll_feedback: dict[Input, Stream] = {}
         self._roll_steps: int | None = None
         self._roll_name: str | None = None
 
@@ -101,7 +101,7 @@ class Modely:
                     f"a block; got {type(inputs).__name__}."
                 )
             # A block is inlined once, so the rollback would be lost.
-            if self._roll_callbacks:
+            if self._roll_feedback:
                 raise ValueError(
                     f"Model {self.name!r} has a rollback, which a block cannot "
                     "carry: inlined, it would be evaluated once. For its one-step "
@@ -210,7 +210,7 @@ class Modely:
                 self._minimizer_outputs[node] = exposed.name
 
         self.train_outputs = self.outputs + extra_outputs
-        feedback_streams = list(dict.fromkeys(self._roll_callbacks.values()))
+        feedback_streams = list(dict.fromkeys(self._roll_feedback.values()))
         graph_outputs = self.train_outputs + [
             stream for stream in feedback_streams if stream not in self.train_outputs
         ]
@@ -241,8 +241,8 @@ class Modely:
                     f"{node.name!r}. The data is fed by input name, so every "
                     "Input of a model needs a name of its own."
                 )
-        # A closed Input the model declares among its inputs is fed from data
-        # on purpose; any other is a feedback a ModelyLoop was meant to close.
+        # A fed-back Input the model declares among its inputs is fed from
+        # data on purpose; any other is a feedback a loop was meant to apply.
         declared = {node.name for node in self.inputs}
         open_feedback = sorted(
             {
@@ -253,10 +253,10 @@ class Modely:
         )
         if open_feedback:
             warnings.warn(
-                f"Model {self.name!r} reads the closed Inputs {open_feedback}, "
-                "which only a ModelyLoop feeds back: built as a Modely, they are "
-                "read from data, one step at a time. Build the model that closes "
-                "them with ModelyLoop, or declare them among the inputs.",
+                f"Model {self.name!r} reads the fed-back Inputs {open_feedback}, "
+                "which only a Loop or a ModelyLoop feeds back: built as a Modely, "
+                "they are read from data, one step at a time. Roll the model out "
+                "with Loop or ModelyLoop, or declare them among the inputs.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -275,13 +275,13 @@ class Modely:
                 source_node._layer = flat_node._layer
                 source_node._layer_signature = flat_node._layer_signature
 
-        body_class = keras.Model if self._roll_callbacks else MinimizerModel
+        body_class = keras.Model if self._roll_feedback else MinimizerModel
         body_model = body_class(
             name=self.name + "_train",
             inputs=keras_inputs,
             outputs=keras_outputs,
         )
-        if self._roll_callbacks:
+        if self._roll_feedback:
             self.model = MinimizerModel(
                 name=self.name + "_train",
                 inputs=keras_inputs,
@@ -312,7 +312,7 @@ class Modely:
         inference_inputs = {
             node.name: keras_inputs[node.name] for node in self.inference_inputs
         }
-        if self._roll_callbacks:
+        if self._roll_feedback:
             inference_body = keras.Model(
                 name=self.name + "_body",
                 inputs=inference_inputs,
@@ -332,14 +332,14 @@ class Modely:
 
         roll_layer = ModelRollImpl(
             model=body_model,
-            callbacks={
-                input_node.name: feedback.name
-                for input_node, feedback in self._roll_callbacks.items()
+            feedback={
+                input_node.name: stream.name
+                for input_node, stream in self._roll_feedback.items()
             },
             output_names=tuple(node.name for node in output_nodes),
             input_time_axes={
                 node.name: cast(int, node.shape.time_axis)
-                for node in self._roll_callbacks
+                for node in self._roll_feedback
             },
             steps=cast(int, self._roll_steps),
             name=self._roll_name or f"{self.name}_roll",
@@ -548,8 +548,8 @@ class Modely:
         calls, or only by a minimizer - and, in a ModelyLoop, every Input fed
         back inside its step. A list of the Input objects, printed as a table
         of their shapes and of how each is fed: whether it is declared, the
-        stream it is closed with, what the data must hold of it and, fed back
-        in a ModelyLoop, what it starts from."""
+        stream it is fed back with, what the data must hold of it and, fed
+        back in a ModelyLoop, what it starts from."""
         return Inputs(self._input_rows(), title=f"Inputs of {self.name}")
 
     def _input_rows(self) -> list[dict]:
@@ -563,7 +563,7 @@ class Modely:
         forward = _read_inputs(self.outputs, self.inputs)
         rollback = {
             node.name: f"{stream.name} (rollback)"
-            for node, stream in self._roll_callbacks.items()
+            for node, stream in self._roll_feedback.items()
         }
         rows = []
         for name, node in _read_inputs([*self.outputs, *sides], self.inputs).items():
@@ -576,7 +576,7 @@ class Modely:
                     "input": node,
                     "seq": tuple(node.seq),
                     "declared": name in declared,
-                    "closed with": rollback.get(
+                    "fed back with": rollback.get(
                         name, None if node.update is None else node.update.name
                     ),
                     "data": data,
@@ -861,13 +861,13 @@ class Modely:
     # -------------------------------------------------------------------------
     def rollback(
         self,
-        rollback: dict[str | Input, str | Stream],
+        feedback: dict[str | Input, str | Stream],
         steps: int,
         name: str | None = None,
     ) -> "Modely":
         """Configure temporal feedback directly on this model.
 
-        Each mapping is ``input: stream``. After every model evaluation, the
+        Each ``feedback`` pair is ``input: stream``. After every model evaluation, the
         stream's one-step result is appended to the input's temporal window.
         The model is unrolled for ``steps`` evaluations and exposes only the
         outputs produced by the final evaluation, preserving their original
@@ -875,8 +875,8 @@ class Modely:
         """
         if self.built:
             raise ValueError("rollback() must be called before build().")
-        if not isinstance(rollback, dict) or not rollback:
-            raise ValueError("rollback must be a non-empty input: stream mapping.")
+        if not isinstance(feedback, dict) or not feedback:
+            raise ValueError("feedback must be a non-empty input: stream mapping.")
         if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
             raise ValueError("roll steps must be a positive integer.")
 
@@ -895,8 +895,8 @@ class Modely:
                 )
             return value
 
-        callbacks = {}
-        for input_ref, stream_ref in rollback.items():
+        pairs = {}
+        for input_ref, stream_ref in feedback.items():
             input_node = resolve(self.inputs, input_ref, "input")
             stream = resolve(graph_streams, stream_ref, "stream")
             if input_node.time is None:
@@ -911,9 +911,9 @@ class Modely:
                     f"roll stream {stream.name!r} must produce one temporal "
                     f"sample with shape {expected}, got {stream.shape.tuple}."
                 )
-            callbacks[input_node] = stream
+            pairs[input_node] = stream
 
-        self._roll_callbacks = callbacks
+        self._roll_feedback = pairs
         self._roll_steps = steps
         self._roll_name = name
         return self

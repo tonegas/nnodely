@@ -371,7 +371,7 @@ def test_model_freeze_reaches_layer_weights_called_models_and_loop_bodies():
         outputs=[Output("reach_next", Linear(features=1)(q))],
     ).build()
     seed = Input("reach_seed", seq=3, sw=1)
-    loop = Loop(f=body, callback={q: "reach_next"}, init={q: seed})()
+    loop = Loop(f=body, feedback={q: "reach_next"}, init={q: seed})()
 
     x = Input("reach_x", sw=2)
     model = Modely(

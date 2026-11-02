@@ -436,7 +436,7 @@ def _decay_model(name, seq_weights=None):
     seed = Input(f"{name}_x", seq=-1, sw=1)
     loop = Loop(
         f=body,
-        callback={body_x: body_out},
+        feedback={body_x: body_out},
         length=6,
         init={body_x: seed},
     )()

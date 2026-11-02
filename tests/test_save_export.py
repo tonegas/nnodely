@@ -77,8 +77,9 @@ def graph_signature(model):
         {
             "name": node.name,
             "type": type(node).__name__,
-            "shape": repr(node.shape),
-            "preds": [(p.name, repr(p.shape)) for p in node.preds],
+            # A Loop with several outputs has none.
+            "shape": repr(getattr(node, "shape", None)),
+            "preds": [(p.name, repr(getattr(p, "shape", None))) for p in node.preds],
             "config": node.get_config(),
         }
         for node in flat.order
@@ -641,7 +642,7 @@ def test_save_load_roll_model(tmp_path):
     assert restored._roll_steps == 3
     assert {
         input_node.name: stream.name
-        for input_node, stream in restored._roll_callbacks.items()
+        for input_node, stream in restored._roll_feedback.items()
     } == {"roll_x": "roll_fir"}
     _assert_roll_result(restored(inputs))
 
@@ -1018,7 +1019,7 @@ def _loop_final_state_model():
     seed = Input("loop_final_seed", dim=1, seq=4, sw=1)
     loop = Loop(
         f=body,
-        callback={state: next_state},
+        feedback={state: next_state},
         collect=False,
         name="loop_final",
         init={state: seed},
@@ -1057,7 +1058,7 @@ def _loop_trajectory_model():
     force_sequence = Input("loop_traj_force_sequence", dim=1, seq=horizon, sw=1)
     position_trajectory, velocity_trajectory = Loop(
         f=body,
-        callback={position: position_next, velocity: velocity_next},
+        feedback={position: position_next, velocity: velocity_next},
         name="loop_traj",
         init={position: p0, velocity: 0.25},
     )({force: force_sequence})
@@ -1082,7 +1083,7 @@ def _nested_loop_model():
     ).build()
     first_loop = Loop(
         f=first_body,
-        callback={inner: first_output},
+        feedback={inner: first_output},
         name="nested_save_first_loop",
         collect=False,
         init={inner: x},
@@ -1095,7 +1096,7 @@ def _nested_loop_model():
     ).build()
     second_loop = Loop(
         f=second_body,
-        callback={second: second_output},
+        feedback={second: second_output},
         name="nested_save_second_loop",
         collect=False,
         init={second: first_loop},
@@ -1122,14 +1123,14 @@ def _shared_body_model():
     long = Input("shared_body_long", dim=1, seq=5, sw=1)
     first = Loop(
         f=body,
-        callback={state: next_state},
+        feedback={state: next_state},
         collect=False,
         name="shared_body_first",
         init={state: short},
     )()
     second = Loop(
         f=body,
-        callback={state: next_state},
+        feedback={state: next_state},
         collect=False,
         name="shared_body_second",
         init={state: long},
@@ -1154,7 +1155,7 @@ def _ode_loop_model():
     body = Modely("ode_loop_body", inputs=[x], outputs=[body_output]).build()
 
     seed = Input("ode_loop_seed", dim=1, seq=6, sw=1)
-    loop = Loop(f=body, callback={x: body_output}, name="ode_loop", init={x: seed})()
+    loop = Loop(f=body, feedback={x: body_output}, name="ode_loop", init={x: seed})()
     return Modely(
         "ode_loop", inputs=[seed], outputs=[Output("ode_loop_out", loop)]
     ).build()
@@ -1169,7 +1170,7 @@ def _roll_layer_model():
         + Linear(features=1, name="roll_layer_linear")(u),
     )
     body = Modely("roll_layer_body", inputs=[x, u], outputs=[feedback]).build()
-    roll = Roll(f=body, callback={x: feedback}, steps=3, name="roll_layer")
+    roll = Roll(f=body, feedback={x: feedback}, steps=3, name="roll_layer")
     return Modely(
         "roll_layer", inputs=[x, u], outputs=[Output("roll_layer_out", roll)]
     ).build()
@@ -1295,7 +1296,7 @@ def test_export_onnx_dynamic_loop_follows_the_data(tmp_path):
     body = Modely("dyn_onnx_body", inputs=[x, u], outputs=[body_output]).build()
     x_seq = Input("dyn_onnx_x_seq", dim=1, seq=-1, sw=1)
     u_seq = Input("dyn_onnx_u_seq", dim=1, seq=-1, sw=1)
-    loop = Loop(f=body, callback={x: body_output}, init={x: x_seq})({u: u_seq})
+    loop = Loop(f=body, feedback={x: body_output}, init={x: x_seq})({u: u_seq})
     model = Modely(
         "dyn_onnx_model",
         inputs=[x_seq, u_seq],
@@ -1718,7 +1719,7 @@ def test_a_loop_closed_over_a_generated_layer_reloads_beside_its_original(tmp_pa
     bare = Fir(features=1, kernel=gain, bias=False)(s)
     body = Modely("bare_body", inputs=[s], outputs=[bare]).build()
     seed = Input("bare_seed", seq=4, sw=1)
-    loop = Loop(f=body, callback={s: bare}, collect=False, init={s: seed})()
+    loop = Loop(f=body, feedback={s: bare}, collect=False, init={s: seed})()
     model = Modely(
         "bare_top", inputs=[seed], outputs=[Output("bare_out", loop)]
     ).build()
@@ -2207,7 +2208,7 @@ def test_a_parameter_read_by_several_models_loads_as_one(tmp_path):
         outputs=[Output("one_next", s * gain + fir(s))],
     ).build()
     a, c = Input("one_a", seq=3, sw=1), Input("one_c", sw=1)
-    loop = Loop(f=body, callback={s: "one_next"}, init={s: a})()
+    loop = Loop(f=body, feedback={s: "one_next"}, init={s: a})()
     model = Modely(
         "one_model",
         inputs=[a, c],
@@ -2251,8 +2252,8 @@ def _keras_two_loops():
     nxt = Output("ks2_next", Linear(features=1, name="ks2_lin")(s))
     body = Modely("ks2_body", inputs=[s], outputs=[nxt]).build()
     a = Input("ks2_a", seq=3, sw=1)
-    rolled = Loop(f=body, callback={s: nxt}, collect=False, init={s: a})()
-    fixed = Loop(f=body, callback={s: nxt}, collect=False, init={s: a}, length=2)()
+    rolled = Loop(f=body, feedback={s: nxt}, collect=False, init={s: a})()
+    fixed = Loop(f=body, feedback={s: nxt}, collect=False, init={s: a}, length=2)()
     model = Modely(
         "ks2", inputs=[a], outputs=[Output("ks2_o1", rolled), Output("ks2_o2", fixed)]
     ).build()
@@ -2266,7 +2267,7 @@ def _keras_parameter_inside_and_outside():
         "ksp_body", inputs=[s], outputs=[Output("ksp_next", s * gain)]
     ).build()
     a = Input("ksp_a", seq=3, sw=1)
-    loop = Loop(f=body, callback={s: "ksp_next"}, init={s: a})()
+    loop = Loop(f=body, feedback={s: "ksp_next"}, init={s: a})()
     model = Modely(
         "ksp",
         inputs=[a],
@@ -2280,7 +2281,7 @@ def _keras_block_and_loop():
     nxt = Output("ksb_next", Linear(features=1, name="ksb_lin")(s))
     body = Modely("ksb_body", inputs=[s], outputs=[nxt]).build()
     a, c = Input("ksb_a", seq=3, sw=1), Input("ksb_c", sw=1)
-    loop = Loop(f=body, callback={s: nxt}, init={s: a})()
+    loop = Loop(f=body, feedback={s: nxt}, init={s: a})()
     model = Modely(
         "ksb",
         inputs=[a, c],
@@ -2312,7 +2313,7 @@ def _keras_loop_in_a_body():
     m = Input("ksn_m", sw=1)
     inner_loop = Loop(
         f=inner,
-        callback={si: "ksn_inner_next"},
+        feedback={si: "ksn_inner_next"},
         collect=False,
         init={si: m},
         length=3,
@@ -2321,7 +2322,7 @@ def _keras_loop_in_a_body():
         "ksn_mid", inputs=[m], outputs=[Output("ksn_mid_out", inner_loop)]
     ).build()
     m0 = Input("ksn_m0", sw=1)
-    outer = Loop(f=mid, callback={m: "ksn_mid_out"}, init={m: m0}, length=2)()
+    outer = Loop(f=mid, feedback={m: "ksn_mid_out"}, init={m: m0}, length=2)()
     model = Modely(
         "ksn",
         inputs=[m0],
@@ -2353,7 +2354,7 @@ def _keras_stateful_and_custom_body():
         ],
     ).build()
     s0, us = Input("ksk_s0", sw=1), Input("ksk_us", seq=4, sw=1)
-    loop = Loop(f=body, callback={s: "ksk_next"}, init={s: s0})({u: us})
+    loop = Loop(f=body, feedback={s: "ksk_next"}, init={s: s0})({u: us})
     model = Modely(
         "ksk",
         inputs=[s0, us],
@@ -2420,7 +2421,7 @@ def test_keras_export_follows_a_dynamic_rollout(tmp_path):
         outputs=[Output("ksdyn_next", s * 0.5 + u)],
     ).build()
     s0, us = Input("ksdyn_s0", sw=1), Input("ksdyn_us", seq=-1, sw=1)
-    loop = Loop(f=body, callback={s: "ksdyn_next"}, init={s: s0})({u: us})
+    loop = Loop(f=body, feedback={s: "ksdyn_next"}, init={s: s0})({u: us})
     model = Modely(
         "ksdyn", inputs=[s0, us], outputs=[Output("ksdyn_out", loop)]
     ).build()

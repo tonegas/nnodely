@@ -644,7 +644,7 @@ def test_uncollected_loop_warns_on_simulations_of_different_lengths():
     seed = Input("warn_x", dim=1, seq=-1, sw=1)
     loop = Loop(
         f=body,
-        callback={body_x: body_out},
+        feedback={body_x: body_out},
         length=4,
         collect=False,
         name="warn_loop",

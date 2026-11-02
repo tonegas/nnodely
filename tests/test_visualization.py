@@ -105,7 +105,7 @@ def test_visualize_roll(tmp_path):
     roll_body = Modely(name="roll_body", inputs=[z], outputs=[roll_body_output]).build()
     roll_fn = Roll(
         f=roll_body,
-        callback={z: roll_body_output},
+        feedback={z: roll_body_output},
         name="roll_fn",
     )
     out = Output("out", roll_fn)
@@ -190,7 +190,7 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
     seed_window = seed
     loop = Loop(
         f=body,
-        callback={seed_input: body_output},
+        feedback={seed_input: body_output},
         name="loop_block",
         init={seed_input: seed_window},
     )()
@@ -229,7 +229,7 @@ def test_export_html_layout_survives_feedback_cycles(tmp_path):
     seed = Input("in1_seq", seq=5, sw=1)
     loop = Loop(
         f=body,
-        callback={seed_input: body_output},
+        feedback={seed_input: body_output},
         name="cyc_block",
         init={seed_input: seed},
     )()
@@ -282,7 +282,7 @@ def test_flattened_page_inlines_a_loop_body(tmp_path):
     seed_window = seed
     loop = Loop(
         f=body,
-        callback={seed_input: body_output},
+        feedback={seed_input: body_output},
         name="inline_block",
         init={seed_input: seed_window},
     )()
@@ -315,7 +315,7 @@ def test_flattened_page_inlines_a_roll_body(tmp_path):
     z = Input("z2", sw=5)
     roll_out = Output("roll_out", Fir(features=1, bias=False)(z))
     roll_body = Modely("inline_roll_body", inputs=[z], outputs=[roll_out]).build()
-    roll = Roll(f=roll_body, callback={z: roll_out}, name="inline_roll")
+    roll = Roll(f=roll_body, feedback={z: roll_out}, name="inline_roll")
     model = Modely("inline_roll_model", inputs=[z], outputs=[Output("out", roll)])
     model.build()
     model.export_html(out_dir=tmp_path, filename="inline_roll_model")
@@ -472,7 +472,7 @@ def _looped_model():
     body = Modely("step_body", inputs=[state, force], outputs=[nxt]).build()
     seed, forces = Input("loop_seed", sw=1), Input("loop_forces", seq=-1, sw=1)
     trajectory = Loop(
-        f=body, callback={state: nxt}, name="sim_loop", init={state: seed}
+        f=body, feedback={state: nxt}, name="sim_loop", init={state: seed}
     )({force: forces})
     return Modely(
         "simulator", inputs=[seed, forces], outputs=[Output("loop_traj", trajectory)]
@@ -566,7 +566,7 @@ def test_plot_draws_roll_and_rollback_recurrences(tmp_path, monkeypatch):
     rolled = Modely(
         "rolled",
         inputs=[z],
-        outputs=[Output("rolled_result", Roll(f=body, callback={z: out}))],
+        outputs=[Output("rolled_result", Roll(f=body, feedback={z: out}))],
     ).build()
     x = Input("closed_x", sw=5)
     fir = Fir(features=1, bias=False, name="closed_fir")(x)

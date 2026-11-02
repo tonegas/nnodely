@@ -179,7 +179,7 @@ def test_ode_in_loop():
     body = Modely("ode_body", inputs=[x], outputs=[body_output]).build()
 
     seed = Input("x_seq", dim=1, seq=steps, sw=1)
-    loop = Loop(f=body, callback={x: body_output}, collect=False, init={x: seed})()
+    loop = Loop(f=body, feedback={x: body_output}, collect=False, init={x: seed})()
     model = Modely("ode_loop", inputs=[seed], outputs=[Output("x_end", loop)]).build()
 
     seed_values = np.zeros((1, steps, 1, 1), dtype=np.float32)

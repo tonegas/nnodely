@@ -317,17 +317,18 @@ def _check_single_sample(owner: str, init, where: str) -> None:
 
 
 class Integrate:
-    """Integrate a rate one step at a time, in a :class:`~nnodely.ModelyLoop`.
+    """Integrate a rate one step at a time, in a :class:`~nnodely.ModelyLoop`
+    or a :class:`~nnodely.Loop`.
 
     ::
 
         Integrate(solver="euler"|"rectangular"|"trapezoidal", dt=0.01, init=x0)(rate)
 
     The high-level counterpart of :class:`IntegrateStep`: the rate is one
-    sample of a step, ``T=1`` and no sequence, and the integral is an Input
-    closed with its update, which the ModelyLoop feeds back with all its other
-    closed Inputs, in its one loop - no Loop of its own. The result is the
-    value at the end of the step::
+    sample of a step, ``T=1`` and no sequence, and the integral is a hidden
+    Input fed back with its update, which the loop feeds back with all its
+    other fed-back Inputs, in its one rollout - no Loop of its own. The result
+    is the value at the end of the step::
 
         y[k] = y[k-1] + dt * rate[k]                      # "euler", "rectangular"
         y[k] = y[k-1] + dt/2 * (rate[k-1] + rate[k])      # "trapezoidal"
@@ -338,12 +339,14 @@ class Integrate:
     values. :class:`Derivative` with the same ``init`` is its inverse, as
     ``DerivativeStep`` is ``IntegrateStep``'s along a window.
 
-    ``init`` is the value just before the first step, as :meth:`Input.close`
-    takes it: a number, a Parameter or a Constant, or an Input of one sample
-    (a scalar, or the rate's dim), whose first step the ModelyLoop reads;
-    ``None`` for zero. Built as a :class:`~nnodely.Modely` instead, nothing
-    feeds the integral back: the step starts from ``init``, as the first step
-    of the ModelyLoop does, and reads no Input of its own.
+    ``init`` is the value just before the first step, and the only one: the
+    integral cannot be named, so no loop gives it another. A number, a
+    Parameter or a Constant, or an Input of one sample (a scalar, or the
+    rate's dim) - an input of the step, whose first step a ModelyLoop reads
+    and to which a Loop binds a stream of its outer graph; ``None`` for zero.
+    Built as a :class:`~nnodely.Modely` instead, nothing feeds the integral
+    back: the step starts from ``init``, as the first step of a loop does,
+    and reads no Input of its own.
     """
 
     def __init__(
@@ -410,13 +413,13 @@ class Integrate:
             previous = Input(f"{call_name}_previous_rate", dim=dim, sw=1)
             first = Input(f"{call_name}_first", sw=1)
             previous._hidden = first._hidden = True
-            previous.close(rate)
-            first.close(first * 0.0, init=1.0)
+            previous._feed_back(rate)
+            first._feed_back(first * 0.0, init=1.0)
             rate = (previous + (rate - previous) * first + rate) * 0.5
         step = IntegrateStep(solver="euler", dt=self.dt, name=f"{call_name}_step")(
             state, rate
         )
-        return state.close(step, init=self.init)
+        return state._feed_back(step, init=self.init)
 
     def _validate_init_shape(self, rate, init):
         dim = tuple(rate.dim)

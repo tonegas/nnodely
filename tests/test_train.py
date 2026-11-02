@@ -529,13 +529,13 @@ def test_training_values_fir_and_linear_closed_loop():
     seed2 = Input("seed2", seq=6, sw=1)
     loop1 = Loop(
         f=body1,
-        callback={input1: output1},
+        feedback={input1: output1},
         name="loop1",
         init={input1: seed1},
     )()
     loop2 = Loop(
         f=body2,
-        callback={input2: output2},
+        feedback={input2: output2},
         name="loop2",
         init={input2: seed2},
     )()
@@ -923,7 +923,7 @@ def test_train_with_loop():
     # x carries the five rollout steps and seeds the state with x[0]
     loop = Loop(
         f=body,
-        callback={state: output},
+        feedback={state: output},
         name="loop",
         collect=False,
         init={state: x},
@@ -1008,7 +1008,7 @@ def test_train_with_loop_under_xla(monkeypatch):
     relation = Linear(features=1, kernel="ones")(state)
     output = Output("out", relation)
     body = Modely("body", inputs=[state], outputs=[output]).build()
-    loop = Loop(f=body, callback={state: output}, name="loop", init={state: x})()
+    loop = Loop(f=body, feedback={state: output}, name="loop", init={state: x})()
     out_loop = Output("out_loop", loop)
     model = Modely("model", inputs=[x, target], outputs=[out_loop])
     model.minimize("error", source=out_loop, target=target, loss="mse")
@@ -1032,7 +1032,7 @@ def test_train_with_roll():
     output = Output("out", relation)
     body = Modely("body", inputs=[x], outputs=[output])
     body.build()
-    roll = Roll(f=body, callback={x: output}, steps=3, name="roll")
+    roll = Roll(f=body, feedback={x: output}, steps=3, name="roll")
     out_scan = Output("out_scan", roll)
     model = Modely("model", inputs=[x], outputs=[out_scan])
     model.minimize("error", source=out_scan, target=target, loss="mse")
@@ -1158,7 +1158,7 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
     seed = Input("pad_x", dim=1, seq=-1, sw=1)
     loop = Loop(
         f=body,
-        callback={body_x: body_out},
+        feedback={body_x: body_out},
         length=6,
         name="pad_loop",
         init={body_x: seed},

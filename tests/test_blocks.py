@@ -1855,7 +1855,7 @@ def test_integrate():
     # make a loop that rolls out the integrator along a sequence of rates
     x_seq = Input("x_seq", seq=-1, sw=1)
     x0_loop = Input("x0_loop", sw=1)
-    loop = Loop(f=model, callback={x0: out}, init={x0: x0_loop})({x: x_seq})
+    loop = Loop(f=model, feedback={x0: out}, init={x0: x0_loop})({x: x_seq})
     out_loop = Output("x_hat_loop", loop)
     model_loop = Modely(
         name="integrator_loop", inputs=[x_seq, x0_loop], outputs=[out_loop]
@@ -2209,7 +2209,7 @@ def test_derivative():
     x_seq = Input("dstep_x_seq", seq=-1, sw=1)
     x0_loop = Input("dstep_x0_loop", sw=1)
     derivative, _ = Loop(
-        f=model, callback={previous: "dstep_sample"}, init={previous: x0_loop}
+        f=model, feedback={previous: "dstep_sample"}, init={previous: x0_loop}
     )({x: x_seq})
     model_loop = Modely(
         name="differentiator_loop",

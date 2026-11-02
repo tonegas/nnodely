@@ -98,8 +98,9 @@ returns ``x``.
 
 :class:`~nnodely.Integrate` integrates one step at a time instead, in a
 :class:`~nnodely.ModelyLoop`: the rate is one sample of a step, and the
-integral is an Input closed with its update, which the ModelyLoop feeds back
-with all its other closed Inputs, in a single loop. The rules, and the results
+integral is a hidden Input fed back with its update, which the ModelyLoop
+feeds back with all its other fed-back Inputs, in a single loop - a
+:class:`~nnodely.Loop` finds it in its body too. The rules, and the results
 on the same samples, are those of ``IntegrateStep``. Every Input of a
 ModelyLoop carries the horizon, one element per step, and ``init`` reads its
 first step:
@@ -118,7 +119,7 @@ first step:
 
 :class:`~nnodely.Derivative` differentiates one step at a time, as
 ``Integrate`` integrates: the ``window - 1`` samples before the step are an
-Input closed with the signal, and the stencil, its arguments and the results
+Input fed back with the signal, and the stencil, its arguments and the results
 on the same samples are those of ``DerivativeStep``. ``init`` is the value
 just before the first step, or the ``window - 1`` values a longer stencil
 reads, along its window. With the same ``init``, ``Integrate``'s Euler rule
@@ -162,7 +163,7 @@ body of a :class:`~nnodely.Loop`. Here a pendulum with an unknown ratio
    omega0 = Input("omega0", seq=100, sw=1)
    theta_traj, omega_traj = Loop(
        f=step,
-       callback={"theta": "theta_next", "omega": "omega_next"},
+       feedback={"theta": "theta_next", "omega": "omega_next"},
        init={"theta": theta0, "omega": omega0},
    )()
    simulator = Modely(

@@ -254,7 +254,7 @@ def _minimizers(drawing: _Drawing, model: Modely) -> None:
 
 def _rollback(drawing: _Drawing, model: Modely) -> None:
     steps = getattr(model, "_roll_steps", None)
-    for input_node, stream in getattr(model, "_roll_callbacks", {}).items():
+    for input_node, stream in getattr(model, "_roll_feedback", {}).items():
         src, dst = stream.name, input_node.name
         if src in drawing.nodes and dst in drawing.nodes:
             drawing.recurrence(src, dst, "roll", f"roll (steps={steps})")
