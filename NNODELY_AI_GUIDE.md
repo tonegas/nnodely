@@ -37,7 +37,7 @@ Use this order:
 13. **`validate()` scores every objective as training does**, including residual (`target=None`) and number targets: its loss is `train()`'s `val_<name>_loss`, its metrics are per channel and leave padded rollout steps out (§13) [verified].
 14. **`save()` / `load()`** (nnodely format) **supports every model**, including `Loop`, `Roll` and `OdeNet`, whose bodies are saved in sub-folders, and `ModelyLoop`. A fed-back Input is saved with the stream it is fed back with (and the `init` of the layer that keeps it), so a loaded model called in a `ModelyLoop`, or rolled out by a `Loop`, feeds it back as the saved one does [verified]. `save` warns where that cannot hold: a trained weight read only by such a stream, which the model does not compute, is saved as declared; and a call giving a stream for a fed-back Input its model declares keeps nothing of its feedback. Weights are saved and loaded by default; `save(path, weights=False)` stores the architecture alone and `load(path, weights=False)` ignores saved weights, and either way the model is initialized as `build()` does. A loaded model's layers are its own: they never share weights with the model it was saved from or with another load of the same file. The method an `OdeNet.set_method()` switched to is saved with it. A `Parameter` or `Constant` read by several models of the tree (Loop bodies, blocks, the outer model) is one object: saved under one id in each model's file, it is loaded as one object, listed once in `parameters`, and frozen everywhere at once [verified]. Objectives are not saved: a loaded model has no minimizers; call `minimize(...)` and `build()` again before `train()` [verified].
 15. **`Softmax()` normalizes each sample as a whole**: its values over every sequence, window and dim axis sum to one [verified]. For a softmax over the features use `Softmax(axis=-1)` [verified]: `axis` is a raw tensor axis (batch 0, then the sequence, the window, the dims last), so `-1` is the last dim axis. `BatchNorm()` already normalizes per feature (its default axis is the first dim axis).
-16. **`Differentiate(respect_to=x)`**: `x` must be the `Input` object. The result has the shape of `x`, its whole window: zero for the samples the differentiated relation does not read [verified]. It does not work inside a model that is used as a composed block (§12).
+16. **`Gradient(respect_to=x)`**: `x` must be the `Input` object. The result has the shape of `x`, its whole window: zero for the samples the differentiated relation does not read [verified]. It does not work inside a model that is used as a composed block (§12).
 17. **`train()` defaults to `batch_size=1` and `epochs=10`.** Always pass both (typical batch sizes are 32–256).
 18. **Set `KERAS_BACKEND` before the first import** of `keras` or `nnodely`. With no value set, the backend is TensorFlow. A backend that is not installed raises `ImportError` naming the extra to install.
 19. **`Parameter` initializes to `random_normal` when no value is given.** For physical constants pass `value=<initial guess>`.
@@ -68,11 +68,11 @@ Use this order:
 | Lookup table / characteristic curve (fixed) | `Interpolation(x_points, y_points)(s)` |
 | Gain scheduling / operating regimes | `Fuzzify(centers, function=Triangular)` → `LocalModel(lambda i: Fir(features=1))([x], [membership])`, `x` with `sw=n` |
 | Symbolic regression of an unknown law | `EquationLearner(["sin", "multiply", ...], linear_out=Linear(1))` |
-| `du/dx` exact (PINN residual, Sobolev) | `Differentiate(order=1, respect_to=x_input)(u)` |
+| `du/dx` exact (PINN residual, Sobolev) | `Gradient(order=1, respect_to=x_input)(u)` |
 | `dx/dt` from a sampled window | `DerivativeStep(dt=dt, window=...)(init, x)`, `x` with `sw=n` |
 | `dx/dt` step by step, in a model declared one step at a time | `Derivative(dt=dt, init=x0)(x)` with `x = Input("x", sw=1)`, in a `ModelyLoop`: the inverse of `Integrate` |
-| `∫ rate dt` over a window / one Euler state update | `IntegrateStep(solver="euler", dt=dt)(state, rate)` |
-| `∫ rate dt` step by step (one rate sample per step) | `Integrate(solver="euler", dt=dt, init=x0)(rate)` with `rate = Input("rate", sw=1)`, in a `ModelyLoop` |
+| `∫ rate dt` over a window / one Euler state update | `IntegrateStep(method="euler", dt=dt)(state, rate)` |
+| `∫ rate dt` step by step (one rate sample per step) | `Integrate(method="euler", dt=dt, init=x0)(rate)` with `rate = Input("rate", sw=1)`, in a `ModelyLoop` |
 | A state `x[k]` computed from `x[k-1]`; several coupled states | `x = Input("x", sw=1)`, `x_next = x.feedback(<stream of x and the others>)`, built with `ModelyLoop` (§10.4), or rolled out with `Loop(f=step)` (§10.2) |
 | The last n values of a signal computed step by step (a controller's commands read by a plant) | `Buffer(sw=n)(u)`, in a `ModelyLoop` |
 | One explicit RK step of `dx/dt = f(x, u, θ)` | `Ode(f, [states], dt, method="rk4", args=(...))` |
@@ -127,7 +127,7 @@ Stream attributes: `s.shape` (a `Shape(dim, time, seq)`, tuple-like over its axe
 | `DerivativeStep(dt=dt)(x)`, `x` with `sw=n` | `S=(), T=n, D=(1,)`: window length preserved |
 | `Derivative(dt=dt)(r)`, `Integrate(dt=dt)(r)`, `r = Input("r", sw=1)` | `S=(), T=1, D=(1,)`: one value per step of a `ModelyLoop`; a signal with a sequence or a longer window raises |
 | `Buffer(sw=3)(u)`, `u = Input("u", sw=1)` | `S=(), T=3, D=(1,)`: `[u[k-2], u[k-1], u[k]]` |
-| `Differentiate(respect_to=t_input)(u)` | the shape of `t_input` |
+| `Gradient(respect_to=t_input)(u)` | the shape of `t_input` |
 | `IntegrateStep(dt=dt)(a)`, `a` with `sw=n` | `S=(), T=n, D=(1,)` |
 | Elementwise layers (activations, trig, `Exp`, `Clamp`, `Interpolation`, `BatchNorm`) | unchanged, with a window or without |
 
@@ -158,7 +158,7 @@ from nnodely import (
     TimeSelect, TimeRange, TimeConcatenate, TimeReverse,
     SeqSelect, SeqRange, SeqConcatenate, SeqStack, SeqReverse,
     # calculus / recurrence
-    Differentiate, DerivativeStep, Derivative, Integrate, IntegrateStep, Ode, OdeNet, Loop, Roll, Buffer,
+    Gradient, DerivativeStep, Derivative, Integrate, IntegrateStep, Ode, OdeNet, Loop, Roll, Buffer,
     # activations
     ReLU, LeakyReLU, ELU, PReLU, Sigmoid, Tanh, Softmax, Swish, GELU, Softplus,
     # math
@@ -269,7 +269,7 @@ Legend: **in → out** gives semantic shapes `(*seq, time, *dim)`. `d` = dim, `S
 The `Time*` layers act on the window, `T`, of which a stream has one: they take no `axis` and always keep it. The `Seq*` layers act on a sequence axis, their `axis` counted **outermost first**: `0`, the default, is the rollout of the outermost (last applied) `Loop`. On `s` with `S=(3, 5), T=1` [verified]: `SeqSelect(-1)` → `S=(5,), T=1`, `SeqSelect(0, axis=1)` → `S=(3,), T=1`, `SeqRange(1, 3)` → `S=(2, 5), T=1`, `SeqRange(1, 3, axis=1)` → `S=(3, 2), T=1`, `SeqRange(1, 2)` → `S=(5,), T=1`, `SeqStack()([s, s])` → `S=(2, 3, 5), T=1`, `SeqStack(axis=-1)([s, s])` → `S=(3, 5, 2), T=1`, `SeqConcatenate()([s, s])` → `S=(6, 5), T=1`, `TimeConcatenate()([s, s])` → `S=(3, 5), T=2`. A selected sample, `T=1`, broadcasts along the window: `w - TimeSelect(-1)(w)` subtracts the newest sample from each [verified]. `SeqSelect(-1)` on a collected trajectory gives a stream that a `Loop` can feed back into an input without that sequence axis. There is no layer that reshapes or transposes. Write a custom layer (§16) if one is needed.
 
 ### 6.6 Calculus and recurrence
-See §10 (`ModelyLoop` and `Input.feedback`, `Buffer`, `Loop`, `Roll`, `rollback`) and §11 (`Differentiate`, `DerivativeStep`, `Derivative`, `IntegrateStep`, `Integrate`, `Ode`, `OdeNet`).
+See §10 (`ModelyLoop` and `Input.feedback`, `Buffer`, `Loop`, `Roll`, `rollback`) and §11 (`Gradient`, `DerivativeStep`, `Derivative`, `IntegrateStep`, `Integrate`, `Ode`, `OdeNet`).
 
 ---
 
@@ -297,7 +297,7 @@ See §10 (`ModelyLoop` and `Input.feedback`, `Buffer`, `Loop`, `Roll`, `rollback
 | `export_html(out_dir, filename=None, *, open_subgraph_in_new_tab=False, physics=True)` | Interactive vis-network graph, one page per sub-model. |
 | `plot(out_dir, filename=None, *, flatten=False, include_minimizers=True, format="png")` | Graphviz images in `out_dir`, the root named `filename` (the model name by default); a path or filename with an image suffix (`.png`, `.svg`, `.pdf`) names the file and format. Nodes show only their name, coloured by role (inputs green, outputs red); arrows carry the shape `(*seq, time, *dim)` (`dyn` for a dynamic sequence axis). Without `flatten`, each block (ModelCall, Loop, Roll) is one SubModel node and its body is drawn as `<filename>_<body name>`, recursively; with `flatten`, one image, each called sub-model boxed. Loop recurrences are an orange `loop` arrow, Roll and rollback a teal `roll (steps=n)` arrow. Every image has the logo and a legend (Input, Output, Parameter, Constant, SubModel, Loss, loop, roll). Without the Graphviz `dot` program it warns and writes each image's DOT source as `.gv`. Returns None. |
 | `save(path, weights=True)`, `Modely.load(path, weights=True)` | nnodely format: a folder with `model.json` and `model.weights.h5`, bodies of Loop, Roll and OdeNet in sub-folders (§1.14). |
-| `export_keras(path, filename=None)`, `Modely.import_keras(filename, safe_mode=True)` → `keras.Model` | Writes `path/<filename or model name>.keras`: a stand-alone copy for inference. A weight read from several Keras graphs (a body in two Loops, a Parameter inside and outside a body, a block also in a Loop, the sub-graphs of `Differentiate`) is written once per graph with the same value, since Keras cannot rebuild a layer two graphs call: the imported model gives the same outputs, but further Keras training would untie the copies - use `save`/`load` for that [verified]. The imported object is a plain Keras model; call it with batched float32 dicts. Pass `safe_mode=False` if loading refuses nested or lambda configs. |
+| `export_keras(path, filename=None)`, `Modely.import_keras(filename, safe_mode=True)` → `keras.Model` | Writes `path/<filename or model name>.keras`: a stand-alone copy for inference. A weight read from several Keras graphs (a body in two Loops, a Parameter inside and outside a body, a block also in a Loop, the sub-graphs of `Gradient`) is written once per graph with the same value, since Keras cannot rebuild a layer two graphs call: the imported model gives the same outputs, but further Keras training would untie the copies - use `save`/`load` for that [verified]. The imported object is a plain Keras model; call it with batched float32 dicts. Pass `safe_mode=False` if loading refuses nested or lambda configs. |
 | `export_onnx(path, filename=None, *, input_signature=None, batch_size=None, opset_version=None, verbose=False)` | Writes `path/<filename or model name>.onnx`. Needs the `onnx` extra and the TF or Torch backend (§13). |
 | `Modely.validate_onnx(filename, inputs, *, return_dict=False, providers=None)` | Runs an exported ONNX file with onnxruntime. |
 
@@ -422,36 +422,36 @@ msd = ModelyLoop("msd", inputs=[F, x], outputs=[Output("x", x_next)])
 
 ### 10.5 `Buffer(sw: int, init=None, name=None)(signal)`
 - The last `sw` values of a signal computed one sample per step, the current one included: `Buffer(sw=3)(u)` is `[u[k-2], u[k-1], u[k]]`, `S=(), T=3`; over `u` = 1, 2, 3, 4 the windows are `[0, 0, 1]`, `[0, 1, 2]`, `[1, 2, 3]`, `[2, 3, 4]` [verified]. Its newest sample is the value of this step, within the step; an Input fed back with the signal ends at the previous step instead.
-- The past `sw - 1` values are a hidden Input fed back with the signal, so it needs a `ModelyLoop` or a `Loop`. `init`, the values before the first step: a number, a `Parameter` / `Constant` or an `Input`, one sample repeated or `sw - 1` of them, oldest first; `None` for zeros. The signal is one sample, `T=1`, or has no window.
+- The past `sw - 1` values are a hidden Input, `<name>_past`, fed back with the signal, so it needs a `ModelyLoop` or a `Loop`; the result is named after the block. `init`, the values before the first step, follows the rule of `Derivative`'s `init`: a number, a `Parameter` / `Constant` or an `Input`, one sample repeated or `sw - 1` of them, oldest first, its dim a scalar or the signal's, its sequence none or the signal's; `None` for zeros; checked when the block is created. The signal is one sample, `T=1`, or has no window, and keeps its sequence. `sw=1` holds no past: an `init` with it raises ("nothing for init to start") [verified].
 - Typical use: the window of forces a plant reads, computed step by step by a controller: `plant([x_init, Buffer(sw=10)(F_pid)])` (examples/open_callbacks/03).
 
 ---
 
 ## 11. Physics layers
 
-### 11.1 `Differentiate(order=1, respect_to=<Input>, name=None)(stream)`, `DerivativeStep(order=1, dt=<float>, window=None, poly_order=None, name=None)(init, stream)` (or `(stream)`) and `Derivative(order=1, dt=<float>, init=None, window=None, poly_order=None, name=None)(stream)`
-Orders 1 and 2 are supported by all three. Passing a number to `Differentiate` raises `TypeError` pointing to `DerivativeStep` and `Derivative`; both require a positive `dt`.
-- **`Differentiate`, with respect to an Input** (autodiff, exact): the result is `d(Σ stream)/d(input window)` (a VJP), shaped like the window of the Input the stream reads. It includes the trainable weights, can be nested, and can be trained through. It takes no `init`, `window` or `poly_order`. The stream must depend on that Input. Typical use is a PINN residual: `minimize("physics", Differentiate(respect_to=t)(u) + u)`. For `u` with dim>1 the result is the gradient of the sum of the components; take `Select` first to get one component. ONNX export: TensorFlow only, with batch fixed to 1. Torch refuses, and JAX cannot export.
+### 11.1 `Gradient(order=1, respect_to=<Input>, name=None)(stream)`, `DerivativeStep(order=1, dt=<float>, window=None, poly_order=None, name=None)(init, stream)` (or `(stream)`) and `Derivative(order=1, dt=<float>, init=None, window=None, poly_order=None, name=None)(stream)`
+Orders 1 and 2 are supported by all three. Passing a number to `Gradient` raises `TypeError` pointing to `DerivativeStep` and `Derivative`; both require a positive `dt`.
+- **`Gradient`, with respect to an Input** (autodiff, exact): the result is `d(Σ stream)/d(input window)` (a VJP), shaped like the window of the Input the stream reads. It includes the trainable weights, can be nested, and can be trained through. It takes no `init`, `window` or `poly_order`. The stream must depend on that Input. Typical use is a PINN residual: `minimize("physics", Gradient(respect_to=t)(u) + u)`. For `u` with dim>1 the result is the gradient of the sum of the components; take `Select` first to get one component. ONNX export: TensorFlow only, with batch fixed to 1. Torch refuses, and JAX cannot export.
 - **`DerivativeStep`, with respect to time** (`dt: float`, as in `IntegrateStep`): a causal finite difference along the stream's window that **keeps the window length**; the sequence is kept. A one-sample window is one step, `(x - init)/dt`.
   - `init`, **the first argument of the call**, `DerivativeStep(dt=dt)(init, x)`, is the sample(s) just before the window: a stream of 1 sample (reused for each) or `window-1` samples, its dim a scalar or the stream's, its sequence none or the stream's [verified]; or a number. Called on `x` alone, it is zero.
   - `window` defaults to `order+1`, the plain backward difference. Larger values fit a polynomial by least squares (Savitzky–Golay style): they smooth noise at the cost of about `(window-1)/2` samples of delay.
   - `poly_order` ranges over `order..window-1` and defaults to `order`.
-  - With the default `window` and `order=1` it is the exact inverse of `IntegrateStep(solver="euler")` with the same `init`: `IntegrateStep(dt=dt)(x0, DerivativeStep(dt=dt)(x0, x))` is `x`; a longer, smoothing `window` is not inverted.
-- **`Derivative`, with respect to time, one step at a time in a `ModelyLoop`** (§10.4): `DerivativeStep`'s stencil across the steps. The signal is one sample of a step, `T=1` and no sequence (`x = Input("x", sw=1)`); the `window - 1` samples before it are a hidden Input fed back with the signal, which the `ModelyLoop` or `Loop` feeds back with its other fed-back Inputs - no `Loop` of its own. The result, `S=(), T=1`, is the derivative at this step [verified]. A signal with a sequence ("carries a sequence") or a longer window raises [verified]. The same samples give the same values as `DerivativeStep` on a window. Built as a `Modely`, the past samples are its `init` (zero without one), never read from data.
-  - `init` is the value just before the first step, and the only one the state can have: one sample (reused for every sample of history a longer stencil reads) or the `window - 1` samples it reads, oldest first, along its window; its dim a scalar or the signal's; a number, a `Parameter` / `Constant`, an `Input` (its first step), or `None` (zero).
+  - With the default `window` and `order=1` it is the exact inverse of `IntegrateStep(method="euler")` with the same `init`: `IntegrateStep(dt=dt)(x0, DerivativeStep(dt=dt)(x0, x))` is `x`; a longer, smoothing `window` is not inverted.
+- **`Derivative`, with respect to time, one step at a time in a `ModelyLoop`** (§10.4): `DerivativeStep`'s stencil across the steps. The signal is one sample of a step, `T=1` (`x = Input("x", sw=1)`, a sequence kept); the `window - 1` samples before it are a hidden Input, `<name>_past`, fed back with the signal, which the `ModelyLoop` or `Loop` feeds back with its other fed-back Inputs - no `Loop` of its own. The result, named after the block (`Derivative(name="v")(x).name == "v"`), is the derivative at this step [verified]. A signal without a window ("has none") or with a longer one ("one sample per step") raises [verified]. The same samples give the same values as `DerivativeStep` on a window. Built as a `Modely`, the past samples are its `init` (zero without one), never read from data.
+  - `init` is the value just before the first step, and the only one the state can have: one sample (reused for every sample of history a longer stencil reads) or the `window - 1` samples it reads, oldest first, along its window; its dim a scalar or the signal's, its sequence none or the signal's; a number, a `Parameter` / `Constant`, an `Input` (its first step), or `None` (zero: a signal at rest before the start). It is checked when the block is created (`TypeError` for anything else), as for `Integrate` and `Buffer`.
   - In a `ModelyLoop`, `Integrate(dt=dt, init=x0)(Derivative(dt=dt, init=x0)(x))` is `x` (the default first-order stencil) [verified]. `DerivativeStep` on one sample per step is not this derivative: each step is a one-sample window, `(x_k - init)/dt`.
 
-### 11.2 `IntegrateStep(solver="euler", dt=<required float>, name=None)(init, rate)` (or `(rate)`)
-- `solver` is `"euler"` / `"rectangular"` (y[i] = y[i-1] + dt·r[i]) or `"trapezoidal"`. It integrates along the window and preserves its length. `init`, **the first argument of the call**, is the value just before the window: a stream of one sample (dim a scalar or the rate's, sequence none or the rate's) [verified]; or a number or another value without a window. Called on the rate alone it starts from 0. A stream without a window read from data raises.
-- On a one-sample window it is exactly one state update: `IntegrateStep(dt=dt)(v, a)` = `v + dt*a`.
+### 11.2 `IntegrateStep(method="euler", dt=<required float>, name=None)(init, rate)` (or `(rate)`)
+- `method` is `"euler"` / `"rectangular"` (y[i] = y[i-1] + dt·r[i]) or `"trapezoidal"` (y[i] = y[i-1] + dt/2·(r[i-1] + r[i])), the name `Ode` uses too. It integrates along the window and preserves its length. Called on what comes before the window, then the rate: `init`, **the first argument of the call**, is the value just before the window; for `"trapezoidal"`, `IntegrateStep(method="trapezoidal", dt=dt)(init, init_rate, rate)`, `init_rate` is the rate before the window, which the first trapezoid averages with `r[0]`. Each is a stream of one sample (dim a scalar or the rate's, sequence none or the rate's) [verified], or a number or another value without a window; left out, it is 0 (a rate at rest before the window: `y[0] = init + dt/2·r[0]`). A stream without a window read from data raises. Too many arguments raise `TypeError` naming the ones accepted (`euler` takes no `init_rate`).
+- On a one-sample window it is exactly one state update: `IntegrateStep(dt=dt)(v, a)` = `v + dt*a`; `IntegrateStep(method="trapezoidal", dt=dt)(v, a_prev, a)` = `v + dt/2*(a_prev + a)`, so a hand-written trapezoid feeds back `a_prev` too (`a_prev.feedback(a)`) [verified].
 - On an n-sample window it returns the whole running integral in one pass, with no rollout needed: `x = IntegrateStep(dt=dt)(IntegrateStep(dt=dt)(a))` with `a = Input("a", sw=n)`.
 - The rate needs a window; a stream without one raises.
 - There is no rk4 or heun here; use `Ode` for those.
 
-### 11.2b `Integrate(solver="euler", dt=<required float>, init=None, name=None)(rate)`: one step at a time, in a `ModelyLoop`
-- `IntegrateStep`'s rules across the steps of a `ModelyLoop` (§10.4): the rate is one sample of a step, `T=1` and no sequence (`acc = Input("acc", sw=1)`); the integral is a hidden Input fed back with its update, by the `ModelyLoop` or `Loop` with its other fed-back Inputs - no `Loop` of its own. The result, `S=(), T=1`, is the value at the end of the step: `y[k] = y[k-1] + dt*r[k]` (`"euler"`, `"rectangular"`) or `y[k-1] + dt/2*(r[k-1] + r[k])` (`"trapezoidal"`, the first step a rectangle) [verified].
-- A rate with a sequence raises ("this rate carries a sequence"), and one with a longer window raises and points to `IntegrateStep` [verified]. Built as a `Modely`, the integral is read from data, with a warning.
-- `init`, the value just before the first step, and the only one the integral can have: a number, a `Parameter` / `Constant`, or an `Input` of one sample (the rate's dim, or a scalar for a one-axis dim), whose first step is read; `None` is 0.
+### 11.2b `Integrate(method="euler", dt=<required float>, init=None, init_rate=None, name=None)(rate)`: one step at a time, in a `ModelyLoop`
+- `IntegrateStep`'s rules across the steps of a `ModelyLoop` (§10.4): the rate is one sample of a step, `T=1` (`acc = Input("acc", sw=1)`, a sequence kept); the integral is a hidden Input, `<name>_integral`, fed back with the result, and the trapezoid also keeps the rate of the previous step in `<name>_rate`, both fed back by the `ModelyLoop` or `Loop` with its other fed-back Inputs - no `Loop` of its own. The result, named after the block, is the value at the end of the step: `y[k] = y[k-1] + dt*r[k]` (`"euler"`, `"rectangular"`) or `y[k-1] + dt/2*(r[k-1] + r[k])` (`"trapezoidal"`, with `r[-1] = init_rate`) [verified]. It is `IntegrateStep` called on the hidden Inputs, as `Derivative` is `DerivativeStep` on its past.
+- A rate without a window ("has none") or with a longer one (pointing to `IntegrateStep`) raises [verified]. Built as a `Modely`, the hidden Inputs are their inits (zero without one), never read from data.
+- `init` (the integral just before the first step) and `init_rate` (the rate before it, `"trapezoidal"` only; any other method raises) are each the only initial value of their hidden Input: a number, a `Parameter` / `Constant`, or an `Input` of one sample (dim a scalar or the rate's, sequence none or the rate's), whose first step is read; `None` is 0 - for `init_rate`, a rate at rest before the start, so the first trapezoid is `init + dt/2*r[0]` [verified]. Checked when the block is created, as for `Derivative` and `Buffer`.
 - Chains: `position = Integrate(dt=dt, init=0.0)(Integrate(dt=dt, init=v0)(acc))` in `ModelyLoop(..., inputs=[acc, v0], ...)`, `v0` read at its first step.
 
 ### 11.3 `Ode(f, states, dt, method="rk4", args=())` (a function, not a class)
@@ -483,7 +483,7 @@ Orders 1 and 2 are supported by all three. Passing a number to `Differentiate` r
 - The block brings its weights along (trained weights are reused while input shapes match), and training the outer model also trains the block. To freeze it: `block.freeze()`.
 - Calling the same block twice shares its weights (§1.22 covers naming).
 - `EquationLearner` uses composition internally.
-- `Differentiate(respect_to=Input)` inside a block does not work once the block's inputs are rebound. Put the derivative in the outer model instead, where the Input is declared.
+- `Gradient(respect_to=Input)` inside a block does not work once the block's inputs are rebound. Put the derivative in the outer model instead, where the Input is declared.
 - An Input the block reads **without declaring it** is the outer model's Input too, one node read from the same data, whatever the order of the operands [verified].
 - A model with a `rollback` cannot be a block (§10.1). A fed-back Input the block declares reads the stream given for it at every step in a `Modely`; in a `ModelyLoop` it keeps its feedback, and the stream is its initial value (§10.4).
 - `model.flatten()` returns an equivalent model with everything inlined, its rollback and fed-back Inputs kept.
@@ -510,11 +510,11 @@ Orders 1 and 2 are supported by all three. Passing a number to `Differentiate` r
 |---|---|---|---|---|---|
 | Plain layers, `Parameter`, `Constant`, `Fir`, `Linear`, `LocalModel`, `EquationLearner`, `IntegrateStep`, `DerivativeStep`, `rollback` | yes | yes | yes | yes | no |
 | `ModelyLoop` (fed-back Inputs, `Integrate`, `Derivative`, `Buffer`) | yes [verified] | yes [verified] | yes, dynamic horizon [verified] | not with a dynamic horizon | no |
-| `Differentiate(respect_to=Input)` | yes | yes | yes (batch 1) | no | no |
+| `Gradient(respect_to=Input)` | yes | yes | yes (batch 1) | no | no |
 | `Loop`, `Roll` | yes | yes [verified] | yes [verified for Loop] | yes (per docs) | no |
 | `OdeNet` (fixed tableau) | yes | yes | yes (per docs) | yes (per docs) | no |
 | `OdeNet(method="dopri5")` | yes (`set_method` included) | yes | no | no | no |
-| A weight read from several graphs (body in two Loops, Parameter inside and outside a body, block also in a Loop, several `Differentiate`) | yes, shared | yes, as equal copies | yes | yes | no |
+| A weight read from several graphs (body in two Loops, Parameter inside and outside a body, block also in a Loop, several `Gradient`) | yes, shared | yes, as equal copies | yes | yes | no |
 
 JAX cannot export ONNX at all: jax2tf emits an unconvertible XlaCallModule. `export_onnx(batch_size=n)` fixes the batch axis.
 
@@ -544,7 +544,7 @@ JAX cannot export ONNX at all: jax2tf emits an unconvertible XlaCallModule. `exp
 | `the input window reads ... future samples` | Loop fed-back input declared with future samples (`sw=(p, f)`, `f > 0`) | Declare the fed-back input only up to its current sample. |
 | `the sequence must be the same` | Loop feedback output with another sequence than its input, e.g. a collected inner trajectory | Feed back `SeqSelect(-1)(...)`, or make the sequences equal. |
 | `has two different outputs named ...` | A block called twice exposes same-named outputs | Wrap each call's output in a distinctly named `Output`. |
-| `the differentiated relation does not depend on input ...` | `Differentiate` w.r.t. an Input inside a composed block, or no real dependency | Move the derivative to the model that declares the Input. |
+| `the differentiated relation does not depend on input ...` | `Gradient` w.r.t. an Input inside a composed block, or no real dependency | Move the derivative to the model that declares the Input. |
 | `Minimizer '...' compares '...' of shape ... with '...' of shape ...` in `train` / `validate` | The source and target of an objective have different shapes, e.g. a window target against a one-sample source | Make them match: use a window of the source's length as target. |
 | `streams with windows of ... and ... cannot be combined` | Arithmetic between different windows, e.g. `Input("a", sw=3) + Input("b", sw=2)` | Select to the same window (`TimeRange`), or use a single sample, `T=1`, which broadcasts. |
 | `a stream with no time ... cannot be combined with a stream with a window` | An Input declared without `sw` (or a relation of it) combined with a windowed stream | Declare it with `sw=1`; only values (numbers, Parameters, Constants) without a window combine with anything. |
@@ -570,7 +570,6 @@ JAX cannot export ONNX at all: jax2tf emits an unconvertible XlaCallModule. `exp
 | `fed back, it holds values already computed` / `is already fed back with` | Feeding back an Input that reads future samples, or feeding it back twice | Declare it up to its current sample; feed it back once (give a `Loop` its `feedback=` to reuse the step). |
 | `reads the fed-back Input ... both in the graph that calls ... and inside it` | A fed-back Input read by a block that does not declare it, and by the model calling the block | Make it an output of the block, or declare an Input for it in the block and pass the state in the call. |
 | `reads the fed-back Inputs [...], which only a Loop or a ModelyLoop feeds back` (UserWarning at build) | A `Modely` reads fed-back Inputs it does not declare: they are read from data | Roll it out with `Loop` or `ModelyLoop`, or declare them. |
-| `of one step of a ModelyLoop, and this rate carries a sequence` (or `this signal`) | `Integrate` / `Derivative` on a stream with a sequence: the old horizon form | Declare the rate `Input("r", sw=1)`, no `seq`, and build with `ModelyLoop`; for a window use `IntegrateStep` / `DerivativeStep`. |
 | `has a rollback, which a block cannot carry` | A model with `rollback` called as a block | Call a `Modely` declared on its inputs and outputs without rollback (same weights), or use `Roll` / `Loop`. |
 | `was never called on a stream` | A layer object used as a stream: `b + Exp()`, `Output("y", Sin())` | Call it on its streams: `Exp()(b)`. |
 | `reads one stream, got 2` | `Fir` / `Linear` given several streams | Apply one to each, or join them with `Concatenate` / `TimeConcatenate`. |
@@ -660,12 +659,12 @@ sim.train(data, epochs=5, batch_size=32, lr=1e-2, printer=None)
 ```
 To use a physical step inside the body, build the body from `Ode(...)` as in R2, feeding back both states (`feedback={"theta": "theta_next", "omega": "omega_next"}`, `init={"theta": th_seq, "omega": om_seq}` with `th_seq = Input("th_seq", seq=H, sw=1)`). For whole simulations of different lengths use Inputs with `seq=-1, sw=1`, `Loop(...)` and `DataLoader(..., seq_length="full")`.
 
-### R4. Physics-informed network (Differentiate w.r.t. an Input + residual)
+### R4. Physics-informed network (Gradient w.r.t. an Input + residual)
 ```python
-from nnodely import Differentiate, Input, Linear, Modely, Output, Tanh, DataLoader
+from nnodely import Gradient, Input, Linear, Modely, Output, Tanh, DataLoader
 t_in = Input("t")                                  # no window: a static coordinate
 u_hat = Linear(features=1)([Tanh()([Linear(features=16)([t_in])])])
-du_dt = Differentiate(order=1, respect_to=t_in)(u_hat)
+du_dt = Gradient(order=1, respect_to=t_in)(u_hat)
 u_out = Output("u", u_hat)
 pinn = Modely("decay", inputs=[t_in], outputs=[u_out])
 pinn.minimize("data", u_out, Input("u_meas"))
@@ -856,10 +855,10 @@ src/nnodely/
                          SeqSelect, SeqRange, SeqConcatenate, SeqStack, SeqReverse (sequence axes)
   layers/{linear,fir,localmodel,fuzzify,function,interpolation,equationlearner,batchnorm,activations,arithmetic,trigonometric}.py   function.py: KerasFunction
   layers/{parameter,output}.py   parameter.py: _Value, Parameter, Constant
-  layers/derivative.py   Differentiate (autodiff dispatch per backend), DerivativeStep (Savitzky–Golay banded operator),
+  layers/derivative.py   Gradient (autodiff dispatch per backend), DerivativeStep (Savitzky–Golay banded operator),
                          Derivative (the same stencil one step at a time: the past samples a hidden Input fed back with the signal)
-  layers/integrate.py    IntegrateStep (cumulative quadrature operator matrix), Integrate (its rules one step at a time:
-                         the integral a hidden Input fed back with its update)
+  layers/integrate.py    IntegrateStep (cumulative quadrature operator matrix; init and init_rate added after it), Integrate (its rules
+                         one step at a time: IntegrateStep on the hidden <name>_integral and, trapezoidal, <name>_rate)
   layers/buffer.py       Buffer (the past samples a hidden Input fed back with the signal, the current one appended)
   layers/ode.py          Ode (Butcher tableaux inline), OdeNet (+dopri5 while_loop, events)
   layers/loop.py         Loop (_Step: the states found in the body's graph, the body rebuilt when it does not declare them),

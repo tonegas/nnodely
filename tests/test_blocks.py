@@ -1847,7 +1847,7 @@ def test_integrate():
     # make a simple forward Euler integrator step
     x = Input("x", sw=1)
     x0 = Input("x0", sw=1)
-    integrate = IntegrateStep(solver="euler", dt=0.1)(x0, x)
+    integrate = IntegrateStep(method="euler", dt=0.1)(x0, x)
     out = Output("x_hat", integrate)
     model = Modely(name="integrator", inputs=[x, x0], outputs=[out])
     model.build()
@@ -1869,7 +1869,7 @@ def test_integrate():
     # The block, in a ModelyLoop, closes the same feedback: one rate per step.
     y = Input("y", sw=1)
     y0 = Input("y0", sw=1)
-    new_integrate = Integrate(solver="euler", dt=0.1, init=y0)(y)
+    new_integrate = Integrate(method="euler", dt=0.1, init=y0)(y)
     out_int = Output("y_hat", new_integrate)
     new_model = ModelyLoop("new_integrator", inputs=[y, y0], outputs=[out_int]).build()
 
@@ -1899,7 +1899,7 @@ def _integrate_model(name, length=None, dim=1, **kwargs):
 def test_integrate_matches_integrate_step_over_the_same_samples(solver):
     # Step by step or along a time window, the same rule on the same samples.
     samples = np.array([1.0, -2.0, 4.0, 0.5, 3.0], dtype=np.float32)
-    horizon = _integrate_model(f"along_{solver}", solver=solver, dt=0.1, init=0.7)
+    horizon = _integrate_model(f"along_{solver}", method=solver, dt=0.1, init=0.7)
     w = Input(f"window_{solver}", sw=5)
     window = Modely(
         f"window_{solver}",
@@ -1907,7 +1907,7 @@ def test_integrate_matches_integrate_step_over_the_same_samples(solver):
         outputs=[
             Output(
                 f"window_{solver}_out",
-                IntegrateStep(solver=solver, dt=0.1)(0.7, w),
+                IntegrateStep(method=solver, dt=0.1)(0.7, w),
             )
         ],
     ).build()
@@ -1924,7 +1924,7 @@ def test_integrate_matches_integrate_step_over_the_same_samples(solver):
 
 
 def test_integrate_follows_a_dynamic_horizon_without_rebuilding():
-    model = _integrate_model("dynamic", solver="euler", dt=0.5)
+    model = _integrate_model("dynamic", method="euler", dt=0.5)
     for steps in (1, 4, 9):
         rate = np.ones((2, steps, 1, 1), dtype=np.float32)
         result = to_numpy(model({"dynamic_rate": rate})["dynamic_out"])
@@ -1933,7 +1933,7 @@ def test_integrate_follows_a_dynamic_horizon_without_rebuilding():
 
 
 def test_integrate_over_a_fixed_horizon():
-    model = _integrate_model("fixed", length=4, solver="euler", dt=1.0)
+    model = _integrate_model("fixed", length=4, method="euler", dt=1.0)
     result = to_numpy(
         model({"fixed_rate": np.array([1.0, 2.0, 3.0, 4.0]).reshape(1, 4, 1, 1)})[
             "fixed_out"
@@ -2016,22 +2016,29 @@ def test_integrate_each_feature_of_a_vector_rate():
 
 
 def test_integrate_twice_from_acceleration_to_position():
-    # Constant acceleration: the trapezoid of a linear velocity is exact.
+    # Constant acceleration: the trapezoid of a linear velocity is exact, once
+    # each starts from the rate it had before the first step.
     dt, steps, a, v0, x0 = 0.1, 20, 2.0, 1.0, 3.0
     acc = Input("acc", sw=1)
-    vel = Integrate(solver="trapezoidal", dt=dt, init=v0)(acc)
-    pos = Integrate(solver="trapezoidal", dt=dt, init=x0)(vel)
+    vel = Integrate(method="trapezoidal", dt=dt, init=v0, init_rate=a)(acc)
+    pos = Integrate(method="trapezoidal", dt=dt, init=x0, init_rate=v0)(vel)
+    # Without the rate before the first step, it was zero: at rest.
+    rest = Integrate(method="trapezoidal", dt=dt, init=v0)(acc)
     model = ModelyLoop(
-        "kinematics", inputs=[acc], outputs=[Output("vel", vel), Output("pos", pos)]
+        "kinematics",
+        inputs=[acc],
+        outputs=[Output("vel", vel), Output("pos", pos), Output("rest", rest)],
     ).build()
 
     result = model({"acc": np.full((1, steps, 1, 1), a, dtype=np.float32)})
     t = dt * np.arange(1, steps + 1)
     np.testing.assert_allclose(to_numpy(result["vel"]).ravel(), v0 + a * t, rtol=1e-5)
-    # The first velocity step is a rectangle, so the position trails the exact
-    # parabola by the area that rectangle adds: dt/2 * (v(dt) - v0) = a*dt^2/2.
-    expected = x0 + v0 * t + a * t**2 / 2 + a * dt**2 / 2
+    expected = x0 + v0 * t + a * t**2 / 2
     np.testing.assert_allclose(to_numpy(result["pos"]).ravel(), expected, rtol=1e-5)
+    # The first trapezoid averages a with zero: half the step behind.
+    np.testing.assert_allclose(
+        to_numpy(result["rest"]).ravel(), v0 + a * t - a * dt / 2, rtol=1e-5
+    )
 
 
 @pytest.mark.slow
@@ -2072,7 +2079,7 @@ def test_integrate_round_trips_through_save_and_the_keras_file(tmp_path):
         outputs=[
             Output(
                 "saved_out",
-                Integrate(solver="trapezoidal", dt=0.2, init=start)(rate),
+                Integrate(method="trapezoidal", dt=0.2, init=start)(rate),
             )
         ],
     ).build()
@@ -2112,7 +2119,7 @@ def test_integrate_a_rate_from_a_layer_with_parameter_weights(layer):
     model = ModelyLoop(
         name,
         inputs=[u],
-        outputs=[Output(f"{name}_out", Integrate(solver="euler", dt=1.0)(rate))],
+        outputs=[Output(f"{name}_out", Integrate(method="euler", dt=1.0)(rate))],
         length=4,
     ).build()
 
@@ -2171,13 +2178,13 @@ def test_a_dynamic_integrate_trains_on_simulations_of_different_lengths():
 
 
 def test_integrate_rejects_what_it_cannot_integrate():
-    # The rate is one step of a ModelyLoop: one sample, no sequence.
-    with pytest.raises(ValueError, match="carries a sequence"):
-        Integrate(dt=0.1)(Input("with_seq", seq=-1, sw=1))
+    # The rate is one sample of a step of a ModelyLoop.
+    with pytest.raises(ValueError, match="has none"):
+        Integrate(dt=0.1)(Input("no_window"))
     with pytest.raises(ValueError, match="one rate sample per step"):
         Integrate(dt=0.1)(Input("windowed", sw=3))
-    with pytest.raises(ValueError, match="solver must be one of"):
-        Integrate(solver="rk4", dt=0.1)
+    with pytest.raises(ValueError, match="method must be one of"):
+        Integrate(method="rk4", dt=0.1)
     with pytest.raises(ValueError, match="dt"):
         Integrate()
     with pytest.raises(TypeError, match="configured first"):
@@ -2191,6 +2198,15 @@ def test_integrate_rejects_what_it_cannot_integrate():
         Integrate(dt=0.1, init=Input("wide_init", dim=3, sw=1))(rate)
     with pytest.raises(ValueError, match="init has the sequence"):
         Integrate(dt=0.1, init=Input("seq_init", dim=2, seq=4, sw=1))(rate)
+    # The rate before the first step is read by the trapezoid alone.
+    with pytest.raises(ValueError, match="only the trapezoidal method"):
+        Integrate(dt=0.1, init_rate=1.0)
+    with pytest.raises(ValueError, match="init_rate has dim"):
+        Integrate(
+            method="trapezoidal",
+            dt=0.1,
+            init_rate=Input("wide_rate", dim=3, sw=1),
+        )(rate)
 
 
 def test_derivative():
@@ -2636,21 +2652,21 @@ def test_derivative_exports_to_onnx_following_the_horizon(tmp_path):
 
 
 def test_derivative_rejects_what_it_cannot_differentiate():
-    # The signal is one step of a ModelyLoop: one sample, no sequence.
-    with pytest.raises(ValueError, match="carries a sequence"):
-        Derivative(dt=0.1)(Input("dwith_seq", seq=-1, sw=1))
+    # The signal is one sample of a step of a ModelyLoop.
     with pytest.raises(ValueError, match="has none"):
         Derivative(dt=0.1)(Input("dno_window"))
     with pytest.raises(ValueError, match="one sample per step"):
         Derivative(dt=0.1)(Input("dwindowed", sw=3))
-    with pytest.raises(ValueError, match="requires dt"):
+    with pytest.raises(ValueError, match="dt is required"):
         Derivative()
+    with pytest.raises(TypeError, match="init must be a Stream"):
+        Derivative(dt=0.1, init="zero")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="supports order"):
         Derivative(order=3, dt=0.1)
     with pytest.raises(ValueError, match="reads at least"):
         Derivative(order=2, dt=0.1, window=2)
     signal = Input("dchecked_signal", dim=2, sw=1)
-    with pytest.raises(ValueError, match="init must carry"):
+    with pytest.raises(ValueError, match="init holds the samples before the first"):
         Derivative(dt=0.1, init=Input("dlong_init", dim=2, sw=3))(signal)
     with pytest.raises(ValueError, match="init has dim"):
         Derivative(dt=0.1, init=Input("dwide_init", dim=3, sw=1))(signal)

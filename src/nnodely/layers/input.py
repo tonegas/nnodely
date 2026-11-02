@@ -38,16 +38,60 @@ def _window(name: str, sw) -> tuple[int, int] | None:
     return window
 
 
-def _validate_init(owner: str, init):
+def _validate_init(owner: str, init, name: str = "init"):
     """The value before the first step, as configured - a Stream, a number or None."""
     if init is None or isinstance(init, Stream):
         return init
     if isinstance(init, bool) or not isinstance(init, (int, float)):
         raise TypeError(
-            f"{owner}: init must be a Stream, a number or None, got "
+            f"{owner}: {name} must be a Stream, a number or None, got "
             f"{type(init).__name__}."
         )
     return float(init)
+
+
+def _check_history(owner: str, init, signal, past: int, name: str = "init") -> None:
+    """Refuse ``init``, the samples before the first one ``owner`` reads of
+    ``signal``, unless it holds one sample - repeated when ``past`` are read -
+    or ``past`` of them, oldest first, along its window: a value without a
+    window - a number, a Parameter, a Constant - is one sample. Its dim is a
+    scalar or the signal's, its sequence none or the signal's.
+
+    The rule of every layer that starts from the past of a signal:
+    ``IntegrateStep`` and ``DerivativeStep`` before a window, ``Integrate``,
+    ``Derivative`` and ``Buffer`` before the first step of a loop."""
+    samples, seq = init.shape.time, tuple(init.seq)
+    if samples is None and not init._is_value:
+        raise ValueError(
+            f"{owner}: {name} has no window, {init.shape}, and is read from "
+            "data: declare the Input with sw=1, one sample."
+        )
+    if samples not in (None, 1, past):
+        held = (
+            "a single sample"
+            if past == 1
+            else f"1 sample, repeated, or the {past} read before the first"
+        )
+        raise ValueError(
+            f"{owner}: {name} holds the samples before the first, {held}; "
+            f"got {samples}."
+        )
+    if tuple(init.dim) not in ((1,), tuple(signal.dim)):
+        raise ValueError(
+            f"{owner}: {name} has dim {tuple(init.dim)}, which is neither a "
+            f"scalar nor the dim of {signal.name!r}, {tuple(signal.dim)}."
+        )
+    if seq not in ((), tuple(signal.seq)) or (samples is None and seq):
+        raise ValueError(
+            f"{owner}: {name} has the sequence {seq}, which is neither empty "
+            f"nor the sequence of {signal.name!r}, {tuple(signal.seq)}."
+        )
+
+
+def _declared_seq(stream):
+    """The ``seq`` that declares an Input with the sequence of ``stream``:
+    a dynamic axis as -1, None without one."""
+    return tuple(-1 if length is None else length for length in stream.seq) or None
 
 
 class Input(Stream):

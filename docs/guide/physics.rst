@@ -10,7 +10,7 @@ inferred from the data.
 
    import numpy as np
    from nnodely import (
-       DataLoader, Derivative, DerivativeStep, Differentiate, Input, Integrate, IntegrateStep,
+       DataLoader, Derivative, DerivativeStep, Gradient, Input, Integrate, IntegrateStep,
        Linear, Loop, Modely, ModelyLoop,
        Ode, OdeNet, Output, Parameter, set_seed, Sin, Tanh,
    )
@@ -20,11 +20,11 @@ inferred from the data.
 Derivatives
 -----------
 
-Three layers differentiate a stream: :class:`~nnodely.Differentiate` with respect to an
+Three layers differentiate a stream: :class:`~nnodely.Gradient` with respect to an
 input, and :class:`~nnodely.DerivativeStep` and :class:`~nnodely.Derivative` with
 respect to time, over a window and step by step in a ModelyLoop.
 
-**With respect to an input**, ``Differentiate`` computes the derivative by the backend's
+**With respect to an input**, ``Gradient`` computes the derivative by the backend's
 automatic differentiation. It accounts for every relation between the input
 and the stream, trainable weights included, and can itself be trained through.
 This is how a physical law becomes a training objective, as in
@@ -35,7 +35,7 @@ physics-informed neural networks. The model below fits
 
    t = Input("t")              # one value per sample, no window
    u = Linear(features=1)([Tanh()([Linear(features=16)([t])])])
-   du_dt = Differentiate(respect_to=t)(u)
+   du_dt = Gradient(respect_to=t)(u)
 
    u_out = Output("u", u)
    decay = Modely("decay", inputs=[t], outputs=[u_out])
@@ -70,11 +70,15 @@ Integrators
 -----------
 
 :class:`~nnodely.IntegrateStep` integrates a rate along its time window, with the
-``"euler"`` (or ``"rectangular"``) or ``"trapezoidal"`` rule. The initial
-condition, the value before the window, is given first when the layer is
-called, ``IntegrateStep(dt=dt)(init, rate)``; called on the rate alone it
-starts from zero. On a one-sample window it is exactly one integration step,
-which is the state update of a recurrent model:
+``method`` ``"euler"`` (or ``"rectangular"``) or ``"trapezoidal"``, the name
+:func:`~nnodely.Ode` uses too. The initial condition, the value before the
+window, is given first when the layer is called, ``IntegrateStep(dt=dt)(init,
+rate)``; called on the rate alone it starts from zero. The trapezoid also
+averages the first rate with the one before the window, given after ``init``,
+``IntegrateStep(method="trapezoidal", dt=dt)(init, init_rate, rate)``, and
+zero when left out, as for a rate at rest before the window. On a one-sample
+window it is exactly one integration step, which is the state update of a
+recurrent model:
 
 .. code-block:: python
 
@@ -98,32 +102,39 @@ returns ``x``.
 
 :class:`~nnodely.Integrate` integrates one step at a time instead, in a
 :class:`~nnodely.ModelyLoop`: the rate is one sample of a step, and the
-integral is a hidden Input fed back with its update, which the ModelyLoop
-feeds back with all its other fed-back Inputs, in a single loop - a
-:class:`~nnodely.Loop` finds it in its body too. The rules, and the results
-on the same samples, are those of ``IntegrateStep``. Every Input of a
-ModelyLoop carries the horizon, one element per step, and ``init`` reads its
-first step:
+integral is a hidden Input, ``<name>_integral``, fed back with the result,
+which the ModelyLoop feeds back with all its other fed-back Inputs, in a
+single loop - a :class:`~nnodely.Loop` finds it in its body too. The
+trapezoid keeps the rate of the previous step in a second one,
+``<name>_rate``. The rules, and the results on the same samples, are those of
+``IntegrateStep``, and its initial values are configured: ``init``, the
+integral before the first step, and ``init_rate``, the rate before it, each
+zero without one. Every Input of a ModelyLoop carries the horizon, one
+element per step, and an initial value that is an Input reads its first
+step:
 
 .. code-block:: python
 
    acc = Input("acc", sw=1)           # one acceleration per step
-   v0 = Input("v0", sw=1)
-   velocity = Integrate(solver="trapezoidal", dt=dt, init=v0)(acc)
-   position = Integrate(solver="trapezoidal", dt=dt, init=0.0)(velocity)
-   kinematics = ModelyLoop("kinematics", inputs=[acc, v0],
+   v0, a0 = Input("v0", sw=1), Input("a0", sw=1)
+   velocity = Integrate(method="trapezoidal", dt=dt, init=v0, init_rate=a0)(acc)
+   position = Integrate(method="trapezoidal", dt=dt, init=0.0, init_rate=v0)(velocity)
+   kinematics = ModelyLoop("kinematics", inputs=[acc, v0, a0],
                            outputs=[Output("velocity", velocity), Output("position", position)])
    kinematics.build()
-   result = kinematics({"acc": np.ones((1, 30, 1, 1)), "v0": np.zeros((1, 30, 1, 1))})
+   result = kinematics({"acc": np.ones((1, 30, 1, 1)), "v0": np.zeros((1, 30, 1, 1)),
+                        "a0": np.ones((1, 30, 1, 1))})
    print(result["position"].shape)   # (1, 30, 1, 1): one value per step
 
 :class:`~nnodely.Derivative` differentiates one step at a time, as
-``Integrate`` integrates: the ``window - 1`` samples before the step are an
-Input fed back with the signal, and the stencil, its arguments and the results
-on the same samples are those of ``DerivativeStep``. ``init`` is the value
-just before the first step, or the ``window - 1`` values a longer stencil
-reads, along its window. With the same ``init``, ``Integrate``'s Euler rule
-inverts it:
+``Integrate`` integrates: the ``window - 1`` samples before the step are a
+hidden Input, ``<name>_past``, fed back with the signal, and the stencil, its
+arguments and the results on the same samples are those of
+``DerivativeStep``. ``init`` is the value just before the first step, or the
+``window - 1`` values a longer stencil reads, along its window; zero without
+one, a signal at rest before the start. The results of ``Integrate`` and
+``Derivative`` are named after the block. With the same ``init``,
+``Integrate``'s Euler rule inverts it:
 
 .. code-block:: python
 

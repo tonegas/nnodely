@@ -76,7 +76,7 @@ Sequence
 Calculus
 --------
 
-.. autoclass:: Differentiate
+.. autoclass:: Gradient
 
 .. autoclass:: DerivativeStep
 

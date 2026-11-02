@@ -15,7 +15,7 @@ from nnodely import (
     DataLoader,
     Deg2Rad,
     DerivativeStep,
-    Differentiate,
+    Gradient,
     ELU,
     EquationLearner,
     Exp,
@@ -893,8 +893,8 @@ def _derivative_model():
         "d_init_number": DerivativeStep(order=2, dt=dt)(0.5, window),
         "d_smooth": DerivativeStep(order=1, dt=dt, window=3, poly_order=2)(window),
         "d_of_layer": DerivativeStep(order=1, dt=dt)(mixed),
-        "d_wrt_input": Differentiate(order=1, respect_to=u)(relation),
-        "d2_wrt_input": Differentiate(order=2, respect_to=u)(relation),
+        "d_wrt_input": Gradient(order=1, respect_to=u)(relation),
+        "d2_wrt_input": Gradient(order=2, respect_to=u)(relation),
     }
     return Modely(
         "derivative_suite",
@@ -913,10 +913,10 @@ def _integrate_model():
     window = rate
     velocity = IntegrateStep(dt=dt)(0.2, acceleration)
     relations = {
-        "i_euler": IntegrateStep(solver="euler", dt=dt)(window),
-        "i_trapezoidal": IntegrateStep(solver="trapezoidal", dt=dt / 2)(state, window),
-        "i_rectangular": IntegrateStep(solver="rectangular", dt=dt)(1.5, window),
-        "i_position": IntegrateStep(solver="trapezoidal", dt=dt)(-0.3, velocity),
+        "i_euler": IntegrateStep(method="euler", dt=dt)(window),
+        "i_trapezoidal": IntegrateStep(method="trapezoidal", dt=dt / 2)(state, window),
+        "i_rectangular": IntegrateStep(method="rectangular", dt=dt)(1.5, window),
+        "i_position": IntegrateStep(method="trapezoidal", dt=dt)(-0.3, velocity),
         # Integrating the backward difference with the same initial condition
         # gives the signal back.
         "i_inverse": IntegrateStep(dt=dt)(x0, DerivativeStep(dt=dt)(x0, signal)),
@@ -1041,7 +1041,7 @@ def _loop_trajectory_model():
         "loop_traj_damping", value=[0.5]
     ) * TimeSelect(idx=-1)(DerivativeStep(dt=dt)(window))
     velocity_step = IntegrateStep(dt=dt)(velocity, acceleration)
-    position_step = IntegrateStep(solver="trapezoidal", dt=dt)(
+    position_step = IntegrateStep(method="trapezoidal", dt=dt)(
         TimeSelect(idx=-1)(window), velocity_step
     )
     position_next = Output("loop_traj_position_next", position_step)
@@ -2297,8 +2297,8 @@ def _keras_two_differentiate():
         "ksd",
         inputs=[x],
         outputs=[
-            Output("ksd_first", Differentiate(respect_to=x)(relation)),
-            Output("ksd_second", Differentiate(order=2, respect_to=x)(relation)),
+            Output("ksd_first", Gradient(respect_to=x)(relation)),
+            Output("ksd_second", Gradient(order=2, respect_to=x)(relation)),
         ],
     ).build()
     return model, {"ksd_x": (2, 1, 1)}

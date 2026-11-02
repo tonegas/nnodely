@@ -224,8 +224,10 @@ is computed at step ``k``. The horizon is as long as the data, or ``length``
 steps when it is given. A fed-back Input listed among the inputs, as ``pos``
 and ``vel`` here, starts from its first value in the data, and reads zero when
 the data leaves it out. One that is not listed starts from zero. The state of
-an Integrate, a Derivative or a Buffer starts from their ``init``: a number, a
-Parameter, a Constant, or an Input whose first step is read.
+an Integrate, a Derivative or a Buffer starts from their ``init`` (and the
+rate a trapezoidal Integrate keeps, from its ``init_rate``): a number, a
+Parameter, a Constant, or an Input whose first step is read; zero without
+one.
 :meth:`~nnodely.ModelyLoop.minimize` compares the trajectories of streams of
 the step: an output, or an Input that nothing feeds back, such as the measured
 position one step ahead. :attr:`~nnodely.Modely.all_inputs` tells how each
@@ -262,8 +264,10 @@ A model called as a block in a ModelyLoop keeps the feedback of its own
 fed-back Inputs, one state per call. Where it reads a window of a signal that
 the step computes, a :class:`~nnodely.Buffer` holds the past values:
 ``Buffer(sw=3)(u)`` is ``[u[k-2], u[k-1], u[k]]``, its newest sample the value
-of this step. Here a proportional controller drives a plant that reads its
-last three commands:
+of this step. Its ``init`` holds the past values before the first step, as the
+``init`` of a Derivative holds the samples its stencil reads: one sample,
+repeated, or ``sw - 1`` of them, oldest first. Here a proportional controller
+drives a plant that reads its last three commands:
 
 .. code-block:: python
 

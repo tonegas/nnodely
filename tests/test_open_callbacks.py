@@ -211,15 +211,16 @@ def test_integrate_and_derivative_feed_back_inputs_of_their_own():
         inputs=[acc, v0],
         outputs=[
             Output("oc_hl_pos", Integrate(dt=dt)(Integrate(dt=dt, init=v0)(acc))),
-            Output("oc_hl_trap", Integrate(solver="trapezoidal", dt=dt)(acc)),
+            Output("oc_hl_trap", Integrate(method="trapezoidal", dt=dt)(acc)),
             Output("oc_hl_der", Derivative(dt=dt)(acc)),
         ],
     ).build()
 
     result = model({"oc_hl_acc": data, "oc_hl_v0": np.full_like(data, 0.5)})
     a = data[..., 0, 0]
-    # The trapezoid's first step has no previous rate: it keeps the rectangle.
-    previous = np.concatenate([a[:, :1], a[:, :-1]], axis=1)
+    # The trapezoid's first step averages the rate with the one before it,
+    # zero without init_rate.
+    previous = np.concatenate([np.zeros_like(a[:, :1]), a[:, :-1]], axis=1)
     expected = {
         "pos": dt * np.cumsum(0.5 + dt * np.cumsum(a, axis=1), axis=1),
         "trap": dt * np.cumsum((previous + a) / 2, axis=1),
@@ -240,7 +241,7 @@ def test_a_modely_starts_integrate_derivative_and_buffer_from_their_init(tmp_pat
     # data.
     rate, v0 = Input("oc_one_rate", sw=1), Input("oc_one_v0", sw=1)
     past0 = Input("oc_one_past0", sw=2)
-    trapezoidal = Integrate(solver="trapezoidal", dt=0.5, init=1.0)
+    trapezoidal = Integrate(method="trapezoidal", dt=0.5, init=1.0)
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         model = Modely(
@@ -250,6 +251,12 @@ def test_a_modely_starts_integrate_derivative_and_buffer_from_their_init(tmp_pat
                 Output("oc_one_int", Integrate(dt=0.5, init=v0)(rate)),
                 Output("oc_one_int_zero", Integrate(dt=0.5)(rate)),
                 Output("oc_one_trap", trapezoidal(rate)),
+                Output(
+                    "oc_one_trap_rate",
+                    Integrate(method="trapezoidal", dt=0.5, init=1.0, init_rate=v0)(
+                        rate
+                    ),
+                ),
                 Output("oc_one_der", Derivative(dt=0.5, init=v0)(rate)),
                 Output("oc_one_der_zero", Derivative(order=2, dt=0.5)(rate)),
                 Output("oc_one_buf", Buffer(sw=3, init=v0)(rate)),
@@ -269,7 +276,8 @@ def test_a_modely_starts_integrate_derivative_and_buffer_from_their_init(tmp_pat
     expected = {
         "int": [3.0, 0.0],
         "int_zero": [2.0, 2.0],
-        "trap": [3.0, 3.0],
+        "trap": [2.0, 2.0],
+        "trap_rate": [2.25, 1.5],
         "der": [6.0, 12.0],
         "der_zero": [16.0, 16.0],
         "buf": [1.0, 1.0, 4.0, -2.0, -2.0, 4.0],
@@ -411,7 +419,7 @@ def test_all_inputs_tells_how_each_input_is_fed():
     )
     assert rows["oc_tab_level"]["starts from"] == "its data, else 0"
     assert rows["oc_tab_source"]["data"] == "required"
-    (state,) = [row for name, row in rows.items() if name.endswith("_state")]
+    (state,) = [row for name, row in rows.items() if name.endswith("_integral")]
     assert state["data"] is None and state["starts from"] == "oc_tab_x0, first step"
     text = str(loop.all_inputs)
     assert text.startswith("Inputs of oc_tab_loop") and "4 inputs, 2 fed back" in text

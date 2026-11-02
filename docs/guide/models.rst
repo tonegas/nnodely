@@ -125,7 +125,7 @@ The tables group the available layers.
        ``axis`` counts the sequence axes outermost first: the default, 0, is
        the outermost one, the rollout of the outermost Loop.
    * - Calculus
-     - :class:`~nnodely.Differentiate`, :class:`~nnodely.DerivativeStep`,
+     - :class:`~nnodely.Gradient`, :class:`~nnodely.DerivativeStep`,
        :class:`~nnodely.Derivative`,
        :class:`~nnodely.Integrate`, :class:`~nnodely.IntegrateStep`,
        :func:`~nnodely.Ode`, :class:`~nnodely.OdeNet` (see :doc:`physics`).

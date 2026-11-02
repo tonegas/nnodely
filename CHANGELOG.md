@@ -49,7 +49,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 - `export_keras` writes a stand-alone copy that `import_keras` gives back
   for every model: a weight read from several Keras graphs - a body rolled
   out by two Loops, a Parameter read inside and outside a body, a block also
-  used in a Loop, several `Differentiate` of one relation - is written once
+  used in a Loop, several `Gradient` of one relation - is written once
   per graph, with the same value. Keras could not rebuild such a file.
 - `ModelyLoop(name, inputs, outputs, length=None)`: a model declared one step
   at a time, whose fed-back Inputs are all fed back by a single rollout - one
@@ -83,7 +83,9 @@ variable, and trains, validates and exports through Keras. Models saved with
 - `Buffer(sw=n, init=None)(signal)`: the last `n` values of a signal computed
   one sample per step, the current one included - the window a model reads of
   what another computes, such as a controller's commands fed to a plant. Its
-  past values are a hidden Input fed back with the signal.
+  past values are a hidden Input fed back with the signal, and `init` holds
+  them before the first step as the `init` of `Derivative` holds the samples
+  its stencil reads.
 - `Modely.all_inputs`: every Input a model reads - declared or not, inside
   the models it calls, or only by an objective - printed as a table of its
   shape and how it is fed: declared, the stream it is fed back with, what the
@@ -152,20 +154,26 @@ variable, and trains, validates and exports through Keras. Models saved with
   rollout steps padded onto shorter simulations. A rollout also reports its
   RMSE at each step. Figures show prediction, error, parity, error
   distribution and the error along the rollout.
-- Calculus blocks `Differentiate` (with respect to an input),
-  `DerivativeStep` (with respect to time, over a window), `Derivative` (the
-  same stencil one step at a time, in a `ModelyLoop`), `IntegrateStep`,
-  `Integrate` (its rules one step at a time, in a `ModelyLoop`), `Ode`
-  (Euler, midpoint, Heun, RK4) and `OdeNet` (neural ODEs, adaptive
-  Dormand-Prince, hybrid events). `Integrate` and `Derivative` read one
-  sample per step: the integral, or the samples before the step, are a
-  hidden Input fed back with its update, by the `ModelyLoop` or `Loop` with
-  all its other fed-back Inputs, so they need no `Loop` of their own; their
-  `init` is the only initial value of that state. `IntegrateStep`
-  and `DerivativeStep` take their initial condition, a stream or a number, as
+- Calculus blocks `Gradient` (with respect to an input), `DerivativeStep`
+  (with respect to time, over a window), `Derivative` (the same stencil one
+  step at a time, in a `ModelyLoop`), `IntegrateStep`, `Integrate` (its rules
+  one step at a time, in a `ModelyLoop`), `Ode` (Euler, midpoint, Heun, RK4)
+  and `OdeNet` (neural ODEs, adaptive Dormand-Prince, hybrid events).
+  `Integrate` and `Derivative` read one sample per step: the integral
+  (`<name>_integral`, and `<name>_rate` for the trapezoid), or the samples
+  before the step (`<name>_past`), are hidden Inputs fed back by the
+  `ModelyLoop` or `Loop` with all its other fed-back Inputs, so they need no
+  `Loop` of their own; their result is named after the block, and their
+  `init` is the only initial value of that state. `IntegrateStep` and
+  `DerivativeStep` take their initial condition, a stream or a number, as
   the first argument of the call, `IntegrateStep(dt=dt)(init, rate)`, and
-  start from zero when called on the signal alone; `Integrate` and
-  `Derivative` take it at declaration, `init=`.
+  start from zero when called on the signal alone; `Integrate`,
+  `Derivative` and `Buffer` take it at declaration, `init=`, each checked by
+  one rule: one sample, or the samples read before the first, a scalar dim
+  or the signal's, no sequence or the signal's. The trapezoidal rule
+  averages the first rate with the rate before it: `init_rate`, called on
+  after `init`, `IntegrateStep(method="trapezoidal", dt=dt)(init, init_rate,
+  rate)`, or configured, `Integrate(..., init_rate=)`; zero without one.
 - Recurrence: `ModelyLoop` with `Input.feedback()`, `Modely.rollback()`, `Loop`
   and `Roll`. A body input its outputs never read, such as the target it is
   trained on, is not an input of a `Loop`, `Roll` or `OdeNet`.
@@ -236,7 +244,7 @@ variable, and trains, validates and exports through Keras. Models saved with
   `seq=(4, -1)` (outermost first, `-1` or `"dyn"` dynamic), needs a window.
   There is no `sw()`, `next()` or `last()` on an Input: the layers that read
   it take what they need of its window, `TimeSelect(-1)(x)` its newest
-  sample, `TimeRange(0, 3)(x)` its first three. `Differentiate(respect_to=x)`
+  sample, `TimeRange(0, 3)(x)` its first three. `Gradient(respect_to=x)`
   has the shape of `x`.
 - Arithmetic between streams: windows must be equal, or one of them a single
   sample, `T=1`, which applies to every sample of the other's; a stream
@@ -284,6 +292,11 @@ variable, and trains, validates and exports through Keras. Models saved with
 - A `Loop` over a body with several outputs is no longer a stream of its
   first `callback` output: it returns them all, and read as one stream it
   raises.
+- `Integrate` (now `IntegrateStep`) takes `method=`, the name `Ode` uses, for
+  2.0.0's `solver=`. The trapezoidal rule no longer keeps a rectangle on the
+  first interval: it averages the first rate with the one before it,
+  `init_rate`, zero without one. `Derivative(respect_to=x)` with respect to
+  an Input is `Gradient(respect_to=x)`.
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
 
@@ -308,13 +321,13 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `Relu` | `ReLU` |
 | `Add`, `Sub`, `Mul`, `Div`, `Pow` | `+`, `-`, `*`, `/`, `**` between streams |
 | `Neg` | `Negative` |
-| `Differentiate` | `Differentiate(respect_to=x)` with respect to an input; with respect to time `DerivativeStep(dt=...)` over a window, `Derivative(dt=...)` one step at a time in a `ModelyLoop` |
+| `Differentiate` | `Gradient(respect_to=x)` with respect to an input; with respect to time `DerivativeStep(dt=...)` over a window, `Derivative(dt=...)` one step at a time in a `ModelyLoop` |
 | `ForwardEuler`, `RK2`, `RK4` | `Ode(f, states, dt, method=...)` |
 | `NeuralODE` | `OdeNet` |
 | `Part` | `Range` |
 | `SamplePart`, `TimePart` | `TimeRange` (in samples) |
 | `SampleSelect` | `TimeSelect` (`Select` is the same in both) |
-| `Integrate(stream, method=...)` | `IntegrateStep(dt=...)(init, rate)`; 2.0's `Integrate` integrates one step at a time in a `ModelyLoop` |
+| `Integrate(stream, method=...)` | `IntegrateStep(method=..., dt=...)(init, rate)`; 2.0's `Integrate` integrates one step at a time in a `ModelyLoop` |
 | `LocalModel(input_function, output_function, pass_indexes=...)` | `LocalModel(input_function, output_function, vectorized=False)(inputs, activations)`: a function is a factory of the cell index, a layer instance is shared by every cell |
 | `Fuzzify(output_dimension, range=..., functions=...)` | `Fuzzify(centers, function=...)`: the centers listed explicitly; `normalize=True` makes the memberships add up to one |
 | `Optimizer`, `SGD`, `Adam` | `train(optimizer="sgd" / "adam" / a Keras optimizer)` |

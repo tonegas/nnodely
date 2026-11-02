@@ -980,7 +980,7 @@ class Modely:
         ``batch_size`` is the shorthand for the common case: it exports with
         the batch axis fixed to that many samples instead of left dynamic.
 
-        A layer that differentiates a sub-graph - ``Differentiate`` with respect
+        A layer that differentiates a sub-graph - a ``Gradient`` with respect
         to an Input - records the backward pass in the traced graph, and the
         shape arithmetic it introduces has no ONNX equivalent while the batch
         axis is dynamic. Such a model is therefore exported with a batch of

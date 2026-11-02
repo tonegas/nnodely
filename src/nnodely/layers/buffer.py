@@ -7,7 +7,7 @@ import keras
 from nnodely.core.layer import Layer
 from nnodely.core.shape import expand_to_rank
 from nnodely.core.stream import Stream
-from nnodely.layers.input import Input, _validate_init
+from nnodely.layers.input import Input, _check_history, _declared_seq, _validate_init
 from nnodely.layers.partitions import TimeSelect
 
 
@@ -58,14 +58,18 @@ class Buffer(Layer):
     Input fed back with the signal is the other way round: its window ends at
     the previous step.
 
-    The past ``sw - 1`` values are a hidden Input fed back with the signal,
-    by the :class:`~nnodely.ModelyLoop` or :class:`~nnodely.Loop` like any
-    other. ``init`` holds them before the first step: a number, a Parameter
-    or Constant, or an Input - one sample, repeated, or ``sw - 1`` of them,
-    oldest first; ``None`` for zeros. Built as a :class:`~nnodely.Modely`
-    instead, nothing feeds them back: the step reads ``init`` as them, as the
-    first step of a loop does, and no Input of its own. The signal is one
-    sample, ``sw=1``, or has no window.
+    The past ``sw - 1`` values are a hidden Input, ``<name>_past``, fed back
+    with the signal, by the :class:`~nnodely.ModelyLoop` or
+    :class:`~nnodely.Loop` like any other. ``init`` holds them before the
+    first step, as the ``init`` of :class:`~nnodely.Derivative` holds the
+    samples its stencil reads, and is their only initial value: a number, a
+    Parameter or Constant, or an Input of the step - one sample, repeated, or
+    ``sw - 1`` of them, oldest first, its dim a scalar or the signal's and
+    its sequence none or the signal's; ``None`` for zeros. Built as a
+    :class:`~nnodely.Modely` instead, nothing feeds them back: the step reads
+    ``init`` as them, as the first step of a loop does, and no Input of its
+    own. The signal is one sample, ``sw=1``, or has no window; ``sw=1``
+    holds no past, and takes no ``init``.
     """
 
     def __init__(self, sw: int, init: Stream | float | None = None, name=None):
@@ -76,6 +80,11 @@ class Buffer(Layer):
             )
         if isinstance(sw, bool) or not isinstance(sw, int) or sw < 1:
             raise ValueError(f"Buffer: sw is a positive int, got {sw!r}.")
+        if sw == 1 and init is not None:
+            raise ValueError(
+                "Buffer: sw=1 holds the current sample alone, no past one, so "
+                f"there is nothing for init to start; got init={init!r}."
+            )
         self.sw = sw
         self.init = _validate_init("Buffer", init)
         self._calls = 0
@@ -97,7 +106,7 @@ class Buffer(Layer):
         if self.sw == 1:
             return super().__call__([stream])
         if isinstance(self.init, Stream):
-            self._validate_init_shape(stream, self.init)
+            _check_history(self.name, self.init, stream, self.sw - 1)
 
         # Every call buffers a signal of its own, so each has its own past.
         self._calls += 1
@@ -105,8 +114,7 @@ class Buffer(Layer):
         past = Input(
             f"{call_name}_past",
             dim=stream.dim,
-            seq=tuple(-1 if length is None else length for length in stream.seq)
-            or None,
+            seq=_declared_seq(stream),
             sw=self.sw - 1,
         )
         past._hidden = True
@@ -115,32 +123,6 @@ class Buffer(Layer):
             stream if stream.time == 1 else TimeSelect(-1)(window), init=self.init
         )
         return window
-
-    def _validate_init_shape(self, stream, init):
-        """``init`` holds one sample, repeated, or the ``sw - 1`` before the
-        current one - a value without a window is one sample - a scalar or
-        the signal's dim, and no sequence or the signal's."""
-        if init.shape.time is None and not init._is_value:
-            raise ValueError(
-                f"{self.name}: init has no window, {init.shape}: declare the "
-                "Input with sw=1, unless init is a number, a Parameter or a "
-                "Constant."
-            )
-        if init.shape.time not in (None, 1, self.sw - 1):
-            raise ValueError(
-                f"{self.name}: init must carry 1 sample (repeated) or the "
-                f"{self.sw - 1} before the current one, got {init.shape.time}."
-            )
-        if tuple(init.dim) not in ((1,), tuple(stream.dim)):
-            raise ValueError(
-                f"{self.name}: init has dim {tuple(init.dim)}, which is neither "
-                f"a scalar nor the signal's {tuple(stream.dim)}."
-            )
-        if tuple(init.seq) not in ((), tuple(stream.seq)):
-            raise ValueError(
-                f"{self.name}: init has the sequence {tuple(init.seq)}, which is "
-                f"neither empty nor the signal's {tuple(stream.seq)}."
-            )
 
     def output_shape(self, *inputs):
         return inputs[-1].shape.replace(time=self.sw)

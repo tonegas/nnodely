@@ -17,7 +17,7 @@ def _traces_backward_pass(model) -> bool:
 
     Layers declare this themselves, so the export path does not have to know
     which ones they are. The walk is recursive because such a layer can sit
-    inside a nested model - a recurrent body, or the sub-graph a Differentiate
+    inside a nested model - a recurrent body, or the sub-graph a Gradient
     differentiates.
     """
     seen: set[int] = set()
@@ -115,7 +115,7 @@ def _standalone_copy(keras_model: keras.Model) -> keras.Model:
 
     nnodely shares layers between Keras graphs: a body rolled out by two
     Loops, a Parameter read inside a Loop body and outside it, the sub-graphs
-    a Differentiate evaluates again. Keras saves such a layer once, but
+    a Gradient evaluates again. Keras saves such a layer once, but
     cannot rebuild a layer called by two graphs - it replays the calls of
     each graph by their position. Serialized outside a sharing scope, every
     nested model and layer is written in full wherever it is used, so the
@@ -208,7 +208,7 @@ def export_onnx(
     if _traces_backward_pass(export_model) and keras.backend.backend() == "torch":
         raise NotImplementedError(
             "ONNX export of a model that differentiates a sub-graph - a "
-            "Differentiate with respect to an Input - is not supported on the "
+            "Gradient with respect to an Input - is not supported on the "
             "'torch' backend: its exporter traces a forward pass only and "
             "cannot record the backward pass such a layer evaluates. The "
             "'tensorflow' and 'jax' backends export it, because there the "

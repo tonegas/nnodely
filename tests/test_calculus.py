@@ -6,14 +6,19 @@ import pytest
 
 from conftest import CONVERGED, requires_onnx_export, to_numpy
 from nnodely import (
+    Buffer,
     DataLoader,
+    Derivative,
     DerivativeStep,
-    Differentiate,
+    Gradient,
     Fir,
     Input,
+    Integrate,
     IntegrateStep,
     Linear,
+    Loop,
     Modely,
+    ModelyLoop,
     Output,
     Parameter,
     Sin,
@@ -28,8 +33,8 @@ def test_derivate_wrt_input_and_time():
     y = Input("y", dim=1, sw=1)
     x_last, y_last = x, y
     fun = Sin()(x_last) + y_last**2
-    out_der_x = Differentiate(order=1, respect_to=x)(fun)
-    out_der_y = Differentiate(order=1, respect_to=y)(fun)
+    out_der_x = Gradient(order=1, respect_to=x)(fun)
+    out_der_y = Gradient(order=1, respect_to=y)(fun)
     out_der_time = DerivativeStep(order=1, dt=0.1)(fun)
 
     out = Output("out", fun)
@@ -84,8 +89,8 @@ def test_derivative_wrt_input_matches_analytic_over_a_batch():
         inputs=[x, y],
         outputs=[
             Output("fun", fun),
-            Output("dx", Differentiate(order=1, respect_to=x)(fun)),
-            Output("dy", Differentiate(order=1, respect_to=y)(fun)),
+            Output("dx", Gradient(order=1, respect_to=x)(fun)),
+            Output("dy", Gradient(order=1, respect_to=y)(fun)),
         ],
     ).build()
 
@@ -112,8 +117,8 @@ def test_derivative_wrt_input_second_order():
         "derivative_second_order_model",
         inputs=[x],
         outputs=[
-            Output("first", Differentiate(order=1, respect_to=x)(fun)),
-            Output("second", Differentiate(order=2, respect_to=x)(fun)),
+            Output("first", Gradient(order=1, respect_to=x)(fun)),
+            Output("second", Gradient(order=2, respect_to=x)(fun)),
         ],
     ).build()
 
@@ -136,17 +141,17 @@ def test_derivative_wrt_input_second_order():
 
 def test_derivative_wrt_input_nested_equals_second_order():
     """A derivative is itself a differentiable relation, so it can be fed
-    back into another Differentiate."""
+    back into another Gradient."""
     x = Input("nested_x", dim=1, sw=1)
     fun = x**3
-    first = Differentiate(order=1, respect_to=x)(fun)
+    first = Gradient(order=1, respect_to=x)(fun)
 
     model = Modely(
         "derivative_nested_model",
         inputs=[x],
         outputs=[
-            Output("nested", Differentiate(order=1, respect_to=x)(first)),
-            Output("direct", Differentiate(order=2, respect_to=x)(fun)),
+            Output("nested", Gradient(order=1, respect_to=x)(first)),
+            Output("direct", Gradient(order=2, respect_to=x)(fun)),
         ],
     ).build()
 
@@ -167,7 +172,7 @@ def test_derivative_wrt_input_through_a_trainable_layer():
     and the result has the shape of the input's window."""
     x = Input("fir_x", dim=1, sw=3)
     fun = Fir(features=1)([x])
-    derivative = Differentiate(order=1, respect_to=x)(fun)
+    derivative = Gradient(order=1, respect_to=x)(fun)
 
     assert derivative.shape.tuple == (3, 1)
 
@@ -191,7 +196,7 @@ def test_differentiate_through_a_linear_with_parameter_weights():
     W = Parameter("dlin_W", value=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
     b = Parameter("dlin_b", value=[5.0, 6.0])
     z = Linear(features=2, kernel=W, bias=b)(s)
-    derivative = Differentiate(respect_to=s)(z)
+    derivative = Gradient(respect_to=s)(z)
     model = Modely(
         "dlin_model", inputs=[s], outputs=[Output("dlin_dz", derivative)]
     ).build()
@@ -211,7 +216,7 @@ def test_differentiate_in_a_block_differentiates_the_relation_of_each_call(
     a, b = Input("dcall_a", sw=1), Input("dcall_b", sw=1)
     weight = Parameter("dcall_w", value=[[3.0]])
     relation = Linear(features=1, kernel=weight, bias=False)(a) * b  # d/da = 3b
-    derivative = Differentiate(respect_to=a)(relation)
+    derivative = Gradient(respect_to=a)(relation)
     block = Modely(
         "dcall_block", inputs=[a, b], outputs=[Output("dcall_d", derivative)]
     )
@@ -243,7 +248,7 @@ def test_differentiate_trains_a_parameter_kernel():
     k = Parameter("dk_k", value=[1.0])
     derivative = Output(
         "dk_dx",
-        Differentiate(respect_to=x)(Fir(features=1, kernel=k, bias=False)(x)),
+        Gradient(respect_to=x)(Fir(features=1, kernel=k, bias=False)(x)),
     )
     model = Modely("dk_model", inputs=[x], outputs=[derivative])
     model.minimize("dk_slope", derivative, 3.0, loss="mse")
@@ -289,7 +294,7 @@ def test_derivative_wrt_input_the_relation_does_not_read_raises():
         Modely(
             "derivative_unrelated_model",
             inputs=[x, y],
-            outputs=[Output("dy", Differentiate(order=1, respect_to=y)(fun))],
+            outputs=[Output("dy", Gradient(order=1, respect_to=y)(fun))],
         ).build()
 
 
@@ -542,7 +547,7 @@ def test_derivative_wrt_time_inverts_the_integral():
         "derivative_time_inverse_model",
         inputs=[v],
         outputs=[
-            Output("roundtrip", IntegrateStep(solver="rectangular", dt=dt)(derivative))
+            Output("roundtrip", IntegrateStep(method="rectangular", dt=dt)(derivative))
         ],
     ).build()
 
@@ -639,31 +644,31 @@ def test_derivative_wrt_time_rejects_invalid_arguments():
         DerivativeStep(order=2, dt=dt, window=4, poly_order=1)
     # Time arguments are not arguments of a derivative with respect to an Input.
     with pytest.raises(TypeError, match="unexpected keyword argument 'init'"):
-        Differentiate(order=1, respect_to=x, init=0.0)  # type: ignore[call-arg]
+        Gradient(order=1, respect_to=x, init=0.0)  # type: ignore[call-arg]
     with pytest.raises(TypeError, match="unexpected keyword argument 'window'"):
-        Differentiate(order=1, respect_to=x, window=3)  # type: ignore[call-arg]
+        Gradient(order=1, respect_to=x, window=3)  # type: ignore[call-arg]
 
-    with pytest.raises(ValueError, match="init must carry"):
+    with pytest.raises(ValueError, match="init holds the samples before the first"):
         DerivativeStep(order=1, dt=dt)(TimeRange(1, 3)(v), v)
     with pytest.raises(ValueError, match="init has dim"):
         DerivativeStep(order=1, dt=dt)(Input("time_invalid_i", dim=2, sw=1), v)
 
 
 def test_each_derivative_takes_only_its_own_kind_of_variable():
-    # One class per variable: an Input for Differentiate, the time step for DerivativeStep.
+    # One class per variable: an Input for Gradient, the time step for DerivativeStep.
     x = Input("split_x", dim=1, sw=1)
     with pytest.raises(TypeError, match="use Derivative"):
-        Differentiate(order=1, respect_to=0.1)  # type: ignore[arg-type]
+        Gradient(order=1, respect_to=0.1)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="must be the Input"):
-        Differentiate(order=1)
-    with pytest.raises(ValueError, match="requires dt"):
+        Gradient(order=1)
+    with pytest.raises(ValueError, match="dt is required"):
         DerivativeStep(order=1)
     with pytest.raises(ValueError, match="must be positive"):
         DerivativeStep(order=1, dt=0.0)
     with pytest.raises(TypeError, match="dt must be a number"):
         DerivativeStep(order=1, dt=x)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="supports order"):
-        Differentiate(order=3, respect_to=x)
+        Gradient(order=3, respect_to=x)
 
 
 def test_derivative_wrt_input_in_a_multi_dimensional_relation():
@@ -674,7 +679,7 @@ def test_derivative_wrt_input_in_a_multi_dimensional_relation():
     model = Modely(
         "derivative_multi_dim_model",
         inputs=[x],
-        outputs=[Output("dx", Differentiate(order=1, respect_to=x)(fun))],
+        outputs=[Output("dx", Gradient(order=1, respect_to=x)(fun))],
     ).build()
 
     values = np.array([[[1.0, 2.0, 3.0]]], dtype=np.float32)
@@ -703,8 +708,8 @@ def _build_mixed_derivative_model(name):
             inputs=[x, init],
             outputs=[
                 Output("fun", fun),
-                Output("dx", Differentiate(order=1, respect_to=x)(fun)),
-                Output("dx2", Differentiate(order=2, respect_to=x)(fun)),
+                Output("dx", Gradient(order=1, respect_to=x)(fun)),
+                Output("dx2", Gradient(order=2, respect_to=x)(fun)),
                 Output(
                     "dt",
                     DerivativeStep(order=1, dt=0.1)(init, fun),
@@ -804,7 +809,7 @@ def test_derivative_wrt_time_needs_no_fixed_batch_to_export():
     gradient_model = Modely(
         "derivative_grad_onnx_model",
         inputs=[x],
-        outputs=[Output("dx", Differentiate(order=1, respect_to=x)(fun))],
+        outputs=[Output("dx", Gradient(order=1, respect_to=x)(fun))],
     ).build()
 
     assert not _traces_backward_pass(time_model.model)
@@ -829,7 +834,7 @@ def test_derivative_inside_a_rollback_model():
     re-evaluates it at every step with that step's own state."""
     x = Input("roll_x", dim=1, sw=1)
     fun = x**2
-    derivative = Differentiate(order=1, respect_to=x)(fun)  # 2x
+    derivative = Gradient(order=1, respect_to=x)(fun)  # 2x
     next_x = x + derivative * 0.1  # 1.2 x
 
     model = Modely(
@@ -854,7 +859,7 @@ def test_train_through_a_derivative():
     converge to the target."""
     x = Input("dtrain_x", dim=1, sw=1)
     fun = Fir(features=1, bias=False, name="dtrain_fir")([x])
-    derivative = Output("dx", Differentiate(order=1, respect_to=x)(fun))
+    derivative = Output("dx", Gradient(order=1, respect_to=x)(fun))
 
     model = Modely("derivative_train_model", inputs=[x], outputs=[derivative])
     model.minimize("slope", source=derivative, target=3.0, loss="mse")
@@ -887,13 +892,13 @@ def _build_pos_vel_integrators(name_suffix, dt, mass):
     pos = Input(f"pos_{name_suffix}", dim=1, sw=1)
 
     acc_rate = force / mass
-    vel_next = IntegrateStep(solver="euler", dt=dt, name=f"vel_next_{name_suffix}")(
+    vel_next = IntegrateStep(method="euler", dt=dt, name=f"vel_next_{name_suffix}")(
         vel, acc_rate
     )
 
     # d(pos)/dt = vel (the current velocity, before this step's own update -
     # explicit Euler, not semi-implicit).
-    pos_next = IntegrateStep(solver="euler", dt=dt, name=f"pos_next_{name_suffix}")(
+    pos_next = IntegrateStep(method="euler", dt=dt, name=f"pos_next_{name_suffix}")(
         pos, vel
     )
 
@@ -981,17 +986,18 @@ def test_integrate_pos_vel_multi_step_rollback():
     )
 
 
-def _integrated(rate, dt, init=0.0, rule="rectangular"):
+def _integrated(rate, dt, init=0.0, rule="rectangular", init_rate=0.0):
     """The recurrence the layer implements: every sample integrates the
-    interval that *ends* at it, starting from the value before the window."""
+    interval that *ends* at it, starting from the value before the window -
+    and, for the trapezoid, from the rate before it."""
     trajectory = np.empty_like(rate)
-    previous = init
+    previous, previous_rate = init, init_rate
     for i in range(len(rate)):
-        if rule == "trapezoidal" and i > 0:
-            increment = dt / 2.0 * (rate[i - 1] + rate[i])
+        if rule == "trapezoidal":
+            increment = dt / 2.0 * (previous_rate + rate[i])
         else:
             increment = dt * rate[i]
-        previous = previous + increment
+        previous, previous_rate = previous + increment, rate[i]
         trajectory[i] = previous
     return trajectory
 
@@ -1008,10 +1014,10 @@ def test_integrate_one_sample_window_is_one_step():
         "integrate_euler_model",
         inputs=[v, state],
         outputs=[
-            Output("increment", IntegrateStep(solver="euler", dt=dt)(v)),
+            Output("increment", IntegrateStep(method="euler", dt=dt)(v)),
             Output(
                 "updated",
-                IntegrateStep(solver="euler", dt=dt)(state, v),
+                IntegrateStep(method="euler", dt=dt)(state, v),
             ),
         ],
     ).build()
@@ -1036,7 +1042,7 @@ def test_integrate_trapezoidal_over_a_window():
     model = Modely(
         "integrate_trap_model",
         inputs=[v],
-        outputs=[Output("integral", IntegrateStep(solver="trapezoidal", dt=dt)(v))],
+        outputs=[Output("integral", IntegrateStep(method="trapezoidal", dt=dt)(v))],
     ).build()
 
     samples = np.array([2.0, 4.0], dtype=np.float32)
@@ -1059,7 +1065,7 @@ def test_integrate_over_arbitrary_layer_output():
         "integrate_arbitrary_layer_model",
         inputs=[v],
         outputs=[
-            Output("integral", IntegrateStep(solver="trapezoidal", dt=dt)(scaled))
+            Output("integral", IntegrateStep(method="trapezoidal", dt=dt)(scaled))
         ],
     ).build()
 
@@ -1075,8 +1081,9 @@ def test_integrate_over_arbitrary_layer_output():
 
 def test_integrate_accepts_any_window_length():
     """The rule is a property of the quadrature, not of the window: no length
-    is required, and over one sample - which has no earlier rate to average
-    with - the trapezoid keeps the rectangle."""
+    is required, and over one sample the trapezoid averages the rate with the
+    one before the window - zero when it is not given, half the rectangle -
+    and is the rectangle when that rate is the same."""
     dt = 0.1
     v = Input("v", dim=1, sw=5)
     model = Modely(
@@ -1084,12 +1091,18 @@ def test_integrate_accepts_any_window_length():
         inputs=[v],
         outputs=[
             Output(
-                "one", IntegrateStep(solver="trapezoidal", dt=dt)(TimeSelect(-1)(v))
+                "one", IntegrateStep(method="trapezoidal", dt=dt)(TimeSelect(-1)(v))
             ),
             Output(
-                "euler_one", IntegrateStep(solver="euler", dt=dt)(TimeSelect(-1)(v))
+                "euler_one", IntegrateStep(method="euler", dt=dt)(TimeSelect(-1)(v))
             ),
-            Output("five", IntegrateStep(solver="trapezoidal", dt=dt)(v)),
+            Output(
+                "same_before",
+                IntegrateStep(method="trapezoidal", dt=dt)(
+                    0.0, TimeSelect(-1)(v), TimeSelect(-1)(v)
+                ),
+            ),
+            Output("five", IntegrateStep(method="trapezoidal", dt=dt)(v)),
         ],
     ).build()
 
@@ -1098,7 +1111,10 @@ def test_integrate_accepts_any_window_length():
 
     assert to_numpy(result["five"]).shape == (1, 5, 1)
     np.testing.assert_allclose(
-        to_numpy(result["one"]), to_numpy(result["euler_one"]), rtol=1e-6
+        to_numpy(result["one"]), to_numpy(result["euler_one"]) / 2.0, rtol=1e-6
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["same_before"]), to_numpy(result["euler_one"]), rtol=1e-6
     )
 
 
@@ -1106,20 +1122,20 @@ def test_integrate_unknown_solver_raises():
     """Only quadrature rules are named. "heun" and "rk4" are
     predictor-correctors, which no quadrature over an observed rate is."""
     for solver in ("rk4", "heun"):
-        with pytest.raises(ValueError, match="solver"):
-            IntegrateStep(solver=solver, dt=0.1)
+        with pytest.raises(ValueError, match="method"):
+            IntegrateStep(method=solver, dt=0.1)
 
 
 def test_integrate_requires_explicit_dt():
     v = Input("v", dim=1, sw=1)
 
     with pytest.raises(ValueError, match="dt is required"):
-        IntegrateStep(solver="euler")
+        IntegrateStep(method="euler")
 
     model = Modely(
         "integrate_explicit_dt_model",
         inputs=[v],
-        outputs=[Output("integral", IntegrateStep(solver="euler", dt=0.5)(v))],
+        outputs=[Output("integral", IntegrateStep(method="euler", dt=0.5)(v))],
     ).build()
 
     result = to_numpy(model({"v": np.array([[[2.0]]], dtype=np.float32)})["integral"])
@@ -1140,7 +1156,7 @@ def test_integrate_save_load_round_trip(tmp_path):
     model = Modely(
         "integrate_save_model",
         inputs=[v],
-        outputs=[Output("integral", IntegrateStep(solver="trapezoidal", dt=dt)(v))],
+        outputs=[Output("integral", IntegrateStep(method="trapezoidal", dt=dt)(v))],
     ).build()
 
     values = np.array([[[2.0], [4.0]]], dtype=np.float32)
@@ -1164,7 +1180,7 @@ def _integrate_export_model():
     model = Modely(
         "integrate_export_model",
         inputs=[v],
-        outputs=[Output("integral", IntegrateStep(solver="euler", dt=dt)(v))],
+        outputs=[Output("integral", IntegrateStep(method="euler", dt=dt)(v))],
     ).build()
     return model, {"v": np.array([[[3.0]]], dtype=np.float32)}
 
@@ -1206,7 +1222,7 @@ def test_integrate_running_integral_over_a_window():
     model = Modely(
         "integrate_running_model",
         inputs=[v],
-        outputs=[Output("integral", IntegrateStep(solver="trapezoidal", dt=dt)(v))],
+        outputs=[Output("integral", IntegrateStep(method="trapezoidal", dt=dt)(v))],
     ).build()
 
     samples = np.array([1.0, 2.0, 3.0, 5.0], dtype=np.float32)
@@ -1228,8 +1244,8 @@ def test_integrate_solver_aliases():
         "integrate_alias_model",
         inputs=[v],
         outputs=[
-            Output("euler", IntegrateStep(solver="euler", dt=dt)(v)),
-            Output("rectangular", IntegrateStep(solver="rectangular", dt=dt)(v)),
+            Output("euler", IntegrateStep(method="euler", dt=dt)(v)),
+            Output("rectangular", IntegrateStep(method="rectangular", dt=dt)(v)),
         ],
     ).build()
 
@@ -1251,8 +1267,8 @@ def test_integrate_init_number():
         "integrate_cum_init_model",
         inputs=[v],
         outputs=[
-            Output("relative", IntegrateStep(solver="euler", dt=dt)(window)),
-            Output("absolute", IntegrateStep(solver="euler", dt=dt)(2.5, window)),
+            Output("relative", IntegrateStep(method="euler", dt=dt)(window)),
+            Output("absolute", IntegrateStep(method="euler", dt=dt)(2.5, window)),
         ],
     ).build()
 
@@ -1286,7 +1302,7 @@ def test_integrate_init_stream_per_sample_of_the_batch():
         outputs=[
             Output(
                 "trajectory",
-                IntegrateStep(solver="trapezoidal", dt=dt)(state, rate),
+                IntegrateStep(method="trapezoidal", dt=dt)(state, rate),
             )
         ],
     ).build()
@@ -1326,8 +1342,8 @@ def test_integrate_init_over_a_one_sample_window_is_one_step():
         "integrate_cum_one_model",
         inputs=[v],
         outputs=[
-            Output("without", IntegrateStep(solver="euler", dt=dt)(v)),
-            Output("with", IntegrateStep(solver="euler", dt=dt)(3.0, v)),
+            Output("without", IntegrateStep(method="euler", dt=dt)(v)),
+            Output("with", IntegrateStep(method="euler", dt=dt)(3.0, v)),
         ],
     ).build()
 
@@ -1347,7 +1363,7 @@ def test_integrate_init_broadcasts_a_scalar_over_dim():
     model = Modely(
         "integrate_cum_multi_model",
         inputs=[x],
-        outputs=[Output("cum", IntegrateStep(solver="euler", dt=dt)(1.0, x))],
+        outputs=[Output("cum", IntegrateStep(method="euler", dt=dt)(1.0, x))],
     ).build()
 
     samples = np.array([[1.0, 2.0, 3.0], [0.0, 1.0, 1.0], [2.0, 2.0, 2.0]], np.float32)
@@ -1374,11 +1390,11 @@ def test_integrate_step_init_returns_the_updated_state():
         outputs=[
             Output(
                 "with_init",
-                IntegrateStep(solver="euler", dt=dt)(vel, acceleration),
+                IntegrateStep(method="euler", dt=dt)(vel, acceleration),
             ),
             Output(
                 "by_hand",
-                vel + IntegrateStep(solver="euler", dt=dt)(acceleration),
+                vel + IntegrateStep(method="euler", dt=dt)(acceleration),
             ),
         ],
     ).build()
@@ -1408,8 +1424,8 @@ def test_integrate_predicts_a_trajectory_in_one_pass():
     v0 = Input("traj_v0", dim=1, sw=1)
     x0 = Input("traj_x0", dim=1, sw=1)
 
-    velocity = IntegrateStep(solver="euler", dt=dt)(v0, acceleration)
-    position = IntegrateStep(solver="euler", dt=dt)(x0, velocity)
+    velocity = IntegrateStep(method="euler", dt=dt)(v0, acceleration)
+    position = IntegrateStep(method="euler", dt=dt)(x0, velocity)
 
     model = Modely(
         "integrate_trajectory_model",
@@ -1453,7 +1469,7 @@ def test_integrate_with_init_inverts_the_derivative_exactly():
     window = v
 
     derivative = DerivativeStep(order=1, dt=dt)(previous, window)
-    roundtrip = IntegrateStep(solver="rectangular", dt=dt)(previous, derivative)
+    roundtrip = IntegrateStep(method="rectangular", dt=dt)(previous, derivative)
 
     model = Modely(
         "integrate_inverse_model",
@@ -1480,11 +1496,11 @@ def test_integrate_init_validation():
     wide = Input("init_invalid_wide", dim=2, sw=1)
 
     with pytest.raises(TypeError, match="init must be"):
-        IntegrateStep(solver="euler", dt=dt)("zero", v)  # type: ignore[arg-type]
+        IntegrateStep(method="euler", dt=dt)("zero", v)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="single sample"):
-        IntegrateStep(solver="euler", dt=dt)(TimeRange(1, 3)(v), v)
+        IntegrateStep(method="euler", dt=dt)(TimeRange(1, 3)(v), v)
     with pytest.raises(ValueError, match="init has dim"):
-        IntegrateStep(solver="euler", dt=dt)(wide, v)
+        IntegrateStep(method="euler", dt=dt)(wide, v)
 
 
 def test_integrate_init_save_load_round_trip(tmp_path):
@@ -1500,15 +1516,15 @@ def test_integrate_init_save_load_round_trip(tmp_path):
         outputs=[
             Output(
                 "trajectory",
-                IntegrateStep(solver="trapezoidal", dt=dt)(state, rate),
+                IntegrateStep(method="trapezoidal", dt=dt)(state, rate),
             ),
             Output(
                 "step",
-                IntegrateStep(solver="euler", dt=dt)(state, TimeSelect(-1)(rate)),
+                IntegrateStep(method="euler", dt=dt)(state, TimeSelect(-1)(rate)),
             ),
             Output(
                 "constant_init",
-                IntegrateStep(solver="euler", dt=dt)(1.5, rate),
+                IntegrateStep(method="euler", dt=dt)(1.5, rate),
             ),
         ],
     ).build()
@@ -1539,11 +1555,11 @@ def _integrate_init_export_model():
         outputs=[
             Output(
                 "trajectory",
-                IntegrateStep(solver="trapezoidal", dt=dt)(state, rate),
+                IntegrateStep(method="trapezoidal", dt=dt)(state, rate),
             ),
             Output(
                 "step",
-                IntegrateStep(solver="euler", dt=dt)(state, TimeSelect(-1)(rate)),
+                IntegrateStep(method="euler", dt=dt)(state, TimeSelect(-1)(rate)),
             ),
         ],
     ).build()
@@ -1599,7 +1615,7 @@ def test_train_a_rate_through_an_integrated_trajectory():
 
     # Linear projects along dim, so the rate keeps one sample per step.
     rate = Linear(features=1, bias=False)([u])
-    trajectory = Output("trajectory", IntegrateStep(solver="euler", dt=dt)(v0, rate))
+    trajectory = Output("trajectory", IntegrateStep(method="euler", dt=dt)(v0, rate))
 
     model = Modely(
         "integrate_train_model", inputs=[u, v0, target], outputs=[trajectory]
@@ -1653,7 +1669,7 @@ def test_differentiate_has_the_shape_of_its_input():
     # the 2 samples it does not read.
     x = Input("own_window_dx", dim=1, sw=5)
     fun = Fir(features=1)([TimeRange(2, 5)(x)])
-    derivative = Differentiate(order=1, respect_to=x)(fun)
+    derivative = Gradient(order=1, respect_to=x)(fun)
     assert derivative.shape.tuple == (5, 1)
     model = Modely(
         "own_window_d",
@@ -1672,3 +1688,135 @@ def test_differentiate_has_the_shape_of_its_input():
     np.testing.assert_allclose(
         result[:, 2:], to_numpy(fun.kernel).reshape(1, 3, 1), rtol=1e-5, atol=1e-5
     )
+
+
+def test_the_trapezoid_starts_from_the_rate_before_the_first_step(tmp_path):
+    """y[0] = init + dt/2 * (init_rate + rate[0]), init_rate zero without one:
+    the same over a window, step by step, in a Loop and written by hand."""
+    rates = np.arange(1.0, 6.0, dtype=np.float32)
+    from_rest = _integrated(rates, 1.0, 10.0, "trapezoidal")
+    from_one = _integrated(rates, 1.0, 10.0, "trapezoidal", init_rate=1.0)
+    np.testing.assert_allclose(from_rest, [10.5, 12.0, 14.5, 18.0, 22.5])
+
+    def rolled(model, data, name):
+        return to_numpy(model(data)[name]).ravel()
+
+    w = Input("trap0_w", sw=5)
+    window = Modely(
+        "trap0_window",
+        inputs=[w],
+        outputs=[
+            Output("trap0_rest", IntegrateStep(method="trapezoidal", dt=1.0)(10.0, w)),
+            Output(
+                "trap0_one",
+                IntegrateStep(method="trapezoidal", dt=1.0)(10.0, 1.0, w),
+            ),
+        ],
+    ).build()
+    data = {"trap0_w": rates.reshape(1, 5, 1)}
+    np.testing.assert_allclose(rolled(window, data, "trap0_rest"), from_rest)
+    np.testing.assert_allclose(rolled(window, data, "trap0_one"), from_one)
+
+    # Step by step, init and init_rate Inputs of the step that a Loop binds.
+    r, y0, r0 = Input("trap0_r", sw=1), Input("trap0_y0", sw=1), Input("trap0_r0", sw=1)
+    integral = Integrate(method="trapezoidal", dt=1.0, init=y0, init_rate=r0)(r)
+    step = Modely(
+        "trap0_step", inputs=[r, y0, r0], outputs=[Output("trap0_y", integral)]
+    )
+    r_seq, y0_out, r0_out = (
+        Input("trap0_r_seq", seq=-1, sw=1),
+        Input("trap0_y0_out", sw=1),
+        Input("trap0_r0_out", sw=1),
+    )
+    loop = Modely(
+        "trap0_loop",
+        inputs=[r_seq, y0_out, r0_out],
+        outputs=[
+            Output("trap0_traj", Loop(f=step)({r: r_seq, y0: y0_out, r0: r0_out}))
+        ],
+    ).build()
+    data = {
+        "trap0_r_seq": rates.reshape(1, 5, 1, 1),
+        "trap0_y0_out": np.full((1, 1, 1), 10.0, np.float32),
+        "trap0_r0_out": np.ones((1, 1, 1), np.float32),
+    }
+    np.testing.assert_allclose(rolled(loop, data, "trap0_traj"), from_one)
+    loop.save(tmp_path / "trap0_loop")
+    loaded = Modely.load(tmp_path / "trap0_loop")
+    np.testing.assert_allclose(rolled(loaded, data, "trap0_traj"), from_one)
+
+    # By hand: one sample of IntegrateStep is one trapezoid, given the rate of
+    # the previous step.
+    x, previous, u = (
+        Input("trap0_x", sw=1),
+        Input("trap0_prev", sw=1),
+        Input("trap0_u", sw=1),
+    )
+    x_next = x.feedback(IntegrateStep(method="trapezoidal", dt=1.0)(x, previous, u))
+    previous.feedback(u)
+    by_hand = ModelyLoop(
+        "trap0_hand", inputs=[u, x, previous], outputs=[Output("trap0_hx", x_next)]
+    ).build()
+    data = {
+        "trap0_u": rates.reshape(1, 5, 1, 1),
+        "trap0_x": np.full((1, 5, 1, 1), 10.0, np.float32),
+        "trap0_prev": np.ones((1, 5, 1, 1), np.float32),
+    }
+    np.testing.assert_allclose(rolled(by_hand, data, "trap0_hx"), from_one)
+
+    with pytest.raises(TypeError, match="init, init_rate, signal"):
+        IntegrateStep(method="trapezoidal", dt=1.0)(10.0, 1.0, 1.0, w)
+    with pytest.raises(TypeError, match="init, signal"):
+        IntegrateStep(method="euler", dt=1.0)(10.0, 1.0, w)
+
+
+def test_integrate_derivative_and_buffer_take_their_signal_and_init_alike():
+    """Each keeps the past of its signal in hidden Inputs named after the
+    block, returns a result named after the block, and takes the same
+    signals and initial values: a sequence, a scalar init for any dim."""
+    signal = Input("alike_s", dim=2, seq=3, sw=1)
+    scalar = Input("alike_init", seq=3, sw=1)
+    integral = Integrate(
+        method="trapezoidal", dt=1.0, init=scalar, init_rate=scalar, name="alike_int"
+    )(signal)
+    derivative = Derivative(dt=1.0, init=scalar, name="alike_der")(signal)
+    window = Buffer(sw=3, init=scalar, name="alike_buf")(signal)
+    assert (integral.name, derivative.name, window.name) == (
+        "alike_int",
+        "alike_der",
+        "alike_buf",
+    )
+    model = ModelyLoop(
+        "alike",
+        inputs=[signal, scalar],
+        outputs=[
+            Output("alike_i", integral),
+            Output("alike_d", derivative),
+            Output("alike_b", window),
+        ],
+    )
+    hidden = {
+        row["input"].name: row["input"].seq
+        for row in model.all_inputs.rows
+        if not row["declared"]
+    }
+    assert hidden == {
+        "alike_int_integral": (3,),
+        "alike_int_rate": (3,),
+        "alike_der_past": (3,),
+        "alike_buf_past": (3,),
+    }
+    model.build()
+    values = np.arange(1.0, 13.0, dtype=np.float32).reshape(1, 2, 3, 1, 2)
+    result = model(
+        {"alike_s": values, "alike_init": np.full((1, 2, 3, 1, 1), 0.5, np.float32)}
+    )
+    first = values[:, 0]
+    np.testing.assert_allclose(
+        to_numpy(result["alike_i"])[:, 0], 0.5 + (0.5 + first) / 2
+    )
+    np.testing.assert_allclose(to_numpy(result["alike_d"])[:, 0], first - 0.5)
+    np.testing.assert_allclose(to_numpy(result["alike_b"])[:, 0, :, :2], 0.5)
+
+    with pytest.raises(ValueError, match="nothing for init to start"):
+        Buffer(sw=1, init=0.5)
