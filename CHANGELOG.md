@@ -40,9 +40,7 @@ variable, and trains, validates and exports through Keras. Models saved with
   it is called on must have the shape its graph reads that input with, and
   another one is refused; an `Input` given itself is read through the block's
   own windows. An Input the block reads without declaring it is the caller's
-  Input too. A model with a `rollback` is refused as a block, which would
-  evaluate it once: its one-step model is a `Modely` declared on the same
-  inputs and outputs, sharing its weights.
+  Input too.
 - A `Parameter` or `Constant` read by several models - Loop bodies, blocks,
   the outer model - is one object in the saved model too: loaded once,
   listed once, frozen once.
@@ -140,8 +138,8 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Freezing: `Parameter.freeze()` / `unfreeze()` (or `trainable`, also a
   constructor argument) keep one Parameter fixed through training or release
   it, and `Modely.freeze()` / `unfreeze()` do it for every Parameter a model
-  computes with, those of the models it calls and of its Loop, Roll and
-  OdeNet bodies included. Before or after `build()`; saved with the model.
+  computes with, those of the models it calls and of its Loop bodies
+  included. Before or after `build()`; saved with the model.
   `Modely.parameters` lists them all, finds one by name
   (`model.parameters["kernel"]`), and prints as a table of their names,
   shapes, numbers of values and trainable flags.
@@ -159,8 +157,8 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Calculus blocks `Gradient` (with respect to an input), `DerivativeStep`
   (with respect to time, over a window), `Derivative` (the same stencil one
   step at a time, in a `ModelyLoop`), `IntegrateStep`, `Integrate` (its rules
-  one step at a time, in a `ModelyLoop`), `Ode` (Euler, midpoint, Heun, RK4)
-  and `OdeNet` (neural ODEs, adaptive Dormand-Prince, hybrid events).
+  one step at a time, in a `ModelyLoop`) and `Ode` (Euler, midpoint, Heun,
+  RK4).
   `Integrate` and `Derivative` read one sample per step: the integral
   (`<name>_integral`, and `<name>_rate` for the trapezoid), or the samples
   before the step (`<name>_past`), are hidden Inputs fed back by the
@@ -176,9 +174,9 @@ variable, and trains, validates and exports through Keras. Models saved with
   averages the first rate with the rate before it: `init_rate`, called on
   after `init`, `IntegrateStep(method="trapezoidal", dt=dt)(init, init_rate,
   rate)`, or configured, `Integrate(..., init_rate=)`; zero without one.
-- Recurrence: `ModelyLoop` with `Input.feedback()`, `Modely.rollback()`, `Loop`
-  and `Roll`. A body input its outputs never read, such as the target it is
-  trained on, is not an input of a `Loop`, `Roll` or `OdeNet`.
+- Recurrence: `ModelyLoop` with `Input.feedback()`, and `Loop`. A body input
+  its outputs never read, such as the target it is trained on, is not an
+  input of a `Loop`.
 - `LocalModel(input_function, output_function, vectorized=False)(inputs,
   activations)`: several activations are multiplied into joint memberships; a
   function is a factory of the cell index, giving each cell a layer of its
@@ -258,8 +256,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   shape of the result, so a matrix of one sample is not combined with the
   window of a scalar. `Concatenate` repeats a single sample along the
   sequence and window of the others. The layers that act on the window -
-  `Fir`, the `Time*` layers, `DerivativeStep`, `IntegrateStep`, `Roll`,
-  `rollback` - refuse a stream without one.
+  `Fir`, the `Time*` layers, `DerivativeStep`, `IntegrateStep` - refuse a
+  stream without one.
 - A `Parameter` or `Constant` `value` is all dim by default, without a
   window: an array of shape `(2, 3, 2)` is `D=(2, 3, 2)`. Given with a
   value, `dim`, `time` and `seq` name its axes, `time` one, the window, and
@@ -284,13 +282,11 @@ variable, and trains, validates and exports through Keras. Models saved with
   *seq)`, or fed-back Inputs were saved open, or a `Fuzzify` was a graph of one layer per center, do not load;
   nor do saves of an earlier format version.
 - The stream fed back into an Input is named `feedback` everywhere:
-  `Input.feedback(stream)`, `Loop(feedback=)` (was `callback=`),
-  `Roll(feedback=)` (was `callback=`) and `Modely.rollback(feedback, steps)`
-  (was `rollback=`). The old names are gone, and so is `Input.close`; the
-  initial value of a fed-back Input is given where the feedback is applied.
-  The Keras layers of a `Loop`, a `Roll` and a rollback name it `feedback` in
-  their configuration too, so a `.keras` export of one made with 2.0.0 does
-  not load.
+  `Input.feedback(stream)` and `Loop(feedback=)` (was `callback=`). The old
+  names are gone, and so is `Input.close`; the initial value of a fed-back
+  Input is given where the feedback is applied. The Keras layer of a `Loop`
+  names it `feedback` in its configuration too, so a `.keras` export of one
+  made with 2.0.0 does not load.
 - A `Loop` over a body with several outputs is no longer a stream of its
   first `callback` output: it returns them all, and read as one stream it
   raises.
@@ -309,6 +305,13 @@ variable, and trains, validates and exports through Keras. Models saved with
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
 
+### Removed
+
+- `Roll`, `OdeNet` and `Modely.rollback()`. A model rolled out on its own
+  predictions is a `Loop` or a `ModelyLoop`; a neural ODE is an `Ode` step,
+  the layers of its field created outside `f`, rolled out by a `Loop`.
+  Saves and `.keras` exports holding one of them do not load.
+
 ## Migrating from 1.x
 
 | nnodely 1.x | nnodely 2.0 |
@@ -320,7 +323,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `model.loadData(name, source)` | `data = DataLoader(model, source=...)` |
 | `model.trainModel(...)` | `model.train(data, val_data=..., epochs=..., batch_size=..., lr=...)` |
 | `model.analyzeModel(...)`, performance reports | `model.validate(data)` |
-| `x.closedLoop(...)`, `x.connect(...)`, `prediction_samples=` | `x.feedback(stream)` in a `ModelyLoop` or a `Loop`; `model.rollback({input: stream}, steps=n)`, `Loop`, `Roll` |
+| `x.closedLoop(...)`, `x.connect(...)`, `prediction_samples=` | `x.feedback(stream)` in a `ModelyLoop` or a `Loop` |
 | `x.tw(seconds)`, `x.sw(samples)` | `Input("x", sw=samples)` or `sw=(past, future)`, declared once; `TimeSelect` / `TimeRange` take parts of the window |
 | `saveModel` / `loadModel` | `model.save(path)` / `Modely.load(path)` |
 | `exportPythonModel`, `saveTorchModel` | `model.export_keras(path)` |
@@ -332,7 +335,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `Neg` | `Negative` |
 | `Differentiate` | `Gradient(respect_to=x)` with respect to an input; with respect to time `DerivativeStep(dt=...)` over a window, `Derivative(dt=...)` one step at a time in a `ModelyLoop` |
 | `ForwardEuler`, `RK2`, `RK4` | `Ode(f, states, dt, method=...)` |
-| `NeuralODE` | `OdeNet` |
+| `NeuralODE` | an `Ode` step, the layers of its field created outside `f`, rolled out by a `Loop` |
 | `Part` | `Range` |
 | `SamplePart`, `TimePart` | `TimeRange` (in samples) |
 | `SampleSelect` | `TimeSelect` (`Select` is the same in both) |
