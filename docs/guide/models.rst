@@ -77,7 +77,8 @@ The tables group the available layers.
        :class:`~nnodely.Fuzzify`).
    * - :class:`~nnodely.EquationLearner`
      - Symbolic-regression block: a projection feeds a list of elementary
-       functions whose results are combined.
+       functions whose results are combined. A ``threshold`` drops the small
+       coefficients, and ``plot()`` draws the learned equation.
    * - :class:`~nnodely.BatchNorm`
      - Batch normalization per feature.
 
@@ -299,6 +300,21 @@ weights of its own. With ``vectorized=True`` a function or a layer such as
 dim axis of 20 entries. Functions passed to ``EquationLearner`` can be names,
 *nnodely* layer classes, or Python callables that take streams, such as
 ``lambda a, b: a * b``.
+
+An ``EquationLearner`` with a ``threshold`` computes without the coefficients
+of its projections smaller than it, so that the learned equation has no terms
+such as ``0.000001 * sin(x)``; they keep training, and count again if they
+grow past it. The threshold can be set on a built model, which computes and
+trains with it from then on. Train without it first, then set it and
+fine-tune, and draw the equation the model computes with ``plot()``, which
+returns it as a sympy ``Eq``:
+
+.. code-block:: python
+
+   model.train(data, epochs=150, lr=0.02)
+   learner.threshold = 0.01
+   model.train(data, epochs=50, lr=0.002)
+   equation = learner.plot()   # y = ..., written in velocity
 
 The model
 ---------

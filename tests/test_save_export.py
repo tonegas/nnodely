@@ -528,6 +528,48 @@ def test_equation_learner_save_keras_and_html(tmp_path):
     assert "equation_export_linear_out" in nested_html
 
 
+def test_equation_learner_saves_its_threshold(tmp_path):
+    x = Input("saved_threshold_x", sw=1)
+    learner = EquationLearner(
+        ["identity", "sin"],
+        linear_in=Linear(features=2, kernel="ones", bias=False),
+        linear_out=Linear(
+            features=1,
+            kernel=Parameter("saved_threshold_out", value=[[2.0], [0.005]]),
+            bias=False,
+        ),
+        name="saved_threshold",
+    )
+    model = Modely(
+        "saved_threshold_model",
+        inputs=[x],
+        outputs=[Output("saved_threshold_y", learner(x))],
+    ).build()
+    # Set after the build: the model is saved with the threshold it computes
+    # with, which leaves 2 x.
+    learner.threshold = 0.01
+    inputs = {"saved_threshold_x": np.array([[[0.5]]], dtype=np.float32)}
+    np.testing.assert_allclose(
+        to_numpy(model(inputs)["saved_threshold_y"]).ravel(), [1.0], rtol=1e-6
+    )
+
+    model.save(tmp_path / "saved_threshold.nnodely")
+    restored = Modely.load(tmp_path / "saved_threshold.nnodely")
+    np.testing.assert_allclose(
+        to_numpy(restored(inputs)["saved_threshold_y"]).ravel(), [1.0], rtol=1e-6
+    )
+    np.testing.assert_allclose(
+        to_numpy(restored.parameters["saved_threshold_out"].param), [[2.0], [0.005]]
+    )
+
+    model.export_keras(tmp_path, "saved_threshold")
+    keras_model = Modely.import_keras(tmp_path / "saved_threshold.keras")
+    keras_result = keras_model(inputs, training=False)  # type: ignore
+    np.testing.assert_allclose(
+        to_numpy(keras_result["saved_threshold_y"]).ravel(), [1.0], rtol=1e-6
+    )
+
+
 def test_local_model_save_keras_and_html(tmp_path):
     model = _local_model()
     inputs = {

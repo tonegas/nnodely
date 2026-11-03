@@ -7,6 +7,7 @@ from pathlib import Path
 from nnodely import (
     Input,
     Output,
+    EquationLearner,
     Fir,
     Linear,
     Loop,
@@ -568,3 +569,169 @@ def test_plot_draws_every_image_of_a_nested_model(tmp_path):
 
     for name in ("nested", "nested_model2", "nested_model2_model1", "looped"):
         assert (tmp_path / f"{name}.png").read_bytes().startswith(b"\x89PNG")
+
+
+def _equation_learner(name, functions, features, linear_out=None):
+    """An EquationLearner on x, every argument x, built into a model."""
+    x = Input("x", sw=1)
+    learner = EquationLearner(
+        functions,
+        linear_in=Linear(features=features, kernel="ones", bias=False),
+        linear_out=linear_out,
+        name=name,
+    )
+    Modely(
+        f"{name}_model", inputs=[x], outputs=[Output(f"{name}_y", learner(x))]
+    ).build()
+    return learner
+
+
+def test_equation_learner_plot_returns_the_equation_it_draws():
+    import matplotlib.pyplot as plt
+    import sympy
+
+    x, v = Input("x", sw=1), Input("v", dim=2, sw=1)
+    learner = EquationLearner(
+        ["identity", Sin, (lambda a, b: a * b, 2)],
+        linear_in=Linear(
+            features=4,
+            kernel=Parameter(
+                "drawn_in",
+                value=[
+                    [1.0, 0.0, 1.0, 0.0],
+                    [0.0, 2.0, 0.0, 1.0],
+                    [0.0, 0.004, 0.0, 1.0],
+                ],
+            ),
+            bias=Parameter("drawn_in_bias", value=[0.0, 0.5, 0.0, 0.0]),
+        ),
+        linear_out=Linear(
+            features=1,
+            kernel=Parameter("drawn_out", value=[[2.0], [3.0], [0.123456]]),
+            bias=False,
+        ),
+        name="drawn",
+    )
+    Modely(
+        "drawn_model", inputs=[x, v], outputs=[Output("drawn_y", learner([x, v]))]
+    ).build()
+
+    # Named after the streams, a vector by feature, and expanded: the
+    # function of two arguments computes on symbols, a product.
+    sx, v0, v1 = sympy.symbols("x v_0 v_1")
+    c = sympy.Float(0.1235)
+    expected = 2 * sx + c * sx * v0 + c * sx * v1
+    figures = len(plt.get_fignums())
+    equation = learner.plot()
+    assert equation == sympy.Eq(
+        sympy.Symbol("y"),
+        expected + 3 * sympy.sin(2 * v0 + sympy.Float(0.004) * v1 + sympy.Float(0.5)),
+    )
+    # Drawn as LaTeX on a figure of its own.
+    assert len(plt.get_fignums()) == figures + 1
+    drawn = plt.gcf().axes[0].texts[0].get_text()
+    assert drawn.startswith("$y = ") and drawn.endswith("$")
+    assert r"\sin(2 v_{0} + 0.004 v_{1} + 0.5" in drawn
+
+    # The coefficients below the threshold are left out, 0.004 v_1.
+    learner.threshold = 0.01
+    assert learner.plot().rhs == expected + 3 * sympy.sin(2 * v0 + sympy.Float(0.5))
+    # Rounded to the significant digits asked for.
+    assert sympy.Float(0.12) in learner.plot(precision=2).rhs.atoms(sympy.Float)
+    plt.close("all")
+
+
+def test_equation_learner_plot_writes_the_basis_without_linear_out():
+    import matplotlib.pyplot as plt
+    import sympy
+
+    learner = _equation_learner(
+        "basis_drawn", ["sin", "sigmoid", "log10", "relu", "atan2"], features=6
+    )
+    equations = learner.plot()
+    x = sympy.Symbol("x")
+
+    assert [equation.lhs for equation in equations] == list(sympy.symbols("f_0:5"))
+    assert equations[0].rhs == sympy.sin(x)
+    # Written in mathematical notation where there is one, the other layers
+    # by name.
+    assert [sympy.latex(equation.rhs) for equation in equations[1:]] == [
+        r"\sigma{\left(x \right)}",
+        r"\log_{10}{\left(x \right)}",
+        r"\operatorname{ReLU}{\left(x \right)}",
+        r"\operatorname{atan2}{\left(x, x \right)}",
+    ]
+    # One line each.
+    assert plt.gcf().axes[0].texts[0].get_text().count("\n") == 4
+    plt.close("all")
+
+
+def test_equation_learner_plot_writes_several_outputs_and_python_functions():
+    import matplotlib.pyplot as plt
+    import sympy
+
+    from nnodely import Tanh
+
+    def scaled_tanh(stream):
+        return Tanh()(stream) * 2.0
+
+    learner = _equation_learner(
+        "python_drawn",
+        # A function computing on streams is written by name, a lambda as
+        # f_index; one that computes on symbols too, as what it computes.
+        [scaled_tanh, lambda stream: Tanh()(stream), lambda a: a * a],
+        features=3,
+        linear_out=Linear(features=2, kernel="ones", bias=False),
+    )
+    equations = learner.plot()
+
+    assert [equation.lhs for equation in equations] == list(sympy.symbols("y_0:2"))
+    written = sympy.latex(equations[0].rhs)
+    assert r"\operatorname{scaled\_tanh}" in written
+    assert "f_{1}" in written
+    assert "x^{2}" in written
+    assert equations[0].rhs == equations[1].rhs
+    plt.close("all")
+
+
+def test_equation_learner_plot_draws_on_the_axes_given():
+    import matplotlib.pyplot as plt
+
+    learner = _equation_learner(
+        "axes_drawn", ["sin"], features=1, linear_out=Linear(features=1)
+    )
+    figure, ax = plt.subplots()
+    figures = plt.get_fignums()
+    learner.plot(ax=ax)
+
+    assert plt.get_fignums() == figures
+    assert ax.texts[0].get_text().startswith("$y = ")
+    assert not ax.axison
+    plt.close("all")
+
+
+def test_equation_learner_plot_breaks_a_long_equation_into_lines():
+    import matplotlib.pyplot as plt
+
+    # With the arguments of the default projection, each one its own.
+    x = Input("x", sw=1)
+    learner = EquationLearner(
+        ["sin"] * 12, linear_out=Linear(features=1), name="long_drawn"
+    )
+    Modely("long_drawn_model", inputs=[x], outputs=[Output("y", learner(x))]).build()
+    learner.plot()
+
+    lines = plt.gcf().axes[0].texts[0].get_text().split("\n")
+    assert len(lines) > 1
+    assert all(line.startswith(r"$\qquad") for line in lines[1:])
+    plt.close("all")
+
+
+def test_equation_learner_plot_needs_a_built_model():
+    learner = EquationLearner(["sin"], name="unbuilt_drawn")
+    with pytest.raises(RuntimeError, match="build the model first"):
+        learner.plot()
+
+    learner(Input("unbuilt_drawn_x", sw=1))
+    with pytest.raises(RuntimeError, match="build the model first"):
+        learner.plot()

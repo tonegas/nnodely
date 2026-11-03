@@ -1842,6 +1842,232 @@ def test_equation_learner_rejects_invalid_configuration():
     with pytest.raises(ValueError, match="Unknown EquationLearner function"):
         EquationLearner(["not_a_function"])
 
+    with pytest.raises(TypeError, match=r"form \(callable, arity\)"):
+        EquationLearner([(np.sin,)])
+
+    with pytest.raises(ValueError, match="variadic"):
+        EquationLearner([lambda *streams: streams[0]])
+
+    with pytest.raises(ValueError, match="at least one argument"):
+        EquationLearner([(lambda: None, 0)])
+
+    with pytest.raises(TypeError, match="must be callable"):
+        EquationLearner([3.0])
+
+    with pytest.raises(ValueError, match="zero or positive"):
+        EquationLearner(["sin"], threshold=-0.1)
+
+    learner = EquationLearner(["sin"])
+    with pytest.raises(ValueError, match="zero or positive"):
+        learner.threshold = -1.0
+    assert learner.threshold is None
+
+
+def test_equation_learner_rejects_invalid_calls():
+    x = Input("invalid_eql_x", sw=1)
+    with pytest.raises(TypeError, match="must return a Stream"):
+        EquationLearner([lambda stream: 1.0])(x)
+
+    with pytest.raises(TypeError, match="must be Stream objects"):
+        EquationLearner(["sin"])([np.ones(1)])
+
+    with pytest.raises(ValueError, match="one-dimensional dim"):
+        EquationLearner(["sin"])(Input("invalid_eql_m", dim=(2, 2), sw=1))
+
+
+@pytest.mark.parametrize(
+    "name, function",
+    [
+        ("exp", np.exp),
+        # Where the argument is negative, log and sqrt give NaN.
+        ("log", np.log),
+        ("log10", np.log10),
+        ("sqrt", np.sqrt),
+        ("abs", np.abs),
+        ("sign", np.sign),
+        ("floor", np.floor),
+        ("ceil", np.ceil),
+        # The bumps are 1 at 0, of width 1.
+        ("gaussian", lambda v: np.exp(-(v**2) / 2)),
+        ("triangular", lambda v: np.maximum(0.0, 1.0 - np.abs(v))),
+        ("rectangular", lambda v: ((v >= -1.0) & (v < 1.0)).astype(np.float32)),
+    ],
+)
+def test_equation_learner_named_functions(name, function):
+    x = Input(f"named_eql_{name}_x", sw=1)
+    learner = EquationLearner(
+        [name], linear_in=Linear(features=1, kernel="ones", bias=False)
+    )
+    model = Modely(
+        f"named_eql_{name}",
+        inputs=[x],
+        outputs=[Output(f"named_eql_{name}_out", learner(x))],
+    ).build()
+
+    values = np.array([-1.5, -0.25, 0.4, 0.75, 2.7], dtype=np.float32)
+    result = to_numpy(
+        model({f"named_eql_{name}_x": values.reshape(-1, 1, 1)})[
+            f"named_eql_{name}_out"
+        ]
+    )
+    with np.errstate(invalid="ignore"):
+        expected = function(values)
+    np.testing.assert_allclose(result.ravel(), expected, rtol=1e-5, atol=1e-6)
+
+
+def test_equation_learner_atan2_takes_two_arguments():
+    x, y = Input("atan2_eql_x", sw=1), Input("atan2_eql_y", sw=1)
+    learner = EquationLearner(
+        ["atan2"],
+        linear_in=Linear(
+            features=2,
+            kernel=Parameter("atan2_eql_in", value=[[1.0, 0.0], [0.0, 1.0]]),
+            bias=False,
+        ),
+    )
+    model = Modely(
+        "atan2_eql",
+        inputs=[x, y],
+        outputs=[Output("atan2_eql_out", learner([x, y]))],
+    ).build()
+
+    xs = np.array([1.0, -1.0, 0.5], dtype=np.float32)
+    ys = np.array([0.5, 2.0, -3.0], dtype=np.float32)
+    result = model(
+        {"atan2_eql_x": xs.reshape(-1, 1, 1), "atan2_eql_y": ys.reshape(-1, 1, 1)}
+    )["atan2_eql_out"]
+    np.testing.assert_allclose(
+        to_numpy(result).ravel(), np.arctan2(xs, ys), rtol=1e-5, atol=1e-6
+    )
+
+
+def _threshold_learner(threshold):
+    """A learner y = 2 (x + 0.005 v + 0.002) + 3 sin(0.004 x + v + 0.5) + 0.001,
+    whose coefficients below 0.01 leave y = 2 x + 3 sin(v + 0.5)."""
+    return EquationLearner(
+        ["identity", "sin"],
+        linear_in=Linear(
+            features=2,
+            kernel=Parameter("threshold_in", value=[[1.0, 0.004], [0.005, 1.0]]),
+            bias=Parameter("threshold_in_bias", value=[0.002, 0.5]),
+        ),
+        linear_out=Linear(
+            features=1,
+            kernel=Parameter("threshold_out", value=[[2.0], [3.0]]),
+            bias=Parameter("threshold_out_bias", value=[0.001]),
+        ),
+        threshold=threshold,
+        name="threshold_eql",
+    )
+
+
+def test_equation_learner_threshold_drops_small_coefficients():
+    x, v = Input("threshold_x", sw=1), Input("threshold_v", sw=1)
+    learner = _threshold_learner(threshold=0.01)
+    model = Modely(
+        "threshold_model",
+        inputs=[x, v],
+        outputs=[Output("threshold_y", learner([x, v]))],
+    ).build()
+
+    xs = np.array([0.5, -1.0], dtype=np.float32)
+    vs = np.array([0.2, 1.5], dtype=np.float32)
+    inputs = {
+        "threshold_x": xs.reshape(-1, 1, 1),
+        "threshold_v": vs.reshape(-1, 1, 1),
+    }
+    np.testing.assert_allclose(
+        to_numpy(model(inputs)["threshold_y"]).ravel(),
+        2.0 * xs + 3.0 * np.sin(vs + 0.5),
+        rtol=1e-5,
+        atol=1e-6,
+    )
+
+    # The Parameters keep the values the threshold drops.
+    np.testing.assert_allclose(
+        to_numpy(model.parameters["threshold_in"].param),
+        [[1.0, 0.004], [0.005, 1.0]],
+    )
+    np.testing.assert_allclose(
+        to_numpy(model.parameters["threshold_out_bias"].param), [0.001]
+    )
+    # Dropping computes as zero: no Parameter is added for it.
+    assert len(model.parameters) == 4
+
+
+def test_equation_learner_threshold_changes_a_built_model():
+    x, v = Input("rethreshold_x", sw=1), Input("rethreshold_v", sw=1)
+    learner = _threshold_learner(threshold=None)
+    first, second = learner([x, v]), learner([x, v])
+    model = Modely(
+        "rethreshold_model",
+        inputs=[x, v],
+        outputs=[Output("rethreshold_1", first), Output("rethreshold_2", second)],
+    ).build()
+
+    xs = np.array([0.5, -1.0], dtype=np.float32)
+    vs = np.array([0.2, 1.5], dtype=np.float32)
+    inputs = {
+        "rethreshold_x": xs.reshape(-1, 1, 1),
+        "rethreshold_v": vs.reshape(-1, 1, 1),
+    }
+    kept = 2.0 * (xs + 0.005 * vs + 0.002) + 3.0 * np.sin(0.004 * xs + vs + 0.5) + 0.001
+    dropped = 2.0 * xs + 3.0 * np.sin(vs + 0.5)
+
+    def results():
+        outputs = model(inputs)
+        return [
+            to_numpy(outputs[name]).ravel()
+            for name in ("rethreshold_1", "rethreshold_2")
+        ]
+
+    for result in results():
+        np.testing.assert_allclose(result, kept, rtol=1e-5, atol=1e-6)
+
+    # Set on the built model, every call computes with it, without a rebuild.
+    learner.threshold = 0.01
+    assert learner.threshold == 0.01
+    for result in results():
+        np.testing.assert_allclose(result, dropped, rtol=1e-5, atol=1e-6)
+
+    # Zero, like None, drops nothing.
+    learner.threshold = 0.0
+    for result in results():
+        np.testing.assert_allclose(result, kept, rtol=1e-5, atol=1e-6)
+
+
+def test_equation_learner_threshold_reaches_a_model_used_as_a_block():
+    inner = Input("block_eql_inner", sw=1)
+    learner = EquationLearner(
+        ["identity"],
+        linear_in=Linear(features=1, kernel="ones", bias=False),
+        linear_out=Linear(
+            features=1,
+            kernel=Parameter("block_eql_out", value=[[0.005]]),
+            bias=False,
+        ),
+    )
+    block = Modely(
+        "block_eql",
+        inputs=[inner],
+        outputs=[Output("block_eql_y", learner(inner))],
+    ).build()
+    outer = Input("block_eql_outer", sw=1)
+    model = Modely(
+        "block_eql_model",
+        inputs=[outer],
+        outputs=[Output("block_eql_model_y", block([outer]))],
+    ).build()
+
+    inputs = {"block_eql_outer": np.ones((1, 1, 1), dtype=np.float32)}
+    np.testing.assert_allclose(
+        to_numpy(model(inputs)["block_eql_model_y"]).ravel(), [0.005], atol=1e-7
+    )
+    learner.threshold = 0.01
+    np.testing.assert_allclose(
+        to_numpy(model(inputs)["block_eql_model_y"]).ravel(), [0.0]
+    )
+
 
 def test_integrate():
     # make a simple forward Euler integrator step

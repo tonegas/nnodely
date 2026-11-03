@@ -768,6 +768,102 @@ def test_train_equation_learner_updates_symbolic_coefficients():
     )
 
 
+def test_train_equation_learner_trains_coefficients_below_the_threshold():
+    # A dropped coefficient computes as zero, but trains with the gradient it
+    # would have if kept: it is not stuck at zero, and counts again once it
+    # grows past the threshold.
+    input_node = Input("dropped_train_input", sw=1)
+    target = Input("dropped_train_target", sw=1)
+    equation = EquationLearner(
+        functions=["identity"],
+        linear_in=Linear(features=1, kernel="ones", bias=False),
+        linear_out=Linear(
+            features=1,
+            kernel=Parameter("dropped_train_out", value=[[0.005]]),
+            bias=False,
+        ),
+        threshold=0.01,
+    )
+    output = Output("dropped_train_output", equation(input_node))
+    model = Modely("dropped_train_model", inputs=[input_node], outputs=[output])
+    model.minimize("error", source=output, target=target, loss="mse")
+    model.build()
+
+    one = {"dropped_train_input": np.ones((1, 1, 1), dtype=np.float32)}
+    np.testing.assert_allclose(to_numpy(model(one)["dropped_train_output"]), 0.0)
+
+    data = DataLoader(
+        model,
+        source={"dropped_train_input": [1.0], "dropped_train_target": [3.0]},
+    )
+    model.train(
+        train_data=data, epochs=1, batch_size=1, optimizer="sgd", lr=0.1, printer=None
+    )
+
+    # The prediction 0 against 3 gives a gradient of -6 to the output
+    # coefficient, which moves to 0.005 + 0.1 * 6. The input one is reached
+    # through the dropped coefficient, as zero, and keeps its value.
+    assert equation._linear_in is not None and equation._linear_out is not None
+    np.testing.assert_allclose(
+        to_numpy(equation._linear_out.kernel), [[0.605]], rtol=1e-5, atol=1e-5
+    )
+    np.testing.assert_allclose(
+        to_numpy(equation._linear_in.kernel), [[1.0]], rtol=1e-5, atol=1e-5
+    )
+    np.testing.assert_allclose(
+        to_numpy(model(one)["dropped_train_output"]).ravel(), [0.605], rtol=1e-5
+    )
+
+
+@pytest.mark.slow
+def test_train_equation_learner_fine_tunes_with_a_threshold():
+    # The use the EquationLearner recommends: train without a threshold, then
+    # set one and fine-tune at a lower learning rate, without a rebuild.
+    import sympy
+
+    input_node = Input("law_input", sw=1)
+    target = Input("law_target", sw=1)
+    # Started from fixed projections, every argument x and every coefficient
+    # zero, the fit is alike on every backend: from random ones it can stall
+    # in a local minimum.
+    learner = EquationLearner(
+        ["identity", "sin", "cos"],
+        linear_in=Linear(features=3, kernel="ones", bias="zeros"),
+        linear_out=Linear(features=1, kernel="zeros", bias="zeros"),
+        name="law",
+    )
+    output = Output("law_output", learner(input_node))
+    model = Modely("law_model", inputs=[input_node], outputs=[output])
+    model.minimize("error", source=output, target=target, loss="mse")
+    model.build()
+
+    xs = np.linspace(-2.0, 2.0, 100)
+    data = DataLoader(
+        model,
+        source={"law_input": xs, "law_target": 2.0 * np.sin(xs) + 0.5 * xs},
+    )
+    history = model.train(
+        train_data=data, epochs=60, batch_size=10, lr=0.02, printer=None
+    )
+    assert history["loss"][-1] < 1e-2
+
+    learner.threshold = 0.05
+    history = model.train(
+        train_data=data, epochs=20, batch_size=10, lr=0.002, printer=None
+    )
+    assert history["loss"][-1] < 1e-2
+
+    # The equation plot() returns is the one the model computes, less the
+    # coefficients below the threshold.
+    equation = learner.plot(precision=8)
+    assert equation.free_symbols == {sympy.Symbol("law_input"), sympy.Symbol("y")}
+    written = sympy.lambdify(sympy.Symbol("law_input"), equation.rhs, "numpy")
+    predicted = model({"law_input": xs.reshape(-1, 1, 1).astype(np.float32)})
+    np.testing.assert_allclose(
+        to_numpy(predicted["law_output"]).ravel(), written(xs), atol=1e-4
+    )
+
+
 @pytest.mark.parametrize(
     "loss_name",
     [

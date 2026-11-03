@@ -183,6 +183,16 @@ variable, and trains, validates and exports through Keras. Models saved with
   own, a layer instance is shared by every cell, and `vectorized=True` calls
   it once on all the cells, which it returns on a last dim axis, as
   `Fir(features=N)` does.
+- `EquationLearner(functions, linear_in=, linear_out=, threshold=)`: an input
+  projection gives each function its arguments, and `linear_out` combines
+  the results. Functions are names - the trigonometric, math and activation
+  layers, `gaussian`, `triangular`, `rectangular`, and `add`, `subtract`,
+  `multiply`, `divide`, `power`, `atan2` of two arguments - layer classes or
+  instances, or callables on streams. `threshold` drops the coefficients of
+  both projections below it from what the model computes, while they keep
+  training; `learner.threshold` can be changed on a built model, which is
+  saved with it. `learner.plot()` draws the learned equation as LaTeX and
+  returns it as a sympy `Eq`.
 - Layers new in 2.0: `BatchNorm`, `LeakyReLU`, `PReLU`, `Swish`, `GELU`,
   `Softplus`, `Asin`, `Acos`, `Atan`, `Exp`, `Log`, `Log10`, `Sqrt`, `Abs`,
   `Floor`, `Ceil`, `Deg2Rad`, `Clamp`, and `DataLoader.get_samples(n)`.
