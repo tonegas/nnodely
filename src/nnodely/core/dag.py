@@ -321,16 +321,23 @@ def toposort_outputs(outputs: list[Output]) -> list[Node]:
     return order
 
 
+def _read_nodes(roots, declared=None) -> list[Node]:
+    """Every node ``roots`` read, inside the models they call too, in the
+    order the graph reaches them; with ``declared``, the inputs of a Modely,
+    as it reads them (see Scope.declared)."""
+    scope = Scope(declared=None if declared is None else set(declared))
+    return toposort_outputs([flatten_node(root, scope) for root in roots])
+
+
 def _read_inputs(roots, declared=None) -> dict[str, Any]:
-    """Every Input ``roots`` read, by name, inside the models they call too,
-    in the order the graph reaches them; with ``declared``, the inputs of a
-    Modely, as it reads them (see Scope.declared)."""
+    """Every Input ``roots`` read, by name, as :func:`_read_nodes` reaches
+    them."""
     from nnodely.layers.input import Input
 
-    scope = Scope(declared=None if declared is None else set(declared))
-    flat = [flatten_node(root, scope) for root in roots]
     return {
-        node.name: node for node in toposort_outputs(flat) if isinstance(node, Input)
+        node.name: node
+        for node in _read_nodes(roots, declared)
+        if isinstance(node, Input)
     }
 
 

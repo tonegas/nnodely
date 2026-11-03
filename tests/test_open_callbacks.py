@@ -12,6 +12,7 @@ from nnodely import (
     Input,
     Integrate,
     IntegrateStep,
+    Loop,
     Modely,
     ModelyLoop,
     Output,
@@ -415,12 +416,87 @@ def test_inputs_tells_how_each_input_is_fed():
     assert (
         rows["oc_tab_level"]["declared"] and rows["oc_tab_level"]["data"] == "optional"
     )
-    assert rows["oc_tab_level"]["starts from"] == "its data, else 0"
+    assert rows["oc_tab_level"]["starts from"] == "its data, first step, else 0"
     assert rows["oc_tab_source"]["data"] == "required"
     (state,) = [row for name, row in rows.items() if name.endswith("_integral")]
     assert state["data"] is None and state["starts from"] == "oc_tab_x0, first step"
     text = str(loop.inputs)
     assert text.startswith("Inputs of oc_tab_loop") and "4 inputs, 2 fed back" in text
+
+
+def test_inputs_of_a_loop_are_those_of_its_modelyloop():
+    # A ModelyLoop is the Loop over its step, its Inputs with the horizon: a
+    # Modely rolling out the same Loop prints the same rows.
+    def rows(model):
+        return [
+            (
+                row["input"].name,
+                row["seq"],
+                row["declared"],
+                row["fed back with"],
+                row["data"],
+                row["starts from"],
+            )
+            for row in model.inputs._rows
+        ]
+
+    u, y0 = Input("oc_same_u", sw=1), Input("oc_same_y0", sw=1)
+    integrate = Integrate(dt=1, init=y0, name="oc_same_int")
+    shortcut = ModelyLoop(
+        "oc_same_shortcut",
+        inputs=[u, y0],
+        outputs=[Output("oc_same_traj", integrate(u))],
+    )
+    u, y0 = Input("oc_same_u", sw=1), Input("oc_same_y0", sw=1)
+    step = Modely(
+        "oc_same_step",
+        inputs=[u, y0],
+        outputs=[
+            Output("oc_same_next", Integrate(dt=1, init=y0, name="oc_same_int")(u))
+        ],
+    )
+    u_seq, y0_seq = (
+        Input("oc_same_u", seq=-1, sw=1),
+        Input("oc_same_y0", seq=-1, sw=1),
+    )
+    traj = Loop(f=step)({u: u_seq, y0: y0_seq})
+    manual = Modely(
+        "oc_same_manual",
+        inputs=[u_seq, y0_seq],
+        outputs=[Output("oc_same_traj", traj)],
+    )
+    state = ("oc_same_int_integral", (), False, "oc_same_int", None)
+    assert rows(shortcut) == [
+        ("oc_same_y0", (None,), True, None, "required", None),
+        ("oc_same_u", (None,), True, None, "required", None),
+        (*state, "oc_same_y0, first step"),
+    ]
+    assert rows(manual) == rows(shortcut)
+
+    # A state its own data starts, and one a stream without the horizon does.
+    x = Input("oc_same_x", sw=1)
+    x_next = x.feedback(IntegrateStep(dt=1)(x, u))
+    shortcut = ModelyLoop(
+        "oc_same_x_shortcut", inputs=[u, x], outputs=[Output("oc_same_x_traj", x_next)]
+    )
+    assert rows(shortcut)[0] == (
+        "oc_same_x",
+        (None,),
+        True,
+        x_next.name,
+        "optional",
+        "its data, first step, else 0",
+    )
+    step = Modely(
+        "oc_same_x_step", inputs=[u, x], outputs=[Output("oc_same_x_next", x_next)]
+    )
+    x0 = Input("oc_same_x0", sw=1)
+    manual = Modely(
+        "oc_same_x_manual",
+        inputs=[u_seq, x0],
+        outputs=[Output("oc_same_x_traj", Loop(f=step, init={x: x0})({u: u_seq}))],
+    )
+    assert rows(manual)[-1] == ("oc_same_x", (), False, x_next.name, None, "oc_same_x0")
 
 
 def test_training_identifies_a_spring_from_a_measured_trajectory(tmp_path):

@@ -87,9 +87,11 @@ variable, and trains, validates and exports through Keras. Models saved with
   them before the first step as the `init` of `Derivative` holds the samples
   its stencil reads.
 - `Modely.inputs`: every Input a model reads - declared or not, inside
-  the models it calls, or only by an objective - printed as a table of its
-  shape and how it is fed: declared, the stream it is fed back with, what the
-  data must hold of it and what it starts from.
+  the models it calls, or only by an objective - and every state of the Loops
+  it rolls out, printed as a table of its shape and how it is fed: declared,
+  the stream it is fed back with, what the data must hold of it and what it
+  starts from. A ModelyLoop prints the rows of the Loop it is a shortcut for,
+  its Inputs with the horizon.
 - `KerasFunction(function)`: any Keras layer, class or instance, as an
   nnodely layer - a custom function in the graph, its streams passed to
   `call` as separate arguments. The model saves, loads and exports with it.

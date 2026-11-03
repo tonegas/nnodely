@@ -252,7 +252,7 @@ class Inputs(list):
     """The Inputs of a model, as :attr:`Modely.inputs` lists them: a list
     of the Input objects, printed as a table of their shapes and of how each
     is fed - whether it is declared, the stream it is fed back with, what the
-    data must hold of it and, fed back in a ModelyLoop, what it starts from."""
+    data must hold of it and, fed back by a Loop, what it starts from."""
 
     _HEADER = (
         "name",

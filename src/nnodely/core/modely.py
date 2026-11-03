@@ -10,6 +10,7 @@ from nnodely.core.dag import (
     _flatten_graph,
     _parameters,
     _read_inputs,
+    _read_nodes,
     _source_input_tensors,
     _source_names,
 )
@@ -545,15 +546,18 @@ class Modely:
     @property
     def inputs(self) -> Inputs:
         """Every Input the model reads - declared or not, inside the models it
-        calls, or only by a minimizer - and, in a ModelyLoop, every Input fed
-        back inside its step. A list of the Input objects, printed as a table
-        of their shapes and of how each is fed: whether it is declared, the
-        stream it is fed back with, what the data must hold of it and, fed
-        back in a ModelyLoop, what it starts from."""
+        calls, or only by a minimizer - and every Input fed back inside the
+        step of a Loop it rolls out, as a ModelyLoop does. A list of the Input
+        objects, printed as a table of their shapes and of how each is fed:
+        whether it is declared, the stream it is fed back with, what the data
+        must hold of it and, fed back by a Loop, what it starts from."""
         return Inputs(self._input_rows(), title=f"Inputs of {self.name}")
 
     def _input_rows(self) -> list[dict]:
-        """A row of :attr:`inputs` per Input the graph reads."""
+        """A row of :attr:`inputs` per Input the graph reads, then one per
+        state of its Loops that does not start from the data of one."""
+        from nnodely.layers.loop import Loop
+
         declared = {node.name for node in self._inputs}
         sides = [
             side
@@ -565,24 +569,62 @@ class Modely:
             node.name: f"{stream.name} (rollback)"
             for node, stream in self._roll_feedback.items()
         }
+        read = _read_nodes([*self.outputs, *sides], self._inputs)
         rows = []
-        for name, node in _read_inputs([*self.outputs, *sides], self._inputs).items():
+        by_name: dict[str, dict] = {}
+        for name, node in {
+            node.name: node for node in read if isinstance(node, Input)
+        }.items():
             if name not in forward:
                 data = "target"
             else:
                 data = "optional" if name in self.optional_inputs else "required"
-            rows.append(
-                {
-                    "input": node,
-                    "seq": tuple(node.seq),
-                    "declared": name in declared,
-                    "fed back with": rollback.get(
-                        name, None if node.update is None else node.update.name
-                    ),
-                    "data": data,
-                    "starts from": None,
-                }
-            )
+            by_name[name] = {
+                "input": node,
+                "seq": tuple(node.seq),
+                "declared": name in declared,
+                "fed back with": rollback.get(
+                    name, None if node.update is None else node.update.name
+                ),
+                "data": data,
+                "starts from": None,
+            }
+            rows.append(by_name[name])
+
+        # The states, inside the step: one that starts from an Input of its
+        # own name is that Input, read from data.
+        seen: set[int] = set()
+        for loop in (node for node in read if isinstance(node, Loop)):
+            for state, update, start, rolled in loop._state_starts():
+                if id(state) in seen:
+                    continue
+                seen.add(id(state))
+                first = ", first step" if rolled else ""
+                row = (
+                    by_name.get(state.name)
+                    if isinstance(start, Input) and start.name == state.name
+                    else None
+                )
+                if row is not None:
+                    starts = f"its data{first}"
+                    if state.name in self.optional_inputs:
+                        starts += ", else 0"
+                else:
+                    row = {
+                        "input": state,
+                        "seq": tuple(state.seq),
+                        "declared": False,
+                        "data": None,
+                    }
+                    rows.append(row)
+                    if start is None:
+                        starts = "0"
+                    elif isinstance(start, Stream):
+                        starts = f"{start.name}{first}"
+                    else:
+                        starts = str(start)
+                row["fed back with"] = update.name
+                row["starts from"] = starts
         return rows
 
     def freeze(self):

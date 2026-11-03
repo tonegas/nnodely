@@ -1175,6 +1175,28 @@ class Loop(Layer):
             )
         return values
 
+    def _state_starts(self) -> list[tuple[Input, Stream, Any, bool]]:
+        """Every state of the bound loop, with the stream it is fed back with,
+        what it starts from - a stream, a number, or None for zero - and
+        whether that is read at its first step."""
+        starts = []
+        for state, output, value, rolled in zip(
+            self._feedback_inputs,
+            self._feedback_outputs,
+            self._initial_values,
+            self._rolled_initial,
+        ):
+            given = self._init.get(state, self._step.starts.get(state))
+            starts.append(
+                (
+                    state,
+                    output._preds[0] if state.update is None else state.update,
+                    value if isinstance(given, Stream) else given,
+                    rolled,
+                )
+            )
+        return starts
+
     @staticmethod
     def _find_node(nodes, value, kind):
         if isinstance(value, str):

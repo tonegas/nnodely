@@ -108,11 +108,6 @@ class ModelyLoop(Modely):
             )
         loop = declaration({node.name: self._rolled_input(node) for node in read})
         self.body = declaration._f
-        self._initial: dict[Input, Any] = {
-            state: self._rolled_input(start) if isinstance(start, Input) else start
-            for state, start in step.starts.items()
-        }
-        self._initial.update({state: loop._init[state] for state in from_data})
 
         # One trajectory per output of the body, the declared outputs first.
         trajectories = list(loop)
@@ -130,33 +125,6 @@ class ModelyLoop(Modely):
             outputs=rolled_outputs,
         )
         self.optional_inputs = {state.name for state in from_data}
-
-    def _input_rows(self) -> list[dict]:
-        """The rows of :attr:`inputs`: the Inputs the data feeds, shaped as
-        the step reads them, then the fed-back Inputs the loop feeds back."""
-        rows = super()._input_rows()
-        for row in rows:
-            row["seq"] = row["seq"][1:]  # the horizon, which the data adds
-        by_name = {row["input"].name: row for row in rows}
-        for node in self.body._inputs:
-            if node.update is None:
-                continue
-            row = by_name.get(node.name)
-            if row is None:
-                row = {"input": node, "seq": tuple(node.seq), "declared": False}
-                row["data"] = None
-                rows.append(row)
-            row["fed back with"] = node.update.name
-            start = self._initial.get(node)
-            if node.name in self.optional_inputs:
-                row["starts from"] = "its data, else 0"
-            elif start is None:
-                row["starts from"] = "0"
-            elif isinstance(start, Input):
-                row["starts from"] = f"{start.name}, first step"
-            else:
-                row["starts from"] = getattr(start, "name", str(start))
-        return rows
 
     def _rolled_input(self, node: Input) -> Input:
         """The Input of the rollout for an Input of the step: the same name,
