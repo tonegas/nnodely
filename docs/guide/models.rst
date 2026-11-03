@@ -297,7 +297,36 @@ weights of its own. With ``vectorized=True`` a function or a layer such as
 ``Fir(features=20)`` is called once on all the cells instead, and returns them on a last
 dim axis of 20 entries. Functions passed to ``EquationLearner`` can be names,
 *nnodely* layer classes, or Python callables that take streams, such as
-``lambda a, b: a * b``.
+``lambda a, b: a * b``. The names cover the trigonometric functions, ``exp``,
+``log``, ``log10``, ``sqrt``, ``abs``, ``sign``, ``floor``, ``ceil``, the
+activations, the bumps ``gaussian``, ``triangular`` and ``rectangular``, and
+the functions of two arguments ``add``, ``subtract``, ``multiply``,
+``divide``, ``power`` and ``atan2``. With ``threshold=1e-3`` it drops every
+coefficient of its projections smaller than that in magnitude, so the learned
+equation has no terms such as ``0.000001 * sin(x)``; training still updates
+them, and one that grows past the threshold counts again. ``learner.threshold``
+can be changed at any time, after training too, without building the model
+again. The recommended use is in two phases: train without a threshold, then
+set it and fine-tune at a lower learning rate, so that the coefficients left
+adjust to those dropped:
+
+.. code-block:: python
+
+   model.train(data, epochs=150, lr=0.02)
+   learner.threshold = 0.01
+   model.train(data, epochs=50, lr=0.002)
+
+After training, ``plot()`` draws the equation the learner computes, typeset as
+LaTeX by matplotlib (no LaTeX installation needed), and returns it as a sympy
+equation: expanded, without the coefficients the threshold drops, its numbers
+rounded to ``precision`` significant digits, its variables named after the
+inputs. ``sympy.latex()`` gives its LaTeX source, and a notebook shows it
+typeset:
+
+.. code-block:: python
+
+   equation = learner.plot()    # y = 0.5002 x + 1.997 sin(0.9993 x)
+   sympy.latex(equation)        # 'y = 0.5002 x + 1.997 \sin{\left(0.9993 x \right)}'
 
 The model
 ---------

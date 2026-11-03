@@ -126,6 +126,25 @@ variable, and trains, validates and exports through Keras. Models saved with
   own, a layer instance is shared by every cell, and `vectorized=True` calls
   it once on all the cells, which it returns on a last dim axis, as
   `Fir(features=N)` does.
+- `EquationLearner(..., threshold=t)` drops every coefficient of its
+  projections, weight or bias, whose magnitude is below `t`: it computes as
+  zero, so the learned equation has no terms such as `0.000001 * sin(x)`. The
+  Parameters keep their values and still train, so a coefficient can change
+  sign, or grow back past the threshold. It applies to given projections too,
+  which are left unchanged, and it is saved and exported with the model.
+  `learner.threshold` can be set at any time, after training too, without
+  building the model again; the recommended use is to train without it, then
+  set it and fine-tune at a lower learning rate. A
+  function given as `(function, arity)` is no longer inspected, so a variadic
+  callable such as `lambda *args: ...` can be used.
+- `EquationLearner` functions by the names `exp`, `log`, `log10`, `sqrt`,
+  `abs`, `sign`, `floor`, `ceil`, `gaussian`, `triangular`, `rectangular`
+  and, of two arguments, `atan2`.
+- `EquationLearner.plot(precision=4, ax=None)` draws the learned equation,
+  typeset as LaTeX by matplotlib, and returns it as a sympy equation:
+  expanded, without the coefficients the threshold drops, rounded to
+  `precision` significant digits, its variables named after the inputs.
+  nnodely now depends on `sympy`.
 - Layers new in 2.0: `BatchNorm`, `LeakyReLU`, `PReLU`, `Swish`, `GELU`,
   `Softplus`, `Asin`, `Acos`, `Atan`, `Exp`, `Log`, `Log10`, `Sqrt`, `Abs`,
   `Floor`, `Ceil`, `Deg2Rad`, `Clamp`, and `DataLoader.get_samples(n)`.

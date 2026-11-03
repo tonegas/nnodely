@@ -529,6 +529,78 @@ def test_equation_learner_save_keras_and_html(tmp_path):
     assert "equation_export_linear_out" in nested_html
 
 
+def _equation_learner_threshold_model():
+    # 2 x + 0.003 sin(x) + 3 cos(x + 0.005): the threshold, set after the
+    # model is built, leaves 2 x + 3 cos(x)
+    x = Input("eql_threshold_export_x", sw=1)
+    equation = EquationLearner(
+        functions=["identity", Sin, Cos],
+        linear_in=Linear(
+            features=3,
+            kernel="ones",
+            bias=Parameter("eql_threshold_export_bias", value=[0.0, 0.0, 0.005]),
+        ),
+        linear_out=Linear(
+            features=1,
+            kernel=Parameter("eql_threshold_export_weights", value=[2.0, 0.003, 3.0]),
+            bias=False,
+        ),
+        name="eql_threshold_export",
+    )
+    model = Modely(
+        "eql_threshold_export",
+        inputs=[x],
+        outputs=[Output("eql_threshold_export_y", equation(x))],
+    ).build()
+    equation.threshold = 0.01
+    return model
+
+
+EQL_THRESHOLD_INPUTS = {"eql_threshold_export_x": np.array([[[0.5]]], dtype=np.float32)}
+EQL_THRESHOLD_EXPECTED = 2 * 0.5 + 3 * np.cos(0.5)
+
+
+def test_equation_learner_threshold_save_and_keras(tmp_path):
+    model = _equation_learner_threshold_model()
+    np.testing.assert_allclose(
+        to_numpy(model(EQL_THRESHOLD_INPUTS)["eql_threshold_export_y"]).ravel(),
+        [EQL_THRESHOLD_EXPECTED],
+        rtol=1e-6,
+    )
+
+    # The threshold is saved: the reloaded model drops the same coefficients
+    model.save(tmp_path / "eql_threshold")
+    restored = Modely.load(tmp_path / "eql_threshold")
+    np.testing.assert_allclose(
+        to_numpy(restored(EQL_THRESHOLD_INPUTS)["eql_threshold_export_y"]).ravel(),
+        [EQL_THRESHOLD_EXPECTED],
+        rtol=1e-6,
+    )
+    model.export_keras(tmp_path, "eql_threshold")
+    keras_model = Modely.import_keras(tmp_path / "eql_threshold.keras")
+    keras_result = keras_model(EQL_THRESHOLD_INPUTS, training=False)  # type: ignore
+    np.testing.assert_allclose(
+        to_numpy(keras_result["eql_threshold_export_y"]).ravel(),
+        [EQL_THRESHOLD_EXPECTED],
+        rtol=1e-6,
+    )
+
+
+@requires_onnx_export
+def test_equation_learner_threshold_onnx(tmp_path):
+    pytest.importorskip("onnxruntime")
+    model = _equation_learner_threshold_model()
+    model.export_onnx(tmp_path, "eql_threshold")
+    actual = Modely.validate_onnx(
+        tmp_path / "eql_threshold.onnx", EQL_THRESHOLD_INPUTS, return_dict=True
+    )
+    np.testing.assert_allclose(
+        to_numpy(actual["eql_threshold_export_y"]).ravel(),  # type: ignore
+        [EQL_THRESHOLD_EXPECTED],
+        rtol=1e-6,
+    )
+
+
 def test_local_model_save_keras_and_html(tmp_path):
     model = _local_model()
     inputs = {

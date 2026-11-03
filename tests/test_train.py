@@ -769,6 +769,98 @@ def test_train_equation_learner_updates_symbolic_coefficients():
     )
 
 
+def test_train_equation_learner_threshold_set_after_training():
+    # y = 1 x + 0.001 sin(x), trained once with nothing dropped and no change
+    # (lr 0), then with threshold 0.01: the training compiled before reads the
+    # new threshold, and the step is that of a learner made with it
+    input_node = Input("set_train_input", sw=1)
+    target = Input("set_train_target", sw=1)
+    equation = EquationLearner(
+        functions=["identity", "sin"],
+        linear_in=Linear(features=2, kernel="ones", bias=False),
+        linear_out=Linear(
+            features=1,
+            kernel=Parameter("set_train_out", value=[1.0, 0.001]),
+            bias=False,
+        ),
+        name="set_train",
+    )
+    output = Output("set_train_output", equation(input_node))
+    model = Modely("set_train_model", inputs=[input_node], outputs=[output])
+    model.minimize("error", source=output, target=target, loss="mse")
+    model.build()
+    data = DataLoader(
+        model, source={"set_train_input": [1.0], "set_train_target": [3.0]}
+    )
+    one = {"set_train_input": np.ones((1, 1, 1), dtype=np.float32)}
+
+    model.train(train_data=data, epochs=1, batch_size=1, optimizer="sgd", lr=0.0)
+    np.testing.assert_allclose(
+        to_numpy(model(one)["set_train_output"]).ravel(),
+        [1.0 + 0.001 * np.sin(1.0)],
+        rtol=1e-6,
+    )
+
+    equation.threshold = 0.01
+    model.train(train_data=data, epochs=1, batch_size=1, optimizer="sgd", lr=0.1)
+    # As in the test below: the prediction 1, the derivative -4
+    assert equation.linear_in is not None and equation.linear_out is not None
+    sin_weight = 0.001 + 0.4 * np.sin(1.0)
+    np.testing.assert_allclose(
+        to_numpy(equation.linear_out.kernel), [1.4, sin_weight], rtol=1e-5
+    )
+    np.testing.assert_allclose(
+        to_numpy(equation.linear_in.kernel), [[1.4, 1.0]], rtol=1e-5
+    )
+
+
+def test_train_equation_learner_threshold_drops_but_still_trains():
+    # y = 1 x + 0.001 sin(x): the threshold drops the sin term, so the model
+    # computes 1 x; its weight still trains, with the gradient it would have
+    input_node = Input("threshold_train_input", sw=1)
+    target = Input("threshold_train_target", sw=1)
+    equation = EquationLearner(
+        functions=["identity", "sin"],
+        linear_in=Linear(features=2, kernel="ones", bias=False),
+        linear_out=Linear(
+            features=1,
+            kernel=Parameter("threshold_train_out", value=[1.0, 0.001]),
+            bias=False,
+        ),
+        threshold=0.01,
+        name="threshold_train",
+    )
+    output = Output("threshold_train_output", equation(input_node))
+    model = Modely("threshold_train_model", inputs=[input_node], outputs=[output])
+    model.minimize("error", source=output, target=target, loss="mse")
+    model.build()
+
+    data = DataLoader(
+        model,
+        source={"threshold_train_input": [1.0], "threshold_train_target": [3.0]},
+    )
+    model.train(train_data=data, epochs=1, batch_size=1, optimizer="sgd", lr=0.1)
+
+    # The prediction is 1, the derivative of the squared error 2 (1 - 3) = -4.
+    # The weight of x and its argument: 1 + 0.1 * 4 = 1.4. The dropped weight
+    # of sin: 0.001 + 0.1 * 4 sin(1), past the threshold, so it counts again.
+    # The argument of sin, whose term weighed zero, stays at 1.
+    assert equation.linear_in is not None and equation.linear_out is not None
+    sin_weight = 0.001 + 0.4 * np.sin(1.0)
+    np.testing.assert_allclose(
+        to_numpy(equation.linear_out.kernel), [1.4, sin_weight], rtol=1e-5
+    )
+    np.testing.assert_allclose(
+        to_numpy(equation.linear_in.kernel), [[1.4, 1.0]], rtol=1e-5
+    )
+    result = model({"threshold_train_input": np.ones((1, 1, 1), dtype=np.float32)})
+    np.testing.assert_allclose(
+        to_numpy(result["threshold_train_output"]).ravel(),
+        [1.4 * 1.4 + sin_weight * np.sin(1.0)],
+        rtol=1e-5,
+    )
+
+
 @pytest.mark.parametrize(
     "loss_name",
     [

@@ -1842,6 +1842,343 @@ def test_equation_learner_rejects_invalid_configuration():
         EquationLearner(["not_a_function"])
 
 
+def _thresholded_equation(prefix, threshold):
+    """2 x - 0.003 sin(x + 0.005) + 3 x (0.004 x + 1): the projections give
+    the arguments x, x + 0.005, x and 0.004 x + 1, and weigh the three
+    functions 2, -0.003 and 3."""
+    x = Input(f"{prefix}_x", sw=1)
+    equation = EquationLearner(
+        ["identity", "sin", "multiply"],
+        linear_in=Linear(
+            features=4,
+            kernel=Parameter(f"{prefix}_in_kernel", value=[[1.0, 1.0, 1.0, 0.004]]),
+            bias=Parameter(f"{prefix}_in_bias", value=[0.0, 0.005, 0.0, 1.0]),
+            name=f"{prefix}_linear_in",
+        ),
+        linear_out=Linear(
+            features=1,
+            kernel=Parameter(f"{prefix}_out_kernel", value=[2.0, -0.003, 3.0]),
+            bias=False,
+            name=f"{prefix}_linear_out",
+        ),
+        threshold=threshold,
+        name=prefix,
+    )
+    model = Modely(
+        f"{prefix}_model", inputs=[x], outputs=[Output(f"{prefix}_y", equation(x))]
+    ).build()
+    return equation, model
+
+
+@pytest.mark.parametrize(
+    "threshold, expected",
+    [
+        (None, 2 * 2 - 0.003 * np.sin(2.005) + 3 * 2 * 1.008),
+        # -0.003 dropped; 0.004 equals the threshold, so it is kept
+        (0.004, 2 * 2 + 3 * 2 * 1.008),
+        # Every small coefficient dropped: 2 x + 3 x (0 x + 1)
+        (0.01, 2 * 2 + 3 * 2 * 1.0),
+    ],
+)
+def test_equation_learner_threshold_drops_small_coefficients(threshold, expected):
+    prefix = f"eql_threshold_{str(threshold).replace('.', '_')}"
+    equation, model = _thresholded_equation(prefix, threshold)
+    result = model({f"{prefix}_x": np.array([[[2.0]]], dtype=np.float32)})
+
+    np.testing.assert_allclose(
+        to_numpy(result[f"{prefix}_y"]).ravel(), [expected], rtol=1e-6
+    )
+    assert equation.threshold == threshold
+
+
+def test_equation_learner_threshold_can_change_after_the_model_is_built():
+    # The equation of _thresholded_equation at x = 2, by threshold
+    by_threshold = {
+        None: 2 * 2 - 0.003 * np.sin(2.005) + 3 * 2 * 1.008,
+        0.004: 2 * 2 + 3 * 2 * 1.008,
+        0.01: 2 * 2 + 3 * 2 * 1.0,
+    }
+    equation, model = _thresholded_equation("eql_set", None)
+    value = {"eql_set_x": np.array([[[2.0]]], dtype=np.float32)}
+    for threshold in [None, 0.004, 0.01, None]:
+        equation.threshold = threshold
+        np.testing.assert_allclose(
+            to_numpy(model(value)["eql_set_y"]).ravel(),
+            [by_threshold[threshold]],
+            rtol=1e-6,
+        )
+    with pytest.raises(ValueError, match="zero or positive"):
+        equation.threshold = -0.01
+
+    # Set before the learner is called, it is the one the model is built with
+    x = Input("eql_early_x", sw=1)
+    early = EquationLearner(
+        ["sin"],
+        linear_in=Linear(features=1, kernel="ones", bias=False),
+        name="eql_early",
+    )
+    early.threshold = 0.5
+    early_model = Modely(
+        "eql_early_model",
+        inputs=[x],
+        outputs=[Output("eql_early_y", early(x))],
+    ).build()
+    assert early.threshold == 0.5
+    np.testing.assert_allclose(
+        to_numpy(
+            early_model({"eql_early_x": np.array([[[0.3]]], np.float32)})["eql_early_y"]
+        ),
+        [[[np.sin(0.3)]]],
+        rtol=1e-6,
+    )
+
+
+def test_equation_learner_threshold_reaches_the_given_projections():
+    x = Input("eql_given_x", sw=1)
+    z = Input("eql_given_z", dim=2, sw=1)
+    given = Linear(features=1, name="eql_given_out")
+    # Used before: the equation computes on the weights it made then
+    used_before = given(z)
+    equation = EquationLearner(
+        ["sin", "cos"], linear_out=given, threshold=0.1, name="eql_given"
+    )
+    learned = equation(x)
+    model = Modely(
+        "eql_given_model",
+        inputs=[x, z],
+        outputs=[
+            Output("eql_given_y", learned),
+            Output("eql_given_z_out", used_before),
+        ],
+    ).build()
+
+    assert equation.linear_in is not None and equation.linear_out is not None
+    # The given layer is left as it was, and its weights are shared
+    assert type(given) is Linear and not hasattr(given, "threshold")
+    assert len(model.parameters) == 4  # linear_in's kernel and bias, given's
+
+    # The weights are shared, the threshold is not: with the bias at 0.05 and
+    # the kernel at 2, the learner drops the bias, the given layer keeps it
+    assert used_before.kernel is not None and used_before.bias is not None
+    used_before.kernel.assign(np.full(used_before.kernel.shape, 2.0, np.float32))
+    used_before.bias.assign(np.full(used_before.bias.shape, 0.05, np.float32))
+    assert equation.linear_in.kernel is not None and equation.linear_in.bias is not None
+    equation.linear_in.kernel.assign(
+        np.ones(equation.linear_in.kernel.shape, np.float32)
+    )
+    equation.linear_in.bias.assign(np.zeros(equation.linear_in.bias.shape, np.float32))
+    result = model(
+        {
+            "eql_given_x": np.array([[[0.5]]], dtype=np.float32),
+            "eql_given_z": np.array([[[1.0, 3.0]]], dtype=np.float32),
+        }
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["eql_given_y"]).ravel(),
+        [2.0 * np.sin(0.5) + 2.0 * np.cos(0.5)],
+        rtol=1e-6,
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["eql_given_z_out"]).ravel(), [2.0 + 6.0 + 0.05], rtol=1e-6
+    )
+
+
+def test_equation_learner_takes_the_arity_of_a_variadic_function():
+    # Its signature tells no arity: the pair (function, arity) gives it
+    x = Input("variadic_x", sw=1)
+    equation = EquationLearner(
+        [(lambda *args: args[0] + args[1] + args[2], 3)],
+        linear_in=Linear(
+            features=3,
+            kernel="ones",
+            bias=Parameter("variadic_bias", value=[0.0, 1.0, 2.0]),
+        ),
+        name="variadic",
+    )
+    model = Modely(
+        "variadic_model", inputs=[x], outputs=[Output("variadic_y", equation(x))]
+    ).build()
+
+    assert equation.n_arguments == 3
+    result = model({"variadic_x": np.array([[[1.0]]], dtype=np.float32)})
+    np.testing.assert_allclose(to_numpy(result["variadic_y"]).ravel(), [6.0])
+
+    with pytest.raises(ValueError, match="use \\(function, arity\\)"):
+        EquationLearner([lambda *args: args[0]])
+
+
+def test_equation_learner_threshold_must_not_be_negative():
+    with pytest.raises(ValueError, match="zero or positive"):
+        EquationLearner(["sin"], threshold=-1e-3)
+
+
+@pytest.mark.parametrize(
+    "name, value, expected",
+    [
+        ("exp", 0.5, np.exp(0.5)),
+        ("log", 2.0, np.log(2.0)),
+        ("log10", 100.0, 2.0),
+        ("sqrt", 2.25, 1.5),
+        ("abs", -1.5, 1.5),
+        ("sign", -1.5, -1.0),
+        ("floor", 1.7, 1.0),
+        ("ceil", 1.2, 2.0),
+        # The bumps are 1 at 0, of width 1
+        ("gaussian", 0.5, np.exp(-0.125)),
+        ("triangular", 0.25, 0.75),
+        ("rectangular", 0.5, 1.0),
+        ("rectangular", 1.5, 0.0),
+    ],
+)
+def test_equation_learner_named_functions_of_one_argument(name, value, expected):
+    x = Input(f"named_{name}_x", sw=1)
+    equation = EquationLearner(
+        [name],
+        linear_in=Linear(features=1, kernel="ones", bias=False),
+        name=f"named_{name}",
+    )
+    model = Modely(
+        f"named_{name}_model",
+        inputs=[x],
+        outputs=[Output(f"named_{name}_y", equation(x))],
+    ).build()
+    result = model({f"named_{name}_x": np.array([[[value]]], dtype=np.float32)})
+    np.testing.assert_allclose(
+        to_numpy(result[f"named_{name}_y"]).ravel(), [expected], rtol=1e-6
+    )
+
+
+def test_equation_learner_atan2_takes_two_arguments():
+    # atan2(y, x) of the point (-1, 1): 3 pi / 4
+    y, x = Input("named_atan2_y", sw=1), Input("named_atan2_x", sw=1)
+    equation = EquationLearner(
+        ["atan2"],
+        linear_in=Linear(
+            features=2,
+            kernel=Parameter("named_atan2_in", value=[[1.0, 0.0], [0.0, 1.0]]),
+            bias=False,
+        ),
+        name="named_atan2",
+    )
+    assert equation.n_arguments == 2
+    model = Modely(
+        "named_atan2_model",
+        inputs=[y, x],
+        outputs=[Output("named_atan2_out", equation([y, x]))],
+    ).build()
+    result = model(
+        {
+            "named_atan2_y": np.array([[[1.0]]], dtype=np.float32),
+            "named_atan2_x": np.array([[[-1.0]]], dtype=np.float32),
+        }
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["named_atan2_out"]).ravel(), [0.75 * np.pi], rtol=1e-6
+    )
+
+
+def test_equation_learner_plot_writes_the_learned_equation():
+    import matplotlib.pyplot as plt
+    import sympy
+
+    # x + 2 sin(0.5 x) + 3 x (x + 1), expanded: 3 x^2 + 4 x + 2 sin(0.5 x)
+    x = Input("plot_x", sw=1)
+    equation = EquationLearner(
+        ["identity", "sin", "multiply"],
+        linear_in=Linear(
+            features=4,
+            kernel=Parameter("plot_in", value=[[1.0, 0.5, 1.0, 1.0]]),
+            bias=Parameter("plot_bias", value=[0.0, 0.0, 0.0, 1.0]),
+        ),
+        linear_out=Linear(
+            features=1, kernel=Parameter("plot_out", value=[1.0, 2.0, 3.0]), bias=False
+        ),
+        name="plot_equation",
+    )
+    with pytest.raises(RuntimeError, match="build the model first"):
+        equation.plot()
+    Modely("plot_model", inputs=[x], outputs=[Output("plot_y", equation(x))]).build()
+
+    written = equation.plot()
+    symbol = sympy.Symbol("plot_x")
+    assert written.lhs == sympy.Symbol("y")  # type: ignore
+    # The coefficients are decimal numbers, 0.5 rather than 1/2
+    assert written.rhs == 3 * symbol**2 + 4 * symbol + 2 * sympy.sin(  # type: ignore
+        sympy.Float(0.5) * symbol  # type: ignore
+    )
+    # Drawn as TeX on a figure of its own, on axes without axis lines, which
+    # a notebook needs to show it
+    figure = plt.gcf()
+    drawn = figure.axes[0].texts[0].get_text()
+    assert drawn.startswith("$y = ") and r"\sin" in drawn
+    assert not figure.axes[0].axison
+
+    # On given axes
+    _, ax = plt.subplots()
+    assert equation.plot(ax=ax) == written
+    assert ax.texts and not ax.axison
+    plt.close("all")
+
+
+def test_equation_learner_plot_leaves_out_the_dropped_coefficients():
+    import matplotlib.pyplot as plt
+    import sympy
+
+    # 2 x - 0.003 sin(x + 0.005) + 3 x (0.004 x + 1): with threshold 0.01,
+    # 2 x + 3 x
+    full, _ = _thresholded_equation("plot_full", None)
+    clean, _ = _thresholded_equation("plot_clean", 0.01)
+    assert full.plot().rhs.has(sympy.sin)  # type: ignore
+    assert clean.plot().rhs == 5 * sympy.Symbol("plot_clean_x")  # type: ignore
+    plt.close("all")
+
+
+def test_equation_learner_plot_of_the_basis_of_several_inputs():
+    import matplotlib.pyplot as plt
+    import sympy
+
+    def cube(a):
+        return a * a * a
+
+    def opaque(a):
+        # Built from a layer, it cannot run on symbols: written by name
+        return Sin(a)
+
+    x, z = Input("basis_plot_x", sw=1), Input("basis_plot_z", dim=2, sw=1)
+    # The arguments: x, z_0 + 0.5, z_1, x
+    equation = EquationLearner(
+        [cube, (lambda a, b: a - b, 2), "relu", opaque],
+        linear_in=Linear(
+            features=5,
+            kernel=Parameter(
+                "basis_plot_in",
+                value=[
+                    [1.0, 0.0, 0.0, 0.0, 1.0],
+                    [0.0, 1.0, 0.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 1.0, 0.0],
+                ],
+            ),
+            bias=Parameter("basis_plot_bias", value=[0.0, 0.5, 0.0, 0.0, 1.23456]),
+        ),
+        name="basis_plot",
+    )
+    Modely(
+        "basis_plot_model",
+        inputs=[x, z],
+        outputs=[Output("basis_plot_f", equation([x, z]))],
+    ).build()
+
+    written = equation.plot(precision=3)
+    xs, z0, z1 = sympy.symbols("basis_plot_x basis_plot_z_0 basis_plot_z_1")
+    assert [str(eq.lhs) for eq in written] == ["f_0", "f_1", "f_2", "f_3"]
+    assert written[0].rhs == xs**3
+    assert written[1].rhs == z0 + sympy.Float(0.5) - z1
+    assert str(written[2].rhs) == "ReLU(basis_plot_z_1)"
+    # Rounded to 3 significant digits
+    assert str(written[3].rhs) == "opaque(basis_plot_x + 1.23)"
+    plt.close("all")
+
+
 def test_integrate():
     # make a simple forward Euler integrator step
     x = Input("x", sw=1)

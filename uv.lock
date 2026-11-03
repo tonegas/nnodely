@@ -1305,6 +1305,7 @@ dependencies = [
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas", version = "3.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "sympy" },
 ]
 
 [package.optional-dependencies]
@@ -1344,6 +1345,7 @@ requires-dist = [
     { name = "onnxruntime", marker = "extra == 'onnx'", specifier = ">=1.18.0" },
     { name = "onnxscript", marker = "extra == 'onnx'", specifier = ">=0.1.0" },
     { name = "pandas", specifier = ">=2.3.3" },
+    { name = "sympy", specifier = ">=1.13" },
     { name = "tensorflow", marker = "extra == 'tensorflow'", specifier = ">=2.21.0" },
     { name = "tf2onnx", marker = "extra == 'onnx'", specifier = ">=1.17.0" },
     { name = "torch", marker = "extra == 'torch'", specifier = ">=2.2.2" },
