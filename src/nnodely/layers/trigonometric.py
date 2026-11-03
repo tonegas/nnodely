@@ -69,6 +69,36 @@ class Atan(Trigonometric):
     _operation = "arctan"
 
 
+class Sinh(Trigonometric):
+    """Wrapper for hyperbolic sine transform."""
+
+    _operation = "sinh"
+
+
+class Cosh(Trigonometric):
+    """Wrapper for hyperbolic cosine transform."""
+
+    _operation = "cosh"
+
+
+class Asinh(Trigonometric):
+    """Wrapper for inverse hyperbolic sine transform."""
+
+    _operation = "arcsinh"
+
+
+class Acosh(Trigonometric):
+    """Wrapper for inverse hyperbolic cosine transform, defined from 1."""
+
+    _operation = "arccosh"
+
+
+class Atanh(Trigonometric):
+    """Wrapper for inverse hyperbolic tangent transform, defined in (-1, 1)."""
+
+    _operation = "arctanh"
+
+
 class Atan2(BinaryOp):
     """``atan2(y, x)``, called on ``[y, x]``: the angle of the point ``(x, y)``
     in ``[-pi, pi]``, its quadrant told by the signs of both. With nothing to

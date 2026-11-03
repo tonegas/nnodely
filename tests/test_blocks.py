@@ -1887,6 +1887,16 @@ def test_equation_learner_rejects_invalid_calls():
         ("sign", np.sign),
         ("floor", np.floor),
         ("ceil", np.ceil),
+        ("round", np.round),
+        ("square", np.square),
+        ("expm1", np.expm1),
+        ("log1p", np.log1p),
+        ("log2", np.log2),
+        ("sinh", np.sinh),
+        ("cosh", np.cosh),
+        ("asinh", np.arcsinh),
+        ("acosh", np.arccosh),
+        ("atanh", np.arctanh),
         # The bumps are 1 at 0, of width 1.
         ("gaussian", lambda v: np.exp(-(v**2) / 2)),
         ("triangular", lambda v: np.maximum(0.0, 1.0 - np.abs(v))),
@@ -1938,6 +1948,36 @@ def test_equation_learner_atan2_takes_two_arguments():
     )["atan2_eql_out"]
     np.testing.assert_allclose(
         to_numpy(result).ravel(), np.arctan2(xs, ys), rtol=1e-5, atol=1e-6
+    )
+
+
+@pytest.mark.parametrize(
+    "name, function",
+    [("maximum", np.maximum), ("minimum", np.minimum), ("mod", np.mod)],
+)
+def test_equation_learner_named_binary_functions(name, function):
+    x, y = Input(f"{name}_eql_x", sw=1), Input(f"{name}_eql_y", sw=1)
+    learner = EquationLearner(
+        [name],
+        linear_in=Linear(
+            features=2,
+            kernel=Parameter(f"{name}_eql_in", value=[[1.0, 0.0], [0.0, 1.0]]),
+            bias=False,
+        ),
+    )
+    model = Modely(
+        f"{name}_eql",
+        inputs=[x, y],
+        outputs=[Output(f"{name}_eql_out", learner([x, y]))],
+    ).build()
+
+    xs = np.array([1.0, -1.0, 2.5], dtype=np.float32)
+    ys = np.array([0.5, 2.0, -0.75], dtype=np.float32)
+    result = model(
+        {f"{name}_eql_x": xs.reshape(-1, 1, 1), f"{name}_eql_y": ys.reshape(-1, 1, 1)}
+    )[f"{name}_eql_out"]
+    np.testing.assert_allclose(
+        to_numpy(result).ravel(), function(xs, ys), rtol=1e-5, atol=1e-6
     )
 
 

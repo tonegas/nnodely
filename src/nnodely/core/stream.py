@@ -153,6 +153,34 @@ class Stream(Node):
 
         return Power()([self, self._coerce_operand(other)])
 
+    def __rpow__(self, other):
+        from nnodely.core.layer import Power
+
+        return Power()([self._coerce_operand(other), self])
+
+    def __mod__(self, other):
+        from nnodely.core.layer import Mod
+
+        return Mod()([self, self._coerce_operand(other)])
+
+    def __rmod__(self, other):
+        from nnodely.core.layer import Mod
+
+        return Mod()([self._coerce_operand(other), self])
+
+    def __neg__(self):
+        from nnodely.layers.arithmetic import Negative
+
+        return Negative()([self])
+
+    def __pos__(self):
+        return self
+
+    def __abs__(self):
+        from nnodely.layers.arithmetic import Abs
+
+        return Abs()([self])
+
     @staticmethod
     def _coerce_operand(value):
         if isinstance(value, Stream):

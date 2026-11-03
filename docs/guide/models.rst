@@ -106,11 +106,21 @@ The tables group the available layers.
    * - Math
      - :class:`~nnodely.Sin`, :class:`~nnodely.Cos`, :class:`~nnodely.Tan`,
        :class:`~nnodely.Asin`, :class:`~nnodely.Acos`, :class:`~nnodely.Atan`,
-       :class:`~nnodely.Atan2`,
-       :class:`~nnodely.Exp`, :class:`~nnodely.Log`, :class:`~nnodely.Log10`,
-       :class:`~nnodely.Sqrt`, :class:`~nnodely.Abs`, :class:`~nnodely.Sign`,
-       :class:`~nnodely.Floor`, :class:`~nnodely.Ceil`, :class:`~nnodely.Deg2Rad`,
-       :class:`~nnodely.Negative`, :class:`~nnodely.Clamp`, :class:`~nnodely.Sum`.
+       :class:`~nnodely.Atan2`, :class:`~nnodely.Sinh`, :class:`~nnodely.Cosh`,
+       :class:`~nnodely.Asinh`, :class:`~nnodely.Acosh`, :class:`~nnodely.Atanh`,
+       :class:`~nnodely.Exp`, :class:`~nnodely.Expm1`, :class:`~nnodely.Log`,
+       :class:`~nnodely.Log1p`, :class:`~nnodely.Log10`, :class:`~nnodely.Log2`,
+       :class:`~nnodely.Sqrt`, :class:`~nnodely.Square`, :class:`~nnodely.Abs`,
+       :class:`~nnodely.Sign`, :class:`~nnodely.Floor`, :class:`~nnodely.Ceil`,
+       :class:`~nnodely.Round`, :class:`~nnodely.Deg2Rad`,
+       :class:`~nnodely.Rad2Deg`, :class:`~nnodely.Negative`,
+       :class:`~nnodely.Clamp`, :class:`~nnodely.Maximum`,
+       :class:`~nnodely.Minimum`.
+   * - Reductions
+     - :class:`~nnodely.Sum`, :class:`~nnodely.Mean`, :class:`~nnodely.Max`,
+       :class:`~nnodely.Min`, :class:`~nnodely.Norm` over the dim axes, kept
+       with length 1; :class:`~nnodely.Cross`, the cross product of
+       3-vectors.
    * - Feature axes
      - :class:`~nnodely.Select` (one index), :class:`~nnodely.Range` (a slice),
        :class:`~nnodely.Concatenate`. ``axis`` counts the dim axes from 0.

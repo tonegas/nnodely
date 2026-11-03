@@ -666,6 +666,48 @@ def test_equation_learner_plot_writes_the_basis_without_linear_out():
     plt.close("all")
 
 
+def test_equation_learner_plot_writes_the_new_math_functions():
+    import matplotlib.pyplot as plt
+    import sympy
+
+    learner = _equation_learner(
+        "math_drawn", ["sinh", "log2", "log1p", "square", "round"], features=5
+    )
+    assert [sympy.latex(equation.rhs) for equation in learner.plot()] == [
+        r"\sinh{\left(x \right)}",
+        r"\log_{2}{\left(x \right)}",
+        r"\log{\left(x + 1 \right)}",
+        "x^{2}",
+        r"\operatorname{round}{\left(x \right)}",
+    ]
+
+    x, v = Input("x", sw=1), Input("v", sw=1)
+    binary = EquationLearner(
+        ["maximum", "minimum", "mod"],
+        linear_in=Linear(
+            features=6,
+            kernel=Parameter(
+                "binary_drawn_in",
+                value=[[1.0, 0.0, 1.0, 0.0, 1.0, 0.0], [0.0, 1.0, 0.0, 1.0, 0.0, 1.0]],
+            ),
+            bias=False,
+        ),
+        name="binary_drawn",
+    )
+    Modely(
+        "binary_drawn_model",
+        inputs=[x, v],
+        outputs=[Output("binary_y", binary([x, v]))],
+    ).build()
+    x, v = sympy.symbols("x v")
+    assert [equation.rhs for equation in binary.plot()] == [
+        sympy.Max(x, v),
+        sympy.Min(x, v),
+        sympy.Mod(x, v),
+    ]
+    plt.close("all")
+
+
 def test_equation_learner_plot_writes_several_outputs_and_python_functions():
     import matplotlib.pyplot as plt
     import sympy

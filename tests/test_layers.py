@@ -1376,9 +1376,10 @@ def test_fir_with_parameters_round_trips_through_save_and_keras(tmp_path, given)
 import nnodely  # noqa: E402
 
 _APPLIED_ON_CREATION = [
-    "Abs", "Acos", "Asin", "Atan", "Ceil", "Cos", "Deg2Rad", "Exp", "Floor",
-    "Log", "Log10", "Negative", "Sigmoid", "Sign", "Sin", "Softplus", "Sqrt",
-    "Swish", "Tan", "Tanh",
+    "Abs", "Acos", "Acosh", "Asin", "Asinh", "Atan", "Atanh", "Ceil", "Cos",
+    "Cosh", "Deg2Rad", "Exp", "Expm1", "Floor", "Log", "Log10", "Log1p",
+    "Log2", "Negative", "Rad2Deg", "Round", "Sigmoid", "Sign", "Sin", "Sinh",
+    "Softplus", "Sqrt", "Square", "Swish", "Tan", "Tanh",
 ]  # fmt: skip
 
 

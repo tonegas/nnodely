@@ -58,6 +58,23 @@ from nnodely import (
     Swish,
     Tan,
     Tanh,
+    Acosh,
+    Asinh,
+    Atanh,
+    Cosh,
+    Expm1,
+    Log1p,
+    Log2,
+    Max,
+    Maximum,
+    Mean,
+    Min,
+    Minimum,
+    Norm,
+    Rad2Deg,
+    Round,
+    Sinh,
+    Square,
 )
 from nnodely.core.layer import Identity
 from nnodely.layers.partitions import Select
@@ -750,6 +767,21 @@ def _unary_arithmetic_model():
         "unary_deg2rad": Deg2Rad()(window),
         "unary_clamp": Clamp(min=0.3, max=0.7)(window),
         "unary_sum": Sum()(window),
+        "unary_hyperbolic": Sinh(window)
+        + Cosh(window)
+        + Asinh(window)
+        + Acosh(window + 1.0)
+        + Atanh(window * 0.5),
+        "unary_exp_logs": Expm1(window) + Log1p(window) + Log2(window),
+        "unary_square_round": Square(window) + Round(window * 10.0),
+        "unary_rad2deg": Rad2Deg(window),
+        "unary_reductions": Mean()(window)
+        + Max()(window)
+        + Min()(window)
+        + Norm()(window),
+        "unary_extremum": Maximum([window, 1.0 - window])
+        + Minimum([window, 0.5 - window]),
+        "unary_operators": 2.0**window % 1.5 + abs(-window),
     }
     return Modely(
         "unary_arithmetic",

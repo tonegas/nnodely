@@ -17,6 +17,7 @@ from nnodely.core.layer import (
     Divide,
     Identity,
     Layer,
+    Mod,
     Multiply,
     Power,
     Subtract,
@@ -39,19 +40,40 @@ from nnodely.layers.arithmetic import (
     Ceil,
     Deg2Rad,
     Exp,
+    Expm1,
     Floor,
     Log,
+    Log1p,
     Log10,
+    Log2,
+    Maximum,
+    Minimum,
     Negative,
+    Rad2Deg,
+    Round,
     Sign,
     Sqrt,
+    Square,
 )
 from nnodely.layers.fuzzify import Gaussian, Rectangular, Triangular
 from nnodely.layers.input import Input
 from nnodely.layers.linear import Linear, LinearImpl
 from nnodely.layers.output import Output
 from nnodely.layers.partitions import Concatenate, Select
-from nnodely.layers.trigonometric import Acos, Asin, Atan, Atan2, Cos, Sin, Tan
+from nnodely.layers.trigonometric import (
+    Acos,
+    Acosh,
+    Asin,
+    Asinh,
+    Atan,
+    Atan2,
+    Atanh,
+    Cos,
+    Cosh,
+    Sin,
+    Sinh,
+    Tan,
+)
 
 
 _NAMED_FUNCTIONS: dict[str, type[Layer]] = {
@@ -63,14 +85,24 @@ _NAMED_FUNCTIONS: dict[str, type[Layer]] = {
     "acos": Acos,
     "atan": Atan,
     "atan2": Atan2,
+    "sinh": Sinh,
+    "cosh": Cosh,
+    "asinh": Asinh,
+    "acosh": Acosh,
+    "atanh": Atanh,
     "exp": Exp,
+    "expm1": Expm1,
     "log": Log,
+    "log1p": Log1p,
     "log10": Log10,
+    "log2": Log2,
     "sqrt": Sqrt,
+    "square": Square,
     "abs": Abs,
     "sign": Sign,
     "floor": Floor,
     "ceil": Ceil,
+    "round": Round,
     "gaussian": Gaussian,
     "triangular": Triangular,
     "rectangular": Rectangular,
@@ -88,8 +120,21 @@ _NAMED_FUNCTIONS: dict[str, type[Layer]] = {
     "multiply": Multiply,
     "divide": Divide,
     "power": Power,
+    "mod": Mod,
+    "maximum": Maximum,
+    "minimum": Minimum,
 }
-_BINARY_LAYER_TYPES = (Add, Subtract, Multiply, Divide, Power, Atan2)
+_BINARY_LAYER_TYPES = (
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Power,
+    Mod,
+    Maximum,
+    Minimum,
+    Atan2,
+)
 
 
 @dataclass(frozen=True)
@@ -621,7 +666,8 @@ def _for_mathtext(latex: str) -> str:
     matplotlib's renderer draws a ``\\left( ... \\right)`` around a single
     line too small, and puts a gap before the braces sympy writes around the
     arguments of a function. A coefficient is set apart from what follows it
-    by a thin space."""
+    by a thin space, and a modulo, which matplotlib has no ``\\bmod`` for,
+    is written out."""
     pairs = [
         (r"{\left(", r"\right)}", "(", ")"),
         (r"\left(", r"\right)", "(", ")"),
@@ -643,6 +689,7 @@ def _for_mathtext(latex: str) -> str:
                 pattern, lambda match: plain_left + match[1] + plain_right, latex
             )
             changed = changed or count > 0
+    latex = latex.replace(r"\bmod", r"\;\mathrm{mod}\;")
     return re.sub(r"(\d) (?=\\[a-zA-Z]|\(|\|)", r"\1\\,", latex)
 
 
@@ -682,23 +729,37 @@ def _symbolic(spec: _FunctionSpec, index: int):
             Acos: sympy.acos,
             Atan: sympy.atan,
             Atan2: _operator("atan2", r"\operatorname{atan2}"),
+            Sinh: sympy.sinh,
+            Cosh: sympy.cosh,
+            Asinh: sympy.asinh,
+            Acosh: sympy.acosh,
+            Atanh: sympy.atanh,
             Tanh: sympy.tanh,
             Sigmoid: _operator("sigmoid", r"\sigma"),
             Exp: sympy.exp,
+            Expm1: lambda a: sympy.exp(a) - 1,
             Log: sympy.log,
+            Log1p: lambda a: sympy.log(1 + a),
             Log10: _operator("log10", r"\log_{10}"),
+            Log2: _operator("log2", r"\log_{2}"),
             Sqrt: sympy.sqrt,
+            Square: lambda a: a**2,
             Abs: sympy.Abs,
             Sign: sympy.sign,
             Floor: sympy.floor,
             Ceil: sympy.ceiling,
+            Round: _operator("round", r"\operatorname{round}"),
             Negative: operator.neg,
             Deg2Rad: lambda a: a * sympy.pi / 180,
+            Rad2Deg: lambda a: a * 180 / sympy.pi,
             Add: operator.add,
             Subtract: operator.sub,
             Multiply: operator.mul,
             Divide: operator.truediv,
             Power: operator.pow,
+            Mod: sympy.Mod,
+            Maximum: sympy.Max,
+            Minimum: sympy.Min,
         }
         if layer_type in notation:
             return notation[layer_type]

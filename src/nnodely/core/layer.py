@@ -362,6 +362,9 @@ _BINARY_OPERATIONS = {
     "multiply": keras.ops.multiply,
     "divide": keras.ops.divide,
     "power": keras.ops.power,
+    "mod": keras.ops.mod,
+    "maximum": keras.ops.maximum,
+    "minimum": keras.ops.minimum,
     "arctan2": keras.ops.arctan2,
 }
 
@@ -390,9 +393,18 @@ class BinaryOpImpl(keras.layers.Layer):
         )
 
     def call(self, xs):
+        values = self.aligned(xs)
+        operation = _BINARY_OPERATIONS[self.operation]
+        result = values[0]
+        for value in values[1:]:
+            result = operation(result, value)
+        return result
+
+    def aligned(self, xs):
+        """``xs`` given the axes they miss to broadcast against each other."""
         seq_rank, dim_rank = max(self.seq_ranks), max(self.dim_ranks)
         to_window = any(self.windows)
-        values = [
+        return [
             align(
                 value,
                 value_seq_rank,
@@ -406,12 +418,6 @@ class BinaryOpImpl(keras.layers.Layer):
                 xs, self.seq_ranks, self.dim_ranks, self.windows
             )
         ]
-
-        operation = _BINARY_OPERATIONS[self.operation]
-        result = values[0]
-        for value in values[1:]:
-            result = operation(result, value)
-        return result
 
     def get_config(self):
         config = super().get_config()
@@ -434,14 +440,18 @@ class BinaryOp(Layer):
             raise NotImplementedError(
                 "Subclasses must define an _operation class attribute."
             )
-        shapes = [input_node.shape for input_node in self._preds]  # type: ignore[union-attr]
         return BinaryOpImpl(
-            operation=self._operation,
-            seq_ranks=tuple(shape.seq_rank for shape in shapes),
-            dim_ranks=tuple(shape.dim_rank for shape in shapes),
-            windows=tuple(shape.time is not None for shape in shapes),
-            name=self.name,
+            operation=self._operation, **self._alignment(), name=self.name
         )
+
+    def _alignment(self) -> dict:
+        """The axes of each operand, which BinaryOpImpl aligns them by."""
+        shapes = [input_node.shape for input_node in self._preds]  # type: ignore[union-attr]
+        return {
+            "seq_ranks": tuple(shape.seq_rank for shape in shapes),
+            "dim_ranks": tuple(shape.dim_rank for shape in shapes),
+            "windows": tuple(shape.time is not None for shape in shapes),
+        }
 
     def output_shape(self, *inputs):  # type: ignore
         # Declared rather than probed: a dynamic sequence axis cannot be given to
@@ -472,6 +482,10 @@ class Divide(BinaryOp):
 
 class Power(BinaryOp):
     _operation = "power"
+
+
+class Mod(BinaryOp):
+    _operation = "mod"
 
 
 class Identity(Layer):

@@ -5,7 +5,8 @@ Layers
 
 Layers are created with their configuration and called on a stream or a
 list of streams (see :doc:`../guide/concepts`). The arithmetic operators
-``+ - * / **`` between streams are covered in the same page.
+``+ - * / ** %`` between streams, and ``-x`` and ``abs(x)``, are covered in
+the same page.
 
 Layers with weights
 -------------------
@@ -48,6 +49,16 @@ Feature axis
 .. autoclass:: Concatenate
 
 .. autoclass:: Sum
+
+.. autoclass:: Mean
+
+.. autoclass:: Max
+
+.. autoclass:: Min
+
+.. autoclass:: Norm
+
+.. autoclass:: Cross
 
 Window
 ------
@@ -135,16 +146,34 @@ Trigonometric
 
 .. autoclass:: Atan2
 
+.. autoclass:: Sinh
+
+.. autoclass:: Cosh
+
+.. autoclass:: Asinh
+
+.. autoclass:: Acosh
+
+.. autoclass:: Atanh
+
 Arithmetic
 ----------
 
 .. autoclass:: Exp
 
+.. autoclass:: Expm1
+
 .. autoclass:: Log
+
+.. autoclass:: Log1p
 
 .. autoclass:: Log10
 
+.. autoclass:: Log2
+
 .. autoclass:: Sqrt
+
+.. autoclass:: Square
 
 .. autoclass:: Abs
 
@@ -154,8 +183,16 @@ Arithmetic
 
 .. autoclass:: Ceil
 
+.. autoclass:: Round
+
 .. autoclass:: Deg2Rad
+
+.. autoclass:: Rad2Deg
 
 .. autoclass:: Negative
 
 .. autoclass:: Clamp
+
+.. autoclass:: Maximum
+
+.. autoclass:: Minimum

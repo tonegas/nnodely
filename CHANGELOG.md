@@ -193,6 +193,17 @@ variable, and trains, validates and exports through Keras. Models saved with
   training; `learner.threshold` can be changed on a built model, which is
   saved with it. `learner.plot()` draws the learned equation as LaTeX and
   returns it as a sympy `Eq`.
+- Stream operators `-x`, `abs(x)`, `+x`, `2 ** x` and `x % y`, the modulo
+  taking the sign of the divisor, as Python's does.
+- Math layers `Sinh`, `Cosh`, `Asinh`, `Acosh`, `Atanh`, `Expm1`, `Log1p`,
+  `Log2`, `Square`, `Round` and `Rad2Deg`; `Maximum([a, b, ...])` and
+  `Minimum([a, b, ...])`, elementwise and broadcast as the operators are, so
+  that a bound can be a learned Parameter; `Mean`, `Max`, `Min` and `Norm`
+  over the dim axes, as `Sum`, `Norm` with gradient 0 at the zero vector;
+  and `Cross(axis=-1)([a, b])`, the cross product of 3-vectors. The
+  elementwise ones are EquationLearner names too: `sinh`, `cosh`, `asinh`,
+  `acosh`, `atanh`, `expm1`, `log1p`, `log2`, `square`, `round`, and of two
+  arguments `maximum`, `minimum`, `mod`.
 - Layers new in 2.0: `BatchNorm`, `LeakyReLU`, `PReLU`, `Swish`, `GELU`,
   `Softplus`, `Asin`, `Acos`, `Atan`, `Exp`, `Log`, `Log10`, `Sqrt`, `Abs`,
   `Floor`, `Ceil`, `Deg2Rad`, `Clamp`, and `DataLoader.get_samples(n)`.
@@ -342,7 +353,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `Linear(output_dimension, W=..., b=..., W_init=..., b_init=...)` | `Linear(features, kernel=..., bias=...)`: each a `Parameter` or an initializer, and `bias` also `True` or `False` |
 | `Relu` | `ReLU` |
 | `Add`, `Sub`, `Mul`, `Div`, `Pow` | `+`, `-`, `*`, `/`, `**` between streams |
-| `Neg` | `Negative` |
+| `Neg` | `-x` or `Negative` |
 | `Differentiate` | `Gradient(respect_to=x)` with respect to an input; with respect to time `DerivativeStep(dt=...)` over a window, `Derivative(dt=...)` one step at a time in a `ModelyLoop` |
 | `ForwardEuler`, `RK2`, `RK4` | `Ode(f, states, dt, method=...)` |
 | `NeuralODE` | an `Ode` step, the layers of its field created outside `f`, rolled out by a `Loop` |
