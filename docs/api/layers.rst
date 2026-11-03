@@ -88,14 +88,10 @@ Calculus
 
 .. autofunction:: Ode
 
-.. autoclass:: OdeNet
-
 Recurrence
 ----------
 
 .. autoclass:: Loop
-
-.. autoclass:: Roll
 
 .. autoclass:: Buffer
 

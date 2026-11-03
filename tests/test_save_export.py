@@ -31,7 +31,6 @@ from nnodely import (
     Input,
     Negative,
     Ode,
-    OdeNet,
     Output,
     Fir,
     LeakyReLU,
@@ -41,7 +40,6 @@ from nnodely import (
     Parameter,
     Range,
     ReLU,
-    Roll,
     TimeConcatenate,
     TimeRange,
     TimeSelect,
@@ -609,70 +607,6 @@ def test_local_model_with_fuzzy_product_round_trips(tmp_path):
         )
 
 
-def _roll_model():
-    x = Input("roll_x", sw=5)
-    taps = Parameter("roll_taps", value=np.ones(5))
-    fir = Fir(features=1, kernel=taps, bias=False, name="roll_fir")(x)
-    output = Output("roll_out", fir + TimeSelect(-1)(x))
-    model = Modely("roll_model", inputs=[x], outputs=[output])
-    model.rollback({x: fir}, steps=3, name="rollout")
-    model.build()
-    return model
-
-
-def _assert_roll_result(result):
-    assert result["roll_out"].shape == (1, 1, 1)
-    np.testing.assert_allclose(
-        to_numpy(result["roll_out"]),
-        np.array([[[85.0]]], dtype=np.float32),
-        rtol=1e-5,
-        atol=1e-5,
-    )
-
-
-def test_save_load_roll_model(tmp_path):
-    model = _roll_model()
-    inputs = {"roll_x": np.arange(1, 6, dtype=np.float32).reshape((1, 5, 1))}
-    _assert_roll_result(model(inputs))
-
-    path = tmp_path / "roll_model.nnodely"
-    model.save(path)
-    restored = Modely.load(path)
-
-    assert restored._roll_steps == 3
-    assert {
-        input_node.name: stream.name
-        for input_node, stream in restored._roll_feedback.items()
-    } == {"roll_x": "roll_fir"}
-    _assert_roll_result(restored(inputs))
-
-
-def test_export_keras_roll_model(tmp_path):
-    model = _roll_model()
-    inputs = {"roll_x": np.arange(1, 6, dtype=np.float32).reshape((1, 5, 1))}
-    path = tmp_path / "roll_model.keras"
-
-    model.export_keras(tmp_path, "roll_model")
-    restored = Modely.import_keras(str(path.with_suffix("")))
-
-    assert path.is_file()
-    _assert_roll_result(restored(inputs))  # type: ignore
-
-
-@requires_onnx_export
-def test_export_onnx_roll_model(tmp_path):
-    pytest.importorskip("onnxruntime")
-    model = _roll_model()
-    inputs = {"roll_x": np.arange(1, 6, dtype=np.float32).reshape((1, 5, 1))}
-
-    model.export_onnx(tmp_path, "roll")
-    path = tmp_path / "roll.onnx"
-    result = Modely.validate_onnx(path, inputs, return_dict=True)
-
-    assert path.is_file()
-    _assert_roll_result(result)
-
-
 def test_save_load_batchnorm_model(tmp_path):
     x = Input(name="batchnorm_save_input", dim=2, sw=3)
     normalized = BatchNorm(name="batchnorm_save")([x])
@@ -945,39 +879,6 @@ def _ode_step_model():
     ).build()
 
 
-def _rollback_mechanical_model():
-    dt = 0.1
-    position = Input("rollback_position", dim=1, sw=3)
-    velocity = Input("rollback_velocity", dim=1, sw=1)
-    force = Input("rollback_force", dim=1, sw=3)
-    stiffness = Parameter("rollback_stiffness", value=[1.0])
-    # The damping reads the velocity estimated from the position window.
-    estimated_velocity = TimeSelect(idx=-1)(DerivativeStep(dt=dt)(position))
-    acceleration = (
-        Fir(features=1, name="rollback_force_fir")(force)
-        - stiffness * TimeSelect(-1)(position)
-        - Linear(features=1, bias=False, name="rollback_damping")(estimated_velocity)
-    )
-    velocity_next = IntegrateStep(dt=dt, name="rollback_v_next")(velocity, acceleration)
-    position_next = IntegrateStep(dt=dt, name="rollback_p_next")(
-        TimeSelect(-1)(position), velocity_next
-    )
-    model = Modely(
-        "rollback_mechanical",
-        inputs=[position, velocity, force],
-        outputs=[
-            Output("rollback_position_out", position_next),
-            Output("rollback_velocity_out", velocity_next),
-        ],
-    )
-    model.rollback(
-        {position: position_next, velocity: velocity_next},
-        steps=4,
-        name="rollback_mechanical_roll",
-    )
-    return model.build()
-
-
 def _composition_model():
     signal = Input("composition_signal", dim=1, sw=3)
     rate = Fir(features=1, name="composition_fir")(signal)
@@ -1161,21 +1062,6 @@ def _ode_loop_model():
     ).build()
 
 
-def _roll_layer_model():
-    x = Input("roll_layer_x", dim=1, sw=4)
-    u = Input("roll_layer_u", dim=1, sw=1)
-    feedback = Output(
-        "roll_layer_next",
-        Fir(features=1, name="roll_layer_fir")(x)
-        + Linear(features=1, name="roll_layer_linear")(u),
-    )
-    body = Modely("roll_layer_body", inputs=[x, u], outputs=[feedback]).build()
-    roll = Roll(f=body, feedback={x: feedback}, steps=3, name="roll_layer")
-    return Modely(
-        "roll_layer", inputs=[x, u], outputs=[Output("roll_layer_out", roll)]
-    ).build()
-
-
 def _complete_vehicle_model():
     """Most layer families at once, wired like a real mechanical relation."""
     dt = 0.05
@@ -1240,14 +1126,12 @@ _LAYER_SUITE = pytest.mark.parametrize(
         _derivative_model,
         _integrate_model,
         _ode_step_model,
-        _rollback_mechanical_model,
         _composition_model,
         _loop_final_state_model,
         _loop_trajectory_model,
         _nested_loop_model,
         _shared_body_model,
         _ode_loop_model,
-        _roll_layer_model,
         _complete_vehicle_model,
     ],
     ids=lambda factory: factory.__name__.strip("_").removesuffix("_model"),
@@ -1452,93 +1336,6 @@ def test_fine_tune_a_loaded_model_with_its_own_minimizers(tmp_path):
         training=False,
     )
     np.testing.assert_allclose(tuned, to_numpy(trained["fine_tune_out"]), rtol=1e-6)
-
-
-@pytest.mark.parametrize("method", ["rk4", "dopri5"])
-def test_save_load_odenet(tmp_path, method):
-    points = 4
-    x = Input(f"odenet_save_{method}_x", dim=2, sw=1)
-    field = Modely(
-        f"odenet_save_{method}_field",
-        inputs=[x],
-        outputs=[
-            Output(
-                f"odenet_save_{method}_dx",
-                Linear(features=2, bias=False)(x),
-            )
-        ],
-    ).build()
-    t = Input(f"odenet_save_{method}_t", dim=1, seq=points, sw=1)
-    trajectory = OdeNet(
-        f=field,
-        states={x: f"odenet_save_{method}_dx"},
-        t=t,
-        method=method,
-        steps=2,
-        name=f"odenet_save_{method}",
-    )
-    model = Modely(
-        f"odenet_save_{method}_model",
-        inputs=[x, t],
-        outputs=[Output(f"odenet_save_{method}_y", trajectory)],
-    ).build()
-    _randomize_trainable_weights(model)
-
-    times = np.linspace(0.0, 1.0, points, dtype=np.float32).reshape(1, points, 1, 1)
-    inputs = {
-        x.name: np.random.default_rng(1)
-        .uniform(-1.0, 1.0, size=(_BATCH, 1, 2))
-        .astype(np.float32),
-        t.name: np.tile(times, (_BATCH, 1, 1, 1)),
-    }
-    _assert_round_trip(model, inputs, tmp_path)
-
-
-@pytest.mark.slow
-def test_save_load_odenet_with_event(tmp_path):
-    # A ball dropped on a floor: the event and the reset are part of the model.
-    position = Input("odenet_event_p", dim=1, sw=1)
-    velocity = Input("odenet_event_v", dim=1, sw=1)
-    gravity = Parameter("odenet_event_g", value=[9.8])
-    floor = Parameter("odenet_event_floor", value=[0.0])
-    restitution = Parameter("odenet_event_e", value=[0.8])
-    field = Modely(
-        "odenet_event_field",
-        inputs=[position, velocity],
-        outputs=[
-            Output("odenet_event_dp", velocity),
-            Output("odenet_event_dv", 0.0 * position - gravity),
-            Output("odenet_event_guard", position - floor),
-            Output("odenet_event_p_plus", position),
-            Output("odenet_event_v_plus", -1.0 * restitution * velocity),
-        ],
-    ).build()
-    t = Input("odenet_event_t", dim=1, seq=4, sw=1)
-    position_trajectory, velocity_trajectory = OdeNet(
-        f=field,
-        states={position: "odenet_event_dp", velocity: "odenet_event_dv"},
-        t=t,
-        steps=20,
-        event="odenet_event_guard",
-        reset={position: "odenet_event_p_plus", velocity: "odenet_event_v_plus"},
-        name="odenet_event",
-    )
-    model = Modely(
-        "odenet_event_model",
-        inputs=[position, velocity, t],
-        outputs=[
-            Output("odenet_event_positions", position_trajectory),
-            Output("odenet_event_velocities", velocity_trajectory),
-        ],
-    ).build()
-
-    times = np.array([0.0, 0.5, 1.0, 1.5], dtype=np.float32).reshape(1, 4, 1, 1)
-    inputs = {
-        position.name: np.array([0.5, 1.0, 1.5], dtype=np.float32).reshape(3, 1, 1),
-        velocity.name: np.zeros((_BATCH, 1, 1), dtype=np.float32),
-        t.name: np.tile(times, (_BATCH, 1, 1, 1)),
-    }
-    _assert_round_trip(model, inputs, tmp_path)
 
 
 def _minimized_model():

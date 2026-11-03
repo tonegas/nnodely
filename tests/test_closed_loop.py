@@ -12,7 +12,6 @@ from nnodely import (
     Input,
     Linear,
     Loop,
-    Roll,
     Modely,
     Output,
     Fir,
@@ -22,7 +21,6 @@ from nnodely import (
 )
 from nnodely.layers.loop import DYNAMIC_BUILD_LENGTH
 import pytest
-from nnodely import TimeSelect
 
 
 def test_loop(tmp_path):
@@ -158,39 +156,6 @@ def test_loop_mechanical_modely(tmp_path):
     np.testing.assert_allclose(output, np.full((1, 1), 63.0, dtype=np.float32))
 
 
-def test_model_roll():
-    x = Input("x", sw=5)
-    taps = Parameter("roll_taps", value=np.ones(5))
-    fir = Fir(features=1, kernel=taps, bias=False)(x)
-    out = Output("out", fir)
-    test = Modely("body", inputs=[x], outputs=[out])
-    test.build()
-    roll = Roll(f=test, feedback={x: out}, name="roll")
-    roll_3 = Roll(f=test, feedback={x: out}, steps=3, name="roll_3")
-    assert roll._steps == x.shape.time == 5
-    assert roll.shape.tuple == x.shape.tuple
-    output = Output("res", roll)
-    output_3 = Output("res_3", roll_3)
-    model = Modely("test_roll_multi_input", inputs=[x], outputs=[output, output_3])
-    model.build()
-
-    result = model(inputs={"x": np.arange(1, 6, dtype=np.float32).reshape(1, 5, 1)})
-    assert result["res"].shape == (1, 5, 1)
-    assert result["res_3"].shape == (1, 5, 1)
-    np.testing.assert_allclose(
-        to_numpy(result["res"]),
-        np.array([15.0, 29.0, 56.0, 109.0, 214.0]).reshape((1, 5, 1)),
-        rtol=1e-5,
-        atol=1e-5,
-    )
-    np.testing.assert_allclose(
-        to_numpy(result["res_3"]),
-        np.array([4.0, 5.0, 15.0, 29.0, 56.0]).reshape((1, 5, 1)),
-        rtol=1e-5,
-        atol=1e-5,
-    )
-
-
 def dummy_input(shape, method="random"):
     if method == "random":
         return np.random.rand(*shape).astype(np.float32)
@@ -200,87 +165,6 @@ def dummy_input(shape, method="random"):
         return np.arange(np.prod(shape), dtype=np.float32).reshape(shape) + 1
     else:
         return np.zeros(shape, dtype=np.float32)
-
-
-def test_model_rollback():
-    x = Input("x", sw=5)
-    taps = Parameter("rollback_taps", value=np.ones(5))
-    fir = Fir(features=1, kernel=taps, bias=False, name="fir")(x)
-    out = Output("out", fir + TimeSelect(-1)(x))
-    test = Modely("body", inputs=[x], outputs=[out])
-    test.rollback({"x": "fir"}, steps=3)
-    test.build()
-
-    result = test(inputs={"x": np.arange(1, 6, dtype=np.float32).reshape(1, 5, 1)})
-    assert result["out"].shape == (1, 1, 1)
-    np.testing.assert_allclose(
-        to_numpy(result["out"]),
-        np.array([[[85.0]]]),
-        rtol=1e-5,
-        atol=1e-5,
-    )
-
-
-def test_model_multi_rollback(tmp_path):
-    x = Input("x", sw=5)
-    y = Input("y", sw=1)
-    taps = Parameter("rollback_taps", value=np.ones(5))
-    fir = Fir(features=1, kernel=taps, bias=False, name="fir")(x)
-    out = Output("out", fir + y)
-    test = Modely("body", inputs=[x, y], outputs=[out])
-    test.rollback({"x": "fir", "y": "out"}, steps=3)
-    test.build()
-
-    result = test(
-        inputs={
-            "x": np.arange(1, 6, dtype=np.float32).reshape(1, 5, 1),
-            "y": np.full((1, 1, 1), 10.0, dtype=np.float32),
-        }
-    )
-    assert result["out"].shape == (1, 1, 1)
-    np.testing.assert_allclose(
-        to_numpy(result["out"]),
-        np.array([[[110.0]]]),
-        rtol=1e-5,
-        atol=1e-5,
-    )
-    test.export_html(out_dir=tmp_path, filename="test_model_multi_rollback")
-
-
-def test_a_model_with_rollback_is_no_block_and_flattens_with_it():
-    # Called as a block, the model was inlined once and its rollback lost: 6
-    # where calling it gave 20. flatten() lost it as well.
-    x = Input("rb_block_x", sw=3)
-    taps = Parameter("rb_block_taps", value=np.ones(3))
-    fir = Fir(features=1, kernel=taps, bias=False, name="rb_block_fir")(x)
-    model = Modely("rb_block", inputs=[x], outputs=[Output("rb_block_out", fir)])
-    model.rollback({x: fir}, steps=3)
-    outer_x = Input("rb_block_outer_x", sw=3)
-    for _ in ("declared", "built"):
-        with pytest.raises(ValueError, match="'rb_block' has a rollback"):
-            model([outer_x])
-        model.build()
-    taps.param.assign(np.full(3, 2.0, np.float32))
-
-    window = np.array([1.0, 2.0, 3.0], np.float32).reshape(1, 3, 1)
-    # [1, 2, 3] -> 12 -> [2, 3, 12] -> 34 -> [3, 12, 34] -> 98
-    rolled = to_numpy(model({"rb_block_x": window})["rb_block_out"])
-    np.testing.assert_allclose(rolled.ravel(), [98.0])
-    flat = model.flatten().build()
-    np.testing.assert_allclose(
-        to_numpy(flat({"rb_block_x": window})["rb_block_out"]), rolled
-    )
-
-    # As the error says: the one-step model is a Modely of the same graph, and
-    # shares its weights.
-    one_step = Modely("rb_block_step", inputs=[x], outputs=model.outputs)
-    outer = Modely(
-        "rb_block_outer",
-        inputs=[outer_x],
-        outputs=[Output("rb_block_o", one_step([outer_x]))],
-    ).build()
-    result = outer({"rb_block_outer_x": window})["rb_block_o"]
-    np.testing.assert_allclose(to_numpy(result).ravel(), [12.0])
 
 
 def test_nested_closed_loop(tmp_path):
@@ -1079,20 +963,3 @@ def test_loop_feeds_its_body_only_the_inputs_it_reads(tmp_path, target_name):
     model.save(tmp_path / "unread_model")
     reloaded = Modely.load(tmp_path / "unread_model")
     np.testing.assert_allclose(to_numpy(reloaded(data)["unread_out"]).ravel(), expected)
-
-
-@pytest.mark.parametrize("unread_name", ["aa_roll_unread", "zz_roll_unread"])
-def test_roll_feeds_its_body_only_the_inputs_it_reads(unread_name):
-    x, unread = Input("roll_read", sw=3), Input(unread_name, sw=3)
-    out = Output("roll_read_next", TimeSelect(-1)(x) * 2.0)
-    body = Modely("roll_unread_body", inputs=[x, unread], outputs=[out]).build()
-    roll = Roll(f=body, feedback={x: out}, steps=1)
-    model = Modely(
-        "roll_unread_model", inputs=[x], outputs=[Output("roll_unread_out", roll)]
-    ).build()
-    assert [node.name for node in model.inference_inputs] == ["roll_read"]
-
-    result = model(
-        {"roll_read": np.array([1.0, 2.0, 3.0], np.float32).reshape(1, 3, 1)}
-    )
-    np.testing.assert_allclose(to_numpy(result["roll_unread_out"]).ravel(), [2, 3, 6])

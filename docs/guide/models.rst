@@ -128,9 +128,9 @@ The tables group the available layers.
      - :class:`~nnodely.Gradient`, :class:`~nnodely.DerivativeStep`,
        :class:`~nnodely.Derivative`,
        :class:`~nnodely.Integrate`, :class:`~nnodely.IntegrateStep`,
-       :func:`~nnodely.Ode`, :class:`~nnodely.OdeNet` (see :doc:`physics`).
+       :func:`~nnodely.Ode` (see :doc:`physics`).
    * - Recurrence
-     - :class:`~nnodely.Loop`, :class:`~nnodely.Roll` (see :doc:`recurrent`).
+     - :class:`~nnodely.Loop` (see :doc:`recurrent`).
 
 ``Select`` drops the dim axis it selects from, and ``keep_dim=True`` keeps it
 with length 1; a stream always has a dim, so selecting from a vector gives a
@@ -383,9 +383,9 @@ image suffix (``"model.svg"``) names the file and its format.
 Each node shows its name, coloured by its role - inputs green, outputs red,
 parameters, constants, sub-models and losses as in the legend - and each arrow
 the shape it carries, a dynamic sequence axis written ``dyn``. Without
-``flatten``, every block that wraps a model - a sub-model call, a
-:class:`~nnodely.Loop`, a :class:`~nnodely.Roll` - is one sub-model node, and
-its body is drawn in an image of its own named ``<filename>_<body name>``,
-recursively. With ``flatten=True`` the whole model is one image, each called
-sub-model inside a box. A Loop or a Roll is shown by its arrow alone: an orange
-``loop`` arrow, or a teal ``roll (steps=n)`` one, back to the input it feeds.
+``flatten``, every block that wraps a model - a sub-model call or a
+:class:`~nnodely.Loop` - is one sub-model node, and its body is drawn in an
+image of its own named ``<filename>_<body name>``, recursively. With
+``flatten=True`` the whole model is one image, each called sub-model inside a
+box. A Loop is shown by its arrow alone: an orange ``loop`` arrow back to the
+input it feeds.

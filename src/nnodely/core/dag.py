@@ -215,17 +215,7 @@ def flatten_fed_back(scope: Scope) -> None:
 
 
 def flatten(model):
-    flat, memo = _flatten_graph(
-        model.name, model._inputs, model.outputs, return_memo=True, fed_back=True
-    )
-    # The rollback is the model's, not its graph's: carried over to the copies.
-    if model._roll_feedback:
-        flat.rollback(
-            {memo[node]: memo[stream] for node, stream in model._roll_feedback.items()},
-            steps=model._roll_steps,
-            name=model._roll_name,
-        )
-    return flat
+    return _flatten_graph(model.name, model._inputs, model.outputs, fed_back=True)
 
 
 def _flatten_graph(
@@ -364,7 +354,7 @@ def _streams_from(roots) -> list[Stream]:
 def _parameters(model: "Modely") -> list["Parameter"]:
     """Every Parameter ``model`` computes with, each once: reached from its
     outputs and minimizers, through the models it calls and the bodies of its
-    Loops, Rolls and OdeNets, in the order the graph reaches them - inputs
+    Loops, in the order the graph reaches them - inputs
     before the nodes they feed, the model's own before its bodies'."""
     from nnodely.core.modely import Modely
     from nnodely.layers.parameter import Parameter

@@ -111,10 +111,6 @@ Backend support
      - yes (batch 1)
      - no
      - no
-   * - ``OdeNet`` with ``method="dopri5"``
-     - no
-     - no
-     - no
 
 A derivative with respect to an input records the backward pass in the
 exported graph. Its shape arithmetic only converts with a fixed batch axis, so

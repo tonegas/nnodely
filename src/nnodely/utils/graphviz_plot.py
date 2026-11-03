@@ -2,13 +2,13 @@
 
 Every image carries the logo, the model's name and a small legend. A node is
 a card holding its name, coloured by what it is; an arrow carries the shape
-that flows along it. The recurrence of a Loop, a Roll or a model's rollback
-is a coloured arrow back to the input it feeds.
+that flows along it. The recurrence of a Loop is a coloured arrow back to the
+input it feeds.
 
 Without ``flatten`` every block that wraps a model (a sub-model call, a
-``Loop``, a ``Roll``) is one sub-model node, and its body is drawn in an image
-of its own, recursively, named ``<filename>_<body name>``. With ``flatten``
-everything is spliced into one image, each sub-model call's body inside a box.
+``Loop``) is one sub-model node, and its body is drawn in an image of its own,
+recursively, named ``<filename>_<body name>``. With ``flatten`` everything is
+spliced into one image, each sub-model call's body inside a box.
 
 The graph is walked by the traversal the HTML export uses, so both drawings
 show the same nodes and the same bindings.
@@ -27,7 +27,6 @@ from nnodely.layers.input import Input
 from nnodely.layers.loop import Loop
 from nnodely.layers.output import Output
 from nnodely.layers.parameter import Constant, Parameter
-from nnodely.layers.roll import Roll
 from nnodely.utils.html_export import _block_ports, _collect_graph
 
 _LOGO = Path(__file__).with_name("templates") / "logo.png"
@@ -89,13 +88,12 @@ _LEGEND_ROLES = ("input", "output", "parameter", "constant", "submodel", "loss")
 _ARROWS = {
     "data": {"color": "#8A94A6"},
     "loop": {"color": "#F28C28", "penwidth": "2.4", "label": "loop"},
-    "roll": {"color": "#17A398", "penwidth": "2.4", "label": "roll"},
     "loss": {"color": "#9B6BD3", "penwidth": "1.4"},
 }
 
 
 def _role(node) -> str:
-    if isinstance(node, (ModelCall, Loop, Roll)):
+    if isinstance(node, (ModelCall, Loop)):
         return "submodel"
     if isinstance(node, Input):
         return "input"
@@ -118,13 +116,6 @@ def _shape(node) -> str:
         + ", ".join("dyn" if axis is None else str(axis) for axis in shape.tuple)
         + ")"
     )
-
-
-def _recurrence(block) -> tuple[str, str]:
-    """The arrow kind and label of the recurrence a block closes."""
-    if isinstance(block, Roll):
-        return "roll", f"roll (steps={block._steps})"
-    return "loop", "loop"
 
 
 def _font(text: str, size: int, color: str, bold: bool = False) -> str:
@@ -155,7 +146,7 @@ def _header(title: str) -> str:
     arrows = "".join(
         f"<TD>{_font('→', 12, _ARROWS[kind]['color'], bold=True)}</TD>"
         f'<TD ALIGN="LEFT">{_font(_ARROWS[kind]["label"], 9, _INK)}</TD>'
-        for kind in ("loop", "roll")
+        for kind in ("loop",)
     )
     logo = (
         f'<TD FIXEDSIZE="TRUE" WIDTH="120" HEIGHT="35">'
@@ -252,14 +243,6 @@ def _minimizers(drawing: _Drawing, model: Modely) -> None:
             )
 
 
-def _rollback(drawing: _Drawing, model: Modely) -> None:
-    steps = getattr(model, "_roll_steps", None)
-    for input_node, stream in getattr(model, "_roll_feedback", {}).items():
-        src, dst = stream.name, input_node.name
-        if src in drawing.nodes and dst in drawing.nodes:
-            drawing.recurrence(src, dst, "roll", f"roll (steps={steps})")
-
-
 def _draw_model(
     graphviz, model: Modely, fmt: str, *, include_minimizers: bool, block=None
 ) -> _Drawing:
@@ -271,15 +254,13 @@ def _draw_model(
     for pred, src, dst, _ in edges:
         drawing.data(src, dst, _shape(pred))
 
-    # The recurrence of the Loop or Roll this model is the body of.
+    # The recurrence of the Loop this model is the body of.
     if block is not None:
-        node, port_map = block
-        kind, label = _recurrence(node)
+        _, port_map = block
         for pair in port_map["feedback"]:
             if pair["from"] in drawing.nodes and pair["to"] in drawing.nodes:
-                drawing.recurrence(pair["from"], pair["to"], kind, label)
+                drawing.recurrence(pair["from"], pair["to"], "loop", "loop")
 
-    _rollback(drawing, model)
     if include_minimizers:
         _minimizers(drawing, model)
     return drawing
@@ -305,7 +286,7 @@ def _draw_flattened(
     drawing = _Drawing(graphviz, model.name, fmt)
     nodes, edges, feedbacks = _collect_graph(model, inline=True)
     blocks = _block_index(model)
-    # A Loop or a Roll is told by its arrow, not by a box: only the bodies of
+    # A Loop is told by its arrow, not by a box: only the bodies of
     # sub-model calls are boxed.
     boxes = {
         path for path, (block, _) in blocks.items() if isinstance(block, ModelCall)
@@ -353,13 +334,10 @@ def _draw_flattened(
             src, dst, _shape(pred) if pred is not None else shapes.get(src, "")
         )
 
-    for src, dst, _, attrs in feedbacks:
+    for src, dst, _, _ in feedbacks:
         if src in drawing.nodes and dst in drawing.nodes:
-            block = blocks.get(attrs.get("block_node", ""), (None,))[0]
-            kind, label = _recurrence(block)
-            drawing.recurrence(src, dst, kind, label)
+            drawing.recurrence(src, dst, "loop", "loop")
 
-    _rollback(drawing, model)
     if include_minimizers:
         _minimizers(drawing, model)
     return drawing

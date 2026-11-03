@@ -197,28 +197,6 @@ def test_inference_runs_with_the_trained_weights():
     np.testing.assert_allclose(after, to_numpy(trained["trained_pred"]), rtol=1e-6)
 
 
-def test_rollback_inference_does_not_need_minimizer_inputs():
-    x = Input("rollback_inference_x", dim=1, sw=5)
-    target = Input("rollback_inference_target", dim=1, sw=1)
-    taps = Parameter("rollback_inference_taps", value=np.ones(5))
-    fir = Fir(features=1, kernel=taps, bias=False, name="rollback_inference_fir")(x)
-    output = Output("rollback_inference_out", fir + TimeSelect(-1)(x))
-    model = Modely("rollback_inference", inputs=[x, target], outputs=[output])
-    model.minimize("rollback_inference_fit", source=output, target=target)
-    model.rollback({x: fir}, steps=3)
-    model.build()
-
-    result = model(
-        {"rollback_inference_x": np.arange(1, 6, dtype=np.float32).reshape(1, 5, 1)}
-    )
-
-    assert set(result) == {"rollback_inference_out"}
-    # 1..5 -> 15, 29, 56 fed back; the last step reads 56 + x = 29 + 56.
-    np.testing.assert_allclose(
-        to_numpy(result["rollback_inference_out"]), np.array([[[85.0]]])
-    )
-
-
 def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
     state = Input("minimized_body_state", dim=1, sw=1)
     gain = Parameter("minimized_body_gain", value=[2.0])

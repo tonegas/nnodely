@@ -829,28 +829,6 @@ def test_derivative_wrt_time_needs_no_fixed_batch_to_export():
         )
 
 
-def test_derivative_inside_a_rollback_model():
-    """A derivative is an ordinary block of the graph, so unrolling the model
-    re-evaluates it at every step with that step's own state."""
-    x = Input("roll_x", dim=1, sw=1)
-    fun = x**2
-    derivative = Gradient(order=1, respect_to=x)(fun)  # 2x
-    next_x = x + derivative * 0.1  # 1.2 x
-
-    model = Modely(
-        "derivative_rollback_model",
-        inputs=[x],
-        outputs=[Output("next_x", next_x)],
-    )
-    model.rollback({x.name: "next_x"}, steps=3)
-    model.build()
-
-    result = to_numpy(
-        model({"roll_x": np.array([[[1.0]]], dtype=np.float32)})["next_x"]
-    )
-    np.testing.assert_allclose(result, np.full((1, 1, 1), 1.2**3), rtol=1e-5, atol=1e-5)
-
-
 @pytest.mark.slow
 def test_train_through_a_derivative():
     """Gradients reach the weights through the differentiation itself: the
@@ -940,49 +918,6 @@ def test_integrate_pos_vel():
         np.full((1, 1, 1), expected_pos, dtype=np.float32),
         rtol=1e-5,
         atol=1e-5,
-    )
-
-
-def test_integrate_pos_vel_multi_step_rollback():
-    """Roll both coupled integrators forward under a constant force and
-    compare against the same discrete Euler recurrence computed in Python."""
-    dt, mass, steps = 0.1, 2.0, 10
-    force, vel, pos, vel_next, pos_next = _build_pos_vel_integrators("multi", dt, mass)
-
-    model = Modely(
-        "pos_vel_rollout_model",
-        inputs=[vel, pos, force],
-        outputs=[Output("vel_out", vel_next), Output("pos_out", pos_next)],
-    )
-    model.rollback({vel.name: vel_next.name, pos.name: pos_next.name}, steps=steps)
-    model.build()
-
-    vel0, pos0, force0 = 1.0, 0.0, 4.0
-    result = model(
-        {
-            vel.name: np.full((1, 1, 1), vel0, dtype=np.float32),
-            pos.name: np.full((1, 1, 1), pos0, dtype=np.float32),
-            force.name: np.full((1, 1, 1), force0, dtype=np.float32),
-        }
-    )
-
-    acc0 = force0 / mass
-    v, x = vel0, pos0
-    for _ in range(steps):
-        x = x + dt * v  # uses the old v, same order as the model's own rollback
-        v = v + dt * acc0
-
-    np.testing.assert_allclose(
-        to_numpy(result["vel_out"]),
-        np.full((1, 1, 1), v, dtype=np.float32),
-        rtol=1e-4,
-        atol=1e-4,
-    )
-    np.testing.assert_allclose(
-        to_numpy(result["pos_out"]),
-        np.full((1, 1, 1), x, dtype=np.float32),
-        rtol=1e-4,
-        atol=1e-4,
     )
 
 
@@ -1418,7 +1353,7 @@ def test_integrate_step_init_returns_the_updated_state():
 def test_integrate_predicts_a_trajectory_in_one_pass():
     """The point of init: a window of accelerations integrates to velocity and
     again to position in a single forward pass, so a multi-step loss needs no
-    rollback to unroll it."""
+    rollout to unroll it."""
     dt, steps = 0.05, 8
     acceleration = Input("traj_acc", dim=1, sw=8)
     v0 = Input("traj_v0", dim=1, sw=1)
@@ -1601,7 +1536,7 @@ def test_integrate_init_export_onnx(tmp_path):
 def test_train_a_rate_through_an_integrated_trajectory():
     """The multi-step payoff: the loss is written on the integrated trajectory
     and reaches the rate network through every sample of the window in one
-    pass, with no rollback unrolling.
+    pass, with no rollout unrolling.
 
     The rate is a constant w of the one trainable weight, so the trajectory is
     dt*w*i and the least-squares fit against a constant target c is known in

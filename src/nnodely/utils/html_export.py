@@ -14,7 +14,6 @@ from nnodely.core.modely import Modely, ModelCall
 
 from nnodely.layers.input import Input
 from nnodely.layers.loop import Loop
-from nnodely.layers.roll import Roll
 
 ## nnodely pallette
 # :root {
@@ -103,28 +102,6 @@ def _block_ports(node):
             ],
         }
 
-    if isinstance(node, Roll):
-        # Roll wires the body's own inputs, so a port's outer name is its own.
-        return node._f, {
-            "block": "Roll",
-            "detail": {"steps": node._steps},
-            "inputs": [
-                {
-                    "body": node._feedback_input.name,
-                    "outer": node._feedback_input.name,
-                    "role": "state",
-                }
-            ]
-            + [
-                {"body": body.name, "outer": body.name, "role": "input"}
-                for body in node._static_inputs
-            ],
-            "outputs": [{"body": node._feedback_output.name, "outer": node.name}],
-            "feedback": [
-                {"from": node._feedback_output.name, "to": node._feedback_input.name}
-            ],
-        }
-
     return None
 
 
@@ -155,9 +132,9 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
 
     With ``inline`` every block is replaced by the body it wraps, so the
     flattened view answers what the model actually computes. ``Modely.flatten``
-    cannot do this itself: ``build`` runs the very same pass, and a Loop or a
-    Roll has to survive it as one node to become a single Keras layer. A
-    rollout is spliced once and its recurrence drawn as a feedback arrow, so
+    cannot do this itself: ``build`` runs the very same pass, and a Loop has
+    to survive it as one node to become a single Keras layer. A rollout is
+    spliced once and its recurrence drawn as a feedback arrow, so
     the picture stays the same size whatever the horizon.
 
     Body ids are prefixed with the block that owns them, which keeps two
@@ -205,8 +182,9 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
             submodel, port_map = ports
             body_prefix = f"{prefix}{name}/"
 
-            # A Roll wires the body's own inputs, so its ports name the very
-            # same node on both sides: alias those instead of duplicating them.
+            # A block that reads the body's own inputs names the very same
+            # node on both sides of a port: alias those instead of duplicating
+            # them.
             body_alias = {
                 port["body"]: outer_id(port["outer"])
                 for port in port_map["inputs"]
@@ -245,7 +223,7 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
             }
             for port in port_map["outputs"]:
                 # A selector absent from this graph means the block is read
-                # as a value: a single-output Loop, or any Roll.
+                # as a value: a single-output Loop.
                 if port["outer"] == name or port["outer"] not in present:
                     continue
                 outer, body = outer_id(port["outer"]), body_id(port["body"])
@@ -309,7 +287,7 @@ def export_html(
     ``out_dir`` is the folder the pages are written to; a path ending in
     ``.html`` names the root page instead and its parent becomes the folder.
 
-    Every block that wraps a model (``ModelCall``, ``Loop``, ``Roll``) is
+    Every block that wraps a model (``ModelCall``, ``Loop``) is
     exported as its own page, linked from the block node and annotated with the
     ports that bind the body to the graph above it.
     """
@@ -333,7 +311,7 @@ def export_html(
             return "#2ecc71"
         if kind == "Output" or kind == "IntermediateOutput":
             return "#e74c3c"
-        if kind in ("ModelCall", "Loop", "Roll"):
+        if kind in ("ModelCall", "Loop"):
             return "#3498db"
         if kind == "Parameter":
             return "#ff9900"
@@ -425,7 +403,7 @@ def export_html(
         )
         levels = _levels(graph_nodes, graph_edges)
 
-        # Flattening inlines ModelCall bodies but leaves Loop and Roll intact,
+        # Flattening inlines ModelCall bodies but leaves a Loop intact,
         # so a flattened page still has blocks worth drilling into.
         url_map: dict[str, str] = {}
         for node, nid, kind, attrs in graph_nodes:
@@ -542,26 +520,6 @@ def export_html(
         for src, dst, label, attrs in inlined_feedbacks:
             if src in visible_node_ids and dst in visible_node_ids:
                 vis_edges.append(_feedback_edge(src, dst, label, attrs))
-
-        for input_node, stream in getattr(model_obj, "_roll_feedback", {}).items():
-            src = stream.name
-            dst = input_node.name
-            if src not in visible_node_ids or dst not in visible_node_ids:
-                continue
-            steps = getattr(model_obj, "_roll_steps", None)
-            vis_edges.append(
-                _feedback_edge(
-                    src,
-                    dst,
-                    f"roll ({steps} steps)",
-                    {
-                        "kind": "roll",
-                        "feedback_stream": src,
-                        "feedback_input": dst,
-                        "steps": steps,
-                    },
-                )
-            )
 
         # The recurrence the enclosing block closes over this body.
         if boundary is not None:

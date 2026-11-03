@@ -226,7 +226,7 @@ class IntegrateStep(Layer):
     Each is one sample: a window of one, or a value without a window, of a
     scalar dim or the rate's, and no sequence or the rate's. Both integrals
     above come out of one forward pass over the whole window, so a multi-step
-    loss on the trajectory needs no ``rollback`` to unroll it.
+    loss on the trajectory needs no rollout to unroll it.
 
     ``dt`` is the time step, in the unit the rate is expressed in, and is
     always explicit: nothing is inferred from the inputs, so the same relation

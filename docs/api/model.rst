@@ -6,7 +6,7 @@ Model
 .. autoclass:: Modely
    :members: build, built, minimize, remove_minimizer, parameters, inputs,
              freeze, unfreeze, train,
-             validate, rollback,
+             validate,
              flatten, summary, plot, export_html, save, load, export_keras,
              import_keras, export_onnx, validate_onnx
 

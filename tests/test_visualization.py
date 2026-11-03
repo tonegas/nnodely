@@ -15,9 +15,7 @@ from nnodely import (
     Constant,
     Cos,
     Sin,
-    Roll,
 )
-from nnodely import TimeSelect
 
 
 def test_plot_and_export_html(tmp_path):
@@ -88,62 +86,6 @@ def test_multiple_model_composed_visualization(tmp_path):
     model3.export_html(out_dir=tmp_path, filename="model3")
     model3.plot(tmp_path, "model3_standard")
     model3.plot(tmp_path, "model3_flattened", flatten=True)
-
-
-def test_visualize_roll(tmp_path):
-    # ------- Model with roll connections -------
-    x = Input(name="x", dim=1, sw=1)
-    y = Input(name="y", dim=1, sw=1)
-    r1 = x + y
-    out1 = Output("out1", r1)
-    model1 = Modely(name="model1", inputs=[x, y], outputs=[out1])
-    model1.build()
-
-    z = Input(name="z", dim=1, sw=5)
-    r2 = Fir(features=1, bias=False)(z)
-    roll_body_output = Output("roll_body_output", r2)
-    roll_body = Modely(name="roll_body", inputs=[z], outputs=[roll_body_output]).build()
-    roll_fn = Roll(
-        f=roll_body,
-        feedback={z: roll_body_output},
-        name="roll_fn",
-    )
-    out = Output("out", roll_fn)
-    model = Modely(name="model", inputs=[z], outputs=[out])
-    model.build()
-
-    # ------- Model visualization -------
-    model1.plot(tmp_path, "model1")
-    model.plot(tmp_path, "model2")
-
-    # ------- Model export to HTML -------
-    model1.export_html(out_dir=tmp_path, filename="model1")
-    model.export_html(out_dir=tmp_path, filename="model2")
-
-    html = (tmp_path / "model2.html").read_text(encoding="utf-8")
-    assert '"nested_model": "roll_body"' in html
-    assert len(list(tmp_path.glob("*roll_fn.html"))) == 1
-
-
-def test_visualize_model_roll(tmp_path):
-    x = Input("closed_x", sw=5)
-    feedback = Fir(features=1, bias=False, name="closed_fir")(x)
-    output = Output("closed_out", feedback + TimeSelect(-1)(x))
-    model = Modely("closed_model", inputs=[x], outputs=[output])
-    model.rollback({x: feedback}, steps=3)
-    model.build()
-
-    model.export_html(out_dir=tmp_path, filename="closed_model")
-    html = (tmp_path / "closed_model.html").read_text(encoding="utf-8")
-    flattened_html = (tmp_path / "closed_model__flattened.html").read_text(
-        encoding="utf-8"
-    )
-
-    for page in (html, flattened_html):
-        assert '"from": "closed_fir", "to": "closed_x"' in page
-        assert '"label": "roll (3 steps)"' in page
-        assert '\\"kind\\": \\"roll\\"' in page
-        assert '"color": "#e74c3c"' in page
 
 
 def test_visualize_high_level_blocks(tmp_path):
@@ -308,28 +250,6 @@ def test_flattened_page_inlines_a_loop_body(tmp_path):
     assert (
         labels[("inline_block/body_out", "inline_block/in1")] == "feedback (x4 steps)"
     )
-    _assert_no_dangling(flattened)
-
-
-def test_flattened_page_inlines_a_roll_body(tmp_path):
-    z = Input("z2", sw=5)
-    roll_out = Output("roll_out", Fir(features=1, bias=False)(z))
-    roll_body = Modely("inline_roll_body", inputs=[z], outputs=[roll_out]).build()
-    roll = Roll(f=roll_body, feedback={z: roll_out}, name="inline_roll")
-    model = Modely("inline_roll_model", inputs=[z], outputs=[Output("out", roll)])
-    model.build()
-    model.export_html(out_dir=tmp_path, filename="inline_roll_model")
-
-    flattened = (tmp_path / "inline_roll_model__flattened.html").read_text(
-        encoding="utf-8"
-    )
-    nodes, edges = _graph(flattened)
-    ids = {node["id"] for node in nodes}
-
-    # A Roll node is itself the result, so removing it must reconnect its
-    # consumers to the body output rather than leave them dangling.
-    assert "inline_roll" not in ids
-    assert ("inline_roll/roll_out", "out") in {(e["from"], e["to"]) for e in edges}
     _assert_no_dangling(flattened)
 
 
@@ -559,33 +479,6 @@ def test_flattened_plot_draws_a_loop_by_its_arrow_alone(tmp_path, monkeypatch):
     )
 
 
-def test_plot_draws_roll_and_rollback_recurrences(tmp_path, monkeypatch):
-    z = Input("rolled_z", sw=5)
-    out = Output("rolled_out", Fir(features=1, bias=False)(z))
-    body = Modely("rolled_body", inputs=[z], outputs=[out]).build()
-    rolled = Modely(
-        "rolled",
-        inputs=[z],
-        outputs=[Output("rolled_result", Roll(f=body, feedback={z: out}))],
-    ).build()
-    x = Input("closed_x", sw=5)
-    fir = Fir(features=1, bias=False, name="closed_fir")(x)
-    closed = Modely(
-        "closed", inputs=[x], outputs=[Output("closed_out", fir + TimeSelect(-1)(x))]
-    )
-    closed.rollback({x: fir}, steps=3)
-    closed.build()
-
-    roll_sources = _dot_sources(rolled, tmp_path / "roll", monkeypatch)
-    rollback_source = _dot_sources(closed, tmp_path / "rollback", monkeypatch)["closed"]
-
-    assert "<B>roll (steps=5)</B>" in roll_sources["rolled_rolled_body"]
-    assert "#17A398" in roll_sources["rolled_rolled_body"]
-    assert re.search(
-        r"closed_fir -> closed_x \[[^\]]*roll \(steps=3\)", rollback_source
-    )
-
-
 def test_plot_writes_the_shape_on_the_arrows_and_only_the_name_on_the_cards(
     tmp_path, monkeypatch
 ):
@@ -612,7 +505,7 @@ def test_every_image_carries_the_logo_and_the_legend(tmp_path, monkeypatch):
             r'<TD ALIGN="LEFT"><FONT POINT-SIZE="9"[^>]*>([^<]+)</FONT>', source
         )
         assert legend == [
-            "Input", "Output", "Parameter", "Constant", "SubModel", "Loss", "loop", "roll"
+            "Input", "Output", "Parameter", "Constant", "SubModel", "Loss", "loop"
         ]  # fmt: skip
 
 

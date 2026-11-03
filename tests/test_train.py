@@ -12,7 +12,6 @@ from nnodely import (
     EquationLearner,
     Linear,
     Loop,
-    Roll,
 )
 
 import pytest
@@ -107,7 +106,7 @@ def test_train_basic():
         "error_fir_y", source=y_fir, target=None, loss="mse"
     )  ## with target=None, the loss will be minimized to zero
 
-    model1.build()  # Rebuild the model after removing the minimizer otherwise the training Roll will still try to compute the loss and update the model based on it, even if it's not used for training anymore
+    model1.build()  # Rebuild the model after removing the minimizer otherwise the training model will still try to compute the loss and update the model based on it, even if it's not used for training anymore
     model1.train(train_data=data_train, epochs=60, batch_size=4, **CONVERGED)
 
     # ------ Remove one minimizer and retrain with a constant value -------
@@ -1022,110 +1021,6 @@ def test_train_with_loop_under_xla(monkeypatch):
     assert model.model.jit_compile
     assert np.all(np.isfinite(history["loss"]))
     assert history["loss"][-1] < history["loss"][0]
-
-
-@pytest.mark.slow
-def test_train_with_roll():
-    x = Input("x", sw=1)
-    target = Input("target", sw=1)
-    relation = Linear(features=1, kernel="ones", bias="zeros")(x)
-    output = Output("out", relation)
-    body = Modely("body", inputs=[x], outputs=[output])
-    body.build()
-    roll = Roll(f=body, feedback={x: output}, steps=3, name="roll")
-    out_scan = Output("out_scan", roll)
-    model = Modely("model", inputs=[x], outputs=[out_scan])
-    model.minimize("error", source=out_scan, target=target, loss="mse")
-    model.build()
-
-    dataset = {
-        "x": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
-        "target": [
-            21,
-            22,
-            23,
-            24,
-            25,
-            26,
-            27,
-            28,
-            29,
-            30,
-            31,
-            32,
-            33,
-            34,
-            35,
-            36,
-            37,
-            38,
-            39,
-            40,
-        ],
-    }
-    data = DataLoader(model, source=dataset)
-
-    assert data._dataset["x"].shape == (20, 1, 1)
-    assert data._dataset["target"].shape == (20, 1, 1)
-    np.testing.assert_array_equal(data._dataset["x"][:, 0, 0], np.arange(1, 21))
-    np.testing.assert_array_equal(data._dataset["target"][:, 0, 0], np.arange(21, 41))
-
-    initial_prediction = model(data.as_dict())
-    initial_error = np.mean(
-        np.square(to_numpy(initial_prediction["out_scan"]) - data._dataset["target"])
-    )
-    history = model.train(
-        train_data=data,
-        epochs=10,
-        batch_size=4,
-        optimizer="adam",
-        lr=0.01,
-    )
-    final_prediction = model(data.as_dict())
-    final_error = np.mean(
-        np.square(to_numpy(final_prediction["out_scan"]) - data._dataset["target"])
-    )
-
-    assert np.isfinite(final_error)
-    assert final_error < initial_error
-    assert history["loss"][-1] < history["loss"][0]
-
-
-def test_train_with_model_rollback_uses_final_value_only():
-    x = Input("closed_train_x", sw=1)
-    target = Input("closed_train_target", sw=1)
-    relation = Linear(
-        features=1, kernel="ones", bias=False, name="closed_train_linear"
-    )(x)
-    output = Output("closed_train_output", relation)
-    model = Modely("closed_train_model", inputs=[x], outputs=[output])
-    model.rollback({x: output}, steps=3)
-    model.minimize("closed_train_error", output, target, loss="mse")
-    model.build()
-
-    data = DataLoader(
-        model,
-        source={"closed_train_x": [2.0], "closed_train_target": [4.0]},
-    )
-    optimizer = keras.optimizers.SGD(learning_rate=0.01)
-
-    before = model(data.as_dict())
-    assert before["closed_train_output"].shape == (1, 1, 1)
-    np.testing.assert_allclose(to_numpy(before["closed_train_output"]), [[[2.0]]])
-
-    history = model.train(
-        train_data=data,
-        epochs=1,
-        batch_size=1,
-        optimizer=optimizer,
-    )
-
-    # The final rollout value is x * w**3. At w=1, MSE(2, 4)=4 and
-    # d(loss)/dw=-24, therefore one SGD update gives w=1.24.
-    assert relation.kernel is not None
-    np.testing.assert_allclose(history["loss"], [4.0], atol=1e-5)
-    np.testing.assert_allclose(to_numpy(relation.kernel), [[1.24]], atol=1e-5)
-    assert int(to_numpy(optimizer.iterations)) == 1
 
 
 def test_masked_loss_ignores_padded_target_steps():

@@ -661,14 +661,6 @@ class _Step:
                 if id(node) in declared
             }
         else:
-            if f._roll_feedback:
-                raise ValueError(
-                    f"{who}: {f.name!r} has a rollback, and its graph feeds back "
-                    "Inputs it does not declare, or from streams that are not "
-                    "its outputs: rolled out, the rollback would be lost. "
-                    "Declare those Inputs and their updates in a model without "
-                    "rollback."
-                )
             # A seed two layers start from is one Input.
             inputs = dict(step_inputs)
             for seed in seeds:

@@ -38,7 +38,6 @@ from nnodely.layers.output import Output
 from nnodely.layers.fir import Fir
 from nnodely.layers.linear import Linear
 from nnodely.layers.parameter import Constant, Parameter
-from nnodely.layers.roll import Roll
 from nnodely.layers.loop import Loop
 from nnodely.layers.buffer import Buffer
 from nnodely.layers.localmodel import LocalModel
@@ -63,7 +62,7 @@ from nnodely.layers.partitions import (
     TimeSelect,
 )
 from nnodely.layers.batchnorm import BatchNorm
-from nnodely.layers.ode import Ode, OdeNet
+from nnodely.layers.ode import Ode
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -108,7 +107,6 @@ __all__ = [
     "Linear",
     "Parameter",
     "Constant",
-    "Roll",
     "Loop",
     "Buffer",
     "LocalModel",
@@ -138,7 +136,6 @@ __all__ = [
     "Range",
     "BatchNorm",
     "Ode",
-    "OdeNet",
     "ReLU",
     "LeakyReLU",
     "ELU",

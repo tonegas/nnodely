@@ -35,7 +35,6 @@ from nnodely.layers.parameter import Constant, Parameters
 from nnodely.core.dataloader import DataLoader
 
 import numpy as np
-from typing import cast
 
 from nnodely.layers.output import Output
 from nnodely.layers.input import Input, Inputs
@@ -48,8 +47,8 @@ class Modely:
     """A model-structured neural network.
 
     ``inputs`` and ``outputs`` delimit the graph of streams that makes up the
-    model. Objectives (:meth:`minimize`) and feedback (:meth:`rollback`) are
-    declared on it, then :meth:`build` creates the Keras model and its weights.
+    model. Objectives (:meth:`minimize`) are declared on it, then
+    :meth:`build` creates the Keras model and its weights.
 
     A built model is called with ``{input name: array}``, every array with its
     batch axis, and returns ``{output name: tensor}``. Called with a list of
@@ -80,9 +79,6 @@ class Modely:
         self.optional_inputs: set[str] = set()
         self._minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
         self._minimizer_outputs: dict[Node, str] = {}  # minimizer side -> graph output
-        self._roll_feedback: dict[Input, Stream] = {}
-        self._roll_steps: int | None = None
-        self._roll_name: str | None = None
 
     def __repr__(self) -> str:
         items = " \n- ".join(map(str, self._order))
@@ -100,15 +96,6 @@ class Modely:
                     f"Model {self.name!r} is called with a dict of arrays to run "
                     "it, or with a list of streams, one per input, to use it as "
                     f"a block; got {type(inputs).__name__}."
-                )
-            # A block is inlined once, so the rollback would be lost.
-            if self._roll_feedback:
-                raise ValueError(
-                    f"Model {self.name!r} has a rollback, which a block cannot "
-                    "carry: inlined, it would be evaluated once. For its one-step "
-                    "model, call a Modely declared on its inputs and outputs "
-                    "without rollback, which shares its weights; to unroll it "
-                    "inside a graph, use Roll or Loop."
                 )
             if len(inputs) != len(self._inputs):
                 names = [node.name for node in self._inputs]
@@ -211,14 +198,10 @@ class Modely:
                 self._minimizer_outputs[node] = exposed.name
 
         self._train_outputs = self.outputs + extra_outputs
-        feedback_streams = list(dict.fromkeys(self._roll_feedback.values()))
-        graph_outputs = self._train_outputs + [
-            stream for stream in feedback_streams if stream not in self._train_outputs
-        ]
         flat, flatten_memo = _flatten_graph(
             self.name,
             self._inputs,
-            graph_outputs,
+            self._train_outputs,
             return_memo=True,
             one_step=True,
         )
@@ -262,7 +245,7 @@ class Modely:
                 stacklevel=2,
             )
 
-        flat_graph_outputs = [flatten_memo[node] for node in graph_outputs]
+        flat_graph_outputs = [flatten_memo[node] for node in self._train_outputs]
         keras_inputs, keras_outputs = self._resolve_graph(
             flat._order, output_nodes=flat_graph_outputs
         )
@@ -276,31 +259,20 @@ class Modely:
                 source_node._layer = flat_node._layer
                 source_node._layer_signature = flat_node._layer_signature
 
-        body_class = keras.Model if self._roll_feedback else MinimizerModel
-        body_model = body_class(
+        self.model = MinimizerModel(
             name=self.name + "_train",
             inputs=keras_inputs,
             outputs=keras_outputs,
         )
-        if self._roll_feedback:
-            self.model = MinimizerModel(
-                name=self.name + "_train",
-                inputs=keras_inputs,
-                outputs=self._rolled(body_model, self._train_outputs, keras_inputs),
-            )
-        else:
-            self.model = body_model
 
-        # Inference sees the model as it was declared: its outputs, the streams
-        # its rollback feeds back, and only the inputs those read. What the
-        # minimizers add - their sides, and the inputs only they read, such as
-        # targets - is there for the loss and stays in the training model. The
-        # inputs are read off the Keras graph rather than the DAG, because a
-        # Parameter or Constant is wired to an arbitrary input for its batch.
+        # Inference sees the model as it was declared: its outputs, and only
+        # the inputs those read. What the minimizers add - their sides, and the
+        # inputs only they read, such as targets - is there for the loss and
+        # stays in the training model. The inputs are read off the Keras graph
+        # rather than the DAG, because a Parameter or Constant is wired to an
+        # arbitrary input for its batch.
         inference_outputs = {
-            node.name: keras_outputs[node.name]
-            for node in self.outputs
-            + [stream for stream in feedback_streams if stream not in self.outputs]
+            node.name: keras_outputs[node.name] for node in self.outputs
         }
         read = {
             name
@@ -313,39 +285,10 @@ class Modely:
         inference_inputs = {
             node.name: keras_inputs[node.name] for node in self.inference_inputs
         }
-        if self._roll_feedback:
-            inference_body = keras.Model(
-                name=self.name + "_body",
-                inputs=inference_inputs,
-                outputs=inference_outputs,
-            )
-            inference_outputs = self._rolled(
-                inference_body, self.outputs, inference_inputs
-            )
         self.inference_model = keras.Model(
             name=self.name, inputs=inference_inputs, outputs=inference_outputs
         )
         return self
-
-    def _rolled(self, body_model, output_nodes, keras_inputs):
-        """The outputs of ``body_model`` unrolled over the configured rollback."""
-        from nnodely.layers.roll import ModelRollImpl
-
-        roll_layer = ModelRollImpl(
-            model=body_model,
-            feedback={
-                input_node.name: stream.name
-                for input_node, stream in self._roll_feedback.items()
-            },
-            output_names=tuple(node.name for node in output_nodes),
-            input_time_axes={
-                node.name: cast(int, node.shape.time_axis)
-                for node in self._roll_feedback
-            },
-            steps=cast(int, self._roll_steps),
-            name=self._roll_name or f"{self.name}_roll",
-        )
-        return roll_layer(keras_inputs)
 
     def _resolve_graph(self, order, output_nodes=None):
         # Applying one layer several times yields one node per application, so
@@ -538,7 +481,7 @@ class Modely:
     def parameters(self) -> Parameters:
         """Every Parameter the model computes with: those of its relations and
         the weights of its layers, of the models it calls and of the bodies of
-        its Loops, Rolls and OdeNets, in the order the graph reaches them. A
+        its Loops, in the order the graph reaches them. A
         list of the Parameter objects, printed as a table of their names,
         shapes, numbers of values and whether training changes them."""
         return Parameters(_parameters(self), title=f"Parameters of {self.name}")
@@ -565,10 +508,6 @@ class Modely:
             for side in (minimizer["source"], minimizer["target"])
         ]
         forward = _read_inputs(self.outputs, self._inputs)
-        rollback = {
-            node.name: f"{stream.name} (rollback)"
-            for node, stream in self._roll_feedback.items()
-        }
         read = _read_nodes([*self.outputs, *sides], self._inputs)
         rows = []
         by_name: dict[str, dict] = {}
@@ -583,9 +522,7 @@ class Modely:
                 "input": node,
                 "seq": tuple(node.seq),
                 "declared": name in declared,
-                "fed back with": rollback.get(
-                    name, None if node.update is None else node.update.name
-                ),
+                "fed back with": None if node.update is None else node.update.name,
                 "data": data,
                 "starts from": None,
             }
@@ -630,7 +567,7 @@ class Modely:
     def freeze(self):
         """Keep every Parameter of the model as it is through training: those
         of its relations and of the weights of its layers, of the models it
-        calls and of the bodies of its Loops, Rolls and OdeNets.
+        calls and of the bodies of its Loops.
         :meth:`unfreeze` undoes it; one :meth:`Parameter.freeze` freezes a
         single one. A Parameter shared with another model is frozen for that
         model too. Returns the model."""
@@ -841,7 +778,7 @@ class Modely:
         The root page is ``filename``, the model name by default, with the
         ``.html`` suffix added when missing.
 
-        Every block that wraps a model (``ModelCall``, ``Loop``, ``Roll``) is
+        Every block that wraps a model (``ModelCall``, ``Loop``) is
         exported recursively as its own page, linked from the block node and
         annotated with the ports that bind the body to the graph above it.
         """
@@ -878,14 +815,14 @@ class Modely:
 
         A node shows its name, coloured by its role; an arrow, the shape it
         carries. Without ``flatten`` every block that wraps a model
-        (``ModelCall``, ``Loop``, ``Roll``) is one sub-model node, and its body
+        (``ModelCall``, ``Loop``) is one sub-model node, and its body
         is drawn in an image of its own, ``<filename>_<body name>``,
         recursively. With ``flatten`` the whole model is one image, each called
-        sub-model inside a box. The recurrence of a Loop or a Roll is a
-        ``loop`` or ``roll (steps=n)`` arrow, minimizers - unless
-        ``include_minimizers`` is False - are loss nodes, and every image
-        carries a legend. Needs the Graphviz ``dot`` program; without it the
-        DOT source of each image is written instead, with a warning.
+        sub-model inside a box. The recurrence of a Loop is a ``loop`` arrow,
+        minimizers - unless ``include_minimizers`` is False - are loss nodes,
+        and every image carries a legend. Needs the Graphviz ``dot`` program;
+        without it the DOT source of each image is written instead, with a
+        warning.
         """
         from nnodely.utils.graphviz_plot import plot_graphviz
 
@@ -897,68 +834,6 @@ class Modely:
             include_minimizers=include_minimizers,
             format=format,
         )
-
-    # -------------------------------------------------------------------------
-    # roll API
-    # -------------------------------------------------------------------------
-    def rollback(
-        self,
-        feedback: dict[str | Input, str | Stream],
-        steps: int,
-        name: str | None = None,
-    ) -> "Modely":
-        """Configure temporal feedback directly on this model.
-
-        Each ``feedback`` pair is ``input: stream``. After every model evaluation, the
-        stream's one-step result is appended to the input's temporal window.
-        The model is unrolled for ``steps`` evaluations and exposes only the
-        outputs produced by the final evaluation, preserving their original
-        symbolic shapes.
-        """
-        if self.built:
-            raise ValueError("rollback() must be called before build().")
-        if not isinstance(feedback, dict) or not feedback:
-            raise ValueError("feedback must be a non-empty input: stream mapping.")
-        if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
-            raise ValueError("roll steps must be a positive integer.")
-
-        graph_streams = [node for node in self._order if isinstance(node, Stream)]
-
-        def resolve(nodes, value, kind):
-            if isinstance(value, str):
-                matches = [node for node in nodes if node.name == value]
-                if len(matches) != 1:
-                    raise ValueError(f"roll {kind} {value!r} was not found uniquely.")
-                return matches[0]
-            if value not in nodes:
-                raise ValueError(
-                    f"roll {kind} {getattr(value, 'name', value)!r} "
-                    "does not belong to this Modely."
-                )
-            return value
-
-        pairs = {}
-        for input_ref, stream_ref in feedback.items():
-            input_node = resolve(self._inputs, input_ref, "input")
-            stream = resolve(graph_streams, stream_ref, "stream")
-            if input_node.time is None:
-                raise ValueError(
-                    f"rollback shifts the window of input {input_node.name!r}, "
-                    "which has none: declare it with sw."
-                )
-            # One sample of the window, within the Input's sequence.
-            expected = input_node.shape.replace(time=1).tuple
-            if stream.shape.tuple != expected:
-                raise ValueError(
-                    f"roll stream {stream.name!r} must produce one temporal "
-                    f"sample with shape {expected}, got {stream.shape.tuple}."
-                )
-            pairs[input_node] = stream
-
-        self._roll_feedback = pairs
-        self._roll_steps = steps
-        self._roll_name = name
-        return self
 
     # -------------------------------------------------------------------------
     # Save and load

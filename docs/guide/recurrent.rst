@@ -2,18 +2,12 @@ Recurrent Models
 ================
 
 A one-step model predicts the next sample from measured ones. Used as a
-simulator, it has to run on its own predictions instead. *nnodely* offers four
+simulator, it has to run on its own predictions instead. *nnodely* offers two
 ways to feed outputs back into inputs:
 
-:meth:`Modely.rollback() <nnodely.Modely.rollback>`
-    unrolls a whole model for a fixed number of steps, feeding a stream back
-    into an input's time window. The result is the prediction after the last step.
 :class:`~nnodely.Loop`
     rolls a built model out over a **sequence**, and returns the whole
     trajectory. This is the tool for multi-step training.
-:class:`~nnodely.Roll`
-    unrolls a built model over the time window of one of its inputs, as a
-    block inside a larger graph.
 :class:`~nnodely.ModelyLoop`
     is a model declared one step at a time, whose states are Inputs fed back
     with their next value, :meth:`Input.feedback() <nnodely.Input.feedback>`.
@@ -24,7 +18,7 @@ The examples use a simulated mass-spring-damper:
 .. code-block:: python
 
    import numpy as np
-   from nnodely import DataLoader, Fir, Input, Linear, Loop, Modely, Output, Roll, set_seed
+   from nnodely import DataLoader, Fir, Input, Linear, Loop, Modely, Output, set_seed
 
    set_seed(0)
 
@@ -38,44 +32,6 @@ The examples use a simulated mass-spring-damper:
        acceleration = (-k * position[i] - c * velocity[i] + force[i]) / m
        velocity[i + 1] = velocity[i] + dt * acceleration
        position[i + 1] = position[i] + dt * velocity[i + 1]
-
-Rollback
---------
-
-``rollback({input: stream}, steps)`` evaluates the model ``steps`` times.
-After every evaluation, the one-sample result of ``stream`` is appended to the
-time window of ``input``, and its oldest sample is dropped. The model's outputs
-are those of the last evaluation. It is declared before ``build()``.
-
-.. code-block:: python
-
-   steps = 5
-   x = Input("x", sw=5)
-   F = Input("F", sw=1)
-   x_pred = Output("x_pred", Fir(features=1)([x]) + Fir(features=1)([F]))
-
-   model = Modely("msd_rollback", inputs=[x, F], outputs=[x_pred])
-   model.rollback({x: x_pred}, steps=steps)
-   model.minimize("ahead", x_pred, Input("x_ahead", sw=1))
-   model.build()
-
-Inputs that are not fed back keep the value of their window at every step, and
-so does the target. The target is therefore the signal ``steps`` samples ahead,
-aligned in the data:
-
-.. code-block:: python
-
-   data = {"x": position[:-steps], "F": force[:-steps], "x_ahead": position[steps:]}
-   train_data = DataLoader(model, source=data)
-   model.train(train_data, epochs=20, batch_size=64, lr=1e-2, printer=None)
-
-Several inputs can be fed back at once: ``rollback({"x": "x_next", "v":
-"v_next"}, steps=10)``. Inputs and streams can be given by name.
-
-A model with a rollback cannot be called as a block, which would evaluate it
-once. Its one-step model is a ``Modely`` declared on the same inputs and
-outputs without rollback, sharing its weights; to unroll a model inside a
-graph, use ``Roll`` or ``Loop``.
 
 Loop
 ----
@@ -293,20 +249,3 @@ call. A model called with a stream for a fed-back Input it declares keeps its
 feedback, and reads that stream as its initial value. A model is saved with
 its fed-back Inputs: loaded back, it feeds them back as before, and a Loop
 finds them again.
-
-Roll
-----
-
-:class:`~nnodely.Roll` unrolls a built model over the window of one of its
-inputs, and returns a window of the same length. With the default ``steps``
-(the window length) every sample of the result is a prediction:
-
-.. code-block:: python
-
-   x = Input("x_roll", sw=5)
-   out = Output("out", Fir(features=1)([x]))
-   one_step = Modely("one_step", inputs=[x], outputs=[out]).build()
-
-   rolled = Roll(f=one_step, feedback={x: out})
-   free_run = Modely("free_run", inputs=[x], outputs=[Output("free", rolled)]).build()
-   print(free_run({"x_roll": np.arange(1.0, 6.0).reshape(1, 5, 1)})["free"].shape)   # (1, 5, 1)

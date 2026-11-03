@@ -181,7 +181,7 @@ class ModelSerializer:
                 node_data["layer"] = layer_ids.setdefault(
                     id(node._source), len(layer_ids)
                 )
-            # A block that wraps a model (Loop, Roll, OdeNet) saves that model
+            # A block that wraps a model (a Loop) saves that model
             # as a model of its own, in a folder named after the block, so
             # nested blocks nest their folders the same way. Two blocks can
             # share a name, so a folder already taken gets a suffix.
@@ -202,18 +202,6 @@ class ModelSerializer:
             "version": ModelSerializer.VERSION,
             "model": {
                 "name": model.name,
-                "roll": (
-                    {
-                        "feedback": {
-                            input_node.name: stream.name
-                            for input_node, stream in model._roll_feedback.items()
-                        },
-                        "steps": model._roll_steps,
-                        "name": model._roll_name,
-                    }
-                    if model._roll_feedback
-                    else None
-                ),
                 "optional_inputs": sorted(model.optional_inputs),
             },
             "nodes": nodes,
@@ -238,6 +226,12 @@ class ModelSerializer:
     def deserialize(data, path, *, loading):
         from nnodely.core.modely import Modely
         from nnodely.layers.parameter import _Value
+
+        if data["model"].get("roll") is not None:
+            raise ValueError(
+                f"The model saved in {path} has a rollback, which this nnodely "
+                "does not have: declare it again, rolled out with a Loop."
+            )
 
         node_map = {}
 
@@ -298,13 +292,6 @@ class ModelSerializer:
             outputs=outputs,
         )
         model.optional_inputs = set(data["model"].get("optional_inputs", ()))
-        roll = data["model"].get("roll")
-        if roll is not None:
-            model.rollback(
-                roll["feedback"],
-                steps=roll["steps"],
-                name=roll.get("name"),
-            )
         return model
 
     @staticmethod

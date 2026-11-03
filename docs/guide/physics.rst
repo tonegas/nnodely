@@ -12,7 +12,7 @@ inferred from the data.
    from nnodely import (
        DataLoader, Derivative, DerivativeStep, Gradient, Input, Integrate, IntegrateStep,
        Linear, Loop, Modely, ModelyLoop,
-       Ode, OdeNet, Output, Parameter, set_seed, Sin, Tanh,
+       Ode, Output, Parameter, set_seed, Sin, Tanh,
    )
 
    set_seed(0)
@@ -188,46 +188,3 @@ body of a :class:`~nnodely.Loop`. Here a pendulum with an unknown ratio
 
 ``g_over_l`` is a parameter, so training the simulator on measured angles
 identifies it. ``dt`` can also be a stream, read from data or learned.
-
-Neural ODEs
------------
-
-:class:`~nnodely.OdeNet` integrates a vector field given as a built model.
-``states`` maps each state input of the field to the output with its
-derivative. ``t`` is a stream with the times to report: the first one is the
-initial condition, and the result gets one point per time as its new outer
-time. The field must be autonomous (all its inputs are states).
-
-.. code-block:: python
-
-   z = Input("z", dim=2, sw=1)
-   field = Modely(
-       "field",
-       inputs=[z],
-       outputs=[Output("dz", Linear(features=2, bias=False)([z]))],
-   ).build()
-
-   report_times = Input("report_times", seq=50, sw=1)
-   z_traj = OdeNet(
-       f=field, states={z: "dz"}, t=report_times, method="rk4", steps=2
-   )
-   node = Modely("neural_ode", inputs=[z, report_times], outputs=[Output("z_traj", z_traj)]).build()
-
-   result = node({
-       "z": np.array([[[2.0, 0.0]]]),
-       "report_times": np.linspace(0.0, 5.0, 50).reshape(1, 50, 1, 1),
-   })
-   print(result["z_traj"].shape)   # (1, 50, 1, 2)
-
-With a fixed method (``"euler"``, ``"midpoint"``, ``"heun"``, ``"rk4"``), each
-reported interval is split into ``steps`` equal substeps and the solver is an
-unrolled graph that trains and exports like any other layer. ``"dopri5"``
-selects an adaptive Dormand-Prince solver controlled by ``rtol``, ``atol`` and
-``max_steps``. It cannot be exported to ONNX and cannot be differentiated in
-reverse mode on the JAX backend, so it is meant for inference.
-
-``event`` and ``reset`` make the field hybrid, for systems with impacts or
-switches. ``event`` names an output of the field that changes sign when the
-event happens, and ``reset`` maps every state to the output with its value
-right after it. The event time is located inside the step, so its gradient
-reaches the parameters.

@@ -15,11 +15,11 @@ from nnodely import (
 )
 from conftest import to_numpy
 
-# Ode and OdeNet are not tested on torch: the suite does not run reliably on
+# Ode is not tested on torch: the suite does not run reliably on
 # that backend yet.
 pytestmark = pytest.mark.skipif(
     keras.backend.backend() == "torch",
-    reason="the Ode and OdeNet tests are not run on the torch backend",
+    reason="the Ode tests are not run on the torch backend",
 )
 
 
