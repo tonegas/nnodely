@@ -295,7 +295,7 @@ def test_flattened_page_inlines_a_loop_body(tmp_path):
 
     # Modely.flatten leaves the Loop intact because build() runs the same pass
     # and it has to survive as one Keras layer, so the splice is display-only.
-    assert len(model.flatten().order) == len(model.order)
+    assert len(model.flatten()._order) == len(model._order)
 
     standard_ids = {node["id"] for node in _graph(standard)[0]}
     flattened_ids = {node["id"] for node in _graph(flattened)[0]}

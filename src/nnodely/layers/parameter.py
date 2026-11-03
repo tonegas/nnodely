@@ -158,7 +158,7 @@ class _Value(Layer):
             )
 
         self.value = value
-        self.initializer = initializer
+        self._initializer = initializer
 
         super().__init__(
             name=name,
@@ -170,13 +170,13 @@ class _Value(Layer):
         )
         # The value as it is held: its sequence axes, its window if it has
         # one, then its dim - the shape of one sample of its stream.
-        self.value_shape = self.shape.tuple
+        self._value_shape = self.shape.tuple
 
     def build_layer(self):
         return self._impl(
-            value_shape=self.value_shape,
+            value_shape=self._value_shape,
             value=self.value,
-            initializer=self.initializer,
+            initializer=self._initializer,
             trainable=self._trainable,
             name=self.name,
         )
@@ -194,7 +194,7 @@ class _Value(Layer):
                 {
                     "seq": list(range(seq_rank)),
                     "time": seq_rank if has_time else None,
-                    "dim": list(range(first_dim, len(self.value_shape))),
+                    "dim": list(range(first_dim, len(self._value_shape))),
                     "value": self.value.tolist(),
                 }
             )
@@ -283,7 +283,7 @@ class Parameter(_Value):
         config.update(
             {
                 "value": None if self.value is None else self.value.tolist(),
-                "initializer": _serialized_initializer(self.initializer),
+                "initializer": _serialized_initializer(self._initializer),
                 "trainable": self._trainable,
             }
         )
@@ -301,7 +301,7 @@ class Parameters(list):
 
     def __init__(self, parameters, title: str = ""):
         super().__init__(parameters)
-        self.title = title
+        self._title = title
 
     def __getitem__(self, key):  # type: ignore[override]
         """A Parameter by its name, or by position as in a list."""
@@ -310,7 +310,7 @@ class Parameters(list):
                 if parameter.name == key:
                     return parameter
             raise KeyError(
-                f"{self.title or 'Parameters'}: no Parameter named {key!r}; "
+                f"{self._title or 'Parameters'}: no Parameter named {key!r}; "
                 f"the names are {[parameter.name for parameter in self]}."
             )
         return super().__getitem__(key)
@@ -340,7 +340,7 @@ class Parameters(list):
         trainable = sum(v for v, p in zip(values, self) if p.trainable)
         return "\n".join(
             [
-                *([self.title] if self.title else []),
+                *([self._title] if self._title else []),
                 line(header).rstrip(),
                 line(tuple("-" * width for width in widths)).rstrip(),
                 *(line(row).rstrip() for row in rows),
@@ -453,27 +453,27 @@ class Weight(Parameter):
         draw=None,
         trainable: bool = True,
     ):
-        self.weight_shape = tuple(int(axis) for axis in shape)
+        self._weight_shape = tuple(int(axis) for axis in shape)
         if draw is None:
             draw = (
-                self.weight_shape
-                if len(self.weight_shape) <= 2
-                else (math.prod(self.weight_shape[:-1]), self.weight_shape[-1])
+                self._weight_shape
+                if len(self._weight_shape) <= 2
+                else (math.prod(self._weight_shape[:-1]), self._weight_shape[-1])
             )
-        self.draw_shape = tuple(int(axis) for axis in draw)
+        self._draw_shape = tuple(int(axis) for axis in draw)
         super().__init__(
             name,
             initializer=initializer,
-            dim=self.weight_shape,
+            dim=self._weight_shape,
             trainable=trainable,
         )
 
     def build_layer(self):
         return WeightImpl(
             value_shape=self.shape.tuple,
-            weight_shape=self.weight_shape,
-            draw_shape=self.draw_shape,
-            initializer=self.initializer,
+            weight_shape=self._weight_shape,
+            draw_shape=self._draw_shape,
+            initializer=self._initializer,
             trainable=self._trainable,
             name=self.name,
         )
@@ -481,9 +481,9 @@ class Weight(Parameter):
     def get_config(self):
         return {
             "name": self.name,
-            "shape": self.weight_shape,
-            "initializer": _serialized_initializer(self.initializer),
-            "draw": self.draw_shape,
+            "shape": self._weight_shape,
+            "initializer": _serialized_initializer(self._initializer),
+            "draw": self._draw_shape,
             "trainable": self._trainable,
         }
 
@@ -592,7 +592,7 @@ class _ParameterWeights(Layer):
         return layer(preds[0])
 
     def _weight_nodes(self) -> list[Parameter]:
-        return cast(list[Parameter], self.preds[1:]) if self.preds else []
+        return cast(list[Parameter], self._preds[1:]) if self._preds else []
 
     @property
     def kernel(self):

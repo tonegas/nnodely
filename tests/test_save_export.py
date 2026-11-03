@@ -79,10 +79,10 @@ def graph_signature(model):
             "type": type(node).__name__,
             # A Loop with several outputs has none.
             "shape": repr(getattr(node, "shape", None)),
-            "preds": [(p.name, repr(getattr(p, "shape", None))) for p in node.preds],
+            "preds": [(p.name, repr(getattr(p, "shape", None))) for p in node._preds],
             "config": node.get_config(),
         }
-        for node in flat.order
+        for node in flat._order
     ]
 
 
@@ -407,7 +407,7 @@ def test_interpolation_save_keras_and_html(tmp_path, mode):
         atol=1e-5,
     )
     restored_layer = next(
-        node for node in restored.flatten().order if isinstance(node, Interpolation)
+        node for node in restored.flatten()._order if isinstance(node, Interpolation)
     )
     assert restored_layer.get_config() == {
         "name": f"{mode}_interpolation",
@@ -1565,7 +1565,7 @@ def test_save_load_leaves_minimizers_out(tmp_path):
     _assert_round_trip(model, _minimized_inputs(), tmp_path)
 
     restored = Modely.load(tmp_path / "saved")
-    assert restored.minimizers == []
+    assert restored._minimizers == []
     assert [node.name for node in restored.train_inputs] == ["minimized_x"]
     saved = json.loads((tmp_path / "saved" / "model.json").read_text(encoding="utf-8"))
     saved_names = {node["config"]["name"] for node in saved["nodes"]}
@@ -1638,13 +1638,13 @@ def test_a_loaded_layer_keeps_its_name_and_its_own_weights(tmp_path):
     model.save(tmp_path / "apart")
 
     loaded = Modely.load(tmp_path / "apart")
-    loaded_fir = next(node for node in loaded.order if isinstance(node, Fir))
+    loaded_fir = next(node for node in loaded._order if isinstance(node, Fir))
     # One name, two layers: a layer is told apart by the object it comes from.
     assert loaded_fir.name == ours.name
     assert ours.kernel is not None
     ours.kernel.assign(np.ones((2, 1), dtype=np.float32))
 
-    x = model.inputs[0]
+    x = model._inputs[0]
     both = Modely(
         "apart_both", inputs=[x], outputs=[Output("apart_sum", ours + loaded([x]))]
     ).build()
@@ -1698,7 +1698,7 @@ def test_one_file_loaded_twice_gives_two_models(tmp_path):
     model, _ = _fir_model("twice", 1.0)
     model.save(tmp_path / "twice")
     first, second = Modely.load(tmp_path / "twice"), Modely.load(tmp_path / "twice")
-    second_fir = next(node for node in second.order if isinstance(node, Fir))
+    second_fir = next(node for node in second._order if isinstance(node, Fir))
     assert second_fir.kernel is not None
     second_fir.kernel.assign(np.full((2, 1), 5.0, dtype=np.float32))
 
@@ -1741,12 +1741,12 @@ def test_load_without_weights_initializes_the_saved_architecture(tmp_path):
     model.save(tmp_path / "fresh")
 
     restored = Modely.load(tmp_path / "fresh", weights=False)
-    restored_fir = next(node for node in restored.order if isinstance(node, Fir))
+    restored_fir = next(node for node in restored._order if isinstance(node, Fir))
 
     assert (tmp_path / "fresh" / "model.weights.h5").exists()
     assert not np.allclose(to_numpy(restored_fir.kernel), 7.0)
     reloaded = Modely.load(tmp_path / "fresh")
-    reloaded_fir = next(node for node in reloaded.order if isinstance(node, Fir))
+    reloaded_fir = next(node for node in reloaded._order if isinstance(node, Fir))
     np.testing.assert_allclose(to_numpy(reloaded_fir.kernel), 7.0)
 
 
@@ -1768,7 +1768,7 @@ def test_names_generated_after_a_load_avoid_the_loaded_ones(tmp_path):
 
     loaded = Modely.load(tmp_path / "upcoming")
 
-    assert upcoming in {node.name for node in loaded.order}
+    assert upcoming in {node.name for node in loaded._order}
     assert Fir(features=1).name != upcoming
 
 
@@ -1788,7 +1788,7 @@ def test_a_model_saved_without_weights_loads_as_freshly_built(tmp_path):
     model.save(path, weights=False)  # the architecture alone, from now on
     assert not (path / "model.weights.h5").exists()
 
-    restored = {node.name: node for node in Modely.load(path).order}
+    restored = {node.name: node for node in Modely.load(path)._order}
     restored_gain, restored_fir = (
         restored["architecture_gain"],
         restored["architecture_fir"],
@@ -1813,7 +1813,7 @@ def test_a_linear_initializer_object_is_saved_as_its_config(tmp_path):
     model.save(tmp_path / "initializer", weights=False)
 
     restored = Modely.load(tmp_path / "initializer")
-    restored_linear = next(node for node in restored.order if isinstance(node, Linear))
+    restored_linear = next(node for node in restored._order if isinstance(node, Linear))
 
     np.testing.assert_allclose(to_numpy(restored_linear.kernel), np.full((1, 2), 0.5))
     np.testing.assert_allclose(to_numpy(restored_linear.bias), [-1.0, -1.0])
@@ -2228,8 +2228,8 @@ def test_a_parameter_read_by_several_models_loads_as_one(tmp_path):
     restored = Modely.load(tmp_path / "one")
     assert [p.name for p in restored.parameters] == ["one_gain", "one_fir_kernel"]
     loaded_gain = restored.parameters[0]
-    loaded_loop = next(node for node in restored.order if isinstance(node, Loop))
-    assert any(node is loaded_gain for node in loaded_loop.f.order)
+    loaded_loop = next(node for node in restored._order if isinstance(node, Loop))
+    assert any(node is loaded_gain for node in loaded_loop._f._order)
     for name in ("one_loop", "one_block", "one_out"):
         np.testing.assert_allclose(
             to_numpy(restored(data)[name]), to_numpy(model(data)[name]), rtol=1e-6

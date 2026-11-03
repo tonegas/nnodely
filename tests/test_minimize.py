@@ -156,7 +156,7 @@ def test_minimize_returns_the_model_for_chaining():
     returned = model.minimize("a", out, Input("y", sw=1)).minimize("b", out, 1.0)
 
     assert returned is model
-    assert [m["name"] for m in model.minimizers] == ["a", "b"]
+    assert [m["name"] for m in model._minimizers] == ["a", "b"]
 
 
 def test_minimize_stores_source_target_and_resolved_loss():
@@ -166,7 +166,7 @@ def test_minimize_stores_source_target_and_resolved_loss():
 
     model.minimize("error", out, target, loss="mae")
 
-    [minimizer] = model.minimizers
+    [minimizer] = model._minimizers
     assert minimizer["name"] == "error"
     assert minimizer["source"] is out
     assert minimizer["target"] is target
@@ -181,7 +181,7 @@ def test_minimize_default_loss_is_mse():
 
     model.minimize("error", out, Input("y", sw=1))
 
-    value = model.minimizers[0]["loss"](_f32([[1.0]]), _f32([[4.0]]))
+    value = model._minimizers[0]["loss"](_f32([[1.0]]), _f32([[4.0]]))
     np.testing.assert_allclose(to_numpy(value), [9.0])
 
 
@@ -191,7 +191,7 @@ def test_minimize_without_target_compares_against_a_zero_constant():
 
     model.minimize("error", out)
 
-    target = model.minimizers[0]["target"]
+    target = model._minimizers[0]["target"]
     assert isinstance(target, Constant)
     np.testing.assert_allclose(to_numpy(target.value), [0.0])
 
@@ -207,7 +207,7 @@ def test_minimize_numeric_target_becomes_a_constant(number):
 
     model.minimize("error", out, number)
 
-    target = model.minimizers[0]["target"]
+    target = model._minimizers[0]["target"]
     assert isinstance(target, Constant)
     np.testing.assert_allclose(to_numpy(target.value), [3.0])
 
@@ -219,7 +219,7 @@ def test_minimize_keeps_an_explicit_constant_target():
 
     model.minimize("error", out, three)
 
-    assert model.minimizers[0]["target"] is three
+    assert model._minimizers[0]["target"] is three
 
 
 def test_minimize_with_an_existing_name_replaces_it_and_warns():
@@ -231,8 +231,8 @@ def test_minimize_with_an_existing_name_replaces_it_and_warns():
     with pytest.warns(UserWarning, match="'error' already exists"):
         model.minimize("error", out, 1.0, loss="mae")
 
-    assert [m["name"] for m in model.minimizers] == ["error", "other"]
-    replaced = model.minimizers[0]
+    assert [m["name"] for m in model._minimizers] == ["error", "other"]
+    replaced = model._minimizers[0]
     np.testing.assert_allclose(replaced["target"].value, [1.0])
     value = replaced["loss"](_f32([[1.0]]), _f32([[4.0]]))
     np.testing.assert_allclose(to_numpy(value), [3.0])
@@ -264,7 +264,7 @@ def test_minimize_rejects_a_source_that_is_not_a_stream_or_a_name(source):
 
     with pytest.raises(TypeError, match="source"):
         model.minimize("error", source, 1.0)
-    assert model.minimizers == []
+    assert model._minimizers == []
 
 
 def test_minimize_rejects_a_target_that_is_not_a_stream_a_name_or_a_number():
@@ -273,7 +273,7 @@ def test_minimize_rejects_a_target_that_is_not_a_stream_a_name_or_a_number():
 
     with pytest.raises(TypeError, match="target"):
         model.minimize("error", out, [object()])  # type: ignore
-    assert model.minimizers == []
+    assert model._minimizers == []
 
 
 def test_minimize_resolves_the_names_of_the_model_streams():
@@ -285,7 +285,7 @@ def test_minimize_resolves_the_names_of_the_model_streams():
     model.minimize("outputs", "pred", "y_ref")
     model.minimize("stream_and_input", pred.name, "y")
 
-    by_name = {m["name"]: m for m in model.minimizers}
+    by_name = {m["name"]: m for m in model._minimizers}
     assert by_name["outputs"]["source"] is out
     assert by_name["outputs"]["target"] is reference
     assert by_name["stream_and_input"]["source"] is pred
@@ -313,7 +313,7 @@ def test_minimize_rejects_a_name_the_model_does_not_have(side):
     arguments = {"source": out, "target": 1.0, side: "missing"}
     with pytest.raises(ValueError, match=f"{side} 'missing'"):
         model.minimize("error", **arguments)
-    assert model.minimizers == []
+    assert model._minimizers == []
 
 
 def test_minimize_rejects_a_name_shared_by_several_streams():
@@ -326,11 +326,11 @@ def test_minimize_rejects_a_name_shared_by_several_streams():
 
     with pytest.raises(ValueError, match="ambiguous"):
         model.minimize("error", "shared_linear", 1.0)
-    assert model.minimizers == []
+    assert model._minimizers == []
 
     # The Outputs keep distinct names, so they remain nameable.
     model.minimize("error", "first", 1.0)
-    assert model.minimizers[0]["source"] is first
+    assert model._minimizers[0]["source"] is first
 
 
 def test_minimize_rejects_an_unknown_loss():
@@ -339,7 +339,7 @@ def test_minimize_rejects_an_unknown_loss():
 
     with pytest.raises(ValueError, match="loss"):
         model.minimize("error", out, 1.0, loss="not_a_keras_loss")
-    assert model.minimizers == []
+    assert model._minimizers == []
 
 
 # -----------------------------------------------------------------------------
@@ -356,7 +356,7 @@ def test_remove_minimizer_keeps_the_others_in_order():
 
     model.remove_minimizer("b")
 
-    assert [m["name"] for m in model.minimizers] == ["a", "c"]
+    assert [m["name"] for m in model._minimizers] == ["a", "c"]
 
 
 def test_remove_minimizer_with_an_unknown_name_warns_and_changes_nothing():
@@ -366,7 +366,7 @@ def test_remove_minimizer_with_an_unknown_name_warns_and_changes_nothing():
 
     with pytest.warns(UserWarning, match="'missing'"):
         model.remove_minimizer("missing")
-    assert [m["name"] for m in model.minimizers] == ["a"]
+    assert [m["name"] for m in model._minimizers] == ["a"]
 
 
 def test_a_removed_name_can_be_registered_again():
@@ -377,7 +377,7 @@ def test_a_removed_name_can_be_registered_again():
     model.remove_minimizer("error")
     model.minimize("error", out, 2.0)
 
-    [minimizer] = model.minimizers
+    [minimizer] = model._minimizers
     np.testing.assert_allclose(minimizer["target"].value, [2.0])
 
 
@@ -925,7 +925,7 @@ def test_minimize_default_gain_is_one():
 
     model.minimize("error", out, 1.0)
 
-    assert model.minimizers[0]["gain"] == 1.0
+    assert model._minimizers[0]["gain"] == 1.0
 
 
 def test_gains_weight_the_total_loss_but_not_the_logged_losses():
@@ -1037,7 +1037,7 @@ def test_minimize_rejects_an_invalid_gain(gain, error):
 
     with pytest.raises(error, match="gain"):
         model.minimize("error", out, 1.0, gain=gain)
-    assert model.minimizers == []
+    assert model._minimizers == []
 
 
 # -----------------------------------------------------------------------------
@@ -1116,7 +1116,7 @@ def test_seq_weights_on_the_last_step_only_give_its_error():
 def test_seq_weights_are_stored_normalized_to_mean_one():
     model, _, _ = _window_model(seq_weights=[1.0, 2.0, 3.0])
 
-    np.testing.assert_allclose(model.minimizers[0]["seq_weights"], [0.5, 1.0, 1.5])
+    np.testing.assert_allclose(model._minimizers[0]["seq_weights"], [0.5, 1.0, 1.5])
 
 
 def test_minimize_default_seq_weights_are_none():
@@ -1125,7 +1125,7 @@ def test_minimize_default_seq_weights_are_none():
 
     model.minimize("error", out, 1.0)
 
-    assert model.minimizers[0]["seq_weights"] is None
+    assert model._minimizers[0]["seq_weights"] is None
 
 
 def test_seq_weights_weigh_the_rollout_steps_of_a_loop():
@@ -1172,7 +1172,7 @@ def test_minimize_rejects_invalid_seq_weights(seq_weights):
 
     with pytest.raises(ValueError, match="seq_weights"):
         model.minimize("error", out, y, seq_weights=seq_weights)
-    assert model.minimizers == []
+    assert model._minimizers == []
 
 
 def test_callable_seq_weights_are_evaluated_with_the_sequence_length():
@@ -1242,7 +1242,7 @@ def test_minimize_rejects_a_callable_giving_the_wrong_number_of_weights():
 
     with pytest.raises(ValueError, match="seq_weights"):
         model.minimize("error", out, y, seq_weights=lambda n: np.ones(n + 1))
-    assert model.minimizers == []
+    assert model._minimizers == []
 
 
 def test_seq_weights_weigh_a_padded_rollout_with_a_loss_instance():

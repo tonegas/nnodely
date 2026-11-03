@@ -230,12 +230,12 @@ Parameter, a Constant, or an Input whose first step is read; zero without
 one.
 :meth:`~nnodely.ModelyLoop.minimize` compares the trajectories of streams of
 the step: an output, or an Input that nothing feeds back, such as the measured
-position one step ahead. :attr:`~nnodely.Modely.all_inputs` tells how each
+position one step ahead. :attr:`~nnodely.Modely.inputs` tells how each
 Input of a model is fed:
 
 .. code-block:: python
 
-   print(msd.all_inputs)
+   print(msd.inputs)
 
 The :class:`~nnodely.DataLoader` cuts the signals into sequences of
 ``seq_length`` steps, and the target is the position one step ahead:

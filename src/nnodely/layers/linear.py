@@ -152,38 +152,38 @@ class Linear(_ParameterWeights):
                 "does not project, so it needs an axis: without one, the whole "
                 "dim is projected at once."
             )
-        self.features = int(features)
-        self.axis = None if axis is None else int(axis)
-        self.shared_kernel = bool(shared_kernel)
+        self._features = int(features)
+        self._axis = None if axis is None else int(axis)
+        self._shared_kernel = bool(shared_kernel)
         super().__init__(
             name,
             kernel,
             bias,
-            features=self.features,
-            axis=self.axis,
-            shared_kernel=self.shared_kernel,
+            features=self._features,
+            axis=self._axis,
+            shared_kernel=self._shared_kernel,
         )
 
-    def _axis(self, dim) -> int | None:
+    def _resolve_axis(self, dim) -> int | None:
         """``axis`` counted from the first dim axis, checked against ``dim``."""
-        if self.axis is None:
+        if self._axis is None:
             return None
-        if not -len(dim) <= self.axis < len(dim):
+        if not -len(dim) <= self._axis < len(dim):
             raise ValueError(
-                f"{self.name}: axis {self.axis} is not an axis of the dim {dim}."
+                f"{self.name}: axis {self._axis} is not an axis of the dim {dim}."
             )
-        return self.axis % len(dim)
+        return self._axis % len(dim)
 
     def _weight_shapes(self, x):
         dim = tuple(x.dim)
         return _linear_weight_shapes(
-            dim, self.features, self._axis(dim), self.shared_kernel
+            dim, self._features, self._resolve_axis(dim), self._shared_kernel
         )
 
     def _draw_shapes(self, kernel_shape, bias_shape):
         # Along an axis, the matrix and the bias of each position alone; the
         # whole-dim kernel as the Weight's default, one matrix.
-        if self.axis is None:
+        if self._axis is None:
             return None, None
         return kernel_shape[-2:], bias_shape[-1:]
 
@@ -191,20 +191,20 @@ class Linear(_ParameterWeights):
         # Declared rather than probed with dummy tensors, which would have to
         # stand in for the weights too.
         dim = tuple(inputs[0].dim)
-        axis = self._axis(dim)
+        axis = self._resolve_axis(dim)
         out_dim = (
-            (self.features,)
+            (self._features,)
             if axis is None
-            else (*dim[:axis], self.features, *dim[axis + 1 :])
+            else (*dim[:axis], self._features, *dim[axis + 1 :])
         )
         return inputs[0].shape.replace(dim=out_dim)
 
     def build_layer(self):
-        dim = tuple(self.preds[0].dim)  # type: ignore[attr-defined]
+        dim = tuple(self._preds[0].dim)  # type: ignore[attr-defined]
         return LinearImpl(
-            features=self.features,
+            features=self._features,
             dim_rank=len(dim),
-            axis=self._axis(dim),
-            shared_kernel=self.shared_kernel,
+            axis=self._resolve_axis(dim),
+            shared_kernel=self._shared_kernel,
             name=self.name,
         )

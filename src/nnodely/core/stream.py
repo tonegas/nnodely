@@ -24,7 +24,7 @@ def reserve_name(name: str) -> None:
 
 class Node:
     name: str
-    preds: list[Node]
+    _preds: list[Node]
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -34,18 +34,18 @@ class Node:
 
     def __init__(self, name: str, preds: list[Node] | None = None) -> None:
         self.name = name
-        self.preds = preds or []
+        self._preds = preds or []
         reserve_name(name)
 
     def __call__(self, inputs: Sequence[Node]) -> Any:
         node = copy(self)
-        node.preds = list(inputs)
+        node._preds = list(inputs)
 
         return node
 
     def __repr__(self) -> str:
         return str(
-            f'{self.__class__.__name__}("{self.name}: {[pred.name for pred in self.preds]}")'
+            f'{self.__class__.__name__}("{self.name}: {[pred.name for pred in self._preds]}")'
         )
 
     def __hash__(self) -> int:
@@ -187,7 +187,7 @@ class Stream(Node):
         return None
 
     def __repr__(self):
-        pred_names = [pred.name for pred in self.preds]
+        pred_names = [pred.name for pred in self._preds]
         return (
             f"{self.__class__.__name__}("
             f"name={self.name!r}, "

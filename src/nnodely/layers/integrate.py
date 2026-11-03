@@ -243,9 +243,9 @@ class IntegrateStep(Layer):
         dt: float | None = None,
         name=None,
     ):
-        self.method = _validate_method(method, "IntegrateStep")
-        self.dt = _validate_dt(dt)
-        super().__init__(name=name, method=self.method, dt=self.dt)
+        self._method = _validate_method(method, "IntegrateStep")
+        self._dt = _validate_dt(dt)
+        super().__init__(name=name, method=self._method, dt=self._dt)
 
     # ------------------------------------------------------------------
     # Symbolic graph logic
@@ -254,7 +254,7 @@ class IntegrateStep(Layer):
         # The samples before the window are predecessors like any other,
         # after the rate, so that they are reconnected the same way when
         # reloading.
-        history = _HISTORY[_METHOD_RULE[self.method]]
+        history = _HISTORY[_METHOD_RULE[self._method]]
         return super().__call__(_history_and_signal("IntegrateStep", inputs, history))
 
     # ------------------------------------------------------------------
@@ -268,7 +268,7 @@ class IntegrateStep(Layer):
                 f"{type(rate).__name__}."
             )
         self._needs_window(rate)
-        for value, name in zip(history, _HISTORY[_METHOD_RULE[self.method]]):
+        for value, name in zip(history, _HISTORY[_METHOD_RULE[self._method]]):
             _check_history(self.name, value, rate, 1, name)
         # One integrated sample per rate sample: the result stays aligned with
         # the signal it came from.
@@ -279,8 +279,8 @@ class IntegrateStep(Layer):
     # ------------------------------------------------------------------
     def build_layer(self):
         return IntegrateImpl(
-            dt=self.dt,
-            rule=_METHOD_RULE[self.method],
+            dt=self._dt,
+            rule=_METHOD_RULE[self._method],
             axis=self.shape.time_axis,
             name=self.name,
         )
@@ -289,7 +289,7 @@ class IntegrateStep(Layer):
     # Serialization
     # ------------------------------------------------------------------
     def get_config(self):
-        return {"name": self.name, "method": self.method, "dt": self.dt}
+        return {"name": self.name, "method": self._method, "dt": self._dt}
 
     @classmethod
     def from_config(cls, config: dict, preds=None):
@@ -349,15 +349,15 @@ class Integrate:
     ):
         from nnodely.core.dag import next_name
 
-        self.method = _validate_method(method, "Integrate")
-        self.dt = _validate_dt(dt, "Integrate")
-        self.init = _validate_init("Integrate", init)
+        self._method = _validate_method(method, "Integrate")
+        self._dt = _validate_dt(dt, "Integrate")
+        self._init = _validate_init("Integrate", init)
         if init_rate is not None and _METHOD_RULE[method] != "trapezoidal":
             raise ValueError(
                 "Integrate: init_rate is the rate before the first step, which "
                 f"only the trapezoidal method reads, not {method!r}."
             )
-        self.init_rate = _validate_init("Integrate", init_rate, "init_rate")
+        self._init_rate = _validate_init("Integrate", init_rate, "init_rate")
         self.name = next_name("Integrate") if name is None else name
         self._calls = 0
 
@@ -384,7 +384,7 @@ class Integrate:
                 f"rate carries {rate.time} time samples. Integrate a time window "
                 "with IntegrateStep."
             )
-        for value, name in ((self.init, "init"), (self.init_rate, "init_rate")):
+        for value, name in ((self._init, "init"), (self._init_rate, "init_rate")):
             if isinstance(value, Stream):
                 _check_history(self.name, value, rate, 1, name)
 
@@ -401,11 +401,11 @@ class Integrate:
 
         integral = hidden("integral")
         history = [integral]
-        if _METHOD_RULE[self.method] == "trapezoidal":
+        if _METHOD_RULE[self._method] == "trapezoidal":
             previous = hidden("rate")
-            previous._feed_back(rate, init=self.init_rate)
+            previous._feed_back(rate, init=self._init_rate)
             history.append(previous)
-        value = IntegrateStep(method=self.method, dt=self.dt, name=call_name)(
+        value = IntegrateStep(method=self._method, dt=self._dt, name=call_name)(
             *history, rate
         )
-        return integral._feed_back(value, init=self.init)
+        return integral._feed_back(value, init=self._init)

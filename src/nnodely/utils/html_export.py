@@ -65,63 +65,63 @@ def _block_ports(node):
     outputs are fed back inside the block.
     """
     if isinstance(node, ModelCall):
-        return node.model, {
+        return node._model, {
             "block": "ModelCall",
             "detail": {},
             "inputs": [
                 {"body": body.name, "outer": outer.name, "role": "input"}
-                for body, outer in node.inputs_map.items()
+                for body, outer in node._inputs_map.items()
             ],
             "outputs": [
                 {"body": body.name, "outer": outer.name}
-                for outer, body in node.outputs_map.items()
+                for outer, body in node._outputs_map.items()
             ],
             "feedback": [],
         }
 
     if isinstance(node, Loop):
-        return node.f, {
+        return node._f, {
             "block": "Loop",
-            "detail": {"steps": node.horizon, "collect": node.collect},
+            "detail": {"steps": node._horizon, "collect": node._collect},
             "inputs": [
                 {"body": body.name, "outer": outer.name, "role": "initial"}
-                for body, outer in zip(node.feedback_inputs, node.initial_values)
+                for body, outer in zip(node._feedback_inputs, node._initial_values)
             ]
             + [
                 {"body": body.name, "outer": outer.name, "role": "input"}
-                for body, outer in zip(node.static_inputs, node.static_sources)
+                for body, outer in zip(node._static_inputs, node._static_sources)
             ],
             "outputs": [
                 {"body": body.name, "outer": outer.name}
-                for body, outer in zip(node.returns, node.loop_outputs)
+                for body, outer in zip(node._returns, node._loop_outputs)
             ],
             "feedback": [
                 {"from": output.name, "to": input_node.name}
                 for input_node, output in zip(
-                    node.feedback_inputs, node.feedback_outputs
+                    node._feedback_inputs, node._feedback_outputs
                 )
             ],
         }
 
     if isinstance(node, Roll):
         # Roll wires the body's own inputs, so a port's outer name is its own.
-        return node.f, {
+        return node._f, {
             "block": "Roll",
-            "detail": {"steps": node.steps},
+            "detail": {"steps": node._steps},
             "inputs": [
                 {
-                    "body": node.feedback_input.name,
-                    "outer": node.feedback_input.name,
+                    "body": node._feedback_input.name,
+                    "outer": node._feedback_input.name,
                     "role": "state",
                 }
             ]
             + [
                 {"body": body.name, "outer": body.name, "role": "input"}
-                for body in node.static_inputs
+                for body in node._static_inputs
             ],
-            "outputs": [{"body": node.feedback_output.name, "outer": node.name}],
+            "outputs": [{"body": node._feedback_output.name, "outer": node.name}],
             "feedback": [
-                {"from": node.feedback_output.name, "to": node.feedback_input.name}
+                {"from": node._feedback_output.name, "to": node._feedback_input.name}
             ],
         }
 
@@ -189,15 +189,15 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
     # read one output each, and the body output the block node itself
     # stands for when something reads it as a value instead.
     block_results: dict[str, dict] = {}
-    present = {getattr(node, "name", None) for node in model_obj.order}
+    present = {getattr(node, "name", None) for node in model_obj._order}
     if inline:
         blocks = {
             node.name: _block_ports(node)
-            for node in model_obj.order
+            for node in model_obj._order
             if _block_ports(node) is not None
         }
 
-    for node in model_obj.order:
+    for node in model_obj._order:
         name = getattr(node, "name", str(node))
         ports = blocks.get(name)
 
@@ -277,10 +277,10 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
         nodes.append((node, nid, node.__class__.__name__, _safe_attrs(node)))
         seen_nodes.add(nid)
 
-    for node in model_obj.order:
+    for node in model_obj._order:
         if getattr(node, "name", None) in blocks:
             continue
-        for pred in getattr(node, "preds", []) or []:
+        for pred in getattr(node, "_preds", []) or []:
             pred_name = getattr(pred, "name", None)
             if pred_name in blocks:
                 # A consumer reads the block either through one of its
@@ -590,7 +590,7 @@ def export_html(
                 )
 
         # Training objectives, so the loss wiring is visible here too.
-        for index, minimizer in enumerate(getattr(model_obj, "minimizers", [])):
+        for index, minimizer in enumerate(getattr(model_obj, "_minimizers", [])):
             min_name = minimizer.get("name", f"loss_{index}")
             loss = minimizer.get("loss")
             loss_label = (

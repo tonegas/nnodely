@@ -448,27 +448,27 @@ class OdeNetOutput(Layer):
     """Select one state's trajectory from a multi-state OdeNet."""
 
     def __init__(self, odenet, index: int, state_node, result_shape):
-        self.index = int(index)
+        self._index = int(index)
         super().__init__(
             name=f"{odenet.name}_{state_node.name}",
             preds=[odenet],
             dim=state_node.dim,
             time=result_shape.time,
             seq=result_shape.seq,
-            index=self.index,
+            index=self._index,
         )
 
     def build_layer(self):
         # The same index selector the Loop outputs use.
-        return LoopOutputImpl(index=self.index, name=self.name)
+        return LoopOutputImpl(index=self._index, name=self.name)
 
     @classmethod
     def from_config(cls, config: dict, preds=None):
         # The outputs belong to the OdeNet that was just rebuilt, and selecting
         # one of them is what unpacking it does.
         odenet = preds[0]  # type: ignore[index]
-        odenet.return_all_outputs = True
-        return odenet.odenet_outputs[config["index"]]
+        odenet._return_all_outputs = True
+        return odenet._odenet_outputs[config["index"]]
 
 
 class OdeNet(Layer):
@@ -544,7 +544,7 @@ class OdeNet(Layer):
 
         pairs = [
             (
-                _find_node(f.inputs, state, "state"),
+                _find_node(f._inputs, state, "state"),
                 _find_node(f.outputs, derivative, "derivative"),
             )
             for state, derivative in states.items()
@@ -555,7 +555,7 @@ class OdeNet(Layer):
         # A body input the field never reads, such as a target, drives nothing.
         read = {node.name for node in f.inference_inputs}
         drivers = [
-            node for node in f.inputs if node not in state_inputs and node.name in read
+            node for node in f._inputs if node not in state_inputs and node.name in read
         ]
         if drivers:
             raise ValueError(
@@ -579,20 +579,20 @@ class OdeNet(Layer):
             )
 
         initial_streams = _resolve_initial(initial, state_inputs)
-        self.output_count = _resolve_output_count(t)
+        self._output_count = _resolve_output_count(t)
 
-        self.f = f
-        self.state_inputs = state_inputs
-        self.state_outputs = state_outputs
-        self.times = t
-        self.method = method
-        self.steps = int(steps)
-        self.event_output = event_output
-        self.reset_outputs = reset_outputs
-        self.rtol = float(rtol)
-        self.atol = float(atol)
-        self.max_steps = int(max_steps)
-        self.return_all_outputs = False
+        self._f = f
+        self._state_inputs = state_inputs
+        self._state_outputs = state_outputs
+        self._times = t
+        self._method = method
+        self._steps = int(steps)
+        self._event_output = event_output
+        self._reset_outputs = reset_outputs
+        self._rtol = float(rtol)
+        self._atol = float(atol)
+        self._max_steps = int(max_steps)
+        self._return_all_outputs = False
         # The twin of this node that returns every state, made on unpacking.
         self._unpacked: OdeNet | None = None
 
@@ -601,10 +601,10 @@ class OdeNet(Layer):
             preds=[*initial_streams, t],
             dim=state_inputs[0].dim,
             time=state_inputs[0].time,
-            seq=(self.output_count, *state_inputs[0].seq),
+            seq=(self._output_count, *state_inputs[0].seq),
         )
-        self.odenet_outputs = [
-            OdeNetOutput(self, index, node, node.shape.with_seq(self.output_count))
+        self._odenet_outputs = [
+            OdeNetOutput(self, index, node, node.shape.with_seq(self._output_count))
             for index, node in enumerate(state_inputs)
         ]
 
@@ -615,38 +615,38 @@ class OdeNet(Layer):
             twin = copy.copy(self)
             twin._source = twin
             twin._layer = twin._layer_signature = None
-            twin.return_all_outputs = True
-            twin.odenet_outputs = [
+            twin._return_all_outputs = True
+            twin._odenet_outputs = [
                 OdeNetOutput(twin, index, node, output.shape)
                 for index, (node, output) in enumerate(
-                    zip(self.state_inputs, self.odenet_outputs)
+                    zip(self._state_inputs, self._odenet_outputs)
                 )
             ]
             twin._unpacked = twin
             self._unpacked = twin
-        return iter(self._unpacked.odenet_outputs)
+        return iter(self._unpacked._odenet_outputs)
 
     def build_layer(self):
         return OdeNetImpl(
-            model=self.f.inference_model,
-            state_input_names=tuple(node.name for node in self.state_inputs),
-            state_output_names=tuple(node.name for node in self.state_outputs),
-            model_output_names=tuple(node.name for node in self.f.outputs),
+            model=self._f.inference_model,
+            state_input_names=tuple(node.name for node in self._state_inputs),
+            state_output_names=tuple(node.name for node in self._state_outputs),
+            model_output_names=tuple(node.name for node in self._f.outputs),
             result_shapes=tuple(
-                node.shape.with_seq(self.output_count).tuple
-                for node in self.state_inputs
+                node.shape.with_seq(self._output_count).tuple
+                for node in self._state_inputs
             ),
-            output_count=self.output_count,
-            method=self.method,
-            steps=self.steps,
+            output_count=self._output_count,
+            method=self._method,
+            steps=self._steps,
             event_output_name=(
-                None if self.event_output is None else self.event_output.name
+                None if self._event_output is None else self._event_output.name
             ),
-            reset_output_names=tuple(node.name for node in self.reset_outputs),
-            rtol=self.rtol,
-            atol=self.atol,
-            max_steps=self.max_steps,
-            return_all_outputs=self.return_all_outputs,
+            reset_output_names=tuple(node.name for node in self._reset_outputs),
+            rtol=self._rtol,
+            atol=self._atol,
+            max_steps=self._max_steps,
+            return_all_outputs=self._return_all_outputs,
             name=self.name,
         )
 
@@ -657,22 +657,22 @@ class OdeNet(Layer):
             "name": self.name,
             "states": {
                 node.name: output.name
-                for node, output in zip(self.state_inputs, self.state_outputs)
+                for node, output in zip(self._state_inputs, self._state_outputs)
             },
-            "method": getattr(built, "method", self.method),
-            "steps": getattr(built, "steps", self.steps),
-            "event": None if self.event_output is None else self.event_output.name,
+            "method": getattr(built, "method", self._method),
+            "steps": getattr(built, "steps", self._steps),
+            "event": None if self._event_output is None else self._event_output.name,
             "reset": (
                 None
-                if self.event_output is None
+                if self._event_output is None
                 else {
                     node.name: output.name
-                    for node, output in zip(self.state_inputs, self.reset_outputs)
+                    for node, output in zip(self._state_inputs, self._reset_outputs)
                 }
             ),
-            "rtol": self.rtol,
-            "atol": self.atol,
-            "max_steps": self.max_steps,
+            "rtol": self._rtol,
+            "atol": self._atol,
+            "max_steps": self._max_steps,
         }
 
     @classmethod

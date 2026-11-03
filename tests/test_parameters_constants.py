@@ -56,7 +56,7 @@ def test_parameter_constant_model_inference():
     from pprint import pprint
 
     print("model order:")
-    pprint(model.order)
+    pprint(model._order)
 
     dummy_x = np.ones((4, 1, 1), dtype=np.float32)
     result = model({"x": dummy_x})
@@ -256,7 +256,7 @@ def test_values_given_their_axes_round_trip_through_save(tmp_path):
 
     model.save(tmp_path / "axes", weights=False)
     restored = Modely.load(tmp_path / "axes")
-    nodes = {node.name: node for node in restored.order}
+    nodes = {node.name: node for node in restored._order}
 
     restored_parameter, restored_constant = (
         nodes["axes_parameter"],
@@ -399,7 +399,7 @@ def test_the_trainable_flag_is_saved_with_the_model(tmp_path):
     frozen = Parameter("saved_frozen", value=[2.0]).freeze()
     free = Parameter("saved_free", value=[3.0])
     fir = Fir(features=1, name="saved_flag_fir")([x])
-    fir.preds[2].freeze()  # its bias, a Parameter it made
+    fir._preds[2].freeze()  # its bias, a Parameter it made
     model = Modely(
         "saved_flag_model",
         inputs=[x],

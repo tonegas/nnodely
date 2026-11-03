@@ -86,7 +86,7 @@ variable, and trains, validates and exports through Keras. Models saved with
   past values are a hidden Input fed back with the signal, and `init` holds
   them before the first step as the `init` of `Derivative` holds the samples
   its stencil reads.
-- `Modely.all_inputs`: every Input a model reads - declared or not, inside
+- `Modely.inputs`: every Input a model reads - declared or not, inside
   the models it calls, or only by an objective - printed as a table of its
   shape and how it is fed: declared, the stream it is fed back with, what the
   data must hold of it and what it starts from.
@@ -297,6 +297,13 @@ variable, and trains, validates and exports through Keras. Models saved with
   first interval: it averages the first rate with the one before it,
   `init_rate`, zero without one. `Derivative(respect_to=x)` with respect to
   an Input is `Gradient(respect_to=x)`.
+- `Modely.inputs` is the table of every Input the model reads (see Added).
+  In 2.0.0 it was the list of the Inputs the model was declared with, which
+  is no longer an attribute: keep the Inputs a model is declared with, to
+  call it as a block in their order. Attributes that are not part of the API
+  start with an underscore, as in Python: `Modely.order` and
+  `Modely.minimizers`, a node's `preds`, `DataLoader.dataset` and the
+  settings a layer keeps, such as `Loop.f` or `Linear.features`.
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
 

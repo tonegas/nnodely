@@ -50,24 +50,24 @@ class LoopOutputImpl(keras.layers.Layer):
 
 class LoopOutput(Layer):
     def __init__(self, loop, index: int, output_node, result_shape):
-        self.index = int(index)
+        self._index = int(index)
         super().__init__(
             name=f"{loop.name}_{output_node.name}",
             preds=[loop],
             dim=output_node.dim,
             time=result_shape.time,
             seq=result_shape.seq,
-            index=self.index,
+            index=self._index,
         )
 
     def build_layer(self):
-        return LoopOutputImpl(index=self.index, name=self.name)
+        return LoopOutputImpl(index=self._index, name=self.name)
 
     @classmethod
     def from_config(cls, config: dict, preds=None):
         # The outputs belong to the loop that was just rebuilt, which returns
         # them all.
-        return preds[0].loop_outputs[config["index"]]  # type: ignore[index]
+        return preds[0]._loop_outputs[config["index"]]  # type: ignore[index]
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -447,7 +447,7 @@ def _fed_back(roots) -> list[Input]:
         if isinstance(node, Input) and node.update is not None:
             found.append(node)
             stack.append(node.update)
-        stack.extend(reversed(node.preds))
+        stack.extend(reversed(node._preds))
     return found
 
 
@@ -465,7 +465,7 @@ def _fed_back_across_calls(
     }
     for model_call, call_scope in scope.calls.items():
         found += [
-            (node.name, cast(Any, model_call).model.name)
+            (node.name, cast(Any, model_call)._model.name)
             for node in call_scope.memo
             if node in here
         ]
@@ -500,7 +500,7 @@ class _Step:
         self.f = f
         explicit = [
             (
-                Loop._find_node(f.inputs, key, "input"),
+                Loop._find_node(f._inputs, key, "input"),
                 Loop._find_node(f.outputs, value, "output"),
             )
             for key, value in feedback.items()
@@ -539,7 +539,7 @@ class _Step:
         for node, output in explicit:
             state = scope.memo.get(node, node)
             fed = outputs[f.outputs.index(output)]
-            if state in found and state.update not in (fed, fed.preds[0]):
+            if state in found and state.update not in (fed, fed._preds[0]):
                 raise ValueError(
                     f"{who}: {node.name!r} is fed back with "
                     f"{state.update.name!r} in the graph of {f.name!r}, and "
@@ -558,7 +558,7 @@ class _Step:
         for node in found:
             if node.name in names:
                 node.name = _free_name(node.name, names)
-                node.input = keras.Input(shape=node.shape.tuple, name=node.name)
+                node._input = keras.Input(shape=node.shape.tuple, name=node.name)
                 renamed = True
             names.add(node.name)
 
@@ -572,7 +572,7 @@ class _Step:
                 (
                     output
                     for output in body_outputs
-                    if node.update in (output, output.preds[0])
+                    if node.update in (output, output._preds[0])
                     and id(output) not in used
                 ),
                 None,
@@ -621,7 +621,7 @@ class _Step:
             if isinstance(node, Input) and node.update is None and node not in states:
                 step_inputs.setdefault(node.name, node)
         seeds = [init for init in starts.values() if isinstance(init, Input)]
-        listed = {node.name for node in f.inputs}
+        listed = {node.name for node in f._inputs}
         unlisted = sorted(
             {
                 node.name
@@ -637,12 +637,12 @@ class _Step:
             )
 
         declared = {
-            id(scope.memo[node]): node for node in f.inputs if node in scope.memo
+            id(scope.memo[node]): node for node in f._inputs if node in scope.memo
         }
         fits = (
             not renamed
             and len(body_outputs) == len(outputs)
-            and all(id(state) in declared or state in f.inputs for state in states)
+            and all(id(state) in declared or state in f._inputs for state in states)
         )
         if fits:
             # f is the body as it is: its own Inputs and outputs, read from
@@ -701,7 +701,7 @@ class _Step:
         ]
         step.pairs = [
             (
-                Loop._find_node(body.inputs, key, "input"),
+                Loop._find_node(body._inputs, key, "input"),
                 Loop._find_node(body.outputs, value, "output"),
             )
             for key, value in feedback.items()
@@ -728,7 +728,7 @@ class _Step:
         declared = next(
             (
                 node
-                for node in self.f.inputs
+                for node in self.f._inputs
                 if (node is key if isinstance(key, Stream) else node.name == key)
             ),
             None,
@@ -806,9 +806,9 @@ class Loop(Layer):
     """
 
     # Set by __call__ on the loop node it returns.
-    initial_values: list[Stream]
-    static_sources: list[Stream]
-    loop_outputs: list[LoopOutput]
+    _initial_values: list[Stream]
+    _static_sources: list[Stream]
+    _loop_outputs: list[LoopOutput]
 
     def __init__(
         self,
@@ -849,35 +849,35 @@ class Loop(Layer):
 
     def _declare(self, step: _Step, init: dict, name, length, collect):
         self._step = step
-        self.f = step.body
-        self.feedback_inputs = step.states
-        self.feedback_outputs = [output for _, output in step.pairs]
-        self.init = self._resolve_init(init, step)
+        self._f = step.body
+        self._feedback_inputs = step.states
+        self._feedback_outputs = [output for _, output in step.pairs]
+        self._init = self._resolve_init(init, step)
         # A body input its outputs never read, such as a target, is no input
         # of the loop.
-        read = {node.name for node in self.f.inference_inputs}
-        self.static_inputs = [
+        read = {node.name for node in self._f.inference_inputs}
+        self._static_inputs = [
             node
-            for node in self.f.inputs
-            if node not in self.feedback_inputs and node.name in read
+            for node in self._f._inputs
+            if node not in self._feedback_inputs and node.name in read
         ]
         # An Input the body starts a state from, and does not read: an input
         # of the loop all the same, whose outer stream is that initial value.
-        static = {node.name for node in self.static_inputs}
-        self.seed_inputs = list(
+        static = {node.name for node in self._static_inputs}
+        self._seed_inputs = list(
             {
                 start.name: start
                 for start in step.starts.values()
                 if isinstance(start, Input) and start.name not in static
             }.values()
         )
-        self.feedback_shift_axes = self._resolve_feedback(step.pairs)
-        self.length = None if length is None else int(length)
-        self.collect = bool(collect)
+        self._feedback_shift_axes = self._resolve_feedback(step.pairs)
+        self._length = None if length is None else int(length)
+        self._collect = bool(collect)
         # The outputs of f; with more than one, the loop is all of them, and
         # no stream.
-        self.returns = step.returns
-        self.return_all_outputs = len(self.returns) > 1
+        self._returns = step.returns
+        self._return_all_outputs = len(self._returns) > 1
         super().__init__(name=name)
         # Unbound until called: it has no shape to be used as a stream with.
         self._shape = None
@@ -885,11 +885,11 @@ class Loop(Layer):
     @property
     def shape(self):
         self._check_bound()
-        if self.return_all_outputs:
-            names = [output.name for output in self.returns]
+        if self._return_all_outputs:
+            names = [output.name for output in self._returns]
             raise _SeveralOutputs(
                 f"Loop {self.name!r} returns the {len(names)} outputs {names} of "
-                f"{self.f.name!r}, and is read as one stream: unpack them, "
+                f"{self._f.name!r}, and is read as one stream: unpack them, "
                 f"{', '.join(names)} = Loop(...)(inputs), or pick one, loop[i]."
             )
         return self._shape
@@ -907,19 +907,19 @@ class Loop(Layer):
         node = copy.copy(self)
         node._source = node
         node._layer = node._layer_signature = None
-        node.static_sources, bound = node._resolve_sources(
+        node._static_sources, bound = node._resolve_sources(
             {} if inputs is None else inputs
         )
-        node.initial_values = node._resolve_initial_values(bound)
+        node._initial_values = node._resolve_initial_values(bound)
         node._configure()
 
-        result_shapes = [node._result_shape(output) for output in self.f.outputs]
-        node.preds = [*node.initial_values, *node.static_sources]
-        node.shape = result_shapes[self.f.outputs.index(self.returns[0])]
-        node.loop_outputs = [
+        result_shapes = [node._result_shape(output) for output in self._f.outputs]
+        node._preds = [*node._initial_values, *node._static_sources]
+        node.shape = result_shapes[self._f.outputs.index(self._returns[0])]
+        node._loop_outputs = [
             LoopOutput(node, index, output, result_shapes[index])
-            for index, output in enumerate(self.f.outputs)
-            if output in self.returns
+            for index, output in enumerate(self._f.outputs)
+            if output in self._returns
         ]
         return node
 
@@ -927,16 +927,16 @@ class Loop(Layer):
     # Axis configuration
     # ------------------------------------------------------------------
     def _configure(self):
-        self.rolled_initial = [
+        self._rolled_initial = [
             self._rolled(node, value)
-            for node, value in zip(self.feedback_inputs, self.initial_values)
+            for node, value in zip(self._feedback_inputs, self._initial_values)
         ]
-        self.rolled_static = [
+        self._rolled_static = [
             self._rolled(node, source)
-            for node, source in zip(self.static_inputs, self.static_sources)
+            for node, source in zip(self._static_inputs, self._static_sources)
         ]
         for node, source, rolled in zip(
-            self.static_inputs, self.static_sources, self.rolled_static
+            self._static_inputs, self._static_sources, self._rolled_static
         ):
             step = source.shape.without_outer_seq() if rolled else source.shape
             if source is not node and (step.seq, step.time) != (node.seq, node.time):
@@ -946,8 +946,8 @@ class Loop(Layer):
                     f"{source.shape} from {source.name!r}."
                 )
 
-        sources = [*self.initial_values, *self.static_sources]
-        rolled = [*self.rolled_initial, *self.rolled_static]
+        sources = [*self._initial_values, *self._static_sources]
+        rolled = [*self._rolled_initial, *self._rolled_static]
         loop_sources = [
             (index, source)
             for index, (source, is_rolled) in enumerate(zip(sources, rolled))
@@ -957,20 +957,20 @@ class Loop(Layer):
         # value is read at its first step only, so it sets them only when no
         # input carries a rollout.
         driving = [
-            item for item in loop_sources if item[0] >= len(self.initial_values)
+            item for item in loop_sources if item[0] >= len(self._initial_values)
         ] or loop_sources
-        self.horizon = self._resolve_length(driving)
+        self._horizon = self._resolve_length(driving)
 
         # The rollout needs a static number of steps, so a dynamic rollout is
         # only read from the tensor that carries it, at call time.
-        self.horizon_index = next(
+        self._horizon_index = next(
             (index for index, source in driving if source.shape.seq[0] is None),
             None,
         )
-        self.feedback_state_shapes = [
+        self._feedback_state_shapes = [
             self._state_shape(node, value, is_rolled)
             for node, value, is_rolled in zip(
-                self.feedback_inputs, self.initial_values, self.rolled_initial
+                self._feedback_inputs, self._initial_values, self._rolled_initial
             )
         ]
 
@@ -980,8 +980,8 @@ class Loop(Layer):
             for _, source in loop_sources
             if source.shape.seq[0] is not None
         }
-        if self.length is not None:
-            return self.length
+        if self._length is not None:
+            return self._length
         if len(widths) == 1:
             return next(iter(widths))
         if widths:
@@ -1001,11 +1001,11 @@ class Loop(Layer):
     def _result_shape(self, output):
         """The shape of an output once rolled out: collected, the rollout is
         its new outermost sequence axis."""
-        if self.collect:
+        if self._collect:
             # A rollout as long as its data is declared dynamic, like the
             # inputs it follows; the length it is built with is a placeholder.
-            dynamic = self.length is None and self.horizon_index is not None
-            return output.shape.with_seq(None if dynamic else self.horizon)
+            dynamic = self._length is None and self._horizon_index is not None
+            return output.shape.with_seq(None if dynamic else self._horizon)
         return output.shape
 
     # ------------------------------------------------------------------
@@ -1129,8 +1129,8 @@ class Loop(Layer):
                 )
             by_name[key_name] = value
 
-        states = {node.name for node in self.feedback_inputs}
-        known = {node.name for node in (*self.static_inputs, *self.seed_inputs)}
+        states = {node.name for node in self._feedback_inputs}
+        known = {node.name for node in (*self._static_inputs, *self._seed_inputs)}
         for key_name in by_name:
             if key_name in states:
                 raise ValueError(
@@ -1143,7 +1143,7 @@ class Loop(Layer):
                 )
 
         bound = {}
-        for node in (*self.static_inputs, *self.seed_inputs):
+        for node in (*self._static_inputs, *self._seed_inputs):
             # A body input left unbound is handed on to the body as it is.
             original = self._step.original(node)
             source = by_name.get(node.name, original)
@@ -1153,7 +1153,7 @@ class Loop(Layer):
                     f"{tuple(source.dim)} from {source.name!r}."
                 )
             bound[node.name] = source
-        return [bound[node.name] for node in self.static_inputs], bound
+        return [bound[node.name] for node in self._static_inputs], bound
 
     def _resolve_initial_values(self, bound):
         """Seed of every state: its init, the init of the layer that keeps it
@@ -1161,9 +1161,9 @@ class Loop(Layer):
         from nnodely.layers.parameter import Constant
 
         values = []
-        for node in self.feedback_inputs:
-            if node in self.init:
-                value = self.init[node]
+        for node in self._feedback_inputs:
+            if node in self._init:
+                value = self._init[node]
             else:
                 start = self._step.starts.get(node)
                 if isinstance(start, Input):
@@ -1190,13 +1190,13 @@ class Loop(Layer):
         return value
 
     def __repr__(self):
-        if self._shape is None or not self.return_all_outputs:
+        if self._shape is None or not self._return_all_outputs:
             return super().__repr__()
         # Several outputs: no one shape to print.
         return (
             f"Loop(name={self.name!r}, "
-            f"outputs={[output.name for output in self.returns]}, "
-            f"predecessors={[pred.name for pred in self.preds]})"
+            f"outputs={[output.name for output in self._returns]}, "
+            f"predecessors={[pred.name for pred in self._preds]})"
         )
 
     def _check_bound(self):
@@ -1210,7 +1210,7 @@ class Loop(Layer):
         """The streams the loop returns: one per output of ``f``, the loop
         itself when it has one."""
         self._check_bound()
-        return self.loop_outputs if self.return_all_outputs else [self]
+        return self._loop_outputs if self._return_all_outputs else [self]
 
     def __iter__(self):
         return iter(self._outputs())
@@ -1220,23 +1220,23 @@ class Loop(Layer):
 
     def build_layer(self):
         return LoopImpl(
-            model=self.f.inference_model,
-            feedback_input_names=tuple(node.name for node in self.feedback_inputs),
-            feedback_output_names=tuple(node.name for node in self.feedback_outputs),
-            model_output_names=tuple(node.name for node in self.f.outputs),
-            static_input_names=tuple(node.name for node in self.static_inputs),
-            horizon=self.horizon,
-            collect=self.collect,
-            rolled_initial=tuple(self.rolled_initial),
-            rolled_static=tuple(self.rolled_static),
-            feedback_shift_axes=tuple(self.feedback_shift_axes),
-            feedback_state_shapes=tuple(self.feedback_state_shapes),
+            model=self._f.inference_model,
+            feedback_input_names=tuple(node.name for node in self._feedback_inputs),
+            feedback_output_names=tuple(node.name for node in self._feedback_outputs),
+            model_output_names=tuple(node.name for node in self._f.outputs),
+            static_input_names=tuple(node.name for node in self._static_inputs),
+            horizon=self._horizon,
+            collect=self._collect,
+            rolled_initial=tuple(self._rolled_initial),
+            rolled_static=tuple(self._rolled_static),
+            feedback_shift_axes=tuple(self._feedback_shift_axes),
+            feedback_state_shapes=tuple(self._feedback_state_shapes),
             result_shapes=tuple(
-                self._result_shape(output).tuple for output in self.f.outputs
+                self._result_shape(output).tuple for output in self._f.outputs
             ),
-            horizon_index=self.horizon_index,
-            primary_output_index=self.f.outputs.index(self.returns[0]),
-            return_all_outputs=self.return_all_outputs,
+            horizon_index=self._horizon_index,
+            primary_output_index=self._f.outputs.index(self._returns[0]),
+            return_all_outputs=self._return_all_outputs,
             name=self.name,
         )
 
@@ -1245,11 +1245,11 @@ class Loop(Layer):
             "name": self.name,
             "feedback": {
                 node.name: output.name
-                for node, output in zip(self.feedback_inputs, self.feedback_outputs)
+                for node, output in zip(self._feedback_inputs, self._feedback_outputs)
             },
-            "returns": [output.name for output in self.returns],
-            "length": self.length,
-            "collect": self.collect,
+            "returns": [output.name for output in self._returns],
+            "length": self._length,
+            "collect": self._collect,
         }
 
     @classmethod
@@ -1268,5 +1268,5 @@ class Loop(Layer):
         loop = cls._of(
             step, init=dict(zip(step.states, preds[: len(feedback)])), **config
         )
-        static_names = [node.name for node in loop.static_inputs]
+        static_names = [node.name for node in loop._static_inputs]
         return loop(dict(zip(static_names, preds[len(feedback) :])))

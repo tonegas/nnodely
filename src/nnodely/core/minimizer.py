@@ -29,7 +29,7 @@ def _depends_on_dynamic_input(node) -> bool:
         seen.add(id(current))
         if isinstance(current, Input) and any(n is None for n in current.seq):
             return True
-        stack.extend(current.preds)
+        stack.extend(current._preds)
     return False
 
 
@@ -44,7 +44,7 @@ def _reads_input(node) -> bool:
         seen.add(id(current))
         if isinstance(current, Input):
             return True
-        stack.extend(current.preds)
+        stack.extend(current._preds)
     return False
 
 
@@ -68,10 +68,10 @@ def _reaches_trainable_weight(node) -> bool:
             layer = current._layer
             if layer is None or layer.trainable_weights:
                 return True
-        inner = getattr(current, "model", None)
+        inner = getattr(current, "_model", None)
         if isinstance(inner, Modely):
             stack.extend(inner.outputs)
-        stack.extend(current.preds)
+        stack.extend(current._preds)
     return False
 
 
@@ -308,8 +308,8 @@ def _minimizer_stream(model, value, side: str, minimizer: str) -> Stream:
             f"The {side} of minimizer {minimizer!r} must be a Stream or the "
             f"name of one, got {type(value).__name__}."
         )
-    roots: list[Node] = [*model.outputs, *model.inputs]
-    for registered in model.minimizers:
+    roots: list[Node] = [*model.outputs, *model._inputs]
+    for registered in model._minimizers:
         roots.extend((registered["source"], registered["target"]))
     matches = [stream for stream in _streams_from(roots) if stream.name == value]
     if not matches:
@@ -331,7 +331,7 @@ def _resolve_minimizer_terms(model) -> list[_MinimizerTerm]:
     """Resolve every minimizer of ``model`` to the graph outputs of its build."""
     assert model.model is not None
     # The forward pass returns a dict keyed by the names of these nodes.
-    output_names = {node.name for node in model.train_outputs}
+    output_names = {node.name for node in model._train_outputs}
 
     def output_name(minimizer, side):
         node = minimizer[side]
@@ -358,7 +358,7 @@ def _resolve_minimizer_terms(model) -> list[_MinimizerTerm]:
             gain=minimizer.get("gain", 1.0),
             seq_weights=minimizer.get("seq_weights"),
         )
-        for minimizer in model.minimizers
+        for minimizer in model._minimizers
     ]
 
 
@@ -374,11 +374,11 @@ def _check_minimizers_train_weights(model, km: keras.Model) -> None:
         return  # Keras itself warns that the model has nothing to train
     weightless = [
         minimizer["name"]
-        for minimizer in model.minimizers
+        for minimizer in model._minimizers
         if not _reaches_trainable_weight(minimizer["source"])
         and not _reaches_trainable_weight(minimizer["target"])
     ]
-    if len(weightless) == len(model.minimizers):
+    if len(weightless) == len(model._minimizers):
         raise ValueError(
             f"No minimizer of model {model.name!r} depends on a trainable "
             f"weight: {weightless} compare streams computed without any, so "

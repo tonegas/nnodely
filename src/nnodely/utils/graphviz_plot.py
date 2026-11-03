@@ -123,7 +123,7 @@ def _shape(node) -> str:
 def _recurrence(block) -> tuple[str, str]:
     """The arrow kind and label of the recurrence a block closes."""
     if isinstance(block, Roll):
-        return "roll", f"roll (steps={block.steps})"
+        return "roll", f"roll (steps={block._steps})"
     return "loop", "loop"
 
 
@@ -230,7 +230,7 @@ class _Drawing:
 
 def _minimizers(drawing: _Drawing, model: Modely) -> None:
     style = _ARROWS["loss"]
-    for index, minimizer in enumerate(model.minimizers):
+    for index, minimizer in enumerate(model._minimizers):
         name = minimizer.get("name", f"loss_{index}")
         loss_id = f"__loss_{name}"
         drawing.node(loss_id, name, "loss")
@@ -288,7 +288,7 @@ def _draw_model(
 def _block_index(model: Modely, prefix: str = "") -> dict[str, tuple]:
     """Every block of the tree, by the path its body's nodes are prefixed with."""
     index: dict[str, tuple] = {}
-    for node in model.order:
+    for node in model._order:
         ports = _block_ports(node)
         if ports is None:
             continue
@@ -449,7 +449,7 @@ def plot_graphviz(
                 block=block,
             )
             written.append(_render(drawing, out_path / name, undrawn))
-            for node in sub.order:
+            for node in sub._order:
                 ports = _block_ports(node)
                 if ports is not None:
                     body, port_map = ports

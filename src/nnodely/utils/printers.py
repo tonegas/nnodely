@@ -64,11 +64,11 @@ class TinyPrinter(keras.callbacks.Callback):
 
     def __init__(self, epochs: int | None = None):
         super().__init__()
-        self.epochs = epochs
-        self.start_time = 0.0
+        self._epochs = epochs
+        self._start_time = 0.0
 
     def on_train_begin(self, logs=None):
-        self.start_time = time.time()
+        self._start_time = time.time()
 
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
@@ -78,12 +78,12 @@ class TinyPrinter(keras.callbacks.Callback):
             sys.stdout.write("\033[H\033[J")
             sys.stdout.flush()
 
-        elapsed = time.time() - self.start_time
+        elapsed = time.time() - self._start_time
 
         sep = "─" * 70
 
         if self.params is None:
-            self.params = {"epochs": self.epochs}
+            self.params = {"epochs": self._epochs}
         print(sep)
         print(f"Epoch {epoch + 1}/{self.params['epochs']}   Elapsed: {elapsed:.1f}s")
         print(sep)
@@ -132,40 +132,40 @@ class LegacyPrinter(keras.callbacks.Callback):
         super().__init__()
         if max_rows < 1:
             raise ValueError(f"max_rows must be a positive integer, got {max_rows}.")
-        self.epochs = int(epochs)
-        self.minimizers = list(minimizers)
-        self.max_rows = int(max_rows)
-        self.stride = max(1, -(-self.epochs // self.max_rows))
-        self.start_time = 0.0
-        self.rows_printed = 0
+        self._epochs = int(epochs)
+        self._minimizers = list(minimizers)
+        self._max_rows = int(max_rows)
+        self._stride = max(1, -(-self._epochs // self._max_rows))
+        self._start_time = 0.0
+        self._rows_printed = 0
         # The last epoch seen, and whether its row was printed: early stopping
         # can end training between two printed rows.
-        self.last_epoch: tuple[int, dict] | None = None
-        self.last_printed = False
+        self._last_epoch: tuple[int, dict] | None = None
+        self._last_printed = False
 
-        self.groups = [*self.minimizers, "Total"]
-        self.width = 2 + _EPOCH_CELL + len(self.groups) * (2 * _CELL + 2)
+        self._groups = [*self._minimizers, "Total"]
+        self._width = 2 + _EPOCH_CELL + len(self._groups) * (2 * _CELL + 2)
 
     # ------------------------------------------------------------------
     # Callback hooks
     # ------------------------------------------------------------------
 
     def on_train_begin(self, logs=None):
-        self.start_time = time.time()
+        self._start_time = time.time()
         for line in self._header():
             print(line, flush=True)
 
     def on_epoch_end(self, epoch, logs=None):
-        self.last_epoch = (epoch, dict(logs or {}))
-        last = epoch + 1 >= self.epochs
-        self.last_printed = last or not (epoch + 1) % self.stride
-        if self.last_printed:
+        self._last_epoch = (epoch, dict(logs or {}))
+        last = epoch + 1 >= self._epochs
+        self._last_printed = last or not (epoch + 1) % self._stride
+        if self._last_printed:
             self._print_row(epoch, logs or {})
 
     def on_train_end(self, logs=None):
-        if self.last_epoch is not None and not self.last_printed:
-            self._print_row(*self.last_epoch)
-        elapsed = time.time() - self.start_time
+        if self._last_epoch is not None and not self._last_printed:
+            self._print_row(*self._last_epoch)
+        elapsed = time.time() - self._start_time
         print()
         print(" nnodely Training Time ".center(80, "="))
         print(f"{'Total time of Training:':<30}{elapsed}")
@@ -178,9 +178,9 @@ class LegacyPrinter(keras.callbacks.Callback):
     def _print_row(self, epoch: int, logs: dict) -> None:
         # A row is left unterminated so that whatever ends the training - an
         # early-stopping notice - reads as a continuation of its own row.
-        prefix = "\n" if self.rows_printed else ""
+        prefix = "\n" if self._rows_printed else ""
         print(prefix + self._row(epoch, logs), end="", flush=True)
-        self.rows_printed += 1
+        self._rows_printed += 1
 
     def _header(self) -> list[str]:
         group_width = 2 * _CELL + 1
@@ -188,25 +188,25 @@ class LegacyPrinter(keras.callbacks.Callback):
         def group_row(cells: list[str]) -> str:
             return "|" + " " * _EPOCH_CELL + "|" + "|".join(cells) + "|"
 
-        names = [name[:group_width].center(group_width) for name in self.groups]
+        names = [name[:group_width].center(group_width) for name in self._groups]
         return [
-            " nnodely Training ".center(self.width, "="),
+            " nnodely Training ".center(self._width, "="),
             "|" + "Epoch".center(_EPOCH_CELL) + "|" + "|".join(names) + "|",
-            group_row(["Loss".center(group_width)] * len(self.groups)),
+            group_row(["Loss".center(group_width)] * len(self._groups)),
             group_row(
-                ["train".center(_CELL) + "|" + "val".center(_CELL)] * len(self.groups)
+                ["train".center(_CELL) + "|" + "val".center(_CELL)] * len(self._groups)
             ),
-            "|" + "-" * (self.width - 2) + "|",
+            "|" + "-" * (self._width - 2) + "|",
         ]
 
     def _row(self, epoch: int, logs: dict[str, Any]) -> str:
-        keys = [f"{name}_loss" for name in self.minimizers] + ["loss"]
+        keys = [f"{name}_loss" for name in self._minimizers] + ["loss"]
         cells = []
         for key in keys:
             train = logs.get(key, logs.get("loss"))
             val = logs.get(f"val_{key}", logs.get("val_loss"))
             cells.append(_format(train) + "|" + _format(val))
-        label = f"{epoch + 1}/{self.epochs}".center(_EPOCH_CELL)
+        label = f"{epoch + 1}/{self._epochs}".center(_EPOCH_CELL)
         return "|" + label + "|" + "|".join(cells) + "|"
 
 
@@ -605,40 +605,40 @@ class NNodelyPrinter(keras.callbacks.Callback):
         stream: Any = None,
     ):
         super().__init__()
-        self.epochs = max(1, int(epochs))
-        self.model_name = model_name
-        self.fps = max(1.0, float(fps))
-        self.stream = stream if stream is not None else sys.stdout
-        self.colour = _supports_colour(self.stream)
+        self._epochs = max(1, int(epochs))
+        self._model_name = model_name
+        self._fps = max(1.0, float(fps))
+        self._stream = stream if stream is not None else sys.stdout
+        self._colour = _supports_colour(self._stream)
 
         terminal = shutil.get_terminal_size(fallback=(80, 24)).columns
-        self.width = max(72, min(110, int(width or terminal - 2)))
-        self.spark = max(10, min(28, self.width - 62))
+        self._width = max(72, min(110, int(width or terminal - 2)))
+        self._spark = max(10, min(28, self._width - 62))
 
-        self.channels = [
-            _Channel(name, f"{name}_loss", self.spark) for name in minimizers
-        ] + [_Channel("Total", "loss", self.spark)]
+        self._channels = [
+            _Channel(name, f"{name}_loss", self._spark) for name in minimizers
+        ] + [_Channel("Total", "loss", self._spark)]
 
-        self.start_time = 0.0
-        self.last_paint = 0.0
-        self.epoch = 0
-        self.load = 0.0
-        self.phase = 0.0
-        self.last_total: float | None = None
+        self._start_time = 0.0
+        self._last_paint = 0.0
+        self._epoch = 0
+        self._load = 0.0
+        self._phase = 0.0
+        self._last_total: float | None = None
         self._restored = False
         # Without a terminal there is nothing to repaint, so the console
         # degrades to one line per sampled epoch rather than 24 lines a second
         # of log file.
-        self._plain_stride = max(1, self.epochs // 40)
+        self._plain_stride = max(1, self._epochs // 40)
 
     # ------------------------------------------------------------------
     # Callback hooks
     # ------------------------------------------------------------------
 
     def on_train_begin(self, logs=None):
-        self.start_time = time.time()
-        self.last_paint = 0.0
-        if not self.colour:
+        self._start_time = time.time()
+        self._last_paint = 0.0
+        if not self._colour:
             return
         # A crash or a Ctrl-C must never leave the user staring at a terminal
         # with no cursor, so the restore is armed before anything is hidden -
@@ -646,15 +646,15 @@ class NNodelyPrinter(keras.callbacks.Callback):
         # alive until the interpreter exits.
         self._restored = False
         atexit.register(self._restore)
-        self.stream.write("\033[?25l\033[2J")
-        self.stream.flush()
+        self._stream.write("\033[?25l\033[2J")
+        self._stream.flush()
 
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
-        self.epoch = epoch + 1
+        self._epoch = epoch + 1
 
         total = logs.get("loss")
-        for channel in self.channels:
+        for channel in self._channels:
             channel.push(
                 logs.get(channel.key, logs.get("loss")),
                 logs.get(f"val_{channel.key}", logs.get("val_loss")),
@@ -662,48 +662,48 @@ class NNodelyPrinter(keras.callbacks.Callback):
 
         # The machine works harder the faster the loss is falling: one epoch's
         # relative improvement, smoothed, drives the gear speed and rim heat.
-        if total is not None and self.last_total:
-            gain = (self.last_total - float(total)) / abs(self.last_total)
-            self.load = max(0.0, min(1.0, 0.82 * self.load + 18.0 * max(0.0, gain)))
+        if total is not None and self._last_total:
+            gain = (self._last_total - float(total)) / abs(self._last_total)
+            self._load = max(0.0, min(1.0, 0.82 * self._load + 18.0 * max(0.0, gain)))
         if total is not None:
-            self.last_total = float(total)
+            self._last_total = float(total)
 
         now = time.time()
-        final = self.epoch >= self.epochs
-        if self.colour:
-            if not final and now - self.last_paint < 1.0 / self.fps:
+        final = self._epoch >= self._epochs
+        if self._colour:
+            if not final and now - self._last_paint < 1.0 / self._fps:
                 return
-        elif not final and self.epoch % self._plain_stride:
+        elif not final and self._epoch % self._plain_stride:
             return
-        self.phase += (now - self.last_paint if self.last_paint else 0.04) * (
-            1.1 + 4.5 * self.load
+        self._phase += (now - self._last_paint if self._last_paint else 0.04) * (
+            1.1 + 4.5 * self._load
         )
-        self.last_paint = now
-        self._paint(now - self.start_time)
+        self._last_paint = now
+        self._paint(now - self._start_time)
 
     def on_train_end(self, logs=None):
-        elapsed = time.time() - self.start_time
-        if self.colour:
+        elapsed = time.time() - self._start_time
+        if self._colour:
             self._paint(elapsed, done=True)
             atexit.unregister(self._restore)
         self._restore()
-        self.stream.write("\n")
+        self._stream.write("\n")
         for line in self._plaque(elapsed):
-            self.stream.write(line + "\n")
-        self.stream.flush()
+            self._stream.write(line + "\n")
+        self._stream.flush()
 
     def _restore(self) -> None:
-        if self.colour and not self._restored:
+        if self._colour and not self._restored:
             self._restored = True
-            self.stream.write("\033[?25h\033[0m")
-            self.stream.flush()
+            self._stream.write("\033[?25h\033[0m")
+            self._stream.flush()
 
     # ------------------------------------------------------------------
     # Painting
     # ------------------------------------------------------------------
 
     def _paint(self, elapsed: float, done: bool = False) -> None:
-        if not self.colour:
+        if not self._colour:
             self._paint_plain(elapsed)
             return
         lines = self._banner(elapsed)
@@ -715,20 +715,20 @@ class NNodelyPrinter(keras.callbacks.Callback):
         # Home the cursor and overwrite: clearing first would make the whole
         # console flicker on every frame.
         body = "".join(f"{line}\033[K\n" for line in lines)
-        self.stream.write(f"\033[H{body}\033[J")
-        self.stream.flush()
+        self._stream.write(f"\033[H{body}\033[J")
+        self._stream.flush()
 
     def _paint_plain(self, elapsed: float) -> None:
         cells = []
-        for channel in self.channels:
+        for channel in self._channels:
             value = channel.train[-1] if channel.train else float("nan")
             cells.append(f"{channel.name}={value:.4g}")
-        self.stream.write(
-            f"epoch {self.epoch}/{self.epochs}  "
+        self._stream.write(
+            f"epoch {self._epoch}/{self._epochs}  "
             + "  ".join(cells)
             + f"  [{_clock(elapsed)}]\n"
         )
-        self.stream.flush()
+        self._stream.flush()
 
     def _banner(self, elapsed: float) -> list[str]:
         mark_width = len(_WORDMARK) * 6 + 2
@@ -747,8 +747,8 @@ class NNodelyPrinter(keras.callbacks.Callback):
     def _rule(self) -> str:
         """A horizontal rule carrying the logo gradient left to right."""
         out = []
-        for x in range(self.width):
-            out.append(_fg(_shade(_brand(x / max(1, self.width - 1)), 0.75)) + "━")
+        for x in range(self._width):
+            out.append(_fg(_shade(_brand(x / max(1, self._width - 1)), 0.75)) + "━")
         return "".join(out) + "\033[0m"
 
     def _machine(self, elapsed: float, done: bool) -> list[str]:
@@ -756,23 +756,23 @@ class NNodelyPrinter(keras.callbacks.Callback):
         big_r, big_teeth = 7.2, 9
         small_r, small_teeth = 4.6, 6
         centre = float(self._BAY_ROWS)
-        _draw_gear(canvas, 10.0, centre, big_r, big_teeth, self.phase, 3, self.load)
+        _draw_gear(canvas, 10.0, centre, big_r, big_teeth, self._phase, 3, self._load)
         _draw_gear(
             canvas,
             10.0 + big_r + small_r + 0.8,
             centre,
             small_r,
             small_teeth,
-            -self.phase * big_teeth / small_teeth
+            -self._phase * big_teeth / small_teeth
             + math.pi * (small_teeth - 1) / small_teeth,
             3,
-            self.load,
+            self._load,
         )
         bay = canvas.lines()
 
-        done_epochs = max(1, self.epoch)
+        done_epochs = max(1, self._epoch)
         rate = done_epochs / max(1e-6, elapsed)
-        eta = (self.epochs - self.epoch) / rate if rate > 0 else float("nan")
+        eta = (self._epochs - self._epoch) / rate if rate > 0 else float("nan")
         spinner = _SPINNER[int(elapsed * 12) % len(_SPINNER)]
         status = (
             ("✔ COMPLETE", (0x7C, 0xE0, 0xA8))
@@ -781,8 +781,8 @@ class NNodelyPrinter(keras.callbacks.Callback):
         )
 
         telemetry = [
-            ("MODEL", self.model_name, _BONE),
-            ("EPOCH", f"{self.epoch} / {self.epochs}", _BONE),
+            ("MODEL", self._model_name, _BONE),
+            ("EPOCH", f"{self._epoch} / {self._epochs}", _BONE),
             ("ELAPSED", _clock(elapsed), _BONE),
             ("REMAINING", "00:00:00" if done else _clock(eta), _BONE),
             ("THROUGHPUT", f"{rate:.2f} ep/s", _BONE),
@@ -806,12 +806,12 @@ class NNodelyPrinter(keras.callbacks.Callback):
         return ["", *out]
 
     def _load_bar(self, cells: int = 12) -> str:
-        filled = int(round(self.load * cells))
+        filled = int(round(self._load * cells))
         out = []
         for index in range(cells):
             if index < filled:
                 colour = _lerp(
-                    _brand(index / max(1, cells - 1)), _EMBER, self.load * 0.5
+                    _brand(index / max(1, cells - 1)), _EMBER, self._load * 0.5
                 )
                 out.append(_fg(colour) + "▰")
             else:
@@ -819,9 +819,9 @@ class NNodelyPrinter(keras.callbacks.Callback):
         return "".join(out) + "\033[0m"
 
     def _progress(self, elapsed: float) -> str:
-        label = f" {100.0 * self.epoch / self.epochs:5.1f}% "
-        track = self.width - len(label) - 2
-        done = int(track * self.epoch / self.epochs)
+        label = f" {100.0 * self._epoch / self._epochs:5.1f}% "
+        track = self._width - len(label) - 2
+        done = int(track * self._epoch / self._epochs)
         line = _Line().add("▐", _STEEL_DIM)
         for index in range(track):
             if index < done:
@@ -841,7 +841,7 @@ class NNodelyPrinter(keras.callbacks.Callback):
 
     def _gauges(self) -> list[str]:
         out = []
-        for channel in self.channels:
+        for channel in self._channels:
             trend = channel.trend()
             arrow, colour = (
                 ("▼", (0x7C, 0xE0, 0xA8))
@@ -857,7 +857,7 @@ class NNodelyPrinter(keras.callbacks.Callback):
             line.add(
                 f"{channel.name[:14]:<14}", _BRAND[1], bold=channel.name == "Total"
             )
-            line.raw(channel.sparkline(self.spark), self.spark)
+            line.raw(channel.sparkline(self._spark), self._spark)
             line.add("  train ", _STEEL).add(f"{_format(train).strip():>10}", _BONE)
             line.add("  val ", _STEEL).add(f"{_format(val).strip():>10}", _BONE)
             line.add("  ").add(f"{arrow} {abs(trend) * 100:5.1f}%", colour)
@@ -867,17 +867,17 @@ class NNodelyPrinter(keras.callbacks.Callback):
     def _plaque(self, elapsed: float) -> list[str]:
         """The permanent record left in the scrollback once the machine stops."""
         title = " nnodely Training Complete "
-        lines = [title.center(80, "=") if not self.colour else self._stamp(title)]
-        lines.append(f"{'Model:':<30}{self.model_name}")
-        lines.append(f"{'Epochs completed:':<30}{self.epoch} / {self.epochs}")
+        lines = [title.center(80, "=") if not self._colour else self._stamp(title)]
+        lines.append(f"{'Model:':<30}{self._model_name}")
+        lines.append(f"{'Epochs completed:':<30}{self._epoch} / {self._epochs}")
         lines.append(f"{'Total time of Training:':<30}{elapsed}")
-        for channel in self.channels:
+        for channel in self._channels:
             if channel.train:
                 value = f"{channel.train[-1]:.6e}"
                 if channel.val:
                     value += f"   (val {channel.val[-1]:.6e})"
                 lines.append(f"{'Final ' + channel.name + ':':<30}{value}")
-        lines.append("=" * 80 if not self.colour else self._stamp(""))
+        lines.append("=" * 80 if not self._colour else self._stamp(""))
         return lines
 
     def _stamp(self, title: str) -> str:

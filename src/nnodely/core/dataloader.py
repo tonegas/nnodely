@@ -90,57 +90,57 @@ class DataLoader:
                 "spans the whole simulation, so there is a single starting point."
             )
 
-        self.model = model
-        self.format = format
-        self.csv_glob = csv_glob
-        self.delimiter = delimiter
-        self.header = header
-        self.dtype = dtype
-        self.seq_length = seq_length
-        self.step = step
-        self.on_short = on_short
+        self._model = model
+        self._format = format
+        self._csv_glob = csv_glob
+        self._delimiter = delimiter
+        self._header = header
+        self._dtype = dtype
+        self._seq_length = seq_length
+        self._step = step
+        self._on_short = on_short
 
         if model.model is None:
             raise ValueError(
                 f"Model {model.name} is not built. Make sure to call {model.name}.build() first."
             )
 
-        self.input_nodes = {node.name: node for node in model.train_inputs}
-        if not self.input_nodes:
+        self._input_nodes = {node.name: node for node in model.train_inputs}
+        if not self._input_nodes:
             raise ValueError("Could not infer any inputs from model.inputs")
-        self.input_specs = {
-            name: [node.past, node.future] for name, node in self.input_nodes.items()
+        self._input_specs = {
+            name: [node.past, node.future] for name, node in self._input_nodes.items()
         }
 
         # Number of CSV files the dataset was assembled from; None when the
         # samples came from an in-memory dict and no file is involved.
-        self.num_files: int | None = None
+        self._num_files: int | None = None
 
-        self.sequence_specs = {
+        self._sequence_specs = {
             name: self._resolve_sequence(node)
-            for name, node in self.input_nodes.items()
+            for name, node in self._input_nodes.items()
         }
 
         self._dynamic_inputs = {
             name
-            for name, sequence in self.sequence_specs.items()
+            for name, sequence in self._sequence_specs.items()
             if any(length is None for length in sequence)
         }
         self.mask: np.ndarray | None = None
-        self.padded_inputs: set[str] = set()
-        self.dataset = self._build(self._read(source))
+        self._padded_inputs: set[str] = set()
+        self._dataset = self._build(self._read(source))
         if self.mask is not None:
             self._warn_uncollected_loops()
 
         self.normalization_stats: Dict[str, Dict[str, Any]] = {}
         self._original_dataset: Dict[str, np.ndarray] | None = None
         self._normalization_aliases = self._build_normalization_aliases()
-        self._num_steps = min(len(values) for values in self.dataset.values())
+        self._num_steps = min(len(values) for values in self._dataset.values())
 
     @property
     def inputs(self) -> List[str]:
         """Names of the inputs the dataset holds."""
-        return list(self.dataset.keys())
+        return list(self._dataset.keys())
 
     def __repr__(self) -> str:
         """Table of what the loader actually built, for `print(loader)`."""
@@ -151,20 +151,20 @@ class DataLoader:
         def row(name: str, value: Any) -> None:
             lines.append(f"{name + ':':<{label}}{value}")
 
-        row("Dataset Name", self.model.name)
-        if self.num_files is None:
+        row("Dataset Name", self._model.name)
+        if self._num_files is None:
             row("Source", "in-memory dict")
         else:
-            row("Number of files", self.num_files)
+            row("Number of files", self._num_files)
         row("Total number of samples", len(self))
-        for name, values in self.dataset.items():
+        for name, values in self._dataset.items():
             row(f"Shape of {name}", tuple(values.shape))
         if self.normalization_stats:
             methods = {stats["method"] for stats in self.normalization_stats.values()}
             row(
                 "Normalization",
                 f"{'/'.join(sorted(methods))} "
-                f"({len(self.normalization_stats)}/{len(self.dataset)} inputs)",
+                f"({len(self.normalization_stats)}/{len(self._dataset)} inputs)",
             )
 
         lines.append("=" * width)
@@ -175,13 +175,13 @@ class DataLoader:
 
     def get_input(self, name: str) -> np.ndarray:
         """All the samples of one input, shaped ``(N, *time, *dim)``."""
-        return self.dataset[name]
+        return self._dataset[name]
 
     def get_step(self, idx: int) -> Dict[str, Any]:
         """Sample ``idx`` as ``{name: array}``; the same as ``loader[idx]``."""
         if idx < 0 or idx >= self._num_steps:
             raise IndexError(f"idx out of range: {idx} (len={self._num_steps})")
-        return {k: v[idx] for k, v in self.dataset.items()}
+        return {k: v[idx] for k, v in self._dataset.items()}
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         return self.get_step(idx)
@@ -223,7 +223,7 @@ class DataLoader:
         first = offset + int(start)
         return {
             name: np.array(values[first : first + int(n)])
-            for name, values in self.dataset.items()
+            for name, values in self._dataset.items()
         }
 
     def _simulation(self, simulation: int | str) -> tuple[str, int, int]:
@@ -251,7 +251,7 @@ class DataLoader:
 
     def as_dict(self) -> Dict[str, np.ndarray]:
         """The whole dataset as ``{name: array of shape (N, *time, *dim)}``."""
-        return self.dataset
+        return self._dataset
 
     # ------------------------------------------------------------------
     # Model specs
@@ -268,12 +268,12 @@ class DataLoader:
                 f"Input '{node.name}' declares more than one dynamic sequence length. "
                 "Only a single dynamic sequence dimension is supported."
             )
-        if dynamic and self.seq_length is None:
+        if dynamic and self._seq_length is None:
             raise ValueError(
                 "Some inputs have undefined sequence length. "
                 "Please specify seq_length in training."
             )
-        if dynamic and self.seq_length == "full" and dynamic[0] != 0:
+        if dynamic and self._seq_length == "full" and dynamic[0] != 0:
             raise ValueError(
                 f"Input '{node.name}' declares its dynamic sequence length at position "
                 f"{dynamic[0]}, but seq_length='full' only resolves the outermost one."
@@ -282,11 +282,11 @@ class DataLoader:
         sequence = []
         for length in sequence_axes:
             if length is None:
-                if self.seq_length == "full":
+                if self._seq_length == "full":
                     # Resolved per simulation, once its own length is known.
                     sequence.append(None)
                     continue
-                length = self.seq_length
+                length = self._seq_length
             if length < 1:  # type: ignore
                 raise ValueError(
                     f"Input '{node.name}' has invalid sequence length {length}."
@@ -304,19 +304,19 @@ class DataLoader:
             if not path.exists():
                 raise FileNotFoundError(f"Source does not exist: {path}")
             if path.is_dir():
-                files = sorted(path.glob(self.csv_glob))
+                files = sorted(path.glob(self._csv_glob))
                 if not files:
                     raise FileNotFoundError(
-                        f"No CSV files matching '{self.csv_glob}' found in {path}"
+                        f"No CSV files matching '{self._csv_glob}' found in {path}"
                     )
             else:
                 files = [path]
-            self.num_files = len(files)
+            self._num_files = len(files)
             return [
                 (
                     file.name,
                     self._read_frame(
-                        pd.read_csv(file, sep=self.delimiter, header=self.header),  # type: ignore
+                        pd.read_csv(file, sep=self._delimiter, header=self._header),  # type: ignore
                         file.name,
                     ),
                 )
@@ -340,7 +340,7 @@ class DataLoader:
 
     def _columns(self, name: str) -> list:
         """Columns feeding an input: one per feature, in declaration order."""
-        column = self.format.get(name, name) if self.format else name
+        column = self._format.get(name, name) if self._format else name
         if isinstance(column, (list, tuple, range)):
             return list(column)
         return [column]
@@ -351,7 +351,7 @@ class DataLoader:
 
         missing = []
         left_out = set()
-        for name in self.input_specs:
+        for name in self._input_specs:
             absent = []
             for column in self._columns(name):
                 if isinstance(column, (int, np.integer)):
@@ -360,7 +360,7 @@ class DataLoader:
                 elif column not in df.columns:
                     absent.append(f"{name} -> '{column}'")
             # An optional input none of whose columns is there reads zeros.
-            if name in self.model.optional_inputs and len(absent) == len(
+            if name in self._model.optional_inputs and len(absent) == len(
                 self._columns(name)
             ):
                 left_out.add(name)
@@ -372,10 +372,10 @@ class DataLoader:
             )
 
         data = {}
-        for name in self.input_specs:
+        for name in self._input_specs:
             if name in left_out:
                 data[name] = np.zeros(
-                    (len(df), *self.input_nodes[name].dim), self.dtype
+                    (len(df), *self._input_nodes[name].dim), self._dtype
                 )
                 continue
             values = np.stack(
@@ -384,7 +384,7 @@ class DataLoader:
                         df.iloc[:, column]  # type: ignore
                         if isinstance(column, (int, np.integer))
                         else df[column]
-                    ).to_numpy(dtype=self.dtype)
+                    ).to_numpy(dtype=self._dtype)
                     for column in self._columns(name)
                 ],
                 axis=-1,
@@ -393,20 +393,20 @@ class DataLoader:
         return data
 
     def _read_mapping(self, mapping: dict, label: str) -> Dict[str, np.ndarray]:
-        absent = [name for name in self.input_specs if name not in mapping]
-        missing = [name for name in absent if name not in self.model.optional_inputs]
-        if missing or len(absent) == len(self.input_specs):
+        absent = [name for name in self._input_specs if name not in mapping]
+        missing = [name for name in absent if name not in self._model.optional_inputs]
+        if missing or len(absent) == len(self._input_specs):
             raise ValueError(
                 f"'{label}' is missing required inputs: {missing or absent}"
             )
 
         data = {}
-        for name in self.input_specs:
+        for name in self._input_specs:
             if name in absent:
                 continue
             values = mapping[name]
             if isinstance(values, (pd.Series, pd.DataFrame)):
-                values = values.to_numpy(dtype=self.dtype)
+                values = values.to_numpy(dtype=self._dtype)
             data[name] = self._as_samples(name, values, label)
 
         lengths = {name: values.shape[0] for name, values in data.items()}
@@ -419,17 +419,17 @@ class DataLoader:
         return {
             name: data[name]
             if name in data
-            else np.zeros((length, *self.input_nodes[name].dim), self.dtype)
-            for name in self.input_specs
+            else np.zeros((length, *self._input_nodes[name].dim), self._dtype)
+            for name in self._input_specs
         }
 
     def _as_samples(self, name: str, values: Any, label: str) -> np.ndarray:
         """Check the feature count against dim and lay the input out as [samples, *dim]."""
-        values = np.asarray(values, dtype=self.dtype)
+        values = np.asarray(values, dtype=self._dtype)
         if values.ndim == 0:
             raise ValueError(f"Input '{name}' must be at least 1D, got scalar")
 
-        dim = tuple(self.input_nodes[name].dim)
+        dim = tuple(self._input_nodes[name].dim)
         feature_size = int(np.prod(values.shape[1:], dtype=int))
         expected_size = int(np.prod(dim, dtype=int))
         if feature_size != expected_size:
@@ -468,8 +468,8 @@ class DataLoader:
     def _build(
         self, simulations: List[tuple[str, Dict[str, np.ndarray]]]
     ) -> Dict[str, np.ndarray]:
-        max_past = max(spec[0] for spec in self.input_specs.values())
-        max_future = max(spec[1] for spec in self.input_specs.values())
+        max_past = max(spec[0] for spec in self._input_specs.values())
+        max_future = max(spec[1] for spec in self._input_specs.values())
 
         # Every input is windowed over the same range of end samples: it opens
         # once the deepest past window is covered and closes early enough to
@@ -479,7 +479,7 @@ class DataLoader:
         # declared up front can be required of every simulation.
         fixed_spans = {
             name: sum(length - 1 for length in sequence if length is not None)
-            for name, sequence in self.sequence_specs.items()
+            for name, sequence in self._sequence_specs.items()
         }
         required = first + max_future + max(fixed_spans.values()) + 1
         # Every dynamic input shares one rollout axis, so its length is the one
@@ -488,7 +488,7 @@ class DataLoader:
             (fixed_spans[name] for name in self._dynamic_inputs), default=0
         )
 
-        chunks: Dict[str, List[np.ndarray]] = {name: [] for name in self.input_specs}
+        chunks: Dict[str, List[np.ndarray]] = {name: [] for name in self._input_specs}
         lengths: List[int] = []
         skipped = []
         # Where each simulation's samples sit once all of them are concatenated:
@@ -498,7 +498,7 @@ class DataLoader:
         for label, simulation in simulations:
             samples = next(iter(simulation.values())).shape[0]
             if samples < required:
-                if self.on_short == "skip":
+                if self._on_short == "skip":
                     skipped.append(label)
                     continue
                 raise ValueError(
@@ -513,7 +513,7 @@ class DataLoader:
                 name: tuple(
                     length if declared is None else declared for declared in sequence
                 )
-                for name, sequence in self.sequence_specs.items()
+                for name, sequence in self._sequence_specs.items()
             }
             spans = {
                 name: sum(size - 1 for size in sequence)
@@ -549,7 +549,7 @@ class DataLoader:
             for name in self._dynamic_inputs:
                 chunks[name] = [self._pad(values, widest) for values in chunks[name]]
             self.mask = np.arange(widest) < np.asarray(lengths)[:, np.newaxis]
-            self.padded_inputs = set(self._dynamic_inputs)
+            self._padded_inputs = set(self._dynamic_inputs)
 
         return {
             name: np.concatenate(windows, axis=0) for name, windows in chunks.items()
@@ -559,8 +559,8 @@ class DataLoader:
         """Warn about a Loop that returns only its last, padded, rollout step."""
         uncollected = sorted(
             node.name
-            for node in self.model.order
-            if getattr(node, "collect", None) is False
+            for node in self._model._order
+            if getattr(node, "_collect", None) is False
         )
         if not uncollected:
             return
@@ -607,7 +607,7 @@ class DataLoader:
         """Temporal windows of one input, then one sliding window per
         sequence axis, laid out ``(N, *seq, time, *dim)``, or ``(N, *dim)``
         for an input without a window."""
-        past, future = self.input_specs[name]
+        past, future = self._input_specs[name]
         width = past + future
         last = values.shape[0] - max_future  # one past the last aligned end sample
 
@@ -616,7 +616,7 @@ class DataLoader:
         # Input without a window is the one sample, without the window axis.
         windows = sliding_window_view(values, window_shape=width, axis=0)
         windows = np.moveaxis(windows[first - past + 1 : last - past + 1], -1, 1)
-        if self.input_nodes[name].shape.time is None:
+        if self._input_nodes[name].shape.time is None:
             windows = windows[:, 0]
 
         # Each sliding window appends its axis; moved right after the samples it
@@ -630,9 +630,9 @@ class DataLoader:
         # input refers to the same endpoint.
         if lead:
             windows = windows[lead:]
-        if self.step > 1:
-            windows = windows[:: self.step]
-        return np.ascontiguousarray(windows, dtype=self.dtype)
+        if self._step > 1:
+            windows = windows[:: self._step]
+        return np.ascontiguousarray(windows, dtype=self._dtype)
 
     # ------------------------------------------------------------------
     # Explicit normalization
@@ -653,27 +653,27 @@ class DataLoader:
         """
         if method not in ("minmax", "standard"):
             raise ValueError("method must be either 'minmax' or 'standard'.")
-        if not np.issubdtype(np.dtype(self.dtype), np.floating):
+        if not np.issubdtype(np.dtype(self._dtype), np.floating):
             raise TypeError("DataLoader normalization requires a floating-point dtype.")
         low, high = (float(feature_range[0]), float(feature_range[1]))
         if method == "minmax" and not low < high:
             raise ValueError("feature_range must satisfy low < high.")
 
-        selected = list(self.dataset) if names is None else list(names)
-        unknown = [name for name in selected if name not in self.dataset]
+        selected = list(self._dataset) if names is None else list(names)
+        unknown = [name for name in selected if name not in self._dataset]
         if unknown:
             raise ValueError(f"Unknown dataset inputs for normalization: {unknown}.")
 
         if self._original_dataset is None:
             self._original_dataset = {
                 name: np.array(values, copy=True)
-                for name, values in self.dataset.items()
+                for name, values in self._dataset.items()
             }
         source = self._original_dataset
 
         # Reapplying normalization always starts from the original prepared
         # windows, so transformations never compound.
-        self.dataset = {
+        self._dataset = {
             name: np.array(values, copy=True) for name, values in source.items()
         }
         self.normalization_stats = {}
@@ -681,13 +681,13 @@ class DataLoader:
         for name in selected:
             values = source[name].astype(np.float64, copy=False)
             # One statistic per feature: over the samples and every step.
-            shape = self.input_nodes[name].shape
+            shape = self._input_nodes[name].shape
             window_axes = () if shape.time_axis is None else (shape.time_axis,)
             reduce_axes = (BATCH_AXIS, *shape.seq_axes, *window_axes)
 
             # Padded rollout steps are repeats, not observations, so they are
             # left out of the statistics while still being transformed.
-            padded = name in self.padded_inputs
+            padded = name in self._padded_inputs
             observed = (
                 np.where(self._mask_view(values.ndim), values, np.nan)
                 if padded
@@ -721,7 +721,7 @@ class DataLoader:
                 "constant": constant,
                 "feature_range": (low, high),
             }
-            self.dataset[name] = normalized.astype(self.dtype)
+            self._dataset[name] = normalized.astype(self._dtype)
 
         return self
 
@@ -744,7 +744,7 @@ class DataLoader:
             raise ValueError("normalize() must be called before denormalize().")
 
         if data is None:
-            self.dataset = {
+            self._dataset = {
                 key: np.array(values, copy=True)
                 for key, values in self._original_dataset.items()
             }
@@ -778,7 +778,7 @@ class DataLoader:
             values = (values - low) / (high - low)
         restored = values * scale + offset
         restored = np.where(constant, offset, restored)
-        return restored.astype(self.dtype)
+        return restored.astype(self._dtype)
 
     @staticmethod
     def _match_stat_rank(stat: np.ndarray, rank: int) -> np.ndarray:
@@ -800,14 +800,14 @@ class DataLoader:
         aliases = {}
 
         def find_input_name(node):
-            if node.name in self.input_nodes:
+            if node.name in self._input_nodes:
                 return node.name
-            preds = getattr(node, "preds", [])
+            preds = getattr(node, "_preds", [])
             if len(preds) == 1:
                 return find_input_name(preds[0])
             return None
 
-        for minimizer in self.model.minimizers:
+        for minimizer in self._model._minimizers:
             target_name = find_input_name(minimizer["target"])
             if target_name is not None:
                 aliases[minimizer["source"].name] = target_name

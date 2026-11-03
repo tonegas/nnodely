@@ -65,7 +65,7 @@ class ModelyLoop(Modely):
                 f"length of the data, got {length!r}."
             )
         self.name = name
-        self.length = length
+        self._length = length
         self._rolled_inputs: dict[str, Input] = {}
 
         # The step, and the one Loop that feeds back every Input it feeds back.
@@ -99,7 +99,7 @@ class ModelyLoop(Modely):
             name=f"{name}_loop",
             length=length,
         )
-        read = [*declaration.static_inputs, *declaration.seed_inputs]
+        read = [*declaration._static_inputs, *declaration._seed_inputs]
         if not read and not from_data:
             raise ValueError(
                 f"ModelyLoop {name!r} reads no Input, in its steps or as the "
@@ -107,12 +107,12 @@ class ModelyLoop(Modely):
                 "and number of steps."
             )
         loop = declaration({node.name: self._rolled_input(node) for node in read})
-        self.body = declaration.f
+        self.body = declaration._f
         self._initial: dict[Input, Any] = {
             state: self._rolled_input(start) if isinstance(start, Input) else start
             for state, start in step.starts.items()
         }
-        self._initial.update({state: loop.init[state] for state in from_data})
+        self._initial.update({state: loop._init[state] for state in from_data})
 
         # One trajectory per output of the body, the declared outputs first.
         trajectories = list(loop)
@@ -121,7 +121,7 @@ class ModelyLoop(Modely):
         for output, trajectory in zip(outputs, trajectories):
             rolled = Output(output.name, trajectory)
             self._trajectories[output] = rolled
-            self._trajectories.setdefault(output.preds[0], rolled)
+            self._trajectories.setdefault(output._preds[0], rolled)
             rolled_outputs.append(rolled)
 
         super().__init__(
@@ -132,13 +132,13 @@ class ModelyLoop(Modely):
         self.optional_inputs = {state.name for state in from_data}
 
     def _input_rows(self) -> list[dict]:
-        """The rows of :attr:`all_inputs`: the Inputs the data feeds, shaped as
+        """The rows of :attr:`inputs`: the Inputs the data feeds, shaped as
         the step reads them, then the fed-back Inputs the loop feeds back."""
         rows = super()._input_rows()
         for row in rows:
             row["seq"] = row["seq"][1:]  # the horizon, which the data adds
         by_name = {row["input"].name: row for row in rows}
-        for node in self.body.inputs:
+        for node in self.body._inputs:
             if node.update is None:
                 continue
             row = by_name.get(node.name)
@@ -169,7 +169,7 @@ class ModelyLoop(Modely):
                     "step at a time, so its data carries the horizon as a "
                     "sequence axis, which needs a window: declare it with sw=1."
                 )
-            horizon = -1 if self.length is None else self.length
+            horizon = -1 if self._length is None else self._length
             rolled = Input(
                 node.name,
                 dim=node.dim,
@@ -181,7 +181,7 @@ class ModelyLoop(Modely):
 
     def _trajectory(self, value, minimizer: str):
         """The stream of the rollout a minimizer side of the step compares."""
-        if not isinstance(value, Stream) or value._is_value or value in self.order:
+        if not isinstance(value, Stream) or value._is_value or value in self._order:
             return value
         rolled = self._trajectories.get(value)
         if rolled is not None:

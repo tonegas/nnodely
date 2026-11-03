@@ -2,8 +2,8 @@ Model Composition
 =================
 
 A :class:`~nnodely.Modely` can be used as a block of another model. Calling it
-on a list of streams, one per input and in the order of its ``inputs``, returns
-its outputs as streams of the outer graph:
+on a list of streams, one per input and in the order of the ``inputs`` it was
+declared with, returns its outputs as streams of the outer graph:
 
 .. code-block:: python
 

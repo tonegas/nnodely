@@ -22,13 +22,13 @@ def _bound_fed_back(model) -> list[str]:
         if isinstance(node, ModelCall):
             bound.update(
                 inner.name
-                for inner in node.inputs_map
+                for inner in node._inputs_map
                 if isinstance(inner, Input) and inner.update is not None
             )
-            stack.extend(node.model.outputs)
+            stack.extend(node._model.outputs)
         if isinstance(node, Input) and node.update is not None:
             stack.extend(s for s in (node.update, node.init) if isinstance(s, Node))
-        stack.extend(node.preds)
+        stack.extend(node._preds)
     return sorted(bound)
 
 
@@ -82,7 +82,7 @@ class _Loading:
             node._layer = self.layers[layer_id]
 
     def keep_built(self, model) -> None:
-        for node in model.order:
+        for node in model._order:
             layer_id = self.ids.get(id(node))
             layer = getattr(node, "_layer", None)
             if layer_id is not None and getattr(layer, "weights", None):
@@ -135,7 +135,7 @@ class ModelSerializer:
                     for node in order
                     if isinstance(node, Layer)
                     and not isinstance(node, Constant)
-                    and not isinstance(getattr(node, "f", None), Modely)
+                    and not isinstance(getattr(node, "_f", None), Modely)
                     and any(
                         id(variable) not in saved
                         for variable in getattr(node._layer, "weights", None) or []
@@ -162,7 +162,7 @@ class ModelSerializer:
                 "id": node_ids[node],
                 "class_name": node.__class__.__name__,
                 "config": node.get_config(),
-                "preds": [node_ids[pred] for pred in node.preds],
+                "preds": [node_ids[pred] for pred in node._preds],
             }
             # A fed-back Input keeps the stream it is fed back with and its
             # init, a number or a node: a loop that calls the loaded model
@@ -185,7 +185,7 @@ class ModelSerializer:
             # as a model of its own, in a folder named after the block, so
             # nested blocks nest their folders the same way. Two blocks can
             # share a name, so a folder already taken gets a suffix.
-            body = getattr(node, "f", None)
+            body = getattr(node, "_f", None)
             if isinstance(body, Modely):
                 folder, index = node.name, 1
                 while folder in folders:
@@ -217,7 +217,7 @@ class ModelSerializer:
                 "optional_inputs": sorted(model.optional_inputs),
             },
             "nodes": nodes,
-            "inputs": [node_ids[x] for x in flat.inputs],
+            "inputs": [node_ids[x] for x in flat._inputs],
             "outputs": [node_ids[x] for x in flat.outputs],
         }
 

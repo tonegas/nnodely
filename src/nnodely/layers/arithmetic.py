@@ -21,74 +21,74 @@ class ArithmeticImpl(keras.layers.Layer):
 
 
 class Arithmetic(Layer):
-    operation = ""
+    _operation = ""
     _one_stream = True
 
     def __init__(self, name=None):
         super().__init__(name=name)
 
     def build_layer(self):
-        return ArithmeticImpl(operation=self.operation, name=self.name)
+        return ArithmeticImpl(operation=self._operation, name=self.name)
 
 
 class Exp(Arithmetic):
     """Wrapper for exponential transform."""
 
-    operation = "exp"
+    _operation = "exp"
 
 
 class Log(Arithmetic):
     """Wrapper for natural logarithm transform."""
 
-    operation = "log"
+    _operation = "log"
 
 
 class Log10(Arithmetic):
     """Wrapper for base 10 logarithm transform."""
 
-    operation = "log10"
+    _operation = "log10"
 
 
 class Sqrt(Arithmetic):
     """Wrapper for square root transform."""
 
-    operation = "sqrt"
+    _operation = "sqrt"
 
 
 class Abs(Arithmetic):
     """Wrapper for absolute value transform."""
 
-    operation = "abs"
+    _operation = "abs"
 
 
 class Floor(Arithmetic):
     """Wrapper for floor transform."""
 
-    operation = "floor"
+    _operation = "floor"
 
 
 class Ceil(Arithmetic):
     """Wrapper for ceiling transform."""
 
-    operation = "ceil"
+    _operation = "ceil"
 
 
 class Deg2Rad(Arithmetic):
     """Wrapper for degrees to radians transform."""
 
-    operation = "deg2rad"
+    _operation = "deg2rad"
 
 
 class Sign(Arithmetic):
     """Wrapper for sign transform."""
 
-    operation = "sign"
+    _operation = "sign"
 
 
 class Negative(Arithmetic):
     """Wrapper for negation transform."""
 
-    operation = "negative"
+    _operation = "negative"
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -124,12 +124,12 @@ class Clamp(Layer):
             raise ValueError(
                 f"{name or 'Clamp'}: min {min} must not be greater than max {max}."
             )
-        self.min = min
-        self.max = max
-        super().__init__(name=name, min=self.min, max=self.max)
+        self._min = min
+        self._max = max
+        super().__init__(name=name, min=self._min, max=self._max)
 
     def build_layer(self):
-        return ClampImpl(min=self.min, max=self.max, name=self.name)
+        return ClampImpl(min=self._min, max=self._max, name=self.name)
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -169,14 +169,14 @@ class Sum(Layer):
     """
 
     def __init__(self, axis: int | None = None, name=None):
-        self.axis = axis if axis is None else int(axis)
-        super().__init__(name=name, axis=self.axis)
+        self._axis = axis if axis is None else int(axis)
+        super().__init__(name=name, axis=self._axis)
 
     def build_layer(self):
         shape = self.shape
         axes = (
             shape.dim_axes
-            if self.axis is None
-            else (shape.dim_axes[shape.resolve_dim(self.axis, self.name)],)
+            if self._axis is None
+            else (shape.dim_axes[shape.resolve_dim(self._axis, self.name)],)
         )
         return SumImpl(axes=axes, name=self.name)

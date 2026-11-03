@@ -47,7 +47,7 @@ def test_loop(tmp_path):
         inputs=[seed],
         outputs=[output1],
     ).build()
-    assert loop.f is body
+    assert loop._f is body
     model.export_html(out_dir=tmp_path, filename="test_closed_loop")
 
     seed_values = np.zeros((1, 5, 1, 1), dtype=np.float32)
@@ -167,7 +167,7 @@ def test_model_roll():
     test.build()
     roll = Roll(f=test, feedback={x: out}, name="roll")
     roll_3 = Roll(f=test, feedback={x: out}, steps=3, name="roll_3")
-    assert roll.steps == x.shape.time == 5
+    assert roll._steps == x.shape.time == 5
     assert roll.shape.tuple == x.shape.tuple
     output = Output("res", roll)
     output_3 = Output("res_3", roll_3)
@@ -273,7 +273,7 @@ def test_a_model_with_rollback_is_no_block_and_flattens_with_it():
 
     # As the error says: the one-step model is a Modely of the same graph, and
     # shares its weights.
-    one_step = Modely("rb_block_step", inputs=model.inputs, outputs=model.outputs)
+    one_step = Modely("rb_block_step", inputs=[x], outputs=model.outputs)
     outer = Modely(
         "rb_block_outer",
         inputs=[outer_x],
@@ -509,7 +509,7 @@ def test_loop_bound_inputs(tmp_path):
         name="sliced_loop",
         init={x: initial},
     )({u: driver})
-    assert loop.horizon == 3
+    assert loop._horizon == 3
     assert loop.shape.dimensions == ((3,), 1, (1,))
 
     model = Modely(
@@ -579,7 +579,7 @@ def test_loop_dynamic_length():
         length=3,
         init={x: initial_window},
     )({u: driver_window})
-    assert loop.horizon == 3
+    assert loop._horizon == 3
     assert loop.shape.dimensions == ((3,), 1, (1,))
 
     # A dynamic rollout needs no length: it is only declared with a default one.
@@ -589,7 +589,7 @@ def test_loop_dynamic_length():
         name="dyn_loop_unpinned",
         init={x: initial_window},
     )({u: driver_window})
-    assert unpinned.horizon == DYNAMIC_BUILD_LENGTH
+    assert unpinned._horizon == DYNAMIC_BUILD_LENGTH
 
     model = Modely(
         "dyn_model",
@@ -651,7 +651,7 @@ def test_loop_window_feedback():
     # Loop builds the body when it is handed an unbuilt one
     assert body.built
     # The window of x, (batch, 3, 1), shifts along its inner time, axis 1.
-    assert loop.feedback_shift_axes == [1]
+    assert loop._feedback_shift_axes == [1]
     assert loop.shape.dimensions == ((3,), 1, (1,))
 
     model = Modely(

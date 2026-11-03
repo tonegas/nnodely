@@ -33,7 +33,7 @@ def test_legacy_printer_reproduces_the_original_table(capsys):
     printer = LegacyPrinter(epochs=6000, minimizers=["curv_error"], max_rows=100)
 
     ## 6000 epochs over at most 100 rows is one row every 60 epochs
-    assert printer.stride == 60
+    assert printer._stride == 60
 
     printer.on_train_begin()
     printer.on_epoch_end(
@@ -108,7 +108,7 @@ def test_legacy_printer_columns_stay_aligned_for_wide_values(capsys):
     lines = capsys.readouterr().out.splitlines()
 
     ## Precision is dropped instead of the table widening
-    assert all(len(line) == printer.width for line in lines)
+    assert all(len(line) == printer._width for line in lines)
 
 
 def test_legacy_printer_reports_the_training_time(capsys):
@@ -133,25 +133,25 @@ def test_train_resolves_the_printer_argument():
     model, _ = _single_minimizer_model()
 
     assert isinstance(
-        _resolve_printer("tiny", 10, model.minimizers, model.name), TinyPrinter
+        _resolve_printer("tiny", 10, model._minimizers, model.name), TinyPrinter
     )
 
-    legacy = _resolve_printer("legacy", 10, model.minimizers, model.name)
+    legacy = _resolve_printer("legacy", 10, model._minimizers, model.name)
     assert isinstance(legacy, LegacyPrinter)
     ## Columns are named after the minimizers, which log their losses by name
-    assert legacy.minimizers == ["curv_error"]
-    assert legacy.epochs == 10
+    assert legacy._minimizers == ["curv_error"]
+    assert legacy._epochs == 10
 
     ## None is silent, and a callback is taken as given
     assert (
-        type(_resolve_printer(None, 10, model.minimizers, model.name))
+        type(_resolve_printer(None, 10, model._minimizers, model.name))
         is keras.callbacks.Callback
     )
     given = LegacyPrinter(epochs=3, minimizers=[])
-    assert _resolve_printer(given, 10, model.minimizers, model.name) is given
+    assert _resolve_printer(given, 10, model._minimizers, model.name) is given
 
     with pytest.raises(ValueError):
-        _resolve_printer("loud", 10, model.minimizers, model.name)
+        _resolve_printer("loud", 10, model._minimizers, model.name)
 
 
 def test_tiny_printer_writes_no_terminal_codes_into_a_file(capsys):

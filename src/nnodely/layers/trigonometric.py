@@ -23,50 +23,50 @@ class TrigonometricImpl(keras.layers.Layer):
 
 
 class Trigonometric(Layer):
-    operation = ""
+    _operation = ""
     _one_stream = True
 
     def __init__(self, name=None):
         super().__init__(name=name)
 
     def build_layer(self):
-        return TrigonometricImpl(operation=self.operation, name=self.name)
+        return TrigonometricImpl(operation=self._operation, name=self.name)
 
 
 class Sin(Trigonometric):
     """Wrapper for sine transform."""
 
-    operation = "sin"
+    _operation = "sin"
 
 
 class Cos(Trigonometric):
     """Wrapper for cosine transform."""
 
-    operation = "cos"
+    _operation = "cos"
 
 
 class Tan(Trigonometric):
     """Wrapper for tangent transform."""
 
-    operation = "tan"
+    _operation = "tan"
 
 
 class Asin(Trigonometric):
     """Wrapper for inverse sine transform."""
 
-    operation = "arcsin"
+    _operation = "arcsin"
 
 
 class Acos(Trigonometric):
     """Wrapper for inverse cosine transform."""
 
-    operation = "arccos"
+    _operation = "arccos"
 
 
 class Atan(Trigonometric):
     """Wrapper for inverse tangent transform."""
 
-    operation = "arctan"
+    _operation = "arctan"
 
 
 class Atan2(BinaryOp):
@@ -78,7 +78,7 @@ class Atan2(BinaryOp):
     sample applies to every sample of the other, a scalar to every feature.
     """
 
-    operation = "arctan2"
+    _operation = "arctan2"
 
     def __init__(self, name=None):
         super().__init__(name=name)

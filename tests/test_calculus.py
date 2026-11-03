@@ -1797,7 +1797,7 @@ def test_integrate_derivative_and_buffer_take_their_signal_and_init_alike():
     )
     hidden = {
         row["input"].name: row["input"].seq
-        for row in model.all_inputs.rows
+        for row in model.inputs._rows
         if not row["declared"]
     }
     assert hidden == {

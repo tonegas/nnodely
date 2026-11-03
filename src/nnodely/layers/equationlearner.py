@@ -97,25 +97,25 @@ class EquationLearner:
             raise ValueError("EquationLearner requires at least one function.")
 
         self.name = name or next_name("EquationLearner")
-        self.functions = list(functions)
-        self.function_specs = [_resolve_function(function) for function in functions]
-        self.n_arguments = sum(spec.arity for spec in self.function_specs)
+        self._functions = list(functions)
+        self._function_specs = [_resolve_function(function) for function in functions]
+        self._n_arguments = sum(spec.arity for spec in self._function_specs)
         # The input projection, made here when not given, so that every call
         # applies the same one, as it does linear_out.
-        self.linear_in_template = linear_in or Linear(
-            features=self.n_arguments, name=f"{self.name}_linear_in"
+        self._linear_in_template = linear_in or Linear(
+            features=self._n_arguments, name=f"{self.name}_linear_in"
         )
-        self.linear_out_template = linear_out
+        self._linear_out_template = linear_out
 
-        self.linear_in: Linear | None = None
-        self.linear_out: Linear | None = None
-        self.model: Modely | None = None
+        self._linear_in: Linear | None = None
+        self._linear_out: Linear | None = None
+        self._model: Modely | None = None
         self._calls = 0
 
-        if linear_in is not None and linear_in.features != self.n_arguments:
+        if linear_in is not None and linear_in._features != self._n_arguments:
             raise ValueError(
                 "linear_in.features must equal the total number of function "
-                f"arguments ({self.n_arguments}), got {linear_in.features}."
+                f"arguments ({self._n_arguments}), got {linear_in._features}."
             )
 
     def __call__(self, inputs):
@@ -151,16 +151,16 @@ class EquationLearner:
             else Concatenate(axis=0, name=f"{call_name}_inputs")(internal_streams)
         )
 
-        projected = self.linear_in_template([combined])
+        projected = self._linear_in_template([combined])
         if not isinstance(projected, Linear):
             raise TypeError(
                 "EquationLearner input projection did not produce a Linear node."
             )
-        self.linear_in = projected
+        self._linear_in = projected
 
         terms = []
         argument_index = 0
-        for function_index, spec in enumerate(self.function_specs):
+        for function_index, spec in enumerate(self._function_specs):
             arguments = []
             for local_index in range(spec.arity):
                 arguments.append(
@@ -186,22 +186,22 @@ class EquationLearner:
         )
 
         result = basis
-        if self.linear_out_template is not None:
-            projected_output = self.linear_out_template([basis])
+        if self._linear_out_template is not None:
+            projected_output = self._linear_out_template([basis])
             if not isinstance(projected_output, Linear):
                 raise TypeError(
                     "EquationLearner output projection did not produce a Linear node."
                 )
-            self.linear_out = projected_output
+            self._linear_out = projected_output
             result = projected_output
 
         internal_output = Output(f"{call_name}_output", result)
-        self.model = Modely(
+        self._model = Modely(
             call_name,
             inputs=internal_inputs,
             outputs=[internal_output],
         )
-        return self.model(streams)
+        return self._model(streams)
 
 
 def _resolve_function(function) -> _FunctionSpec:

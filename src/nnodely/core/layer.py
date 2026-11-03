@@ -33,7 +33,7 @@ def _refuse_uncalled(streams) -> None:
     from nnodely.layers.parameter import _Value
 
     for node in streams:
-        if isinstance(node, Layer) and not node.preds and not isinstance(node, _Value):
+        if isinstance(node, Layer) and not node._preds and not isinstance(node, _Value):
             # A layer bound some other way, as a Loop, says how itself.
             _ = node.shape
             kind = type(node).__name__
@@ -117,7 +117,7 @@ class Layer(Stream, metaclass=_LayerType):
 
     def __init__(self, name=None, preds=None, time=None, dim=None, seq=None, **kwargs):
         self._properties = dict(kwargs)
-        self.inputs = None
+        self._inputs = None
         self._layer = None
         self._layer_signature = None
         # The layer this node applies. Every node made by calling one layer
@@ -160,8 +160,8 @@ class Layer(Stream, metaclass=_LayerType):
 
         # Some build_layer() implementations need the symbolic input context to
         # choose axes or configure the concrete Keras layer.
-        self.inputs = list(inputs)
-        self.preds = list(inputs)
+        self._inputs = list(inputs)
+        self._preds = list(inputs)
         self.shape = inputs[0].shape
 
         # Shape probing must not become the executable graph layer. Graph context
@@ -277,7 +277,7 @@ class Layer(Stream, metaclass=_LayerType):
         read no input at all (Parameters, Constants) are shape-independent and
         keep a constant signature.
         """
-        if not self.preds:
+        if not self._preds:
             return ()
         try:
             return tuple(tuple(x.shape[1:]) for x in xs)
@@ -324,9 +324,9 @@ class Layer(Stream, metaclass=_LayerType):
                     )
                 node = self.__class__(name=self.name, **self._properties)
                 node._source = self._source
-                node.inputs = inputs
+                node._inputs = inputs
                 node.shape = out_shape
-                node.preds = inputs  # type: ignore
+                node._preds = inputs  # type: ignore
                 # Computed from values alone - numbers, Parameters, Constants -
                 # a result is a value too.
                 node._is_value = all(x._is_value for x in inputs)
@@ -427,16 +427,16 @@ class BinaryOpImpl(keras.layers.Layer):
 
 
 class BinaryOp(Layer):
-    operation = None
+    _operation = None
 
     def build_layer(self) -> keras.layers.Layer:
-        if self.operation is None:
+        if self._operation is None:
             raise NotImplementedError(
-                "Subclasses must define an operation class attribute."
+                "Subclasses must define an _operation class attribute."
             )
-        shapes = [input_node.shape for input_node in self.preds]  # type: ignore[union-attr]
+        shapes = [input_node.shape for input_node in self._preds]  # type: ignore[union-attr]
         return BinaryOpImpl(
-            operation=self.operation,
+            operation=self._operation,
             seq_ranks=tuple(shape.seq_rank for shape in shapes),
             dim_ranks=tuple(shape.dim_rank for shape in shapes),
             windows=tuple(shape.time is not None for shape in shapes),
@@ -455,23 +455,23 @@ class BinaryOp(Layer):
 
 
 class Add(BinaryOp):
-    operation = "add"
+    _operation = "add"
 
 
 class Subtract(BinaryOp):
-    operation = "subtract"
+    _operation = "subtract"
 
 
 class Multiply(BinaryOp):
-    operation = "multiply"
+    _operation = "multiply"
 
 
 class Divide(BinaryOp):
-    operation = "divide"
+    _operation = "divide"
 
 
 class Power(BinaryOp):
-    operation = "power"
+    _operation = "power"
 
 
 class Identity(Layer):

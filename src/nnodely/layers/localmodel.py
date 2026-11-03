@@ -159,17 +159,17 @@ class CellSelect(Layer):
     """One cell of a stack, without the cell axis."""
 
     def __init__(self, idx: int, name=None):
-        self.idx = int(idx)
-        super().__init__(name=name, idx=self.idx)
+        self._idx = int(idx)
+        super().__init__(name=name, idx=self._idx)
 
     def output_shape(self, *inputs):
         stack = inputs[0].shape
         return stack.replace(dim=_cell_dim(stack.dim))
 
     def build_layer(self):
-        stack = self.preds[0].shape  # type: ignore[union-attr]
+        stack = self._preds[0].shape  # type: ignore[union-attr]
         return CellSelectImpl(
-            idx=self.idx,
+            idx=self._idx,
             axis=stack.dim_axes[-1],
             keepdims=stack.dim_rank == 1,
             name=self.name,
@@ -216,7 +216,7 @@ class CellSum(Layer):
         return stack.replace(dim=_cell_dim(stack.dim))
 
     def build_layer(self):
-        stack = self.preds[0].shape  # type: ignore[union-attr]
+        stack = self._preds[0].shape  # type: ignore[union-attr]
         return CellSumImpl(
             axis=stack.dim_axes[-1], keepdims=stack.dim_rank == 1, name=self.name
         )
@@ -282,9 +282,9 @@ class LocalModel:
                     f"got {type(function).__name__}. For one function per cell, pass "
                     "a factory f(index) -> layer."
                 )
-        self.input_function = input_function
-        self.output_function = output_function
-        self.vectorized = bool(vectorized)
+        self._input_function = input_function
+        self._output_function = output_function
+        self._vectorized = bool(vectorized)
         self.name = next_name("LocalModel") if name is None else name
         # The layers made for the cells, kept so every call of this LocalModel
         # applies the same ones - and so shares their weights.
@@ -310,7 +310,7 @@ class LocalModel:
         indices = list(np.ndindex(*(activation.dim[0] for activation in activations)))
 
         # The input functions of every cell, stacked on the last dim axis.
-        function = self.input_function
+        function = self._input_function
         if self._is_vectorized(function):
             stack = self._check_cells(function(inputs), len(indices), "input")
         else:
@@ -356,7 +356,7 @@ class LocalModel:
         )
         weighted = CellWeight(name=f"{self.name}_weighted")([stack, mu])
 
-        function = self.output_function
+        function = self._output_function
         if self._is_vectorized(function):
             weighted = self._check_cells(function([weighted]), len(indices), "output")
         elif isinstance(function, _ELEMENTWISE):
@@ -373,7 +373,7 @@ class LocalModel:
 
     def _is_vectorized(self, function) -> TypeGuard[Callable[..., Any]]:
         return (
-            self.vectorized
+            self._vectorized
             and function is not None
             and not isinstance(function, _ELEMENTWISE)
         )

@@ -95,7 +95,7 @@ def _find_input(node, name: str):
         seen.add(id(current))
         if isinstance(current, Input) and current.name == name:
             return current
-        stack.extend(getattr(current, "preds", None) or [])
+        stack.extend(getattr(current, "_preds", None) or [])
     return None
 
 
@@ -364,7 +364,7 @@ class Gradient(Layer):
     """
 
     def __init__(self, order: int = 1, respect_to: Input | None = None, name=None):
-        self.order = _check_order("Gradient", order)
+        self._order = _check_order("Gradient", order)
         if not isinstance(respect_to, Input):
             hint = (
                 " For a derivative over time, use DerivativeStep(dt=...) or "
@@ -377,9 +377,9 @@ class Gradient(Layer):
                 "Gradient: respect_to must be the Input to differentiate against, "
                 f"got {type(respect_to).__name__}.{hint}"
             )
-        self.respect_to = respect_to
-        self.wrt_name = respect_to.name
-        super().__init__(name=name, order=self.order, respect_to=self.respect_to)
+        self._respect_to = respect_to
+        self._wrt_name = respect_to.name
+        super().__init__(name=name, order=self._order, respect_to=self._respect_to)
 
     # ------------------------------------------------------------------
     # Shape logic
@@ -398,7 +398,7 @@ class Gradient(Layer):
             )
         # Reverse-mode differentiation yields the shape of the variable, not
         # of the relation.
-        return self.respect_to.shape
+        return self._respect_to.shape
 
     # ------------------------------------------------------------------
     # Keras layer logic
@@ -413,10 +413,10 @@ class Gradient(Layer):
         tensor = xs[0]
         sources = _source_input_tensors(tensor)
         names = _source_names(sources)
-        if self.wrt_name not in names:
+        if self._wrt_name not in names:
             raise ValueError(
                 f"{self.name}: the differentiated relation does not depend on "
-                f"input {self.wrt_name!r} (it reads {names}), so its derivative "
+                f"input {self._wrt_name!r} (it reads {names}), so its derivative "
                 "is not defined by the graph. Inside a model used as a reusable "
                 "block this is what binding does: the block's own inputs are "
                 "replaced by the streams it is called with, so differentiate in "
@@ -433,8 +433,8 @@ class Gradient(Layer):
         )
         self._layer = GradientImpl(
             function_model=function_model,
-            wrt_index=names.index(self.wrt_name),
-            order=self.order,
+            wrt_index=names.index(self._wrt_name),
+            order=self._order,
             name=self.name,
         )
         return self._layer(sources)
@@ -443,7 +443,7 @@ class Gradient(Layer):
     # Serialization
     # ------------------------------------------------------------------
     def get_config(self):
-        return {"name": self.name, "order": self.order, "respect_to": self.wrt_name}
+        return {"name": self.name, "order": self._order, "respect_to": self._wrt_name}
 
     @classmethod
     def from_config(cls, config: dict, preds=None):
@@ -480,32 +480,32 @@ class _FiniteDifference(Layer):
         **properties,
     ):
         layer = type(self).__name__
-        self.order = _check_order(layer, order)
-        self.dt = _validate_dt(dt, layer)
+        self._order = _check_order(layer, order)
+        self._dt = _validate_dt(dt, layer)
 
-        self.window = self.order + 1 if window is None else int(window)
+        self._window = self._order + 1 if window is None else int(window)
         # The lowest degree that can represent the derivative at all, so
         # widening the window always buys smoothing; a higher degree buys
         # accuracy back at the cost of noise.
-        self.poly_order = self.order if poly_order is None else int(poly_order)
-        if self.window < self.order + 1:
+        self._poly_order = self._order if poly_order is None else int(poly_order)
+        if self._window < self._order + 1:
             raise ValueError(
-                f"{layer}: a derivative of order {self.order} reads at least "
-                f"{self.order + 1} samples, got window={self.window}."
+                f"{layer}: a derivative of order {self._order} reads at least "
+                f"{self._order + 1} samples, got window={self._window}."
             )
-        if not self.order <= self.poly_order <= self.window - 1:
+        if not self._order <= self._poly_order <= self._window - 1:
             raise ValueError(
                 f"{layer}: poly_order must be between the derivative's order "
-                f"({self.order}) and window - 1 ({self.window - 1}), got "
-                f"{self.poly_order}."
+                f"({self._order}) and window - 1 ({self._window - 1}), got "
+                f"{self._poly_order}."
             )
 
         super().__init__(
             name=name,
-            order=self.order,
-            dt=self.dt,
-            window=self.window,
-            poly_order=self.poly_order,
+            order=self._order,
+            dt=self._dt,
+            window=self._window,
+            poly_order=self._poly_order,
             **properties,
         )
 
@@ -515,10 +515,12 @@ class _FiniteDifference(Layer):
     @property
     def past(self) -> int:
         """Samples of history the stencil needs before the first one."""
-        return self.window - 1
+        return self._window - 1
 
     def _coefficients(self) -> np.ndarray:
-        return _stencil_coefficients(self.order, self.window, self.poly_order, self.dt)
+        return _stencil_coefficients(
+            self._order, self._window, self._poly_order, self._dt
+        )
 
     # ------------------------------------------------------------------
     # Shape logic
@@ -547,10 +549,10 @@ class _FiniteDifference(Layer):
     def get_config(self):
         return {
             "name": self.name,
-            "order": self.order,
-            "dt": self.dt,
-            "window": self.window,
-            "poly_order": self.poly_order,
+            "order": self._order,
+            "dt": self._dt,
+            "window": self._window,
+            "poly_order": self._poly_order,
         }
 
     @classmethod
@@ -637,8 +639,8 @@ class DerivativeStep(_FiniteDifference):
 
     def build_layer(self):
         init_time = 1
-        if len(self.preds) > 1:
-            init_node = self.preds[1]
+        if len(self._preds) > 1:
+            init_node = self._preds[1]
             if isinstance(init_node, Stream):
                 # A value without a window is one sample.
                 init_time = init_node.shape.time or 1
@@ -692,7 +694,7 @@ class Derivative(_FiniteDifference):
         poly_order: int | None = None,
         name=None,
     ):
-        self.init = _validate_init("Derivative", init)
+        self._init = _validate_init("Derivative", init)
         self._calls = 0
         super().__init__(
             order=order,
@@ -700,7 +702,7 @@ class Derivative(_FiniteDifference):
             window=window,
             poly_order=poly_order,
             name=name,
-            init=self.init,
+            init=self._init,
         )
 
     def __call__(self, function):
@@ -718,8 +720,8 @@ class Derivative(_FiniteDifference):
                 f"signal carries {function.time} time samples. Differentiate a "
                 "time window with DerivativeStep."
             )
-        if isinstance(self.init, Stream):
-            _check_history(self.name, self.init, function, self.past)
+        if isinstance(self._init, Stream):
+            _check_history(self.name, self._init, function, self.past)
 
         # Every call differentiates a signal of its own, so each has its own
         # past.
@@ -733,13 +735,13 @@ class Derivative(_FiniteDifference):
         )
         past._hidden = True
         derivative = DerivativeStep(
-            order=self.order,
-            dt=self.dt,
-            window=self.window,
-            poly_order=self.poly_order,
+            order=self._order,
+            dt=self._dt,
+            window=self._window,
+            poly_order=self._poly_order,
             name=call_name,
         )(past, function)
-        past._feed_back(function, init=self.init)
+        past._feed_back(function, init=self._init)
         return derivative
 
     def build_layer(self):

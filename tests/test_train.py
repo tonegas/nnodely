@@ -306,7 +306,7 @@ def test_training_values_fir_linear_only_model():
 
     def set_trainable(layer, trainable):
         # A layer's weights are the Parameters among its predecessors.
-        for weight in layer.preds[1:]:
+        for weight in layer._preds[1:]:
             assert isinstance(weight, Parameter) and weight._layer is not None
             weight._layer.trainable = trainable
 
@@ -756,16 +756,16 @@ def test_train_equation_learner_updates_symbolic_coefficients():
         lr=0.1,
     )
 
-    assert equation.linear_in is not None
-    assert equation.linear_out is not None
-    assert equation.linear_in.kernel is not None
-    assert equation.linear_out.kernel is not None
+    assert equation._linear_in is not None
+    assert equation._linear_out is not None
+    assert equation._linear_in.kernel is not None
+    assert equation._linear_out.kernel is not None
     assert np.isfinite(history["loss"][-1])
     np.testing.assert_allclose(
-        to_numpy(equation.linear_in.kernel), [[1.4]], rtol=1e-5, atol=1e-5
+        to_numpy(equation._linear_in.kernel), [[1.4]], rtol=1e-5, atol=1e-5
     )
     np.testing.assert_allclose(
-        to_numpy(equation.linear_out.kernel), [[1.4]], rtol=1e-5, atol=1e-5
+        to_numpy(equation._linear_out.kernel), [[1.4]], rtol=1e-5, atol=1e-5
     )
 
 
@@ -960,15 +960,15 @@ def test_train_with_loop():
     }
     data = DataLoader(model, source=dataset)
 
-    assert data.dataset["x"].shape == (16, 5, 1, 1)
-    assert data.dataset["target"].shape == (16, 1, 1)
-    np.testing.assert_array_equal(data.dataset["x"][0, :, 0, 0], [1, 2, 3, 4, 5])
-    np.testing.assert_array_equal(data.dataset["x"][-1, :, 0, 0], [16, 17, 18, 19, 20])
-    np.testing.assert_array_equal(data.dataset["target"][:, 0, 0], np.arange(25, 41))
+    assert data._dataset["x"].shape == (16, 5, 1, 1)
+    assert data._dataset["target"].shape == (16, 1, 1)
+    np.testing.assert_array_equal(data._dataset["x"][0, :, 0, 0], [1, 2, 3, 4, 5])
+    np.testing.assert_array_equal(data._dataset["x"][-1, :, 0, 0], [16, 17, 18, 19, 20])
+    np.testing.assert_array_equal(data._dataset["target"][:, 0, 0], np.arange(25, 41))
 
     initial_prediction = model(data.as_dict())
     initial_error = np.mean(
-        np.square(to_numpy(initial_prediction["out_loop"]) - data.dataset["target"])
+        np.square(to_numpy(initial_prediction["out_loop"]) - data._dataset["target"])
     )
     history = model.train(
         train_data=data,
@@ -979,7 +979,7 @@ def test_train_with_loop():
     )
     final_prediction = model(data.as_dict())
     final_error = np.mean(
-        np.square(to_numpy(final_prediction["out_loop"]) - data.dataset["target"])
+        np.square(to_numpy(final_prediction["out_loop"]) - data._dataset["target"])
     )
 
     assert np.isfinite(final_error)
@@ -1065,14 +1065,14 @@ def test_train_with_roll():
     }
     data = DataLoader(model, source=dataset)
 
-    assert data.dataset["x"].shape == (20, 1, 1)
-    assert data.dataset["target"].shape == (20, 1, 1)
-    np.testing.assert_array_equal(data.dataset["x"][:, 0, 0], np.arange(1, 21))
-    np.testing.assert_array_equal(data.dataset["target"][:, 0, 0], np.arange(21, 41))
+    assert data._dataset["x"].shape == (20, 1, 1)
+    assert data._dataset["target"].shape == (20, 1, 1)
+    np.testing.assert_array_equal(data._dataset["x"][:, 0, 0], np.arange(1, 21))
+    np.testing.assert_array_equal(data._dataset["target"][:, 0, 0], np.arange(21, 41))
 
     initial_prediction = model(data.as_dict())
     initial_error = np.mean(
-        np.square(to_numpy(initial_prediction["out_scan"]) - data.dataset["target"])
+        np.square(to_numpy(initial_prediction["out_scan"]) - data._dataset["target"])
     )
     history = model.train(
         train_data=data,
@@ -1083,7 +1083,7 @@ def test_train_with_roll():
     )
     final_prediction = model(data.as_dict())
     final_error = np.mean(
-        np.square(to_numpy(final_prediction["out_scan"]) - data.dataset["target"])
+        np.square(to_numpy(final_prediction["out_scan"]) - data._dataset["target"])
     )
 
     assert np.isfinite(final_error)
@@ -1181,7 +1181,7 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
         seq_length="full",
     )
 
-    assert data.dataset["pad_x"].shape == (3, 6, 1, 1)
+    assert data._dataset["pad_x"].shape == (3, 6, 1, 1)
     assert data.mask is not None
     np.testing.assert_array_equal(data.mask.sum(axis=1), [6, 3, 5])
 

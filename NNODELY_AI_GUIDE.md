@@ -284,12 +284,12 @@ See §10 (`ModelyLoop` and `Input.feedback`, `Buffer`, `Loop`, `Roll`, `rollback
 | `minimize(name, source, target=None, loss="mse", gain=1.0, seq_weights=None)` | Registers an objective (§8). Call before build. |
 | `remove_minimizer(name)` | Removes an objective by name. |
 | `parameters` (property) | Every `Parameter` the model computes with (relations, layer weights, called models, Loop/Roll/OdeNet bodies), in graph order: a list of the Parameter objects, also indexed by name (`model.parameters["Fir1_kernel"]`, a missing name raises `KeyError`); `print(model.parameters)` shows a table of name, seq, time, dim, number of values and trainable, with totals [verified]. Before or after build. A Parameter's current value is `.param` (the Keras variable) or `.value_numpy`; `.value` is the value it was declared with, which training does not change. A loaded model composed into a new one keeps its trained weights when the new one is built; only the new layers are initialized [verified]. |
-| `all_inputs` (property) | Every Input the model reads - declared or not, inside the models it calls, or only by an objective; in a `ModelyLoop`, every Input fed back in its step - as a list of the Input objects. `print(model.all_inputs)` shows a table of name, seq, sw, dim, declared, the stream it is fed back with, what the data must hold (`required`, `optional`, `target`, or `-` when only fed back) and, fed back in a ModelyLoop, what it starts from [verified]. |
+| `inputs` (property) | Every Input the model reads - declared or not, inside the models it calls, or only by an objective; in a `ModelyLoop`, every Input fed back in its step - as a list of the Input objects. `print(model.inputs)` shows a table of name, seq, sw, dim, declared, the stream it is fed back with, what the data must hold (`required`, `optional`, `target`, or `-` when only fed back) and, fed back in a ModelyLoop, what it starts from [verified]. |
 | `freeze()` / `unfreeze()` → self | Freezes or releases every `Parameter` the model computes with: its relations, the weights of its layers, the models it calls and the bodies of its Loops, Rolls and OdeNets. Before or after build. The Keras weights of `PReLU`, `BatchNorm` and `KerasFunction` are not Parameters and are not frozen: set `trainable` on their Keras layer. |
 | `rollback(feedback: {input: stream}, steps: int, name=None)` → self | k-step feedback unrolling (§10). Call before build. |
 | `build()` → self | Creates the `keras.Model` (`model.model`) and its weights. Can be called again; weights are kept. |
 | `model(inputs_dict)` | Inference. Takes `{input_name: array (batch, *seq, time, *dim)}`, the batch axis always included (§1.24). Reads `model.inference_inputs`, ignores other keys, and raises `ValueError` when one is missing. Returns `{output_name: backend tensor}` for the declared outputs; convert with `keras.ops.convert_to_numpy`. |
-| `model([stream, ...])` | Composition: one stream per input, in `model.inputs` order; returns the outputs as streams of an outer graph (§12). |
+| `model([stream, ...])` | Composition: one stream per input, in the order of the `inputs` the model was declared with; returns the outputs as streams of an outer graph (§12). |
 | `train(train_data, val_data=None, epochs=10, batch_size=1, optimizer=None, early_stopping=None, lr=1e-3, shuffle=True, optimizer_kwargs=None, early_stopping_kwargs=None, printer="legacy", jit_compile="auto")` → `dict` | Keras history (§8). |
 | `validate(val_data, out_dir=None, show=False, history=None, verbose=True)` → `ValidationResult` | Metrics plus optional PNG figures (§13). `verbose=False` skips the printed summary. |
 | `flatten()` → Modely | Inlines every composed sub-model; the flat model keeps the rollback and the fed-back Inputs. |
@@ -376,7 +376,7 @@ Reproducibility: call `set_seed(int)` before creating layers and data. It seeds 
 - Inputs that are not fed back, and targets, are held at their window values for every step. Align the target yourself: `data = {"x": x[:-k], "F": F[:-k], "x_ahead": x[k:]}` with target `Input("x_ahead", sw=1)` (recipe R8).
 - Several feedbacks at once: `rollback({"x": "x_next", "v": "v_next"}, steps=10)`.
 - Supports `save` / `load`; `flatten()` keeps it.
-- A model with a rollback cannot be called as a block (`ValueError`): inlined, it would be evaluated once. For its one-step model call `Modely(name, inputs=m.inputs, outputs=m.outputs)`, declared without rollback, which shares the weights; to unroll inside a graph use `Roll` or `Loop`.
+- A model with a rollback cannot be called as a block (`ValueError`): inlined, it would be evaluated once. For its one-step model call `Modely(name, inputs=[...], outputs=m.outputs)` on the inputs `m` was declared with, without rollback, which shares the weights; to unroll inside a graph use `Roll` or `Loop`.
 
 ### 10.2 `Loop(f, feedback=None, init=None, name=None, length=None, collect=True)(inputs=None)`
 - `f`: the body `Modely` (built automatically if needed). Its own objectives are ignored (§1.11).
@@ -417,7 +417,7 @@ msd = ModelyLoop("msd", inputs=[F, x], outputs=[Output("x", x_next)])
 - `minimize(name, source, target, ...)` takes streams of the step - an output of the model or an Input nothing feeds back, objects or names - and compares their trajectories [verified]; a stream computed inside the step that is not an output raises: declare it as one.
 - Data: `DataLoader(model, source, seq_length=H)` or `"full"`, the target one step ahead of the states (`x_next` at step k is the state at k+1): `{"F": F[:-1], "x": X[:-1], "x_meas": X[1:]}` with `x` listed (recipe R10).
 - Blocks: a model called in the step keeps the feedback of its own fed-back Inputs, one state per call. A fed-back Input it **declares**, given a stream by the call, keeps its feedback and starts from that stream, read at the first step. A fed-back Input that a called model reads without declaring it, and the calling graph reads too, raises ("both in the graph that calls ... and inside it"): make it an output of the block to read the call's state, or declare an Input for it in the block and pass the caller's state [verified].
-- Built as a `Modely` instead, the same graph is the one-step model: the fed-back Inputs are read from data at every step, and a `UserWarning` names those it does not declare [verified]. `print(model.all_inputs)` shows how every Input is fed.
+- Built as a `Modely` instead, the same graph is the one-step model: the fed-back Inputs are read from data at every step, and a `UserWarning` names those it does not declare [verified]. `print(model.inputs)` shows how every Input is fed.
 - Supports `save` / `load` (§1.14), `export_keras` and ONNX on TensorFlow, a dynamic horizon included [verified]; ONNX on Torch does not keep a dynamic horizon.
 
 ### 10.5 `Buffer(sw: int, init=None, name=None)(signal)`
@@ -477,7 +477,7 @@ Orders 1 and 2 are supported by all three. Passing a number to `Gradient` raises
 
 ## 12. Model composition
 
-- `block = Modely("b", inputs=[a, c], outputs=[o1, o2]).build()`. Then `o1s, o2s = block([stream_for_a, stream_for_c])`. The streams go in the order of `block.inputs`, exactly one per input (another count raises `ValueError`), and a single output returns a single stream.
+- `block = Modely("b", inputs=[a, c], outputs=[o1, o2]).build()`. Then `o1s, o2s = block([stream_for_a, stream_for_c])`. The streams go in the order of the `inputs` the block was declared with, exactly one per input (another count raises `ValueError`), and a single output returns a single stream.
 - A block keeps its shapes: each stream must have the shape of the block's input - the same dim, sequence and window; a dynamic axis matches any length - else `ValueError` ("takes a stream of that shape"). Nothing is reshaped, so a block with input `Input("x", sw=1)` refuses `Input("a", seq=3, sw=1)` or `Input("a", sw=3)` [verified]. An `Input` of that shape is passed as it is, `block([a])` [verified].
 - A model loaded with `Modely.load` can be used as a block: building the larger model keeps its trained weights and initializes only the new layers [verified].
 - The block brings its weights along (trained weights are reused while input shapes match), and training the outer model also trains the block. To freeze it: `block.freeze()`.
@@ -528,7 +528,7 @@ JAX cannot export ONNX at all: jax2tf emits an unconvertible XlaCallModule. `exp
 | `nnodely runs on Keras, whose backend needs '...'` | The backend chosen by `KERAS_BACKEND` is not installed | `pip install "nnodely[<backend>]"`. |
 | `reads the inputs [...], which are missing from the data it was called with` | An input of `model.inference_inputs` is not in the dict (§1.12) | Add it. |
 | `expected shape=(None, ...), found shape=(...)` at inference | An array laid out in the old `(batch, *dim, time)` order, or without its batch axis, e.g. `loader[i]` (§1.24; a missing batch axis may also fail inside a layer, or be misread) | Lay it out `(batch, *seq, time, *dim)`; add a batch axis: `v[None]`. |
-| `used as a block it takes one stream for each, in that order` | A block called with fewer or more streams than its inputs | Pass one stream per `block.inputs`. |
+| `used as a block it takes one stream for each, in that order` | A block called with fewer or more streams than its inputs | Pass one stream per input the block was declared with. |
 | `so used as a block it takes a stream of that shape` | A block called on a stream of another window, sequence or dim | Pass a stream of the shape the block reads (or the Input whole), or declare the block on the shape it is used with. |
 | `... is missing required inputs: [...]` (DataLoader) | Data dict lacks an input, often a target-only one | Add the column, or map it with `format`. |
 | `has only N samples, but the model requires at least M` | Simulation shorter than windows plus sequences | Shorter windows or seq, more data, or `on_short="skip"`. |
@@ -792,10 +792,10 @@ class SquashImpl(keras.layers.Layer):
 
 class Squash(Layer):
     def __init__(self, gain=1.0, name=None):
-        self.gain = float(gain)
-        super().__init__(name=name, gain=self.gain)   # kwargs -> self._properties (re-used when called, and saved)
+        self._gain = float(gain)
+        super().__init__(name=name, gain=self._gain)  # kwargs -> self._properties (re-used when called, and saved)
     def build_layer(self):
-        return SquashImpl(gain=self.gain, name=self.name)
+        return SquashImpl(gain=self._gain, name=self.name)
 
 x = Input("x", sw=3)
 y = Squash(gain=2.0)([x])
@@ -840,7 +840,7 @@ src/nnodely/
   core/stream.py         Node, Stream (operator overloads, literal→Constant cache), NODE_REGISTRY, NODE_NAMES
   core/layer.py          Layer base (symbolic call → new node sharing its _source; tensor call → build_layer();
                          get_config from the constructor arguments), BinaryOp Add/Subtract/Multiply/Divide/Power, Identity
-  core/modely.py         Modely (build, minimize, train, validate, rollback, all_inputs, save/load, export wrappers), ModelCall
+  core/modely.py         Modely (build, minimize, train, validate, rollback, inputs, save/load, export wrappers), ModelCall
   core/modelyloop.py     ModelyLoop: one Loop over its step (loop._Step finds the states), the rolled Inputs
   core/minimizer.py      objectives: checks, resolution against the built graph, MinimizerModel (the training model)
   core/export.py         export_keras, import_keras, export_onnx, validate_onnx
@@ -850,7 +850,7 @@ src/nnodely/
                          each fed-back Input with the stream it is fed back with and its init ("feedback")
   core/validation.py     validate, score_signal, SignalScore, ValidationResult
   layers/input.py        Input: declared once with dim, seq and its window sw (none: no time axis); its keras.Input;
-                         feedback() (update), _feed_back (update, init: hidden states); Inputs, the all_inputs table
+                         feedback() (update), _feed_back (update, init: hidden states); Inputs, the Modely.inputs table
   layers/partitions.py   Select, Range, Concatenate (dim axes); TimeSelect, TimeRange, TimeConcatenate, TimeReverse (the window);
                          SeqSelect, SeqRange, SeqConcatenate, SeqStack, SeqReverse (sequence axes)
   layers/{linear,fir,localmodel,fuzzify,function,interpolation,equationlearner,batchnorm,activations,arithmetic,trigonometric}.py   function.py: KerasFunction

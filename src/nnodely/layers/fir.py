@@ -122,24 +122,24 @@ class Fir(_ParameterWeights):
         shared_kernel: bool = False,
         name=None,
     ):
-        self.features = int(features)
-        self.shared_kernel = bool(shared_kernel)
+        self._features = int(features)
+        self._shared_kernel = bool(shared_kernel)
         super().__init__(
             name,
             kernel,
             bias,
-            features=self.features,
-            shared_kernel=self.shared_kernel,
+            features=self._features,
+            shared_kernel=self._shared_kernel,
         )
 
     def _weight_shapes(self, x):
         # The kernel runs along the window: there has to be one.
         self._needs_window(x)
         dim = tuple(x.dim)
-        elements = () if self.shared_kernel or dim == (1,) else dim
-        return (*elements, x.shape.time, self.features), (
+        elements = () if self._shared_kernel or dim == (1,) else dim
+        return (*elements, x.shape.time, self._features), (
             *elements,
-            self.features,
+            self._features,
         )
 
     def _draw_shapes(self, kernel_shape, bias_shape):
@@ -150,20 +150,20 @@ class Fir(_ParameterWeights):
         # Declared rather than probed with a dummy tensor, which a time axis
         # left dynamic cannot be given.
         dim = tuple(inputs[0].dim)
-        if self.features == 1:
+        if self._features == 1:
             out_dim = dim
         elif dim == (1,):
-            out_dim = (self.features,)
+            out_dim = (self._features,)
         else:
-            out_dim = (*dim, self.features)
+            out_dim = (*dim, self._features)
         # The window becomes one sample; the sequence is kept.
         shape = inputs[0].shape
         return shape.replace(dim=out_dim, time=1)
 
     def build_layer(self):
         return FirImpl(
-            features=self.features,
-            shared_kernel=self.shared_kernel,
-            seq_rank=self.preds[0].shape.seq_rank,  # type: ignore[union-attr]
+            features=self._features,
+            shared_kernel=self._shared_kernel,
+            seq_rank=self._preds[0].shape.seq_rank,  # type: ignore[union-attr]
             name=self.name,
         )

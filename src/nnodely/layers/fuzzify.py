@@ -437,8 +437,8 @@ class Fuzzify(Layer):
         name=None,
     ):
         name = next_name("Fuzzify") if name is None else name
-        self.bounds = _bounds(bounds, name)
-        self.normalize = bool(normalize)
+        self._bounds = _bounds(bounds, name)
+        self._normalize = bool(normalize)
         self._centers, self._center_streams = _centers(centers, name)
         count = (
             self._center_streams[0].shape.dim[0]
@@ -537,7 +537,7 @@ class Fuzzify(Layer):
             {id(layer): layer for layer in self._layers if layer is not None}.values()
         )
         self._probes = [layer([x]) for layer in self._applied]
-        weights = [weight for probe in self._probes for weight in probe.preds[1:]]
+        weights = [weight for probe in self._probes for weight in probe._preds[1:]]
         node = super().__call__([x, *self._center_streams, *weights])
         node._layers, node._applied = self._layers, self._applied
         node._probes = self._probes
@@ -579,9 +579,9 @@ class Fuzzify(Layer):
             count=self._count,
             functions=self._function_specs(),
             layers=[probe.build_layer() for probe in self._probes],
-            weights=[len(probe.preds) - 1 for probe in self._probes],
-            bounds=self.bounds,
-            normalize=self.normalize,
+            weights=[len(probe._preds) - 1 for probe in self._probes],
+            bounds=self._bounds,
+            normalize=self._normalize,
             name=self.name,
         )
 
@@ -596,14 +596,14 @@ class Fuzzify(Layer):
                 {
                     "class_name": type(layer).__name__,
                     "config": layer.get_config(),
-                    "weights": len(probe.preds) - 1,
+                    "weights": len(probe._preds) - 1,
                 }
                 for layer, probe in zip(self._applied, self._probes)
             ],
-            "bounds": list(self.bounds)
-            if isinstance(self.bounds, tuple)
-            else self.bounds,
-            "normalize": self.normalize,
+            "bounds": list(self._bounds)
+            if isinstance(self._bounds, tuple)
+            else self._bounds,
+            "normalize": self._normalize,
         }
 
     @classmethod
@@ -651,7 +651,7 @@ class Fuzzify(Layer):
             self([Input(f"{self.name}_plot")])
         streams = [
             *self._center_streams,
-            *(weight for probe in self._probes for weight in probe.preds[1:]),
+            *(weight for probe in self._probes for weight in probe._preds[1:]),
         ]
         values = [_current_value(stream, self.name) for stream in streams]
         read = iter(values)
@@ -683,7 +683,7 @@ class Fuzzify(Layer):
         for index, center in enumerate(centers):
             color = f"C{index}" if per_center else "gray"
             ax.axvline(center, color=color, linestyle=":", linewidth=0.8)
-        signal = self.preds[0].name if self.preds else "signal"
+        signal = self._preds[0].name if self._preds else "signal"
         ax.set(title=self.name, xlabel=signal, ylabel="membership")
         ax.grid(True)
         ax.legend(fontsize=8)

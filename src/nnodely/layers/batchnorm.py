@@ -28,18 +28,18 @@ class BatchNorm(Layer):
         scale: bool = True,
         name=None,
     ):
-        self.axis = None if axis is None else int(axis)
-        self.momentum = float(momentum)
-        self.epsilon = float(epsilon)
-        self.center = bool(center)
-        self.scale = bool(scale)
+        self._axis = None if axis is None else int(axis)
+        self._momentum = float(momentum)
+        self._epsilon = float(epsilon)
+        self._center = bool(center)
+        self._scale = bool(scale)
         super().__init__(
             name=name,
-            axis=self.axis,
-            momentum=self.momentum,
-            epsilon=self.epsilon,
-            center=self.center,
-            scale=self.scale,
+            axis=self._axis,
+            momentum=self._momentum,
+            epsilon=self._epsilon,
+            center=self._center,
+            scale=self._scale,
         )
 
     def output_shape(self, *inputs):
@@ -48,14 +48,14 @@ class BatchNorm(Layer):
         return inputs[0].shape
 
     def build_layer(self):
-        axis = self.axis
+        axis = self._axis
         if axis is None:
-            axis = self.preds[0].shape.dim_axes[0]  # type: ignore[union-attr]
+            axis = self._preds[0].shape.dim_axes[0]  # type: ignore[union-attr]
         return keras.layers.BatchNormalization(
             axis=axis,
-            momentum=self.momentum,
-            epsilon=self.epsilon,
-            center=self.center,
-            scale=self.scale,
+            momentum=self._momentum,
+            epsilon=self._epsilon,
+            center=self._center,
+            scale=self._scale,
             name=self.name,
         )

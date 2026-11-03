@@ -688,7 +688,9 @@ def test_linear_initializers_are_saved_with_the_architecture(tmp_path):
     ).build()
 
     model.save(tmp_path / "initialized", weights=False)
-    restored = {node.name: node for node in Modely.load(tmp_path / "initialized").order}
+    restored = {
+        node.name: node for node in Modely.load(tmp_path / "initialized")._order
+    }
     restored_linear = restored["initialized_linear"]
 
     assert isinstance(restored_linear, Linear)
@@ -712,7 +714,7 @@ def test_linear_takes_its_kernel_and_bias_from_parameters():
     ).build()
 
     # The Parameters are predecessors of the Linear, and the only weights.
-    assert linear.preds[1] is w and linear.preds[2] is b
+    assert linear._preds[1] is w and linear._preds[2] is b
     assert linear.kernel is w.param and linear.bias is b.param
     assert unbiased.bias is None
     assert model.model is not None
@@ -752,9 +754,9 @@ def test_linear_with_parameters_round_trips_through_save_and_keras(tmp_path):
 
     model.save(tmp_path / "linear_kept")
     restored = Modely.load(tmp_path / "linear_kept")
-    restored_linear = {node.name: node for node in restored.order}["linear_kept"]
+    restored_linear = {node.name: node for node in restored._order}["linear_kept"]
     assert isinstance(restored_linear, Linear)
-    assert [pred.name for pred in restored_linear.preds[1:]] == [
+    assert [pred.name for pred in restored_linear._preds[1:]] == [
         "linear_kept_w",
         "linear_kept_bias",
     ]
@@ -1149,9 +1151,9 @@ def test_fir_shared_kernel_is_saved_with_the_architecture(tmp_path):
 
     model.save(tmp_path / "fir_saved")
     restored = Modely.load(tmp_path / "fir_saved")
-    restored_fir = {node.name: node for node in restored.order}["fir_saved"]
+    restored_fir = {node.name: node for node in restored._order}["fir_saved"]
 
-    assert isinstance(restored_fir, Fir) and restored_fir.shared_kernel
+    assert isinstance(restored_fir, Fir) and restored_fir._shared_kernel
     assert restored_fir.kernel is not None
     assert tuple(restored_fir.kernel.shape) == (3, 4)
     np.testing.assert_allclose(
@@ -1192,7 +1194,7 @@ def test_fir_initializers_are_saved_with_the_architecture(tmp_path):
     np.testing.assert_allclose(to_numpy(fir.bias), np.full((2, 3), 0.5))
 
     model.save(tmp_path / "fir_init", weights=False)
-    restored = {node.name: node for node in Modely.load(tmp_path / "fir_init").order}
+    restored = {node.name: node for node in Modely.load(tmp_path / "fir_init")._order}
     restored_fir = restored["fir_init"]
 
     assert isinstance(restored_fir, Fir)
@@ -1221,7 +1223,7 @@ def test_fir_takes_its_kernel_and_bias_from_parameters(
     ).build()
 
     # The Parameters are predecessors of the Fir, and the only weights.
-    assert fir.preds[1] is w and fir.preds[2] is b
+    assert fir._preds[1] is w and fir._preds[2] is b
     assert fir.kernel is w.param and fir.bias is b.param
     assert model.model is not None
     assert {id(weight) for weight in model.model.trainable_weights} == {
@@ -1345,10 +1347,10 @@ def test_fir_with_parameters_round_trips_through_save_and_keras(tmp_path, given)
 
     model.save(tmp_path / "fir_kept")
     restored = Modely.load(tmp_path / "fir_kept")
-    restored_fir = {node.name: node for node in restored.order}["fir_kept"]
+    restored_fir = {node.name: node for node in restored._order}["fir_kept"]
     assert isinstance(restored_fir, Fir)
-    assert [pred.name for pred in restored_fir.preds[1:]] == [
-        pred.name for pred in fir.preds[1:]
+    assert [pred.name for pred in restored_fir._preds[1:]] == [
+        pred.name for pred in fir._preds[1:]
     ]
     np.testing.assert_allclose(
         to_numpy(restored({"fir_kept_x": values})["fir_kept_out"]),
@@ -1388,7 +1390,7 @@ def test_a_layer_without_configuration_is_applied_on_creation(layer_name):
     direct = layer(window)
     called = layer()(window)
     assert isinstance(direct, layer)
-    assert direct.preds == [window]  # applied to the stream it was created with
+    assert direct._preds == [window]  # applied to the stream it was created with
     model = Modely(
         f"direct_{layer_name}",
         inputs=[x],
@@ -1410,7 +1412,7 @@ def test_a_layer_without_configuration_is_applied_on_creation(layer_name):
 def test_a_name_passed_positionally_still_only_configures():
     configured = Sin("direct_named_sin")
     assert configured.name == "direct_named_sin"
-    assert configured.preds == []
+    assert configured._preds == []
     x = Input("direct_named_x", sw=2)
     assert configured(x).name == "direct_named_sin"
 
@@ -1545,7 +1547,7 @@ def test_fir_and_linear_read_one_stream(layer):
     x, y = Input("one_stream_x", sw=3), Input("one_stream_y", sw=3)
     with pytest.raises(ValueError, match=r"reads one stream, got 2"):
         layer()([x, y])
-    assert layer()([x]).preds[0] is x
+    assert layer()([x])._preds[0] is x
 
 
 def test_a_layer_never_called_on_a_stream_is_refused():

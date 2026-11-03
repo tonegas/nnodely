@@ -57,34 +57,34 @@ class Modely:
     """
 
     name: str
-    inputs: list[Input]
+    _inputs: list[Input]
     outputs: list[Output]
-    order: list[Node]
+    _order: list[Node]
 
     def __init__(self, name: str, inputs: list[Input], outputs: list[Output]) -> None:
         self.name = name
-        self.inputs = inputs
+        self._inputs = inputs
         self.outputs = outputs
-        self.order = toposort(self)
+        self._order = toposort(self)
         # Read as an output, or bound to a Loop, it passed no layer call.
-        _refuse_uncalled(self.order)
+        _refuse_uncalled(self._order)
         self.model = None  # Keras model build from this DAG
         self.train_inputs = []  # List of Input nodes that are required for training (derived from minimizers)
-        self.train_outputs = []  # List of Output nodes that are required for training (derived from minimizers)
+        self._train_outputs = []  # List of Output nodes that are required for training (derived from minimizers)
         self.inference_model = (
             None  # Keras model of the declared outputs only, without minimizers
         )
         self.inference_inputs = []  # List of Input nodes the declared outputs read (no minimizer-only input)
         # Inputs the data may leave out: they read zeros.
         self.optional_inputs: set[str] = set()
-        self.minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
+        self._minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
         self._minimizer_outputs: dict[Node, str] = {}  # minimizer side -> graph output
         self._roll_feedback: dict[Input, Stream] = {}
         self._roll_steps: int | None = None
         self._roll_name: str | None = None
 
     def __repr__(self) -> str:
-        items = " \n- ".join(map(str, self.order))
+        items = " \n- ".join(map(str, self._order))
         return f"Model {self.name}:\n - {items}"
 
     def __call__(self, inputs) -> Any:
@@ -109,20 +109,20 @@ class Modely:
                     "without rollback, which shares its weights; to unroll it "
                     "inside a graph, use Roll or Loop."
                 )
-            if len(inputs) != len(self.inputs):
-                names = [node.name for node in self.inputs]
+            if len(inputs) != len(self._inputs):
+                names = [node.name for node in self._inputs]
                 raise ValueError(
-                    f"Model {self.name!r} has {len(self.inputs)} inputs {names}: "
+                    f"Model {self.name!r} has {len(self._inputs)} inputs {names}: "
                     "used as a block it takes one stream for each, in that "
                     f"order, got {len(inputs)}."
                 )
-            for node, stream in zip(self.inputs, inputs):
+            for node, stream in zip(self._inputs, inputs):
                 self._check_block_input(node, stream)
             mc = ModelCall(f"{self.name}_call", self)
-            mc.preds = list(inputs)
-            mc.inputs_map = {old: new for old, new in zip(self.inputs, inputs)}
+            mc._preds = list(inputs)
+            mc._inputs_map = {old: new for old, new in zip(self._inputs, inputs)}
             outputs = [IntermediateOutput(output, mc) for output in self.outputs]
-            mc.outputs_map = {new: old for old, new in zip(self.outputs, outputs)}
+            mc._outputs_map = {new: old for old, new in zip(self.outputs, outputs)}
             return outputs[0] if len(outputs) == 1 else outputs
 
         # tensor execution mode: the declared outputs, without minimizers. The
@@ -166,7 +166,7 @@ class Modely:
         the stream must have the shape of ``node``. A dynamic sequence axis
         matches any length.
         """
-        if node not in self.order:
+        if node not in self._order:
             return  # an input this model does not read
         if (
             stream.time != node.time
@@ -200,7 +200,7 @@ class Modely:
         # the value of any layer, so it is exposed through an Identity.
         extra_outputs = []
         self._minimizer_outputs = {}
-        for minimizer in self.minimizers:
+        for minimizer in self._minimizers:
             for node in (minimizer["source"], minimizer["target"]):
                 if node in self._minimizer_outputs:
                     continue
@@ -209,19 +209,19 @@ class Modely:
                     extra_outputs.append(exposed)
                 self._minimizer_outputs[node] = exposed.name
 
-        self.train_outputs = self.outputs + extra_outputs
+        self._train_outputs = self.outputs + extra_outputs
         feedback_streams = list(dict.fromkeys(self._roll_feedback.values()))
-        graph_outputs = self.train_outputs + [
-            stream for stream in feedback_streams if stream not in self.train_outputs
+        graph_outputs = self._train_outputs + [
+            stream for stream in feedback_streams if stream not in self._train_outputs
         ]
         flat, flatten_memo = _flatten_graph(
             self.name,
-            self.inputs,
+            self._inputs,
             graph_outputs,
             return_memo=True,
             one_step=True,
         )
-        self.train_inputs = [node for node in flat.order if isinstance(node, Input)]
+        self.train_inputs = [node for node in flat._order if isinstance(node, Input)]
         if not self.train_inputs:
             # Keras would only say that its outputs are not KerasTensors.
             raise ValueError(
@@ -243,7 +243,7 @@ class Modely:
                 )
         # A fed-back Input the model declares among its inputs is fed from
         # data on purpose; any other is a feedback a loop was meant to apply.
-        declared = {node.name for node in self.inputs}
+        declared = {node.name for node in self._inputs}
         open_feedback = sorted(
             {
                 node.name
@@ -263,7 +263,7 @@ class Modely:
 
         flat_graph_outputs = [flatten_memo[node] for node in graph_outputs]
         keras_inputs, keras_outputs = self._resolve_graph(
-            flat.order, output_nodes=flat_graph_outputs
+            flat._order, output_nodes=flat_graph_outputs
         )
         # Graph flattening builds shallow copies. Keep the public symbolic nodes
         # connected to the concrete Keras layers created from those copies, and
@@ -285,7 +285,7 @@ class Modely:
             self.model = MinimizerModel(
                 name=self.name + "_train",
                 inputs=keras_inputs,
-                outputs=self._rolled(body_model, self.train_outputs, keras_inputs),
+                outputs=self._rolled(body_model, self._train_outputs, keras_inputs),
             )
         else:
             self.model = body_model
@@ -355,7 +355,7 @@ class Modely:
         # and layers created apart never do - even under one name, as a model
         # and its reloaded copy have.
         input_tensors = {
-            node.name: node.input for node in order if isinstance(node, Input)
+            node.name: node._input for node in order if isinstance(node, Input)
         }
         tensor_map: dict[Node, Any] = {
             node: input_tensors[node.name] for node in order if isinstance(node, Input)
@@ -373,12 +373,12 @@ class Modely:
                     # again. One with weights stays shared, as its weights are.
                     if not node._layer.weights:
                         node._layer_signature = signature
-                if len(node.preds) == 0:  ## Parameters and Constants
+                if len(node._preds) == 0:  ## Parameters and Constants
                     anchor = next(iter(tensor_map.values()), None)
                     tensor_map[node] = node.call([anchor])
                 else:
                     tensor_map[node] = node.call(
-                        [tensor_map[pred] for pred in node.preds]
+                        [tensor_map[pred] for pred in node._preds]
                     )
                 layers_by_source[id(node._source)] = (
                     node._layer,
@@ -386,8 +386,8 @@ class Modely:
                 )
                 _claim_keras_name(node._layer, keras_names)
             else:  ## Output or other non-Layer node
-                tensor = tensor_map[node.preds[0]]
-                if isinstance(node.preds[0], Input):
+                tensor = tensor_map[node._preds[0]]
+                if isinstance(node._preds[0], Input):
                     # A Keras model exposes what its layers compute, never one
                     # of its own inputs: an Input read out is passed through.
                     identity = keras.layers.Identity(name=f"{node.name}_identity")
@@ -396,7 +396,7 @@ class Modely:
                 tensor_map[node] = tensor
 
         keras_inputs = {node.name: tensor_map[node] for node in self.train_inputs}
-        output_nodes = self.train_outputs if output_nodes is None else output_nodes
+        output_nodes = self._train_outputs if output_nodes is None else output_nodes
 
         # Outputs are addressed by name, so two different nodes claiming one name
         # would silently drop one of them. Calling a model several times produces
@@ -472,7 +472,7 @@ class Modely:
         clash = next(
             (
                 other["name"]
-                for other in self.minimizers
+                for other in self._minimizers
                 if other["name"] in (f"val_{name}", name.removeprefix("val_"))
                 and other["name"] != name
             ),
@@ -504,7 +504,7 @@ class Modely:
             "gain": gain,
             "seq_weights": seq_weights,
         }
-        for index, existing in enumerate(self.minimizers):
+        for index, existing in enumerate(self._minimizers):
             if existing["name"] == name:
                 warnings.warn(
                     f"Minimizer {name!r} already exists in model {self.name!r}: "
@@ -512,14 +512,14 @@ class Modely:
                     UserWarning,
                     stacklevel=2,
                 )
-                self.minimizers[index] = minimizer
+                self._minimizers[index] = minimizer
                 return self
-        self.minimizers.append(minimizer)
+        self._minimizers.append(minimizer)
         return self
 
     def remove_minimizer(self, name: str):
         """Remove a registered minimizer by name; an unknown name only warns."""
-        if all(minimizer["name"] != name for minimizer in self.minimizers):
+        if all(minimizer["name"] != name for minimizer in self._minimizers):
             warnings.warn(
                 f"Model {self.name!r} has no minimizer named {name!r}: nothing "
                 "was removed.",
@@ -527,7 +527,7 @@ class Modely:
                 stacklevel=2,
             )
             return
-        self.minimizers = [m for m in self.minimizers if m["name"] != name]
+        self._minimizers = [m for m in self._minimizers if m["name"] != name]
 
     # -------------------------------------------------------------------------
     # Parameters and freezing
@@ -543,7 +543,7 @@ class Modely:
         return Parameters(_parameters(self), title=f"Parameters of {self.name}")
 
     @property
-    def all_inputs(self) -> Inputs:
+    def inputs(self) -> Inputs:
         """Every Input the model reads - declared or not, inside the models it
         calls, or only by a minimizer - and, in a ModelyLoop, every Input fed
         back inside its step. A list of the Input objects, printed as a table
@@ -553,20 +553,20 @@ class Modely:
         return Inputs(self._input_rows(), title=f"Inputs of {self.name}")
 
     def _input_rows(self) -> list[dict]:
-        """A row of :attr:`all_inputs` per Input the graph reads."""
-        declared = {node.name for node in self.inputs}
+        """A row of :attr:`inputs` per Input the graph reads."""
+        declared = {node.name for node in self._inputs}
         sides = [
             side
-            for minimizer in self.minimizers
+            for minimizer in self._minimizers
             for side in (minimizer["source"], minimizer["target"])
         ]
-        forward = _read_inputs(self.outputs, self.inputs)
+        forward = _read_inputs(self.outputs, self._inputs)
         rollback = {
             node.name: f"{stream.name} (rollback)"
             for node, stream in self._roll_feedback.items()
         }
         rows = []
-        for name, node in _read_inputs([*self.outputs, *sides], self.inputs).items():
+        for name, node in _read_inputs([*self.outputs, *sides], self._inputs).items():
             if name not in forward:
                 data = "target"
             else:
@@ -710,7 +710,7 @@ class Modely:
         drives the animated machine-room console, ``None`` prints nothing, and
         any Keras callback is used as given.
         """
-        if not self.minimizers:
+        if not self._minimizers:
             raise ValueError("No minimizers defined. Call minimize() before train().")
         for argument, value in (("epochs", epochs), ("batch_size", batch_size)):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
@@ -736,7 +736,7 @@ class Modely:
         resolved_optimizer = _resolve_optimizer(optimizer, lr, optimizer_kwargs)
         logged = [
             "loss",
-            *(f"{minimizer['name']}_loss" for minimizer in self.minimizers),
+            *(f"{minimizer['name']}_loss" for minimizer in self._minimizers),
         ]
         if val_data is not None:
             logged += [f"val_{name}" for name in logged]
@@ -763,7 +763,7 @@ class Modely:
             shuffle=shuffle,
             verbose=0,  # type: ignore
             callbacks=[
-                _resolve_printer(printer, epochs, self.minimizers, self.name),
+                _resolve_printer(printer, epochs, self._minimizers, self.name),
                 *([stopper] if stopper is not None else []),
             ],
             validation_data=validation_data,
@@ -880,7 +880,7 @@ class Modely:
         if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
             raise ValueError("roll steps must be a positive integer.")
 
-        graph_streams = [node for node in self.order if isinstance(node, Stream)]
+        graph_streams = [node for node in self._order if isinstance(node, Stream)]
 
         def resolve(nodes, value, kind):
             if isinstance(value, str):
@@ -897,7 +897,7 @@ class Modely:
 
         pairs = {}
         for input_ref, stream_ref in feedback.items():
-            input_node = resolve(self.inputs, input_ref, "input")
+            input_node = resolve(self._inputs, input_ref, "input")
             stream = resolve(graph_streams, stream_ref, "stream")
             if input_node.time is None:
                 raise ValueError(
@@ -1011,23 +1011,23 @@ class Modely:
 
 
 class ModelCall(Node):
-    inputs_map: dict[Node, Node]
-    outputs_map: dict[Node, Node]
+    _inputs_map: dict[Node, Node]
+    _outputs_map: dict[Node, Node]
 
     def __init__(self, name: str, model: Modely):
         super().__init__(name=name)
-        self.model = model
-        self.inputs_map = {}
-        self.outputs_map = {}
+        self._model = model
+        self._inputs_map = {}
+        self._outputs_map = {}
 
 
 class IntermediateOutput(Output):
-    pred: ModelCall
+    _pred: ModelCall
 
     def __init__(self, out: Stream, model_call: ModelCall) -> None:
         super().__init__(name=out.name, stream=out)
-        self.pred = model_call
-        self.preds = [model_call]
+        self._pred = model_call
+        self._preds = [model_call]
 
 
 def _same_sizes(time: tuple, other: tuple) -> bool:

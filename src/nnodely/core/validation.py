@@ -399,7 +399,7 @@ def _dataset_name(node, x_data: dict) -> str | None:
     """Name of the dataset column a node ultimately reads, if any."""
     if node.name in x_data:
         return node.name
-    preds = getattr(node, "preds", [])
+    preds = getattr(node, "_preds", [])
     if len(preds) == 1:
         return _dataset_name(preds[0], x_data)
     return None
@@ -416,7 +416,7 @@ def validate(
     """The implementation of :meth:`Modely.validate`."""
     if model.model is None:
         raise ValueError("Model is not built. Call build() before validate().")
-    if not model.minimizers:
+    if not model._minimizers:
         raise ValueError("No minimizers defined. Cannot infer validation targets.")
 
     if out_dir is not None:
@@ -431,7 +431,7 @@ def validate(
     compared = _evaluate(model, terms, x_data, mask, n_samples)
 
     signals = {}
-    for minimizer, term in zip(model.minimizers, terms):
+    for minimizer, term in zip(model._minimizers, terms):
         loss_value, y_pred, y_true, valid = compared[term.name]
         target = minimizer["target"]
         signals[term.name] = score_signal(

@@ -80,18 +80,18 @@ class Select(Layer):
     """
 
     def __init__(self, idx: int, axis: int = 0, keep_dim: bool = False, name=None):
-        self.idx = int(idx)
-        self.axis = int(axis)
-        self.keep_dim = bool(keep_dim)
+        self._idx = int(idx)
+        self._axis = int(axis)
+        self._keep_dim = bool(keep_dim)
         super().__init__(
-            name=name, idx=self.idx, axis=self.axis, keep_dim=self.keep_dim
+            name=name, idx=self._idx, axis=self._axis, keep_dim=self._keep_dim
         )
 
     def _selected(self, shape):
         """The dim axis, the index on it, and whether the axis is kept."""
-        axis = shape.resolve_dim(self.axis, self.name)
-        idx = _index(self.name, self.idx, shape.dim[axis], f"dim axis {axis}")
-        return axis, idx, self.keep_dim or shape.dim_rank == 1
+        axis = shape.resolve_dim(self._axis, self.name)
+        idx = _index(self.name, self._idx, shape.dim[axis], f"dim axis {axis}")
+        return axis, idx, self._keep_dim or shape.dim_rank == 1
 
     def output_shape(self, *inputs):
         shape = inputs[0].shape
@@ -102,7 +102,7 @@ class Select(Layer):
     def build_layer(self):
         # The input's shape, not this node's: once applied, a Select carries
         # its own output shape, without the selected axis.
-        shape = self.preds[0].shape  # type: ignore[union-attr]
+        shape = self._preds[0].shape  # type: ignore[union-attr]
         axis, idx, keep = self._selected(shape)
         return SelectImpl(
             idx=idx,
@@ -158,20 +158,20 @@ class Range(Layer):
     """
 
     def __init__(self, start: int, end: int, axis: int = 0, name=None):
-        self.start = int(start)
-        self.end = int(end)
-        self.axis = int(axis)
-        super().__init__(name=name, start=self.start, end=self.end, axis=self.axis)
+        self._start = int(start)
+        self._end = int(end)
+        self._axis = int(axis)
+        super().__init__(name=name, start=self._start, end=self._end, axis=self._axis)
 
     def build_layer(self):
-        if self.preds is None or len(self.preds) == 0:
+        if self._preds is None or len(self._preds) == 0:
             raise ValueError(f"{self.name}: no input layer to select range from.")
-        shape = self.preds[0].shape  # type: ignore[union-attr]
-        axis = shape.resolve_dim(self.axis, self.name)
+        shape = self._preds[0].shape  # type: ignore[union-attr]
+        axis = shape.resolve_dim(self._axis, self.name)
 
         dim_size = shape.dim[axis]
-        start = self.start
-        end = self.end
+        start = self._start
+        end = self._end
         if start < 0:
             start += dim_size
         if end < 0:
@@ -179,7 +179,7 @@ class Range(Layer):
 
         if start < 0 or end > dim_size or start >= end:
             raise ValueError(
-                f"{self.name}: invalid range [{self.start}, {self.end}) for "
+                f"{self.name}: invalid range [{self._start}, {self._end}) for "
                 f"dim size {dim_size}."
             )
 
@@ -204,19 +204,19 @@ class TimeSelect(Layer):
     """
 
     def __init__(self, idx: int, name=None):
-        self.idx = int(idx)
-        super().__init__(name=name, idx=self.idx)
+        self._idx = int(idx)
+        super().__init__(name=name, idx=self._idx)
 
     def output_shape(self, *inputs):
         self._needs_window(inputs[0])
         shape = inputs[0].shape
-        _index(self.name, self.idx, shape.time, "the window")
+        _index(self.name, self._idx, shape.time, "the window")
         return shape.replace(time=1)
 
     def build_layer(self):
-        shape = self.preds[0].shape  # type: ignore[union-attr]
+        shape = self._preds[0].shape  # type: ignore[union-attr]
         return SelectImpl(
-            idx=_index(self.name, self.idx, shape.time, "the window"),
+            idx=_index(self.name, self._idx, shape.time, "the window"),
             axis=shape.time_axis,
             keep_dim=True,
             name=self.name,
@@ -237,21 +237,21 @@ class TimeRange(Layer):
     """
 
     def __init__(self, start: int | None, end: int | None, name=None):
-        self.start = None if start is None else int(start)
-        self.end = None if end is None else int(end)
-        super().__init__(name=name, start=self.start, end=self.end)
+        self._start = None if start is None else int(start)
+        self._end = None if end is None else int(end)
+        super().__init__(name=name, start=self._start, end=self._end)
 
     def output_shape(self, *inputs):
         self._needs_window(inputs[0])
         shape = inputs[0].shape
         return shape.replace(
-            time=_range_length(self.name, self.start, self.end, shape.time)
+            time=_range_length(self.name, self._start, self._end, shape.time)
         )
 
     def build_layer(self):
-        shape = self.preds[0].shape  # type: ignore[union-attr]
+        shape = self._preds[0].shape  # type: ignore[union-attr]
         return RangeImpl(
-            start=self.start, end=self.end, axis=shape.time_axis, name=self.name
+            start=self._start, end=self._end, axis=shape.time_axis, name=self.name
         )
 
 
@@ -299,7 +299,7 @@ class TimeConcatenate(Layer):
         super().__init__(name=name)
 
     def output_shape(self, *inputs):
-        self.inputs = list(inputs)
+        self._inputs = list(inputs)
         inputs = _concatenation_inputs(self)
         for input_node in inputs:
             self._needs_window(input_node)
@@ -339,7 +339,7 @@ class TimeReverse(Layer):
         return inputs[0].shape
 
     def build_layer(self):
-        shape = self.preds[0].shape  # type: ignore[union-attr]
+        shape = self._preds[0].shape  # type: ignore[union-attr]
         return TimeReverseImpl(axis=shape.time_axis, name=self.name)
 
 
@@ -359,14 +359,14 @@ class SeqSelect(Layer):
     """
 
     def __init__(self, idx: int, axis: int = 0, name=None):
-        self.idx = int(idx)
-        self.axis = int(axis)
-        super().__init__(name=name, idx=self.idx, axis=self.axis)
+        self._idx = int(idx)
+        self._axis = int(axis)
+        super().__init__(name=name, idx=self._idx, axis=self._axis)
 
     def _selected(self, shape):
         """The sequence axis and the index on it."""
-        axis = shape.resolve_seq(self.axis, self.name)
-        return axis, _index(self.name, self.idx, shape.seq[axis], f"seq axis {axis}")
+        axis = shape.resolve_seq(self._axis, self.name)
+        return axis, _index(self.name, self._idx, shape.seq[axis], f"seq axis {axis}")
 
     def output_shape(self, *inputs):
         shape = inputs[0].shape
@@ -374,7 +374,7 @@ class SeqSelect(Layer):
         return shape.replace(seq=shape.seq[:axis] + shape.seq[axis + 1 :])
 
     def build_layer(self):
-        shape = self.preds[0].shape  # type: ignore[union-attr]
+        shape = self._preds[0].shape  # type: ignore[union-attr]
         axis, idx = self._selected(shape)
         return SelectImpl(
             idx=idx, axis=shape.seq_axes[axis], keep_dim=False, name=self.name
@@ -398,15 +398,15 @@ class SeqRange(Layer):
     """
 
     def __init__(self, start: int | None, end: int | None, axis: int = 0, name=None):
-        self.start = None if start is None else int(start)
-        self.end = None if end is None else int(end)
-        self.axis = int(axis)
-        super().__init__(name=name, start=self.start, end=self.end, axis=self.axis)
+        self._start = None if start is None else int(start)
+        self._end = None if end is None else int(end)
+        self._axis = int(axis)
+        super().__init__(name=name, start=self._start, end=self._end, axis=self._axis)
 
     def _range(self, shape):
         """The sequence axis and the length of the range on it."""
-        axis = shape.resolve_seq(self.axis, self.name)
-        return axis, _range_length(self.name, self.start, self.end, shape.seq[axis])
+        axis = shape.resolve_seq(self._axis, self.name)
+        return axis, _range_length(self.name, self._start, self._end, shape.seq[axis])
 
     def output_shape(self, *inputs):
         shape = inputs[0].shape
@@ -415,18 +415,18 @@ class SeqRange(Layer):
         return shape.replace(seq=shape.seq[:axis] + kept + shape.seq[axis + 1 :])
 
     def build_layer(self):
-        shape = self.preds[0].shape  # type: ignore[union-attr]
+        shape = self._preds[0].shape  # type: ignore[union-attr]
         axis, length = self._range(shape)
         if length == 1:
             # One step: selected, and its axis removed.
             return SelectImpl(
-                idx=0 if self.start is None else self.start,
+                idx=0 if self._start is None else self._start,
                 axis=shape.seq_axes[axis],
                 keep_dim=False,
                 name=self.name,
             )
         return RangeImpl(
-            start=self.start, end=self.end, axis=shape.seq_axes[axis], name=self.name
+            start=self._start, end=self._end, axis=shape.seq_axes[axis], name=self.name
         )
 
 
@@ -445,14 +445,14 @@ class SeqConcatenate(Layer):
     """
 
     def __init__(self, axis: int = 0, name=None):
-        self.axis = int(axis)
-        super().__init__(name=name, axis=self.axis)
+        self._axis = int(axis)
+        super().__init__(name=name, axis=self._axis)
 
     def output_shape(self, *inputs):
-        self.inputs = list(inputs)
+        self._inputs = list(inputs)
         inputs = _concatenation_inputs(self)
         shape = inputs[0].shape
-        axis = shape.resolve_seq(self.axis, self.name)
+        axis = shape.resolve_seq(self._axis, self.name)
 
         def others(seq):
             return seq[:axis] + seq[axis + 1 :]
@@ -467,7 +467,7 @@ class SeqConcatenate(Layer):
             ):
                 raise ValueError(
                     f"{self.name}: all inputs must have the same dim, window and "
-                    f"sequence axes but seq axis {self.axis}, got {shape} and {other}."
+                    f"sequence axes but seq axis {self._axis}, got {shape} and {other}."
                 )
         sizes = [input_node.shape.seq[axis] for input_node in inputs]
         joined = None if None in sizes else sum(int(size) for size in sizes)  # type: ignore[arg-type]
@@ -475,7 +475,7 @@ class SeqConcatenate(Layer):
 
     def build_layer(self):
         shape = _concatenation_inputs(self)[0].shape
-        axis = shape.resolve_seq(self.axis, self.name)
+        axis = shape.resolve_seq(self._axis, self.name)
         return TimeConcatenateImpl(
             axis=shape.seq_axes[axis], input_rank=shape.rank, name=self.name
         )
@@ -497,18 +497,18 @@ class SeqStack(Layer):
     """
 
     def __init__(self, axis: int = 0, name=None):
-        self.axis = int(axis)
-        super().__init__(name=name, axis=self.axis)
+        self._axis = int(axis)
+        super().__init__(name=name, axis=self._axis)
 
     def _stacked(self, inputs):
         """The shape of the stack, and the position of its new axis."""
         shape = inputs[0].shape
-        axis = resolve_axis(self.axis, shape.seq_rank + 1, self.name, "seq")
+        axis = resolve_axis(self._axis, shape.seq_rank + 1, self.name, "seq")
         seq = shape.seq[:axis] + (len(inputs),) + shape.seq[axis:]
         return shape.replace(seq=seq), axis
 
     def output_shape(self, *inputs):
-        self.inputs = list(inputs)
+        self._inputs = list(inputs)
         inputs = _concatenation_inputs(self)
         if any(
             input_node.shape.dimensions != inputs[0].shape.dimensions
@@ -540,17 +540,17 @@ class SeqReverse(Layer):
     """
 
     def __init__(self, axis: int = 0, name=None):
-        self.axis = int(axis)
-        super().__init__(name=name, axis=self.axis)
+        self._axis = int(axis)
+        super().__init__(name=name, axis=self._axis)
 
     def output_shape(self, *inputs):
         shape = inputs[0].shape
-        shape.resolve_seq(self.axis, self.name)
+        shape.resolve_seq(self._axis, self.name)
         return shape
 
     def build_layer(self):
-        shape = self.preds[0].shape  # type: ignore[union-attr]
-        axis = shape.resolve_seq(self.axis, self.name)
+        shape = self._preds[0].shape  # type: ignore[union-attr]
+        axis = shape.resolve_seq(self._axis, self.name)
         return TimeReverseImpl(axis=shape.seq_axes[axis], name=self.name)
 
 
@@ -612,8 +612,8 @@ class Concatenate(Layer):
     """
 
     def __init__(self, axis: int = 0, name=None):
-        self.axis = int(axis)
-        super().__init__(name=name, axis=self.axis)
+        self._axis = int(axis)
+        super().__init__(name=name, axis=self._axis)
 
     def build_layer(self):
         inputs = _concatenation_inputs(self)
@@ -622,7 +622,7 @@ class Concatenate(Layer):
             0,
         )
         reference = inputs[index].shape
-        axis = reference.resolve_dim(self.axis, self.name)
+        axis = reference.resolve_dim(self._axis, self.name)
 
         for input_node in inputs:
             shape = input_node.shape
@@ -640,7 +640,7 @@ class Concatenate(Layer):
             if not compatible_dim or not (shape._steps == reference._steps or single):
                 raise ValueError(
                     f"{self.name}: all inputs must have matching dimensions "
-                    f"except dim axis {self.axis}, and the same sequence and "
+                    f"except dim axis {self._axis}, and the same sequence and "
                     "window or a single sample."
                 )
 
@@ -654,7 +654,7 @@ class Concatenate(Layer):
 
 
 def _concatenation_inputs(layer: Layer) -> list[Stream]:
-    inputs = list(layer.inputs or layer.preds)
+    inputs = list(layer._inputs or layer._preds)
     if len(inputs) < 2:
         raise ValueError(f"{layer.name}: concatenate requires at least two inputs.")
     if not all(isinstance(input_node, Stream) for input_node in inputs):

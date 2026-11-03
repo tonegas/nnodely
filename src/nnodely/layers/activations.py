@@ -17,21 +17,21 @@ class ReLU(Layer):
         threshold: float = 0.0,
         name=None,
     ):
-        self.max_value = max_value
-        self.negative_slope = float(negative_slope)
-        self.threshold = float(threshold)
+        self._max_value = max_value
+        self._negative_slope = float(negative_slope)
+        self._threshold = float(threshold)
         super().__init__(
             name=name,
-            max_value=self.max_value,
-            negative_slope=self.negative_slope,
-            threshold=self.threshold,
+            max_value=self._max_value,
+            negative_slope=self._negative_slope,
+            threshold=self._threshold,
         )
 
     def build_layer(self):
         return keras.layers.ReLU(
-            max_value=self.max_value,
-            negative_slope=self.negative_slope,
-            threshold=self.threshold,
+            max_value=self._max_value,
+            negative_slope=self._negative_slope,
+            threshold=self._threshold,
             name=self.name,
         )
 
@@ -40,12 +40,12 @@ class LeakyReLU(Layer):
     """Wrapper for keras.layers.LeakyReLU."""
 
     def __init__(self, negative_slope: float = 0.3, name=None):
-        self.negative_slope = float(negative_slope)
-        super().__init__(name=name, negative_slope=self.negative_slope)
+        self._negative_slope = float(negative_slope)
+        super().__init__(name=name, negative_slope=self._negative_slope)
 
     def build_layer(self):
         return keras.layers.LeakyReLU(
-            negative_slope=self.negative_slope,
+            negative_slope=self._negative_slope,
             name=self.name,
         )
 
@@ -78,11 +78,11 @@ class ELU(Layer):
     ``alpha * (exp(x) - 1)`` elsewhere."""
 
     def __init__(self, alpha: float = 1.0, name=None):
-        self.alpha = float(alpha)
-        super().__init__(name=name, alpha=self.alpha)
+        self._alpha = float(alpha)
+        super().__init__(name=name, alpha=self._alpha)
 
     def build_layer(self):
-        return ELUImpl(alpha=self.alpha, name=self.name)
+        return ELUImpl(alpha=self._alpha, name=self.name)
 
 
 class PReLU(Layer):
@@ -94,13 +94,13 @@ class PReLU(Layer):
     """
 
     def __init__(self, shared_axes=None, name=None):
-        self.shared_axes = shared_axes
-        super().__init__(name=name, shared_axes=self.shared_axes)
+        self._shared_axes = shared_axes
+        super().__init__(name=name, shared_axes=self._shared_axes)
 
     def build_layer(self):
-        shared_axes = self.shared_axes
+        shared_axes = self._shared_axes
         if shared_axes is None:
-            shape = self.preds[0].shape  # type: ignore[union-attr]
+            shape = self._preds[0].shape  # type: ignore[union-attr]
             window = [] if shape.time_axis is None else [shape.time_axis]
             shared_axes = [*shape.seq_axes, *window]
         return keras.layers.PReLU(shared_axes=shared_axes, name=self.name)
@@ -116,13 +116,13 @@ class Softmax(Layer):
     """
 
     def __init__(self, axis: int | None = None, name=None):
-        self.axis = None if axis is None else int(axis)
-        super().__init__(name=name, axis=self.axis)
+        self._axis = None if axis is None else int(axis)
+        super().__init__(name=name, axis=self._axis)
 
     def build_layer(self):
-        axis = self.axis
+        axis = self._axis
         if axis is None:
-            axis = list(range(1, 1 + self.preds[0].shape.rank))  # type: ignore
+            axis = list(range(1, 1 + self._preds[0].shape.rank))  # type: ignore
         return keras.layers.Softmax(axis=axis, name=self.name)  # type: ignore
 
 
@@ -176,11 +176,11 @@ class GELU(Layer):
     uses its tanh approximation."""
 
     def __init__(self, approximate: bool = True, name=None):
-        self.approximate = bool(approximate)
-        super().__init__(name=name, approximate=self.approximate)
+        self._approximate = bool(approximate)
+        super().__init__(name=name, approximate=self._approximate)
 
     def build_layer(self):
-        return GELUImpl(approximate=self.approximate, name=self.name)
+        return GELUImpl(approximate=self._approximate, name=self.name)
 
 
 @keras.saving.register_keras_serializable(package="nnodely")

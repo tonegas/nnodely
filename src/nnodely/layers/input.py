@@ -148,7 +148,7 @@ class Input(Stream):
         # The samples read up to and including the current one, and after it:
         # without a window, the current one alone.
         self.past, self.future = (1, 0) if window is None else window
-        self.input = keras.Input(shape=self.shape.tuple, name=self.name)
+        self._input = keras.Input(shape=self.shape.tuple, name=self.name)
         # Set by feedback(): the stream fed back. None while the Input is read
         # from data.
         self.update: Stream | None = None
@@ -249,7 +249,7 @@ def _sw_cell(node: Input) -> str:
 
 
 class Inputs(list):
-    """The Inputs of a model, as :attr:`Modely.all_inputs` lists them: a list
+    """The Inputs of a model, as :attr:`Modely.inputs` lists them: a list
     of the Input objects, printed as a table of their shapes and of how each
     is fed - whether it is declared, the stream it is fed back with, what the
     data must hold of it and, fed back in a ModelyLoop, what it starts from."""
@@ -267,8 +267,8 @@ class Inputs(list):
 
     def __init__(self, rows: list[dict], title: str = ""):
         super().__init__(row["input"] for row in rows)
-        self.rows = rows
-        self.title = title
+        self._rows = rows
+        self._title = title
 
     def __str__(self):
         cells = [
@@ -282,7 +282,7 @@ class Inputs(list):
                 row["data"] or "-",
                 row["starts from"] or "-",
             )
-            for row in self.rows
+            for row in self._rows
         ]
         widths = [
             max(len(line[column]) for line in (self._HEADER, *cells))
@@ -292,10 +292,10 @@ class Inputs(list):
         def line(row):
             return "  ".join(cell.ljust(width) for cell, width in zip(row, widths))
 
-        fed_back = sum(row["fed back with"] is not None for row in self.rows)
+        fed_back = sum(row["fed back with"] is not None for row in self._rows)
         return "\n".join(
             [
-                *([self.title] if self.title else []),
+                *([self._title] if self._title else []),
                 line(self._HEADER).rstrip(),
                 line(tuple("-" * width for width in widths)).rstrip(),
                 *(line(row).rstrip() for row in cells),

@@ -155,7 +155,7 @@ class Roll(Layer):
             raise ValueError("feedback must contain exactly one input: output pair.")
 
         feedback_input, feedback_output = next(iter(feedback.items()))
-        feedback_input = self._find_node(f.inputs, feedback_input, "input")
+        feedback_input = self._find_node(f._inputs, feedback_input, "input")
         feedback_output = self._find_node(f.outputs, feedback_output, "output")
 
         if feedback_input.time is None:
@@ -178,22 +178,22 @@ class Roll(Layer):
         if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
             raise ValueError("steps must be a positive integer.")
 
-        self.f = f
-        self.feedback_input = feedback_input
-        self.feedback_output = feedback_output
+        self._f = f
+        self._feedback_input = feedback_input
+        self._feedback_output = feedback_output
         # A body input its outputs never read, such as a target, is no input
         # of the roll.
         read = {node.name for node in f.inference_inputs}
-        self.static_inputs = [
+        self._static_inputs = [
             node
-            for node in f.inputs
+            for node in f._inputs
             if node is not feedback_input and node.name in read
         ]
-        self.steps = steps
+        self._steps = steps
 
         super().__init__(
             name=name,
-            preds=[feedback_input, *self.static_inputs],
+            preds=[feedback_input, *self._static_inputs],
             dim=feedback_input.dim,
             time=window.time,
             seq=window.seq,
@@ -215,20 +215,20 @@ class Roll(Layer):
 
     def build_layer(self):
         return RollImpl(
-            model=self.f.inference_model,
-            feedback_input_name=self.feedback_input.name,
-            feedback_output_name=self.feedback_output.name,
-            static_input_names=tuple(node.name for node in self.static_inputs),
-            steps=self.steps,
-            time_axis=self.feedback_input.shape.time_axis,
+            model=self._f.inference_model,
+            feedback_input_name=self._feedback_input.name,
+            feedback_output_name=self._feedback_output.name,
+            static_input_names=tuple(node.name for node in self._static_inputs),
+            steps=self._steps,
+            time_axis=self._feedback_input.shape.time_axis,
             name=self.name,
         )
 
     def get_config(self):
         return {
             "name": self.name,
-            "feedback": {self.feedback_input.name: self.feedback_output.name},
-            "steps": self.steps,
+            "feedback": {self._feedback_input.name: self._feedback_output.name},
+            "steps": self._steps,
         }
 
     @classmethod
@@ -238,5 +238,5 @@ class Roll(Layer):
         # the layer is reconnected to the nodes of the graph it is loaded in.
         layer = cls(**config)
         if preds:
-            layer.preds = list(preds)
+            layer._preds = list(preds)
         return layer

@@ -95,7 +95,7 @@ def test_arithmetic_save_load(tmp_path):
         atol=1e-5,
     )
     restored_layer = next(
-        node for node in restored.flatten().order if isinstance(node, Sqrt)
+        node for node in restored.flatten()._order if isinstance(node, Sqrt)
     )
     assert restored_layer.get_config() == {"name": "sqrt"}
 
@@ -188,7 +188,7 @@ def test_clamp_sum_save_load(tmp_path):
         rtol=1e-5,
         atol=1e-5,
     )
-    nodes = {node.name: node for node in restored.flatten().order}
+    nodes = {node.name: node for node in restored.flatten()._order}
     assert nodes["clamp"].get_config() == {
         "name": "clamp",
         "min": -0.5,

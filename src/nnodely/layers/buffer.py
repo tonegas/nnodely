@@ -85,8 +85,8 @@ class Buffer(Layer):
                 "Buffer: sw=1 holds the current sample alone, no past one, so "
                 f"there is nothing for init to start; got init={init!r}."
             )
-        self.sw = sw
-        self.init = _validate_init("Buffer", init)
+        self._sw = sw
+        self._init = _validate_init("Buffer", init)
         self._calls = 0
         super().__init__(name=name, sw=sw)
 
@@ -103,10 +103,10 @@ class Buffer(Layer):
                 f"{self.name}: a Buffer collects a signal computed one sample per "
                 f"step, and {stream.name!r} carries a window of {stream.time}."
             )
-        if self.sw == 1:
+        if self._sw == 1:
             return super().__call__([stream])
-        if isinstance(self.init, Stream):
-            _check_history(self.name, self.init, stream, self.sw - 1)
+        if isinstance(self._init, Stream):
+            _check_history(self.name, self._init, stream, self._sw - 1)
 
         # Every call buffers a signal of its own, so each has its own past.
         self._calls += 1
@@ -115,29 +115,29 @@ class Buffer(Layer):
             f"{call_name}_past",
             dim=stream.dim,
             seq=_declared_seq(stream),
-            sw=self.sw - 1,
+            sw=self._sw - 1,
         )
         past._hidden = True
         window = super().__call__([past, stream])
         past._feed_back(
-            stream if stream.time == 1 else TimeSelect(-1)(window), init=self.init
+            stream if stream.time == 1 else TimeSelect(-1)(window), init=self._init
         )
         return window
 
     def output_shape(self, *inputs):
-        return inputs[-1].shape.replace(time=self.sw)
+        return inputs[-1].shape.replace(time=self._sw)
 
     def build_layer(self):
         repeat = 0
-        if len(self.preds) > 1:
-            past = self.preds[0].shape  # type: ignore[union-attr]
+        if len(self._preds) > 1:
+            past = self._preds[0].shape  # type: ignore[union-attr]
             # Built as a Modely, the past is read as the init: unless it has
             # the shape of the Input it stands for, it is broadcast to it.
-            if past.tuple != self.shape.replace(time=self.sw - 1).tuple:
-                repeat = 1 if past.time == self.sw - 1 else self.sw - 1
+            if past.tuple != self.shape.replace(time=self._sw - 1).tuple:
+                repeat = 1 if past.time == self._sw - 1 else self._sw - 1
         return BufferImpl(
             axis=self.shape.time_axis,  # type: ignore[arg-type]
-            expand=self.preds[-1].shape.time is None,  # type: ignore[union-attr]
+            expand=self._preds[-1].shape.time is None,  # type: ignore[union-attr]
             repeat=repeat,
             name=self.name,
         )

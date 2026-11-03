@@ -127,7 +127,7 @@ def flatten_node(node: Node, scope: Scope) -> Any:
         return scope.values[node]
 
     if type(node) is IntermediateOutput:
-        model_call = node.pred
+        model_call = node._pred
 
         # One scope per call, not per output: a body with several outputs is
         # still a single call, and its outputs must share the inlined body.
@@ -138,7 +138,7 @@ def flatten_node(node: Node, scope: Scope) -> Any:
             # bindings they produce are local to this one.
             arguments = {
                 internal_input: flatten_node(external_input, scope)
-                for internal_input, external_input in model_call.inputs_map.items()
+                for internal_input, external_input in model_call._inputs_map.items()
             }
             # A fed-back Input the model declares reads its argument as data:
             # at every step in a Modely; in a loop it keeps its feedback, and
@@ -164,15 +164,15 @@ def flatten_node(node: Node, scope: Scope) -> Any:
             call_scope.inits = inits
             scope.calls[model_call] = call_scope
 
-        internal_output = model_call.outputs_map[node]
+        internal_output = model_call._outputs_map[node]
         flat_output = flatten_node(internal_output, call_scope)
 
         scope.memo[node] = flat_output
         return flat_output
 
-    new_preds = [flatten_node(pred, scope) for pred in node.preds]
+    new_preds = [flatten_node(pred, scope) for pred in node._preds]
     new_node = copy(node)
-    new_node.preds = new_preds
+    new_node._preds = new_preds
     if isinstance(new_node, Layer) and not bool(
         getattr(new_node._layer, "weights", None)
     ):
@@ -216,7 +216,7 @@ def flatten_fed_back(scope: Scope) -> None:
 
 def flatten(model):
     flat, memo = _flatten_graph(
-        model.name, model.inputs, model.outputs, return_memo=True, fed_back=True
+        model.name, model._inputs, model.outputs, return_memo=True, fed_back=True
     )
     # The rollback is the model's, not its graph's: carried over to the copies.
     if model._roll_feedback:
@@ -307,7 +307,7 @@ def toposort_outputs(outputs: list[Output]) -> list[Node]:
     def dfs(node: Node) -> None:
         visited.add(node)
 
-        for pred in node.preds:
+        for pred in node._preds:
             if pred not in visited:
                 dfs(pred)
         order.append(node)
@@ -350,7 +350,7 @@ def _streams_from(roots) -> list[Stream]:
         seen.add(id(node))
         if isinstance(node, Stream):
             streams[id(node)] = node
-        stack.extend(node.preds)
+        stack.extend(node._preds)
     return list(streams.values())
 
 
@@ -374,7 +374,7 @@ def _parameters(model: "Modely") -> list["Parameter"]:
             *current.outputs,
             *(
                 side
-                for minimizer in current.minimizers
+                for minimizer in current._minimizers
                 for side in (minimizer["source"], minimizer["target"])
             ),
         ]
@@ -389,8 +389,8 @@ def _parameters(model: "Modely") -> list["Parameter"]:
             if isinstance(node, Parameter):
                 found[id(node)] = node
             # A called model, or the body a block rolls out.
-            for inner in (getattr(node, "model", None), getattr(node, "f", None)):
+            for inner in (getattr(node, "_model", None), getattr(node, "_f", None)):
                 if isinstance(inner, Modely):
                     models.append(inner)
-            stack.extend(reversed(node.preds))
+            stack.extend(reversed(node._preds))
     return list(found.values())

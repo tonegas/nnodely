@@ -167,7 +167,7 @@ def test_buffer_feeds_a_plant_that_reads_a_window_of_the_command():
     )
     # The plant's output feeds y back, which its own argument reads: still a
     # single call of the plant, one buffer.
-    fed_back = [node for node in model.body.inputs if node.update is not None]
+    fed_back = [node for node in model.body._inputs if node.update is not None]
     assert len(fed_back) == 2
 
 
@@ -195,7 +195,7 @@ def test_a_model_called_twice_has_a_feedback_per_call():
     np.testing.assert_allclose(
         to_numpy(result["oc_cascade_2"]).ravel(), [1, 2, 2.75, 3.25]
     )
-    assert [node.name for node in model.body.inputs] == [
+    assert [node.name for node in model.body._inputs] == [
         "oc_tank_source",
         "oc_tank_h",
         "oc_tank_h_2",
@@ -266,7 +266,7 @@ def test_a_modely_starts_integrate_derivative_and_buffer_from_their_init(tmp_pat
         ).build()
     names = ["oc_one_past0", "oc_one_rate", "oc_one_v0"]
     assert sorted(node.name for node in model.inference_inputs) == names
-    assert sorted(node.name for node in model.all_inputs) == names
+    assert sorted(node.name for node in model.inputs) == names
 
     data = {
         "oc_one_rate": np.full((2, 1, 1), 4.0, np.float32),
@@ -318,9 +318,7 @@ def test_a_call_gives_a_declared_fed_back_input_its_data():
         to_numpy(result["oc_decl_loop_out"])[..., 0, 0],
         [[1.5, 1.75, 1.875, 1.9375], [0.0, 1.0, 1.5, 1.75]],
     )
-    row = next(
-        row for row in loop.all_inputs.rows if row["input"].name == "oc_decl_level"
-    )
+    row = next(row for row in loop.inputs._rows if row["input"].name == "oc_decl_level")
     assert row["starts from"] == "oc_decl_start, first step"
 
     # In a Modely it reads the stream at every step, as it would its data.
@@ -382,7 +380,7 @@ def test_modely_warns_about_fed_back_inputs_and_reads_them_from_data():
         declared.build()
 
 
-def test_all_inputs_tells_how_each_input_is_fed():
+def test_inputs_tells_how_each_input_is_fed():
     rate = Input("oc_tab_rate", sw=1)
     level = Input("oc_tab_level", sw=1)
     level_next = level.feedback(level * 0.5 + rate)
@@ -391,8 +389,8 @@ def test_all_inputs_tells_how_each_input_is_fed():
     )
     tank.minimize("fit", "oc_tab_out", Input("oc_tab_target", sw=1))
 
-    rows = {row["input"].name: row for row in tank.all_inputs.rows}
-    assert [node.name for node in tank.all_inputs] == list(rows)
+    rows = {row["input"].name: row for row in tank.inputs._rows}
+    assert [node.name for node in tank.inputs] == list(rows)
     assert rows.keys() == {"oc_tab_level", "oc_tab_rate", "oc_tab_target"}
     assert rows["oc_tab_level"]["declared"] is False
     assert rows["oc_tab_level"]["fed back with"] == level_next.name
@@ -413,7 +411,7 @@ def test_all_inputs_tells_how_each_input_is_fed():
             Output("oc_tab_integral", Integrate(dt=0.1, init=x0)(source)),
         ],
     )
-    rows = {row["input"].name: row for row in loop.all_inputs.rows}
+    rows = {row["input"].name: row for row in loop.inputs._rows}
     assert (
         rows["oc_tab_level"]["declared"] and rows["oc_tab_level"]["data"] == "optional"
     )
@@ -421,7 +419,7 @@ def test_all_inputs_tells_how_each_input_is_fed():
     assert rows["oc_tab_source"]["data"] == "required"
     (state,) = [row for name, row in rows.items() if name.endswith("_integral")]
     assert state["data"] is None and state["starts from"] == "oc_tab_x0, first step"
-    text = str(loop.all_inputs)
+    text = str(loop.inputs)
     assert text.startswith("Inputs of oc_tab_loop") and "4 inputs, 2 fed back" in text
 
 
@@ -489,7 +487,7 @@ def test_a_dynamic_horizon_follows_the_data_and_length_pins_it():
         outputs=[Output("oc_len_fixed_out", total_next)],
         length=5,
     )
-    assert fixed.inputs[0].seq == (5,)
+    assert fixed._inputs[0].seq == (5,)
 
 
 def test_a_fed_back_input_starts_from_its_data_if_listed_else_from_zero(tmp_path):
@@ -581,7 +579,7 @@ def test_a_saved_plant_keeps_its_feedback_in_a_modelyloop(tmp_path):
         warnings.simplefilter("error", UserWarning)
         plant.save(tmp_path / "oc_plant")
     loaded = Modely.load(tmp_path / "oc_plant")
-    loaded_x = next(node for node in loaded.inputs if node.name == "oc_plant_x")
+    loaded_x = next(node for node in loaded._inputs if node.name == "oc_plant_x")
     assert loaded_x.update is not None and loaded_x.update.name == "oc_plant_x_n"
 
     def looped(model, tag):

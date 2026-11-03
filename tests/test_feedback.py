@@ -187,7 +187,7 @@ def test_two_integrates_that_start_from_one_input_bind_it_once():
         ],
     )
     loop = Loop(f=step)
-    assert [node.name for node in loop.seed_inputs] == ["fb_two_y0"]
+    assert [node.name for node in loop._seed_inputs] == ["fb_two_y0"]
     u_seq, y0_init = Input("fb_two_u_seq", seq=-1, sw=1), Input("fb_two_y0i", sw=1)
     slow, fast = loop({"fb_two_u": u_seq, "fb_two_y0": y0_init})
     model = Modely(
@@ -236,7 +236,7 @@ def test_a_loop_returns_the_outputs_of_the_step_not_the_ones_it_adds(tmp_path):
     y.feedback(y + u)
     step = Modely("fb_ret_step", inputs=[u], outputs=[Output("fb_ret_twice", y * 2.0)])
     loop = Loop(f=step)
-    assert [output.name for output in loop.f.outputs] == [
+    assert [output.name for output in loop._f.outputs] == [
         "fb_ret_twice",
         "fb_ret_y_next",
     ]

@@ -359,8 +359,8 @@ def test_odenet_trained_field_matches_analytic_solution(tmp_path):
         },
     )
     np.testing.assert_allclose(
-        to_numpy(data.dataset["p_fit"])[:, 0, 0],
-        to_numpy(data.dataset["p_fit_target"])[:, 0, 0, 0],
+        to_numpy(data._dataset["p_fit"])[:, 0, 0],
+        to_numpy(data._dataset["p_fit_target"])[:, 0, 0, 0],
         atol=1e-6,
     )
 
@@ -568,8 +568,8 @@ def test_odenet_trains_a_field_holding_a_shared_layer():
         },
     )
     np.testing.assert_allclose(
-        to_numpy(data.dataset["x_shared"])[:, 0, :],
-        to_numpy(data.dataset["x_shared_target"])[:, 0, 0, :],
+        to_numpy(data._dataset["x_shared"])[:, 0, :],
+        to_numpy(data._dataset["x_shared_target"])[:, 0, 0, :],
         atol=1e-6,
     )
 
@@ -590,7 +590,7 @@ def test_odenet_trains_a_field_holding_a_shared_layer():
     trainer.model.get_layer("shared_ode").set_method("dopri5")
     rolled = to_numpy(trainer(data.as_dict())["x_shared_pred"])[:, -1, 0, :]
     np.testing.assert_allclose(
-        rolled, to_numpy(data.dataset["x_shared_target"])[:, -1, 0, :], atol=1e-3
+        rolled, to_numpy(data._dataset["x_shared_target"])[:, -1, 0, :], atol=1e-3
     )
 
 

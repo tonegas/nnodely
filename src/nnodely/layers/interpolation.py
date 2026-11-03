@@ -115,20 +115,20 @@ class Interpolation(Layer):
 
     def __init__(self, x_points, y_points, mode="linear", name=None):
         x_values, y_values, mode = _prepare_points(x_points, y_points, mode)
-        self.x_points = x_values.tolist()
-        self.y_points = y_values.tolist()
-        self.mode = mode
+        self._x_points = x_values.tolist()
+        self._y_points = y_values.tolist()
+        self._mode = mode
         super().__init__(
             name=name,
-            x_points=self.x_points,
-            y_points=self.y_points,
-            mode=self.mode,
+            x_points=self._x_points,
+            y_points=self._y_points,
+            mode=self._mode,
         )
 
     def build_layer(self):
         return InterpolationImpl(
-            x_points=self.x_points,
-            y_points=self.y_points,
-            mode=self.mode,
+            x_points=self._x_points,
+            y_points=self._y_points,
+            mode=self._mode,
             name=self.name,
         )

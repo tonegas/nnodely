@@ -970,9 +970,9 @@ def test_fuzzify_is_one_layer():
         ],
     ).build()
 
-    assert isinstance(moving, Layer) and moving.preds == [x, centers]
-    assert listed.preds == [x, middle]
-    assert sorted(type(node).__name__ for node in model.order) == [
+    assert isinstance(moving, Layer) and moving._preds == [x, centers]
+    assert listed._preds == [x, middle]
+    assert sorted(type(node).__name__ for node in model._order) == [
         "Fuzzify",
         "Fuzzify",
         "Input",
@@ -1042,8 +1042,8 @@ def test_membership_widths_take_a_parameter():
         ],
     ).build()
     # The Parameters are predecessors, of the Fuzzify too.
-    assert leaning.preds[1] is radius and bell.preds[1] is sigma
-    assert shifted.preds == [x, radius]
+    assert leaning._preds[1] is radius and bell._preds[1] is sigma
+    assert shifted._preds == [x, radius]
 
     values = {"width_x": np.array([[[0.5]], [[2.0]]], dtype=np.float32)}
     result = model(values)
@@ -1799,8 +1799,8 @@ def test_equation_learner_composes_symbolic_functions_and_multiple_inputs():
 
     assert result.shape == (1, 1, 1)
     np.testing.assert_allclose(result, expected, rtol=1e-5, atol=1e-5)
-    assert equation.model is not None
-    internal_types = {type(node).__name__ for node in equation.model.order}
+    assert equation._model is not None
+    internal_types = {type(node).__name__ for node in equation._model._order}
     assert {"Linear", "Select", "Multiply", "Sin", "Concatenate"} <= internal_types
 
 

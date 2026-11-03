@@ -91,15 +91,15 @@ def test_partitioning_windows():
         source=os.path.join(os.path.dirname(__file__), "datasets"),
     )
 
-    assert data_train.dataset is not None
+    assert data_train._dataset is not None
     assert data_train.inputs == ["x", "y", "z"]
-    assert data_train.input_specs == {"x": [5, 0], "y": [2, 3], "z": [4, 3]}
-    print("Data train dataset:", {k: v.shape for k, v in data_train.dataset.items()})
-    assert data_train.dataset["x"].shape == (6, 5, 1)
-    assert data_train.dataset["y"].shape == (6, 5, 1)
-    assert data_train.dataset["z"].shape == (6, 7, 1)
+    assert data_train._input_specs == {"x": [5, 0], "y": [2, 3], "z": [4, 3]}
+    print("Data train dataset:", {k: v.shape for k, v in data_train._dataset.items()})
+    assert data_train._dataset["x"].shape == (6, 5, 1)
+    assert data_train._dataset["y"].shape == (6, 5, 1)
+    assert data_train._dataset["z"].shape == (6, 7, 1)
     # Each sample is (time, dim): the windows read down the time axis.
-    assert data_train.dataset["x"][..., 0].tolist() == [
+    assert data_train._dataset["x"][..., 0].tolist() == [
         [1, 2, 3, 4, 5],
         [2, 3, 4, 5, 6],
         [3, 4, 5, 6, 7],
@@ -107,7 +107,7 @@ def test_partitioning_windows():
         [12.0, 13.0, 14.0, 15.0, 16.0],
         [13.0, 14.0, 15.0, 16.0, 17.0],
     ]
-    assert data_train.dataset["y"][..., 0].tolist() == [
+    assert data_train._dataset["y"][..., 0].tolist() == [
         [10.0, 15.0, 21.0, 28.0, 36.0],
         [15.0, 21.0, 28.0, 36.0, 45.0],
         [21.0, 28.0, 36.0, 45.0, 55.0],
@@ -115,7 +115,7 @@ def test_partitioning_windows():
         [120.0, 136.0, 153.0, 171.0, 190.0],
         [136.0, 153.0, 171.0, 190.0, 210.0],
     ]
-    assert data_train.dataset["z"][..., 0].tolist() == [
+    assert data_train._dataset["z"][..., 0].tolist() == [
         [5.0, 9.0, 14.0, 20.0, 26.0, 33.0, 41.0],
         [9.0, 14.0, 20.0, 26.0, 33.0, 41.0, 50.0],
         [14.0, 20.0, 26.0, 33.0, 41.0, 50.0, 60.0],
