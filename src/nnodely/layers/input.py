@@ -217,22 +217,15 @@ class Input(Stream):
         return stream
 
     def get_config(self):
-        return {
-            "name": self.name,
-            "dim": tuple(self.dim),
-            "seq": tuple(-1 if length is None else length for length in self.seq),
-            "sw": None if self.time is None else (self.past, self.future),
-        }
-
-    @classmethod
-    def from_config(cls, config: dict, preds=None):
-        sw = config["sw"]
-        return cls(
-            name=config["name"],
-            dim=config["dim"],
-            seq=config["seq"] or None,
-            sw=None if sw is None else tuple(sw),
+        config = super().get_config()
+        config.update(
+            {
+                "dim": tuple(self.dim),
+                "seq": tuple(-1 if length is None else length for length in self.seq),
+                "sw": None if self.time is None else (self.past, self.future),
+            }
         )
+        return config
 
 
 def _seq_cell(seq) -> str:

@@ -288,17 +288,12 @@ class IntegrateStep(Layer):
     # ------------------------------------------------------------------
     # Serialization
     # ------------------------------------------------------------------
-    def get_config(self):
-        return {"name": self.name, "method": self._method, "dt": self._dt}
-
     @classmethod
     def from_config(cls, config: dict, preds=None):
         # The samples before the window were serialized after the rate, so
         # they are rebuilt with the rest of the graph.
-        layer = cls(method=config["method"], dt=config["dt"], name=config["name"])
-        if preds:
-            return layer(*preds[1:], *preds[:1])
-        return layer
+        layer = super().from_config(config)
+        return layer(*preds[1:], *preds[:1]) if preds else layer
 
 
 class Integrate:

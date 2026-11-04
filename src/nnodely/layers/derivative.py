@@ -443,7 +443,11 @@ class Gradient(Layer):
     # Serialization
     # ------------------------------------------------------------------
     def get_config(self):
-        return {"name": self.name, "order": self._order, "respect_to": self._wrt_name}
+        # The Input is saved by name, and found again among the ancestors of
+        # the relation it differentiates.
+        config = super().get_config()
+        config["respect_to"] = self._wrt_name
+        return config
 
     @classmethod
     def from_config(cls, config: dict, preds=None):
@@ -457,10 +461,9 @@ class Gradient(Layer):
                 f"Gradient {config['name']!r}: input {config['respect_to']!r} was "
                 "not found among the ancestors of the relation it differentiates."
             )
-        layer = cls(
-            order=config.get("order", 1), respect_to=respect_to, name=config["name"]
+        return super().from_config(
+            {**config, "respect_to": respect_to}, preds=preds[:1]
         )
-        return layer(preds[0])
 
 
 class _FiniteDifference(Layer):
@@ -546,30 +549,13 @@ class _FiniteDifference(Layer):
     # ------------------------------------------------------------------
     # Serialization
     # ------------------------------------------------------------------
-    def get_config(self):
-        return {
-            "name": self.name,
-            "order": self._order,
-            "dt": self._dt,
-            "window": self._window,
-            "poly_order": self._poly_order,
-        }
-
     @classmethod
     def from_config(cls, config: dict, preds=None):
         # The initial condition was serialized after the signal, so it is
         # rebuilt with the rest of the graph: the layer is called on it, then
         # on the signal.
-        layer = cls(
-            order=config.get("order", 1),
-            dt=config["dt"],
-            window=config.get("window"),
-            poly_order=config.get("poly_order"),
-            name=config["name"],
-        )
-        if preds:
-            return layer(*preds[1:], *preds[:1])
-        return layer
+        layer = super().from_config(config)
+        return layer(*preds[1:], *preds[:1]) if preds else layer
 
 
 class DerivativeStep(_FiniteDifference):

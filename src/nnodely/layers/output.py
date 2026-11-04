@@ -19,19 +19,10 @@ class Output(Stream):
             preds=[stream],
         )
 
-    def get_config(self) -> dict:
-        return {
-            "name": self.name,
-        }
-
     @classmethod
     def from_config(cls, config: dict, preds=None) -> "Output":
         if preds is None or len(preds) != 1:
             raise ValueError(
                 f"Output '{config['name']}' requires exactly one predecessor."
             )
-
-        return cls(
-            name=config["name"],
-            stream=preds[0],
-        )
+        return super().from_config({**config, "stream": preds[0]})

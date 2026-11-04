@@ -45,6 +45,18 @@ def _refuse_uncalled(streams) -> None:
             )
 
 
+def _refuse_non_streams(layer, inputs) -> None:
+    """Refuse anything but streams among ``inputs``: a layer is applied to
+    the streams of a graph, never to numbers or arrays."""
+    given = [type(value).__name__ for value in inputs if not isinstance(value, Stream)]
+    if given:
+        raise TypeError(
+            f"{layer.name}: {type(layer).__name__} is called on streams, got "
+            f"{', '.join(given)}. A number or an array enters the graph as a "
+            "Constant."
+        )
+
+
 def _are_streams(value) -> bool:
     """A Stream, or a non-empty list or tuple of Streams."""
     if isinstance(value, Stream):
@@ -107,8 +119,9 @@ class Layer(Stream, metaclass=_LayerType):
     """
     Symbolic DAG node that can lazily build its concrete Keras layer.
 
-    - If called with Stream(s): returns a new symbolic node
-    - If called with tensor(s): applies the built Keras layer
+    Called on a stream, or a list of streams, it returns a new node of the
+    graph; :meth:`call` applies the concrete Keras layer to tensors when the
+    model is built.
     """
 
     # A layer that reads one stream, such as an activation, called on several
@@ -305,55 +318,42 @@ class Layer(Stream, metaclass=_LayerType):
         if not isinstance(inputs, (list, tuple)):
             inputs = [inputs]
 
-        # Symbolic mode: Layer(Stream, ...) -> new Stream node
+        _refuse_non_streams(self, inputs)
+        _refuse_uncalled(inputs)
+        if self._one_stream and len(inputs) > 1:
+            # A layer that reads one stream, such as an activation, is
+            # applied to each of several: one result per stream, in order.
+            return [self([x]) for x in inputs]
+        out_shapes = self.output_shape(*inputs)
+        if not isinstance(out_shapes, list):
+            out_shapes = [out_shapes]
         ret = []
-        if all(isinstance(x, Stream) for x in inputs):
-            _refuse_uncalled(inputs)
-            if self._one_stream and len(inputs) > 1:
-                # A layer that reads one stream, such as an activation, is
-                # applied to each of several: one result per stream, in order.
-                return [self([x]) for x in inputs]
-            out_shapes = self.output_shape(*inputs)
-            if not isinstance(out_shapes, list):
-                out_shapes = [out_shapes]
-            for out_shape in out_shapes:
-                if not isinstance(out_shape, Shape):
-                    raise TypeError(
-                        f"{self.name}: {type(self).__name__}.output_shape() must "
-                        f"return a Shape, got {out_shape!r}."
-                    )
-                node = self.__class__(name=self.name, **self._properties)
-                node._source = self._source
-                node._inputs = inputs
-                node.shape = out_shape
-                node._preds = inputs  # type: ignore
-                # Computed from values alone - numbers, Parameters, Constants -
-                # a result is a value too.
-                node._is_value = all(x._is_value for x in inputs)
-                ret.append(node)
-            return ret if len(ret) > 1 else ret[0]
-
-        # Tensor mode: Layer(tensor, ...) -> KerasTensor / Tensor
-        ret = self.call(*inputs)
+        for out_shape in out_shapes:
+            if not isinstance(out_shape, Shape):
+                raise TypeError(
+                    f"{self.name}: {type(self).__name__}.output_shape() must "
+                    f"return a Shape, got {out_shape!r}."
+                )
+            node = self.__class__(name=self.name, **self._properties)
+            node._source = self._source
+            node._inputs = inputs
+            node.shape = out_shape
+            node._preds = inputs  # type: ignore
+            # Computed from values alone - numbers, Parameters, Constants -
+            # a result is a value too.
+            node._is_value = all(x._is_value for x in inputs)
+            ret.append(node)
         return ret if len(ret) > 1 else ret[0]
 
     def get_config(self):
         # The arguments the layer was created with, which rebuild it; its shape
         # follows from the streams it is called on again.
-        return {"name": self.name, **self._properties}
+        return {**super().get_config(), **self._properties}
 
     @classmethod
-    def from_config(
-        cls,
-        config: dict,
-        preds=None,
-    ):
-        layer = cls(**config)
-
-        if preds is None or len(preds) == 0:
-            return layer
-
-        return layer(preds)
+    def from_config(cls, config: dict, preds=None):
+        layer = super().from_config(config)
+        return layer(preds) if preds else layer
 
 
 _BINARY_OPERATIONS = {

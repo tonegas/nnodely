@@ -47,7 +47,7 @@ Use this order:
 23. **`DataLoader(..., delimiter=, header=)` are passed to `pd.read_csv`** as its `sep` and `header`. Missing (n/a) cells are kept as NaN, with a warning naming the input and the count [verified].
 24. **Inference arrays are always batched:** `(batch, *seq, time, *dim)`, a batch of 1 for one sample; an Input without a window is `(batch, *dim)`. `x.shape` gives the per-sample shape, as declared. Flat lists raise; an unbatched array raises, or is silently misread with its first axis taken as the batch [verified]. `loader[i]` has no batch axis: pass `{k: v[None] for k, v in loader[i].items()}`, or `loader.as_dict()` for every sample.
 25. **`x.feedback(stream)` feeds an Input back, and only a `Loop` or a `ModelyLoop` applies it** (§10.1, §10.2). `stream` is one sample of `x` (its dim and sequence, `T=1`; no window for an Input without one) and is returned: `x_next = x.feedback(IntegrateStep(dt=dt)(x, v_next))`. Inside the step `x` holds the value at the end of the previous step. It takes no initial value: that is given where the feedback is applied, `Loop(init={x: x0})`, or the data of `x` when a `ModelyLoop` lists it; zero otherwise. Built as a `Modely`, the same graph is the one-step model and its fed-back Inputs are read from data, with a `UserWarning` for those it does not declare [verified]. `Integrate`, `Derivative` and `Buffer` feed back hidden Inputs of their own, which a `Loop` or `ModelyLoop` finds; their `init` is the only initial value of that state; built as a `Modely`, these start from it (zero without one), as at the first step of a loop, and are never read from data [verified]. There is no `x.close(...)`, and no `callback=` on `Loop`: the name is `feedback` everywhere.
-26. **A layer is applied by calling it on streams.** A layer object used as a stream itself - `b + Exp()`, `Output("y", Sin())` - reads nothing, and raises `ValueError` ("was never called on a stream") [verified]: write `Exp()(b)` or `Exp(b)`. `Fir` and `Linear` read one stream; given several they raise ("reads one stream, got 2"): join them first with `Concatenate` or `TimeConcatenate`.
+26. **A layer is applied by calling it on streams.** A layer object used as a stream itself - `b + Exp()`, `Output("y", Sin())` - reads nothing, and raises `ValueError` ("was never called on a stream") [verified]: write `Exp()(b)` or `Exp(b)`. A layer is called on streams only: an array or a number raises `TypeError` ("is called on streams, got ndarray"); a number enters the graph as a `Constant`. `Fir` and `Linear` read one stream; given several they raise ("reads one stream, got 2"): join them first with `Concatenate` or `TimeConcatenate`; given none, "got none".
 
 ---
 
@@ -734,6 +734,7 @@ y = Squash(gain=2.0)([x])
 ```
 Rules:
 - Every constructor argument must be passed to `super().__init__(name=name, **kwargs)`, because the node is re-instantiated as `cls(name=..., **properties)` when it is called, and saved as `{"name": ..., **properties}`.
+- `get_config` and `from_config` cascade, as in Keras: the config holds the constructor's arguments, each class adding its own to its parent's (`Node` the name, `Layer` the properties), and `Node.from_config` makes the node with `cls(**config)`, `Layer.from_config` then calls it on its predecessors. An override starts from `config = super().get_config()` and replaces what is not JSON as given (a stream by name, a Keras layer serialized); a `from_config` override turns those back into arguments, then returns `super().from_config(config, preds=...)`.
 - Use `keras.ops` only, never backend-specific ops.
 - Register the Impl for `export_keras`.
 - Weights go in the Impl's `build()` through `add_weight`. To expose them as Parameters that can be given, shared and frozen, follow `Fir` / `Linear`: subclass `_ParameterWeights` in `nnodely/layers/parameter.py`.
@@ -770,8 +771,8 @@ src/nnodely/
   core/shape.py          Shape(dim, time, seq), the only module that knows the layout (batch, *seq, time, *dim): axes helpers,
                          Shape.broadcast and align (arithmetic), BATCH_AXIS, OUTER_AXIS = 1, tensor helpers
   core/stream.py         Node, Stream (operator overloads, literal→Constant cache), NODE_REGISTRY, NODE_NAMES
-  core/layer.py          Layer base (symbolic call → new node sharing its _source; tensor call → build_layer();
-                         get_config from the constructor arguments), BinaryOp Add/Subtract/Multiply/Divide/Power, Identity
+  core/layer.py          Layer base (call on streams → new node sharing its _source; call() on tensors → build_layer();
+                         get_config/from_config cascading from Node's), BinaryOp Add/Subtract/Multiply/Divide/Power, Identity
   core/modely.py         Modely (build, minimize, train, validate, inputs, save/load, export wrappers), ModelCall
   core/modelyloop.py     ModelyLoop: one Loop over its step (loop._Step finds the states), the rolled Inputs
   core/minimizer.py      objectives: checks, resolution against the built graph, MinimizerModel (the training model)
@@ -801,7 +802,7 @@ tests/                   pytest; fast suite `-m "not slow"`; all backends with s
 docs/                    Sphinx user guide (getting_started, guide/*.rst, api/*.rst)
 ```
 Mechanics worth knowing:
-- Symbolic call: `Layer.__call__(streams)` infers the output `Shape` (by probing `build_layer()` on zeros unless `output_shape` is overridden) and returns a *new* node of the same class with the same name and properties, and the same `_source`: the layer object it applies.
+- Symbolic call, the only one: `Layer.__call__(streams)` infers the output `Shape` (by probing `build_layer()` on zeros unless `output_shape` is overridden) and returns a *new* node of the same class with the same name and properties, and the same `_source`: the layer object it applies.
 - `Modely.build()` flattens composed models, topologically sorts them, and calls each node's `call()` on Keras tensors. Concrete Keras layers are keyed **by `_source`**, so the nodes of one layer object share its weights and separate objects never do, whatever their names; colliding Keras names get a suffix (`twin_1`).
 - Fed-back Inputs: `Input.feedback` only records `update` (`_feed_back` also `init`, for the hidden state of a layer). `loop._Step` inlines the body with `Scope(pending=[], loop=True)`, then the stream that feeds back every fed-back Input reached (`flatten_fed_back`), one copy per call (repeated names get a suffix); the body is `f` itself when it declares every state and outputs every update, else a Modely of the same name rebuilt on the copies. `Loop` rolls them all out; `ModelyLoop` is one `Loop` over its step; `Modely.build` reads them from data. A call scope starts from its bindings alone; Parameters, Constants and Inputs read from data are shared through `Scope.values`.
 - Parameters and Constants have no predecessors. They are called with an anchor tensor of the graph and broadcast their value to its batch, so arithmetic treats them as any stream. They and every relation of them alone are values (`Stream._is_value`), which combine with streams with or without a window; `Layer._needs_window` refuses a stream without one in the temporal layers.

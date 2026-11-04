@@ -4,8 +4,7 @@ from typing import cast
 import numpy as np
 import keras
 
-from nnodely.core.layer import Layer, _refuse_uncalled
-from nnodely.core.stream import Stream
+from nnodely.core.layer import Layer, _refuse_non_streams, _refuse_uncalled
 from nnodely.utils.utils import _per_slice_initializer, _serialized_initializer
 
 
@@ -185,7 +184,8 @@ class _Value(Layer):
         # Read from no stream, a value keeps its shape in its config rather
         # than taking it from its inputs as other layers do. A value is saved
         # laid out (*seq, time, *dim), with the axes that play each part.
-        config = Stream.get_config(self)
+        config = super().get_config()
+        config.update(self.shape.get_config())
         seq_rank = self.shape.seq_rank
         has_time = self.shape.time is not None
         if self.value is not None:
@@ -195,7 +195,6 @@ class _Value(Layer):
                     "seq": list(range(seq_rank)),
                     "time": seq_rank if has_time else None,
                     "dim": list(range(first_dim, len(self._value_shape))),
-                    "value": self.value.tolist(),
                 }
             )
         return config
@@ -282,7 +281,6 @@ class Parameter(_Value):
         config = super().get_config()
         config.update(
             {
-                "value": None if self.value is None else self.value.tolist(),
                 "initializer": _serialized_initializer(self._initializer),
                 "trainable": self._trainable,
             }
@@ -384,15 +382,11 @@ class Constant(_Value):
     def constant(self):
         return self._variable
 
-    @classmethod
-    def from_config(cls, config: dict, preds=None):
-        return cls(
-            name=config["name"],
-            value=config["value"],
-            dim=config.get("dim"),
-            time=config.get("time"),
-            seq=config.get("seq"),
-        )
+    def get_config(self):
+        # A Constant is its value: it has no initializer.
+        config = super().get_config()
+        del config["initializer"]
+        return config
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -479,13 +473,13 @@ class Weight(Parameter):
         )
 
     def get_config(self):
-        return {
-            "name": self.name,
-            "shape": self._weight_shape,
-            "initializer": _serialized_initializer(self._initializer),
-            "draw": self._draw_shape,
-            "trainable": self._trainable,
-        }
+        # Declared by its shape and the shape its initializer draws, which
+        # take the place of a Parameter's value and axes.
+        config = super().get_config()
+        for key in ("value", "dim", "time", "seq"):
+            del config[key]
+        config.update({"shape": self._weight_shape, "draw": self._draw_shape})
+        return config
 
 
 class _ParameterWeights(Layer):
@@ -554,25 +548,26 @@ class _ParameterWeights(Layer):
     def __call__(self, inputs):
         if not isinstance(inputs, (list, tuple)):
             inputs = [inputs]
+        # Before the weights are sized on it.
+        _refuse_non_streams(self, inputs)
         # The weights are predecessors like the input, but configured on the
         # layer, so they are appended here and reconnected when reloading.
-        if inputs and all(isinstance(value, Stream) for value in inputs):
-            # The weights take the place of any further stream, which would
-            # otherwise be dropped without a word.
-            if len(inputs) > 1:
-                raise ValueError(
-                    f"{self.name}: {type(self).__name__} reads one stream, got "
-                    f"{len(inputs)}. Apply one to each, or join them first, "
-                    "with Concatenate or TimeConcatenate."
-                )
-            # Before the weights are sized on it.
-            _refuse_uncalled(inputs)
-            if not inputs:
-                raise ValueError(
-                    f"{self.name}: {type(self).__name__} reads one stream, got "
-                    "none. Apply it to a stream first."
-                )
-            inputs = [inputs[0], *self._parameters(inputs[0])]
+        # They take the place of any further stream, which would otherwise be
+        # dropped without a word.
+        if len(inputs) > 1:
+            raise ValueError(
+                f"{self.name}: {type(self).__name__} reads one stream, got "
+                f"{len(inputs)}. Apply one to each, or join them first, "
+                "with Concatenate or TimeConcatenate."
+            )
+        # Before the weights are sized on it.
+        _refuse_uncalled(inputs)
+        if not inputs:
+            raise ValueError(
+                f"{self.name}: {type(self).__name__} reads one stream, got "
+                "none. Apply it to a stream first."
+            )
+        inputs = [inputs[0], *self._parameters(inputs[0])]
         return super().__call__(inputs)
 
     def get_config(self):
@@ -587,14 +582,12 @@ class _ParameterWeights(Layer):
     def from_config(cls, config: dict, preds=None):
         preds = preds or []
         weights = iter(preds[1:])
-        layer = cls(
-            **{
-                **config,
-                "kernel": next(weights),
-                "bias": next(weights) if config["bias"] else False,
-            }
-        )
-        return layer(preds[0])
+        config = {
+            **config,
+            "kernel": next(weights),
+            "bias": next(weights) if config["bias"] else False,
+        }
+        return super().from_config(config, preds=preds[:1])
 
     def _weight_nodes(self) -> list[Parameter]:
         return cast(list[Parameter], self._preds[1:]) if self._preds else []

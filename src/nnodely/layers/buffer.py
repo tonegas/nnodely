@@ -148,7 +148,5 @@ class Buffer(Layer):
     def from_config(cls, config: dict, preds=None):
         # The past values were saved as the Input this node reads first, so
         # the node is rebuilt on its predecessors, without an Input of its own.
-        layer = cls(**config)
-        if not preds:
-            return layer
-        return Layer.__call__(layer, list(preds))
+        layer = super().from_config(config)
+        return Layer.__call__(layer, list(preds)) if preds else layer

@@ -1255,16 +1255,21 @@ class Loop(Layer):
         )
 
     def get_config(self):
-        return {
-            "name": self.name,
-            "feedback": {
-                node.name: output.name
-                for node, output in zip(self._feedback_inputs, self._feedback_outputs)
-            },
-            "returns": [output.name for output in self._returns],
-            "length": self._length,
-            "collect": self._collect,
-        }
+        config = super().get_config()
+        config.update(
+            {
+                "feedback": {
+                    node.name: output.name
+                    for node, output in zip(
+                        self._feedback_inputs, self._feedback_outputs
+                    )
+                },
+                "returns": [output.name for output in self._returns],
+                "length": self._length,
+                "collect": self._collect,
+            }
+        )
+        return config
 
     @classmethod
     def from_config(cls, config: dict, preds=None):

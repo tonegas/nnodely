@@ -52,12 +52,16 @@ class Node:
         return id(self)
 
     def get_config(self) -> dict:
+        """The arguments of the constructor that rebuild the node: every class
+        adds those its own constructor takes to its parent's."""
         return {
             "name": self.name,
         }
 
     @classmethod
     def from_config(cls, config, preds=None):
+        """The node ``config`` describes, made by the constructor of ``cls``.
+        A class that reads predecessors takes ``preds`` from here."""
         return cls(**config)
 
 
@@ -224,8 +228,3 @@ class Stream(Node):
             f"predecessors={pred_names}"
             f")"
         )
-
-    def get_config(self) -> dict:
-        config = super().get_config()
-        config.update(self.shape.get_config())
-        return config

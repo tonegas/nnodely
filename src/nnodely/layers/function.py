@@ -92,11 +92,10 @@ class KerasFunction(Layer):
     def get_config(self):
         # The Keras layer as it is declared: the shape it was first built for
         # is not part of it, the model builds it again.
+        config = super().get_config()
         function = cast(dict, keras.saving.serialize_keras_object(self._function))
-        return {
-            "name": self.name,
-            "function": {k: v for k, v in function.items() if k != "build_config"},
-        }
+        config["function"] = {k: v for k, v in function.items() if k != "build_config"}
+        return config
 
 
 # The first wrapper of every Keras layer still wrapped, by the layer's id: a

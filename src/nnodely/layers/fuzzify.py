@@ -99,12 +99,12 @@ class _Bump(Layer):
 
     def __call__(self, inputs) -> Any:
         streams = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
-        if streams and all(isinstance(stream, Stream) for stream in streams):
-            # Called on several streams, it is applied to each of them.
-            if len(streams) > 1:
-                return [self([stream]) for stream in streams]
-            if isinstance(self._width, Stream):
-                streams.append(self._width)
+        # Called on several streams, it is applied to each of them.
+        if len(streams) > 1:
+            return [self([stream]) for stream in streams]
+        # Read with its stream: alone, it would be taken for the stream.
+        if streams and isinstance(self._width, Stream):
+            streams.append(self._width)
         return super().__call__(streams)
 
     def build_layer(self):
@@ -586,25 +586,30 @@ class Fuzzify(Layer):
         )
 
     def get_config(self):
-        # The layers applied to x - center are saved inside, each once, with
-        # how many of the predecessors are the weights it reads.
-        return {
-            "name": self.name,
-            "centers": self._centers,
-            "function": self._function_specs(),
-            "layers": [
-                {
-                    "class_name": type(layer).__name__,
-                    "config": layer.get_config(),
-                    "weights": len(probe._preds) - 1,
-                }
-                for layer, probe in zip(self._applied, self._probes)
-            ],
-            "bounds": list(self._bounds)
-            if isinstance(self._bounds, tuple)
-            else self._bounds,
-            "normalize": self._normalize,
-        }
+        # The arguments as checked: the fixed centers sorted, a stream among
+        # them saved as the predecessor it is, and the functions by name or
+        # by the layer applied to x - center. Those layers are saved inside,
+        # each once, with how many of the predecessors are the weights it reads.
+        config = super().get_config()
+        config.update(
+            {
+                "centers": self._centers,
+                "function": self._function_specs(),
+                "layers": [
+                    {
+                        "class_name": type(layer).__name__,
+                        "config": layer.get_config(),
+                        "weights": len(probe._preds) - 1,
+                    }
+                    for layer, probe in zip(self._applied, self._probes)
+                ],
+                "bounds": list(self._bounds)
+                if isinstance(self._bounds, tuple)
+                else self._bounds,
+                "normalize": self._normalize,
+            }
+        )
+        return config
 
     @classmethod
     def from_config(cls, config: dict, preds=None):
@@ -622,18 +627,19 @@ class Fuzzify(Layer):
             layer_class = cast(type[Layer], NODE_REGISTRY[saved["class_name"]])
             node = layer_class.from_config(saved["config"], preds=[x, *weights])
             layers.append(node._source)
+        config = {key: value for key, value in config.items() if key != "layers"}
         bounds = config["bounds"]
-        layer = cls(
-            centers=centers,
-            function=[
-                layers[item] if isinstance(item, int) else item
-                for item in config["function"]
-            ],
-            bounds=tuple(bounds) if isinstance(bounds, list) else bounds,
-            normalize=config["normalize"],
-            name=config["name"],
+        config.update(
+            {
+                "centers": centers,
+                "function": [
+                    layers[item] if isinstance(item, int) else item
+                    for item in config["function"]
+                ],
+                "bounds": tuple(bounds) if isinstance(bounds, list) else bounds,
+            }
         )
-        return layer(x)
+        return super().from_config(config, preds=[x])
 
     def plot(self, x_range: tuple[float, float] | None = None, points=401, ax=None):
         """Draw the memberships with matplotlib, as the layer computes them

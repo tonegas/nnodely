@@ -1551,6 +1551,28 @@ def test_fir_and_linear_read_one_stream(layer):
     assert layer()([x])._preds[0] is x
 
 
+@pytest.mark.parametrize("layer", [Fir, Linear])
+def test_fir_and_linear_called_on_no_stream_are_refused(layer):
+    # An empty list skipped the check meant for it, and failed further on.
+    with pytest.raises(ValueError, match="reads one stream, got none"):
+        layer()([])
+
+
+def test_a_layer_is_applied_to_streams_only():
+    # On an array, a layer applied its Keras layer as it stood, and a batch
+    # of one lost its batch axis: Sin()(ones((1, 1, 1))) had the shape (1,).
+    x = Input("streams_only_x", sw=1)
+    array = np.ones((1, 1, 1), dtype=np.float32)
+    for call, given in (
+        (lambda: Sin()(array), "ndarray"),
+        (lambda: Linear(2)(array), "ndarray"),
+        (lambda: Atan2()([x, 1.0]), "float"),
+        (lambda: nnodely.Triangular(1.0)(array), "ndarray"),
+    ):
+        with pytest.raises(TypeError, match=f"is called on streams, got {given}"):
+            call()
+
+
 def test_a_layer_never_called_on_a_stream_is_refused():
     # Read as a stream, it had no input, and the model ran it on one of its
     # own: b + Exp() gave 10 + e**10.

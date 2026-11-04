@@ -76,7 +76,7 @@ from nnodely import (
     Sinh,
     Square,
 )
-from nnodely.core.layer import Identity
+from nnodely.core.layer import Identity, Layer
 from nnodely.layers.partitions import Select
 from conftest import requires_onnx_export, to_numpy
 import json
@@ -1688,6 +1688,50 @@ def test_a_linear_initializer_object_is_saved_as_its_config(tmp_path):
 
     np.testing.assert_allclose(to_numpy(restored_linear.kernel), np.full((1, 2), 0.5))
     np.testing.assert_allclose(to_numpy(restored_linear.bias), [-1.0, -1.0])
+
+
+class _ScaledImpl(keras.layers.Layer):
+    def __init__(self, factor, **kwargs):
+        super().__init__(**kwargs)
+        self.factor = factor
+
+    def call(self, x):
+        return x * keras.ops.convert_to_tensor(self.factor)
+
+
+class _Scaled(Layer):
+    """A custom layer whose setting, an array, is not JSON as given."""
+
+    def __init__(self, factor, name=None):
+        self._factor = np.asarray(factor, dtype=np.float32)
+        super().__init__(name=name, factor=self._factor)
+
+    def build_layer(self):
+        return _ScaledImpl(self._factor.tolist(), name=self.name)
+
+    def get_config(self):
+        config = super().get_config()
+        config["factor"] = self._factor.tolist()
+        return config
+
+
+def test_a_custom_layer_saves_through_the_configs_it_inherits(tmp_path):
+    # The name comes from Node and the settings from Layer; the layer only
+    # replaces the one that is not JSON, and loads with the from_config of
+    # Layer and Node: made from its config, then called on its predecessor.
+    x = Input("cascade_x", dim=2, sw=2)
+    scaled = _Scaled([2.0, 3.0], name="cascade_scaled")(x)
+    model = Modely(
+        "cascade", inputs=[x], outputs=[Output("cascade_out", scaled)]
+    ).build()
+    assert scaled.get_config() == {"name": "cascade_scaled", "factor": [2.0, 3.0]}
+
+    model.save(tmp_path / "cascade")
+    restored = Modely.load(tmp_path / "cascade")
+    values = {"cascade_x": np.arange(4.0, dtype=np.float32).reshape(1, 2, 2)}
+    np.testing.assert_allclose(
+        to_numpy(restored(values)["cascade_out"]), [[[0.0, 3.0], [4.0, 9.0]]]
+    )
 
 
 # ---------------------------------------------------------------------------
