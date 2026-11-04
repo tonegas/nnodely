@@ -102,11 +102,11 @@ returns ``x``.
 
 :class:`~nnodely.Integrate` integrates one step at a time instead, in a
 :class:`~nnodely.ModelyLoop`: the rate is one sample of a step, and the
-integral is a hidden Input, ``<name>_integral``, fed back with the result,
+integral is a hidden Input, ``<name>_<rate>``, fed back with the result,
 which the ModelyLoop feeds back with all its other fed-back Inputs, in a
 single loop - a :class:`~nnodely.Loop` finds it in its body too. The
 trapezoid keeps the rate of the previous step in a second one,
-``<name>_rate``. The rules, and the results on the same samples, are those of
+``<name>_<rate>_rate``. The rules, and the results on the same samples, are those of
 ``IntegrateStep``, and its initial values are configured: ``init``, the
 integral before the first step, and ``init_rate``, the rate before it, each
 zero without one. Every Input of a ModelyLoop carries the horizon, one
@@ -128,7 +128,7 @@ step:
 
 :class:`~nnodely.Derivative` differentiates one step at a time, as
 ``Integrate`` integrates: the ``window - 1`` samples before the step are a
-hidden Input, ``<name>_past``, fed back with the signal, and the stencil, its
+hidden Input, ``<name>_<signal>``, fed back with the signal, and the stencil, its
 arguments and the results on the same samples are those of
 ``DerivativeStep``. ``init`` is the value just before the first step, or the
 ``window - 1`` values a longer stencil reads, along its window; zero without

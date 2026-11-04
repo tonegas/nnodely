@@ -418,7 +418,7 @@ def test_inputs_tells_how_each_input_is_fed():
     )
     assert rows["oc_tab_level"]["starts from"] == "its data, first step, else 0"
     assert rows["oc_tab_source"]["data"] == "required"
-    (state,) = [row for name, row in rows.items() if name.endswith("_integral")]
+    (state,) = [row for name, row in rows.items() if name.endswith("_oc_tab_source")]
     assert state["data"] is None and state["starts from"] == "oc_tab_x0, first step"
     text = str(loop.inputs)
     assert text.startswith("Inputs of oc_tab_loop") and "4 inputs, 2 fed back" in text
@@ -465,7 +465,7 @@ def test_inputs_of_a_loop_are_those_of_its_modelyloop():
         inputs=[u_seq, y0_seq],
         outputs=[Output("oc_same_traj", traj)],
     )
-    state = ("oc_same_int_integral", (), False, "oc_same_int", None)
+    state = ("oc_same_int_oc_same_u", (), False, "oc_same_int", None)
     assert rows(shortcut) == [
         ("oc_same_y0", (None,), True, None, "required", None),
         ("oc_same_u", (None,), True, None, "required", None),

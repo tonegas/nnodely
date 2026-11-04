@@ -1707,8 +1707,9 @@ def test_the_trapezoid_starts_from_the_rate_before_the_first_step(tmp_path):
 
 def test_integrate_derivative_and_buffer_take_their_signal_and_init_alike():
     """Each keeps the past of its signal in hidden Inputs named after the
-    block, returns a result named after the block, and takes the same
-    signals and initial values: a sequence, a scalar init for any dim."""
+    block and the signal, returns a result named after the block, and takes
+    the same signals and initial values: a sequence, a scalar init for any
+    dim."""
     signal = Input("alike_s", dim=2, seq=3, sw=1)
     scalar = Input("alike_init", seq=3, sw=1)
     integral = Integrate(
@@ -1736,10 +1737,10 @@ def test_integrate_derivative_and_buffer_take_their_signal_and_init_alike():
         if not row["declared"]
     }
     assert hidden == {
-        "alike_int_integral": (3,),
-        "alike_int_rate": (3,),
-        "alike_der_past": (3,),
-        "alike_buf_past": (3,),
+        "alike_int_alike_s": (3,),
+        "alike_int_alike_s_rate": (3,),
+        "alike_der_alike_s": (3,),
+        "alike_buf_alike_s": (3,),
     }
     model.build()
     values = np.arange(1.0, 13.0, dtype=np.float32).reshape(1, 2, 3, 1, 2)

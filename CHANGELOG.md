@@ -160,8 +160,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   one step at a time, in a `ModelyLoop`) and `Ode` (Euler, midpoint, Heun,
   RK4).
   `Integrate` and `Derivative` read one sample per step: the integral
-  (`<name>_integral`, and `<name>_rate` for the trapezoid), or the samples
-  before the step (`<name>_past`), are hidden Inputs fed back by the
+  (`<name>_<rate>`, and `<name>_<rate>_rate` for the trapezoid), or the
+  samples before the step (`<name>_<signal>`), are hidden Inputs fed back by the
   `ModelyLoop` or `Loop` with all its other fed-back Inputs, so they need no
   `Loop` of their own; their result is named after the block, and their
   `init` is the only initial value of that state. `IntegrateStep` and

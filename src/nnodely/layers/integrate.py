@@ -311,12 +311,13 @@ class Integrate:
         Integrate(method="trapezoidal", dt=0.01, init=x0, init_rate=r0)(rate)
 
     The high-level counterpart of :class:`IntegrateStep`: the rate is one
-    sample of a step, ``T=1``, and the integral is a hidden Input,
-    ``<name>_integral``, fed back with the result, which the loop feeds back
-    with all its other fed-back Inputs, in its one rollout - no Loop of its
-    own. The trapezoidal rule also keeps the rate of the previous step in a
-    hidden Input, ``<name>_rate``. The result, named after the block, is the
-    value at the end of the step::
+    sample of a step, ``T=1``, and the integral is a hidden Input named after
+    the block and the rate, ``<name>_<rate>`` (``Integrate3_u`` for
+    ``Integrate(dt=dt)(u)``), fed back with the result, which the loop feeds
+    back with all its other fed-back Inputs, in its one rollout - no Loop of
+    its own. The trapezoidal rule also keeps the rate of the previous step in
+    a hidden Input, ``<name>_<rate>_rate``. The result, named after the
+    block, is the value at the end of the step::
 
         y[k] = y[k-1] + dt * rate[k]                      # "euler", "rectangular"
         y[k] = y[k-1] + dt/2 * (rate[k-1] + rate[k])      # "trapezoidal"
@@ -392,17 +393,17 @@ class Integrate:
         self._calls += 1
         call_name = self.name if self._calls == 1 else f"{self.name}_{self._calls}"
 
-        def hidden(role):
-            node = Input(
-                f"{call_name}_{role}", dim=rate.dim, seq=_declared_seq(rate), sw=1
-            )
+        def hidden(name):
+            node = Input(name, dim=rate.dim, seq=_declared_seq(rate), sw=1)
             node._hidden = True
             return node
 
-        integral = hidden("integral")
+        # Named after the rate it integrates, as the Input a hand-written
+        # feedback would read it from.
+        integral = hidden(f"{call_name}_{rate.name}")
         history = [integral]
         if _METHOD_RULE[self._method] == "trapezoidal":
-            previous = hidden("rate")
+            previous = hidden(f"{call_name}_{rate.name}_rate")
             previous._feed_back(rate, init=self._init_rate)
             history.append(previous)
         value = IntegrateStep(method=self._method, dt=self._dt, name=call_name)(

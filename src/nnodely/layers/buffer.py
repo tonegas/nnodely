@@ -58,8 +58,9 @@ class Buffer(Layer):
     Input fed back with the signal is the other way round: its window ends at
     the previous step.
 
-    The past ``sw - 1`` values are a hidden Input, ``<name>_past``, fed back
-    with the signal, by the :class:`~nnodely.ModelyLoop` or
+    The past ``sw - 1`` values are a hidden Input named after the block and
+    the signal, ``<name>_<signal>`` (``Buffer3_x`` for ``Buffer(sw=3)(x)``),
+    fed back with the signal, by the :class:`~nnodely.ModelyLoop` or
     :class:`~nnodely.Loop` like any other. ``init`` holds them before the
     first step, as the ``init`` of :class:`~nnodely.Derivative` holds the
     samples its stencil reads, and is their only initial value: a number, a
@@ -111,8 +112,9 @@ class Buffer(Layer):
         # Every call buffers a signal of its own, so each has its own past.
         self._calls += 1
         call_name = self.name if self._calls == 1 else f"{self.name}_{self._calls}"
+        # Named after the signal whose past it holds.
         past = Input(
-            f"{call_name}_past",
+            f"{call_name}_{stream.name}",
             dim=stream.dim,
             seq=_declared_seq(stream),
             sw=self._sw - 1,

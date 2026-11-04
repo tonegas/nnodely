@@ -662,8 +662,10 @@ class Derivative(_FiniteDifference):
     The counterpart of :class:`DerivativeStep` across the steps of a
     ModelyLoop, as :class:`Integrate` is :class:`IntegrateStep`'s: ``fun`` is
     one sample of a step, ``T=1``, and the ``window - 1`` samples before it
-    are a hidden Input, ``<name>_past``, fed back with ``fun``, which the loop
-    feeds back with all its other fed-back Inputs - no Loop of its own. The
+    are a hidden Input named after the block and the signal, ``<name>_<fun>``
+    (``Derivative3_x`` for ``Derivative(dt=dt)(x)``), fed back with ``fun``,
+    which the loop feeds back with all its other fed-back Inputs - no Loop of
+    its own. The
     result, named after the block, is the derivative at this step, estimated
     from the steps up to it.
     The stencil is ``DerivativeStep``'s - ``order``, ``window`` and
@@ -727,8 +729,9 @@ class Derivative(_FiniteDifference):
         # past.
         self._calls += 1
         call_name = self.name if self._calls == 1 else f"{self.name}_{self._calls}"
+        # Named after the signal whose past it holds.
         past = Input(
-            f"{call_name}_past",
+            f"{call_name}_{function.name}",
             dim=function.dim,
             seq=_declared_seq(function),
             sw=self.past,
