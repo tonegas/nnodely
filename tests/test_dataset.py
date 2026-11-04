@@ -122,93 +122,6 @@ def test_sequence_windows_are_created_on_temporal_windows():
     )
 
 
-def test_explicit_dataloader_normalization_and_denormalization():
-    x = Input("normalization_x", dim=2, sw=2)
-    target = Input("normalization_target", sw=1)
-    relation = x
-    output = Output("normalization_output", relation)
-    model = Modely("normalization_model", inputs=[x], outputs=[output])
-    model.minimize("error", output, target, loss="mse")
-    model.build()
-
-    loader = DataLoader(
-        model,
-        source={
-            "normalization_x": np.array(
-                [[0.0, 100.0], [2.0, 200.0], [4.0, 300.0], [6.0, 400.0]],
-                dtype=np.float32,
-            ),
-            "normalization_target": np.array(
-                [10.0, 20.0, 30.0, 40.0], dtype=np.float32
-            ),
-        },
-    )
-    original = {
-        name: np.array(values, copy=True) for name, values in loader.as_dict().items()
-    }
-
-    loader.normalize(method="minmax")
-
-    normalized_x = loader._dataset["normalization_x"]
-    np.testing.assert_array_equal(np.min(normalized_x, axis=(0, 1)), [-1.0, -1.0])
-    np.testing.assert_array_equal(np.max(normalized_x, axis=(0, 1)), [1.0, 1.0])
-    assert np.min(loader._dataset["normalization_target"]) == -1.0
-    assert np.max(loader._dataset["normalization_target"]) == 1.0
-
-    restored = loader.denormalize(loader.as_dict())
-    for name in original:
-        if isinstance(restored, dict):
-            np.testing.assert_allclose(
-                to_numpy(restored[name]), to_numpy(original[name]), atol=1e-6
-            )
-        else:
-            np.testing.assert_allclose(
-                to_numpy(restored), to_numpy(original[name]), atol=1e-6
-            )
-
-    normalized_prediction = loader._dataset["normalization_target"][:1]
-    restored_prediction = loader.denormalize(
-        {"normalization_output": normalized_prediction}
-    )
-    if isinstance(restored_prediction, dict):
-        np.testing.assert_allclose(
-            to_numpy(restored_prediction["normalization_output"]),
-            to_numpy(original["normalization_target"][:1]),
-            atol=1e-6,
-        )
-    else:
-        np.testing.assert_allclose(
-            to_numpy(restored_prediction),
-            to_numpy(original["normalization_target"][:1]),
-            atol=1e-6,
-        )
-
-    loader.denormalize()
-    for name in original:
-        np.testing.assert_array_equal(loader._dataset[name], original[name])
-
-
-def test_standard_normalization_handles_constant_inputs():
-    x = Input("constant_normalization_x", sw=1)
-    model = Modely(
-        "constant_normalization_model",
-        inputs=[x],
-        outputs=[Output("constant_normalization_output", x)],
-    ).build()
-    loader = DataLoader(
-        model,
-        source={"constant_normalization_x": np.full(4, 5.0, dtype=np.float32)},
-    )
-
-    loader.normalize(method="standard")
-    np.testing.assert_array_equal(loader._dataset["constant_normalization_x"], 0.0)
-    restored = loader.denormalize(
-        loader._dataset["constant_normalization_x"],
-        name="constant_normalization_x",
-    )
-    np.testing.assert_array_equal(restored, 5.0)
-
-
 def test_step_subsamples_sample_windows():
     x = Input("step_x", dim=1, sw=3)
     model = Modely(
@@ -521,7 +434,6 @@ def test_full_sequence_spans_each_simulation_and_pads():
     )
 
     ## The mask marks the real steps of every simulation
-    assert loader._padded_inputs == {"full_x"}
     np.testing.assert_array_equal(
         loader.mask,
         np.array([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=bool),
@@ -572,7 +484,6 @@ def test_full_sequence_of_equal_simulations_needs_no_mask():
 
     assert loader._dataset["uniform_x"].shape == (2, 4, 1, 1)
     assert loader.mask is None
-    assert loader._padded_inputs == set()
 
 
 def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
@@ -606,34 +517,6 @@ def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
             source={"full_inner_x": np.arange(6, dtype=np.float32)},
             seq_length="full",
         )
-
-
-def test_normalization_ignores_padded_steps():
-    x = Input("padded_norm_x", dim=1, seq=-1, sw=1)
-    model = Modely(
-        "padded_norm_model",
-        inputs=[x],
-        outputs=[Output("padded_norm_out", x)],
-    ).build()
-
-    loader = DataLoader(
-        model,
-        source=[
-            {"padded_norm_x": np.arange(1, 6, dtype=np.float32)},
-            {"padded_norm_x": np.array([10, 11], dtype=np.float32)},
-        ],
-        seq_length="full",
-    )
-    loader.normalize(method="standard")
-
-    ## The three repeated steps of the short simulation must not move the mean
-    observed = np.array([1, 2, 3, 4, 5, 10, 11], dtype=np.float64)
-    assert loader.normalization_stats["padded_norm_x"]["offset"].ravel()[
-        0
-    ] == pytest.approx(observed.mean())
-    assert loader.normalization_stats["padded_norm_x"]["scale"].ravel()[
-        0
-    ] == pytest.approx(observed.std())
 
 
 def test_uncollected_loop_warns_on_simulations_of_different_lengths():

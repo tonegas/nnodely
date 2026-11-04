@@ -354,8 +354,6 @@ Reproducibility: call `set_seed(int)` before creating layers and data. It seeds 
 
 **Access**: `len(loader)`, `loader[i]` → `{name: (*seq, time, *dim)}` (no batch axis: add one with `v[None]` before calling the model), `iter(loader)`, `loader.as_dict()` → `{name: (N, *seq, time, *dim)}` (e.g. `Input("c", dim=2, seq=3, sw=5)` gives `(N, 3, 5, 2)`, a `dim=2` input with `sw=1` `(N, 1, 2)`, without a window `(N, 2)` [verified]), `loader.get_samples(n, start=0, simulation=0)` → n consecutive samples of one simulation, batched like `as_dict()`, `loader.get_input(name)`, `loader.inputs`, `print(loader)`.
 
-**Normalization** (explicit and per loader): `loader.normalize(method="minmax" | "standard", names=None, feature_range=(-1.0, 1.0))` changes the loader in place, with statistics computed per feature, reducing over the samples, the sequence and the window. `loader.denormalize()` restores the loader. `loader.denormalize({output_name: array})` inverts predictions, matching each output to the input its minimizer target reads. `loader.normalization_stats` holds the statistics. A validation loader must be normalized with the same statistics. Normalizing each loader separately gives different statistics, so for consistent scaling prefer normalizing the raw arrays yourself, or fold the scaling into the model with `Constant`s.
-
 ---
 
 ## 10. Recurrence: Loop, ModelyLoop, Buffer
@@ -776,7 +774,7 @@ src/nnodely/
   core/minimizer.py      objectives: checks, resolution against the built graph, MinimizerModel (the training model)
   core/export.py         export_keras, import_keras, export_onnx, validate_onnx
   core/dag.py            name registry (next_name), flatten (inline ModelCalls per call scope: Scope, flatten_fed_back), toposort, stream helpers
-  core/dataloader.py     DataLoader (read → per-simulation arrays → sliding windows → alignment, mask, normalize)
+  core/dataloader.py     DataLoader (read → per-simulation arrays → sliding windows → alignment, mask)
   core/registry.py       ModelSerializer (format 8): model.json (+ model.weights.h5) via get_config/from_config; bodies in sub-folders;
                          each fed-back Input with the stream it is fed back with and its init ("feedback")
   core/validation.py     validate, score_signal, SignalScore, ValidationResult

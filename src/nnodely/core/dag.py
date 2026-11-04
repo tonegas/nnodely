@@ -221,7 +221,7 @@ def flatten(model):
 def _flatten_graph(
     name,
     inputs: list[Any],
-    outputs: list[Stream],
+    outputs: list[Output],
     *,
     return_memo: bool = False,
     fed_back: bool = False,

@@ -4,11 +4,10 @@ import warnings
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Literal, Sequence
 
-import keras
 import numpy as np
 import pandas as pd
 
-from nnodely.core.shape import BATCH_AXIS, OUTER_AXIS, outer_view, slice_axis
+from nnodely.core.shape import OUTER_AXIS, slice_axis
 
 sliding_window_view = np.lib.stride_tricks.sliding_window_view
 
@@ -127,14 +126,10 @@ class DataLoader:
             if any(length is None for length in sequence)
         }
         self.mask: np.ndarray | None = None
-        self._padded_inputs: set[str] = set()
         self._dataset = self._build(self._read(source))
         if self.mask is not None:
             self._warn_uncollected_loops()
 
-        self.normalization_stats: Dict[str, Dict[str, Any]] = {}
-        self._original_dataset: Dict[str, np.ndarray] | None = None
-        self._normalization_aliases = self._build_normalization_aliases()
         self._num_steps = min(len(values) for values in self._dataset.values())
 
     @property
@@ -159,13 +154,6 @@ class DataLoader:
         row("Total number of samples", len(self))
         for name, values in self._dataset.items():
             row(f"Shape of {name}", tuple(values.shape))
-        if self.normalization_stats:
-            methods = {stats["method"] for stats in self.normalization_stats.values()}
-            row(
-                "Normalization",
-                f"{'/'.join(sorted(methods))} "
-                f"({len(self.normalization_stats)}/{len(self._dataset)} inputs)",
-            )
 
         lines.append("=" * width)
         return "\n".join(lines)
@@ -549,7 +537,6 @@ class DataLoader:
             for name in self._dynamic_inputs:
                 chunks[name] = [self._pad(values, widest) for values in chunks[name]]
             self.mask = np.arange(widest) < np.asarray(lengths)[:, np.newaxis]
-            self._padded_inputs = set(self._dynamic_inputs)
 
         return {
             name: np.concatenate(windows, axis=0) for name, windows in chunks.items()
@@ -590,11 +577,6 @@ class DataLoader:
             axis=OUTER_AXIS,
         )
 
-    def _mask_view(self, rank: int) -> np.ndarray:
-        """The rollout mask shaped to broadcast against a dataset array."""
-        assert self.mask is not None
-        return outer_view(self.mask, rank, np.expand_dims)
-
     def _windows(
         self,
         name: str,
@@ -633,182 +615,3 @@ class DataLoader:
         if self._step > 1:
             windows = windows[:: self._step]
         return np.ascontiguousarray(windows, dtype=self._dtype)
-
-    # ------------------------------------------------------------------
-    # Explicit normalization
-    # ------------------------------------------------------------------
-
-    def normalize(
-        self,
-        method: Literal["minmax", "standard"] = "minmax",
-        names: list[str] | tuple[str, ...] | None = None,
-        feature_range: tuple[float, float] = (-1.0, 1.0),
-    ) -> "DataLoader":
-        """Fit normalization statistics and transform this loader in place.
-
-        Normalization is explicit and local to this DataLoader. It does not
-        modify Modely inference or any other loader created from the same data.
-        Statistics are fitted independently for every input feature while
-        reducing over samples, time, and sequence axes.
-        """
-        if method not in ("minmax", "standard"):
-            raise ValueError("method must be either 'minmax' or 'standard'.")
-        if not np.issubdtype(np.dtype(self._dtype), np.floating):
-            raise TypeError("DataLoader normalization requires a floating-point dtype.")
-        low, high = (float(feature_range[0]), float(feature_range[1]))
-        if method == "minmax" and not low < high:
-            raise ValueError("feature_range must satisfy low < high.")
-
-        selected = list(self._dataset) if names is None else list(names)
-        unknown = [name for name in selected if name not in self._dataset]
-        if unknown:
-            raise ValueError(f"Unknown dataset inputs for normalization: {unknown}.")
-
-        if self._original_dataset is None:
-            self._original_dataset = {
-                name: np.array(values, copy=True)
-                for name, values in self._dataset.items()
-            }
-        source = self._original_dataset
-
-        # Reapplying normalization always starts from the original prepared
-        # windows, so transformations never compound.
-        self._dataset = {
-            name: np.array(values, copy=True) for name, values in source.items()
-        }
-        self.normalization_stats = {}
-
-        for name in selected:
-            values = source[name].astype(np.float64, copy=False)
-            # One statistic per feature: over the samples and every step.
-            shape = self._input_nodes[name].shape
-            window_axes = () if shape.time_axis is None else (shape.time_axis,)
-            reduce_axes = (BATCH_AXIS, *shape.seq_axes, *window_axes)
-
-            # Padded rollout steps are repeats, not observations, so they are
-            # left out of the statistics while still being transformed.
-            padded = name in self._padded_inputs
-            observed = (
-                np.where(self._mask_view(values.ndim), values, np.nan)
-                if padded
-                else values
-            )
-            mean, std = (np.nanmean, np.nanstd) if padded else (np.mean, np.std)
-            smallest, largest = (np.nanmin, np.nanmax) if padded else (np.min, np.max)
-
-            if method == "standard":
-                offset = mean(observed, axis=reduce_axes, keepdims=True)
-                scale = std(observed, axis=reduce_axes, keepdims=True)
-                constant = scale <= np.finfo(np.float32).eps
-                safe_scale = np.where(constant, 1.0, scale)
-                normalized = (values - offset) / safe_scale
-            else:
-                minimum = smallest(observed, axis=reduce_axes, keepdims=True)
-                maximum = largest(observed, axis=reduce_axes, keepdims=True)
-                span = maximum - minimum
-                constant = span <= np.finfo(np.float32).eps
-                safe_scale = np.where(constant, 1.0, span)
-                offset = minimum
-                scale = safe_scale
-                normalized = (values - offset) / scale
-                normalized = normalized * (high - low) + low
-                normalized = np.where(constant, (low + high) / 2.0, normalized)
-
-            self.normalization_stats[name] = {
-                "method": method,
-                "offset": offset,
-                "scale": scale,
-                "constant": constant,
-                "feature_range": (low, high),
-            }
-            self._dataset[name] = normalized.astype(self._dtype)
-
-        return self
-
-    def denormalize(
-        self,
-        data: Dict[str, Any] | np.ndarray | None = None,
-        *,
-        name: str | None = None,
-    ):
-        """Undo this loader's fitted normalization.
-
-        With no data, restore the loader's original prepared dataset in place
-        and return ``self``. A dictionary or array is inverse-transformed and
-        returned without modifying the loader. For an array, ``name`` selects
-        the statistics to use.
-        """
-        if self._original_dataset is None:
-            if data is None:
-                return self
-            raise ValueError("normalize() must be called before denormalize().")
-
-        if data is None:
-            self._dataset = {
-                key: np.array(values, copy=True)
-                for key, values in self._original_dataset.items()
-            }
-            return self
-
-        if isinstance(data, dict):
-            return {
-                key: self._denormalize_values(key, values)
-                if self._normalization_name(key) is not None
-                else keras.ops.convert_to_numpy(values)
-                for key, values in data.items()
-            }
-
-        if name is None:
-            raise ValueError("name is required when denormalizing an array.")
-        return self._denormalize_values(name, data)
-
-    def _denormalize_values(self, name: str, values: Any) -> np.ndarray:
-        stats_name = self._normalization_name(name)
-        if stats_name is None:
-            raise ValueError(f"No normalization statistics are available for {name!r}.")
-        stats = self.normalization_stats[stats_name]
-        # A model's results are tensors of its backend, a torch one included.
-        values = np.asarray(keras.ops.convert_to_numpy(values), dtype=np.float64)
-        offset = self._match_stat_rank(stats["offset"], values.ndim)
-        scale = self._match_stat_rank(stats["scale"], values.ndim)
-        constant = self._match_stat_rank(stats["constant"], values.ndim)
-
-        if stats["method"] == "minmax":
-            low, high = stats["feature_range"]
-            values = (values - low) / (high - low)
-        restored = values * scale + offset
-        restored = np.where(constant, offset, restored)
-        return restored.astype(self._dtype)
-
-    @staticmethod
-    def _match_stat_rank(stat: np.ndarray, rank: int) -> np.ndarray:
-        while stat.ndim > rank and stat.shape[0] == 1:
-            stat = stat[0]
-        if stat.ndim != rank:
-            raise ValueError(
-                f"Data rank {rank} is incompatible with normalization rank {stat.ndim}."
-            )
-        return stat
-
-    def _normalization_name(self, name: str) -> str | None:
-        if name in self.normalization_stats:
-            return name
-        alias = self._normalization_aliases.get(name)
-        return alias if alias in self.normalization_stats else None
-
-    def _build_normalization_aliases(self) -> Dict[str, str]:
-        aliases = {}
-
-        def find_input_name(node):
-            if node.name in self._input_nodes:
-                return node.name
-            preds = getattr(node, "_preds", [])
-            if len(preds) == 1:
-                return find_input_name(preds[0])
-            return None
-
-        for minimizer in self._model._minimizers:
-            target_name = find_input_name(minimizer["target"])
-            if target_name is not None:
-                aliases[minimizer["source"].name] = target_name
-        return aliases

@@ -150,20 +150,3 @@ DataFrame, and it then reads zeros.
 
 ``on_short`` decides what happens to a simulation too short to fill one sample:
 ``"error"`` (the default) raises, ``"skip"`` leaves it out.
-
-Normalization
--------------
-
-Normalization is explicit and local to a loader.
-:meth:`~nnodely.DataLoader.normalize` fits the statistics per feature and
-transforms the loader in place. :meth:`~nnodely.DataLoader.denormalize` maps
-values back, including model predictions, which are matched to the input their
-target reads:
-
-.. code-block:: python
-
-   loader = DataLoader(model, source=signals)
-   loader.normalize(method="standard")            # or "minmax", feature_range=(-1, 1)
-   prediction = model(loader.get_samples(1))
-   physical = loader.denormalize({"y": prediction["y"]})  # a tensor of the backend
-   loader.denormalize()                           # restore the original data

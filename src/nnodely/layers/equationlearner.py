@@ -737,7 +737,7 @@ def _symbolic(spec: _FunctionSpec, index: int):
             Tanh: sympy.tanh,
             Sigmoid: _operator("sigmoid", r"\sigma"),
             Exp: sympy.exp,
-            Expm1: lambda a: sympy.exp(a) - 1,
+            Expm1: lambda a: sympy.exp(a) - 1,  # type: ignore
             Log: sympy.log,
             Log1p: lambda a: sympy.log(1 + a),
             Log10: _operator("log10", r"\log_{10}"),

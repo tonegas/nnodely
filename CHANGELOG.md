@@ -17,7 +17,7 @@ variable, and trains, validates and exports through Keras. Models saved with
   `build()`; a built model is called on data, or on streams to become a block
   of a larger model.
 - `DataLoader` for dicts, DataFrames and CSV files or folders, with several
-  simulations, sequences, padding masks and normalization. `delimiter` and
+  simulations, sequences and padding masks. `delimiter` and
   `header` are passed to `pandas.read_csv`; n/a values are reported. An array
   holds the features of each sample laid out as the input's `dim`, or flat in
   row-major order; another layout of as many values is refused rather than
