@@ -1568,6 +1568,38 @@ def test_local_model_repeated_call_shares_weights():
     )
 
 
+def test_local_model_is_a_block(tmp_path):
+    # ------- Each call is a model of its own, called as a block -------
+    x = Input("block_local_x", sw=3)
+    g = Input("block_local_g", sw=1)
+    k = Input("block_local_k", sw=1)
+    mu = Fuzzify(centers=[0.0, 1.0], function=Triangular)(g)
+    shared = Fir(features=1, name="block_local_shared")(x)
+    # The functions read streams of the graph that are not inputs of the block.
+    local = LocalModel(
+        lambda index: lambda streams: streams[0] * shared * k, name="block_local"
+    )
+    first, second = local([x], [mu]), local([x], [mu])
+    assert (first.name, second.name) == ("block_local", "block_local_2")
+
+    model = Modely(
+        "block_local_model",
+        inputs=[x, g, k],
+        outputs=[Output("first", first), Output("second", second)],
+    ).build()
+    assert {node.name for node in model.inference_inputs} == {
+        "block_local_x",
+        "block_local_g",
+        "block_local_k",
+    }
+    # The Fir the cells read is computed once, not once per block.
+    assert sum(isinstance(layer, FirImpl) for layer in model.model.layers) == 1
+
+    model.export_html(out_dir=tmp_path)
+    assert (tmp_path / "block_local_model__block_local_call.html").exists()
+    assert (tmp_path / "block_local_model__block_local_2_call.html").exists()
+
+
 def test_local_model_scalar_input_one_fuzzy_function_by_hand():
     # ------- y = x * sum_i mu_i(g) * gain_i, centers 0, 1, 2 -------
     x = Input("x_hand", sw=1)

@@ -182,7 +182,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   function is a factory of the cell index, giving each cell a layer of its
   own, a layer instance is shared by every cell, and `vectorized=True` calls
   it once on all the cells, which it returns on a last dim axis, as
-  `Fir(features=N)` does.
+  `Fir(features=N)` does. Each call is a block, its cells a model of their
+  own, which `export_html` shows on a page of its own.
 - `EquationLearner(functions, linear_in=, linear_out=, threshold=)`: an input
   projection gives each function its arguments, and `linear_out` combines
   the results. Functions are names - the trigonometric, math and activation

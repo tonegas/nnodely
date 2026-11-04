@@ -10,7 +10,8 @@ import keras
 import numpy as np
 
 from nnodely.core.dag import next_name
-from nnodely.core.layer import Identity, Layer, Multiply
+from nnodely.core.layer import Identity, Layer, Multiply, _refuse_uncalled
+from nnodely.core.modely import Modely
 from nnodely.core.shape import Shape, slice_axis
 from nnodely.core.stream import Stream
 from nnodely.layers.activations import (
@@ -24,6 +25,8 @@ from nnodely.layers.activations import (
     Tanh,
 )
 from nnodely.layers.arithmetic import Arithmetic, Clamp
+from nnodely.layers.input import Input
+from nnodely.layers.output import Output
 from nnodely.layers.trigonometric import Trigonometric
 
 # Weightless layers that act on every element alone: applying one of them to
@@ -47,6 +50,13 @@ _ELEMENTWISE = (
 def _cell_dim(dim) -> tuple[int, ...]:
     """The dim of one cell of a stack, whose last dim axis runs over the cells."""
     return tuple(dim[:-1]) or (1,)
+
+
+def _block_input(stream: Stream, name: str) -> Input:
+    """An Input of the shape of ``stream``, which a block reads it as: its dim,
+    its sequence, a dynamic axis declared with -1, and its window."""
+    seq = tuple(-1 if size is None else size for size in stream.seq)
+    return Input(name, dim=stream.dim, seq=seq or None, sw=stream.shape.time)
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -259,6 +269,11 @@ class LocalModel:
 
     Functions are called with a list of streams. Every cell must have the same
     shape; the result has the shape of one output cell.
+
+    Called, a LocalModel is a block: its cells are declared in a model of their
+    own, on Inputs of the shapes of ``inputs`` and ``activations``, which the
+    graph calls on them, and :meth:`Modely.export_html` shows on a page of its
+    own. The functions may read other streams of the graph too.
     """
 
     def __init__(
@@ -289,6 +304,9 @@ class LocalModel:
         # The layers made for the cells, kept so every call of this LocalModel
         # applies the same ones - and so shares their weights.
         self._cells: dict[tuple[str, int], Callable] = {}
+        # The calls made, which name the model of each, and the last model.
+        self._calls = 0
+        self._model: Modely | None = None
 
     def __call__(self, inputs, activations):
         inputs = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
@@ -299,6 +317,7 @@ class LocalModel:
         )
         if not all(isinstance(stream, Stream) for stream in inputs + activations):
             raise TypeError(f"{self.name}: inputs and activations must be Streams.")
+        _refuse_uncalled([*inputs, *activations])
         for index, activation in enumerate(activations):
             shape = activation.shape
             if shape.seq or shape.dim_rank != 1:
@@ -307,6 +326,27 @@ class LocalModel:
                     f"(cells,), got {shape}."
                 )
 
+        self._calls += 1
+        call_name = self.name if self._calls == 1 else f"{self.name}_{self._calls}"
+        block_inputs = [
+            _block_input(stream, f"{call_name}_input{index}")
+            for index, stream in enumerate(inputs)
+        ]
+        block_activations = [
+            _block_input(stream, f"{call_name}_activation{index}")
+            for index, stream in enumerate(activations)
+        ]
+        result = self._declare(block_inputs, block_activations, call_name)
+        self._model = Modely(
+            call_name,
+            inputs=[*block_inputs, *block_activations],
+            outputs=[Output(call_name, result)],
+        )
+        return self._model([*inputs, *activations])
+
+    def _declare(self, inputs, activations, call_name):
+        """The cells on the Inputs of the block, blended and summed; their
+        nodes are named after ``call_name``."""
         indices = list(np.ndindex(*(activation.dim[0] for activation in activations)))
 
         # The input functions of every cell, stacked on the last dim axis.
@@ -334,7 +374,7 @@ class LocalModel:
                     self._cell("in", function, i, index)(inputs)
                     for i, index in enumerate(indices)
                 ]
-            stack = CellStack(name=f"{self.name}_inputs")(values)
+            stack = CellStack(name=f"{call_name}_inputs")(values)
 
         # The memberships, of dim (N,), line up with the last dim axis of the
         # stack, its cell axis, and with its window.
@@ -352,9 +392,9 @@ class LocalModel:
         mu = (
             activations[0]
             if len(activations) == 1
-            else FuzzyProduct(name=f"{self.name}_mu")(activations)
+            else FuzzyProduct(name=f"{call_name}_mu")(activations)
         )
-        weighted = CellWeight(name=f"{self.name}_weighted")([stack, mu])
+        weighted = CellWeight(name=f"{call_name}_weighted")([stack, mu])
 
         function = self._output_function
         if self._is_vectorized(function):
@@ -364,12 +404,12 @@ class LocalModel:
         elif function is not None:
             outputs = [
                 self._cell("out", function, i, index)(
-                    [CellSelect(idx=i, name=f"{self.name}_cell{i}")([weighted])]
+                    [CellSelect(idx=i, name=f"{call_name}_cell{i}")([weighted])]
                 )
                 for i, index in enumerate(indices)
             ]
-            weighted = CellStack(name=f"{self.name}_outputs")(outputs)
-        return CellSum(name=self.name)([weighted])
+            weighted = CellStack(name=f"{call_name}_outputs")(outputs)
+        return CellSum(name=f"{call_name}_sum")([weighted])
 
     def _is_vectorized(self, function) -> TypeGuard[Callable[..., Any]]:
         return (

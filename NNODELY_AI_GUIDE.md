@@ -452,7 +452,7 @@ Orders 1 and 2 are supported by all three. Passing a number to `Gradient` raises
 - A model loaded with `Modely.load` can be used as a block: building the larger model keeps its trained weights and initializes only the new layers [verified].
 - The block brings its weights along (trained weights are reused while input shapes match), and training the outer model also trains the block. To freeze it: `block.freeze()`.
 - Calling the same block twice shares its weights (§1.22 covers naming).
-- `EquationLearner` uses composition internally.
+- `EquationLearner` and `LocalModel` use composition internally: each call declares a model of its own and calls it as a block, which `export_html` shows on a page of its own.
 - `Gradient(respect_to=Input)` inside a block does not work once the block's inputs are rebound. Put the derivative in the outer model instead, where the Input is declared.
 - An Input the block reads **without declaring it** is the outer model's Input too, one node read from the same data, whatever the order of the operands [verified].
 - A fed-back Input the block declares reads the stream given for it at every step in a `Modely`; in a `ModelyLoop` it keeps its feedback, and the stream is its initial value (§10.2).

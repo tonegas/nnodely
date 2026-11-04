@@ -307,7 +307,9 @@ applied to every cell with the same weights, and a plain function is a factory
 that receives the cell index ``(i, j)`` and returns the layer of that cell, with
 weights of its own. With ``vectorized=True`` a function or a layer such as
 ``Fir(features=20)`` is called once on all the cells instead, and returns them on a last
-dim axis of 20 entries. Functions passed to ``EquationLearner`` can be names,
+dim axis of 20 entries. Each call of a ``LocalModel`` declares its cells in a
+model of their own and calls it as a block, which ``export_html`` shows on a
+page of its own. Functions passed to ``EquationLearner`` can be names,
 *nnodely* layer classes, or Python callables that take streams, such as
 ``lambda a, b: a * b``.
 
