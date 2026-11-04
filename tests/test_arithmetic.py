@@ -294,7 +294,7 @@ def test_cross():
     with pytest.raises(ValueError, match="reads two streams"):
         Cross()([a])
     with pytest.raises(TypeError, match="configured first"):
-        Cross([a, b])
+        Cross([a, b])  # type: ignore
 
 
 def test_math_layers_save_load_and_export(tmp_path):

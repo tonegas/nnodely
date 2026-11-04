@@ -567,6 +567,11 @@ class _ParameterWeights(Layer):
                 )
             # Before the weights are sized on it.
             _refuse_uncalled(inputs)
+            if not inputs:
+                raise ValueError(
+                    f"{self.name}: {type(self).__name__} reads one stream, got "
+                    "none. Apply it to a stream first."
+                )
             inputs = [inputs[0], *self._parameters(inputs[0])]
         return super().__call__(inputs)
 

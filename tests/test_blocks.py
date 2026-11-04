@@ -1593,6 +1593,7 @@ def test_local_model_is_a_block(tmp_path):
         "block_local_k",
     }
     # The Fir the cells read is computed once, not once per block.
+    assert model.model is not None
     assert sum(isinstance(layer, FirImpl) for layer in model.model.layers) == 1
 
     model.export_html(out_dir=tmp_path)

@@ -240,6 +240,33 @@ def test_inference_names_the_inputs_missing_from_the_data():
         model({"missing_input_target": np.ones((4, 1, 1), dtype=np.float32)})
 
 
+def test_inference_takes_its_arrays_as_a_block_takes_its_streams():
+    model = _minimized_model("keyed_inference")
+    x = model._inputs[0]
+    windows = _windows()
+    target = np.ones((4, 1, 1), dtype=np.float32)
+    expected = to_numpy(model({"keyed_inference_x": windows})["keyed_inference_pred"])
+
+    # Keyed by Input or by name, or listed in the order of the inputs - the
+    # target too, which the outputs do not read: the same run.
+    for given in (
+        {x: windows},
+        {x: windows, "keyed_inference_unknown": target},
+        [windows, target],
+        (windows, target),
+    ):
+        np.testing.assert_allclose(
+            to_numpy(model(given)["keyed_inference_pred"]), expected
+        )
+
+    with pytest.raises(ValueError, match="2 inputs"):
+        model([windows])
+    with pytest.raises(ValueError, match="two values for its input"):
+        model({x: windows, "keyed_inference_x": windows})
+    with pytest.raises(TypeError, match="streams and arrays together"):
+        model({x: windows, "keyed_inference_target": Input("keyed_other", sw=1)})
+
+
 def test_a_model_that_reads_no_input_is_refused_at_build():
     # Once a bare Keras "All outputs values must be KerasTensors".
     from nnodely import Parameter

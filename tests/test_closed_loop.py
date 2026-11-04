@@ -78,7 +78,7 @@ def test_nested_loop(tmp_path):
         collect=False,
         init={inner: x},
     )()
-    assert first_loop.shape.dimensions == ((5,), 1, (1,))
+    assert first_loop.dimensions == ((5,), 1, (1,))
 
     second_input = Input("second_input", dim=1, sw=1)
     second_relation = second_input * gain
@@ -102,7 +102,7 @@ def test_nested_loop(tmp_path):
     result = model({"nested_input": nested_values})
     output = to_numpy(result["nested_output"])[0]
 
-    assert second_loop.shape.dimensions == ((), 1, (1,))
+    assert second_loop.dimensions == ((), 1, (1,))
     assert output.shape == (1, 1)
     np.testing.assert_allclose(
         output,
@@ -134,7 +134,7 @@ def test_loop_mechanical_modely(tmp_path):
         collect=False,
         init={"mechanical_state": state_seq},
     )({"external_force": external_force})
-    assert loop.shape.dimensions == ((), 1, (1,))
+    assert loop.dimensions == ((), 1, (1,))
     model = Modely(
         "closed_mechanical_model",
         inputs=[state_seq, external_force],
@@ -394,7 +394,7 @@ def test_loop_bound_inputs(tmp_path):
         init={x: initial},
     )({u: driver})
     assert loop._horizon == 3
-    assert loop.shape.dimensions == ((3,), 1, (1,))
+    assert loop.dimensions == ((3,), 1, (1,))
 
     model = Modely(
         "sliced_model",
@@ -464,7 +464,7 @@ def test_loop_dynamic_length():
         init={x: initial_window},
     )({u: driver_window})
     assert loop._horizon == 3
-    assert loop.shape.dimensions == ((3,), 1, (1,))
+    assert loop.dimensions == ((3,), 1, (1,))
 
     # A dynamic rollout needs no length: it is only declared with a default one.
     unpinned = Loop(
@@ -536,7 +536,7 @@ def test_loop_window_feedback():
     assert body.built
     # The window of x, (batch, 3, 1), shifts along its inner time, axis 1.
     assert loop._feedback_shift_axes == [1]
-    assert loop.shape.dimensions == ((3,), 1, (1,))
+    assert loop.dimensions == ((3,), 1, (1,))
 
     model = Modely(
         "window_model",

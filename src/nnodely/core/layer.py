@@ -312,7 +312,7 @@ class Layer(Stream, metaclass=_LayerType):
             if self._one_stream and len(inputs) > 1:
                 # A layer that reads one stream, such as an activation, is
                 # applied to each of several: one result per stream, in order.
-                return [self([x]) for x in inputs if isinstance(x, Stream)]
+                return [self([x]) for x in inputs]
             out_shapes = self.output_shape(*inputs)
             if not isinstance(out_shapes, list):
                 out_shapes = [out_shapes]

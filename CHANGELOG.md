@@ -15,7 +15,8 @@ variable, and trains, validates and exports through Keras. Models saved with
 
 - `Modely`, a model declared by its inputs and outputs and built with
   `build()`; a built model is called on data, or on streams to become a block
-  of a larger model.
+  of a larger model. Both take a dict keyed by Input or input name, or a list
+  in the order of the model's inputs.
 - `DataLoader` for dicts, DataFrames and CSV files or folders, with several
   simulations, sequences and padding masks. `delimiter` and
   `header` are passed to `pandas.read_csv`; n/a values are reported. An array

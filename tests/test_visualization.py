@@ -625,7 +625,7 @@ def test_equation_learner_plot_returns_the_equation_it_draws():
     equation = learner.plot()
     assert equation == sympy.Eq(
         sympy.Symbol("y"),
-        expected + 3 * sympy.sin(2 * v0 + sympy.Float(0.004) * v1 + sympy.Float(0.5)),
+        expected + 3 * sympy.sin(2 * v0 + sympy.Float(0.004) * v1 + sympy.Float(0.5)),  # type:ignore
     )
     # Drawn as LaTeX on a figure of its own.
     assert len(plt.get_fignums()) == figures + 1
@@ -635,7 +635,7 @@ def test_equation_learner_plot_returns_the_equation_it_draws():
 
     # The coefficients below the threshold are left out, 0.004 v_1.
     learner.threshold = 0.01
-    assert learner.plot().rhs == expected + 3 * sympy.sin(2 * v0 + sympy.Float(0.5))
+    assert learner.plot().rhs == expected + 3 * sympy.sin(2 * v0 + sympy.Float(0.5))  # type:ignore
     # Rounded to the significant digits asked for.
     assert sympy.Float(0.12) in learner.plot(precision=2).rhs.atoms(sympy.Float)
     plt.close("all")

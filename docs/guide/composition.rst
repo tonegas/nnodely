@@ -2,8 +2,10 @@ Model Composition
 =================
 
 A :class:`~nnodely.Modely` can be used as a block of another model. Calling it
-on a list of streams, one per input and in the order of the ``inputs`` it was
-declared with, returns its outputs as streams of the outer graph:
+on streams returns its outputs as streams of the outer graph. The streams are
+given the way a built model is given its arrays (see :doc:`models`): a dict
+keyed by the Input or by its name, or a list with one stream per input in the
+order of the ``inputs`` the block was declared with:
 
 .. code-block:: python
 
@@ -15,14 +17,15 @@ declared with, returns its outputs as streams of the outer graph:
    smoother = Modely("smoother", inputs=[signal], outputs=[filtered]).build()
 
    raw = Input("raw", sw=10)
-   smoothed = smoother([raw])
+   smoothed = smoother([raw])   # or smoother({signal: raw}), smoother({"signal": raw})
    command = Output("command", ReLU()([Linear(features=1)([smoothed])]))
 
    controller = Modely("controller", inputs=[raw], outputs=[command]).build()
    print(controller({"raw": np.ones((1, 10, 1))})["command"].shape)   # (1, 1, 1)
 
-A model with several outputs returns them as a list:
-``first, second = block([a, b])``.
+Every declared input needs a stream, and one left out is refused; a key that
+names no input of the block is ignored. A model with several outputs returns
+them as a list: ``first, second = block([a, b])``.
 
 A block keeps the shapes it was declared with. Every stream it is called on
 must have the shape of the block's input - here a window of 10 samples of one

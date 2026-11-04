@@ -441,6 +441,46 @@ def test_a_model_used_as_a_block_takes_one_stream_per_input():
     np.testing.assert_allclose(to_numpy(result["outer_sum"]), [[[21.0]]])
 
 
+def test_a_block_takes_its_streams_as_a_model_takes_its_arrays():
+    a = Input("keyed_a", sw=1)
+    b = Input("keyed_b", sw=1)
+    # Not built: a block is composed from its graph alone.
+    body = Modely("keyed_body", inputs=[a, b], outputs=[Output("keyed_diff", a - b)])
+    x = Input("keyed_x", sw=1)
+    y = Input("keyed_y", sw=1)
+
+    # Keyed by Input or by name, in any order, or listed in the order of the
+    # inputs: one block. A key of no input of the block is ignored.
+    calls = [
+        body([x, y]),
+        body({a: x, b: y}),
+        body({"keyed_b": y, "keyed_a": x}),
+        body({a: x, "keyed_b": y, "keyed_unknown": x}),
+    ]
+    outer = Modely(
+        "keyed_outer",
+        inputs=[x, y],
+        outputs=[Output(f"keyed_out{i}", call) for i, call in enumerate(calls)],
+    ).build()
+    result = outer(
+        {
+            "keyed_x": np.full((1, 1, 1), 5.0, dtype=np.float32),
+            "keyed_y": np.full((1, 1, 1), 2.0, dtype=np.float32),
+        }
+    )
+    for i in range(len(calls)):
+        np.testing.assert_allclose(to_numpy(result[f"keyed_out{i}"]), [[[3.0]]])
+
+    # Every declared input needs a stream, given once; streams and arrays
+    # are not mixed.
+    with pytest.raises(ValueError, match=r"\['keyed_b'\] have none"):
+        body({a: x})
+    with pytest.raises(ValueError, match="two values for its input 'keyed_a'"):
+        body({a: x, "keyed_a": x, b: y})
+    with pytest.raises(TypeError, match="streams and arrays together"):
+        body({a: x, b: np.ones((1, 1, 1), dtype=np.float32)})
+
+
 def test_layers_created_apart_have_their_own_weights_whatever_their_names():
     # Once shared by name: two Fir named alike were one layer.
     x = Input("twins_x", sw=2)

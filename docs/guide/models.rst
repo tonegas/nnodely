@@ -351,12 +351,15 @@ declared **before** ``build()``, because they add to the graph that gets built.
 Inference
 ---------
 
-A built model is called with a dictionary that maps input names to arrays of
-shape ``(batch, *seq, time, *dim)``, batch axis included. Inputs only the
-minimizers read, such as targets, are ignored, so the arrays of a
-:class:`~nnodely.DataLoader` - ``as_dict()`` or ``get_samples(n)`` - can be
-passed as they are. The result maps output names to tensors of the active
-backend.
+A built model is called with a dictionary that maps each input - its name or
+the Input itself - to an array of shape ``(batch, *seq, time, *dim)``, batch
+axis included. Inputs only the minimizers read, such as targets, and keys that
+name no input are ignored, so the arrays of a :class:`~nnodely.DataLoader` -
+``as_dict()`` or ``get_samples(n)`` - can be passed as they are. A list works
+too: one array per input the model was declared with, in the order of
+``inputs``. These are the forms that make the model a block of a larger one
+when it is called on streams (see :doc:`composition`). The result maps output
+names to tensors of the active backend.
 
 The array of an input has the shape the input is declared with, which its
 ``shape`` reports: here one sample of ``velocity`` and the ten samples of
@@ -376,7 +379,8 @@ The array of an input has the shape the input is declared with, which its
    print(result["acceleration"].shape)   # (1, 1, 1)
 
 The model has to be called with every input its outputs read, listed in
-``model.inference_inputs``; inputs used only as targets can be left out.
+``model.inference_inputs``; inputs used only as targets can be left out of a
+dictionary.
 
 Weights and the Keras model
 ---------------------------

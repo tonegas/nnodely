@@ -50,10 +50,11 @@ class Modely:
     model. Objectives (:meth:`minimize`) are declared on it, then
     :meth:`build` creates the Keras model and its weights.
 
-    A built model is called with ``{input name: array}``, every array with its
-    batch axis, and returns ``{output name: tensor}``. Called with a list of
-    streams instead, it
-    becomes a block of a larger graph and returns its outputs as streams.
+    A model is called with a dict keyed by Input or input name, or with a
+    list holding one value per input in the order of ``inputs``. Called on
+    arrays, every one with its batch axis, a built model runs and returns
+    ``{output name: tensor}``; called on streams, it becomes a block of a
+    larger graph and returns its outputs as streams.
     """
 
     name: str
@@ -85,37 +86,80 @@ class Modely:
         return f"Model {self.name}:\n - {items}"
 
     def __call__(self, inputs) -> Any:
-        if not isinstance(inputs, dict):
-            # block mode: one stream for every declared input, in their order.
-            # Pairing them off with zip made a missing stream an input of the
-            # graph above, and dropped an extra one.
-            if not isinstance(inputs, (list, tuple)) or not all(
-                isinstance(v, Node) for v in inputs
-            ):
-                raise TypeError(
-                    f"Model {self.name!r} is called with a dict of arrays to run "
-                    "it, or with a list of streams, one per input, to use it as "
-                    f"a block; got {type(inputs).__name__}."
-                )
-            if len(inputs) != len(self._inputs):
+        """Run the model on arrays, or use it as a block on streams.
+
+        Either way ``inputs`` is a dict keyed by Input or input name, or a
+        list with one value per input, in the order of ``inputs``. A key that
+        names no input the model reads is ignored.
+        """
+        if isinstance(inputs, dict):
+            values = list(inputs.values())
+            given: dict[Any, Any] = {}
+            for key, value in inputs.items():
+                name = key.name if isinstance(key, Input) else key
+                if name in given:
+                    raise ValueError(
+                        f"Model {self.name!r} is given two values for its input "
+                        f"{name!r}: key it by the Input or by its name, once."
+                    )
+                given[name] = value
+        elif isinstance(inputs, (list, tuple)):
+            values = list(inputs)
+            # One value per input, no more and no less: paired off with zip, an
+            # input left without one would be read from the data of the graph
+            # above, and an extra value dropped.
+            if len(values) != len(self._inputs):
                 names = [node.name for node in self._inputs]
                 raise ValueError(
                     f"Model {self.name!r} has {len(self._inputs)} inputs {names}: "
-                    "used as a block it takes one stream for each, in that "
-                    f"order, got {len(inputs)}."
+                    "called with a list it takes one value for each, in that "
+                    f"order, got {len(values)}."
                 )
-            for node, stream in zip(self._inputs, inputs):
-                self._check_block_input(node, stream)
-            mc = ModelCall(f"{self.name}_call", self)
-            mc._preds = list(inputs)
-            mc._inputs_map = {old: new for old, new in zip(self._inputs, inputs)}
-            outputs = [IntermediateOutput(output, mc) for output in self.outputs]
-            mc._outputs_map = {new: old for old, new in zip(self.outputs, outputs)}
-            return outputs[0] if len(outputs) == 1 else outputs
+            given = {node.name: value for node, value in zip(self._inputs, values)}
+        else:
+            raise TypeError(
+                f"Model {self.name!r} is called with a dict keyed by Input or "
+                "input name, or with a list of streams or arrays, one per input "
+                f"in their order; got {type(inputs).__name__}."
+            )
+        streams = [isinstance(value, Node) for value in values]
+        if all(streams):
+            return self._call_stream(given)
+        if any(streams):
+            raise TypeError(
+                f"Model {self.name!r} is called with streams and arrays together: "
+                "streams make it a block of a larger graph, arrays run it. Give "
+                "it one or the other."
+            )
+        return self._call_tensor(given)
 
-        # tensor execution mode: the declared outputs, without minimizers. The
-        # arrays come batched, as a DataLoader lays them out; an input only a
-        # minimizer reads, such as a target, is neither needed nor passed on.
+    def _call_stream(self, streams: dict[str, Any]) -> Any:
+        """The model as a block of a larger graph: every declared input reads
+        the stream given for it, and the outputs are returned as streams."""
+        names = [node.name for node in self._inputs]
+        # A declared input left out would be read from the data of the graph
+        # above, as an input of its own.
+        missing = [name for name in names if name not in streams]
+        if missing:
+            raise ValueError(
+                f"Model {self.name!r} has {len(names)} inputs {names}: used as a "
+                f"block it takes a stream for each, and {missing} have none."
+            )
+        arguments = [streams[name] for name in names]
+        for node, stream in zip(self._inputs, arguments):
+            self._check_block_input(node, stream)
+        mc = ModelCall(f"{self.name}_call", self)
+        mc._preds = arguments
+        mc._inputs_map = {old: new for old, new in zip(self._inputs, arguments)}
+        outputs = [IntermediateOutput(output, mc) for output in self.outputs]
+        mc._outputs_map = {new: old for old, new in zip(self.outputs, outputs)}
+        return outputs[0] if len(outputs) == 1 else outputs
+
+    def _call_tensor(self, inputs: dict[str, Any]) -> Any:
+        """The model run on arrays, ``{input name: array}``: its declared
+        outputs, without minimizers."""
+        # The arrays come batched, as a DataLoader lays them out; an input only
+        # a minimizer reads, such as a target, is neither needed nor passed on.
         if self.inference_model is None:
             raise ValueError("Model is not built. Call build() before calling it.")
         given = [
@@ -134,7 +178,7 @@ class Modely:
             )
         # An optional input left out reads zeros, one step of a dynamic
         # sequence: a ModelyLoop starts from the first step of it alone.
-        batch = np.shape(given[0])[0] if given else 0
+        batch = np.shape(given[0])[0]
         zeros = {
             inp.name: np.zeros(
                 (batch, *(1 if size is None else size for size in inp.shape.tuple)),

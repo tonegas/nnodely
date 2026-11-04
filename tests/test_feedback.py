@@ -137,7 +137,7 @@ def test_every_way_of_writing_the_integrator_rolls_out_the_same(
         model.build()
     data = {f"{tag}_{signal}": _u()}
     if seeded:
-        data[f"{tag}_{start}"] = _y0(steps)
+        data[f"{tag}_{start}"] = _y0(steps)  # type: ignore
     expected = FROM_TEN if seeded else FROM_ZERO
     np.testing.assert_allclose(_rolled(model, data, f"{tag}_traj"), expected)
 
