@@ -14,9 +14,11 @@ from nnodely.layers.partitions import TimeSelect
 @keras.saving.register_keras_serializable(package="nnodely")
 class BufferImpl(keras.layers.Layer):
     """The past samples of a buffer followed by the current one, along the
-    window; a current sample without a window gets one. With ``repeat``, the
-    past is an init - a value, or samples of a scalar - broadcast to the
-    current sample's shape and repeated that many times along the window."""
+    window; a current sample without a window gets one. The past is broadcast
+    to the current sample's shape: an init may be a value, or samples of a
+    scalar, and a loop starts a state from zero before the first step tells
+    the length of a dynamic axis. With ``repeat``, it is an init of one
+    sample, repeated that many times along the window."""
 
     def __init__(self, axis: int, expand: bool, repeat: int = 0, name=None, **kwargs):
         super().__init__(name=name, **kwargs)
@@ -30,10 +32,9 @@ class BufferImpl(keras.layers.Layer):
             current = keras.ops.expand_dims(current, self.axis)
         if not past:
             return current
-        history = past[0]
+        history = expand_to_rank(past[0], len(current.shape))
+        history = history + keras.ops.zeros_like(current)
         if self.repeat:
-            history = expand_to_rank(history, len(current.shape))
-            history = history + keras.ops.zeros_like(current)
             history = keras.ops.repeat(history, self.repeat, axis=self.axis)
         return keras.ops.concatenate([history, current], axis=self.axis)
 

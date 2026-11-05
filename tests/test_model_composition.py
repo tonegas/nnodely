@@ -537,8 +537,10 @@ def test_a_model_used_as_a_block_takes_one_stream_per_input():
         body([x])
     with pytest.raises(ValueError, match="2 inputs"):
         body([x, y, z])
-    with pytest.raises(TypeError, match="list of streams"):
+    with pytest.raises(ValueError, match="2 inputs .* called with a value alone"):
         body(x)
+    with pytest.raises(TypeError, match="list of streams"):
+        body(3.0)
 
     outer = Modely(
         "uses_block",
@@ -593,6 +595,30 @@ def test_a_block_takes_its_streams_as_a_model_takes_its_arrays():
         body({a: x, "keyed_a": x, b: y})
     with pytest.raises(TypeError, match="streams and arrays together"):
         body({a: x, b: np.ones((1, 1, 1), dtype=np.float32)})
+
+
+def test_a_block_with_one_input_takes_its_stream_or_array_alone():
+    a = Input("alone_a", sw=1)
+    body = Modely("alone_body", inputs=[a], outputs=[Output("alone_twice", a * 2.0)])
+    x = Input("alone_x", sw=1)
+    outer = Modely(
+        "alone_outer",
+        inputs=[x],
+        outputs=[
+            Output("alone_bare", body(x)),
+            Output("alone_listed", body([x])),
+        ],
+    ).build()
+    data = np.full((1, 1, 1), 5.0, dtype=np.float32)
+    # Called on its array alone as well.
+    result = outer(data)
+    np.testing.assert_allclose(to_numpy(result["alone_bare"]), [[[10.0]]])
+    np.testing.assert_allclose(to_numpy(result["alone_listed"]), [[[10.0]]])
+
+    b = Input("alone_b", sw=1)
+    pair = Modely("alone_pair", inputs=[a, b], outputs=[Output("alone_sum", a + b)])
+    with pytest.raises(ValueError, match="2 inputs .* called with a value alone"):
+        pair(x)
 
 
 def test_layers_created_apart_have_their_own_weights_whatever_their_names():

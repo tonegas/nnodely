@@ -17,7 +17,7 @@ order of the ``inputs`` the block was declared with:
    smoother = Modely("smoother", inputs=[signal], outputs=[filtered]).build()
 
    raw = Input("raw", sw=10)
-   smoothed = smoother([raw])   # or smoother({signal: raw}), smoother({"signal": raw})
+   smoothed = smoother([raw])   # or smoother(raw), smoother({signal: raw}), smoother({"signal": raw})
    command = Output("command", ReLU()([Linear(features=1)([smoothed])]))
 
    controller = Modely("controller", inputs=[raw], outputs=[command]).build()

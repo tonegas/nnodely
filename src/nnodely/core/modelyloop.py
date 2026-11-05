@@ -39,11 +39,13 @@ class ModelyLoop(Modely):
     fed-back Inputs it declares: the stream the call gives one is its initial
     value, read at the first step.
 
-    Rolled out, every Input carries the horizon as its outermost sequence
-    axis, ``length`` steps, or as many as the data has when ``length`` is
-    None, and every output is a trajectory: its element ``k`` is computed at
-    step ``k``. A fed-back Input that starts from data, or from an init that
-    is an Input, reads its first step.
+    ``length`` is the number of steps, and the outermost sequence axis the
+    rollout adds to every Input and every output: an Input of the step
+    declared with ``seq=s`` is read from data of ``seq=(length, *s)``. None
+    leaves that axis dynamic, as many steps as the data has. Every output is
+    a trajectory: its element ``k`` is computed at step ``k``. A fed-back
+    Input that starts from data, or from an init that is an Input, reads its
+    first step.
 
     :meth:`minimize` takes the streams of the step - an output of the model,
     or an Input nothing feeds back - and compares their trajectories.

@@ -1,218 +1,384 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>{{ title }}</title>
+<title>{{ title }}{{ title_suffix }} · nnodely</title>
 <style>
+    :root {
+        --ink: #1f2335;
+        --muted: #5b6475;
+        --faint: #8a93a3;
+        --line: #e4e7ee;
+        --panel: #f7f8fb;
+        --page: #ffffff;
+        --brand: #6c75df;
+        --brand-dark: #4b53b8;
+        --brand-soft: #eef0fc;
+        --focus: #4b53b8;
+        --radius: 10px;
+        --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { height: 100%; }
     body {
-        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
         margin: 0;
-        padding: 0;
-        background: #ffffff;
-        color: #111;
+        font-family: var(--font);
+        font-size: 14px;
+        color: var(--ink);
+        background: var(--page);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
     }
-    header {
-        padding: 12px 16px;
-        border-bottom: 1px solid #eee;
+    button, input { font: inherit; color: inherit; }
+    a { color: var(--brand-dark); }
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+    /* ---------- header ---------- */
+    .topbar {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 14px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--line);
+        min-height: 56px;
         flex-wrap: wrap;
     }
-    .header-left {
-        justify-self: start;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        flex-wrap: wrap;
-    }
-    .header-right {
-        justify-self: end;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        flex-wrap: wrap;
-    }
-    header h1 {
-        font-size: 16px;
+    .topbar img { display: block; }
+    .title-block { display: flex; flex-direction: column; min-width: 0; }
+    .crumbs { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .crumbs a { color: var(--muted); text-decoration: none; border-bottom: 1px dashed #c3c8d4; }
+    .crumbs a:hover { color: var(--ink); border-bottom-color: var(--ink); }
+    h1 {
+        font-size: 17px;
+        font-weight: 650;
         margin: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 60vw;
+    }
+    .view-tag {
+        font-size: 11px;
         font-weight: 600;
+        color: var(--brand-dark);
+        background: var(--brand-soft);
+        border-radius: 999px;
+        padding: 2px 8px;
+        margin-left: 8px;
+        vertical-align: 2px;
     }
+    .spacer { flex: 1 1 auto; }
+
+    .segmented {
+        display: inline-flex;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 2px;
+        background: var(--panel);
+    }
+    .segmented > a, .segmented > button {
+        border: 0;
+        background: transparent;
+        border-radius: 999px;
+        padding: 5px 12px;
+        font-size: 13px;
+        color: var(--muted);
+        text-decoration: none;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .segmented > a:hover, .segmented > button:hover { color: var(--ink); }
+    .segmented > .active {
+        background: #fff;
+        color: var(--ink);
+        font-weight: 600;
+        box-shadow: 0 1px 2px rgba(31, 35, 53, .12);
+    }
+    .btn {
+        border: 1px solid var(--line);
+        background: #fff;
+        border-radius: 8px;
+        padding: 5px 11px;
+        font-size: 13px;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .btn:hover { background: var(--panel); }
+    .btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+    .btn.primary:hover { background: var(--brand-dark); }
+    .btn.icon { width: 32px; height: 32px; padding: 0; border-radius: 999px; font-weight: 700; }
+    .btn.small { padding: 3px 8px; }
+    .btn:disabled { opacity: .45; cursor: default; }
+
+    /* ---------- toolbar ---------- */
+    .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 16px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+        flex-wrap: wrap;
+        font-size: 13px;
+    }
+    .search { display: flex; align-items: center; gap: 4px; }
+    #search {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 5px 10px;
+        width: 230px;
+        background: #fff;
+    }
+    #searchInfo { color: var(--muted); min-width: 64px; font-size: 12px; }
+    .check { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; user-select: none; }
+    .check input { accent-color: var(--brand); }
+    .muted { color: var(--muted); }
+
+    /* ---------- main ---------- */
+    .main { flex: 1 1 auto; display: flex; min-height: 0; }
+    #canvasWrap { position: relative; flex: 1 1 auto; min-height: 0; }
+    #network { position: absolute; inset: 0; background: #fff; }
+
+    .canvas-col { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
     .legend {
-        margin-left: auto;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 2px 6px;
+        padding: 6px 12px;
+        border-top: 1px solid var(--line);
+        background: #fff;
+        font-size: 12px;
+    }
+    .legend .group-title {
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        color: var(--faint);
+        margin: 0 2px 0 4px;
+        font-weight: 650;
+    }
+    .legend .sep { width: 1px; height: 18px; background: var(--line); margin: 0 6px; }
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 0;
+        background: transparent;
+        padding: 3px 6px;
+        border-radius: 6px;
+        text-align: left;
+        cursor: pointer;
+        font-size: 12px;
+    }
+    .legend-item:hover { background: var(--panel); }
+    .legend-item.on { background: var(--brand-soft); }
+    .legend-item .count { color: var(--faint); font-variant-numeric: tabular-nums; }
+    .legend-item.static { cursor: default; }
+    .legend-item.static:hover { background: transparent; }
+    .swatch {
+        width: 26px;
+        height: 14px;
+        border-radius: 4px;
+        border: 1.5px solid;
+        flex: none;
+    }
+    .swatch.ellipse { border-radius: 999px; }
+    .swatch.port { border-style: dashed; border-width: 2px; }
+    .arrow-swatch { width: 26px; height: 14px; flex: none; }
+
+    #spotlightBar {
+        position: absolute;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--ink);
+        color: #fff;
+        border-radius: 999px;
+        padding: 6px 8px 6px 14px;
+        font-size: 12.5px;
         display: flex;
         gap: 10px;
         align-items: center;
+        box-shadow: 0 4px 16px rgba(31, 35, 53, .25);
+        z-index: 6;
+        max-width: 80%;
+    }
+    #spotlightBar[hidden] { display: none; }
+    #notice {
+        position: absolute;
+        bottom: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 6px 14px;
+        font-size: 12.5px;
+        color: var(--muted);
+        box-shadow: 0 4px 16px rgba(31, 35, 53, .12);
+        z-index: 6;
+        transition: opacity .4s;
+    }
+    #spotlightBar button {
+        border: 0;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, .16);
+        color: #fff;
+        padding: 3px 10px;
+        cursor: pointer;
         font-size: 12px;
-        color: #444;
-        flex-wrap: wrap;
     }
-    .swatch {
-        width: 10px;
-        height: 10px;
-        border-radius: 3px;
-        display: inline-block;
-        border: 1px solid #2c3e50;
-        margin-right: 6px;
-    }
-    .feedback-arrow {
-        color: #e74c3c;
-        display: inline-block;
-        font-size: 17px;
-        font-weight: 700;
-        line-height: 10px;
-        margin-right: 5px;
-        vertical-align: -1px;
-    }
-    .toolbar {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        padding: 8px 16px;
-        border-bottom: 1px solid #eee;
-        background: #fbfbfb;
-        font-size: 12px;
-        flex-wrap: wrap;
-    }
-    #search {
-        border: 1px solid #ddd;
-        border-radius: 8px;
-        padding: 5px 9px;
-        font-size: 12px;
-        width: 220px;
-    }
-    #searchInfo {
-        color: #666;
-    }
-    .main {
-        display: flex;
-        width: 100%;
-        height: 86vh;
-    }
-    #network {
-        flex: 1 1 auto;
-        min-width: 0;
-        height: 100%;
-    }
+    #spotlightBar button:hover { background: rgba(255, 255, 255, .28); }
+
+    /* ---------- inspector ---------- */
     #inspector {
-        width: 340px;
-        min-width: 340px;
-        max-width: 340px;
-        border-left: 1px solid #eee;
-        background: #fafafa;
+        width: 360px;
+        flex: none;
+        border-left: 1px solid var(--line);
+        background: var(--panel);
         overflow: auto;
-        padding: 14px;
-        box-sizing: border-box;
+        padding: 16px;
     }
-    #inspector h2 {
-        font-size: 14px;
-        margin: 0 0 10px 0;
-        font-weight: 600;
+    #inspector h2 { font-size: 16px; margin: 6px 0 2px; word-break: break-word; }
+    #inspector h3 {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        color: var(--faint);
+        margin: 18px 0 6px;
+        font-weight: 650;
     }
-    #inspector .empty {
-        font-size: 12px;
-        color: #666;
+    #inspector p { margin: 6px 0; line-height: 1.5; color: var(--muted); }
+    .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1.5px solid;
+        border-radius: 999px;
+        padding: 1px 9px;
+        font-size: 11.5px;
+        font-weight: 650;
+        cursor: default;
+        white-space: nowrap;
+    }
+    button.chip { cursor: pointer; font-family: inherit; }
+    .kindline { color: var(--muted); font-size: 12.5px; }
+    .kindline code, .mono { font-family: var(--mono); font-size: 12px; }
+    .doc { border-left: 3px solid var(--line); padding-left: 10px; font-size: 12.5px; }
+    .axes { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .axes td { padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .axes td:first-child { font-family: var(--mono); white-space: nowrap; width: 1%; color: var(--ink); }
+    .axes td:last-child { color: var(--muted); }
+    .shape-big { font-family: var(--mono); font-size: 14px; font-weight: 600; }
+    .links { list-style: none; margin: 0; padding: 0; }
+    .links li {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 6px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 13px;
+    }
+    .links li:hover { background: #fff; }
+    .links .dot { width: 10px; height: 10px; border-radius: 3px; border: 1.5px solid; flex: none; }
+    .links .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .links .meta { margin-left: auto; color: var(--faint); font-family: var(--mono); font-size: 11.5px; white-space: nowrap; }
+    .links .empty { cursor: default; color: var(--faint); }
+    .links .empty:hover { background: transparent; }
+    .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .callout {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 10px 12px;
+        margin-top: 10px;
+        font-size: 12.5px;
+        color: var(--muted);
         line-height: 1.5;
     }
-    #boundary {
-        border-bottom: 1px solid #e5e7eb;
-        padding-bottom: 12px;
-        margin-bottom: 14px;
-    }
-    .attr-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 12px;
-        table-layout: fixed;
-    }
-    .attr-table th,
-    .attr-table td {
-        border: 1px solid #e5e7eb;
-        padding: 6px 8px;
-        text-align: left;
-        vertical-align: top;
-        word-break: break-word;
-    }
-    .attr-table th {
-        width: 34%;
-        background: #f3f4f6;
-        font-weight: 600;
-    }
-    .ports {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 12px;
-        margin: 4px 0 10px 0;
-    }
-    .ports td {
-        border: 1px solid #e5e7eb;
-        padding: 4px 6px;
-        word-break: break-word;
-    }
-    .ports .role {
-        color: #666;
-        white-space: nowrap;
-        width: 1%;
-    }
-    .ports-title {
+    .callout b { color: var(--ink); }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .kv { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+    .kv th, .kv td { border-bottom: 1px solid var(--line); padding: 5px 6px; text-align: left; vertical-align: top; word-break: break-word; }
+    .kv th { width: 36%; color: var(--muted); font-weight: 600; }
+    .kv pre { margin: 0; white-space: pre-wrap; font-family: var(--mono); font-size: 11.5px; }
+    details.raw summary { cursor: pointer; color: var(--muted); font-size: 12.5px; margin-top: 16px; }
+    .tips { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
+    kbd {
+        font-family: var(--mono);
         font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .04em;
-        color: #666;
-        margin-top: 10px;
-    }
-    .btn {
-        border: 1px solid #ddd;
-        background: #fafafa;
-        padding: 6px 10px;
-        border-radius: 10px;
-        cursor: pointer;
-        font-size: 12px;
-    }
-    .btn:hover {
-        background: #f2f2f2;
-    }
-    .crumb {
-        font-size: 12px;
-        color: #444;
-        text-decoration: none;
-        border-bottom: 1px dashed #bbb;
-    }
-    .crumb:hover {
-        color: #111;
-        border-bottom-color: #111;
-    }
-    .open-link {
-        display: inline-block;
-        margin-top: 10px;
-        font-size: 12px;
-        color: #2563eb;
-        text-decoration: none;
-    }
-    .open-link:hover {
-        text-decoration: underline;
-    }
-    .bottom-bar {
-        height: 4vh;
-        display: flex;
-        justify-content: center;
-        align-items: center;
+        border: 1px solid #d5d9e2;
+        border-bottom-width: 2px;
+        border-radius: 4px;
+        padding: 0 5px;
         background: #fff;
+        color: var(--ink);
     }
-    .toggle-btn {
-        border: 1px solid #ddd;
-        background: #3498db;
-        padding: 8px 14px 8px 14px;
-        border-radius: 12px;
-        cursor: pointer;
-        font-size: 16px;
-        color: #fafafa;
-        text-decoration: none;
+
+    /* ---------- tooltips (vis-network) ---------- */
+    div.vis-tooltip {
+        font-family: var(--font) !important;
+        font-size: 12.5px !important;
+        color: var(--ink) !important;
+        background: #fff !important;
+        border: 1px solid var(--line) !important;
+        border-radius: 8px !important;
+        box-shadow: 0 6px 20px rgba(31, 35, 53, .14) !important;
+        padding: 8px 10px !important;
+        max-width: 320px;
+        white-space: normal !important;
     }
-    .toggle-btn:hover {
-        background: #2563eb;
+    .tip-name { font-weight: 650; margin-bottom: 2px; word-break: break-word; }
+    .tip-line { color: var(--muted); }
+    .tip-hint { color: var(--faint); font-size: 11.5px; margin-top: 4px; }
+
+    /* ---------- help ---------- */
+    .overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(31, 35, 53, .35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 20;
+        padding: 20px;
+    }
+    .overlay[hidden] { display: none; }
+    .dialog {
+        background: #fff;
+        border-radius: 14px;
+        max-width: 720px;
+        width: 100%;
+        max-height: 90vh;
+        overflow: auto;
+        padding: 22px 26px;
+        box-shadow: 0 20px 60px rgba(31, 35, 53, .3);
+    }
+    .dialog h2 { margin: 0 0 4px; font-size: 18px; }
+    .dialog h3 { font-size: 13px; margin: 18px 0 6px; }
+    .dialog p, .dialog li { color: var(--muted); line-height: 1.55; font-size: 13.5px; }
+    .dialog ul { padding-left: 18px; margin: 4px 0; }
+    .dialog .close { float: right; }
+    .help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; }
+    .help-grid .legend-item { cursor: default; padding: 2px 0; }
+    .help-grid .legend-item:hover { background: transparent; }
+
+    @media (max-width: 900px) {
+        #inspector { width: 300px; }
+        h1 { max-width: 90vw; }
+    }
+    @media (max-width: 680px) {
+        .main { flex-direction: column; }
+        .canvas-col { height: 64vh; flex: none; }
+        #inspector { width: 100%; border-left: 0; border-top: 1px solid var(--line); }
+        #search { width: 160px; }
+        .help-grid { grid-template-columns: 1fr; }
     }
 </style>
 <script src="https://unpkg.com/vis-network@10.1.2/standalone/umd/vis-network.min.js"
@@ -220,45 +386,86 @@
         crossorigin="anonymous"></script>
 </head>
 <body>
-<header>
-    <div class="header-left">
-        {{ logo }}
-        <h1>{{ title }}{{ title_suffix }}</h1>
-        {{ back_button }}
+<header class="topbar">
+    {{ logo }}
+    <div class="title-block">
+        <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"></nav>
+        <h1 id="pageTitle">{{ title }}<span class="view-tag" id="viewTag"></span></h1>
     </div>
-    <div class="legend">
-        <span><span class="swatch" style="background:#2ecc71"></span>Input</span>
-        <span><span class="swatch" style="background:#e74c3c"></span>Output</span>
-        <span><span class="swatch" style="background:#3498db"></span>Submodel</span>
-        <span><span class="swatch" style="background:#ff9900"></span>Parameter</span>
-        <span><span class="swatch" style="background:#00e5ff"></span>Constant</span>
-        <span><span class="swatch" style="background:#95a5a6"></span>Relation</span>
-        <span><span class="swatch" style="background:#8e44ad"></span>Loss</span>
-        <span><span class="feedback-arrow">→</span>Feedback</span>
-    </div>
-    <div class="header-right">
-        <div class="bottom-bar">
-            {{ view_toggle }}
-        </div>
-    </div>
+    <div class="spacer"></div>
+    <div class="segmented" id="viewSwitch" role="group" aria-label="View" hidden></div>
+    <button class="btn icon" id="helpBtn" title="How to read this graph (?)" aria-label="Help">?</button>
 </header>
 
 <div class="toolbar">
-    <input id="search" type="search" placeholder="Find node by name…" autocomplete="off"/>
-    <span id="searchInfo"></span>
-    <button id="layoutBtn" class="btn"></button>
-    <span id="graphInfo"></span>
+    <div class="search">
+        <input id="search" type="search" placeholder="Search nodes by name or kind  ( / )" autocomplete="off" aria-label="Search nodes"/>
+        <button class="btn small" id="searchPrev" title="Previous match (Shift+Enter)" aria-label="Previous match" disabled>‹</button>
+        <button class="btn small" id="searchNext" title="Next match (Enter)" aria-label="Next match" disabled>›</button>
+        <span id="searchInfo"></span>
+    </div>
+    <div class="segmented" role="group" aria-label="Layout">
+        <button type="button" id="layoutHierarchical" title="Data flows from left to right">Left to right</button>
+        <button type="button" id="layoutForce" title="Nodes settle by attraction and repulsion">Force</button>
+    </div>
+    <button class="btn" id="fitBtn" title="Fit the whole graph (F)">Fit</button>
+    <label class="check" title="Write the shape each arrow carries"><input type="checkbox" id="showShapes"/> Shapes on arrows</label>
+    <label class="check" id="regionsToggle" title="Shade the body of every sub-model spliced in" hidden><input type="checkbox" id="showRegions"/> Sub-model regions</label>
+    <div class="spacer"></div>
+    <span id="graphInfo" class="muted"></span>
+    <button class="btn" id="pngBtn" title="Save the graph as a PNG image">Save PNG</button>
 </div>
 
 <div class="main">
-    <div id="network"></div>
-    <aside id="inspector">
-        {{ boundary_section }}
-        <h2>Node details</h2>
-        <div id="inspectorContent" class="empty">
-            Click a node to inspect its attributes.
+    <div class="canvas-col">
+        <div id="canvasWrap">
+            <div id="network" aria-label="Model graph"></div>
+            <div id="notice" hidden></div>
+            <div id="spotlightBar" hidden>
+                <span id="spotlightText"></span>
+                <button type="button" id="spotlightClear">Show all <kbd>Esc</kbd></button>
+            </div>
         </div>
+        <div class="legend" id="legend" aria-label="Legend"></div>
+    </div>
+    <aside id="inspector" aria-live="polite">
+        <div id="inspectorContent"></div>
     </aside>
+</div>
+
+<div class="overlay" id="help" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+        <button class="btn close" id="helpClose">Close <kbd>Esc</kbd></button>
+        <h2 id="helpTitle">How to read this graph</h2>
+        <p>The graph is the computation of the model. Each card is a node: its
+           <b>name</b> on top, <i>what it is</i> below. Arrows carry values from one
+           node to the next, and are labelled with the shape of what they carry.</p>
+        <h3>Nodes</h3>
+        <div class="help-grid" id="helpNodes"></div>
+        <h3>Arrows</h3>
+        <div class="help-grid" id="helpEdges"></div>
+        <h3>Shapes</h3>
+        <p>A shape is written <span class="mono">(seq…, time, dim…)</span>, the batch
+           left out. <b>seq</b> are sequence axes - the steps of a rollout, for instance -
+           and <span class="mono">dyn</span> marks a length set by the data; <b>time</b>
+           is the window, how many samples are read at once; <b>dim</b> are the features
+           of each sample.</p>
+        <h3>Views</h3>
+        <ul>
+            <li><b>Standard</b>: every sub-model - a model called inside another, or a
+                Loop - is one node. Double-click it to open its body on a page of its own.</li>
+            <li><b>Flattened</b>: every sub-model is spliced in, its body inside a shaded
+                region, and the recurrence of a Loop drawn as a feedback arrow.</li>
+        </ul>
+        <h3>Exploring</h3>
+        <ul>
+            <li>Click a node to see what it is, its shape and its connections; click an arrow for what it carries.</li>
+            <li>From the panel, highlight everything a node <b>depends on</b> or <b>feeds</b>.</li>
+            <li>Click an entry of the legend to highlight every node of that kind.</li>
+            <li>Scroll to zoom, drag the background to pan, drag a node to move it.</li>
+            <li><kbd>/</kbd> search · <kbd>Enter</kbd> next match · <kbd>F</kbd> fit · <kbd>Esc</kbd> clear · <kbd>?</kbd> this help</li>
+        </ul>
+    </div>
 </div>
 
 <script>
@@ -266,243 +473,991 @@
     const edges = new vis.DataSet({{ edges }});
     const nodeDetails = {{ node_details }};
     const boundary = {{ boundary }};
+    const REGIONS = {{ regions }};
+    const PAGE = {{ page }};
 
-    const container = document.getElementById('network');
-    const inspectorContent = document.getElementById('inspectorContent');
-    const data = { nodes, edges };
+    // ------------------------------------------------------------------
+    // Palette: one meaning per colour, shared by the graph, the legend and
+    // the panel. Things that enter are green, things that leave are rose,
+    // a loop's memory is teal like the feedback that writes it, what is
+    // learned is amber, what is fixed is slate, sub-models are indigo and
+    // training objectives violet. Solid cards are the page's own inputs and
+    // outputs; tinted ones belong to a body or are internal.
+    // ------------------------------------------------------------------
+    const ROLES = {
+        input:        { label: "Input",       fill: "#16a34a", border: "#15803d", text: "#ffffff",
+                        about: "Data the model reads: a signal from the dataset, or a stream the graph above passes in." },
+        state:        { label: "State",       fill: "#ccfbf1", border: "#0d9488", text: "#134e4a",
+                        about: "An input a loop feeds back: it holds the value of the previous step, the memory of the recurrence." },
+        inner_input:  { label: "Body input",  fill: "#dcfce7", border: "#16a34a", text: "#14532d",
+                        about: "An input of a sub-model spliced in here, bound to a stream of the graph that calls it." },
+        output:       { label: "Output",      fill: "#e11d48", border: "#be123c", text: "#ffffff",
+                        about: "A result the model returns." },
+        inner_output: { label: "Body output", fill: "#ffe4e6", border: "#e11d48", text: "#881337",
+                        about: "A result of a sub-model, read by the graph that calls it." },
+        relation:     { label: "Operation",   fill: "#ffffff", border: "#7b93d6", text: "#1f2335",
+                        about: "A layer or an operation: it computes its output from the arrows that come in." },
+        parameter:    { label: "Parameter",   fill: "#fef3c7", border: "#d97706", text: "#78350f",
+                        about: "A trainable weight: training learns its value." },
+        constant:     { label: "Constant",    fill: "#f1f5f9", border: "#64748b", text: "#1e293b",
+                        about: "A fixed value: training does not change it." },
+        submodel:     { label: "Sub-model",   fill: "#6c75df", border: "#4b53b8", text: "#ffffff",
+                        about: "A model used as one block: a call of another model, or a Loop that rolls one out step by step." },
+        loss:         { label: "Loss",        fill: "#f3e8ff", border: "#9333ea", text: "#581c87", shape: "ellipse",
+                        about: "A training objective: it compares a source with a target." },
+        target:       { label: "Target",      fill: "#ffffff", border: "#9333ea", text: "#581c87",
+                        about: "Data a loss compares the model with; no output reads it." },
+    };
+    const ROLE_ORDER = ["input", "state", "inner_input", "relation", "parameter", "constant",
+                        "submodel", "inner_output", "output", "loss", "target"];
+    const EDGE_KINDS = {
+        data:     { label: "Data flow",    color: "#9aa5b8", strong: "#475569", width: 1.4,
+                    about: "A value passed on to the next node, labelled with its shape." },
+        binding:  { label: "Port binding", color: "#6c75df", strong: "#4b53b8", width: 1.6, dashes: [6, 4],
+                    about: "Where a stream of the outer graph enters or leaves the body of a sub-model." },
+        feedback: { label: "Feedback",     color: "#0d9488", strong: "#0f766e", width: 2.6,
+                    about: "The value computed at a step, fed back to a state for the next step." },
+        loss:     { label: "Loss input",   color: "#9333ea", strong: "#7e22ce", width: 1.6,
+                    about: "What a loss compares: the source (solid) with the target (dashed)." },
+    };
+    const PORT = { label: "Port", border: "#4b53b8",
+                   about: "A body input or output bound to the graph above (dashed border)." };
 
-    let hierarchical = {{ hierarchical }};
-    const springPhysics = {{ physics }};
+    // ------------------------------------------------------------------
+    // Small helpers
+    // ------------------------------------------------------------------
+    function escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+    function el(tag, attrs, ...children) {
+        const node = document.createElement(tag);
+        for (const [key, value] of Object.entries(attrs || {})) {
+            if (value === undefined || value === null || value === false) continue;
+            if (key === "class") node.className = value;
+            else if (key === "text") node.textContent = value;
+            else if (key === "style") node.setAttribute("style", value);
+            else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+            else node.setAttribute(key, value === true ? "" : value);
+        }
+        for (const child of children.flat()) {
+            if (child === null || child === undefined || child === false) continue;
+            node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+        }
+        return node;
+    }
+    function hexToRgb(hex) {
+        const value = parseInt(hex.slice(1), 16);
+        return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+    }
+    function rgba(hex, alpha) {
+        const [r, g, b] = hexToRgb(hex);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+    function darken(hex, amount) {
+        const [r, g, b] = hexToRgb(hex).map(c => Math.round(c * (1 - amount)));
+        return "#" + [r, g, b].map(c => c.toString(16).padStart(2, "0")).join("");
+    }
+    function storageGet(key, fallback) {
+        try { const value = localStorage.getItem("nnodely." + key); return value === null ? fallback : value; }
+        catch (error) { return fallback; }
+    }
+    function storageSet(key, value) {
+        try { localStorage.setItem("nnodely." + key, value); } catch (error) { /* private mode */ }
+    }
+    // vis reads <b>, <i> and <code> in a label as markup: a name holding one
+    // is shown as written.
+    function plain(text) {
+        return String(text).replace(/</g, "<​");
+    }
+    function roleOf(record) {
+        return ROLES[record.role] ? record.role : "relation";
+    }
 
-    function layoutOptions() {
+    // ------------------------------------------------------------------
+    // The records as drawn
+    // ------------------------------------------------------------------
+    // Copies: the DataSet keeps the styled items, these the records as written.
+    const records = new Map(nodes.get().map(record => [record.id, Object.assign({}, record)]));
+    const edgeRecords = new Map(edges.get().map(record => [record.id, Object.assign({}, record)]));
+
+    function subtitleOf(record) {
+        if (record.port) {
+            return record.port.side === "in"
+                ? `${record.subtitle} ← ${record.port.outer}`
+                : `${record.subtitle} → ${record.port.outer}`;
+        }
+        return record.subtitle;
+    }
+
+    function nodeStyle(record, alpha) {
+        const role = ROLES[roleOf(record)];
+        const faded = alpha < 1;
+        const fill = faded ? rgba(role.fill, alpha) : role.fill;
+        const border = record.port ? PORT.border : role.border;
+        const strongBorder = darken(border, 0.18);
+        const text = faded ? rgba(role.text, Math.max(alpha, 0.3)) : role.text;
+        const sub = rgba(role.text, faded ? Math.max(alpha, 0.25) : 0.78);
+        const borderColor = faded ? rgba(border, alpha) : border;
         return {
-            layout: {
-                improvedLayout: !hierarchical,
-                hierarchical: hierarchical
-                    ? {
-                        enabled: true,
-                        direction: 'LR',
-                        sortMethod: 'directed',
-                        nodeSpacing: 110,
-                        levelSeparation: 190,
-                        treeSpacing: 140,
-                        shakeTowards: 'roots'
-                    }
-                    : { enabled: false }
+            id: record.id,
+            label: `<b>${plain(record.label)}</b>\n<i>${plain(subtitleOf(record))}</i>`,
+            shape: role.shape || "box",
+            margin: { top: 7, bottom: 7, left: 11, right: 11 },
+            borderWidth: record.port ? 2 : (record.role === "submodel" ? 2 : 1.5),
+            shapeProperties: { borderRadius: 7, borderDashes: record.port ? [5, 3] : false },
+            color: {
+                background: fill,
+                border: borderColor,
+                // Selected or hovered, a node keeps its own colours: the
+                // border darkens and a soft halo of its colour shows.
+                highlight: { background: fill, border: faded ? borderColor : strongBorder },
+                hover: { background: fill, border: faded ? borderColor : strongBorder },
             },
-            physics: hierarchical ? false : springPhysics,
-            edges: {
-                smooth: hierarchical ? { enabled: true, type: 'cubicBezier',
-                    forceDirection: 'horizontal', roundness: 0.4 } : springPhysics,
-                shadow: hierarchical ? false : springPhysics
-            }
+            font: {
+                multi: "html",
+                face: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
+                size: 13,
+                color: text,
+                bold: { color: text, size: 13 },
+                ital: { color: sub, size: 11 },
+            },
+            title: tooltipFor(record),
         };
     }
 
-    const options = Object.assign({
+    function isFaded(id) {
+        return spotlight !== null && !spotlight.ids.has(id);
+    }
+
+    function chosenNode(values, id, selected, hovering) {
+        const record = records.get(id);
+        if (!record || isFaded(id)) return;
+        const role = ROLES[roleOf(record)];
+        const tone = record.port ? PORT.border : role.border;
+        if (selected) {
+            values.borderColor = darken(tone, 0.22);
+            values.borderWidth = Math.max(values.borderWidth, 3);
+            values.shadow = true;
+            values.shadowColor = rgba(tone, 0.55);
+            values.shadowSize = 14;
+            values.shadowX = 0;
+            values.shadowY = 0;
+        } else if (hovering) {
+            values.borderColor = darken(tone, 0.12);
+            values.borderWidth = values.borderWidth + 0.8;
+            values.shadow = true;
+            values.shadowColor = rgba(tone, 0.32);
+            values.shadowSize = 9;
+            values.shadowX = 0;
+            values.shadowY = 0;
+        }
+    }
+
+    // Many arrows written with their shapes are a wall of text: off unless asked.
+    let showShapes = storageGet("shapes", edges.length > 120 ? "0" : "1") === "1";
+    // The nodes kept while the rest fades, or null: set by setSpotlight.
+    let spotlight = null;
+
+    function edgeStyle(record, alpha) {
+        const kind = EDGE_KINDS[record.kind] || EDGE_KINDS.data;
+        const faded = alpha < 1;
+        const color = faded ? rgba(kind.color, alpha) : kind.color;
+        const style = {
+            id: record.id,
+            arrows: { to: { enabled: true, scaleFactor: record.kind === "feedback" ? 0.9 : 0.6 } },
+            width: kind.width,
+            color: { color: color, highlight: faded ? color : kind.strong, hover: faded ? color : kind.strong },
+            dashes: record.kind === "loss" ? record.label === "target" : (kind.dashes || false),
+            font: {
+                size: 10.5,
+                align: "middle",
+                color: faded ? rgba(kind.strong, Math.max(alpha, 0.25)) : kind.strong,
+                strokeWidth: 0,
+                background: "rgba(255, 255, 255, 0.92)",
+                face: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+            },
+            label: record.kind === "data" && !showShapes ? " " : record.label,
+            title: edgeTooltip(record),
+        };
+        // A hidden label keeps no box behind it to cut the arrow.
+        if (style.label === " ") style.font.background = "rgba(255, 255, 255, 0)";
+        if (record.kind === "feedback") {
+            style.smooth = { enabled: true, type: "curvedCW", roundness: 0.35 };
+            style.font.face = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
+            style.font.size = 11.5;
+        }
+        return style;
+    }
+
+    function chosenEdge(values, id, selected, hovering) {
+        const record = edgeRecords.get(id);
+        if (!record || isFaded(record.from) || isFaded(record.to)) return;
+        if (selected || hovering) {
+            values.width = values.width + 1;
+            values.color = (EDGE_KINDS[record.kind] || EDGE_KINDS.data).strong;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Tooltips: what a node is, in a sentence
+    // ------------------------------------------------------------------
+    function shapeOf(id) {
+        const axes = (nodeDetails[id] || {}).axes;
+        if (!axes) return "";
+        const parts = [...axes.seq.map(String)];
+        if (axes.time !== null && axes.time !== undefined) parts.push(String(axes.time));
+        parts.push(...axes.dim.map(String));
+        return "(" + parts.join(", ") + ")";
+    }
+
+    function tooltipFor(record) {
+        const role = ROLES[roleOf(record)];
+        const box = el("div", {},
+            el("div", { class: "tip-name", text: record.id }),
+            el("div", { class: "tip-line", text: `${role.label} · ${record.kind}` }));
+        const shape = shapeOf(record.id);
+        if (shape) box.append(el("div", { class: "tip-line mono", text: "shape " + shape }));
+        if (record.port) {
+            box.append(el("div", { class: "tip-line",
+                text: record.port.side === "in"
+                    ? `fed by ${record.port.outer} in the graph above (${record.port.role})`
+                    : `returned as ${record.port.outer} to the graph above` }));
+        }
+        box.append(el("div", { class: "tip-hint",
+            text: record.url ? "Click for details · double-click to open its body" : "Click for details" }));
+        return box;
+    }
+
+    function edgeTooltip(record) {
+        const kind = EDGE_KINDS[record.kind] || EDGE_KINDS.data;
+        const box = el("div", {},
+            el("div", { class: "tip-name", text: `${record.from} → ${record.to}` }),
+            el("div", { class: "tip-line", text: kind.label + (record.kind === "data" ? "" : ` · ${record.label}`) }));
+        if (record.shape) box.append(el("div", { class: "tip-line mono", text: "shape " + record.shape }));
+        return box;
+    }
+
+    // ------------------------------------------------------------------
+    // The network
+    // ------------------------------------------------------------------
+    nodes.update(nodes.get().map(record => nodeStyle(record, 1)));
+    edges.update(edges.get().map(record => edgeStyle(record, 1)));
+
+    let layoutMode = storageGet("layout", "hierarchical") === "force" ? "force" : "hierarchical";
+
+    // Columns far enough apart for the widest card.
+    const widest = Math.max(120, ...[...records.values()].map(
+        record => Math.max(String(record.label).length * 7.8, subtitleOf(record).length * 6.4) + 24));
+
+    function layoutOptions(mode) {
+        const hierarchical = mode === "hierarchical";
+        return {
+            layout: {
+                improvedLayout: true,
+                hierarchical: hierarchical ? {
+                    enabled: true,
+                    direction: "LR",
+                    sortMethod: "directed",
+                    levelSeparation: Math.min(widest + 46, 380),
+                    nodeSpacing: 74,
+                    treeSpacing: 110,
+                    blockShifting: true,
+                    edgeMinimization: true,
+                    parentCentralization: true,
+                    shakeTowards: "roots",
+                } : { enabled: false },
+            },
+            physics: hierarchical ? { enabled: false } : {
+                enabled: PAGE.physics,
+                solver: "forceAtlas2Based",
+                forceAtlas2Based: { gravitationalConstant: -70, centralGravity: 0.008,
+                                    springLength: 130, springConstant: 0.07, avoidOverlap: 0.7 },
+                stabilization: { enabled: true, iterations: 500, fit: true },
+            },
+            // "continuous" curves on both: vis's default "dynamic" ones add
+            // hidden nodes of their own, which have no level, and switching
+            // to the hierarchical layout then fails.
+            edges: {
+                smooth: hierarchical
+                    ? { enabled: true, type: "cubicBezier", forceDirection: "horizontal", roundness: 0.45 }
+                    : { enabled: true, type: "continuous", roundness: 0.3 },
+            },
+        };
+    }
+
+    const container = document.getElementById("network");
+    const initial = layoutOptions(layoutMode);
+    const options = {
         autoResize: true,
+        layout: initial.layout,
+        physics: initial.physics,
         interaction: {
             hover: true,
-            tooltipDelay: 80,
+            tooltipDelay: 120,
             multiselect: true,
-            navigationButtons: true,
-            keyboard: true
+            navigationButtons: false,
+            keyboard: { enabled: false },
+            selectConnectedEdges: true,
+            hoverConnectedEdges: true,
         },
-        nodes: {
-            borderWidth: 1,
-            shadow: true
-        }
-    }, layoutOptions());
-    options.edges.font = { size: 10, align: "middle" };
+        nodes: { chosen: { node: chosenNode, label: false } },
+        edges: Object.assign({ chosen: { edge: chosenEdge, label: false } }, initial.edges),
+    };
 
-    const network = new vis.Network(container, data, options);
+    const network = new vis.Network(container, { nodes, edges }, options);
 
-    document.getElementById('graphInfo').textContent =
-        nodes.length + ' nodes · ' + edges.length + ' edges';
+    function freezeWhenSettled() {
+        // Settled, the nodes stay where they are, and where they are dragged.
+        network.once("stabilizationIterationsDone", () => {
+            network.setOptions({ physics: { enabled: false } });
+            network.fit({ animation: { duration: 300 } });
+        });
+    }
+    if (layoutMode === "force" && PAGE.physics) freezeWhenSettled();
 
-    function escapeHtml(text) {
-        return String(text)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
+    let noticeTimer = null;
+    function notice(text) {
+        const box = document.getElementById("notice");
+        box.textContent = text;
+        box.hidden = false;
+        box.style.opacity = "1";
+        clearTimeout(noticeTimer);
+        noticeTimer = setTimeout(() => {
+            box.style.opacity = "0";
+            setTimeout(() => { box.hidden = true; }, 450);
+        }, 6000);
     }
 
+    // A long chain fitted whole is too small to read: start on its inputs at
+    // a readable size instead, and say how to see it all.
+    const READABLE = 0.55;
+    function readableStart() {
+        if (network.getScale() >= READABLE) return;
+        const positions = network.getPositions();
+        const ids = Object.keys(positions);
+        if (!ids.length) return;
+        const left = Math.min(...ids.map(id => positions[id].x));
+        const first = ids.filter(id => positions[id].x < left + 40);
+        const y = first.reduce((sum, id) => sum + positions[id].y, 0) / first.length;
+        const scale = 0.85;
+        network.moveTo({ position: { x: left - 60 + container.clientWidth / 2 / scale, y }, scale });
+        notice("Large graph: showing where it starts. Press F, or Fit, to see all of it.");
+    }
+    network.once("afterDrawing", () => { if (layoutMode === "hierarchical") readableStart(); });
+
+    function setLayout(mode) {
+        layoutMode = mode;
+        storageSet("layout", mode);
+        refreshLayoutButtons();
+        const selected = network.getSelectedNodes();
+        network.setOptions(layoutOptions(mode));
+        // Laid out again from scratch, whichever layout it comes from.
+        network.setData({ nodes, edges });
+        if (mode === "force" && PAGE.physics) freezeWhenSettled();
+        if (selected.length) network.selectNodes(selected);
+        network.fit({ animation: { duration: 350 } });
+    }
+    function refreshLayoutButtons() {
+        document.getElementById("layoutHierarchical").classList.toggle("active", layoutMode === "hierarchical");
+        document.getElementById("layoutForce").classList.toggle("active", layoutMode === "force");
+        document.getElementById("layoutHierarchical").setAttribute("aria-pressed", layoutMode === "hierarchical");
+        document.getElementById("layoutForce").setAttribute("aria-pressed", layoutMode === "force");
+    }
+    document.getElementById("layoutHierarchical").addEventListener("click", () => setLayout("hierarchical"));
+    document.getElementById("layoutForce").addEventListener("click", () => setLayout("force"));
+    refreshLayoutButtons();
+
+    document.getElementById("fitBtn").addEventListener("click", () => network.fit({ animation: { duration: 350 } }));
+
+    // ------------------------------------------------------------------
+    // Sub-model regions: the body of every block spliced in, shaded
+    // ------------------------------------------------------------------
+    let showRegions = storageGet("regions", "1") === "1";
+    const regionsToggle = document.getElementById("regionsToggle");
+    const showRegionsBox = document.getElementById("showRegions");
+    if (REGIONS.length) {
+        regionsToggle.hidden = false;
+        showRegionsBox.checked = showRegions;
+        showRegionsBox.addEventListener("change", () => {
+            showRegions = showRegionsBox.checked;
+            storageSet("regions", showRegions ? "1" : "0");
+            network.redraw();
+        });
+    }
+    function depthOf(id) { return id.split("/").length; }
+    function regionTitle(region) {
+        const name = region.id.split("/").pop();
+        if (region.block === "Loop") {
+            const steps = region.steps_from_data ? "steps from data"
+                : (region.steps ? `${region.steps} step${region.steps === 1 ? "" : "s"}` : "");
+            return `${name} · Loop over ${region.model}${steps ? " · " + steps : ""}`;
+        }
+        if (region.block === "ModelCall") return `${name} · call of ${region.model}`;
+        return name;
+    }
+    network.on("beforeDrawing", ctx => {
+        if (!showRegions || !REGIONS.length) return;
+        const boxes = new Map();
+        // Innermost first, so that an outer region holds the inner ones.
+        const deepestFirst = REGIONS.slice().sort((a, b) => depthOf(b.id) - depthOf(a.id));
+        for (const region of deepestFirst) {
+            let box = null;
+            const grow = b => {
+                if (!b) return;
+                box = box ? { left: Math.min(box.left, b.left), top: Math.min(box.top, b.top),
+                              right: Math.max(box.right, b.right), bottom: Math.max(box.bottom, b.bottom) } : Object.assign({}, b);
+            };
+            for (const record of records.values()) {
+                if (record.region === region.id) grow(network.getBoundingBox(record.id));
+            }
+            for (const [other, otherBox] of boxes) {
+                if (other.startsWith(region.id + "/")) grow(otherBox);
+            }
+            if (!box) continue;
+            const pad = 16;
+            boxes.set(region.id, { left: box.left - pad, top: box.top - pad - 18,
+                                   right: box.right + pad, bottom: box.bottom + pad });
+        }
+        const outermostFirst = [...boxes.entries()].sort((a, b) => depthOf(a[0]) - depthOf(b[0]));
+        for (const [id, box] of outermostFirst) {
+            const region = REGIONS.find(r => r.id === id);
+            const dimmed = spotlight && ![...records.values()].some(
+                r => r.region && (r.region === id || r.region.startsWith(id + "/")) && spotlight.ids.has(r.id));
+            ctx.save();
+            ctx.beginPath();
+            const w = box.right - box.left, h = box.bottom - box.top, r = 14;
+            ctx.moveTo(box.left + r, box.top);
+            ctx.arcTo(box.right, box.top, box.right, box.bottom, r);
+            ctx.arcTo(box.right, box.bottom, box.left, box.bottom, r);
+            ctx.arcTo(box.left, box.bottom, box.left, box.top, r);
+            ctx.arcTo(box.left, box.top, box.right, box.top, r);
+            ctx.closePath();
+            ctx.fillStyle = dimmed ? "rgba(108, 117, 223, 0.025)" : "rgba(108, 117, 223, 0.06)";
+            ctx.fill();
+            ctx.setLineDash([6, 5]);
+            ctx.lineWidth = 1.2;
+            ctx.strokeStyle = dimmed ? "rgba(108, 117, 223, 0.2)" : "rgba(108, 117, 223, 0.55)";
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.font = "600 12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
+            ctx.fillStyle = dimmed ? "rgba(75, 83, 184, 0.35)" : "#4b53b8";
+            ctx.textBaseline = "top";
+            ctx.fillText(regionTitle(region || { id }), box.left + 12, box.top + 8);
+            ctx.restore();
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // Arrow labels
+    // ------------------------------------------------------------------
+    const showShapesBox = document.getElementById("showShapes");
+    showShapesBox.checked = showShapes;
+    showShapesBox.addEventListener("change", () => {
+        showShapes = showShapesBox.checked;
+        storageSet("shapes", showShapes ? "1" : "0");
+        restyle();
+    });
+
+    // ------------------------------------------------------------------
+    // Spotlight: a set of nodes stays, the rest fades
+    // ------------------------------------------------------------------
+    const spotlightBar = document.getElementById("spotlightBar");
+
+    function restyle() {
+        const keep = spotlight ? spotlight.ids : null;
+        nodes.update([...records.values()].map(
+            record => nodeStyle(record, !keep || keep.has(record.id) ? 1 : 0.16)));
+        edges.update([...edgeRecords.values()].map(record => edgeStyle(record,
+            !keep || (keep.has(record.from) && keep.has(record.to)) ? 1 : 0.1)));
+        refreshLegend();
+    }
+    function setSpotlight(ids, text, key) {
+        spotlight = { ids: new Set(ids), text, key };
+        document.getElementById("spotlightText").textContent = text;
+        spotlightBar.hidden = false;
+        restyle();
+    }
+    function clearSpotlight() {
+        if (!spotlight) return;
+        spotlight = null;
+        spotlightBar.hidden = true;
+        restyle();
+    }
+    document.getElementById("spotlightClear").addEventListener("click", clearSpotlight);
+
+    // Data dependencies, the recurrence aside: what a node is computed from,
+    // and what is computed from it.
+    function reach(start, direction) {
+        const seen = new Set([start]);
+        const queue = [start];
+        while (queue.length) {
+            const current = queue.shift();
+            for (const record of edgeRecords.values()) {
+                if (record.kind === "feedback") continue;
+                const next = direction === "up"
+                    ? (record.to === current ? record.from : null)
+                    : (record.from === current ? record.to : null);
+                if (next !== null && !seen.has(next)) { seen.add(next); queue.push(next); }
+            }
+        }
+        return seen;
+    }
+
+    // ------------------------------------------------------------------
+    // Legend
+    // ------------------------------------------------------------------
+    const roleCounts = {};
+    for (const record of records.values()) {
+        const role = roleOf(record);
+        roleCounts[role] = (roleCounts[role] || 0) + 1;
+    }
+    const edgeCounts = {};
+    for (const record of edgeRecords.values()) edgeCounts[record.kind] = (edgeCounts[record.kind] || 0) + 1;
+    const hasPorts = [...records.values()].some(record => record.port);
+
+    function swatch(role) {
+        const style = ROLES[role];
+        return el("span", { class: "swatch" + (style.shape === "ellipse" ? " ellipse" : ""),
+            style: `background:${style.fill};border-color:${style.border}` });
+    }
+    function arrowSwatch(kind) {
+        const style = EDGE_KINDS[kind];
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("class", "arrow-swatch");
+        svg.setAttribute("viewBox", "0 0 26 14");
+        const dash = style.dashes ? `stroke-dasharray="${style.dashes.join(" ")}"` : "";
+        const path = kind === "feedback"
+            ? `<path d="M2 11 Q13 0 21 9" fill="none" stroke="${style.color}" stroke-width="2.2"/><path d="M18 5 L23 11 L16 11 Z" fill="${style.color}"/>`
+            : `<line x1="1" y1="7" x2="19" y2="7" stroke="${style.color}" stroke-width="${Math.max(style.width, 1.6)}" ${dash}/><path d="M18 3 L25 7 L18 11 Z" fill="${style.color}"/>`;
+        svg.innerHTML = path;
+        return svg;
+    }
+    function nodesOfRole(role) {
+        return [...records.values()].filter(record => roleOf(record) === role).map(record => record.id);
+    }
+    function spotlightRole(role) {
+        if (spotlight && spotlight.key === "role:" + role) { clearSpotlight(); return; }
+        const ids = nodesOfRole(role);
+        setSpotlight(ids, `${ROLES[role].label}: ${ids.length} node${ids.length === 1 ? "" : "s"}`, "role:" + role);
+    }
+    function legendItem(swatchNode, label, count, about, onClick, key) {
+        const item = el(onClick ? "button" : "div", {
+            class: "legend-item" + (onClick ? "" : " static") + (spotlight && spotlight.key === key ? " on" : ""),
+            title: about, type: onClick ? "button" : undefined, onclick: onClick },
+            swatchNode, el("span", { text: label }),
+            count !== null ? el("span", { class: "count", text: String(count) }) : null);
+        return item;
+    }
+    function refreshLegend() {
+        const body = document.getElementById("legend");
+        body.replaceChildren();
+        const nodeGroup = document.createDocumentFragment();
+        nodeGroup.append(el("span", { class: "group-title", text: "Nodes" }));
+        for (const role of ROLE_ORDER) {
+            if (!roleCounts[role]) continue;
+            nodeGroup.append(legendItem(swatch(role), ROLES[role].label, roleCounts[role],
+                ROLES[role].about + " Click to highlight them.", () => spotlightRole(role), "role:" + role));
+        }
+        if (hasPorts) {
+            nodeGroup.append(legendItem(
+                el("span", { class: "swatch port", style: `background:#fff;border-color:${PORT.border}` }),
+                PORT.label, null, PORT.about, null, null));
+        }
+        body.append(nodeGroup);
+        const edgeGroup = document.createDocumentFragment();
+        edgeGroup.append(el("span", { class: "sep" }), el("span", { class: "group-title", text: "Arrows" }));
+        for (const kind of Object.keys(EDGE_KINDS)) {
+            if (!edgeCounts[kind]) continue;
+            edgeGroup.append(legendItem(arrowSwatch(kind), EDGE_KINDS[kind].label, edgeCounts[kind],
+                EDGE_KINDS[kind].about, null, null));
+        }
+        if (REGIONS.length) {
+            edgeGroup.append(legendItem(
+                el("span", { class: "swatch port", style: "background:rgba(108,117,223,.08);border-color:rgba(108,117,223,.6);border-width:1.5px" }),
+                "Sub-model region", REGIONS.length,
+                "The body of a sub-model spliced into this graph.", null, null));
+        }
+        body.append(edgeGroup);
+    }
+    refreshLegend();
+
+    // Help: the same entries, all of them, with what they mean.
+    (function fillHelp() {
+        const helpNodes = document.getElementById("helpNodes");
+        for (const role of ROLE_ORDER) {
+            helpNodes.append(el("div", { class: "legend-item" }, swatch(role),
+                el("span", {}, el("b", { text: ROLES[role].label }), " - " + ROLES[role].about)));
+        }
+        helpNodes.append(el("div", { class: "legend-item" },
+            el("span", { class: "swatch port", style: `background:#fff;border-color:${PORT.border}` }),
+            el("span", {}, el("b", { text: PORT.label }), " - " + PORT.about)));
+        const helpEdges = document.getElementById("helpEdges");
+        for (const kind of Object.keys(EDGE_KINDS)) {
+            helpEdges.append(el("div", { class: "legend-item" }, arrowSwatch(kind),
+                el("span", {}, el("b", { text: EDGE_KINDS[kind].label }), " - " + EDGE_KINDS[kind].about)));
+        }
+    })();
+
+    // ------------------------------------------------------------------
+    // Header: where this page is, and its views
+    // ------------------------------------------------------------------
+    (function fillHeader() {
+        const crumbs = document.getElementById("crumbs");
+        if (boundary) {
+            crumbs.append(el("a", { href: boundary.parent_rel, text: "← " + boundary.parent,
+                title: "Back to the graph this sub-model is part of" }),
+                el("span", { text: "›" }), el("span", { text: boundary.node }));
+        } else {
+            crumbs.append(el("span", { text: "nnodely model" }));
+        }
+        document.getElementById("viewTag").textContent =
+            boundary ? "sub-model body" : (PAGE.flattened ? "flattened" : "standard");
+        if (PAGE.standard_rel || PAGE.flattened_rel) {
+            const views = document.getElementById("viewSwitch");
+            views.hidden = false;
+            views.append(
+                el("a", { href: PAGE.flattened ? PAGE.standard_rel : "#", class: PAGE.flattened ? "" : "active",
+                          "aria-current": PAGE.flattened ? undefined : "page",
+                          title: "Every sub-model is one node: double-click to open it" }, "Standard"),
+                el("a", { href: PAGE.flattened ? "#" : PAGE.flattened_rel, class: PAGE.flattened ? "active" : "",
+                          "aria-current": PAGE.flattened ? "page" : undefined,
+                          title: "Every sub-model is spliced in, inside a shaded region" }, "Flattened"));
+        }
+        const counts = `${records.size} node${records.size === 1 ? "" : "s"} · ${edgeRecords.size} arrow${edgeRecords.size === 1 ? "" : "s"}`;
+        document.getElementById("graphInfo").textContent = counts;
+    })();
+
+    // ------------------------------------------------------------------
+    // Inspector
+    // ------------------------------------------------------------------
+    const inspector = document.getElementById("inspectorContent");
+
+    function roleChip(role, extra) {
+        const style = ROLES[role];
+        return el("span", { class: "chip", style: `background:${style.fill};border-color:${style.border};color:${style.text}` },
+            style.label + (extra ? ` · ${extra}` : ""));
+    }
+    function nodeLink(id, meta) {
+        const record = records.get(id);
+        const role = ROLES[record ? roleOf(record) : "relation"];
+        return el("li", { onclick: () => focusNode(id), title: "Show " + id },
+            el("span", { class: "dot", style: `background:${role.fill};border-color:${role.border}` }),
+            el("span", { class: "name", text: record ? record.label : id }),
+            meta ? el("span", { class: "meta", text: meta }) : null);
+    }
+    function linkList(items, empty) {
+        const list = el("ul", { class: "links" });
+        if (!items.length) list.append(el("li", { class: "empty", text: empty }));
+        for (const item of items) list.append(item);
+        return list;
+    }
     function formatValue(value) {
         if (value === null || value === undefined) return "";
-        if (typeof value === "object") {
-            return `<pre style="margin:0; white-space:pre-wrap;">${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+        if (typeof value === "object") return el("pre", { text: JSON.stringify(value, null, 2) });
+        return String(value);
+    }
+    function rawTable(details) {
+        const table = el("table", { class: "kv" });
+        for (const [key, value] of Object.entries(details)) {
+            if (key === "block" || key === "inlined_block") continue;
+            table.append(el("tr", {}, el("th", { text: key }), el("td", {}, formatValue(value))));
         }
-        return escapeHtml(String(value));
+        return table;
     }
-
-    function focusNode(nodeId) {
-        if (!nodes.get(nodeId)) return;
-        network.selectNodes([nodeId]);
-        network.focus(nodeId, { scale: 1.1, animation: true });
-        renderInspector(nodeId);
+    function axesSection(id) {
+        const axes = (nodeDetails[id] || {}).axes;
+        if (!axes) return null;
+        const rows = el("table", { class: "axes" });
+        axes.seq.forEach((size, index) => rows.append(el("tr", {},
+            el("td", { text: `seq ${String(size)}` }),
+            el("td", { text: size === "dyn"
+                ? "sequence axis, its length set by the data"
+                : `sequence axis of ${size} step${size === 1 ? "" : "s"}` + (index === 0 && axes.seq.length > 1 ? " (outermost)" : "") }))));
+        if (axes.time !== null && axes.time !== undefined) {
+            rows.append(el("tr", {}, el("td", { text: `time ${axes.time}` }),
+                el("td", { text: axes.time === 1 ? "one sample per step" : `a window of ${axes.time} samples` })));
+        } else {
+            rows.append(el("tr", {}, el("td", { text: "time -" }), el("td", { text: "no window: one value per sample" })));
+        }
+        const features = axes.dim.reduce((a, b) => a * b, 1);
+        rows.append(el("tr", {}, el("td", { text: `dim ${axes.dim.join("×")}` }),
+            el("td", { text: features === 1 ? "one feature" : `${features} features` })));
+        return [el("h3", { text: "Shape" }), el("div", { class: "shape-big", text: shapeOf(id) }), rows,
+                el("p", { text: "The batch axis is not shown." })];
     }
-
-    function portRows(rows) {
-        return rows.map(row => `
-            <tr>
-                <td><a href="#" data-node="${escapeHtml(row.node)}">${escapeHtml(row.node)}</a></td>
-                <td>${escapeHtml(row.text)}</td>
-                <td class="role">${escapeHtml(row.role || "")}</td>
-            </tr>`).join("");
-    }
-
-    function portsHtml(ports) {
-        let html = "";
-        const detail = Object.entries(ports.detail || {})
-            .map(([key, value]) => `${escapeHtml(key)}: ${escapeHtml(String(value))}`)
-            .join(" · ");
-        html += `<div class="ports-title">${escapeHtml(ports.block)}${detail ? " — " + detail : ""}</div>`;
-
+    function portsSection(ports) {
+        const parts = [];
+        const detail = ports.detail || {};
+        const facts = [];
+        if (ports.block === "Loop") {
+            facts.push(detail.steps_from_data ? "steps from the data" : `${detail.steps} step${detail.steps === 1 ? "" : "s"}`);
+            facts.push(detail.collect === false ? "returns the last step" : "returns every step");
+        }
+        if (facts.length) parts.push(el("p", { text: facts.join(" · ") }));
+        const row = (body, text, meta) => el("li", { onclick: () => focusNode(body), title: "Show " + body },
+            el("span", { class: "name mono", text: body }), el("span", { class: "meta", text: text + (meta ? ` · ${meta}` : "") }));
         if (ports.inputs.length) {
-            html += '<div class="ports-title">Inputs</div><table class="ports">' +
-                portRows(ports.inputs.map(p => (
-                    { node: p.body, text: "\u2190 " + p.outer, role: p.role }
-                ))) + "</table>";
+            parts.push(el("h3", { text: "Enters through" }),
+                linkList(ports.inputs.map(p => row(p.body, "← " + p.outer, p.role)), ""));
         }
         if (ports.feedback.length) {
-            html += '<div class="ports-title">Feedback</div><table class="ports">' +
-                portRows(ports.feedback.map(p => (
-                    { node: p.from, text: "\u2192 " + p.to, role: "closed" }
-                ))) + "</table>";
+            parts.push(el("h3", { text: "Fed back each step" }),
+                linkList(ports.feedback.map(p => row(p.from, "→ " + p.to)), ""));
         }
         if (ports.outputs.length) {
-            html += '<div class="ports-title">Outputs</div><table class="ports">' +
-                portRows(ports.outputs.map(p => (
-                    { node: p.body, text: "\u2192 " + p.outer, role: "" }
-                ))) + "</table>";
+            parts.push(el("h3", { text: "Leaves through" }),
+                linkList(ports.outputs.map(p => row(p.body, "→ " + p.outer)), ""));
         }
-        return html;
+        return parts;
+    }
+    function openBody(url) {
+        if (PAGE.link_target === "_blank") window.open(url, "_blank");
+        else window.location.href = url;
     }
 
-    function bindPortLinks(root) {
-        root.querySelectorAll('a[data-node]').forEach(link => {
-            link.addEventListener('click', event => {
-                event.preventDefault();
-                focusNode(link.getAttribute('data-node'));
-            });
-        });
-    }
-
-    if (boundary) {
-        const el = document.getElementById('boundaryContent');
-        el.innerHTML =
-            `<div class="empty">Body of <b>${escapeHtml(boundary.node)}</b> in ` +
-            `<a href="${escapeHtml(boundary.parent_rel)}">${escapeHtml(boundary.parent)}</a>.</div>` +
-            portsHtml(boundary.ports);
-        bindPortLinks(el);
-    }
-
-    function renderInspector(nodeId) {
-        const details = nodeDetails[nodeId];
-        const n = nodes.get(nodeId);
-
-        if (!details) {
-            inspectorContent.innerHTML = '<div class="empty">No details available for this node.</div>';
-            return;
+    function renderNode(id) {
+        const record = records.get(id);
+        const details = nodeDetails[id] || {};
+        if (!record) { renderOverview(); return; }
+        const role = roleOf(record);
+        const parts = [roleChip(role), el("h2", { text: record.label })];
+        const kindLine = el("div", { class: "kindline" }, el("code", { text: record.kind }));
+        if (record.region) kindLine.append(" · inside ", el("code", { text: record.region }));
+        parts.push(kindLine);
+        parts.push(el("p", { text: ROLES[role].about }));
+        if (details.about && !["input", "output", "parameter", "constant"].includes(role)) {
+            parts.push(el("p", { class: "doc", text: details.about }));
         }
-
-        const rows = Object.entries(details)
-            .filter(([key]) => key !== "block")
-            .map(([key, value]) => {
-            return `
-            <tr>
-                <th>${escapeHtml(key)}</th>
-                <td>${formatValue(value)}</td>
-            </tr>
-            `;
-        }).join("");
-
-        let extra = "";
-        if (n && n.url) {
-            extra = `<a class="open-link" href="${escapeHtml(n.url)}" target="{{ link_target }}">Open nested model</a>`;
+        if (record.port) {
+            parts.push(el("div", { class: "callout" },
+                el("b", { text: "Port. " }),
+                record.port.side === "in"
+                    ? `The graph above feeds it with ${record.port.outer} (${record.port.role}).`
+                    : `The graph above reads it as ${record.port.outer}.`));
         }
-
-        inspectorContent.innerHTML = `
-            <table class="attr-table">
-                <tbody>${rows}</tbody>
-            </table>
-            ${details.block ? portsHtml(details.block) : ""}
-            ${extra}
-        `;
-        inspectorContent.querySelectorAll('a[data-node]').forEach(link => {
-            link.addEventListener('click', event => {
-                event.preventDefault();
-                focusNode(link.getAttribute('data-node'));
-            });
-        });
-    }
-
-    network.on("click", function(params) {
-        if (!params.nodes || params.nodes.length === 0) return;
-        const nodeId = params.nodes[0];
-        renderInspector(nodeId);
-    });
-
-    network.on("doubleClick", function(params) {
-        if (!params.nodes || params.nodes.length === 0) return;
-        const nodeId = params.nodes[0];
-        const n = nodes.get(nodeId);
-        if (n && n.url) {
-            const target = "{{ link_target }}";
-            if (target === "_blank") {
-                window.open(n.url, "_blank");
-            } else {
-                window.location.href = n.url;
+        if (details.block) {
+            parts.push(el("h3", { text: ROLES.submodel.label }),
+                el("p", {}, "Body: ", el("code", { text: details.nested_model })));
+            parts.push(...portsSection(details.block));
+            if (record.url) {
+                parts.push(el("div", { class: "actions" },
+                    el("button", { class: "btn primary", type: "button", onclick: () => openBody(record.url) }, "Open its body →")));
             }
         }
-    });
+        if (role === "loss") {
+            parts.push(el("h3", { text: "Compares" }), linkList([
+                details.source ? nodeLink(details.source, "source") : null,
+                details.target ? nodeLink(details.target, "target") : null].filter(Boolean), "-"));
+        }
+        const axes = axesSection(id);
+        if (axes) parts.push(...axes);
 
+        const incoming = [...edgeRecords.values()].filter(e => e.to === id);
+        const outgoing = [...edgeRecords.values()].filter(e => e.from === id);
+        const describe = e => e.kind === "data" ? e.shape : (e.kind === "binding" ? `port · ${e.label}` : e.label);
+        parts.push(el("h3", { text: `Reads (${incoming.length})` }),
+            linkList(incoming.map(e => nodeLink(e.from, describe(e))), "Nothing: it is a source of the graph."));
+        parts.push(el("h3", { text: `Feeds (${outgoing.length})` }),
+            linkList(outgoing.map(e => nodeLink(e.to, describe(e))), "Nothing: it is an end of the graph."));
+
+        parts.push(el("h3", { text: "Highlight" }), el("div", { class: "actions" },
+            el("button", { class: "btn", type: "button", title: "Everything this node is computed from",
+                onclick: () => setSpotlight(reach(id, "up"), `What ${record.label} depends on`, "up:" + id) }, "↤ Depends on"),
+            el("button", { class: "btn", type: "button", title: "Everything computed from this node",
+                onclick: () => setSpotlight(reach(id, "down"), `What ${record.label} feeds`, "down:" + id) }, "Feeds ↦"),
+            el("button", { class: "btn", type: "button", title: "Its direct neighbours",
+                onclick: () => setSpotlight([id, ...incoming.map(e => e.from), ...outgoing.map(e => e.to)],
+                    `${record.label} and its neighbours`, "near:" + id) }, "Neighbours"),
+            el("button", { class: "btn", type: "button", title: "Center the view on it",
+                onclick: () => network.focus(id, { scale: 1.2, animation: { duration: 350 } }) }, "Center")));
+
+        parts.push(el("details", { class: "raw" }, el("summary", { text: "All attributes" }), rawTable(details)));
+        inspector.replaceChildren(...parts);
+    }
+
+    function renderEdge(edgeId) {
+        const record = edgeRecords.get(edgeId);
+        if (!record) { renderOverview(); return; }
+        const kind = EDGE_KINDS[record.kind] || EDGE_KINDS.data;
+        const parts = [
+            el("span", { class: "chip", style: `background:#fff;border-color:${kind.color};color:${kind.strong}` }, kind.label),
+            el("h2", { text: `${(records.get(record.from) || { label: record.from }).label} → ${(records.get(record.to) || { label: record.to }).label}` }),
+            el("p", { text: kind.about }),
+        ];
+        if (record.shape) parts.push(el("h3", { text: "Carries" }), el("div", { class: "shape-big", text: record.shape }));
+        if (record.kind !== "data") parts.push(el("p", {}, "Label: ", el("code", { text: record.label })));
+        parts.push(el("h3", { text: "Between" }), linkList([nodeLink(record.from, "from"), nodeLink(record.to, "to")], ""));
+        if (record.info) parts.push(el("details", { class: "raw" }, el("summary", { text: "All attributes" }), rawTable(record.info)));
+        inspector.replaceChildren(...parts);
+    }
+
+    function renderOverview() {
+        const parts = [el("h2", { text: PAGE.title })];
+        let intro;
+        if (boundary) {
+            intro = `This page is the body of the sub-model ${boundary.node}, one node of ${boundary.parent}. ` +
+                    "Dashed cards are its ports: where the graph above enters and leaves.";
+        } else if (PAGE.flattened) {
+            intro = "Flattened view: every sub-model is spliced in, its body inside a shaded region, and the recurrence of a loop is a teal feedback arrow.";
+        } else {
+            intro = "Standard view: data flows from the inputs on the left to the outputs on the right. A sub-model is one indigo node: double-click it to open its body.";
+        }
+        parts.push(el("p", { text: intro }));
+
+        parts.push(el("h3", { text: "What is in it" }));
+        const chips = el("div", { class: "chips" });
+        for (const role of ROLE_ORDER) {
+            if (!roleCounts[role]) continue;
+            const style = ROLES[role];
+            chips.append(el("button", { class: "chip", type: "button", title: style.about + " Click to highlight them.",
+                style: `background:${style.fill};border-color:${style.border};color:${style.text}`,
+                onclick: () => spotlightRole(role) }, `${roleCounts[role]} ${style.label}`));
+        }
+        parts.push(chips);
+
+        const listOf = roles => [...records.values()].filter(r => roles.includes(roleOf(r)));
+        const ins = listOf(["input", "target"]);
+        const memory = listOf(["state"]);
+        const outs = listOf(["output"]);
+        const blocks = listOf(["submodel"]);
+        parts.push(el("h3", { text: `Inputs (${ins.length})` }),
+            linkList(ins.map(r => nodeLink(r.id, shapeOf(r.id))), "None"));
+        if (memory.length) {
+            parts.push(el("h3", { text: `States (${memory.length})` }),
+                linkList(memory.map(r => nodeLink(r.id, shapeOf(r.id))), ""));
+        }
+        parts.push(el("h3", { text: `Outputs (${outs.length})` }),
+            linkList(outs.map(r => nodeLink(r.id, shapeOf(r.id))), "None"));
+        if (blocks.length) {
+            parts.push(el("h3", { text: `Sub-models (${blocks.length})` }),
+                linkList(blocks.map(r => nodeLink(r.id, r.subtitle)), ""));
+        }
+        if (boundary) {
+            parts.push(el("h3", { text: "Bound to the graph above" }));
+            parts.push(el("p", {}, "Open ", el("a", { href: boundary.parent_rel, text: boundary.parent }),
+                " to see where it is used."));
+            parts.push(...portsSection(boundary.ports));
+        }
+        parts.push(el("h3", { text: "Explore" }), el("ul", { class: "tips" },
+            el("li", { text: "Click a node to see what it is, its shape and its connections." }),
+            el("li", { text: "Hover an arrow for the shape it carries." }),
+            el("li", { text: "Click an entry of the legend, below the graph, to highlight that kind of node." }),
+            el("li", {}, el("kbd", { text: "/" }), " search · ", el("kbd", { text: "F" }), " fit · ",
+                el("kbd", { text: "Esc" }), " clear · ", el("kbd", { text: "?" }), " help")));
+        inspector.replaceChildren(...parts);
+    }
+
+    function focusNode(id) {
+        if (!records.has(id)) return;
+        network.selectNodes([id]);
+        network.focus(id, { scale: Math.max(network.getScale(), 1), animation: { duration: 350 } });
+        renderNode(id);
+    }
+
+    network.on("click", params => {
+        if (params.nodes.length) renderNode(params.nodes[0]);
+        else if (params.edges.length) renderEdge(params.edges[0]);
+        else renderOverview();
+    });
+    network.on("doubleClick", params => {
+        if (!params.nodes.length) return;
+        const record = records.get(params.nodes[0]);
+        if (record && record.url) openBody(record.url);
+    });
+    network.on("hoverNode", params => {
+        const record = records.get(params.node);
+        container.style.cursor = record && record.url ? "pointer" : "default";
+    });
+    network.on("blurNode", () => { container.style.cursor = "default"; });
+
+    // ------------------------------------------------------------------
+    // Search
+    // ------------------------------------------------------------------
     const searchBox = document.getElementById("search");
     const searchInfo = document.getElementById("searchInfo");
-    searchBox.addEventListener("input", () => {
+    const searchPrev = document.getElementById("searchPrev");
+    const searchNext = document.getElementById("searchNext");
+    let matches = [];
+    let matchIndex = -1;
+
+    function runSearch() {
         const query = searchBox.value.trim().toLowerCase();
+        matches = [];
+        matchIndex = -1;
         if (!query) {
             searchInfo.textContent = "";
-            network.unselectAll();
+            searchPrev.disabled = searchNext.disabled = true;
+            if (spotlight && spotlight.key === "search") clearSpotlight();
             return;
         }
-        const matches = nodes.getIds().filter(
-            id => String(id).toLowerCase().includes(query));
-        searchInfo.textContent = matches.length + (matches.length === 1 ? " match" : " matches");
+        matches = [...records.values()]
+            .filter(r => [r.id, r.label, r.kind, r.subtitle].some(v => String(v).toLowerCase().includes(query)))
+            .map(r => r.id);
+        searchInfo.textContent = matches.length ? `${matches.length} found` : "no match";
+        searchPrev.disabled = searchNext.disabled = matches.length < 2;
         if (matches.length) {
-            network.selectNodes(matches);
-            network.fit({ nodes: matches, animation: true });
-            if (matches.length === 1) renderInspector(matches[0]);
+            setSpotlight(matches, `Search "${searchBox.value.trim()}": ${matches.length} node${matches.length === 1 ? "" : "s"}`, "search");
+            stepMatch(1);
+        } else if (spotlight && spotlight.key === "search") {
+            clearSpotlight();
         }
+    }
+    function stepMatch(step) {
+        if (!matches.length) return;
+        matchIndex = (matchIndex + step + matches.length) % matches.length;
+        searchInfo.textContent = `${matchIndex + 1} of ${matches.length}`;
+        focusNode(matches[matchIndex]);
+    }
+    searchBox.addEventListener("input", runSearch);
+    searchBox.addEventListener("keydown", event => {
+        if (event.key === "Enter") { event.preventDefault(); stepMatch(event.shiftKey ? -1 : 1); }
+        if (event.key === "Escape") { searchBox.value = ""; runSearch(); searchBox.blur(); }
+    });
+    searchPrev.addEventListener("click", () => stepMatch(-1));
+    searchNext.addEventListener("click", () => stepMatch(1));
+
+    // ------------------------------------------------------------------
+    // Help, image, keys
+    // ------------------------------------------------------------------
+    const help = document.getElementById("help");
+    function toggleHelp(show) { help.hidden = !show; if (show) document.getElementById("helpClose").focus(); }
+    document.getElementById("helpBtn").addEventListener("click", () => toggleHelp(true));
+    document.getElementById("helpClose").addEventListener("click", () => toggleHelp(false));
+    help.addEventListener("click", event => { if (event.target === help) toggleHelp(false); });
+
+    document.getElementById("pngBtn").addEventListener("click", () => {
+        const source = container.querySelector("canvas");
+        const canvas = document.createElement("canvas");
+        canvas.width = source.width;
+        canvas.height = source.height;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(source, 0, 0);
+        const link = document.createElement("a");
+        link.download = (PAGE.title || "graph").replace(/[^\w.-]+/g, "_") + (PAGE.flattened ? "_flattened" : "") + ".png";
+        link.href = canvas.toDataURL("image/png");
+        link.click();
     });
 
-    const layoutBtn = document.getElementById("layoutBtn");
-    function refreshLayoutBtn() {
-        layoutBtn.textContent = hierarchical ? "Layout: hierarchical" : "Layout: force";
-    }
-    refreshLayoutBtn();
-    layoutBtn.addEventListener("click", () => {
-        hierarchical = !hierarchical;
-        refreshLayoutBtn();
-        const next = layoutOptions();
-        next.edges.font = { size: 10, align: "middle" };
-        network.setOptions(next);
-        network.fit({ animation: true });
+    document.addEventListener("keydown", event => {
+        const typing = ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName);
+        if (event.key === "Escape") {
+            if (!help.hidden) { toggleHelp(false); return; }
+            clearSpotlight();
+            network.unselectAll();
+            renderOverview();
+            return;
+        }
+        if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
+        if (event.key === "/") { event.preventDefault(); searchBox.focus(); searchBox.select(); }
+        else if (event.key === "f" || event.key === "F") network.fit({ animation: { duration: 350 } });
+        else if (event.key === "?") toggleHelp(help.hidden);
     });
 
-    const backBtn = document.getElementById("backBtn");
-    if (backBtn) {
-        backBtn.addEventListener("click", () => {
-            const parentUrl = {{ parent_rel }};
-            if (window.history.length > 1) {
-                window.history.back();
-            } else {
-                window.location.href = parentUrl;
-            }
-        });
-    }
+    renderOverview();
 </script>
 </body>
 </html>

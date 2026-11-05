@@ -126,6 +126,8 @@ the data is loaded:
   The dynamic length must be the outermost one. Simulations of different
   lengths are padded, and ``loader.mask`` marks the real steps. Training
   ignores the padded steps.
+- With ``windowed=True`` it is read from the shape of the data, see
+  `Windowed data`_.
 
 Dynamic sequences are meant to be consumed by a :class:`~nnodely.Loop`, which
 rolls out over whatever length it is given, or by a
@@ -150,3 +152,57 @@ DataFrame, and it then reads zeros.
 
 ``on_short`` decides what happens to a simulation too short to fill one sample:
 ``"error"`` (the default) raises, ``"skip"`` leaves it out.
+
+Windowed data
+-------------
+
+Data whose windows are already built, by another tool or by hand, is passed
+with ``windowed=True``. Every array is then laid out as the model's tensor of
+its input, ``(samples, *seq, time, *dim)``, and used as it is: the loader
+builds no window, aligns nothing and drops no sample, so sample ``i`` of every
+input is row ``i`` of its array. The last axis may be left out for an input of
+a single feature:
+
+.. code-block:: python
+
+   windows = DataLoader(
+       model,
+       source={
+           "x": np.random.rand(500, 3),      # (N, time): a single feature
+           "u": np.random.rand(500, 1, 2),   # (N, time, dim)
+           "y_target": np.random.rand(500, 1),
+       },
+       windowed=True,
+   )
+   print(len(windows))   # 500
+
+A dynamic sequence length is read from the shape, so ``seq_length`` is not
+needed, and an input may declare several, ``seq=(-1, -1)``. The inputs whose
+outermost sequence axis is dynamic share one rollout. Its length may change
+from one simulation of a list to the next: the shorter ones are padded, and
+``loader.mask`` marks the real steps. Every other dynamic length has to match
+between simulations:
+
+.. code-block:: python
+
+   d2 = Input("d2", seq=(-1, -1), sw=1)
+   d2_model = Modely("dynamic2", inputs=[d2], outputs=[Output("d2_out", d2)])
+   d2_model.build()
+
+   rollouts = DataLoader(
+       d2_model,
+       source=[
+           {"d2": np.random.rand(8, 30, 5, 1, 1)},   # 8 samples, rollout of 30
+           {"d2": np.random.rand(4, 20, 5, 1, 1)},   # 4 samples, rollout of 20
+       ],
+       windowed=True,
+   )
+   print(rollouts.as_dict()["d2"].shape, rollouts.mask.shape)   # (12, 30, 5, 1, 1) (12, 30)
+
+The flag is explicit because the shape alone cannot tell raw data from
+windowed data. With ``x = Input("x", sw=1)`` and a target
+``Input("y", sw=(0, 1))``, two ``(N, 1, 1)`` arrays are valid either way: read
+as signals, ``y`` is shifted one sample ahead of ``x``; read as windows, the
+pairs are kept as given. ``windowed=True`` takes dicts only, since a DataFrame
+or a CSV file holds one sample per row, and it refuses ``step`` and
+``seq_length``, which only shape the windows the loader builds.

@@ -1,5 +1,6 @@
 """Input: a signal read from data, a root of the graph."""
 
+from nnodely.core.shape import _same_steps
 from nnodely.core.stream import Stream
 
 import keras
@@ -55,7 +56,8 @@ def _check_history(owner: str, init, signal, past: int, name: str = "init") -> N
     ``signal``, unless it holds one sample - repeated when ``past`` are read -
     or ``past`` of them, oldest first, along its window: a value without a
     window - a number, a Parameter, a Constant - is one sample. Its dim is a
-    scalar or the signal's, its sequence none or the signal's.
+    scalar or the signal's, its sequence none or the signal's, a dynamic axis
+    matching any length.
 
     The rule of every layer that starts from the past of a signal:
     ``IntegrateStep`` and ``DerivativeStep`` before a window, ``Integrate``,
@@ -81,7 +83,7 @@ def _check_history(owner: str, init, signal, past: int, name: str = "init") -> N
             f"{owner}: {name} has dim {tuple(init.dim)}, which is neither a "
             f"scalar nor the dim of {signal.name!r}, {tuple(signal.dim)}."
         )
-    if seq not in ((), tuple(signal.seq)) or (samples is None and seq):
+    if (seq and not _same_steps(seq, signal.seq)) or (samples is None and seq):
         raise ValueError(
             f"{owner}: {name} has the sequence {seq}, which is neither empty "
             f"nor the sequence of {signal.name!r}, {tuple(signal.seq)}."

@@ -27,7 +27,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   `header` are passed to `pandas.read_csv`; n/a values are reported. An array
   holds the features of each sample laid out as the input's `dim`, or flat in
   row-major order; another layout of as many values is refused rather than
-  reordered.
+  reordered. `windowed=True` takes arrays already laid out as the model's
+  tensors, `(N, *seq, time, *dim)`, and uses them as given: dynamic sequence
+  lengths, several per input, are read from their shape, and rollouts of
+  different lengths are padded and masked.
 - `minimize()` with any Keras loss, a `gain` per objective and `seq_weights`
   along a rollout; targets can be computed streams or numbers.
 - A layer whose constructor takes only `name` is applied as it is created:
@@ -74,7 +77,8 @@ variable, and trains, validates and exports through Keras. Models saved with
 - `Loop` finds the Inputs its body feeds back - with `Input.feedback`, inside
   the models it calls, or kept by `Integrate`, `Derivative` and `Buffer` - as
   a `ModelyLoop` does, adding an output for an update that is not one:
-  `Loop(f=step)(inputs)`. `feedback=` adds to them, for a model that is built
+  `Loop(f=step)(inputs)`, the inputs given as a dict, a list in the order
+  the step declares them, or a stream alone. `feedback=` adds to them, for a model that is built
   or loaded, or to reuse one step with different feedbacks. `init=` takes
   only the fed-back Inputs, the inputs of the call only the others, and a
   state has one initial value: two are an error. The `init` of `Integrate`
@@ -255,7 +259,12 @@ variable, and trains, validates and exports through Keras. Models saved with
   with `shared_kernel=True` one for all.
 - `save(path, weights=True)` / `Modely.load(path, weights=True)`, Keras and
   ONNX export, interactive HTML graphs, and Graphviz drawings: one image per
-  model and per sub-model, or one flattened image, with a legend.
+  model and per sub-model, or one flattened image, with a legend. The HTML
+  graph colours every node by its role, with a legend that highlights a role,
+  a panel that explains the node selected - its shape axis by axis, what it
+  reads and feeds - search, and the flattened page draws each sub-model's
+  body in a region of its own. Selecting a node keeps its colours, and the
+  layout switches between left to right and force at any size.
 - Training printers (`"tiny"`, `"legacy"`, `"nnodely"`), `set_seed()` for
   reproducible runs, and `nnodely.__version__`.
 

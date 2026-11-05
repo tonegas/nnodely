@@ -58,6 +58,24 @@ class DataLoader:
 
         {name: np.ndarray of shape (N, *seq, time, *dim)}
 
+    Windowed sources:
+
+    - ``windowed=True`` takes a dict, or a list of dicts, whose arrays (or
+      nested lists) are already laid out that way, and uses them as they are:
+      no window is built, nothing is aligned or dropped, sample ``i`` of every
+      input is the ``i``-th row given. The last axis may be left out for an
+      input of a single feature.
+    - A dynamic sequence length is read from the shape, so an input may
+      declare several, and ``seq_length`` is not needed.
+    - The inputs whose outermost sequence axis is dynamic share one rollout.
+      Its length may differ from one simulation to another: shorter ones are
+      padded on that axis, and ``mask`` marks the real steps. Every other
+      dynamic length has to match between simulations.
+    - The flag is explicit because the shape alone cannot tell the two
+      readings apart: an ``(N, 1, 1)`` array is ``N`` samples of one value
+      either way, but a raw target ``sw=(0, 1)`` is shifted one sample ahead,
+      and an already windowed one is not.
+
     Example::
 
         x = Input("x", sw=5)
@@ -66,6 +84,10 @@ class DataLoader:
 
         loader = DataLoader(model, source={"x": np.arange(10.0)})
         loader[0]  # {"x": array([[0.], [1.], [2.], [3.], [4.]])}
+
+        windows = np.random.rand(100, 5, 1)  # (N, time, dim)
+        loader = DataLoader(model, source={"x": windows}, windowed=True)
+        len(loader)  # 100
     """
 
     def __init__(
@@ -80,6 +102,7 @@ class DataLoader:
         seq_length: int | Literal["full"] | None = None,
         step: int = 1,
         on_short: Literal["error", "skip"] = "error",
+        windowed: bool = False,
     ):
         if step < 1:
             raise ValueError(f"step must be a positive integer, got {step}.")
@@ -87,6 +110,18 @@ class DataLoader:
             raise ValueError(
                 "step has no meaning with seq_length='full': the sequence already "
                 "spans the whole simulation, so there is a single starting point."
+            )
+        if not isinstance(windowed, bool):
+            raise TypeError(f"windowed is True or False, got {windowed!r}.")
+        if windowed and seq_length is not None:
+            raise ValueError(
+                "seq_length has no meaning with windowed=True: windowed data "
+                "already carries every sequence length in its shape."
+            )
+        if windowed and step > 1:
+            raise ValueError(
+                "step has no meaning with windowed=True: windowed data is used as "
+                "it is given, so slice it to keep fewer samples."
             )
 
         self._model = model
@@ -98,6 +133,7 @@ class DataLoader:
         self._seq_length = seq_length
         self._step = step
         self._on_short = on_short
+        self._windowed = windowed
 
         if model.model is None:
             raise ValueError(
@@ -115,8 +151,10 @@ class DataLoader:
         # samples came from an in-memory dict and no file is involved.
         self._num_files: int | None = None
 
+        # Windowed data carries its sequence lengths, dynamic ones included,
+        # in its shape: there is nothing to resolve.
         self._sequence_specs = {
-            name: self._resolve_sequence(node)
+            name: tuple(node.seq) if windowed else self._resolve_sequence(node)
             for name, node in self._input_nodes.items()
         }
 
@@ -126,7 +164,10 @@ class DataLoader:
             if any(length is None for length in sequence)
         }
         self.mask: np.ndarray | None = None
-        self._dataset = self._build(self._read(source))
+        if windowed:
+            self._dataset = self._build_windowed(self._read_windowed(source))
+        else:
+            self._dataset = self._build(self._read(source))
         if self.mask is not None:
             self._warn_uncollected_loops()
 
@@ -148,7 +189,7 @@ class DataLoader:
 
         row("Dataset Name", self._model.name)
         if self._num_files is None:
-            row("Source", "in-memory dict")
+            row("Source", "in-memory dict" + (", windowed" if self._windowed else ""))
         else:
             row("Number of files", self._num_files)
         row("Total number of samples", len(self))
@@ -187,6 +228,7 @@ class DataLoader:
         loader was built with ``step > 1``), so running the model on them
         returns a time series of ``n`` predictions. They never cross from one
         simulation into the next, where two unrelated trajectories would join.
+        With ``windowed=True`` they are consecutive rows, in the order given.
 
         Parameters
         ----------
@@ -254,12 +296,15 @@ class DataLoader:
         if len(dynamic) > 1:
             raise ValueError(
                 f"Input '{node.name}' declares more than one dynamic sequence length. "
-                "Only a single dynamic sequence dimension is supported."
+                "Building the windows resolves a single dynamic sequence dimension; "
+                "data already windowed carries every length in its shape, so pass "
+                "it with windowed=True."
             )
         if dynamic and self._seq_length is None:
             raise ValueError(
                 "Some inputs have undefined sequence length. "
-                "Please specify seq_length in training."
+                "Please specify seq_length in training, or pass data already "
+                "windowed with windowed=True."
             )
         if dynamic and self._seq_length == "full" and dynamic[0] != 0:
             raise ValueError(
@@ -380,18 +425,19 @@ class DataLoader:
             data[name] = self._as_samples(name, values, label)
         return data
 
-    def _read_mapping(self, mapping: dict, label: str) -> Dict[str, np.ndarray]:
+    def _given_inputs(self, mapping: dict, label: str) -> List[str]:
+        """The inputs a dict gives, once every required one is found in it."""
         absent = [name for name in self._input_specs if name not in mapping]
         missing = [name for name in absent if name not in self._model.optional_inputs]
         if missing or len(absent) == len(self._input_specs):
             raise ValueError(
                 f"'{label}' is missing required inputs: {missing or absent}"
             )
+        return [name for name in self._input_specs if name in mapping]
 
+    def _read_mapping(self, mapping: dict, label: str) -> Dict[str, np.ndarray]:
         data = {}
-        for name in self._input_specs:
-            if name in absent:
-                continue
+        for name in self._given_inputs(mapping, label):
             values = mapping[name]
             if isinstance(values, (pd.Series, pd.DataFrame)):
                 values = values.to_numpy(dtype=self._dtype)
@@ -421,9 +467,16 @@ class DataLoader:
         feature_size = int(np.prod(values.shape[1:], dtype=int))
         expected_size = int(np.prod(dim, dtype=int))
         if feature_size != expected_size:
+            hint = ""
+            if self._windowed_shape(name, values.shape) is not None:
+                hint = (
+                    f" It is laid out as the tensor of '{name}', "
+                    f"{self._tensor_layout(name)}: pass windowed=True if its "
+                    "windows are already built."
+                )
             raise ValueError(
                 f"Input '{name}' in '{label}' provides {feature_size} values per "
-                f"timestep, but its dim={dim} requires {expected_size}."
+                f"timestep, but its dim={dim} requires {expected_size}.{hint}"
             )
         # The values are reshaped to dim, which keeps their order: laid out
         # as dim, or flat, they land where they belong; any other layout of
@@ -437,17 +490,144 @@ class DataLoader:
                 f"flat, (timesteps, {expected_size}), the features in row-major "
                 "order."
             )
+        self._warn_missing(name, values, label)
+        return np.reshape(values, (values.shape[0], *dim))
+
+    @staticmethod
+    def _warn_missing(name: str, values: np.ndarray, label: str) -> None:
+        """Warn about the n/a values of an input, which are kept."""
         # A cell pandas reads as n/a - empty, "n/a", "NaN" - stays a NaN, and a
         # NaN reaching a minimizer turns its loss, and every weight it trains,
         # into NaN.
         missing = int(np.isnan(values).sum())
         if missing:
+            # Raised from the DataLoader(...) call: __init__ -> read -> read
+            # one simulation -> check one input -> here.
             warnings.warn(
                 f"'{label}': input '{name}' has {missing} n/a values, kept as NaN.",
                 UserWarning,
-                stacklevel=5,
+                stacklevel=6,
             )
-        return np.reshape(values, (values.shape[0], *dim))
+
+    # ------------------------------------------------------------------
+    # Read windowed: source -> one {name: (N, *seq, time, *dim)} set per
+    # simulation, used as given
+    # ------------------------------------------------------------------
+
+    def _read_windowed(self, source) -> List[tuple[str, Dict[str, np.ndarray]]]:
+        items = source if isinstance(source, (list, tuple)) else [source]
+        if not items:
+            raise ValueError("The source holds no simulation: the list is empty.")
+        simulations = []
+        for index, item in enumerate(items):
+            if not isinstance(item, dict):
+                raise TypeError(
+                    f"windowed=True reads a dict of arrays, or a list of them, got "
+                    f"{type(item).__name__}: a DataFrame or a CSV file holds one "
+                    "sample per row, which the loader windows itself, so leave "
+                    "windowed False for it."
+                )
+            label = f"simulation {index}"
+            simulations.append((label, self._read_windowed_mapping(item, label)))
+        return simulations
+
+    def _rolls_out(self, name: str) -> bool:
+        """Whether an input's outermost sequence axis is dynamic: the rollout
+        that every such input shares, and the axis padded and masked."""
+        sequence = self._sequence_specs[name]
+        return bool(sequence) and sequence[0] is None
+
+    def _read_windowed_mapping(
+        self, mapping: dict, label: str
+    ) -> Dict[str, np.ndarray]:
+        # A loop, not a comprehension: before Python 3.12 that is a frame of
+        # its own, and the n/a warning would point inside the loader.
+        data = {}
+        for name in self._given_inputs(mapping, label):
+            data[name] = self._as_windows(name, mapping[name], label)
+
+        counts = {name: values.shape[0] for name, values in data.items()}
+        if len(set(counts.values())) > 1:
+            raise ValueError(
+                f"'{label}': the inputs hold different numbers of samples: {counts}."
+            )
+        count = next(iter(counts.values()))
+        if count == 0:
+            raise ValueError(f"'{label}' contains an empty input array.")
+        rollouts = {
+            name: values.shape[OUTER_AXIS]
+            for name, values in data.items()
+            if self._rolls_out(name)
+        }
+        if len(set(rollouts.values())) > 1:
+            raise ValueError(
+                f"'{label}': the inputs whose outermost sequence axis is dynamic "
+                f"share one rollout, but its lengths differ: {rollouts}."
+            )
+
+        # An optional input left out reads zeros, over the rollout of the
+        # others when it shares it, one step of any other dynamic length.
+        rollout = next(iter(rollouts.values()), 1)
+        zeros = {}
+        for name in self._input_specs:
+            if name in data:
+                continue
+            layout = list(self._input_nodes[name].shape.tuple)
+            if self._rolls_out(name):
+                layout[0] = rollout
+            layout = [1 if size is None else size for size in layout]
+            zeros[name] = np.zeros((count, *layout), self._dtype)
+        return {
+            name: data[name] if name in data else zeros[name]
+            for name in self._input_specs
+        }
+
+    def _tensor_layout(self, name: str) -> str:
+        """An input's windowed layout as an error prints it: (N, dyn, 10, 1)."""
+        sizes = [
+            "dyn" if size is None else str(size)
+            for size in self._input_nodes[name].shape.tuple
+        ]
+        return f"(N, {', '.join(sizes)})"
+
+    def _windowed_shape(self, name: str, shape: tuple) -> tuple | None:
+        """``shape`` read as the tensor of an input, ``(N, *seq, time, *dim)``,
+        or None when it is not: every fixed axis its size, every dynamic one
+        at least a step. The last axis may be left out for a single feature."""
+        node = self._input_nodes[name]
+        expected = node.shape.tuple
+        shape = tuple(shape)
+        if tuple(node.dim) == (1,) and len(shape) == len(expected):
+            shape = (*shape, 1)
+        if len(shape) != len(expected) + 1:
+            return None
+        for size, given in zip(expected, shape[1:]):
+            if (given < 1) if size is None else (given != size):
+                return None
+        return shape
+
+    def _as_windows(self, name: str, values: Any, label: str) -> np.ndarray:
+        """Check an already windowed input against the layout of its tensor."""
+        try:
+            values = np.asarray(values, dtype=self._dtype)
+        except ValueError as error:
+            raise ValueError(
+                f"Input '{name}' in '{label}' cannot be read as one array: {error}. "
+                "Windowed data gives every sample the same shape; samples of "
+                "different rollout lengths go in simulations of their own, a list "
+                "of dicts, which the loader pads and masks."
+            ) from error
+        shape = self._windowed_shape(name, values.shape)
+        if shape is None:
+            raise ValueError(
+                f"Input '{name}' in '{label}' is {values.shape}, but windowed data "
+                f"is laid out as its tensor, {self._tensor_layout(name)}, for its "
+                f"{self._input_nodes[name].shape}: the samples first, then every "
+                "sequence axis, the window when there is one and the dim, whose "
+                "last axis may be left out for a single feature."
+            )
+        self._warn_missing(name, values, label)
+        return np.reshape(values, shape)
 
     # ------------------------------------------------------------------
     # Window: simulations -> {name: (N, *time, *dim)}
@@ -541,6 +721,57 @@ class DataLoader:
         return {
             name: np.concatenate(windows, axis=0) for name, windows in chunks.items()
         }
+
+    def _build_windowed(
+        self, simulations: List[tuple[str, Dict[str, np.ndarray]]]
+    ) -> Dict[str, np.ndarray]:
+        """Stack windowed simulations, padding the rollouts that are shorter."""
+        rolled = [name for name in self._input_specs if self._rolls_out(name)]
+
+        # Only the rollout is padded, and the mask covers only that axis, so
+        # every other dynamic length has to be the same in every simulation.
+        first_label, first = simulations[0]
+        for label, simulation in simulations[1:]:
+            for name, values in simulation.items():
+                kept = slice(2 if name in rolled else 1, None)
+                if values.shape[kept] != first[name].shape[kept]:
+                    raise ValueError(
+                        f"Input '{name}' is {values.shape[1:]} per sample in "
+                        f"'{label}', but {first[name].shape[1:]} in '{first_label}': "
+                        "only the outermost dynamic sequence axis, the rollout, may "
+                        "differ between simulations - it is padded and masked - so "
+                        "every other length must match."
+                    )
+
+        self._simulations = []
+        offset = 0
+        counts, rollouts = [], []
+        for label, simulation in simulations:
+            count = next(iter(simulation.values())).shape[0]
+            self._simulations.append((label, offset, count))
+            offset += count
+            counts.append(count)
+            if rolled:
+                rollouts.append(simulation[rolled[0]].shape[OUTER_AXIS])
+
+        chunks = {
+            name: [simulation[name] for _, simulation in simulations]
+            for name in self._input_specs
+        }
+        if len(set(rollouts)) > 1:
+            widest = max(rollouts)
+            for name in rolled:
+                chunks[name] = [self._pad(values, widest) for values in chunks[name]]
+            # One row per sample: every sample of a simulation has its rollout.
+            self.mask = np.repeat(
+                np.arange(widest) < np.asarray(rollouts)[:, np.newaxis],
+                counts,
+                axis=0,
+            )
+
+        # Concatenated even when there is one simulation: the dataset is a
+        # copy, which the caller's arrays changing later does not reach.
+        return {name: np.concatenate(values, axis=0) for name, values in chunks.items()}
 
     def _warn_uncollected_loops(self) -> None:
         """Warn about a Loop that returns only its last, padded, rollout step."""
