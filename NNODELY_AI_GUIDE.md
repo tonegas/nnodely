@@ -185,7 +185,7 @@ Install: `pip install "nnodely[torch]"` (or `[tensorflow]` / `[jax]`); add `onnx
 - No methods take windows: there is no `.sw()`, `.next()` or `.last()`. `TimeSelect` / `TimeRange` take parts of the window.
 - Attributes: `.shape` (the per-sample shape of its data, as declared), `.past`, `.future` (its window; `(1, 0)` without one), `.seq`, `.dim`, `.time` (`None` without a window), `.name`, `.update` (the stream `feedback` set; `None` while read from data) and `.init` (the init of the layer that keeps a hidden state; `None` otherwise).
 - `feedback(stream)` → `stream`: feeds `stream` back into the Input at the next step, in a `Loop` or a `ModelyLoop` (§10.1, §10.2). `stream` is one sample of the Input: `T=1` (no window for an Input without one), its dim and sequence; otherwise `ValueError` ("fed back with the value of one step"). An Input reading future samples cannot be fed back, nor one already fed back [verified]. The initial value is given where the feedback is applied (§10.1, §10.2).
-- `seq=N` gives a fixed-length sequence (trajectory): `Input("x", seq=N, sw=1)` is `S=(N,), T=1`. A tuple gives several sequence axes, outermost first. `seq=-1`, or `seq="dyn"` as a shape prints it (`seq=(4, "dyn")` in a tuple), gives a dynamic length, resolved by `DataLoader(seq_length=...)` and followed by a `Loop` at call time; only one dynamic axis per input is allowed. A sequence needs `sw`.
+- `seq=N` gives a fixed-length sequence (trajectory): `Input("x", seq=N, sw=1)` is `S=(N,), T=1`. A tuple gives several sequence axes, outermost first. `seq=-1`, or `seq="dyn"` as a shape prints it (`seq=(4, "dyn")` in a tuple), gives a dynamic length, resolved by `DataLoader(seq_length=...)`, or read from the shape of `DataLoader(..., windowed=True)` data, and followed by a `Loop` at call time. Building the windows resolves one dynamic axis per input; several, `seq=(-1, -1)`, need `windowed=True` data. A sequence needs `sw`.
 - An Input used only as a target (for example `Input("y_meas", sw=1)`) is read by training and validation (it is in `model.train_inputs`), not by inference (§1.12).
 
 ### Output
@@ -334,12 +334,13 @@ Reproducibility: call `set_seed(int)` before creating layers and data. It seeds 
 
 ## 9. DataLoader
 
-`DataLoader(model, source, format=None, csv_glob="*.csv", delimiter=",", header="infer", dtype=np.float32, seq_length=None, step=1, on_short="error")`. The model must be built.
+`DataLoader(model, source, format=None, csv_glob="*.csv", delimiter=",", header="infer", dtype=np.float32, seq_length=None, step=1, on_short="error", windowed=False)`. The model must be built.
 
 **Sources**
 - A dict `{input_name: array (T,) or (T, *dim)}`, or flat `(T, prod(dim))` in row-major order; another layout of as many values raises `ValueError` rather than being reordered (axes of size 1 aside). Keys must be the model's input names, including target-only inputs. `format` is ignored for dicts.
 - A `pd.DataFrame`, a `.csv` path, or a folder of CSVs matching `csv_glob`. CSV files are read with `pd.read_csv(sep=delimiter, header=header)`. `format={"input": "col" | int_index | ["c1","c2",...]}` maps inputs to columns; a list is used for `dim>1`. Unmapped columns are ignored, and an input not listed in `format` is looked up by its own name. n/a cells are kept as NaN, with a warning.
 - A list of dicts or DataFrames, or a folder with several files: several **simulations**. Windows never cross simulations, and lengths may differ.
+- `windowed=True`: a dict (or list of dicts) of arrays or nested lists already laid out as the model's tensors, `{name: (N, *seq, time, *dim)}`, used as given: no window is built, nothing aligned or dropped; the round trip `DataLoader(model, loader.as_dict(), windowed=True)` returns the same arrays [verified]. The last axis may be left out for `dim=1`. Dynamic lengths are read from the shape, so `seq_length` is not needed and an input may declare several, `seq=(-1, -1)` [verified]. The inputs whose outermost sequence axis is dynamic share one rollout; it may differ between simulations (padded, `loader.mask` of shape `(N, max_len)`, one row per sample), every other dynamic length must match [verified]. An optional input left out reads zeros over the shared rollout. DataFrames, CSV, `step>1` and `seq_length` raise. The flag is not inferred: a target `sw=(0, 1)` given as `(N, 1, 1)` is valid raw (shifted one sample ahead) and windowed (kept as given) [verified].
 - An input of `model.optional_inputs` (a fed-back Input a `ModelyLoop` lists) may be left out of a dict or a DataFrame: it reads zeros [verified]. The Inputs of a `ModelyLoop` carry a dynamic horizon: pass `seq_length=H` or `"full"`.
 
 **Windowing and alignment** [verified]
@@ -503,7 +504,9 @@ JAX cannot export ONNX at all: jax2tf emits an unconvertible XlaCallModule. `exp
 | `so used as a block it takes a stream of that shape` | A block called on a stream of another window, sequence or dim | Pass a stream of the shape the block reads (or the Input whole), or declare the block on the shape it is used with. |
 | `... is missing required inputs: [...]` (DataLoader) | Data dict lacks an input, often a target-only one | Add the column, or map it with `format`. |
 | `has only N samples, but the model requires at least M` | Simulation shorter than windows plus sequences | Shorter windows or seq, more data, or `on_short="skip"`. |
-| `Some inputs have undefined sequence length` | `seq=-1` without `seq_length` | `DataLoader(..., seq_length=H)` or `"full"`. |
+| `Some inputs have undefined sequence length` | `seq=-1` without `seq_length` | `DataLoader(..., seq_length=H)` or `"full"`, or data already windowed with `windowed=True`. |
+| `declares more than one dynamic sequence length` | `seq=(-1, -1)` with raw data | Pass the data already windowed, `DataLoader(..., windowed=True)`. |
+| `windowed data is laid out as its tensor, (N, ...)` | A `windowed=True` array of another shape | Lay it out `(N, *seq, time, *dim)`; a dynamic axis takes any length. |
 | `seq_length='full' only resolves the outermost one` | A dynamic length that is not the outermost sequence axis, e.g. `seq=(3, -1)` | Make the dynamic axis outermost, or pass `seq_length=H`. |
 | `Loop cannot determine the rollout length` | No initial value or input has one more sequence axis than its body input | Pass `length=H`, or feed a rollout (`Input("x", seq=H, sw=1)`). |
 | `Loop rollout inputs declare different lengths` | Exogenous rollout streams with different rollout lengths | Pass `length=` or make the lengths equal. |

@@ -1,5 +1,5 @@
 from nnodely import Input, Output, Modely, DataLoader, Loop
-from conftest import to_numpy
+from conftest import CONVERGED, to_numpy
 import os
 import warnings
 import numpy as np
@@ -742,3 +742,228 @@ def test_na_cells_are_kept_as_nan_with_a_warning(tmp_path):
     assert "'holes.csv': input 'csv_y' has 1 n/a values, kept as NaN." in messages
     assert np.isnan(_column_values(data, "csv_x")[1])
     assert np.isnan(_column_values(data, "csv_y")[2])
+
+
+# ------------------------------------------------------------------
+# windowed=True: data already laid out as the model's tensors
+# ------------------------------------------------------------------
+
+
+def _window_model():
+    x = Input("win_x", sw=10)
+    return Modely("win_model", inputs=[x], outputs=[Output("win_out", x)]).build()
+
+
+def test_windowed_data_is_used_as_given():
+    windows = np.random.rand(100, 10, 1).astype(np.float32)  # (B, T, D)
+
+    loader = DataLoader(_window_model(), source={"win_x": windows}, windowed=True)
+
+    ## No window is built and no sample is dropped
+    assert len(loader) == 100
+    np.testing.assert_array_equal(loader.as_dict()["win_x"], windows)
+
+    ## A single feature may leave its axis out, and nested lists are arrays
+    for given in (windows[..., 0], windows.tolist()):
+        same = DataLoader(_window_model(), source={"win_x": given}, windowed=True)
+        np.testing.assert_array_equal(same.as_dict()["win_x"], windows)
+
+    ## The dataset is a copy: the caller's array changing later does not reach it
+    windows[0] = -1.0
+    assert (loader.as_dict()["win_x"][0] != -1.0).all()
+
+
+def test_windowed_data_round_trips_what_the_loader_builds():
+    x = Input("trip_x", dim=2, sw=5)
+    y = Input("trip_y", sw=(2, 3))
+    s = Input("trip_s", seq=3, sw=2)
+    model = Modely(
+        "trip_model",
+        inputs=[x, y, s],
+        outputs=[Output("trip_out", TimeSelect(-1)(x) + TimeSelect(-1)(y))],
+    )
+    model.minimize("trip", TimeSelect(-1)(s), TimeSelect(-1)(y))
+    model.build()
+    signals = {
+        "trip_x": np.random.rand(40, 2),
+        "trip_y": np.random.rand(40),
+        "trip_s": np.random.rand(40),
+    }
+
+    built = DataLoader(model, source=signals).as_dict()
+    given = DataLoader(model, source=built, windowed=True).as_dict()
+
+    assert given.keys() == built.keys()
+    for name in built:
+        np.testing.assert_array_equal(given[name], built[name])
+
+
+def test_windowed_target_is_not_shifted_again():
+    x = Input("next_x", sw=1)
+    y = Input("next_y", sw=(0, 1))  # the next sample
+    model = Modely("next_model", inputs=[x], outputs=[Output("next_out", x)])
+    model.minimize("next", "next_out", y)
+    model.build()
+
+    ## The pairs are already made: y[i] is the sample after x[i]
+    xs = np.arange(5, dtype=np.float32).reshape(5, 1, 1)
+    ys = xs + 1
+
+    ## Raw data is aligned by the loader, which reads y one sample ahead...
+    raw = DataLoader(model, source={"next_x": xs, "next_y": ys})
+    np.testing.assert_array_equal(raw.as_dict()["next_y"] - raw.as_dict()["next_x"], 2)
+
+    ## ...windowed data keeps the pairs it is given
+    windowed = DataLoader(
+        model, source={"next_x": xs, "next_y": ys}, windowed=True
+    ).as_dict()
+    np.testing.assert_array_equal(windowed["next_y"] - windowed["next_x"], 1)
+
+
+def test_windowed_data_reads_several_dynamic_lengths_from_its_shape():
+    from nnodely import Parameter
+
+    x = Input("dyn2_x", seq=(-1, -1), sw=1)
+    y = Input("dyn2_y", seq=(-1, -1), sw=1)
+    gain = Parameter("dyn2_gain", value=1.0)
+    model = Modely("dyn2_model", inputs=[x], outputs=[Output("dyn2_out", x * gain)])
+    model.minimize("dyn2", "dyn2_out", y)
+    model.build()
+
+    xs = np.random.rand(16, 4, 6, 1, 1).astype(np.float32)
+
+    ## Building the windows resolves a single dynamic length
+    with pytest.raises(ValueError, match="windowed=True"):
+        DataLoader(model, source={"dyn2_x": xs[:, 0, 0, 0], "dyn2_y": xs[:, 0, 0, 0]})
+
+    loader = DataLoader(model, source={"dyn2_x": xs, "dyn2_y": 3 * xs}, windowed=True)
+    assert loader.as_dict()["dyn2_x"].shape == (16, 4, 6, 1, 1)
+    assert loader.mask is None
+
+    model.train(loader, epochs=200, batch_size=16, lr=5e-2, printer=None, **CONVERGED)
+    np.testing.assert_allclose(np.ravel(gain.value_numpy), [3.0], atol=1e-2)  # type: ignore
+
+
+def test_windowed_rollouts_of_different_lengths_are_padded_and_masked():
+    x = Input("roll_x", seq=-1, sw=1)
+    model = Modely("roll_model", inputs=[x], outputs=[Output("roll_out", x)]).build()
+    long = np.arange(15, dtype=np.float32).reshape(3, 5, 1, 1)
+    short = np.arange(100, 106, dtype=np.float32).reshape(2, 3, 1, 1)
+
+    loader = DataLoader(
+        model, source=[{"roll_x": long}, {"roll_x": short}], windowed=True
+    )
+
+    ## The shorter rollout repeats its last step up to the longest one
+    assert loader.as_dict()["roll_x"].shape == (5, 5, 1, 1)
+    np.testing.assert_array_equal(
+        loader.as_dict()["roll_x"][3:, :, 0, 0],
+        [[100, 101, 102, 102, 102], [103, 104, 105, 105, 105]],
+    )
+
+    ## One mask row per sample, each with the rollout of its simulation
+    np.testing.assert_array_equal(
+        loader.mask,
+        [[1, 1, 1, 1, 1]] * 3 + [[1, 1, 1, 0, 0]] * 2,
+    )
+
+    ## The simulations are kept apart
+    np.testing.assert_array_equal(
+        loader.get_samples(2, simulation=1)["roll_x"][:, :3, 0, 0],
+        short[:, :, 0, 0],
+    )
+
+
+def test_windowed_lengths_that_cannot_be_padded_are_rejected():
+    x = Input("pad_x", seq=(-1, -1), sw=1)
+    u = Input("pad_u", seq=-1, sw=1)
+    model = Modely(
+        "pad_model",
+        inputs=[x, u],
+        outputs=[Output("pad_out", x), Output("pad_u_out", u)],
+    ).build()
+
+    def simulation(rollout, inner, rollout_u=None):
+        return {
+            "pad_x": np.zeros((2, rollout, inner, 1, 1)),
+            "pad_u": np.zeros((2, rollout if rollout_u is None else rollout_u, 1, 1)),
+        }
+
+    ## Only the rollout is padded, so an inner dynamic length must match
+    with pytest.raises(ValueError, match="only the outermost dynamic"):
+        DataLoader(model, source=[simulation(5, 2), simulation(3, 4)], windowed=True)
+
+    ## Every input whose outermost axis is dynamic shares one rollout
+    with pytest.raises(ValueError, match="share one rollout"):
+        DataLoader(model, source=simulation(5, 2, rollout_u=4), windowed=True)
+
+    ## The rollout itself may differ
+    loader = DataLoader(
+        model, source=[simulation(5, 2), simulation(3, 2)], windowed=True
+    )
+    assert loader.as_dict()["pad_x"].shape == (4, 5, 2, 1, 1)
+    assert loader.mask is not None and loader.mask.shape == (4, 5)
+
+
+def test_windowed_modelyloop_matches_the_windows_it_would_build():
+    from nnodely import IntegrateStep, ModelyLoop, Parameter
+
+    force, x, v = Input("wl_F", sw=1), Input("wl_x", sw=1), Input("wl_v", sw=1)
+    k = Parameter("wl_k", value=1.0)
+    v_next = v.feedback(IntegrateStep(dt=0.1)(v, force - k * x))
+    x_next = x.feedback(IntegrateStep(dt=0.1)(x, v_next))
+    model = ModelyLoop(
+        "wl_loop", inputs=[force, x, v], outputs=[Output("wl_x_next", x_next)]
+    )
+    model.minimize("wl", "wl_x_next", Input("wl_x_meas", sw=1))
+    model.build()
+    signals = {
+        name: np.random.rand(60) for name in ("wl_F", "wl_x", "wl_v", "wl_x_meas")
+    }
+
+    built = DataLoader(model, source=signals, seq_length=8, step=4).as_dict()
+    given = DataLoader(model, source=built, windowed=True).as_dict()
+    for name in built:
+        np.testing.assert_array_equal(given[name], built[name])
+
+    ## An optional input left out reads zeros over the shared rollout
+    without_v = {name: values for name, values in built.items() if name != "wl_v"}
+    given = DataLoader(model, source=without_v, windowed=True).as_dict()
+    assert given["wl_v"].shape == built["wl_v"].shape
+    assert not given["wl_v"].any()
+
+
+def test_windowed_rejects_a_wrong_layout_and_options_it_does_not_use():
+    model = _window_model()
+    windows = np.random.rand(100, 10, 1)
+
+    with pytest.raises(ValueError, match=r"laid out as its tensor, \(N, 10, 1\)"):
+        DataLoader(model, source={"win_x": windows[:, :9]}, windowed=True)
+    with pytest.raises(ValueError, match="cannot be read as one array"):
+        DataLoader(model, source={"win_x": [[1.0] * 10, [1.0] * 9]}, windowed=True)
+    with pytest.raises(TypeError, match="windowed=True reads a dict"):
+        DataLoader(model, source=_SAMPLES_DIR, windowed=True)
+    with pytest.raises(ValueError, match="seq_length"):
+        DataLoader(model, source={"win_x": windows}, windowed=True, seq_length=3)
+    with pytest.raises(ValueError, match="step"):
+        DataLoader(model, source={"win_x": windows}, windowed=True, step=2)
+    with pytest.raises(TypeError, match="windowed is True or False"):
+        DataLoader(model, source={"win_x": windows}, windowed="yes")  # type: ignore[arg-type]
+
+
+def test_windowed_inputs_hold_the_same_number_of_samples():
+    a, b = Input("count_a", sw=2), Input("count_b", sw=2)
+    model = Modely("count_model", inputs=[a, b], outputs=[Output("count_out", a + b)])
+    model.build()
+
+    with pytest.raises(ValueError, match="different numbers of samples"):
+        DataLoader(
+            model,
+            source={"count_a": np.zeros((10, 2, 1)), "count_b": np.zeros((9, 2, 1))},
+            windowed=True,
+        )
+
+
+def test_raw_data_laid_out_as_windows_points_to_windowed():
+    with pytest.raises(ValueError, match="pass windowed=True"):
+        DataLoader(_window_model(), source={"win_x": np.random.rand(100, 10, 1)})

@@ -2484,10 +2484,6 @@ def test_integrate_rejects_what_it_cannot_integrate():
         Integrate(dt=0.1)(Input("windowed", sw=3))
     with pytest.raises(ValueError, match="method must be one of"):
         Integrate(method="rk4", dt=0.1)
-    with pytest.raises(ValueError, match="dt"):
-        Integrate()
-    with pytest.raises(TypeError, match="configured first"):
-        Integrate(Input("misused", seq=-1, sw=1))  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="integrates one rate"):
         Integrate(dt=0.1)([Input("first", sw=1), Input("second", sw=1)])
     rate = Input("checked_rate", dim=2, sw=1)

@@ -23,7 +23,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   `header` are passed to `pandas.read_csv`; n/a values are reported. An array
   holds the features of each sample laid out as the input's `dim`, or flat in
   row-major order; another layout of as many values is refused rather than
-  reordered.
+  reordered. `windowed=True` takes arrays already laid out as the model's
+  tensors, `(N, *seq, time, *dim)`, and uses them as given: dynamic sequence
+  lengths, several per input, are read from their shape, and rollouts of
+  different lengths are padded and masked.
 - `minimize()` with any Keras loss, a `gain` per objective and `seq_weights`
   along a rollout; targets can be computed streams or numbers.
 - A layer whose constructor takes only `name` is applied as it is created:
