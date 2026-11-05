@@ -101,7 +101,7 @@ class LoopImpl(keras.layers.Layer):
         rolled_initial: tuple[bool, ...] = (),
         rolled_static: tuple[bool, ...] = (),
         feedback_shift_axes: tuple[int | None, ...] = (),
-        feedback_state_shapes: tuple[tuple[int, ...] | None, ...] = (),
+        feedback_state_shapes: tuple[tuple[int | None, ...] | None, ...] = (),
         result_shapes: tuple[tuple[int | None, ...], ...] = (),
         horizon_index: int | None = None,
         primary_output_index: int = 0,
@@ -120,7 +120,9 @@ class LoopImpl(keras.layers.Layer):
         self.rolled_static = tuple(bool(rolled) for rolled in rolled_static)
         self.feedback_shift_axes = tuple(feedback_shift_axes)
         self.feedback_state_shapes = tuple(
-            None if shape is None else tuple(int(size) for size in shape)
+            None
+            if shape is None
+            else tuple(None if size is None else int(size) for size in shape)
             for shape in feedback_state_shapes
         )
         self.result_shapes = tuple(tuple(shape) for shape in result_shapes)
@@ -157,11 +159,13 @@ class LoopImpl(keras.layers.Layer):
         """Broadcast an initial value ``(batch, ...)`` up to ``(batch, *shape)``.
 
         Its axes line up with the last ones of ``shape``, the way the value was
-        checked against its fed-back input when the loop was declared.
+        checked against its fed-back input when the loop was declared. An axis
+        of ``shape`` sized at run time, None, is left as the value has it.
         """
         while len(state.shape) < len(shape) + 1:
             state = keras.ops.expand_dims(state, axis=1)
-        return state + keras.ops.zeros((1, *shape))
+        sizes = tuple(1 if size is None else size for size in shape)
+        return state + keras.ops.zeros((1, *sizes))
 
     def _model_outputs(self, model_inputs):
         # Only the inputs the body reads: Keras matches a dict holding more by
@@ -278,6 +282,29 @@ class LoopImpl(keras.layers.Layer):
                     sources[index] if position is None else x_step[position]
                 )
             return self._model_outputs(model_inputs)
+
+        # A dynamic axis an initial value does not carry - a zero, a number -
+        # is as long as the value fed back, which the body computes from the
+        # inputs that carry it: one evaluation, the state broadcast along that
+        # axis by the layer that reads it, tells how long.
+        unsized = [
+            index
+            for index, shape in enumerate(self.feedback_state_shapes)
+            if shape is not None and None in shape
+        ]
+        if unsized:
+            first = compute(states, windows, [value[0] for value in xs])
+            for index in unsized:
+                name = self.feedback_output_names[index]
+                reference = keras.ops.zeros_like(first[self.output_indices[name]])
+                if windows[index] is None:
+                    states[index] = states[index] + reference
+                else:
+                    # One sample, broadcast along the window too.
+                    windows[index] = windows[index] + reference
+                    states[index] = self._newest_slot(
+                        windows[index], self.feedback_shift_axes[index]
+                    )
 
         output_count = len(self.model_output_names)
         feedback_slots = {
@@ -1029,7 +1056,12 @@ class Loop(Layer):
 
     @staticmethod
     def _state_shape(node, value, rolled):
-        """Shape an initial value must be broadcast to, or None if it fits."""
+        """Shape an initial value must be broadcast to, or None if it fits.
+
+        A dynamic axis of the input is 1 where the value carries it, kept as
+        it comes, and None where it does not - a zero, a number, a value of
+        fewer sequence axes: the value fed back sizes it at run time.
+        """
         if value.shape.time is None and node.time is not None and not value._is_value:
             raise ValueError(
                 f"Loop initial value {value.name!r} has no window, {value.shape}, "
@@ -1041,15 +1073,19 @@ class Loop(Layer):
         if source == target:
             return None
         incompatible = len(source) > len(target) or any(
-            size not in (1, target_size)
+            target_size is not None and size not in (1, target_size)
             for size, target_size in zip(reversed(source), reversed(target))
         )
-        if incompatible or any(size is None for size in target):
+        if incompatible:
             raise ValueError(
                 f"Loop initial value {value.name!r} has shape {source}, which cannot "
                 f"feed the fed-back input {node.name!r} of shape {target}."
             )
-        return target
+        padded = (1,) * (len(target) - len(source)) + tuple(source)
+        return tuple(
+            target_size if target_size is not None else None if size == 1 else 1
+            for size, target_size in zip(padded, target)
+        )
 
     @staticmethod
     def _resolve_feedback(pairs):

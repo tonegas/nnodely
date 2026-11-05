@@ -8,6 +8,7 @@ import pytest
 
 from conftest import to_numpy
 from nnodely import (
+    Buffer,
     Fir,
     Input,
     Integrate,
@@ -342,6 +343,52 @@ def test_a_loop_with_several_outputs_returns_them_all(tmp_path):
     np.testing.assert_allclose(
         _rolled(loaded, data, "fb_all_2y"), [2 * v for v in expected]
     )
+
+
+def test_a_state_starts_from_zero_along_a_dynamic_sequence(tmp_path):
+    # A state with a dynamic sequence axis that starts from zero, or from a
+    # number, takes the length of that axis from the value fed back.
+    x = Input("fb_dyn_x", sw=1)
+    inner = ModelyLoop(
+        "fb_dyn_inner",
+        inputs=[x],
+        outputs=[Output("fb_dyn_xx", Integrate(dt=1)(x))],
+    ).build()
+    k = Input("fb_dyn_k", sw=1, seq=-1)
+    s = Input("fb_dyn_s", sw=1, seq=-1)
+    model = ModelyLoop(
+        "fb_dyn",
+        inputs=[k],
+        outputs=[
+            # The inner loop rolls out along the sequence of k, the outer one
+            # integrates what it returns.
+            Output("fb_dyn_kk", Integrate(dt=1)(inner([k]))),
+            Output("fb_dyn_from_two", Integrate(dt=1, init=2.0)(k)),
+            Output("fb_dyn_buf", Buffer(sw=2)(k)),
+            Output("fb_dyn_sum", s.feedback(s + k)),
+        ],
+    ).build()
+
+    # Three steps of a sequence of four, 1 to 12.
+    data = {"fb_dyn_k": np.arange(1, 13, dtype=np.float32).reshape(1, 3, 4, 1, 1)}
+    rows = data["fb_dyn_k"].reshape(3, 4)
+    expected = {
+        "fb_dyn_kk": np.cumsum(np.cumsum(rows, axis=1), axis=0),
+        "fb_dyn_from_two": 2.0 + np.cumsum(rows, axis=0),
+        "fb_dyn_buf": np.stack([np.vstack([np.zeros(4), rows[:-1]]), rows], -1),
+        "fb_dyn_sum": np.cumsum(rows, axis=0),
+    }
+
+    def check(rolled):
+        result = rolled(data)
+        for name, values in expected.items():
+            np.testing.assert_allclose(
+                to_numpy(result[name]).reshape(values.shape), values
+            )
+
+    check(model)
+    model.save(tmp_path / "fb_dyn")
+    check(Modely.load(tmp_path / "fb_dyn"))
 
 
 def test_close_and_callback_are_gone():

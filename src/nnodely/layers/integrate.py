@@ -337,16 +337,16 @@ class Integrate:
 
     def __init__(
         self,
+        dt: float,
         method: str = "euler",
-        dt: float | None = None,
         init: Stream | float | None = None,
         init_rate: Stream | float | None = None,
         name: str | None = None,
     ):
         from nnodely.core.dag import next_name
 
-        self._method = _validate_method(method, "Integrate")
         self._dt = _validate_dt(dt, "Integrate")
+        self._method = _validate_method(method, "Integrate")
         self._init = _validate_init("Integrate", init)
         if init_rate is not None and _METHOD_RULE[method] != "trapezoidal":
             raise ValueError(
