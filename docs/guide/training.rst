@@ -54,8 +54,9 @@ The **loss** is anything Keras accepts: a name (``"mse"``, ``"mae"``,
 ``loss(y_true, y_pred)``. :meth:`~nnodely.Modely.remove_minimizer` removes an
 objective by name.
 
-The weights of ``Fir`` and ``Linear`` are :class:`~nnodely.Parameter` objects
-like any other, so freezing is done on Parameters. ``p.freeze()`` keeps
+The weights of ``Fir``, ``Linear``, ``PReLU`` and ``BatchNorm`` are
+:class:`~nnodely.Parameter` objects like any other, so freezing is done on
+Parameters. ``p.freeze()`` keeps
 one as it is through training and ``p.unfreeze()`` releases it;
 :meth:`~nnodely.Modely.freeze` and :meth:`~nnodely.Modely.unfreeze` do it for
 every Parameter a model computes with, those of the models it calls and of
@@ -64,9 +65,10 @@ alone: a Parameter by its name, as :attr:`~nnodely.Modely.parameters` lists
 it, and a model the graph reaches - a block it calls, the body of a Loop, the
 model of a LocalModel - by its own, for every Parameter of that model. A name
 that matches nothing raises, and nothing is frozen. Both work before or after
-``build()``, and the next ``train()`` follows them. The Keras weights of ``PReLU``, ``BatchNorm`` and
-``KerasFunction`` layers are not Parameters: ``freeze()`` does not reach them,
-so set ``trainable`` on their Keras layer instead.
+``build()``, and the next ``train()`` follows them. The Keras weights of a
+``KerasFunction`` are not Parameters: ``freeze()`` does not reach them, so set
+``trainable`` on its Keras layer instead. Nor does it reach the moving
+statistics of a ``BatchNorm``, which training keeps updating.
 
 .. code-block:: python
 

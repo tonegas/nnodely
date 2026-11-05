@@ -135,7 +135,7 @@ class Linear(_ParameterWeights):
         Linear(features=2, kernel=W, bias=False)([v])  # v with dim=3
     """
 
-    _bias_initializer = "glorot_uniform"
+    _defaults = {"kernel": "glorot_uniform", "bias": "glorot_uniform"}
 
     def __init__(
         self,
@@ -157,8 +157,9 @@ class Linear(_ParameterWeights):
         self._shared_kernel = bool(shared_kernel)
         super().__init__(
             name,
-            kernel,
-            bias,
+            {"kernel": kernel, "bias": bias},
+            kernel=kernel,
+            bias=bias,
             features=self._features,
             axis=self._axis,
             shared_kernel=self._shared_kernel,
@@ -180,11 +181,12 @@ class Linear(_ParameterWeights):
             dim, self._features, self._resolve_axis(dim), self._shared_kernel
         )
 
-    def _draw_shapes(self, kernel_shape, bias_shape):
+    def _draw_shapes(self, shapes):
         # Along an axis, the matrix and the bias of each position alone; the
         # whole-dim kernel as the Weight's default, one matrix.
         if self._axis is None:
             return None, None
+        kernel_shape, bias_shape = shapes
         return kernel_shape[-2:], bias_shape[-1:]
 
     def output_shape(self, *inputs):

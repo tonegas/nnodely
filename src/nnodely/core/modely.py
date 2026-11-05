@@ -10,6 +10,7 @@ from nnodely.core.dag import (
     _flatten_graph,
     _parameters,
     _parameters_and_models,
+    _nodes_and_models,
     _read_inputs,
     _read_nodes,
     _source_input_tensors,
@@ -219,38 +220,45 @@ class Modely:
         """True once :meth:`build` has been called."""
         return self.model is not None
 
-    def build(self):
+    def build(self, keep_weights: bool = True):
         """Create the Keras model of the graph, with its weights.
 
         Objectives and feedback have to be declared before, because they add
-        to the graph that is built. Returns the model itself.
+        to the graph that is built. The weights the graph already holds - of
+        a block built on its own, or of an earlier build of this model - are
+        kept; with ``keep_weights=False`` every weight the model computes
+        with, in the models it calls and the bodies of its Loops too, is
+        given its initial value again, frozen ones included. A build that
+        fails leaves the model as it was. Returns the model itself.
         """
         from nnodely.core.layer import Identity
 
         # A minimizer reads both of its sides from the forward pass, so every
         # source and target has to be an output of the graph. An Input is not
         # the value of any layer, so it is exposed through an Identity.
+        # Everything is computed aside and checked, and taken by the model
+        # only once its Keras models are made.
         extra_outputs = []
-        self._minimizer_outputs = {}
+        minimizer_outputs: dict[Node, str] = {}
         for minimizer in self._minimizers:
             for node in (minimizer["source"], minimizer["target"]):
-                if node in self._minimizer_outputs:
+                if node in minimizer_outputs:
                     continue
                 exposed = Identity()([node]) if isinstance(node, Input) else node
                 if exposed not in self.outputs:
                     extra_outputs.append(exposed)
-                self._minimizer_outputs[node] = exposed.name
+                minimizer_outputs[node] = exposed.name
 
-        self._train_outputs = self.outputs + extra_outputs
+        train_outputs = self.outputs + extra_outputs
         flat, flatten_memo = _flatten_graph(
             self.name,
             self._inputs,
-            self._train_outputs,
+            train_outputs,
             return_memo=True,
             one_step=True,
         )
-        self.train_inputs = [node for node in flat._order if isinstance(node, Input)]
-        if not self.train_inputs:
+        train_inputs = [node for node in flat._order if isinstance(node, Input)]
+        if not train_inputs:
             # Keras would only say that its outputs are not KerasTensors.
             raise ValueError(
                 f"Model {self.name!r} reads no Input. A model is evaluated on "
@@ -262,7 +270,7 @@ class Modely:
         # The data is keyed by input name: two Inputs of one name would read
         # the same array, whatever their shapes.
         named: dict[str, Input] = {}
-        for node in self.train_inputs:
+        for node in train_inputs:
             if named.setdefault(node.name, node) is not node:
                 raise ValueError(
                     f"Model {self.name!r} reads two different Inputs named "
@@ -275,7 +283,7 @@ class Modely:
         open_feedback = sorted(
             {
                 node.name
-                for node in self.train_inputs
+                for node in train_inputs
                 if node.update is not None and node.name not in declared
             }
         )
@@ -289,21 +297,11 @@ class Modely:
                 stacklevel=2,
             )
 
-        flat_graph_outputs = [flatten_memo[node] for node in self._train_outputs]
+        flat_graph_outputs = [flatten_memo[node] for node in train_outputs]
         keras_inputs, keras_outputs = self._resolve_graph(
-            flat._order, output_nodes=flat_graph_outputs
+            flat._order, train_inputs, flat_graph_outputs
         )
-        # Graph flattening builds shallow copies. Keep the public symbolic nodes
-        # connected to the concrete Keras layers created from those copies, and
-        # to the input shapes those were built for - the handle and what it
-        # fits travel together, so composing this model later can tell whether
-        # its layers can be reused where they land.
-        for source_node, flat_node in flatten_memo.items():
-            if isinstance(source_node, Layer) and isinstance(flat_node, Layer):
-                source_node._layer = flat_node._layer
-                source_node._layer_signature = flat_node._layer_signature
-
-        self.model = MinimizerModel(
+        model = MinimizerModel(
             name=self.name + "_train",
             inputs=keras_inputs,
             outputs=keras_outputs,
@@ -323,18 +321,42 @@ class Modely:
             for tensor in inference_outputs.values()
             for name in _source_names(_source_input_tensors(tensor))
         }
-        self.inference_inputs = [
-            node for node in self.train_inputs if node.name in read
-        ]
-        inference_inputs = {
-            node.name: keras_inputs[node.name] for node in self.inference_inputs
-        }
-        self.inference_model = keras.Model(
-            name=self.name, inputs=inference_inputs, outputs=inference_outputs
+        inference_inputs = [node for node in train_inputs if node.name in read]
+        inference_model = keras.Model(
+            name=self.name,
+            inputs={node.name: keras_inputs[node.name] for node in inference_inputs},
+            outputs=inference_outputs,
         )
+
+        # Graph flattening builds shallow copies. Keep the public symbolic nodes
+        # connected to the concrete Keras layers created from those copies, and
+        # to the input shapes those were built for - the handle and what it
+        # fits travel together, so composing this model later can tell whether
+        # its layers can be reused where they land.
+        for source_node, flat_node in flatten_memo.items():
+            if isinstance(source_node, Layer) and isinstance(flat_node, Layer):
+                source_node._layer = flat_node._layer
+                source_node._layer_signature = flat_node._layer_signature
+        self._minimizer_outputs = minimizer_outputs
+        self._train_outputs = train_outputs
+        self.train_inputs = train_inputs
+        self.model = model
+        self.inference_inputs = inference_inputs
+        self.inference_model = inference_model
+
+        if not keep_weights:
+            # In place, so every model computing with them - a block built on
+            # its own, a body - starts from them too. Each Keras layer once,
+            # however many nodes apply it.
+            layers: dict[int, Layer] = {}
+            for node in _nodes_and_models(self)[0]:
+                if isinstance(node, Layer) and node._layer is not None:
+                    layers.setdefault(id(node._layer), node)
+            for node in layers.values():
+                node._reinitialize()
         return self
 
-    def _resolve_graph(self, order, output_nodes=None):
+    def _resolve_graph(self, order, inputs, output_nodes):
         # Applying one layer several times yields one node per application, so
         # tensors are keyed by node identity: keying them by name made each
         # application overwrite the previous one. The concrete Keras layer is
@@ -383,8 +405,7 @@ class Modely:
                     tensor = identity(tensor)
                 tensor_map[node] = tensor
 
-        keras_inputs = {node.name: tensor_map[node] for node in self.train_inputs}
-        output_nodes = self._train_outputs if output_nodes is None else output_nodes
+        keras_inputs = {node.name: tensor_map[node] for node in inputs}
 
         # Outputs are addressed by name, so two different nodes claiming one name
         # would silently drop one of them. Calling a model several times produces

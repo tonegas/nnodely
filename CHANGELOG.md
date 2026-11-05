@@ -15,7 +15,12 @@ variable, and trains, validates and exports through Keras. Models saved with
 
 - `Modely`, a model declared by its inputs and outputs and built with
   `build()`; a built model is called on data, or on streams to become a block
-  of a larger model. Both take a dict keyed by Input or input name, or a list
+  of a larger model. Building again keeps the weights the graph holds;
+  `build(keep_weights=False)` gives every weight the model computes with its
+  initial value again, in place - frozen ones, those of the blocks it calls
+  and of its Loop bodies, the Keras weights of a `KerasFunction` and the
+  statistics of a `BatchNorm` included. A build that fails leaves the model
+  as it was. Both take a dict keyed by Input or input name, or a list
   in the order of the model's inputs.
 - `DataLoader` for dicts, DataFrames and CSV files or folders, with several
   simulations, sequences and padding masks. `delimiter` and
@@ -240,7 +245,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   object, from which the layer makes one (`"<layer>_kernel"`,
   `"<layer>_bias"`). Assigning, training or freezing the Parameter changes
   the layer, and layers given one Parameter share it. `bias=False` leaves the
-  bias out. A Fir draws the filter of each element alone.
+  bias out. A Fir draws the filter of each element alone. The slopes of a
+  `PReLU` (`"<layer>_alpha"`) and the scale and offset of a `BatchNorm`
+  (`"<layer>_gamma"`, `"<layer>_beta"`) are Parameters too, listed and
+  frozen with the others; a BatchNorm holds its moving statistics itself.
 - `Linear` maps the whole dim of a multi-dimensional input, `(*seq, time,
   *dim)` to `(*seq, time, features)`, or only one dim axis with `axis=k`: with a matrix and a
   bias for each position of the other dim axes, as the elements of a `Fir`, or
@@ -302,12 +310,12 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
   history, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
-- The `.nnodely` save format is version 8: a fed-back Input is saved with
+- The `.nnodely` save format is version 9: a fed-back Input is saved with
   the stream it is fed back with and the `init` of the layer that keeps it,
   and a `Loop` with the outputs it returns. Saves and `.keras` exports made
   with the 2.0 pre-releases, in which windows were taken from an Input,
   streams had several time axes or were laid out `(batch, *dim, time,
-  *seq)`, or fed-back Inputs were saved open, or a `Fuzzify` was a graph of one layer per center, do not load;
+  *seq)`, or fed-back Inputs were saved open, or a `Fuzzify` was a graph of one layer per center, or a `PReLU` or `BatchNorm` held its weights in its Keras layer, do not load;
   nor do saves of an earlier format version.
 - The stream fed back into an Input is named `feedback` everywhere:
   `Input.feedback(stream)` and `Loop(feedback=)` (was `callback=`). The old

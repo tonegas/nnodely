@@ -52,7 +52,9 @@ class KerasFunction(Layer):
     weights, shared wherever it is used. Weights of the Keras layer are Keras
     weights, trained with the model but not :class:`Parameter` objects: neither
     :meth:`Modely.freeze` nor :attr:`Modely.parameters` reaches them - set
-    the layer's ``trainable`` instead.
+    the layer's ``trainable`` instead. ``Modely.build(keep_weights=False)``
+    gives them their initial values again, from a copy of the layer made
+    from its config.
 
     The model saves, loads and exports with it. The class is made known to
     Keras, so it loads again in the same session; in another, define it -
@@ -88,6 +90,23 @@ class KerasFunction(Layer):
 
     def build_layer(self):
         return KerasFunctionImpl(function=self._function, name=self.name)
+
+    def _reinitialize(self) -> None:
+        # The Keras layer holds its weights itself: one made again from its
+        # config, and built as it was, gives them their initial values.
+        function = self._function
+        fresh = type(function).from_config(function.get_config())
+        fresh.build_from_config(function.get_build_config())
+        if len(fresh.weights) != len(function.weights):
+            raise ValueError(
+                f"{self.name}: the weights of {type(function).__name__} cannot "
+                f"be initialized again: made again from its config, it has "
+                f"{len(fresh.weights)} weights where it has "
+                f"{len(function.weights)}. Give it a get_config() that makes it "
+                "again, or a build() that makes its weights."
+            )
+        for variable, value in zip(function.weights, fresh.weights):
+            variable.assign(value)
 
     def get_config(self):
         # The Keras layer as it is declared: the shape it was first built for

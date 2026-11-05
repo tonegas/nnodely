@@ -1535,6 +1535,50 @@ def test_prelu_learns_one_slope_per_feature():
         np.testing.assert_allclose(result, np.maximum(values, 0.0), rtol=1e-6)
 
 
+def test_prelu_and_batchnorm_compute_with_parameters():
+    # Their weights were once Keras weights, which Modely.parameters did not
+    # list and freeze() did not reach.
+    x = Input("as_parameters_x", dim=2, sw=3)
+    slopes = PReLU(name="as_parameters_prelu")([x])
+    normalized = BatchNorm(name="as_parameters_norm")([slopes])
+    offset_only = BatchNorm(scale=False, name="as_parameters_offset")([x])
+    model = Modely(
+        "as_parameters",
+        inputs=[x],
+        outputs=[
+            Output("as_parameters_out", normalized),
+            Output("as_parameters_offset_out", offset_only),
+        ],
+    ).build()
+    parameters = model.parameters
+    assert [(p.name, tuple(p.param.shape)) for p in parameters] == [
+        ("as_parameters_prelu_alpha", (1, 2)),
+        ("as_parameters_norm_gamma", (2,)),
+        ("as_parameters_norm_beta", (2,)),
+        ("as_parameters_offset_beta", (2,)),
+    ]
+
+    # They compute as Keras does: x * alpha below zero, then the input
+    # normalized by the moving statistics, mean 0 and variance 1, scaled
+    # by gamma and offset by beta.
+    parameters["as_parameters_prelu_alpha"].param.assign([[0.1, 0.2]])
+    parameters["as_parameters_norm_gamma"].param.assign([2.0, 3.0])
+    parameters["as_parameters_norm_beta"].param.assign([1.0, -1.0])
+    values = -np.ones((1, 3, 2), dtype=np.float32)
+    result = model({"as_parameters_x": values})
+    expected = np.array([0.1, 0.2]) * -1.0 * np.array([2.0, 3.0]) / np.sqrt(
+        1.0 + 1e-3
+    ) + np.array([1.0, -1.0])
+    np.testing.assert_allclose(
+        to_numpy(result["as_parameters_out"]),
+        np.broadcast_to(expected, (1, 3, 2)),
+        rtol=1e-5,
+    )
+
+    model.freeze()
+    assert model.model is not None and model.model.trainable_weights == []
+
+
 def test_small_layer_messages_and_windows():
     with pytest.raises(ValueError, match="Clamp: min 1.0"):
         nnodely.Clamp(1.0, 0.0)

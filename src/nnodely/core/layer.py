@@ -281,7 +281,7 @@ class Layer(Stream, metaclass=_LayerType):
         """
         raise NotImplementedError
 
-    def input_signature(self, xs):
+    def input_signature(self, xs) -> tuple | None:
         """The input shapes a concrete layer was built for.
 
         Weights belong to the shape they were made for, so a layer carried
@@ -299,6 +299,12 @@ class Layer(Stream, metaclass=_LayerType):
             # takes structures - cannot be checked this way, and is reused as
             # it always was.
             return None
+
+    def _reinitialize(self) -> None:
+        """Give the weights this layer holds their initial values again, as
+        :meth:`Modely.build` does with ``keep_weights=False``. A layer
+        computing with Parameters holds none: they are initialized as nodes
+        of their own."""
 
     def call(self, xs):
         signature = self.input_signature(xs)
@@ -324,6 +330,11 @@ class Layer(Stream, metaclass=_LayerType):
             # A layer that reads one stream, such as an activation, is
             # applied to each of several: one result per stream, in order.
             return [self([x]) for x in inputs]
+        return self._apply(inputs)
+
+    def _apply(self, inputs) -> Any:
+        """The nodes of the layer applied to ``inputs``, checked streams: one
+        per output shape."""
         out_shapes = self.output_shape(*inputs)
         if not isinstance(out_shapes, list):
             out_shapes = [out_shapes]

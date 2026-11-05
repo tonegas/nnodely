@@ -365,10 +365,18 @@ def _parameters_and_models(
     """:func:`_parameters`, and every model the walk reaches, each once:
     ``model`` first, then the models it calls and the bodies of its Loops,
     theirs too."""
-    from nnodely.core.modely import Modely
     from nnodely.layers.parameter import Parameter
 
-    found: dict[int, Parameter] = {}
+    nodes, models = _nodes_and_models(model)
+    return [node for node in nodes if isinstance(node, Parameter)], models
+
+
+def _nodes_and_models(model: "Modely") -> tuple[list[Node], list["Modely"]]:
+    """Every node ``model`` computes with, each once, in the order
+    :func:`_parameters` reaches them, and every model the walk reaches."""
+    from nnodely.core.modely import Modely
+
+    found: dict[int, Node] = {}
     models: list[Modely] = [model]
     reached: dict[int, Modely] = {}
     while models:
@@ -392,8 +400,7 @@ def _parameters_and_models(
             if not isinstance(node, Node) or id(node) in visited:
                 continue
             visited.add(id(node))
-            if isinstance(node, Parameter):
-                found[id(node)] = node
+            found.setdefault(id(node), node)
             # A called model, or the body a block rolls out.
             for inner in (getattr(node, "_model", None), getattr(node, "_f", None)):
                 if isinstance(inner, Modely):

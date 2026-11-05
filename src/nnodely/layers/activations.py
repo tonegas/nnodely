@@ -5,6 +5,7 @@ from __future__ import annotations
 import keras
 
 from nnodely.core.layer import Layer
+from nnodely.layers.parameter import _ParameterWeights
 
 
 class ReLU(Layer):
@@ -85,25 +86,61 @@ class ELU(Layer):
         return ELUImpl(alpha=self._alpha, name=self.name)
 
 
-class PReLU(Layer):
-    """Wrapper for keras.layers.PReLU.
+@keras.saving.register_keras_serializable(package="nnodely")
+class PReLUImpl(keras.layers.Layer):
+    """``x`` where it is positive and ``alpha * x`` elsewhere, as
+    keras.layers.PReLU computes it. It is called on ``[x, alpha]``: the
+    slopes are the value of a Parameter, read whole."""
+
+    def call(self, inputs):
+        x, alpha = inputs
+        return keras.ops.relu(x) - alpha[0] * keras.ops.relu(-x)
+
+
+class PReLU(_ParameterWeights):
+    """Parametric ReLU: ``x`` where it is positive, ``alpha * x`` elsewhere.
 
     It learns one slope per feature, shared by every sample of the window
     and every step of the sequence - a dynamic one included. ``shared_axes`` shares the slopes along other
     axes instead, given as Keras counts them, the batch axis as 0.
+
+    The slopes are a :class:`Parameter`, ``"<name>_alpha"``, a predecessor
+    of the layer that starts from zero: :attr:`Modely.parameters` lists it
+    and :meth:`Modely.freeze` freezes it. It is laid out as
+    keras.layers.PReLU lays out its slopes, a sample of the stream with the
+    shared axes of size 1.
     """
+
+    _labels = ("alpha",)
+    _defaults = {"alpha": "zeros"}
 
     def __init__(self, shared_axes=None, name=None):
         self._shared_axes = shared_axes
-        super().__init__(name=name, shared_axes=self._shared_axes)
+        super().__init__(name, {"alpha": "zeros"}, shared_axes=self._shared_axes)
 
-    def build_layer(self):
+    def _weight_shapes(self, x):
         shared_axes = self._shared_axes
         if shared_axes is None:
-            shape = self._preds[0].shape  # type: ignore[union-attr]
-            window = [] if shape.time_axis is None else [shape.time_axis]
-            shared_axes = [*shape.seq_axes, *window]
-        return keras.layers.PReLU(shared_axes=shared_axes, name=self.name)
+            window = [] if x.shape.time_axis is None else [x.shape.time_axis]
+            shared_axes = [*x.shape.seq_axes, *window]
+        elif isinstance(shared_axes, int):
+            shared_axes = [shared_axes]
+        shape = list(x.shape.tuple)
+        for axis in shared_axes:
+            shape[axis - 1] = 1
+        if None in shape:
+            raise ValueError(
+                f"{self.name}: PReLU learns a slope for every step of the "
+                f"dynamic sequence of {x.name!r}, {x.shape}, whose length is not "
+                "known: share the slopes along it, with shared_axes."
+            )
+        return (tuple(shape),)
+
+    def output_shape(self, *inputs):
+        return inputs[0].shape
+
+    def build_layer(self):
+        return PReLUImpl(name=self.name)
 
 
 class Softmax(Layer):

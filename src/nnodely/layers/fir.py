@@ -126,8 +126,9 @@ class Fir(_ParameterWeights):
         self._shared_kernel = bool(shared_kernel)
         super().__init__(
             name,
-            kernel,
-            bias,
+            {"kernel": kernel, "bias": bias},
+            kernel=kernel,
+            bias=bias,
             features=self._features,
             shared_kernel=self._shared_kernel,
         )
@@ -142,8 +143,9 @@ class Fir(_ParameterWeights):
             self._features,
         )
 
-    def _draw_shapes(self, kernel_shape, bias_shape):
+    def _draw_shapes(self, shapes):
         # The filter and the bias of each element alone, as for a scalar.
+        kernel_shape, bias_shape = shapes
         return kernel_shape[-2:], bias_shape[-1:]
 
     def output_shape(self, *inputs):

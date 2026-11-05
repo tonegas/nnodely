@@ -46,8 +46,8 @@ Weights
 A block brings its weights along. A model trained on its own can be inserted in
 a larger one, and the larger model starts from the trained weights - also a
 model loaded with :meth:`~nnodely.Modely.load`: building the larger model
-initializes only its new layers. Training
-the outer model trains the block too. To keep a block fixed, freeze it:
+initializes only its new layers, and ``build(keep_weights=False)`` all of
+them, the block's too. Training the outer model trains the block too. To keep a block fixed, freeze it:
 ``block.freeze()`` keeps every Parameter it computes with as it is through
 training, until ``block.unfreeze()``. The outer model freezes it by its name
 as well, ``controller.freeze("smoother")``, and a list of names freezes

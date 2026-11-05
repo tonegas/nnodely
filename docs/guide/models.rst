@@ -80,7 +80,9 @@ The tables group the available layers.
        functions whose results are combined. A ``threshold`` drops the small
        coefficients, and ``plot()`` draws the learned equation.
    * - :class:`~nnodely.BatchNorm`
-     - Batch normalization per feature.
+     - Batch normalization per feature, with a learned scale and offset.
+   * - :class:`~nnodely.PReLU`
+     - ReLU with a learned slope below zero, one per feature.
 
 .. list-table:: Layers without weights
    :header-rows: 1
@@ -100,7 +102,7 @@ The tables group the available layers.
      - One-dimensional lookup table, linear or polynomial.
    * - Activations
      - :class:`~nnodely.ReLU`, :class:`~nnodely.LeakyReLU`, :class:`~nnodely.ELU`,
-       :class:`~nnodely.PReLU`, :class:`~nnodely.Sigmoid`, :class:`~nnodely.Tanh`,
+       :class:`~nnodely.Sigmoid`, :class:`~nnodely.Tanh`,
        :class:`~nnodely.Softmax`, :class:`~nnodely.Swish`, :class:`~nnodely.GELU`,
        :class:`~nnodely.Softplus`.
    * - Math
@@ -347,6 +349,10 @@ The model
 
 Objectives (see :doc:`training`) and feedback (see :doc:`recurrent`) are
 declared **before** ``build()``, because they add to the graph that gets built.
+Building again, after a new objective, keeps the weights the model holds;
+``build(keep_weights=False)`` gives every one its initial value again, those
+of the models it calls and of its Loop bodies included. A build that fails
+leaves the model as it was.
 
 Inference
 ---------

@@ -301,6 +301,41 @@ def test_two_inputs_of_one_name_are_refused():
         model.build()
 
 
+def test_a_build_that_fails_leaves_the_model_as_it_was():
+    # A failed build once left the model with the outputs of the build it
+    # attempted and the Keras model of the one before: with the minimizer
+    # that broke it removed, training failed on a bare KeyError.
+    y = Input("failed_build_y", sw=4)
+    target = Input("failed_build_target", sw=1)
+    out = Output("failed_build_out", Fir(features=1)([y]))
+    model = Modely("failed_build", inputs=[y], outputs=[out])
+    model.minimize("fit", out, target)
+    model.build()
+
+    def state():
+        return [
+            id(model.model),
+            id(model.inference_model),
+            *map(id, model.train_inputs),
+            *map(id, model.inference_inputs),
+            *map(id, model._train_outputs),
+            *model._minimizer_outputs.values(),
+        ]
+
+    built = state()
+    model.minimize("clash", out, Input("failed_build_y", sw=2))
+    with pytest.raises(ValueError, match="two different Inputs named"):
+        model.build()
+    assert state() == built
+
+    model.remove_minimizer("clash")
+    data = DataLoader(
+        model,
+        source={"failed_build_y": np.zeros(12), "failed_build_target": np.zeros(12)},
+    )
+    model.train(data, epochs=1, printer=None)
+
+
 def test_a_file_that_is_not_an_nnodely_2_model_is_refused(tmp_path):
     import json
 

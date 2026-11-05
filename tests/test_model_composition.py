@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from nnodely import (
+    BatchNorm,
     Constant,
     DataLoader,
     Fir,
@@ -10,6 +11,7 @@ from nnodely import (
     Modely,
     Output,
     Parameter,
+    PReLU,
 )
 from conftest import to_numpy
 from nnodely import TimeSelect
@@ -381,6 +383,118 @@ def test_rebuilding_a_model_keeps_its_weights():
         np.full((1, 1, 1), 7.0, dtype=np.float32),
         rtol=1e-5,
         atol=1e-5,
+    )
+
+
+def test_building_without_keeping_the_weights_initializes_every_one():
+    """build(keep_weights=False) gives every weight its initial value again:
+    a Parameter the value it was declared with, a layer's weight a new draw,
+    the statistics of a BatchNorm mean 0 and variance 1 - frozen ones too."""
+    u = Input("reinit_u", dim=2, sw=3)
+    gain = Parameter("reinit_gain", value=[2.0]).freeze()
+    filtered = Fir(features=1, name="reinit_fir")([u]) * gain
+    normalized = BatchNorm(name="reinit_norm")([PReLU(name="reinit_prelu")([filtered])])
+    model = Modely(
+        "reinit", inputs=[u], outputs=[Output("reinit_out", normalized)]
+    ).build()
+    drawn = to_numpy(model.parameters["reinit_fir_kernel"].param).copy()
+    for parameter in model.parameters:
+        parameter.param.assign(np.full(parameter.param.shape, 3.0, np.float32))
+    # Training mode moves the statistics.
+    assert model.model is not None
+    model.model({"reinit_u": np.random.rand(4, 3, 2).astype(np.float32)}, training=True)
+    assert np.any(to_numpy(normalized._layer.moving_mean) != 0.0)
+
+    model.build(keep_weights=False)
+
+    parameters = model.parameters
+    np.testing.assert_allclose(to_numpy(parameters["reinit_gain"].param), [2.0])
+    assert not parameters["reinit_gain"].trainable
+    kernel = to_numpy(parameters["reinit_fir_kernel"].param)
+    assert not np.allclose(kernel, 3.0) and not np.allclose(kernel, drawn)
+    for name, value in (
+        ("reinit_fir_bias", 0.0),
+        ("reinit_prelu_alpha", 0.0),
+        ("reinit_norm_gamma", 1.0),
+        ("reinit_norm_beta", 0.0),
+    ):
+        np.testing.assert_allclose(to_numpy(parameters[name].param), value)
+    np.testing.assert_allclose(to_numpy(normalized._layer.moving_mean), 0.0)
+    np.testing.assert_allclose(to_numpy(normalized._layer.moving_variance), 1.0)
+
+
+@pytest.mark.slow
+def test_building_without_keeping_the_weights_reaches_blocks_bodies_and_keras_layers():
+    """The weights of a block, of a Loop body and of a KerasFunction's Keras
+    layer are initialized again too, in place: the block built on its own
+    computes with the same values as the larger model."""
+    import keras
+
+    from nnodely import KerasFunction, Loop
+
+    s = Input("reach_s", sw=1)
+    block_gain = Parameter("reach_block_gain", value=[2.0])
+    block = Modely(
+        "reach_block", inputs=[s], outputs=[Output("reach_block_out", s * block_gain)]
+    ).build()
+
+    state, step = Input("reach_state", sw=1), Input("reach_step", sw=1)
+    body_gain = Parameter("reach_body_gain", value=[0.5])
+    next_state = Output("reach_next", state * body_gain + step)
+    body = Modely("reach_body", inputs=[state, step], outputs=[next_state]).build()
+    steps = Input("reach_steps", seq=3, sw=1)
+    rollout = Loop(f=body, feedback={state: next_state})({step: steps})
+
+    dense = keras.layers.Dense(1, kernel_initializer="ones")
+    u = Input("reach_u", sw=1)
+    model = Modely(
+        "reach",
+        inputs=[u, steps],
+        outputs=[
+            Output("reach_out", KerasFunction(dense)([block([u])])),
+            Output("reach_rollout", rollout),
+        ],
+    ).build()
+    block_gain.param.assign([5.0])  # type: ignore
+    body_gain.param.assign([5.0])  # type: ignore
+    dense.weights[0].assign([[5.0]])
+
+    model.build(keep_weights=False)
+
+    np.testing.assert_allclose(to_numpy(block_gain.param), [2.0])
+    np.testing.assert_allclose(to_numpy(body_gain.param), [0.5])
+    np.testing.assert_allclose(to_numpy(dense.kernel), [[1.0]])
+    one = np.ones((1, 1, 1), np.float32)
+    np.testing.assert_allclose(
+        to_numpy(block({"reach_s": one})["reach_block_out"]), [[[2.0]]]
+    )
+
+
+@pytest.mark.parametrize("layer", [PReLU, BatchNorm])
+def test_a_block_on_a_dynamic_sequence_keeps_its_weights_on_a_fixed_one(layer):
+    """A layer holding Keras weights of its own was made again where the
+    block met a fixed sequence: the larger model started from new weights,
+    and the block went on computing with its own."""
+    name = f"dynamic_{layer.__name__}"
+    s = Input(f"{name}_s", seq=-1, sw=1)
+    block = Modely(
+        f"{name}_block",
+        inputs=[s],
+        outputs=[Output(f"{name}_out", layer(name=f"{name}_layer")([s]))],
+    ).build()
+    for parameter in block.parameters:
+        parameter.param.assign(np.full(parameter.param.shape, 0.5, np.float32))
+    r = Input(f"{name}_r", seq=5, sw=1)
+    model = Modely(
+        f"{name}_model", inputs=[r], outputs=[Output(f"{name}_y", block([r]))]
+    ).build()
+
+    assert model.model is not None and block.model is not None
+    assert {id(w) for w in model.model.weights} == {id(w) for w in block.model.weights}
+    values = -np.ones((1, 5, 1, 1), np.float32)
+    np.testing.assert_allclose(
+        to_numpy(model({f"{name}_r": values})[f"{name}_y"]),
+        to_numpy(block({f"{name}_s": values})[f"{name}_out"]),
     )
 
 
