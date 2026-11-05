@@ -839,8 +839,6 @@ class Loop(Layer):
     """
 
     # Set by __call__ on the loop node it returns.
-    _initial_values: list[Stream]
-    _static_sources: list[Stream]
     _loop_outputs: list[LoopOutput]
 
     def __init__(
@@ -931,6 +929,23 @@ class Loop(Layer):
     def shape(self, value):
         self._shape = value
 
+    # The streams a bound loop reads are its predecessors, and nothing else:
+    # a copy rewired to other streams - the loop inlined in the graph of a
+    # call to the model that holds it - reads those, and so does what is
+    # drawn or listed of it.
+    @property
+    def _initial_values(self) -> list[Stream]:
+        """The initial value of every state, in their order: the first
+        predecessors."""
+        return list(self._preds[: len(self._feedback_inputs)])
+
+    @property
+    def _static_sources(self) -> list[Stream]:
+        """The outer stream of every body input that is not fed back, in the
+        order of the static inputs: the predecessors after the initial
+        values."""
+        return list(self._preds[len(self._feedback_inputs) :])
+
     def __call__(self, inputs: dict | list | tuple | Stream | None = None):  # type: ignore[override]
         """Bind the loop to its outer inputs, seeded with its ``init``.
 
@@ -943,14 +958,11 @@ class Loop(Layer):
         node = copy.copy(self)
         node._source = node
         node._layer = node._layer_signature = None
-        node._static_sources, bound = node._resolve_sources(
-            {} if inputs is None else inputs
-        )
-        node._initial_values = node._resolve_initial_values(bound)
+        static_sources, bound = node._resolve_sources({} if inputs is None else inputs)
+        node._preds = [*node._resolve_initial_values(bound), *static_sources]
         node._configure()
 
         result_shapes = [node._result_shape(output) for output in self._f.outputs]
-        node._preds = [*node._initial_values, *node._static_sources]
         node.shape = result_shapes[self._f.outputs.index(self._returns[0])]
         node._loop_outputs = [
             LoopOutput(node, index, output, result_shapes[index])

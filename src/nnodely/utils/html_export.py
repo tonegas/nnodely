@@ -81,7 +81,13 @@ def _block_ports(node):
     if isinstance(node, Loop):
         return node._f, {
             "block": "Loop",
-            "detail": {"steps": node._horizon, "collect": node._collect},
+            "detail": {
+                "steps": node._horizon,
+                "collect": node._collect,
+                # A rollout as long as its data is built with a placeholder.
+                "steps_from_data": node._length is None
+                and node._horizon_index is not None,
+            },
             "inputs": [
                 {"body": body.name, "outer": outer.name, "role": "initial"}
                 for body, outer in zip(node._feedback_inputs, node._initial_values)
@@ -124,7 +130,36 @@ def _safe_attrs(node) -> dict:
         except Exception:
             pass
 
+    # The axes one by one, so the page can say what each of them is.
+    try:
+        shape = node.shape
+        attrs["axes"] = {
+            "seq": ["dyn" if size is None else size for size in shape.seq],
+            "time": shape.time,
+            "dim": list(shape.dim),
+        }
+    except Exception:
+        pass
+    about = _about(node)
+    if about:
+        attrs["about"] = about
+
     return attrs
+
+
+def _about(node) -> str | None:
+    """The first sentence of what the node's class says it is."""
+    doc = type(node).__doc__
+    if not doc:
+        return None
+    paragraph = " ".join(doc.strip().split("\n\n", 1)[0].split())
+    sentence = re.split(r"(?<=[.!?])\s", paragraph, maxsplit=1)[0]
+    sentence = sentence.rstrip(":").rstrip()
+    if not sentence:
+        return None
+    if len(sentence) > 240:
+        sentence = sentence[:237].rstrip() + "..."
+    return sentence if sentence.endswith((".", "!", "?", "...")) else sentence + "."
 
 
 def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
@@ -200,7 +235,18 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
             for body_node, nid, kind, attrs in body_nodes:
                 if nid in seen_nodes:
                     continue
-                attrs["inlined_in"] = prefix + name
+                # The innermost block a node was spliced from: a nested body
+                # has set it already.
+                attrs.setdefault("inlined_in", prefix + name)
+                attrs.setdefault(
+                    "inlined_block",
+                    {
+                        "id": prefix + name,
+                        "block": port_map["block"],
+                        "model": submodel.name,
+                        **port_map["detail"],
+                    },
+                )
                 nodes.append((body_node, nid, kind, attrs))
                 seen_nodes.add(nid)
             for body_pred, src, dst, role in body_edges:
@@ -230,13 +276,12 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
                 if outer != body:
                     add_edge(None, body, outer, "output")
 
-            steps = port_map["detail"].get("steps")
             for pair in port_map["feedback"]:
                 feedbacks.append(
                     (
                         body_id(pair["from"]),
                         body_id(pair["to"]),
-                        f"feedback (x{steps} steps)" if steps else "feedback",
+                        _feedback_label(port_map["detail"], "x"),
                         {
                             "kind": "feedback",
                             "block": port_map["block"],
@@ -273,6 +318,78 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
     return nodes, edges, feedbacks
 
 
+def _axes_text(shape) -> str:
+    """A shape as the page writes it, ``(*seq, time, *dim)``, a dynamic axis
+    as ``dyn``."""
+    axes = getattr(shape, "tuple", None)
+    if axes is None:
+        return ""
+    return "(" + ", ".join("dyn" if size is None else str(size) for size in axes) + ")"
+
+
+def _steps_text(node) -> str:
+    """How many steps a Loop rolls out, as a page says it."""
+    if node._length is None and node._horizon_index is not None:
+        return "steps from data"
+    steps = node._horizon
+    return f"{steps} step" + ("" if steps == 1 else "s")
+
+
+def _node_role(node, region: str | None, states: set, own_outputs: set, nid: str):
+    """What a node is, for the reader: the role the page colours it by."""
+    from nnodely.core.modely import IntermediateOutput
+    from nnodely.layers.loop import LoopOutput
+    from nnodely.layers.output import Output
+    from nnodely.layers.parameter import Constant, Parameter
+
+    if isinstance(node, (ModelCall, Loop)):
+        return "submodel"
+    if isinstance(node, Input):
+        # A loop's memory: fed back on this page, or kept by a layer.
+        if nid in states or getattr(node, "_hidden", False):
+            return "state"
+        return "inner_input" if region else "input"
+    if type(node) is IntermediateOutput or isinstance(node, LoopOutput):
+        return "inner_output"
+    if isinstance(node, Output):
+        return "output" if not region and node.name in own_outputs else "inner_output"
+    if isinstance(node, Parameter):
+        return "parameter"
+    if isinstance(node, Constant):
+        return "constant"
+    return "relation"
+
+
+def _node_subtitle(node, kind: str, role: str) -> str:
+    """The second line of a node's card: what it is, in a few words."""
+    if isinstance(node, Loop):
+        return f"Loop · {_steps_text(node)}"
+    if isinstance(node, ModelCall):
+        return f"call of {node._model.name}"
+    return {
+        "input": "input",
+        "state": "state",
+        "inner_input": "body input",
+        "output": "output",
+        "inner_output": "body output",
+        "parameter": "parameter",
+        "constant": "constant",
+    }.get(role, kind)
+
+
+def _feedback_label(detail: dict, times: str = "") -> str:
+    """The label of a recurrence arrow: how many steps it closes."""
+    if detail.get("steps_from_data"):
+        return "feedback (steps from data)"
+    steps = detail.get("steps")
+    return f"feedback ({times}{steps} steps)" if steps else "feedback"
+
+
+def _feedback_record(src: str, dst: str, label: str, info: dict) -> dict:
+    """A recurrence arrow: the value of a step fed back to a state."""
+    return {"from": src, "to": dst, "kind": "feedback", "label": label, "info": info}
+
+
 def export_html(
     model: Modely,
     out_dir: str | os.PathLike,
@@ -289,7 +406,13 @@ def export_html(
 
     Every block that wraps a model (``ModelCall``, ``Loop``) is
     exported as its own page, linked from the block node and annotated with the
-    ports that bind the body to the graph above it.
+    ports that bind the body to the graph above it. Next to the root page a
+    flattened one splices every block in, each body inside a shaded region.
+
+    The page says what every node is - its role, coloured the same in the
+    graph, the legend and the inspector - and how the graph is read. The
+    pages open on the left-to-right hierarchical layout; ``physics`` lets the
+    force layout settle the nodes by simulation.
     """
     out_path = Path(out_dir)
     if out_path.suffix.lower() == ".html":
@@ -305,19 +428,6 @@ def export_html(
         s = re.sub(r"[^a-z0-9._-]+", "-", s)
         s = re.sub(r"-{2,}", "-", s).strip("-")
         return s or "graph"
-
-    def _node_color(kind: str) -> str:
-        if kind == "Input":
-            return "#2ecc71"
-        if kind == "Output" or kind == "IntermediateOutput":
-            return "#e74c3c"
-        if kind in ("ModelCall", "Loop"):
-            return "#3498db"
-        if kind == "Parameter":
-            return "#ff9900"
-        if kind == "Constant":
-            return "#00e5ff"
-        return "#95a5a6"
 
     def _levels(graph_nodes, graph_edges) -> dict[str, int]:
         """Longest-path layer of every node, so the flow reads left to right.
@@ -352,33 +462,6 @@ def export_html(
                 level[nid] = min(level[name] for name in read_by) - 1
         return level
 
-    def _feedback_edge(src: str, dst: str, label: str, attrs: dict) -> dict:
-        """A recurrence arrow, drawn apart from the ordinary data flow."""
-        return {
-            "from": src,
-            "to": dst,
-            "arrows": {"to": {"enabled": True, "scaleFactor": 1.2}},
-            "label": label,
-            "width": 3,
-            "color": {
-                "color": "#e74c3c",
-                "highlight": "#c0392b",
-                "hover": "#c0392b",
-            },
-            "font": {
-                "align": "middle",
-                "size": 12,
-                "color": "#c0392b",
-                "background": "#ffffff",
-            },
-            "smooth": {
-                "enabled": True,
-                "type": "curvedCW",
-                "roundness": 0.35,
-            },
-            "title": json.dumps(attrs, ensure_ascii=False, indent=2, default=str),
-        }
-
     def _export_one(
         model_obj,
         html_name: str,
@@ -397,14 +480,16 @@ def export_html(
             return str(file_path)
         visited_pages.add(page_key)
 
-        render_model = model_obj.flatten() if flattened else model_obj
+        # Flattened, every block is spliced in where it is called - as plot()
+        # draws it - so each body keeps the region of the call it came from.
+        render_model = model_obj
         graph_nodes, graph_edges, inlined_feedbacks = _collect_graph(
             render_model, inline=flattened
         )
         levels = _levels(graph_nodes, graph_edges)
 
-        # Flattening inlines ModelCall bodies but leaves a Loop intact,
-        # so a flattened page still has blocks worth drilling into.
+        # Every block left as one node gets a page of its own; flattened, they
+        # are all spliced in, so there is none.
         url_map: dict[str, str] = {}
         for node, nid, kind, attrs in graph_nodes:
             ports = _block_ports(node)
@@ -440,102 +525,25 @@ def export_html(
             entry_ports = {port["body"]: port for port in boundary["ports"]["inputs"]}
             exit_ports = {port["body"]: port for port in boundary["ports"]["outputs"]}
 
-        vis_nodes = []
-        node_details = {}
+        visible = {nid for _, nid, _, _ in graph_nodes}
 
-        for node, nid, kind, attrs in graph_nodes:
-            node_details[nid] = attrs
-
-            rec = {
-                "id": nid,
-                "label": nid,
-                "shape": "dot",
-                "size": 14,
-                "color": {
-                    "background": _node_color(kind),
-                    "border": "#2c3e50",
-                    "highlight": {
-                        "background": "#f1c40f",
-                        "border": "#2c3e50",
-                    },
-                },
-                "font": {"color": "#111111"},
-                "title": f"{nid}\n{kind} {attrs.get('shape', '')}",
-                "level": levels.get(nid, 0),
-            }
-
-            if nid in url_map:
-                rec["shape"] = "diamond"
-                rec["size"] = 18
-                rec["color"]["background"] = "#3498db"
-                rec["url"] = url_map[nid]
-                rec["title"] = f"{rec['title']}\ndouble-click to open the body"
-
-            port = entry_ports.get(nid) or exit_ports.get(nid)
-            if port is not None:
-                rec["borderWidth"] = 4
-                rec["color"]["border"] = "#f39c12"
-                bound = (
-                    f"{nid} ← {port['outer']} ({port['role']})"
-                    if nid in entry_ports
-                    else f"{nid} → {port['outer']}"
-                )
-                rec["title"] = f"{rec['title']}\nblock port: {bound}"
-
-            vis_nodes.append(rec)
-
-        vis_edges = []
-        for pred, src, dst, role in graph_edges:
-            edge_attrs = {
-                "from": src,
-                "to": dst,
-                "shape": str(getattr(pred, "shape", "")),
-            }
-            if role is not None:
-                edge_attrs["block port"] = role
-
-            record = {
-                "from": src,
-                "to": dst,
-                "arrows": "to",
-                # The arrow carries the bare axes; its tooltip, the named shape.
-                "label": role
-                if role is not None
-                else str(getattr(getattr(pred, "shape", None), "tuple", "")),
-                "font": {"align": "middle", "size": 10},
-                "title": json.dumps(
-                    edge_attrs, ensure_ascii=False, indent=2, default=str
-                ),
-                "color": {"color": "#7f8c8d"},
-            }
-            if role is not None:
-                # A binding edge crosses a block boundary that no longer has a
-                # node of its own, so it is the only thing marking the seam.
-                record["color"] = {"color": "#3498db", "highlight": "#2563eb"}
-                record["dashes"] = True
-                record["font"] = {"align": "middle", "size": 10, "color": "#2563eb"}
-            vis_edges.append(record)
-
-        visible_node_ids = {record["id"] for record in vis_nodes}
-        for src, dst, label, attrs in inlined_feedbacks:
-            if src in visible_node_ids and dst in visible_node_ids:
-                vis_edges.append(_feedback_edge(src, dst, label, attrs))
-
-        # The recurrence the enclosing block closes over this body.
+        # The recurrences: the ones the spliced bodies close, and the one the
+        # enclosing block closes over this body.
+        feedbacks = [
+            _feedback_record(src, dst, label, info)
+            for src, dst, label, info in inlined_feedbacks
+            if src in visible and dst in visible
+        ]
         if boundary is not None:
             detail = boundary["ports"]["detail"]
-            steps = detail.get("steps")
             for pair in boundary["ports"]["feedback"]:
-                if (
-                    pair["from"] not in visible_node_ids
-                    or pair["to"] not in visible_node_ids
-                ):
+                if pair["from"] not in visible or pair["to"] not in visible:
                     continue
-                vis_edges.append(
-                    _feedback_edge(
+                feedbacks.append(
+                    _feedback_record(
                         pair["from"],
                         pair["to"],
-                        f"feedback ({steps} steps)" if steps else "feedback",
+                        _feedback_label(detail),
                         {
                             "kind": "feedback",
                             "block": boundary["ports"]["block"],
@@ -546,6 +554,59 @@ def export_html(
                         },
                     )
                 )
+        states = {record["to"] for record in feedbacks}
+        own_outputs = {output.name for output in render_model.outputs}
+
+        vis_nodes: list[dict] = []
+        node_details: dict[str, dict] = {}
+        regions: dict[str, dict] = {}
+        for node, nid, kind, attrs in graph_nodes:
+            region = attrs.get("inlined_in")
+            role = _node_role(node, region, states, own_outputs, nid)
+            short = nid[len(region) + 1 :] if region and nid.startswith(region + "/") else nid
+            record = {
+                "id": nid,
+                "label": short,
+                "role": role,
+                "kind": kind,
+                "subtitle": _node_subtitle(node, kind, role),
+                "level": levels.get(nid, 0),
+            }
+            if region:
+                record["region"] = region
+                regions.setdefault(region, attrs.get("inlined_block", {"id": region}))
+            if nid in url_map:
+                record["url"] = url_map[nid]
+            if nid in entry_ports:
+                port = entry_ports[nid]
+                record["port"] = {"side": "in", "outer": port["outer"], "role": port["role"]}
+            elif nid in exit_ports:
+                record["port"] = {"side": "out", "outer": exit_ports[nid]["outer"]}
+            attrs["role"] = role
+            node_details[nid] = attrs
+            vis_nodes.append(record)
+
+        # A region nested in another one is drawn inside it, even when the
+        # outer body holds no node of its own.
+        for region in list(regions):
+            parts = region.split("/")
+            for depth in range(1, len(parts)):
+                regions.setdefault("/".join(parts[:depth]), {"id": "/".join(parts[:depth])})
+
+        vis_edges: list[dict] = []
+        for pred, src, dst, role in graph_edges:
+            # A multi-output Loop has no one shape: an AttributeError.
+            axes = _axes_text(getattr(pred, "shape", None))
+            record = {
+                "from": src,
+                "to": dst,
+                "kind": "data" if role is None else "binding",
+                # The arrow carries the axes; a binding names the port it is.
+                "label": role if role is not None else axes,
+                "shape": axes,
+            }
+            vis_edges.append(record)
+        vis_edges.extend(feedbacks)
 
         # Training objectives, so the loss wiring is visible here too.
         for index, minimizer in enumerate(getattr(model_obj, "_minimizers", [])):
@@ -557,20 +618,13 @@ def export_html(
                 or type(loss).__name__
             )
             loss_id = f"__min_{min_name}"
-
             vis_nodes.append(
                 {
                     "id": loss_id,
-                    "label": f"{min_name}\n{loss_label}",
-                    "shape": "hexagon",
-                    "size": 18,
-                    "color": {
-                        "background": "#8e44ad",
-                        "border": "#6c3483",
-                        "highlight": {"background": "#a569bd", "border": "#6c3483"},
-                    },
-                    "font": {"color": "#6c3483", "bold": {"color": "#6c3483"}},
-                    "title": f"minimize {min_name}\nloss: {loss_label}",
+                    "label": min_name,
+                    "role": "loss",
+                    "kind": "Minimizer",
+                    "subtitle": f"loss · {loss_label}",
                     "level": max(
                         levels.get(getattr(minimizer.get("source"), "name", ""), 0),
                         levels.get(getattr(minimizer.get("target"), "name", ""), 0),
@@ -581,12 +635,13 @@ def export_html(
             node_details[loss_id] = {
                 "class": "Minimizer",
                 "name": min_name,
+                "role": "loss",
                 "loss": loss_label,
                 "source": getattr(minimizer.get("source"), "name", None),
                 "target": getattr(minimizer.get("target"), "name", None),
             }
 
-            for role, endpoint in (
+            for side, endpoint in (
                 ("source", minimizer.get("source")),
                 ("target", minimizer.get("target")),
             ):
@@ -595,95 +650,54 @@ def export_html(
                     continue
                 # A target is usually an Input that no output depends on, so it
                 # is absent from the traversal and has to be drawn here.
-                if name not in visible_node_ids:
-                    kind = type(endpoint).__name__
+                if name not in visible:
                     vis_nodes.append(
                         {
                             "id": name,
                             "label": name,
-                            "shape": "dot",
-                            "size": 14,
-                            "color": {
-                                "background": _node_color(kind),
-                                "border": "#8e44ad",
-                                "highlight": {
-                                    "background": "#f1c40f",
-                                    "border": "#8e44ad",
-                                },
-                            },
-                            "font": {"color": "#111111"},
-                            "title": f"{name}\n{kind} (training target)",
+                            "role": "target",
+                            "kind": type(endpoint).__name__,
+                            "subtitle": "training target",
                             "level": levels.get(name, 0),
                         }
                     )
-                    node_details[name] = _safe_attrs(endpoint)
-                    visible_node_ids.add(name)
-
+                    node_details[name] = {**_safe_attrs(endpoint), "role": "target"}
+                    visible.add(name)
                 vis_edges.append(
                     {
                         "from": name,
                         "to": loss_id,
-                        "arrows": "to",
-                        "label": role,
-                        "dashes": role == "target",
-                        "width": 2,
-                        "font": {"align": "middle", "size": 10, "color": "#6c3483"},
-                        "color": {"color": "#8e44ad", "highlight": "#6c3483"},
+                        "kind": "loss",
+                        "label": side,
+                        "shape": _axes_text(getattr(endpoint, "shape", None)),
                     }
                 )
-
-        target = "_blank" if open_subgraph_in_new_tab else "_self"
-        # A spring layout turns a large body into a hairball, so those pages
-        # open on the deterministic hierarchical one instead.
-        hierarchical = len(vis_nodes) > 60
-
-        back_html = ""
-        if parent_rel is not None:
-            back_html = f"""
-            <button id="backBtn" class="btn" title="Go back to parent graph">← Back</button>
-            <a class="crumb" href="{parent_rel}">Parent</a>
-            """
-
-        flat_button_html = ""
-        if not flattened and flattened_rel is not None:
-            flat_button_html = f"""
-            <a class="toggle-btn" href="{flattened_rel}">Flatten</a>
-            """
-        elif flattened and standard_rel is not None:
-            flat_button_html = f"""
-            <a class="toggle-btn" href="{standard_rel}">Standard</a>
-            """
 
         logo_html = ""
         if logo_rel is not None:
             logo_html = (
-                f'<img src="./{logo_rel}" alt="nnodely logo" width="120" height="40"/>'
+                f'<img src="./{logo_rel}" alt="nnodely" width="96" height="32"/>'
             )
 
-        boundary_html = ""
-        if boundary is not None:
-            boundary_html = """
-        <section id="boundary">
-            <h2>Block boundary</h2>
-            <div id="boundaryContent"></div>
-        </section>
-        """
-
+        page = {
+            "title": page_title,
+            "flattened": flattened,
+            "parent_rel": parent_rel,
+            "standard_rel": standard_rel,
+            "flattened_rel": flattened_rel,
+            "link_target": "_blank" if open_subgraph_in_new_tab else "_self",
+            "physics": bool(physics),
+        }
         html = _render_page(
             title=escape(page_title),
             title_suffix=" [flattened]" if flattened else "",
             logo=logo_html,
-            back_button=back_html,
-            view_toggle=flat_button_html,
-            boundary_section=boundary_html,
             nodes=_script_json(vis_nodes),
             edges=_script_json(vis_edges),
             node_details=_script_json(node_details, default=str),
             boundary=_script_json(boundary, default=str),
-            hierarchical=str(hierarchical).lower(),
-            physics=str(physics).lower(),
-            link_target=target,
-            parent_rel=_script_json(parent_rel),
+            regions=_script_json(list(regions.values()), default=str),
+            page=_script_json(page),
         )
         file_path.write_text(html, encoding="utf-8")
         return str(file_path)

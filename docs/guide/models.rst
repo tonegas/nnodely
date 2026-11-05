@@ -407,7 +407,16 @@ Inspecting a model
    vehicle.plot("figures", "all", flatten=True)  # figures/all.png, everything in one image
 
 :meth:`~nnodely.Modely.export_html` writes an interactive page you can open in
-a browser. :meth:`~nnodely.Modely.plot` draws static images with Graphviz,
+a browser. Every node is a card with its name and what it is, coloured by its
+role - inputs green, the states a loop feeds back teal, outputs rose,
+parameters amber, constants slate, sub-models indigo, losses violet - and the
+legend under the graph, which highlights a kind of node when clicked, names
+them all. Clicking a node shows what it is, its shape axis by axis and what it
+reads and feeds, and highlights everything it depends on or feeds; a
+sub-model opens on a page of its own with a double-click. The flattened page
+splices every sub-model in, its body inside a shaded region. The graph is laid
+out left to right, or by a force simulation (``physics``).
+:meth:`~nnodely.Modely.plot` draws static images with Graphviz,
 whose ``dot`` program must be installed on the system. Like ``export_html`` it
 takes a folder and a file name, the model's name by default; a path with an
 image suffix (``"model.svg"``) names the file and its format.

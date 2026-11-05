@@ -745,7 +745,7 @@ def test_loop_binds_initial_and_inputs_at_call():
 
     with pytest.raises(TypeError, match="init must be a dict"):
         Loop(f=body, feedback={x: body_output}, init=0.0)  # type: ignore
-    with pytest.raises(TypeError, match="inputs must be a dict"):
+    with pytest.raises(TypeError, match="Loop is called with a dict of body input"):
         loop(0.0)  # type: ignore
     with pytest.raises(ValueError, match="'bind_u' is not fed back"):
         Loop(f=body, feedback={x: body_output}, init={u: 1.0})()

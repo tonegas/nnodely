@@ -6,6 +6,8 @@ from pathlib import Path
 
 from nnodely import (
     Input,
+    Integrate,
+    ModelyLoop,
     Output,
     EquationLearner,
     Fir,
@@ -252,6 +254,49 @@ def test_flattened_page_inlines_a_loop_body(tmp_path):
         labels[("inline_block/body_out", "inline_block/in1")] == "feedback (x4 steps)"
     )
     _assert_no_dangling(flattened)
+
+
+def test_a_loop_inlined_from_a_called_model_reads_the_streams_the_call_binds(
+    tmp_path,
+):
+    # Inlined in the step of the outer loop, the inner Loop reads k, which
+    # the call binds to its x; it was once drawn reading x, and k was left
+    # alone on the flattened page.
+    x = Input("bound_x", sw=1)
+    inner = ModelyLoop(
+        "bound_inner", inputs=[x], outputs=[Output("bound_xx", Integrate(dt=1)(x))]
+    ).build()
+    k = Input("bound_k", sw=1, seq=-1)
+    outer = ModelyLoop(
+        "bound_outer",
+        inputs=[k],
+        outputs=[Output("bound_kk", Integrate(dt=1)(inner(k)))],
+    ).build()
+    outer.export_html(out_dir=tmp_path, filename="bound_outer")
+
+    page = (tmp_path / "bound_outer__flattened.html").read_text(encoding="utf-8")
+    nodes, edges = _graph(page)
+    linked = {e["from"] for e in edges} | {e["to"] for e in edges}
+    assert [node["id"] for node in nodes if node["id"] not in linked] == []
+    assert ("bound_k", "bound_outer_loop/bound_inner_loop/bound_x") in {
+        (e["from"], e["to"]) for e in edges
+    }
+    _assert_no_dangling(page)
+
+    # The state of a called loop starts from the stream the call binds.
+    y0 = Input("bound_y0", sw=1)
+    seeded = ModelyLoop(
+        "bound_seeded",
+        inputs=[x, y0],
+        outputs=[Output("bound_xs", Integrate(dt=1, init=y0)(x))],
+    ).build()
+    k0 = Input("bound_k0", sw=1, seq=-1)
+    caller = Modely(
+        "bound_caller", inputs=[k, k0], outputs=[Output("bound_o", seeded([k, k0]))]
+    ).build()
+    table = str(caller.inputs)
+    assert "bound_k0, first step" in table
+    assert "bound_y0" not in table
 
 
 def _minimized_plot_model(name):
