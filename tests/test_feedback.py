@@ -391,6 +391,87 @@ def test_a_state_starts_from_zero_along_a_dynamic_sequence(tmp_path):
     check(Modely.load(tmp_path / "fb_dyn"))
 
 
+def test_a_dynamic_initial_value_feeds_a_state_of_a_static_sequence():
+    # A Loop pinned to three steps returns a sequence of 3; the init of the
+    # Integrate on it is read from data of a dynamic sequence, which matches.
+    x = Input("fb_pin_x", sw=1)
+    step = Modely(
+        "fb_pin_step", inputs=[x], outputs=[Output("fb_pin_xx", Integrate(dt=1)(x))]
+    ).build()
+    k_seq = Input("fb_pin_k_seq", sw=1, seq=-1)
+    inner = Modely(
+        "fb_pin_inner",
+        inputs=[k_seq],
+        outputs=[Output("fb_pin_rows", Loop(f=step, length=3)({x: k_seq}))],
+    ).build()
+    k, k0 = Input("fb_pin_k", sw=1, seq=-1), Input("fb_pin_k0", sw=1, seq=-1)
+    rate = inner([k])
+    assert tuple(rate.seq) == (3,)
+    model = ModelyLoop(
+        "fb_pin",
+        inputs=[k, k0],
+        outputs=[Output("fb_pin_kk", Integrate(dt=1, init=k0)(rate))],
+    ).build()
+
+    rows = np.arange(1, 13, dtype=np.float32).reshape(4, 3)
+    data = {
+        "fb_pin_k": rows.reshape(1, 4, 3, 1, 1),
+        "fb_pin_k0": np.full((1, 4, 3, 1, 1), 100.0, np.float32),
+    }
+    expected = 100.0 + np.cumsum(np.cumsum(rows, axis=1), axis=0)
+    np.testing.assert_allclose(
+        to_numpy(model(data)["fb_pin_kk"]).reshape(4, 3), expected
+    )
+
+
+def test_a_loop_is_called_with_a_dict_a_list_or_its_one_stream():
+    # The list skips the fed-back y, and takes y0, the init of the Integrate.
+    u, y, y0 = Input("fb_call_u", sw=1), Input("fb_call_y", sw=1), Input(
+        "fb_call_y0", sw=1
+    )
+    y_next = y.feedback(y * 0.0 + Integrate(dt=1, init=y0)(u))
+    step = Modely(
+        "fb_call_step", inputs=[u, y, y0], outputs=[Output("fb_call_next", y_next)]
+    )
+    loop = Loop(f=step)
+    u_seq, y0_init = Input("fb_call_u_seq", seq=-1, sw=1), Input("fb_call_y0i", sw=1)
+    data = {"fb_call_u_seq": _u(), "fb_call_y0i": _y0()}
+
+    def rolled(called, tag):
+        model = Modely(
+            tag, inputs=[u_seq, y0_init], outputs=[Output(f"{tag}_traj", called)]
+        ).build()
+        return _rolled(model, data, f"{tag}_traj")
+
+    by_dict = rolled(loop({u: u_seq, "fb_call_y0": y0_init}), "fb_call_dict")
+    np.testing.assert_allclose(by_dict, FROM_TEN)
+    np.testing.assert_allclose(rolled(loop([u_seq, y0_init]), "fb_call_list"), by_dict)
+    np.testing.assert_allclose(rolled(loop((u_seq, y0_init)), "fb_call_tup"), by_dict)
+
+    with pytest.raises(ValueError, match=r"has 2 inputs \['fb_call_u', 'fb_call_y0'\]"):
+        loop(u_seq)
+    with pytest.raises(ValueError, match="one stream for each, in that order"):
+        loop([u_seq])
+    with pytest.raises(TypeError, match="a list of streams, one per input"):
+        loop(3.0)  # type: ignore[arg-type]
+
+    # With one input, its stream alone.
+    x = Input("fb_call_x", sw=1)
+    single = Modely(
+        "fb_call_single",
+        inputs=[x],
+        outputs=[Output("fb_call_xx", Integrate(dt=1)(x))],
+    )
+    model = Modely(
+        "fb_call_one",
+        inputs=[u_seq],
+        outputs=[Output("fb_call_one_traj", Loop(f=single)(u_seq))],
+    ).build()
+    np.testing.assert_allclose(
+        _rolled(model, {"fb_call_u_seq": _u()}, "fb_call_one_traj"), FROM_ZERO
+    )
+
+
 def test_close_and_callback_are_gone():
     x = Input("fb_gone_x", sw=1)
     assert not hasattr(x, "close")

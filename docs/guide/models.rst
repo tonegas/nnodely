@@ -357,7 +357,7 @@ axis included. Inputs only the minimizers read, such as targets, and keys that
 name no input are ignored, so the arrays of a :class:`~nnodely.DataLoader` -
 ``as_dict()`` or ``get_samples(n)`` - can be passed as they are. A list works
 too: one array per input the model was declared with, in the order of
-``inputs``. These are the forms that make the model a block of a larger one
+``inputs``, and a model with one input takes its array alone. These are the forms that make the model a block of a larger one
 when it is called on streams (see :doc:`composition`). The result maps output
 names to tensors of the active backend.
 

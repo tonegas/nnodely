@@ -141,6 +141,10 @@ stream of the outer graph, as it binds the force.
    F_dyn, v_start = Input("F_dyn", seq=-1, sw=1), Input("v_start", sw=1)
    velocities = Loop(f=impulse)({F_k: F_dyn, v0: v_start})
 
+As a Modely, the Loop can also be called with a list, one stream per input in
+the order the body declares them, ``Loop(f=impulse)([F_dyn, v_start])``, or
+with the stream alone when it has one input.
+
 ModelyLoop
 ----------
 

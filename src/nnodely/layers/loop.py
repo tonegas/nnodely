@@ -14,7 +14,13 @@ from nnodely.core.dag import (
 )
 from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
-from nnodely.core.shape import BATCH_AXIS, OUTER_AXIS, slice_axis, transpose
+from nnodely.core.shape import (
+    BATCH_AXIS,
+    OUTER_AXIS,
+    _same_steps,
+    slice_axis,
+    transpose,
+)
 from nnodely.core.stream import Stream
 from nnodely.layers.input import Input
 from nnodely.layers.output import Output
@@ -789,12 +795,18 @@ class Loop(Layer):
 
     The loop is declared with its body and ``init`` (state: initial value),
     and bound to the outer graph by calling it with ``inputs`` (body input:
-    outer stream) - only the inputs that are not fed back. A state starts
-    from its ``init``, or from the init of the layer that keeps it, or from
-    zero without one; two are an error. A layer's init that is an Input of
-    ``f``, as in ``Integrate(init=x0)``, is an input of the loop: its outer
-    stream is the initial value. A body input missing from ``inputs`` keeps
-    its own value at every step.
+    outer stream) - only the inputs that are not fed back. As for a Modely,
+    they can be a list instead, one stream per input of the loop in the
+    order ``f`` declares them, or the stream alone when there is one::
+
+        Loop(f=step, init={state: s0})([F_seq, u_seq])  # f declares force, u
+        Loop(f=step, init={state: s0})(F_seq)            # f declares force
+
+    A state starts from its ``init``, or from the init of the layer that
+    keeps it, or from zero without one; two are an error. A layer's init that
+    is an Input of ``f``, as in ``Integrate(init=x0)``, is an input of the
+    loop: its outer stream is the initial value. A body input missing from a
+    dict keeps its own value at every step.
 
     The rollout lives outside the body: every stream that carries it has one
     more sequence axis than the body input it feeds, its outermost, which the
@@ -802,7 +814,9 @@ class Loop(Layer):
     ``init`` (step 0 seeds the state), an exogenous input through
     ``inputs``.
 
-    ``length`` pins the number of steps. It is required only when no initial
+    ``length`` pins the number of steps: the length of the outermost
+    sequence axis the rollout reads from the streams that carry it and,
+    collected, adds to every output. It is required only when no initial
     value or input carries a rollout. A rollout declared dynamic
     (an Input with ``seq=-1``) follows the length of the sequence it is actually
     given, and without ``length`` its streams are declared with
@@ -917,11 +931,14 @@ class Loop(Layer):
     def shape(self, value):
         self._shape = value
 
-    def __call__(self, inputs: dict | None = None):  # type: ignore[override]
+    def __call__(self, inputs: dict | list | tuple | Stream | None = None):  # type: ignore[override]
         """Bind the loop to its outer inputs, seeded with its ``init``.
 
-        Every call returns a new loop node; the body, and so its weights, is
-        the one the loop was declared with.
+        ``inputs`` is a dict keyed by body input or input name, a list with
+        one stream per input of the loop, in the order ``f`` declares them,
+        or the stream of a loop with one input. Every call returns a new loop
+        node; the body, and so its weights, is the one the loop was declared
+        with.
         """
         node = copy.copy(self)
         node._source = node
@@ -958,7 +975,9 @@ class Loop(Layer):
             self._static_inputs, self._static_sources, self._rolled_static
         ):
             step = source.shape.without_outer_seq() if rolled else source.shape
-            if source is not node and (step.seq, step.time) != (node.seq, node.time):
+            if source is not node and (
+                step.time != node.time or not _same_steps(step.seq, node.seq)
+            ):
                 raise ValueError(
                     f"Loop input {node.name!r} expects the sequence and window "
                     f"{node.shape}, or one more sequence axis for the rollout, got "
@@ -1049,10 +1068,11 @@ class Loop(Layer):
     def _rolled(node, source):
         """Whether ``source`` feeds ``node`` one step of its outermost
         sequence axis per step of the rollout: it has one more sequence axis
-        than the body reads, the others the same."""
-        return source.shape.seq_rank == node.shape.seq_rank + 1 and tuple(
-            source.seq[1:]
-        ) == tuple(node.seq)
+        than the body reads, the others the same - a dynamic one matching any
+        length."""
+        return source.shape.seq_rank == node.shape.seq_rank + 1 and _same_steps(
+            source.seq[1:], node.seq
+        )
 
     @staticmethod
     def _state_shape(node, value, rolled):
@@ -1060,7 +1080,8 @@ class Loop(Layer):
 
         A dynamic axis of the input is 1 where the value carries it, kept as
         it comes, and None where it does not - a zero, a number, a value of
-        fewer sequence axes: the value fed back sizes it at run time.
+        fewer sequence axes: the value fed back sizes it at run time. A
+        dynamic axis of the value matches any length of the input's.
         """
         if value.shape.time is None and node.time is not None and not value._is_value:
             raise ValueError(
@@ -1073,7 +1094,7 @@ class Loop(Layer):
         if source == target:
             return None
         incompatible = len(source) > len(target) or any(
-            target_size is not None and size not in (1, target_size)
+            None not in (size, target_size) and size not in (1, target_size)
             for size, target_size in zip(reversed(source), reversed(target))
         )
         if incompatible:
@@ -1142,11 +1163,39 @@ class Loop(Layer):
                 shift_axes.append(node.shape.time_axis)
         return shift_axes
 
+    def _call_order(self) -> list[str]:
+        """The inputs of the loop, those a call binds, in the order ``f``
+        declares them: the ones the body reads that are not fed back, and the
+        ones it starts a state from."""
+        bindable = {node.name for node in (*self._static_inputs, *self._seed_inputs)}
+        return [node.name for node in self._step.f._inputs if node.name in bindable]
+
     def _resolve_sources(self, inputs):
         """Outer stream feeding each body input that is not fed back, and
         every input of the loop by name - those a state starts from too."""
+        if isinstance(inputs, (Stream, list, tuple)):
+            # One stream per input of the loop, in the order f declares them.
+            streams = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
+            order = self._call_order()
+            if len(streams) != len(order):
+                given = (
+                    f"{len(streams)} streams"
+                    if isinstance(inputs, (list, tuple))
+                    else "one stream"
+                )
+                raise ValueError(
+                    f"Loop {self.name!r} has {len(order)} inputs {order}, the "
+                    f"inputs of {self._f.name!r} it does not feed back: called "
+                    "with a list it takes one stream for each, in that order, "
+                    f"and with a stream alone it has one; got {given}."
+                )
+            inputs = dict(zip(order, streams))
         if not isinstance(inputs, dict):
-            raise TypeError("Loop inputs must be a dict of body input: outer stream.")
+            raise TypeError(
+                "Loop is called with a dict of body input: outer stream, a list "
+                "of streams, one per input in the order the body declares "
+                f"them, or the stream of its one input; got {type(inputs).__name__}."
+            )
 
         by_name = {}
         for key, value in inputs.items():

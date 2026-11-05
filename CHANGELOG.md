@@ -15,8 +15,9 @@ variable, and trains, validates and exports through Keras. Models saved with
 
 - `Modely`, a model declared by its inputs and outputs and built with
   `build()`; a built model is called on data, or on streams to become a block
-  of a larger model. Both take a dict keyed by Input or input name, or a list
-  in the order of the model's inputs.
+  of a larger model. Both take a dict keyed by Input or input name, a list
+  in the order of the model's inputs, or the value alone of a model with one
+  input.
 - `DataLoader` for dicts, DataFrames and CSV files or folders, with several
   simulations, sequences and padding masks. `delimiter` and
   `header` are passed to `pandas.read_csv`; n/a values are reported. An array
@@ -69,7 +70,8 @@ variable, and trains, validates and exports through Keras. Models saved with
 - `Loop` finds the Inputs its body feeds back - with `Input.feedback`, inside
   the models it calls, or kept by `Integrate`, `Derivative` and `Buffer` - as
   a `ModelyLoop` does, adding an output for an update that is not one:
-  `Loop(f=step)(inputs)`. `feedback=` adds to them, for a model that is built
+  `Loop(f=step)(inputs)`, the inputs given as a dict, a list in the order
+  the step declares them, or a stream alone. `feedback=` adds to them, for a model that is built
   or loaded, or to reuse one step with different feedbacks. `init=` takes
   only the fed-back Inputs, the inputs of the call only the others, and a
   state has one initial value: two are an error. The `init` of `Integrate`

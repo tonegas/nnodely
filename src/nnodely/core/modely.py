@@ -88,10 +88,21 @@ class Modely:
     def __call__(self, inputs) -> Any:
         """Run the model on arrays, or use it as a block on streams.
 
-        Either way ``inputs`` is a dict keyed by Input or input name, or a
-        list with one value per input, in the order of ``inputs``. A key that
-        names no input the model reads is ignored.
+        Either way ``inputs`` is a dict keyed by Input or input name, a list
+        with one value per input, in the order of ``inputs``, or the value
+        alone of a model with one input. A key that names no input the model
+        reads is ignored.
         """
+        if isinstance(inputs, Node) or hasattr(inputs, "shape"):
+            # A stream or an array alone: the value of the one input.
+            if len(self._inputs) != 1:
+                names = [node.name for node in self._inputs]
+                raise ValueError(
+                    f"Model {self.name!r} has {len(self._inputs)} inputs {names}: "
+                    "called with a value alone it has one; give a list, one "
+                    "value per input in that order, or a dict."
+                )
+            inputs = [inputs]
         if isinstance(inputs, dict):
             values = list(inputs.values())
             given: dict[Any, Any] = {}
@@ -119,8 +130,9 @@ class Modely:
         else:
             raise TypeError(
                 f"Model {self.name!r} is called with a dict keyed by Input or "
-                "input name, or with a list of streams or arrays, one per input "
-                f"in their order; got {type(inputs).__name__}."
+                "input name, with a list of streams or arrays, one per input "
+                "in their order, or with the stream or array of its one input; "
+                f"got {type(inputs).__name__}."
             )
         streams = [isinstance(value, Node) for value in values]
         if all(streams):
