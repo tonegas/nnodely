@@ -59,8 +59,12 @@ like any other, so freezing is done on Parameters. ``p.freeze()`` keeps
 one as it is through training and ``p.unfreeze()`` releases it;
 :meth:`~nnodely.Modely.freeze` and :meth:`~nnodely.Modely.unfreeze` do it for
 every Parameter a model computes with, those of the models it calls and of
-its Loop bodies included. Both work before or after ``build()``, and the next
-``train()`` follows them. The Keras weights of ``PReLU``, ``BatchNorm`` and
+its Loop bodies included. Given a name, or a list of names, they act on those
+alone: a Parameter by its name, as :attr:`~nnodely.Modely.parameters` lists
+it, and a model the graph reaches - a block it calls, the body of a Loop, the
+model of a LocalModel - by its own, for every Parameter of that model. A name
+that matches nothing raises, and nothing is frozen. Both work before or after
+``build()``, and the next ``train()`` follows them. The Keras weights of ``PReLU``, ``BatchNorm`` and
 ``KerasFunction`` layers are not Parameters: ``freeze()`` does not reach them,
 so set ``trainable`` on their Keras layer instead.
 
@@ -68,6 +72,8 @@ so set ``trainable`` on their Keras layer instead.
 
    model.freeze()     # every Parameter kept as it is
    model.unfreeze()   # trained again
+   model.freeze(["fir_y_kernel", "fir_y_bias"])   # those two only
+   model.unfreeze("fir_y_bias")
 
 :attr:`~nnodely.Modely.parameters` lists them, in the order the graph reaches
 them, and prints as a table. A Parameter is also found by its name, and its
@@ -87,8 +93,9 @@ the value it was declared with:
    # 4 parameters, 4 values, 4 trainable
    kernel = model.parameters["fir_y_kernel"].param   # the trained values
 
-A model used as a block is frozen the same way, ``block.freeze()``, to train
-the rest of a larger model around it.
+A model used as a block is frozen the same way, ``block.freeze()``, or by its
+name from the larger model, ``model.freeze("block")``, to train the rest of
+the larger model around it.
 
 Training
 --------

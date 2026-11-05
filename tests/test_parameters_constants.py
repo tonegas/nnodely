@@ -394,6 +394,117 @@ def test_model_freeze_reaches_layer_weights_called_models_and_loop_bodies():
     assert _trainable_ids(model) == weights
 
 
+def _frozen(model):
+    return sorted(
+        parameter.name for parameter in model.parameters if not parameter.trainable
+    )
+
+
+def _still_trainable(model):
+    return {
+        id(parameter.param) for parameter in model.parameters if parameter.trainable
+    }
+
+
+def test_freeze_and_unfreeze_parameters_by_name():
+    x = Input("named_x", sw=1)
+    k = Parameter("named_k", value=[1.0])
+    g = Parameter("named_g", value=[2.0])
+    h = Parameter("named_h", value=[3.0])
+    linear = Linear(features=1, name="named_lin")(x)
+    model = Modely(
+        "named", inputs=[x], outputs=[Output("named_out", x * k + x * g + h + linear)]
+    ).build()
+
+    # A list of names, or one; the weights a layer made, by theirs.
+    assert model.freeze(["named_k", "named_g"]) is model
+    assert _frozen(model) == ["named_g", "named_k"]
+    model.freeze("named_lin_kernel")
+    assert _frozen(model) == ["named_g", "named_k", "named_lin_kernel"]
+    assert model.unfreeze(["named_k", "named_lin_kernel"]) is model
+    assert _frozen(model) == ["named_g"]
+    assert _trainable_ids(model) == _still_trainable(model)
+
+
+def test_freeze_and_unfreeze_a_model_it_reaches_by_name():
+    u = Input("reached_u", sw=1)
+    inner_gain = Parameter("reached_inner_gain", value=[3.0])
+    inner = Modely(
+        "reached_inner",
+        inputs=[u],
+        outputs=[Output("reached_inner_out", u * inner_gain)],
+    )
+    v = Input("reached_v", sw=1)
+    gain = Parameter("reached_gain", value=[2.0])
+    block = Modely(
+        "reached_block",
+        inputs=[v],
+        outputs=[Output("reached_block_out", inner([v]) * gain)],
+    )
+    q = Input("reached_q", sw=1)
+    body = Modely(
+        "reached_body",
+        inputs=[q],
+        outputs=[Output("reached_next", Linear(features=1, name="reached_lin")(q))],
+    )
+    seed = Input("reached_seed", seq=3, sw=1)
+    loop = Loop(f=body, feedback={q: "reached_next"}, init={q: seed})()
+    x = Input("reached_x", sw=1)
+    k = Parameter("reached_k", value=[1.0])
+    model = Modely(
+        "reached",
+        inputs=[x, seed],
+        outputs=[
+            Output("reached_called", block([x]) * k),
+            Output("reached_looped", loop),
+        ],
+    ).build()
+
+    # A block it calls takes the block it calls in turn along; that one
+    # alone is picked by its own name.
+    model.freeze("reached_block")
+    assert _frozen(model) == ["reached_gain", "reached_inner_gain"]
+    model.unfreeze("reached_inner")
+    assert _frozen(model) == ["reached_gain"]
+    # The body of a Loop, with the weights its layer made, and a Parameter,
+    # in one list.
+    model.freeze(["reached_body", "reached_k"])
+    assert _frozen(model) == [
+        "reached_gain",
+        "reached_k",
+        "reached_lin_bias",
+        "reached_lin_kernel",
+    ]
+    model.unfreeze(["reached_body", "reached_block"])
+    assert _frozen(model) == ["reached_k"]
+    assert _trainable_ids(model) == _still_trainable(model)
+
+
+def test_freeze_refuses_a_name_it_cannot_resolve_and_changes_nothing():
+    x = Input("unresolved_x", sw=1)
+    k = Parameter("unresolved_k", value=[1.0])
+    shared = Parameter("unresolved_shared", value=[1.0])
+    w = Input("unresolved_w", sw=1)
+    named_alike = Modely(
+        "unresolved_shared", inputs=[w], outputs=[Output("unresolved_w_out", w * 2.0)]
+    )
+    model = Modely(
+        "unresolved",
+        inputs=[x],
+        outputs=[Output("unresolved_out", x * k + named_alike([x]) * shared)],
+    )
+
+    # Every name is checked first: the known one is not frozen either.
+    with pytest.raises(ValueError, match="no Parameter and no model named 'nope'"):
+        model.freeze(["unresolved_k", "nope"])
+    assert k.trainable
+    with pytest.raises(ValueError, match="both named 'unresolved_shared'"):
+        model.unfreeze("unresolved_shared")
+    with pytest.raises(TypeError, match="got Parameter"):
+        model.freeze([k])  # type: ignore[list-item]
+    assert _frozen(model) == []
+
+
 def test_the_trainable_flag_is_saved_with_the_model(tmp_path):
     x = Input("saved_flag_x", sw=2)
     frozen = Parameter("saved_frozen", value=[2.0]).freeze()

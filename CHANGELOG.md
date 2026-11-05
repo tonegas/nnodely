@@ -140,7 +140,12 @@ variable, and trains, validates and exports through Keras. Models saved with
   constructor argument) keep one Parameter fixed through training or release
   it, and `Modely.freeze()` / `unfreeze()` do it for every Parameter a model
   computes with, those of the models it calls and of its Loop bodies
-  included. Before or after `build()`; saved with the model.
+  included. Given a name or a list of names, they act on those alone: a
+  Parameter by its name, or a model the graph reaches - a block, a Loop
+  body, the model of a LocalModel - by its name, for all its Parameters:
+  `model.freeze(["k", "g"])`, `model.freeze("submodel")`. A name that
+  matches nothing raises, and nothing is frozen. Before or after `build()`;
+  saved with the model.
   `Modely.parameters` lists them all, finds one by name
   (`model.parameters["kernel"]`), and prints as a table of their names,
   shapes, numbers of values and trainable flags.

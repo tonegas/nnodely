@@ -9,6 +9,7 @@ from nnodely.core.dag import (
     flatten,
     _flatten_graph,
     _parameters,
+    _parameters_and_models,
     _read_inputs,
     _read_nodes,
     _source_input_tensors,
@@ -31,7 +32,7 @@ from nnodely.utils.utils import (
 from nnodely.utils.printers import _resolve_printer
 from nnodely.core.registry import ModelSerializer
 from nnodely.core.stream import Stream, Node
-from nnodely.layers.parameter import Constant, Parameters
+from nnodely.layers.parameter import Constant, Parameter, Parameters
 from nnodely.core.dataloader import DataLoader
 
 import numpy as np
@@ -82,8 +83,7 @@ class Modely:
         self._minimizer_outputs: dict[Node, str] = {}  # minimizer side -> graph output
 
     def __repr__(self) -> str:
-        items = " \n- ".join(map(str, self._order))
-        return f"Model {self.name}:\n - {items}"
+        return f"Model {self.name}"
 
     def __call__(self, inputs) -> Any:
         """Run the model on arrays, or use it as a block on streams.
@@ -608,23 +608,64 @@ class Modely:
                 row["starts from"] = starts
         return rows
 
-    def freeze(self):
-        """Keep every Parameter of the model as it is through training: those
-        of its relations and of the weights of its layers, of the models it
-        calls and of the bodies of its Loops.
+    def freeze(self, names: str | list[str] | None = None):
+        """Keep Parameters of the model as they are through training.
+
+        Without ``names``, every one: those of its relations and of the
+        weights of its layers, of the models it calls and of the bodies of
+        its Loops. ``names``, a name or a list of them, picks some: the name
+        of a Parameter, as :attr:`parameters` lists it, freezes that one; the
+        name of a model the graph reaches - a block it calls, the body of a
+        Loop, the model of a LocalModel - every Parameter of that model.
         :meth:`unfreeze` undoes it; one :meth:`Parameter.freeze` freezes a
         single one. A Parameter shared with another model is frozen for that
         model too. Returns the model."""
-        for parameter in _parameters(self):
+        for parameter in self._parameters_named(names):
             parameter.freeze()
         return self
 
-    def unfreeze(self):
-        """Let training change every Parameter of the model again, as
-        :meth:`freeze` finds them. Returns the model."""
-        for parameter in _parameters(self):
+    def unfreeze(self, names: str | list[str] | None = None):
+        """Let training change Parameters of the model again: every one, or
+        those ``names`` picks, as :meth:`freeze` finds them. Returns the
+        model."""
+        for parameter in self._parameters_named(names):
             parameter.unfreeze()
         return self
+
+    def _parameters_named(self, names) -> list[Parameter]:
+        """The Parameters ``names`` picks, every one for None. Each name is
+        checked before any of them is used, so an unknown one changes
+        nothing."""
+        parameters, models = _parameters_and_models(self)
+        if names is None:
+            return parameters
+        names = [names] if isinstance(names, str) else list(names)
+        given = [name for name in names if not isinstance(name, str)]
+        if given:
+            raise TypeError(
+                f"Model {self.name!r} picks Parameters by name, a string or a "
+                f"list of strings; got {type(given[0]).__name__}."
+            )
+        picked: dict[int, Parameter] = {}
+        for name in names:
+            named = [parameter for parameter in parameters if parameter.name == name]
+            called = [model for model in models if model.name == name]
+            if named and called:
+                raise ValueError(
+                    f"Model {self.name!r} reaches a Parameter and a model both "
+                    f"named {name!r}: rename one of them to pick it."
+                )
+            if not (named or called):
+                raise ValueError(
+                    f"Model {self.name!r} reaches no Parameter and no model "
+                    f"named {name!r}. Its Parameters are "
+                    f"{[parameter.name for parameter in parameters]}, its "
+                    f"models {list(dict.fromkeys(model.name for model in models))}."
+                )
+            for model in called:
+                named += _parameters(model)
+            picked.update((id(parameter), parameter) for parameter in named)
+        return list(picked.values())
 
     # -------------------------------------------------------------------------
     # Validation API

@@ -356,17 +356,26 @@ def _parameters(model: "Modely") -> list["Parameter"]:
     outputs and minimizers, through the models it calls and the bodies of its
     Loops, in the order the graph reaches them - inputs
     before the nodes they feed, the model's own before its bodies'."""
+    return _parameters_and_models(model)[0]
+
+
+def _parameters_and_models(
+    model: "Modely",
+) -> tuple[list["Parameter"], list["Modely"]]:
+    """:func:`_parameters`, and every model the walk reaches, each once:
+    ``model`` first, then the models it calls and the bodies of its Loops,
+    theirs too."""
     from nnodely.core.modely import Modely
     from nnodely.layers.parameter import Parameter
 
     found: dict[int, Parameter] = {}
     models: list[Modely] = [model]
-    seen: set[int] = set()
+    reached: dict[int, Modely] = {}
     while models:
         current = models.pop(0)
-        if id(current) in seen:
+        if id(current) in reached:
             continue
-        seen.add(id(current))
+        reached[id(current)] = current
         roots: list[Any] = [
             *current.outputs,
             *(
@@ -390,4 +399,4 @@ def _parameters(model: "Modely") -> list["Parameter"]:
                 if isinstance(inner, Modely):
                     models.append(inner)
             stack.extend(reversed(node._preds))
-    return list(found.values())
+    return list(found.values()), list(reached.values())

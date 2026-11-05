@@ -49,7 +49,9 @@ model loaded with :meth:`~nnodely.Modely.load`: building the larger model
 initializes only its new layers. Training
 the outer model trains the block too. To keep a block fixed, freeze it:
 ``block.freeze()`` keeps every Parameter it computes with as it is through
-training, until ``block.unfreeze()``.
+training, until ``block.unfreeze()``. The outer model freezes it by its name
+as well, ``controller.freeze("smoother")``, and a list of names freezes
+several blocks, or Parameters, at once.
 
 Calling the same block several times shares its weights between the calls, as
 reusing a layer does:
