@@ -815,10 +815,12 @@ def test_models_gives_the_called_model_itself():
     assert str(model2.models) == "\n".join(
         [
             "Models of sub_model2",
-            "name        inputs  outputs  parameters  built",
-            "----------  ------  -------  ----------  -----",
-            "sub_model1  sub_x   sub_out  1           yes",
-            "1 models, 1 built",
+            "┏━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━┓",
+            "┃ name       ┃ inputs ┃ outputs ┃ parameters ┃ built ┃",
+            "┡━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━┩",
+            "│ sub_model1 │ sub_x  │ sub_out │ 1          │ yes   │",
+            "└────────────┴────────┴─────────┴────────────┴───────┘",
+            " 1 models, 1 built",
         ]
     )
     assert repr(model2.models) == str(model2.models)

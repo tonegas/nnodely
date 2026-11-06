@@ -2,6 +2,7 @@
 
 from nnodely.core.shape import _same_steps
 from nnodely.core.stream import Stream
+from nnodely.utils.printers import _table
 
 import keras
 
@@ -279,27 +280,18 @@ class Inputs(list):
             )
             for row in self._rows
         ]
-        widths = [
-            max(len(line[column]) for line in (self._HEADER, *cells))
-            for column in range(len(self._HEADER))
-        ]
-
-        def line(row):
-            return "  ".join(cell.ljust(width) for cell, width in zip(row, widths))
-
         fed_back = sum(row["fed back with"] is not None for row in self._rows)
-        return "\n".join(
+        return _table(
+            self._title,
+            self._HEADER,
+            [("", cells)],
             [
-                *([self._title] if self._title else []),
-                line(self._HEADER).rstrip(),
-                line(tuple("-" * width for width in widths)).rstrip(),
-                *(line(row).rstrip() for row in cells),
                 f"{len(self)} inputs, {fed_back} fed back",
                 "fed back with: the stream a loop feeds back into the Input at "
                 "the next step; a Modely reads the Input from data instead",
                 "data: required, optional (zeros where left out), target (to train "
                 "and validate) or - (fed back only)",
-            ]
+            ],
         )
 
     __repr__ = __str__

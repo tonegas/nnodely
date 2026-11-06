@@ -554,14 +554,79 @@ def test_model_parameters_lists_every_parameter_and_prints_a_table():
     assert str(model.parameters) == "\n".join(
         [
             "Parameters of table_model",
-            "name        seq  time  dim        values  trainable",
-            "----------  ---  ----  ---------  ------  ---------",
-            "a           ()   None  (2, 3, 2)  12      yes",
-            "b           ()   None  (2, 3, 2)  12      no",
-            "lin_kernel  ()   None  (2, 3, 2)  12      yes",
-            "lin_bias    ()   None  (2,)       2       yes",
-            "c           ()   4     (1,)       4       yes",
-            "5 parameters, 42 values, 30 trainable",
+            "┏━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓",
+            "┃ name       ┃ seq ┃ time ┃ dim       ┃ values ┃ trainable ┃",
+            "┡━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩",
+            "│ a          │ ()  │ None │ (2, 3, 2) │ 12     │ yes       │",
+            "│ b          │ ()  │ None │ (2, 3, 2) │ 12     │ no        │",
+            "│ lin_kernel │ ()  │ None │ (2, 3, 2) │ 12     │ yes       │",
+            "│ lin_bias   │ ()  │ None │ (2,)      │ 2      │ yes       │",
+            "│ c          │ ()  │ 4    │ (1,)      │ 4      │ yes       │",
+            "└────────────┴─────┴──────┴───────────┴────────┴───────────┘",
+            " 5 parameters, 42 values, 30 trainable",
         ]
     )
     assert repr(model.parameters) == str(model.parameters)
+
+
+def test_model_parameters_prints_a_table_per_model():
+    u = Input("per_model_u", sw=1)
+    shared = Parameter("per_model_shared", value=2.0)
+    frozen = Parameter("per_model_frozen", value=1.0).freeze()
+    body = Modely(
+        "per_model_body",
+        inputs=[u],
+        outputs=[Output("per_model_body_out", u * shared + frozen)],
+    )
+    z = Input("per_model_z", sw=1)
+    top = Modely(
+        "per_model_top",
+        inputs=[z],
+        outputs=[Output("per_model_out", body([z]) * shared)],
+    )
+
+    # Still one list, in the order the graph reaches them.
+    assert top.parameters == [shared, frozen]
+    top_rule = "┏━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓"
+    header = "┃ name             ┃ seq ┃ time ┃ dim  ┃ values ┃ trainable ┃"
+    open_columns = "├──────────────────┬─────┬──────┬──────┬────────┬───────────┤"
+    shared_row = "│ per_model_shared │ ()  │ None │ (1,) │ 1      │ yes       │"
+    frozen_row = "│ per_model_frozen │ ()  │ None │ (1,) │ 1      │ no        │"
+    bottom = "└──────────────────┴─────┴──────┴──────┴────────┴───────────┘"
+    # A row of the model's name opens its Parameters. One the model shares
+    # with a block it calls is listed once, under the model, the first to
+    # reach it.
+    assert str(top.parameters) == "\n".join(
+        [
+            "Parameters of per_model_top",
+            top_rule,
+            header,
+            "┡━━━━━━━━━━━━━━━━━━┻━━━━━┻━━━━━━┻━━━━━━┻━━━━━━━━┻━━━━━━━━━━━┩",
+            "│ per_model_top: 1 parameters, 1 values, 1 trainable        │",
+            open_columns,
+            shared_row,
+            "├──────────────────┴─────┴──────┴──────┴────────┴───────────┤",
+            "│ per_model_body: 1 parameters, 1 values, 0 trainable       │",
+            open_columns,
+            frozen_row,
+            bottom,
+            " 2 parameters, 2 values, 1 trainable",
+        ]
+    )
+    # The block alone is one model: one table.
+    assert str(body.parameters).splitlines()[3:] == [
+        "┡━━━━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩",
+        shared_row,
+        frozen_row,
+        bottom,
+        " 2 parameters, 2 values, 1 trainable",
+    ]
+    # A model without Parameters of its own still names the block they are of.
+    wrap = Modely(
+        "per_model_wrap",
+        inputs=[z],
+        outputs=[Output("per_model_wrap_out", body([z]))],
+    )
+    assert str(wrap.parameters).splitlines()[4] == (
+        "│ per_model_body: 2 parameters, 2 values, 1 trainable       │"
+    )

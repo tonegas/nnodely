@@ -105,6 +105,28 @@ variable, and trains, validates and exports through Keras. Models saved with
   printed as a table of their shapes, the stream each names - in a
   ModelyLoop, the stream of the step it collects - the Inputs a loop feeds
   that stream back into and the minimizers that read it.
+- `Modely.minimizers`: the minimizers of a model, then those of every model
+  it computes with, printed as a table of their source and target, loss,
+  gain and seq_weights - one table per model when the models it calls have
+  minimizers. The `train()` of each model minimizes those listed under it.
+  Setting the gain, loss or seq_weights of a row changes that minimizer in
+  the model it is listed under, from the next `train()`:
+  `model.minimizers[0]["gain"] = 0.1`. One inherited changes in that model
+  only, not in the block.
+- A model trains on the minimizers of the blocks it calls with its own:
+  `<block>.<minimizer>`, once per call (`<block>.<k>.<minimizer>` for a
+  block called several times), each computed on what that call computes,
+  with the block's gain. A block passes on what it trains on, so a block
+  inside a block gives `<outer>.<inner>.<minimizer>`. An Input of the block
+  the call does not bind, such as its target, is read from the model's data.
+  `remove_minimizer("<block>.<minimizer>")` removes one the model is not to
+  train on; one the model declares under that name replaces it. The bodies
+  of Loops are not inherited from yet.
+- The tables a model prints - `inputs`, `outputs`, `models`, `parameters`
+  and `minimizers` - are drawn as boxes, in the nnodely colours when the
+  standard output is a terminal or a notebook at the time the table is turned
+  into text, plain otherwise. `NO_COLOR` prints them plain - for a table
+  written to a file from a terminal - and `FORCE_COLOR` colours them anyway.
 - `KerasFunction(function)`: any Keras layer, class or instance, as an
   nnodely layer - a custom function in the graph, its streams passed to
   `call` as separate arguments. The model saves, loads and exports with it.
@@ -162,7 +184,9 @@ variable, and trains, validates and exports through Keras. Models saved with
   saved with the model.
   `Modely.parameters` lists them all, finds one by name
   (`model.parameters["kernel"]`), and prints as a table of their names,
-  shapes, numbers of values and trainable flags.
+  shapes, numbers of values and trainable flags - one table per model when
+  the models it calls have Parameters, each under the first model whose
+  graph reaches it.
 - Early stopping in `train()`: the name of a monitored loss (made into a Keras
   `EarlyStopping` with `early_stopping_kwargs`), its configuration, or any
   callback, Keras's or your own.
@@ -359,9 +383,16 @@ variable, and trains, validates and exports through Keras. Models saved with
   In 2.0.0 it was the list of the Inputs the model was declared with, which
   is no longer an attribute: keep the Inputs a model is declared with, to
   call it as a block in their order. Attributes that are not part of the API
-  start with an underscore, as in Python: `Modely.order` and
-  `Modely.minimizers`, a node's `preds`, `DataLoader.dataset` and the
-  settings a layer keeps, such as `Loop.f` or `Linear.features`.
+  start with an underscore, as in Python: `Modely.order`, a node's `preds`,
+  `DataLoader.dataset` and the settings a layer keeps, such as `Loop.f` or
+  `Linear.features`. `Modely.minimizers` is the table of the minimizers (see
+  Added): in 2.0.0 it was the list the model trains on. Its rows set the
+  gain, loss and seq_weights of a minimizer; `minimize` declares one and
+  `remove_minimizer` removes one.
+- A model calling a block that has minimizers trains on them too (see
+  Added), so its data needs the targets those read that the call does not
+  bind. `model.remove_minimizer("<block>.<minimizer>")` trains the model as
+  before.
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
 

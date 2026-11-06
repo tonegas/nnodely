@@ -164,8 +164,7 @@ def flatten_node(node: Node, scope: Scope) -> Any:
             call_scope.inits = inits
             scope.calls[model_call] = call_scope
 
-        internal_output = model_call._outputs_map[node]
-        flat_output = flatten_node(internal_output, call_scope)
+        flat_output = flatten_node(node._internal, call_scope)
 
         scope.memo[node] = flat_output
         return flat_output
@@ -374,16 +373,27 @@ def _parameters_and_models(
 def _nodes_and_models(model: "Modely") -> tuple[list[Node], list["Modely"]]:
     """Every node ``model`` computes with, each once, in the order
     :func:`_parameters` reaches them, and every model the walk reaches."""
+    groups = _nodes_by_model(model)
+    return [node for _, nodes in groups for node in nodes], [m for m, _ in groups]
+
+
+def _nodes_by_model(model: "Modely") -> list[tuple["Modely", list[Node]]]:
+    """Every model the walk of :func:`_nodes_and_models` reaches, in that
+    order, each with the nodes it reaches first: those of its own graph -
+    not of the models it calls - but those an earlier model reached already."""
     from nnodely.core.modely import Modely
 
-    found: dict[int, Node] = {}
+    found: set[int] = set()
+    groups: list[tuple[Modely, list[Node]]] = []
     models: list[Modely] = [model]
-    reached: dict[int, Modely] = {}
+    reached: set[int] = set()
     while models:
         current = models.pop(0)
         if id(current) in reached:
             continue
-        reached[id(current)] = current
+        reached.add(id(current))
+        nodes: list[Node] = []
+        groups.append((current, nodes))
         roots: list[Any] = [
             *current._outputs,
             *(
@@ -400,10 +410,12 @@ def _nodes_and_models(model: "Modely") -> tuple[list[Node], list["Modely"]]:
             if not isinstance(node, Node) or id(node) in visited:
                 continue
             visited.add(id(node))
-            found.setdefault(id(node), node)
+            if id(node) not in found:
+                found.add(id(node))
+                nodes.append(node)
             # A called model, or the body a block rolls out.
             for inner in (getattr(node, "_model", None), getattr(node, "_f", None)):
                 if isinstance(inner, Modely):
                     models.append(inner)
             stack.extend(reversed(node._preds))
-    return list(found.values()), list(reached.values())
+    return groups

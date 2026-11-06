@@ -1,6 +1,7 @@
 """Output: names a stream as an output of the model."""
 
 from nnodely.core.stream import Stream
+from nnodely.utils.printers import _table
 from nnodely.layers.input import _seq_cell
 
 
@@ -55,28 +56,19 @@ class Outputs(list):
             )
             for row in self._rows
         ]
-        widths = [
-            max(len(line[column]) for line in (self._HEADER, *cells))
-            for column in range(len(self._HEADER))
-        ]
-
-        def line(row):
-            return "  ".join(cell.ljust(width) for cell, width in zip(row, widths))
-
         fed_back = sum(bool(row["feeds back"]) for row in self._rows)
         minimized = sum(bool(row["minimized by"]) for row in self._rows)
-        return "\n".join(
+        return _table(
+            self._title,
+            self._HEADER,
+            [("", cells)],
             [
-                *([self._title] if self._title else []),
-                line(self._HEADER).rstrip(),
-                line(tuple("-" * width for width in widths)).rstrip(),
-                *(line(row).rstrip() for row in cells),
                 f"{len(self)} outputs, {fed_back} fed back, {minimized} minimized",
                 "stream: the stream the output names; in a ModelyLoop, the "
                 "stream of the step, collected over the steps",
                 "feeds back: the Inputs a loop feeds that stream back into at "
                 "the next step",
-            ]
+            ],
         )
 
     __repr__ = __str__

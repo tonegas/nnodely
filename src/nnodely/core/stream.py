@@ -219,12 +219,8 @@ class Stream(Node):
         return None
 
     def __repr__(self):
-        pred_names = [pred.name for pred in self._preds]
         return (
-            f"{self.__class__.__name__}("
             f"name={self.name!r}, "
-            f"type={self.__class__.__name__!r}, "
             f"shape={self.shape}, "
-            f"predecessors={pred_names}"
             f")"
         )

@@ -1,4 +1,5 @@
 import io
+import re
 
 import keras
 import numpy as np
@@ -202,3 +203,40 @@ def test_a_loss_that_is_not_finite_is_drawn_not_raised(losses):
         channel.push(loss, None)
     assert isinstance(channel.sparkline(10), str)
     assert channel.trend() == 0.0
+
+
+def test_tables_are_coloured_where_colour_shows(monkeypatch):
+    x = Input("tab_colour_x", sw=1)
+    model = Modely("tab_colour", inputs=[x], outputs=[Output("tab_colour_y", x * 2)])
+    plain = str(model.inputs)
+    assert "\x1b[" not in plain  # the tests run with NO_COLOR
+
+    # In a terminal, or forced: the same table, in colour.
+    monkeypatch.delenv("NO_COLOR")
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    coloured = str(model.inputs)
+    assert "\x1b[" in coloured
+    assert re.sub(r"\x1b\[[0-9;]*m", "", coloured) == plain
+    # NO_COLOR wins, as it does for the printers.
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert str(model.inputs) == plain
+
+
+def test_tables_are_coloured_in_a_notebook_not_wherever_ipykernel_is_imported(
+    monkeypatch,
+):
+    import sys
+    import types
+
+    x = Input("tab_nb_x", sw=1)
+    model = Modely("tab_nb", inputs=[x], outputs=[Output("tab_nb_y", x * 2)])
+    monkeypatch.delenv("NO_COLOR")
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
+    # Imported, but the output is a pipe.
+    monkeypatch.setitem(sys.modules, "ipykernel", types.ModuleType("ipykernel"))
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    assert "\x1b[" not in str(model.inputs)
+    # The output stream of a notebook kernel.
+    OutStream = type("OutStream", (io.StringIO,), {"__module__": "ipykernel.iostream"})
+    monkeypatch.setattr(sys, "stdout", OutStream())
+    assert "\x1b[" in str(model.inputs)

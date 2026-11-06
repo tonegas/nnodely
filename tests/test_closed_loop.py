@@ -963,3 +963,62 @@ def test_loop_feeds_its_body_only_the_inputs_it_reads(tmp_path, target_name):
     model.save(tmp_path / "unread_model")
     reloaded = Modely.load(tmp_path / "unread_model")
     np.testing.assert_allclose(to_numpy(reloaded(data)["unread_out"]).ravel(), expected)
+
+
+## workatound to create a buffer with a FIR filter and a P controller in a loop
+def test_buffer():
+    from nnodely import Fir, TimeConcatenate
+
+    x = Input("buffer_x", dim=1, sw=1)
+    u = Input("buffer_u", dim=1, sw=3)
+
+    fir_w = Parameter("fir_w", value=np.ones(3, dtype=np.float32))
+    out = Output("buffer_next", x + Fir(features=1, kernel=fir_w, bias=False)([u]))
+    body = Modely("buffer_body", inputs=[x, u], outputs=[out]).build()
+
+    # p model
+    x_now = Input("x_now", dim=1, sw=1)
+    x_ref = Input("x_ref", dim=1, sw=1)
+
+    u_pd = Output("u_pd", x_ref - x_now)
+    model_pd = Modely("model_pd", inputs=[x_now, x_ref], outputs=[u_pd]).build()
+
+    # combo model
+    x0_seq = Input("x0_seq", dim=1, seq=-1, sw=1)
+    ref_seq = Input("ref_seq", dim=1, seq=-1, sw=1)
+    x_c = Input("buffer_xc", dim=1, sw=1)
+    x_ref_c = Input("buffer_xrefc", dim=1, sw=1)
+    # The buffer is a state: a fed-back Input with a window is fed back by
+    # shifting, so it holds the last two controls.
+    u_c_past = Input("u_c_buffer", dim=1, sw=2)
+    u_c = model_pd([x_c, x_ref_c])
+    u_c_window = TimeConcatenate()([u_c_past, u_c])  # T=3, newest sample = u_c
+    out_c = Output("out_c", body([x_c, u_c_window]))
+    u_c_out = Output("u_c", u_c)
+    combo_model = Modely(
+        "combo_model", inputs=[x_c, x_ref_c, u_c_past], outputs=[out_c, u_c_out]
+    ).build()
+
+    out_c_seq, u_c_seq = Loop(
+        f=combo_model,
+        feedback={x_c: out_c, u_c_past: u_c_out},
+        init={x_c: x0_seq},
+    )({x_ref_c: ref_seq})
+
+    loop_model = Modely(
+        "loop_model",
+        inputs=[x0_seq, ref_seq],
+        outputs=[Output("out_c_seq", out_c_seq), Output("u_c_seq", u_c_seq)],
+    ).build()
+
+    dummy_x0 = np.zeros((1, 10, 1, 1), dtype=np.float32)
+    dummy_ref = np.ones((1, 10, 1, 1), dtype=np.float32)
+    result = loop_model({"x0_seq": dummy_x0, "ref_seq": dummy_ref})
+    np.testing.assert_allclose(
+        to_numpy(result["out_c_seq"]).ravel(),
+        np.array([1.0, 2.0, 2.0, 0.0, -1.0, 1.0, 4.0, 3.0, -2.0, -4.0]),
+    )
+    np.testing.assert_allclose(
+        to_numpy(result["u_c_seq"]).ravel(),
+        np.array([1.0, 0.0, -1.0, -1.0, 1.0, 2.0, 0.0, -3.0, -2.0, 3.0]),
+    )

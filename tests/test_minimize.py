@@ -14,6 +14,8 @@ not move, so the epoch loss is exactly the loss at the initial weights.
 
 import glob
 import os
+import warnings
+import re
 
 import keras
 import numpy as np
@@ -1276,3 +1278,317 @@ def test_seq_weights_weigh_a_padded_rollout_with_a_loss_instance():
     np.testing.assert_allclose(
         history(keras.losses.MeanSquaredError(), weights), weighted, rtol=1e-6
     )
+
+
+def _cells(line):
+    """The cells of a row of a printed table."""
+    return [cell.strip() for cell in re.split("[│┃]", line)[1:-1]]
+
+
+def test_minimizers_lists_those_of_the_model_then_those_of_its_models():
+    u = Input("tab_min_u", sw=1)
+    body_out = Output("tab_min_body_out", Linear(features=1)(u))
+    body = Modely("tab_min_body", inputs=[u], outputs=[body_out])
+    body.minimize("body_fit", body_out, Input("tab_min_target", sw=1), loss="mae")
+
+    z = Input("tab_min_z", sw=1)
+    top_out = Output("tab_min_top_out", body([z]))
+    top = Modely("tab_min_top", inputs=[z], outputs=[top_out])
+    top.minimize("fit", top_out, 3.0, gain=0.5, seq_weights=[2.0])
+    top.minimize("reg", "tab_min_z", None, seq_weights=lambda n: np.ones(n))
+
+    # The model's own, then those it inherits, then those of the models it
+    # calls, each naming the model it is listed under.
+    assert [(row["name"], row["model"]) for row in top.minimizers] == [
+        ("fit", top),
+        ("reg", top),
+        ("tab_min_body.body_fit", top),
+        ("body_fit", body),
+    ]
+    assert top.minimizers[3]["source"] is body_out
+    text = str(top.minimizers)
+    assert repr(top.minimizers) == text
+    lines = text.splitlines()
+    assert lines[0] == "Minimizers of tab_min_top"
+    assert _cells(lines[2]) == [
+        "name",
+        "source",
+        "target",
+        "loss",
+        "gain",
+        "seq_weights",
+    ]
+    # A section per model. A number given as the target prints as that number.
+    assert _cells(lines[4]) == ["tab_min_top: 3 minimizers"]
+    assert [_cells(line) for line in lines[6:9]] == [
+        ["fit", "tab_min_top_out", "3.0", "mean_squared_error", "0.5", "(1,)"],
+        ["reg", "tab_min_z", "0.0", "mean_squared_error", "1.0", "callable"],
+        [
+            "tab_min_body.body_fit",
+            "tab_min_body.tab_min_body_out",
+            "tab_min_target",
+            "mean_absolute_error",
+            "1.0",
+            "-",
+        ],
+    ]
+    assert _cells(lines[10]) == ["tab_min_body: 1 minimizers"]
+    assert _cells(lines[12]) == [
+        "body_fit",
+        "tab_min_body_out",
+        "tab_min_target",
+        "mean_absolute_error",
+        "1.0",
+        "-",
+    ]
+    assert lines[14] == " 4 minimizers"
+
+    # Those of the model alone: one table, as when it calls no model.
+    lines = str(body.minimizers).splitlines()
+    assert _cells(lines[4])[0] == "body_fit" and lines[6] == " 1 minimizers"
+    bare = Modely("tab_min_bare", inputs=[u], outputs=[body_out])
+    assert list(bare.minimizers) == [] and "0 minimizers" in str(bare.minimizers)
+
+
+def _epoch_losses(model, source):
+    """The losses train() logs at the initial weights: one full-batch epoch at
+    learning rate zero."""
+    model.build()
+    data = DataLoader(model, source=source)
+    return {
+        key: values[0]
+        for key, values in model.train(
+            data, epochs=1, batch_size=1, optimizer="sgd", lr=0.0, printer=None
+        ).items()
+    }
+
+
+def test_a_model_trains_on_the_minimizers_of_a_block_it_calls():
+    u = Input("inh_u", sw=1)
+    hidden = u * Parameter("inh_gain", value=0.5)
+    body_out = Output("inh_body_out", hidden + 1.0)
+    body = Modely("inh_body", inputs=[u], outputs=[body_out])
+    body.minimize("fit", body_out, 10.0)
+    # A stream inside the block, and a target the call does not bind.
+    body.minimize("reg", hidden, None, gain=2.0)
+    body.minimize("track", body_out, Input("inh_ref", sw=1))
+
+    z = Input("inh_z", sw=1)
+    top_out = Output("inh_top_out", body([z * 2.0]))
+    top = Modely("inh_top", inputs=[z], outputs=[top_out])
+    top.minimize("top_fit", top_out, 3.0)
+
+    # Computed where the call computes them: it reads 2 z = 2, so hidden is 1
+    # and the block's output 2.
+    losses = _epoch_losses(
+        top, {"inh_z": np.ones((1, 1)), "inh_ref": np.full((1, 1), 5.0)}
+    )
+    assert losses["top_fit_loss"] == pytest.approx(1.0)
+    assert losses["inh_body.fit_loss"] == pytest.approx(64.0)
+    assert losses["inh_body.reg_loss"] == pytest.approx(1.0)
+    assert losses["inh_body.track_loss"] == pytest.approx(9.0)
+    # With the block's gains.
+    assert losses["loss"] == pytest.approx(1.0 + 64.0 + 2.0 * 1.0 + 9.0)
+    # The target the call leaves unbound is read from the data of the model,
+    # to train only.
+    assert [node.name for node in top.inference_inputs] == ["inh_z"]
+    assert {row["input"].name: row["data"] for row in top.inputs._rows} == {
+        "inh_z": "required",
+        "inh_ref": "target",
+    }
+
+    assert [(row["name"], row["model"].name) for row in top.minimizers] == [
+        ("top_fit", "inh_top"),
+        ("inh_body.fit", "inh_top"),
+        ("inh_body.reg", "inh_top"),
+        ("inh_body.track", "inh_top"),
+        ("fit", "inh_body"),
+        ("reg", "inh_body"),
+        ("track", "inh_body"),
+    ]
+    assert top.minimizers[2]["inherited_from"] is body
+    assert top.minimizers[2]["gain"] == 2.0
+    assert "inherited_from" not in top.minimizers[0]
+    # One stream of the call is exposed once, however many minimizers read it.
+    assert top.minimizers[1]["source"] is top.minimizers[3]["source"]
+    assert top.minimizers[1]["source"].name == "inh_body.inh_body_out"
+
+    # Removed from the model, it stays out of it; the block keeps its own.
+    top.remove_minimizer("inh_body.reg")
+    assert "inh_body.reg" not in [row["name"] for row in top._minimizers]
+    assert "inh_body.reg" not in [row["name"] for row in top.minimizers]
+    assert [row["name"] for row in body._minimizers] == ["fit", "reg", "track"]
+    losses = _epoch_losses(
+        top, {"inh_z": np.ones((1, 1)), "inh_ref": np.full((1, 1), 5.0)}
+    )
+    assert "inh_body.reg_loss" not in losses
+    assert losses["loss"] == pytest.approx(1.0 + 64.0 + 9.0)
+
+
+def test_a_model_inherits_once_per_call_what_each_block_trains_on():
+    u = Input("inh2_u", sw=1)
+    body_out = Output("inh2_body_out", u * Parameter("inh2_gain", value=0.5) + 1.0)
+    body = Modely("inh2_body", inputs=[u], outputs=[body_out])
+    body.minimize("fit", body_out, 10.0, gain=0.5)
+
+    v = Input("inh2_v", sw=1)
+    mid = Modely(
+        "inh2_mid", inputs=[v], outputs=[Output("inh2_mid_out", body([v * 3.0]))]
+    )
+    assert [row["name"] for row in mid._minimizers] == ["inh2_body.fit"]
+
+    # Called twice, and inside another block, which inherits it in turn.
+    z = Input("inh2_z", sw=1)
+    top = Modely(
+        "inh2_top",
+        inputs=[z],
+        outputs=[
+            Output("inh2_a", body([z])),
+            Output("inh2_b", body([z * 2.0])),
+            Output("inh2_c", mid([z])),
+        ],
+    )
+    assert [row["name"] for row in top._minimizers] == [
+        "inh2_body.1.fit",
+        "inh2_body.2.fit",
+        "inh2_mid.inh2_body.fit",
+    ]
+
+    losses = _epoch_losses(top, {"inh2_z": np.ones((1, 1))})
+    # On z = 1, 2 z = 2 and, inside the other block, 3 z = 3.
+    assert losses["inh2_body.1.fit_loss"] == pytest.approx((1.5 - 10.0) ** 2)
+    assert losses["inh2_body.2.fit_loss"] == pytest.approx((2.0 - 10.0) ** 2)
+    assert losses["inh2_mid.inh2_body.fit_loss"] == pytest.approx((2.5 - 10.0) ** 2)
+    assert losses["loss"] == pytest.approx(0.5 * (8.5**2 + 8.0**2 + 7.5**2))
+
+    # What a block removes, a model calling it does not inherit.
+    mid.remove_minimizer("inh2_body.fit")
+    assert [row["name"] for row in top._minimizers] == [
+        "inh2_body.1.fit",
+        "inh2_body.2.fit",
+    ]
+
+
+def test_a_model_inherits_from_the_blocks_it_calls_as_they_are_now():
+    def halving(name):
+        state = Input(f"{name}_state", sw=1)
+        following = Output(f"{name}_next", state * 0.5)
+        model = Modely(name, inputs=[state], outputs=[following])
+        model.minimize("fit", following, 0.0)
+        return model, state, following
+
+    body, state, following = halving("inh3_body")
+    block, _, block_next = halving("inh3_block")
+
+    seed = Input("inh3_seed", seq=3, sw=1)
+    z = Input("inh3_z", sw=1)
+    loop = Loop(f=body, feedback={state: following}, init={state: seed})()
+    top = Modely(
+        "inh3_top",
+        inputs=[seed, z],
+        outputs=[Output("inh3_loop", loop), Output("inh3_out", block([z]))],
+    )
+    # The body of a Loop is not inherited from: only the block called is.
+    assert [row["name"] for row in top._minimizers] == ["inh3_block.fit"]
+
+    # A minimizer the block gains later is inherited too.
+    block.minimize("late", block_next, 1.0)
+    assert [row["name"] for row in top._minimizers] == [
+        "inh3_block.fit",
+        "inh3_block.late",
+    ]
+
+    # Declared under its name, a minimizer of the model replaces the
+    # inherited one; removed, neither is left.
+    with pytest.warns(UserWarning, match="replaced by the new one"):
+        top.minimize("inh3_block.fit", "inh3_out", 1.0)
+    assert [("inherited_from" in row) for row in top._minimizers] == [False, True]
+    top.remove_minimizer("inh3_block.fit")
+    assert [row["name"] for row in top._minimizers] == ["inh3_block.late"]
+    with pytest.warns(UserWarning, match="nothing was removed"):
+        top.remove_minimizer("inh3_block.fit")
+
+
+def test_setting_a_listed_minimizer_changes_it_in_the_model_it_is_listed_under():
+    w = Input("set_w", sw=1)
+    v = Output("set_v", w * Parameter("set_r", value=0.3))
+    wheel = Modely("set_wheel", inputs=[w], outputs=[v])
+    wheel.minimize("fit", v, Input("set_v_meas", sw=1))
+    z = Input("set_z", sw=1)
+    car = Modely("set_car", inputs=[z], outputs=[Output("set_car_v", wheel([z]))])
+    car.minimize("own", "set_car_v", 0.0)
+
+    car.build()
+    data = DataLoader(
+        car, source={"set_z": np.ones((1, 1)), "set_v_meas": np.ones((1, 1))}
+    )
+
+    def total():
+        return car.train(
+            data, epochs=1, batch_size=1, optimizer="sgd", lr=0.0, printer=None
+        )["loss"][0]
+
+    # v = 0.3: own compares it with 0, the inherited fit with 1.
+    assert total() == pytest.approx(0.3**2 + 0.7**2)
+
+    rows = car.minimizers
+    rows[0]["gain"] = 0.5
+    # Inherited: changed in the model it is listed under, not in the block.
+    rows[1]["gain"] = 0.1
+    assert rows[1]["gain"] == 0.1
+    assert [(m["name"], m["gain"]) for m in car._minimizers] == [
+        ("own", 0.5),
+        ("set_wheel.fit", 0.1),
+    ]
+    assert wheel._minimizers[0]["gain"] == 1.0
+    # From the next train, without a build.
+    assert total() == pytest.approx(0.5 * 0.3**2 + 0.1 * 0.7**2)
+
+    # Listed under the block, the block's own changes, and what inherits it
+    # follows, but for what it set itself.
+    rows[2]["loss"] = "mae"
+    inherited = car._minimizers[1]
+    assert inherited["loss"] is wheel._minimizers[0]["loss"]
+    assert inherited["gain"] == 0.1
+
+    # Checked as minimize() checks them.
+    with pytest.raises(ValueError, match="not negative"):
+        rows[0]["gain"] = -1.0
+    with pytest.raises(TypeError, match="minimize"):
+        rows[0]["source"] = "set_z"
+    assert car._minimizers[0]["gain"] == 0.5
+
+
+def test_an_inherited_minimizer_on_a_stream_inside_the_block_trains_its_weights():
+    # A branch none of the block's outputs read: the check that a minimizer
+    # trains something follows the stream the call reads out.
+    u = Input("inner_w_u", sw=1)
+    aux = Linear(features=1, name="inner_w_aux")(u)
+    body = Modely("inner_w_body", inputs=[u], outputs=[Output("inner_w_out", u * 2.0)])
+    body.minimize("aux", aux, Input("inner_w_ref", sw=1))
+    z = Input("inner_w_z", sw=1)
+    top = Modely(
+        "inner_w_top", inputs=[z], outputs=[Output("inner_w_top_out", body([z]))]
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        losses = _epoch_losses(
+            top, {"inner_w_z": np.ones((1, 1)), "inner_w_ref": np.ones((1, 1))}
+        )
+    assert "inner_w_body.aux_loss" in losses
+
+
+def test_an_inherited_minimizer_reads_the_output_the_call_returns():
+    u = Input("call_out_u", sw=1)
+    out = Output("call_out_body_out", u * Parameter("call_out_k", value=0.5))
+    body = Modely("call_out_body", inputs=[u], outputs=[out])
+    body.minimize("fit", out, 1.0)
+    z = Input("call_out_z", sw=1)
+    top = Modely(
+        "call_out_top", inputs=[z], outputs=[Output("call_out_top_out", body([z]))]
+    )
+    # The block's output is still one stream of the model, found by its name.
+    top.minimize("again", "call_out_body_out", 0.0)
+    # And the output that names it is minimized by both.
+    (row,) = top.outputs._rows
+    assert row["minimized by"] == ["again (source)", "call_out_body.fit (source)"]

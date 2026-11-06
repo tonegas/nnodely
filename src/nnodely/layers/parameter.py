@@ -5,6 +5,7 @@ import numpy as np
 import keras
 
 from nnodely.core.layer import Layer, _refuse_non_streams, _refuse_uncalled
+from nnodely.utils.printers import _table
 from nnodely.utils.utils import _per_slice_initializer, _serialized_initializer
 
 
@@ -306,10 +307,15 @@ class Parameter(_Value):
 class Parameters(list):
     """The Parameters of a model, as :attr:`Modely.parameters` lists them: a
     list of the Parameter objects, printed as a table of their names, shapes,
-    numbers of values and whether training changes them."""
+    numbers of values and whether training changes them - a table per model
+    when the models it calls have Parameters of their own.
 
-    def __init__(self, parameters, title: str = ""):
-        super().__init__(parameters)
+    ``groups`` pairs the name of each model with its Parameters, the model
+    itself first."""
+
+    def __init__(self, groups: list[tuple[str, list]], title: str = ""):
+        super().__init__(parameter for _, group in groups for parameter in group)
+        self._groups = groups
         self._title = title
 
     def __getitem__(self, key):  # type: ignore[override]
@@ -326,8 +332,9 @@ class Parameters(list):
 
     def __str__(self):
         header = ("name", "seq", "time", "dim", "values", "trainable")
-        rows = [
-            (
+
+        def row(parameter):
+            return (
                 parameter.name,
                 str(tuple(parameter.shape.seq)),
                 str(parameter.shape.time),
@@ -335,27 +342,24 @@ class Parameters(list):
                 str(math.prod(parameter.shape.tuple)),
                 "yes" if parameter.trainable else "no",
             )
-            for parameter in self
-        ]
-        widths = [
-            max(len(row[column]) for row in (header, *rows))
-            for column in range(len(header))
-        ]
 
-        def line(row):
-            return "  ".join(cell.ljust(width) for cell, width in zip(row, widths))
+        def summary(parameters):
+            values = [math.prod(p.shape.tuple) for p in parameters]
+            trainable = sum(v for v, p in zip(values, parameters) if p.trainable)
+            return (
+                f"{len(parameters)} parameters, {sum(values)} values, "
+                f"{trainable} trainable"
+            )
 
-        values = [int(row[4]) for row in rows]
-        trainable = sum(v for v, p in zip(values, self) if p.trainable)
-        return "\n".join(
-            [
-                *([self._title] if self._title else []),
-                line(header).rstrip(),
-                line(tuple("-" * width for width in widths)).rstrip(),
-                *(line(row).rstrip() for row in rows),
-                f"{len(self)} parameters, {sum(values)} values, {trainable} trainable",
-            ]
-        )
+        # A section per model only when the models it calls have some.
+        sections = [
+            (f"{name}: {summary(group)}", [row(parameter) for parameter in group])
+            for name, group in self._groups
+            if group
+        ]
+        if not any(group for _, group in self._groups[1:]):
+            sections = [("", [row(parameter) for parameter in self])]
+        return _table(self._title, header, sections, [summary(self)])
 
     __repr__ = __str__
 

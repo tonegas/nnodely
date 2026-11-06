@@ -902,3 +902,95 @@ def _supports_colour(stream: Any) -> bool:
         return bool(stream.isatty())
     except Exception:
         return False
+
+
+# =====================================================================
+# Tables - what a model prints of its inputs, outputs, Parameters, ...
+# =====================================================================
+
+#: The characters the box of a table is drawn with.
+_BOX = set("┏┳┓┃┡╇┻┩│├┬┴┤└┘━─")
+
+
+def _table_colour() -> bool:
+    """Whether a table is printed in colour: in a terminal, as a printer is,
+    and in a notebook, which renders colour though it is no terminal."""
+    if os.environ.get("NO_COLOR"):
+        return False
+    # The output stream of a notebook kernel, not merely ipykernel imported.
+    notebook = type(sys.stdout).__module__.startswith("ipykernel")
+    return notebook or _supports_colour(sys.stdout)
+
+
+def _table(
+    title: str,
+    header: tuple[str, ...],
+    sections: list[tuple[str, list[tuple[str, ...]]]],
+    notes: list[str],
+) -> str:
+    """A table as nnodely prints one: ``title`` above a box, ``header`` in
+    heavy lines, then the rows of each section - a (title, rows) pair - under
+    a row of its title when it has one, and ``notes`` below the box, the
+    first plain and the others dimmed. The columns line up across the
+    sections. In colour (see :func:`_table_colour`) the box takes the brand
+    gradient, the titles the brand colour."""
+    rows = [row for _, section in sections for row in section]
+    widths = [
+        max(len(row[column]) for row in (header, *rows))
+        for column in range(len(header))
+    ]
+    # The title of a section spans the box, which widens to hold it.
+    longest = max((len(name) for name, _ in sections), default=0)
+    widths[-1] += max(0, longest - sum(widths) - 3 * (len(widths) - 1))
+    inner = sum(widths) + 3 * (len(widths) - 1)
+
+    def rule(left: str, line: str, cross: str, right: str) -> str:
+        return left + cross.join(line * (width + 2) for width in widths) + right
+
+    def row(cells: tuple[str, ...], bar: str) -> str:
+        padded = (f" {cell.ljust(width)} " for cell, width in zip(cells, widths))
+        return bar + bar.join(padded) + bar
+
+    bold, brand = "\033[1m", "\033[1m" + _fg(_BRAND[2])
+    titled = bool(sections) and bool(sections[0][0])
+    lines = [
+        *([(title, brand)] if title else []),
+        (rule("┏", "━", "┳", "┓"), ""),
+        (row(header, "┃"), bold),
+        (rule("┡", "━", "┻" if titled else "╇", "┩"), ""),
+    ]
+    for index, (name, section) in enumerate(sections):
+        if name:
+            if index:
+                lines.append((rule("├", "─", "┴", "┤"), ""))
+            lines += [
+                (f"│ {name.ljust(inner)} │", brand),
+                (rule("├", "─", "┬", "┤"), ""),
+            ]
+        lines += [(row(cells, "│"), "") for cells in section]
+    lines.append((rule("└", "─", "┴", "┘"), ""))
+    lines += [
+        (f" {note}", "" if i == 0 else _fg(_STEEL)) for i, note in enumerate(notes)
+    ]
+    if not _table_colour():
+        return "\n".join(line for line, _ in lines)
+
+    last = inner + 3
+
+    def paint(line: str, style: str) -> str:
+        # The box by the column it stands at, so a bar keeps its colour from
+        # top to bottom; the text in ``style``. A code only where it changes.
+        out, current = [], ""
+        for x, char in enumerate(line):
+            if char in _BOX:
+                step = round(16 * min(x, last) / last) / 16
+                want = _fg(_shade(_brand(0.15 + 0.85 * step), 0.9))
+            else:
+                want = current if char == " " else style
+            if want != current:
+                out.append("\033[0m" + want)
+                current = want
+            out.append(char)
+        return "".join(out) + ("\033[0m" if current else "")
+
+    return "\n".join(paint(line, style) for line, style in lines)
