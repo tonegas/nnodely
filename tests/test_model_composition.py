@@ -783,3 +783,122 @@ def test_model_augmentation(tmp_path):
     result = to_numpy(updated_model({"extra_input": window})["extra_output"])
     expected = (1.0 * 0.2 + 2.0 * -0.4) + (0.5 * 0.2 + 2.0 * -0.4 - 1.0)
     np.testing.assert_allclose(result, [[[expected]]], atol=1e-3)
+
+
+def test_models_gives_the_called_model_itself():
+    """A model called as a block is reached by name, or by position: the
+    object itself, sharing its weights with the caller and run on its own
+    inputs."""
+    x = Input("sub_x", sw=1)
+    gain = Parameter("sub_gain", value=[2.0])
+    model1 = Modely(
+        "sub_model1", inputs=[x], outputs=[Output("sub_out", x * gain)]
+    ).build()
+    z = Input("sub_z", sw=1)
+    model2 = Modely(
+        "sub_model2", inputs=[z], outputs=[Output("sub_o", model1([z]) + 1.0)]
+    ).build()
+
+    sub_model1 = model2.models["sub_model1"]
+    assert sub_model1 is model1
+    assert model2.models[0] is model1
+    assert sub_model1.parameters["sub_gain"] is model2.parameters["sub_gain"]
+
+    # Not a copy: a weight changed shows through both.
+    gain.param.assign([5.0])  # type: ignore
+    one = np.ones((1, 1, 1), dtype=np.float32)
+    np.testing.assert_allclose(
+        to_numpy(sub_model1({"sub_x": one})["sub_out"]), [[[5.0]]]
+    )
+    np.testing.assert_allclose(to_numpy(model2({"sub_z": one})["sub_o"]), [[[6.0]]])
+
+    assert str(model2.models) == "\n".join(
+        [
+            "Models of sub_model2",
+            "name        inputs  outputs  parameters  built",
+            "----------  ------  -------  ----------  -----",
+            "sub_model1  sub_x   sub_out  1           yes",
+            "1 models, 1 built",
+        ]
+    )
+    assert repr(model2.models) == str(model2.models)
+
+
+def test_models_reaches_every_depth_each_model_once():
+    """The models called by the models called, and the bodies of Loops, are
+    listed too; one called twice is listed once. Unbuilt ones are listed as
+    they are."""
+    from nnodely import Loop
+
+    v = Input("deep_v", sw=1)
+    inner = Modely("deep_inner", inputs=[v], outputs=[Output("deep_in", v * 2.0)])
+    w = Input("deep_w", sw=1)
+    outer = Modely(
+        "deep_outer",
+        inputs=[w],
+        outputs=[Output("deep_out", inner([w]) + inner([w * 3.0]))],
+    )
+    state, step = Input("deep_state", sw=1), Input("deep_step", sw=1)
+    next_state = Output("deep_next", state * 0.5 + step)
+    body = Modely("deep_body", inputs=[state, step], outputs=[next_state]).build()
+    steps = Input("deep_steps", seq=3, sw=1)
+    rollout = Loop(f=body, feedback={state: next_state})({step: steps})
+    x = Input("deep_x", sw=1)
+    caller = Modely(
+        "deep_caller",
+        inputs=[x, steps],
+        outputs=[Output("deep_o", outer([x])), Output("deep_r", rollout)],
+    )
+
+    assert list(caller.models) == [outer, body, inner]
+    assert caller.models["deep_inner"] is inner
+    assert caller.models["deep_outer"].models["deep_inner"] is inner
+    assert caller.models["deep_body"] is body
+    assert not caller.models["deep_outer"].built
+
+
+def test_models_refuses_a_name_two_models_carry():
+    u = Input("amb_u", sw=1)
+    first = Modely("amb_twin", inputs=[u], outputs=[Output("amb_one", u * 1.0)])
+    second = Modely("amb_twin", inputs=[u], outputs=[Output("amb_three", u * 3.0)])
+    x = Input("amb_x", sw=1)
+    caller = Modely(
+        "amb_caller",
+        inputs=[x],
+        outputs=[Output("amb_o1", first([x])), Output("amb_o2", second([x]))],
+    )
+
+    with pytest.raises(ValueError, match=r"'amb_twin' is ambiguous.*\[0, 1\]"):
+        caller.models["amb_twin"]
+    # By position, each is still reached.
+    assert caller.models[0] is first and caller.models[1] is second
+    with pytest.raises(KeyError, match="no model named 'amb_missing'"):
+        caller.models["amb_missing"]
+
+
+def test_a_loaded_model_lists_only_the_bodies_of_its_loops(tmp_path):
+    """Saving inlines a model called as a block, so the loaded model no
+    longer calls it; the body of a Loop is saved as a model of its own."""
+    from nnodely import Loop
+
+    u = Input("saved_u", sw=1)
+    block = Modely("saved_block", inputs=[u], outputs=[Output("saved_b", u * 2.0)])
+    state, step = Input("saved_state", sw=1), Input("saved_step", sw=1)
+    next_state = Output("saved_next", state * 0.5 + step)
+    body = Modely("saved_body", inputs=[state, step], outputs=[next_state]).build()
+    steps = Input("saved_steps", seq=3, sw=1)
+    rollout = Loop(f=body, feedback={state: next_state})({step: steps})
+    x = Input("saved_x", sw=1)
+    model = Modely(
+        "saved_model",
+        inputs=[x, steps],
+        outputs=[Output("saved_o", block([x])), Output("saved_r", rollout)],
+    ).build()
+    assert [m.name for m in model.models] == ["saved_block", "saved_body"]
+
+    model.save(tmp_path / "saved_model")
+    loaded = Modely.load(tmp_path / "saved_model")
+
+    assert [m.name for m in loaded.models] == ["saved_body"]
+    with pytest.raises(KeyError, match="inlined when saved"):
+        loaded.models["saved_block"]

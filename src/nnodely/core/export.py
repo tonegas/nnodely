@@ -246,7 +246,7 @@ def _set_onnx_io_names(model, path: Path) -> None:
         (tensor.name, tuple(int(axis) for axis in tensor.shape[1:] if axis))
         for tensor in model.inference_model.inputs
     ]
-    expected_outputs = [(node.name, tuple(node.shape.tuple)) for node in model.outputs]
+    expected_outputs = [(node.name, tuple(node.shape.tuple)) for node in model._outputs]
     rename = {}
 
     # Only an exporter that dropped the names has to be corrected. One that

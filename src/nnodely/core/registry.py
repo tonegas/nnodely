@@ -13,7 +13,7 @@ def _bound_fed_back(model) -> list[str]:
 
     bound: set[str] = set()
     seen: set[int] = set()
-    stack = list(model.outputs)
+    stack = list(model._outputs)
     while stack:
         node = stack.pop()
         if id(node) in seen:
@@ -25,7 +25,7 @@ def _bound_fed_back(model) -> list[str]:
                 for inner in node._inputs_map
                 if isinstance(inner, Input) and inner.update is not None
             )
-            stack.extend(node._model.outputs)
+            stack.extend(node._model._outputs)
         if isinstance(node, Input) and node.update is not None:
             stack.extend(s for s in (node.update, node.init) if isinstance(s, Node))
         stack.extend(node._preds)
@@ -39,7 +39,7 @@ def _saved_order(flat) -> list:
     from nnodely.core.dag import toposort_outputs
     from nnodely.layers.input import Input
 
-    roots = list(flat.outputs)
+    roots = list(flat._outputs)
     while True:
         order = toposort_outputs(roots)
         reached = set(order)
@@ -206,7 +206,7 @@ class ModelSerializer:
             },
             "nodes": nodes,
             "inputs": [node_ids[x] for x in flat._inputs],
-            "outputs": [node_ids[x] for x in flat.outputs],
+            "outputs": [node_ids[x] for x in flat._outputs],
         }
 
         with open(path / "model.json", "w", encoding="utf-8") as f:

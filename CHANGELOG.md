@@ -100,6 +100,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   the stream it is fed back with, what the data must hold of it and what it
   starts from. A ModelyLoop prints the rows of the Loop it is a shortcut for,
   its Inputs with the horizon.
+- `Modely.outputs`: the outputs a model is declared with, in that order,
+  printed as a table of their shapes, the stream each names - in a
+  ModelyLoop, the stream of the step it collects - the Inputs a loop feeds
+  that stream back into and the minimizers that read it.
 - `KerasFunction(function)`: any Keras layer, class or instance, as an
   nnodely layer - a custom function in the graph, its streams passed to
   `call` as separate arguments. The model saves, loads and exports with it.

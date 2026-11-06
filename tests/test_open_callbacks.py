@@ -424,6 +424,52 @@ def test_inputs_tells_how_each_input_is_fed():
     assert text.startswith("Inputs of oc_tab_loop") and "4 inputs, 2 fed back" in text
 
 
+def test_outputs_tells_what_each_output_is():
+    rate = Input("oc_outs_rate", sw=1)
+    level = Input("oc_outs_level", sw=1)
+    level_next = level.feedback(level * 0.5 + rate)
+    doubled = Output("oc_outs_doubled", rate * 2)
+    tank = Modely(
+        "oc_outs_tank",
+        inputs=[rate, level],
+        outputs=[Output("oc_outs_level_next", level_next), doubled],
+    )
+    tank.minimize("fit", "oc_outs_level_next", Input("oc_outs_target", sw=1))
+    tank.minimize("reg", doubled._preds[0], 0.0)
+
+    # A list of the declared Outputs, in their order.
+    assert [output.name for output in tank.outputs] == [
+        "oc_outs_level_next",
+        "oc_outs_doubled",
+    ]
+    assert tank.outputs[1] is doubled
+    rows = {row["output"].name: row for row in tank.outputs._rows}
+    assert rows["oc_outs_level_next"]["stream"] == level_next.name
+    assert rows["oc_outs_level_next"]["feeds back"] == ["oc_outs_level"]
+    assert rows["oc_outs_level_next"]["minimized by"] == ["fit (source)"]
+    # Minimized through the stream it names.
+    assert rows["oc_outs_doubled"]["feeds back"] == []
+    assert rows["oc_outs_doubled"]["minimized by"] == ["reg (source)"]
+    text = str(tank.outputs)
+    assert text.startswith("Outputs of oc_outs_tank")
+    assert "2 outputs, 1 fed back, 2 minimized" in text
+    assert repr(tank.outputs) == text
+
+    # In a ModelyLoop each output is a trajectory: the row names the stream
+    # of the step it collects, the one the Inputs table feeds back.
+    loop = ModelyLoop(
+        "oc_outs_loop",
+        inputs=[rate, level],
+        outputs=[Output("oc_outs_loop_level", level_next)],
+        length=4,
+    )
+    (row,) = loop.outputs._rows
+    assert row["stream"] == level_next.name
+    assert row["feeds back"] == ["oc_outs_level"]
+    assert row["output"].seq == (4,)
+    assert "(4,)" in str(loop.outputs)
+
+
 def test_inputs_of_a_loop_are_those_of_its_modelyloop():
     # A ModelyLoop is the Loop over its step, its Inputs with the horizon: a
     # Modely rolling out the same Loop prints the same rows.

@@ -70,7 +70,7 @@ def _reaches_trainable_weight(node) -> bool:
                 return True
         inner = getattr(current, "_model", None)
         if isinstance(inner, Modely):
-            stack.extend(inner.outputs)
+            stack.extend(inner._outputs)
         stack.extend(current._preds)
     return False
 
@@ -308,12 +308,12 @@ def _minimizer_stream(model, value, side: str, minimizer: str) -> Stream:
             f"The {side} of minimizer {minimizer!r} must be a Stream or the "
             f"name of one, got {type(value).__name__}."
         )
-    roots: list[Node] = [*model.outputs, *model._inputs]
+    roots: list[Node] = [*model._outputs, *model._inputs]
     for registered in model._minimizers:
         roots.extend((registered["source"], registered["target"]))
     matches = [stream for stream in _streams_from(roots) if stream.name == value]
     if not matches:
-        outputs = sorted(output.name for output in model.outputs)
+        outputs = sorted(output.name for output in model._outputs)
         raise ValueError(
             f"The {side} {value!r} of minimizer {minimizer!r} is not the name "
             f"of a stream of model {model.name!r}. Its outputs are {outputs}."
