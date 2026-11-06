@@ -564,6 +564,20 @@ class Modely:
         return Parameters(_parameters(self), title=f"Parameters of {self.name}")
 
     @property
+    def models(self) -> "Models":
+        """Every model this one computes with, at every depth: the models it
+        calls as blocks, the bodies of its Loops, and theirs, in the order
+        the graph reaches them, each once however many times it is called. A
+        list of the Modely objects themselves, not copies: they share their
+        weights with this model, so training, freezing or building one again
+        changes this model too. Picked by name, or by position as in a list,
+        and printed as a table of their inputs, outputs and Parameters.
+
+        A model called as a block is inlined when saved, so a loaded model
+        lists only the bodies of its Loops."""
+        return Models(_nodes_and_models(self)[1][1:], title=f"Models of {self.name}")
+
+    @property
     def inputs(self) -> Inputs:
         """Every Input the model reads - declared or not, inside the models it
         calls, or only by a minimizer - and every Input fed back inside the
@@ -1105,6 +1119,71 @@ class IntermediateOutput(Output):
         super().__init__(name=out.name, stream=out)
         self._pred = model_call
         self._preds = [model_call]
+
+
+class Models(list):
+    """The models a model computes with, as :attr:`Modely.models` lists them:
+    a list of the Modely objects, printed as a table of their inputs, their
+    outputs, the number of Parameters each computes with and whether it is
+    built."""
+
+    def __init__(self, models, title: str = ""):
+        super().__init__(models)
+        self._title = title
+
+    def __getitem__(self, key):  # type: ignore[override]
+        """A model by its name, or by position as in a list."""
+        if not isinstance(key, str):
+            return super().__getitem__(key)
+        positions = [index for index, model in enumerate(self) if model.name == key]
+        if len(positions) > 1:
+            raise ValueError(
+                f"{self._title or 'Models'}: the name {key!r} is ambiguous, "
+                f"{len(positions)} different models carry it, at positions "
+                f"{positions}. Pick one by its position, or give the models "
+                "names of their own."
+            )
+        if not positions:
+            raise KeyError(
+                f"{self._title or 'Models'}: no model named {key!r}; the names "
+                f"are {[model.name for model in self]}. A model called as a "
+                "block is inlined when saved: a loaded model lists only the "
+                "bodies of its Loops."
+            )
+        return super().__getitem__(positions[0])
+
+    def __str__(self):
+        header = ("name", "inputs", "outputs", "parameters", "built")
+        rows = [
+            (
+                model.name,
+                ", ".join(node.name for node in model._inputs) or "-",
+                ", ".join(node.name for node in model._outputs) or "-",
+                str(len(_parameters(model))),
+                "yes" if model.built else "no",
+            )
+            for model in self
+        ]
+        widths = [
+            max(len(row[column]) for row in (header, *rows))
+            for column in range(len(header))
+        ]
+
+        def line(row):
+            return "  ".join(cell.ljust(width) for cell, width in zip(row, widths))
+
+        built = sum(model.built for model in self)
+        return "\n".join(
+            [
+                *([self._title] if self._title else []),
+                line(header).rstrip(),
+                line(tuple("-" * width for width in widths)).rstrip(),
+                *(line(row).rstrip() for row in rows),
+                f"{len(self)} models, {built} built",
+            ]
+        )
+
+    __repr__ = __str__
 
 
 def _same_sizes(time: tuple, other: tuple) -> bool:
