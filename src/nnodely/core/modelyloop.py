@@ -149,6 +149,13 @@ class ModelyLoop(Modely):
             self._rolled_inputs[node.name] = rolled
         return rolled
 
+    def _output_stream(self, output: Output) -> Node:
+        """The stream of the step whose trajectory ``output`` is."""
+        step = next(
+            node for node, rolled in self._trajectories.items() if rolled is output
+        )
+        return step._preds[0]
+
     def _trajectory(self, value, minimizer: str):
         """The stream of the rollout a minimizer side of the step compares."""
         if not isinstance(value, Stream) or value._is_value or value in self._order:

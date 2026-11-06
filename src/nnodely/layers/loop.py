@@ -534,7 +534,7 @@ class _Step:
         explicit = [
             (
                 Loop._find_node(f._inputs, key, "input"),
-                Loop._find_node(f.outputs, value, "output"),
+                Loop._find_node(f._outputs, value, "output"),
             )
             for key, value in feedback.items()
         ]
@@ -547,7 +547,7 @@ class _Step:
         # one is copied once per call, together with the stream it is fed
         # back with.
         scope = Scope(pending=[], loop=True)
-        outputs = [flatten_node(output, scope) for output in f.outputs]
+        outputs = [flatten_node(output, scope) for output in f._outputs]
         flatten_fed_back(scope)
         crossing = _fed_back_across_calls(scope)
         if crossing:
@@ -571,7 +571,7 @@ class _Step:
         pairs: list[tuple[Input, Output]] = []
         for node, output in explicit:
             state = scope.memo.get(node, node)
-            fed = outputs[f.outputs.index(output)]
+            fed = outputs[f._outputs.index(output)]
             if state in found and state.update not in (fed, fed._preds[0]):
                 raise ValueError(
                     f"{who}: {node.name!r} is fed back with "
@@ -683,9 +683,9 @@ class _Step:
             if not f.built:
                 f.build()
             self.body = f
-            self.returns = list(f.outputs)
+            self.returns = list(f._outputs)
             self.pairs = [
-                (declared.get(id(state), state), f.outputs[outputs.index(output)])
+                (declared.get(id(state), state), f._outputs[outputs.index(output)])
                 for state, output in pairs
             ]
             self.starts = {
@@ -722,12 +722,12 @@ class _Step:
         step = cls.__new__(cls)
         step.f = step.body = body
         step.returns = [
-            Loop._find_node(body.outputs, name, "output") for name in returns
+            Loop._find_node(body._outputs, name, "output") for name in returns
         ]
         step.pairs = [
             (
                 Loop._find_node(body._inputs, key, "input"),
-                Loop._find_node(body.outputs, value, "output"),
+                Loop._find_node(body._outputs, value, "output"),
             )
             for key, value in feedback.items()
         ]
@@ -962,11 +962,11 @@ class Loop(Layer):
         node._preds = [*node._resolve_initial_values(bound), *static_sources]
         node._configure()
 
-        result_shapes = [node._result_shape(output) for output in self._f.outputs]
-        node.shape = result_shapes[self._f.outputs.index(self._returns[0])]
+        result_shapes = [node._result_shape(output) for output in self._f._outputs]
+        node.shape = result_shapes[self._f._outputs.index(self._returns[0])]
         node._loop_outputs = [
             LoopOutput(node, index, output, result_shapes[index])
-            for index, output in enumerate(self._f.outputs)
+            for index, output in enumerate(self._f._outputs)
             if output in self._returns
         ]
         return node
@@ -1334,7 +1334,7 @@ class Loop(Layer):
             model=self._f.inference_model,
             feedback_input_names=tuple(node.name for node in self._feedback_inputs),
             feedback_output_names=tuple(node.name for node in self._feedback_outputs),
-            model_output_names=tuple(node.name for node in self._f.outputs),
+            model_output_names=tuple(node.name for node in self._f._outputs),
             static_input_names=tuple(node.name for node in self._static_inputs),
             horizon=self._horizon,
             collect=self._collect,
@@ -1343,10 +1343,10 @@ class Loop(Layer):
             feedback_shift_axes=tuple(self._feedback_shift_axes),
             feedback_state_shapes=tuple(self._feedback_state_shapes),
             result_shapes=tuple(
-                self._result_shape(output).tuple for output in self._f.outputs
+                self._result_shape(output).tuple for output in self._f._outputs
             ),
             horizon_index=self._horizon_index,
-            primary_output_index=self._f.outputs.index(self._returns[0]),
+            primary_output_index=self._f._outputs.index(self._returns[0]),
             return_all_outputs=self._return_all_outputs,
             name=self.name,
         )

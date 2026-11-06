@@ -215,7 +215,7 @@ def flatten_fed_back(scope: Scope) -> None:
 
 
 def flatten(model):
-    return _flatten_graph(model.name, model._inputs, model.outputs, fed_back=True)
+    return _flatten_graph(model.name, model._inputs, model._outputs, fed_back=True)
 
 
 def _flatten_graph(
@@ -287,7 +287,7 @@ def _source_names(tensors):
 # DAG topological ordering
 # ------------------------------------------------------------------
 def toposort(model) -> list[Node]:
-    return toposort_outputs(model.outputs)
+    return toposort_outputs(model._outputs)
 
 
 def toposort_outputs(outputs: list[Output]) -> list[Node]:
@@ -385,7 +385,7 @@ def _nodes_and_models(model: "Modely") -> tuple[list[Node], list["Modely"]]:
             continue
         reached[id(current)] = current
         roots: list[Any] = [
-            *current.outputs,
+            *current._outputs,
             *(
                 side
                 for minimizer in current._minimizers

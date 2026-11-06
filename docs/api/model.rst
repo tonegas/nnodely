@@ -4,7 +4,7 @@ Model
 .. currentmodule:: nnodely
 
 .. autoclass:: Modely
-   :members: build, built, minimize, remove_minimizer, parameters, inputs,
+   :members: build, built, minimize, remove_minimizer, parameters, inputs, outputs,
              freeze, unfreeze, train,
              validate,
              flatten, summary, plot, export_html, save, load, export_keras,

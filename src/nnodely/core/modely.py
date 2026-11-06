@@ -38,7 +38,7 @@ from nnodely.core.dataloader import DataLoader
 
 import numpy as np
 
-from nnodely.layers.output import Output
+from nnodely.layers.output import Output, Outputs
 from nnodely.layers.input import Input, Inputs
 from nnodely.core.layer import Layer, _claim_keras_name, _refuse_uncalled
 
@@ -61,13 +61,13 @@ class Modely:
 
     name: str
     _inputs: list[Input]
-    outputs: list[Output]
+    _outputs: list[Output]
     _order: list[Node]
 
     def __init__(self, name: str, inputs: list[Input], outputs: list[Output]) -> None:
         self.name = name
         self._inputs = inputs
-        self.outputs = outputs
+        self._outputs = outputs
         self._order = toposort(self)
         # Read as an output, or bound to a Loop, it passed no layer call.
         _refuse_uncalled(self._order)
@@ -164,8 +164,8 @@ class Modely:
         mc = ModelCall(f"{self.name}_call", self)
         mc._preds = arguments
         mc._inputs_map = {old: new for old, new in zip(self._inputs, arguments)}
-        outputs = [IntermediateOutput(output, mc) for output in self.outputs]
-        mc._outputs_map = {new: old for old, new in zip(self.outputs, outputs)}
+        outputs = [IntermediateOutput(output, mc) for output in self._outputs]
+        mc._outputs_map = {new: old for old, new in zip(self._outputs, outputs)}
         return outputs[0] if len(outputs) == 1 else outputs
 
     def _call_tensor(self, inputs: dict[str, Any]) -> Any:
@@ -257,11 +257,11 @@ class Modely:
                 if node in minimizer_outputs:
                     continue
                 exposed = Identity()([node]) if isinstance(node, Input) else node
-                if exposed not in self.outputs:
+                if exposed not in self._outputs:
                     extra_outputs.append(exposed)
                 minimizer_outputs[node] = exposed.name
 
-        train_outputs = self.outputs + extra_outputs
+        train_outputs = self._outputs + extra_outputs
         flat, flatten_memo = _flatten_graph(
             self.name,
             self._inputs,
@@ -326,7 +326,7 @@ class Modely:
         # rather than the DAG, because a Parameter or Constant is wired to an
         # arbitrary input for its batch.
         inference_outputs = {
-            node.name: keras_outputs[node.name] for node in self.outputs
+            node.name: keras_outputs[node.name] for node in self._outputs
         }
         read = {
             name
@@ -584,8 +584,8 @@ class Modely:
             for minimizer in self._minimizers
             for side in (minimizer["source"], minimizer["target"])
         ]
-        forward = _read_inputs(self.outputs, self._inputs)
-        read = _read_nodes([*self.outputs, *sides], self._inputs)
+        forward = _read_inputs(self._outputs, self._inputs)
+        read = _read_nodes([*self._outputs, *sides], self._inputs)
         rows = []
         by_name: dict[str, dict] = {}
         for name, node in {
@@ -640,6 +640,48 @@ class Modely:
                 row["fed back with"] = update.name
                 row["starts from"] = starts
         return rows
+
+    @property
+    def outputs(self) -> Outputs:
+        """The outputs the model was declared with, in that order. A list of
+        the Output objects, printed as a table of their shapes, the stream
+        each names, the Inputs a loop feeds that stream back into and the
+        minimizers that read it."""
+        return Outputs(self._output_rows(), title=f"Outputs of {self.name}")
+
+    def _output_rows(self) -> list[dict]:
+        """A row of :attr:`outputs` per declared output."""
+        # Matched by the name :attr:`inputs` prints: the Inputs fed back
+        # inside a Loop, and their streams, are copies.
+        fed_back: dict[str, list[str]] = {}
+        for row in self._input_rows():
+            if row["fed back with"] is not None:
+                fed_back.setdefault(row["fed back with"], []).append(row["input"].name)
+        minimized: dict[int, list[str]] = {}
+        for minimizer in self._minimizers:
+            for side in ("source", "target"):
+                minimized.setdefault(id(minimizer[side]), []).append(
+                    f"{minimizer['name']} ({side})"
+                )
+        rows = []
+        for output in self._outputs:
+            stream = self._output_stream(output)
+            rows.append(
+                {
+                    "output": output,
+                    "stream": stream.name,
+                    "feeds back": fed_back.get(stream.name, []),
+                    "minimized by": [
+                        *minimized.get(id(output), []),
+                        *minimized.get(id(output._preds[0]), []),
+                    ],
+                }
+            )
+        return rows
+
+    def _output_stream(self, output: Output) -> Node:
+        """The stream ``output`` names."""
+        return output._preds[0]
 
     def freeze(self, names: str | list[str] | None = None):
         """Keep Parameters of the model as they are through training.

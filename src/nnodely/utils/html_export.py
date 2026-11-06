@@ -555,7 +555,7 @@ def export_html(
                     )
                 )
         states = {record["to"] for record in feedbacks}
-        own_outputs = {output.name for output in render_model.outputs}
+        own_outputs = {output.name for output in render_model._outputs}
 
         vis_nodes: list[dict] = []
         node_details: dict[str, dict] = {}
