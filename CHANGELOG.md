@@ -173,7 +173,11 @@ variable, and trains, validates and exports through Keras. Models saved with
   (with respect to time, over a window), `Derivative` (the same stencil one
   step at a time, in a `ModelyLoop`), `IntegrateStep`, `Integrate` (its rules
   one step at a time, in a `ModelyLoop`) and `Ode` (Euler, midpoint, Heun,
-  RK4).
+  RK4). `DerivativeStep(dt=dt)` and `Derivative(dt=dt)` are first
+  derivatives, the backward difference of order `poly_order` - 1 by
+  default, `(x[i] - x[i-1]) / dt`, each order more one more sample read and
+  exact on a polynomial of one degree more; the second derivative is one
+  applied to the other's result.
   `Integrate` and `Derivative` read one sample per step: the integral
   (`<name>_<rate>`, and `<name>_<rate>_rate` for the trapezoid), or the
   samples before the step (`<name>_<signal>`), are hidden Inputs fed back by the
@@ -258,9 +262,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   bias for each position of the other dim axes, as the elements of a `Fir`, or
   with `shared_kernel=True` one for all.
 - `save(path, weights=True)` / `Modely.load(path, weights=True)`, Keras and
-  ONNX export, interactive HTML graphs, and Graphviz drawings: one image per
-  model and per sub-model, or one flattened image, with a legend. The HTML
-  graph colours every node by its role, with a legend that highlights a role,
+  ONNX export, and interactive HTML graphs. The HTML graph colours every node
+  by its role, with a legend that highlights a role,
   a panel that explains the node selected - its shape axis by axis, what it
   reads and feeds - search, and the flattened page draws each sub-model's
   body in a region of its own. Selecting a node keeps its colours, and the
@@ -289,7 +292,7 @@ variable, and trains, validates and exports through Keras. Models saved with
   `seq=(4, -1)` (outermost first, `-1` or `"dyn"` dynamic), needs a window.
   There is no `sw()`, `next()` or `last()` on an Input: the layers that read
   it take what they need of its window, `TimeSelect(-1)(x)` its newest
-  sample, `TimeRange(0, 3)(x)` its first three. `Gradient(respect_to=x)`
+  sample, `TimeRange(0, 3)(x)` its first three. `Gradient(wrt=x)`
   has the shape of `x`.
 - Arithmetic between streams: windows must be equal, or one of them a single
   sample, `T=1`, which applies to every sample of the other's; a stream
@@ -319,7 +322,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
   history, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
-- The `.nnodely` save format is version 9: a fed-back Input is saved with
+- The `.nnodely` save format is version 10: a fed-back Input is saved with
   the stream it is fed back with and the `init` of the layer that keeps it,
   and a `Loop` with the outputs it returns. Saves and `.keras` exports made
   with the 2.0 pre-releases, in which windows were taken from an Input,
@@ -339,7 +342,7 @@ variable, and trains, validates and exports through Keras. Models saved with
   2.0.0's `solver=`. The trapezoidal rule no longer keeps a rectangle on the
   first interval: it averages the first rate with the one before it,
   `init_rate`, zero without one. `Derivative(respect_to=x)` with respect to
-  an Input is `Gradient(respect_to=x)`.
+  an Input is `Gradient(wrt=x)`.
 - `Modely.inputs` is the table of every Input the model reads (see Added).
   In 2.0.0 it was the list of the Inputs the model was declared with, which
   is no longer an attribute: keep the Inputs a model is declared with, to
@@ -378,7 +381,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `Relu` | `ReLU` |
 | `Add`, `Sub`, `Mul`, `Div`, `Pow` | `+`, `-`, `*`, `/`, `**` between streams |
 | `Neg` | `-x` or `Negative` |
-| `Differentiate` | `Gradient(respect_to=x)` with respect to an input; with respect to time `DerivativeStep(dt=...)` over a window, `Derivative(dt=...)` one step at a time in a `ModelyLoop` |
+| `Differentiate` | `Gradient(wrt=x)` with respect to an input; with respect to time `DerivativeStep(dt=...)` over a window, `Derivative(dt=...)` one step at a time in a `ModelyLoop` |
 | `ForwardEuler`, `RK2`, `RK4` | `Ode(f, states, dt, method=...)` |
 | `NeuralODE` | an `Ode` step, the layers of its field created outside `f`, rolled out by a `Loop` |
 | `Part` | `Range` |

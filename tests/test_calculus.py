@@ -33,9 +33,9 @@ def test_derivate_wrt_input_and_time():
     y = Input("y", dim=1, sw=1)
     x_last, y_last = x, y
     fun = Sin()(x_last) + y_last**2
-    out_der_x = Gradient(order=1, respect_to=x)(fun)
-    out_der_y = Gradient(order=1, respect_to=y)(fun)
-    out_der_time = DerivativeStep(order=1, dt=0.1)(fun)
+    out_der_x = Gradient(order=1, wrt=x)(fun)
+    out_der_y = Gradient(order=1, wrt=y)(fun)
+    out_der_time = DerivativeStep(dt=0.1)(fun)
 
     out = Output("out", fun)
     outx = Output("outx", out_der_x)
@@ -89,8 +89,8 @@ def test_derivative_wrt_input_matches_analytic_over_a_batch():
         inputs=[x, y],
         outputs=[
             Output("fun", fun),
-            Output("dx", Gradient(order=1, respect_to=x)(fun)),
-            Output("dy", Gradient(order=1, respect_to=y)(fun)),
+            Output("dx", Gradient(order=1, wrt=x)(fun)),
+            Output("dy", Gradient(order=1, wrt=y)(fun)),
         ],
     ).build()
 
@@ -117,8 +117,8 @@ def test_derivative_wrt_input_second_order():
         "derivative_second_order_model",
         inputs=[x],
         outputs=[
-            Output("first", Gradient(order=1, respect_to=x)(fun)),
-            Output("second", Gradient(order=2, respect_to=x)(fun)),
+            Output("first", Gradient(order=1, wrt=x)(fun)),
+            Output("second", Gradient(order=2, wrt=x)(fun)),
         ],
     ).build()
 
@@ -144,14 +144,14 @@ def test_derivative_wrt_input_nested_equals_second_order():
     back into another Gradient."""
     x = Input("nested_x", dim=1, sw=1)
     fun = x**3
-    first = Gradient(order=1, respect_to=x)(fun)
+    first = Gradient(order=1, wrt=x)(fun)
 
     model = Modely(
         "derivative_nested_model",
         inputs=[x],
         outputs=[
-            Output("nested", Gradient(order=1, respect_to=x)(first)),
-            Output("direct", Gradient(order=2, respect_to=x)(fun)),
+            Output("nested", Gradient(order=1, wrt=x)(first)),
+            Output("direct", Gradient(order=2, wrt=x)(fun)),
         ],
     ).build()
 
@@ -172,7 +172,7 @@ def test_derivative_wrt_input_through_a_trainable_layer():
     and the result has the shape of the input's window."""
     x = Input("fir_x", dim=1, sw=3)
     fun = Fir(features=1)([x])
-    derivative = Gradient(order=1, respect_to=x)(fun)
+    derivative = Gradient(order=1, wrt=x)(fun)
 
     assert derivative.shape.tuple == (3, 1)
 
@@ -196,7 +196,7 @@ def test_differentiate_through_a_linear_with_parameter_weights():
     W = Parameter("dlin_W", value=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
     b = Parameter("dlin_b", value=[5.0, 6.0])
     z = Linear(features=2, kernel=W, bias=b)(s)
-    derivative = Gradient(respect_to=s)(z)
+    derivative = Gradient(wrt=s)(z)
     model = Modely(
         "dlin_model", inputs=[s], outputs=[Output("dlin_dz", derivative)]
     ).build()
@@ -216,7 +216,7 @@ def test_differentiate_in_a_block_differentiates_the_relation_of_each_call(
     a, b = Input("dcall_a", sw=1), Input("dcall_b", sw=1)
     weight = Parameter("dcall_w", value=[[3.0]])
     relation = Linear(features=1, kernel=weight, bias=False)(a) * b  # d/da = 3b
-    derivative = Gradient(respect_to=a)(relation)
+    derivative = Gradient(wrt=a)(relation)
     block = Modely(
         "dcall_block", inputs=[a, b], outputs=[Output("dcall_d", derivative)]
     )
@@ -248,7 +248,7 @@ def test_differentiate_trains_a_parameter_kernel():
     k = Parameter("dk_k", value=[1.0])
     derivative = Output(
         "dk_dx",
-        Gradient(respect_to=x)(Fir(features=1, kernel=k, bias=False)(x)),
+        Gradient(wrt=x)(Fir(features=1, kernel=k, bias=False)(x)),
     )
     model = Modely("dk_model", inputs=[x], outputs=[derivative])
     model.minimize("dk_slope", derivative, 3.0, loss="mse")
@@ -294,7 +294,7 @@ def test_derivative_wrt_input_the_relation_does_not_read_raises():
         Modely(
             "derivative_unrelated_model",
             inputs=[x, y],
-            outputs=[Output("dy", Gradient(order=1, respect_to=y)(fun))],
+            outputs=[Output("dy", Gradient(order=1, wrt=y)(fun))],
         ).build()
 
 
@@ -304,7 +304,7 @@ def test_derivative_wrt_time_keeps_the_window_length():
     dt = 0.1
     v = Input("time_window_v", dim=1, sw=4)
     fun = v
-    derivative = DerivativeStep(order=1, dt=dt)(fun)
+    derivative = DerivativeStep(dt=dt)(fun)
 
     assert derivative.shape.tuple == (4, 1)
 
@@ -332,7 +332,7 @@ def test_derivative_wrt_time_over_a_relation_and_a_batch():
     model = Modely(
         "derivative_time_batch_model",
         inputs=[v],
-        outputs=[Output("dt", DerivativeStep(order=1, dt=dt)(fun))],
+        outputs=[Output("dt", DerivativeStep(dt=dt)(fun))],
     ).build()
 
     samples = np.array([[1.0, 2.0, 4.0], [0.0, -1.0, -3.0]], dtype=np.float32)
@@ -353,7 +353,7 @@ def test_derivative_wrt_time_takes_a_missing_past_as_zero():
     model = Modely(
         "derivative_time_single_model",
         inputs=[v],
-        outputs=[Output("dt", DerivativeStep(order=1, dt=dt)(v))],
+        outputs=[Output("dt", DerivativeStep(dt=dt)(v))],
     ).build()
 
     values = np.array([[[2.0]]], dtype=np.float32)
@@ -369,7 +369,7 @@ def test_derivative_wrt_time_reads_a_number_as_the_initial_condition():
         "derivative_time_init_number_model",
         inputs=[v],
         outputs=[
-            Output("dt", DerivativeStep(order=1, dt=dt)(1.5, v)),
+            Output("dt", DerivativeStep(dt=dt)(1.5, v)),
         ],
     ).build()
 
@@ -394,7 +394,7 @@ def test_derivative_wrt_time_reads_a_stream_as_the_initial_condition():
         outputs=[
             Output(
                 "dt",
-                DerivativeStep(order=1, dt=dt)(previous, v),
+                DerivativeStep(dt=dt)(previous, v),
             )
         ],
     ).build()
@@ -421,7 +421,7 @@ def test_derivative_wrt_time_second_order():
     model = Modely(
         "derivative_time_second_model",
         inputs=[v],
-        outputs=[Output("dt2", DerivativeStep(order=2, dt=dt)(v))],
+        outputs=[Output("dt2", DerivativeStep(dt=dt)(DerivativeStep(dt=dt)(v)))],
     ).build()
 
     samples = np.array([1.0, 3.0, 8.0], dtype=np.float32)
@@ -436,8 +436,10 @@ def test_derivative_wrt_time_second_order():
 
 
 def test_derivative_wrt_time_second_order_repeats_a_single_init_sample():
-    """A second derivative reads two samples of history; one initial
-    condition stands for both, which is the same as starting at rest."""
+    """Two first derivatives make the second: the inner one starts from the
+    initial condition and the outer one from a rate at rest, which is the
+    second difference reading the initial condition as both samples before the
+    window."""
     dt = 0.1
     v = Input("time_second_init_v", dim=1, sw=2)
 
@@ -445,7 +447,7 @@ def test_derivative_wrt_time_second_order_repeats_a_single_init_sample():
         "derivative_time_second_init_model",
         inputs=[v],
         outputs=[
-            Output("dt2", DerivativeStep(order=2, dt=dt)(2.0, v)),
+            Output("dt2", DerivativeStep(dt=dt)(DerivativeStep(dt=dt)(2.0, v))),
         ],
     ).build()
 
@@ -471,10 +473,10 @@ def test_derivative_wrt_time_a_higher_poly_order_is_more_accurate():
         "derivative_time_accuracy_model",
         inputs=[v],
         outputs=[
-            Output("two", DerivativeStep(order=1, dt=dt)(v)),
+            Output("two", DerivativeStep(dt=dt)(v)),
             Output(
                 "bdf2",
-                DerivativeStep(order=1, dt=dt, window=3, poly_order=2)(v),
+                DerivativeStep(dt=dt, poly_order=2)(v),
             ),
         ],
     ).build()
@@ -494,42 +496,40 @@ def test_derivative_wrt_time_a_higher_poly_order_is_more_accurate():
     assert np.abs(two[2:] - exact[2:]).max() > 0.09  # a half step of lag
 
 
-def test_derivative_wrt_time_longer_window_smooths_noise():
-    """The other reason to widen the window: the two-sample difference
-    multiplies sensor noise by sqrt(2)/dt, while a least-squares fit over
-    more samples divides that gain down by roughly window^-3/2."""
-    dt = 0.01
-    samples = 64
-    v = Input("time_noise_v", dim=1, sw=64)
-
+@pytest.mark.parametrize(
+    "poly_order, weights",
+    [(1, [-1.0, 1.0]), (2, [1.0, -4.0, 3.0]), (3, [-2.0, 9.0, -18.0, 11.0])],
+)
+def test_derivative_wrt_time_poly_order_is_the_backward_difference_of_that_order(
+    poly_order, weights
+):
+    """poly_order is the degree of the polynomial through the poly_order + 1
+    newest samples: the backward difference of that order, exact on a
+    polynomial of that degree once the window holds its history."""
+    dt = 0.1
+    v = Input(f"time_bdf{poly_order}_v", dim=1, sw=6)
     model = Modely(
-        "derivative_time_noise_model",
+        f"derivative_time_bdf{poly_order}_model",
         inputs=[v],
-        outputs=[
-            Output("sharp", DerivativeStep(order=1, dt=dt)(v)),
-            Output(
-                "smooth",
-                DerivativeStep(order=1, dt=dt, window=9)(v),
-            ),
-        ],
+        outputs=[Output("d", DerivativeStep(dt=dt, poly_order=poly_order)(v))],
     ).build()
 
-    # Slow compared with the 9-sample window, so the fit's delay stays small
-    # next to the noise it removes - the regime this knob is meant for.
-    times = np.arange(samples, dtype=np.float32) * dt
-    clean = np.sin(2.0 * np.pi * 0.2 * times)
-    noise = np.random.default_rng(0).normal(0.0, 1e-3, size=samples).astype(np.float32)
-    exact = 2.0 * np.pi * 0.2 * np.cos(2.0 * np.pi * 0.2 * times)
+    times = np.arange(6, dtype=np.float32) * dt
+    samples = times**poly_order
+    result = to_numpy(
+        model({f"time_bdf{poly_order}_v": samples.reshape(1, 6, 1)})["d"]
+    ).reshape(6)
 
-    result = model({"time_noise_v": (clean + noise).reshape(1, samples, 1)})
-    settled = slice(9, None)
-    sharp_error = np.abs(
-        to_numpy(result["sharp"]).reshape(samples)[settled] - exact[settled]
-    ).mean()
-    smooth_error = np.abs(
-        to_numpy(result["smooth"]).reshape(samples)[settled] - exact[settled]
-    ).mean()
-    assert smooth_error < sharp_error / 3.0
+    # The textbook weights, oldest first: (-1, 1), (1, -4, 3) / 2 and
+    # (-2, 9, -18, 11) / 6, over dt.
+    weights = np.array(weights) / np.array([1.0, 2.0, 6.0])[poly_order - 1]
+    by_hand = [
+        np.dot(weights, samples[i - poly_order : i + 1]) / dt
+        for i in range(poly_order, 6)
+    ]
+    exact = poly_order * times[poly_order:] ** (poly_order - 1)
+    np.testing.assert_allclose(result[poly_order:], by_hand, rtol=1e-4, atol=1e-4)
+    np.testing.assert_allclose(result[poly_order:], exact, rtol=1e-3, atol=1e-3)
 
 
 def test_derivative_wrt_time_inverts_the_integral():
@@ -541,7 +541,7 @@ def test_derivative_wrt_time_inverts_the_integral():
     dt = 0.1
     v = Input("time_inverse_v", dim=1, sw=5)
     window = v
-    derivative = DerivativeStep(order=1, dt=dt)(window)
+    derivative = DerivativeStep(dt=dt)(window)
 
     model = Modely(
         "derivative_time_inverse_model",
@@ -559,8 +559,8 @@ def test_derivative_wrt_time_inverts_the_integral():
 def test_derivative_step_one_sample_window_is_one_step():
     """A one-sample window differentiates a single interval, the step a
     recurrence takes: without an initial condition it reads zero before the
-    sample, with one it reads the previous state; a second derivative reads
-    the two samples before it."""
+    sample, with one it reads the previous state; the second-order stencil
+    reads the two samples before it."""
     dt = 0.1
     v = Input("step_v", dim=1, sw=1)
     state = Input("step_state", dim=1, sw=2)
@@ -571,7 +571,7 @@ def test_derivative_step_one_sample_window_is_one_step():
         outputs=[
             Output("from_zero", DerivativeStep(dt=dt)(v)),
             Output("from_state", DerivativeStep(dt=dt)(TimeSelect(-1)(state), v)),
-            Output("second", DerivativeStep(order=2, dt=dt)(state, v)),
+            Output("second", DerivativeStep(dt=dt, poly_order=2)(state, v)),
         ],
     ).build()
 
@@ -590,7 +590,7 @@ def test_derivative_step_one_sample_window_is_one_step():
     )
     np.testing.assert_allclose(
         to_numpy(result["second"]),
-        np.full((1, 1, 1), (3.0 - 2 * 1.0 + 0.5) / dt**2),
+        np.full((1, 1, 1), (3 * 3.0 - 4 * 1.0 + 0.5) / (2 * dt)),
         rtol=1e-5,
     )
 
@@ -601,7 +601,7 @@ def test_derivative_wrt_time():
     model = Modely(
         "derivative_time_explicit_model",
         inputs=[v],
-        outputs=[Output("dt", DerivativeStep(order=1, dt=0.1)(v))],
+        outputs=[Output("dt", DerivativeStep(dt=0.1)(v))],
     ).build()
 
     values = np.array([[[1.0], [2.0]]], dtype=np.float32)
@@ -620,7 +620,7 @@ def test_derivative_wrt_time_in_a_multi_dimensional_relation():
     model = Modely(
         "derivative_time_multi_model",
         inputs=[x],
-        outputs=[Output("dt", DerivativeStep(order=1, dt=dt)(1.0, x))],
+        outputs=[Output("dt", DerivativeStep(dt=dt)(1.0, x))],
     ).build()
 
     samples = np.array([[1.0, 2.0], [3.0, 3.0], [-1.0, 0.0]], dtype=np.float32)
@@ -636,39 +636,42 @@ def test_derivative_wrt_time_rejects_invalid_arguments():
     v = Input("time_invalid_v", dim=1, sw=3)
     x = Input("time_invalid_x", dim=1, sw=1)
 
-    with pytest.raises(ValueError, match="reads at least"):
-        DerivativeStep(order=2, dt=dt, window=2)
     with pytest.raises(ValueError, match="poly_order"):
-        DerivativeStep(order=1, dt=dt, window=3, poly_order=3)
+        DerivativeStep(dt=dt, poly_order=0)
     with pytest.raises(ValueError, match="poly_order"):
-        DerivativeStep(order=2, dt=dt, window=4, poly_order=1)
+        DerivativeStep(dt=dt, poly_order=1.5)  # type: ignore[arg-type]
+    # A second derivative is two first ones, and poly_order sets the samples.
+    with pytest.raises(TypeError, match="unexpected keyword argument 'order'"):
+        DerivativeStep(order=2, dt=dt)  # type: ignore[call-arg]
+    with pytest.raises(TypeError, match="unexpected keyword argument 'window'"):
+        DerivativeStep(dt=dt, window=3)  # type: ignore[call-arg]
     # Time arguments are not arguments of a derivative with respect to an Input.
     with pytest.raises(TypeError, match="unexpected keyword argument 'init'"):
-        Gradient(order=1, respect_to=x, init=0.0)  # type: ignore[call-arg]
+        Gradient(order=1, wrt=x, init=0.0)  # type: ignore[call-arg]
     with pytest.raises(TypeError, match="unexpected keyword argument 'window'"):
-        Gradient(order=1, respect_to=x, window=3)  # type: ignore[call-arg]
+        Gradient(order=1, wrt=x, window=3)  # type: ignore[call-arg]
 
     with pytest.raises(ValueError, match="init holds the samples before the first"):
-        DerivativeStep(order=1, dt=dt)(TimeRange(1, 3)(v), v)
+        DerivativeStep(dt=dt)(TimeRange(1, 3)(v), v)
     with pytest.raises(ValueError, match="init has dim"):
-        DerivativeStep(order=1, dt=dt)(Input("time_invalid_i", dim=2, sw=1), v)
+        DerivativeStep(dt=dt)(Input("time_invalid_i", dim=2, sw=1), v)
 
 
 def test_each_derivative_takes_only_its_own_kind_of_variable():
     # One class per variable: an Input for Gradient, the time step for DerivativeStep.
     x = Input("split_x", dim=1, sw=1)
     with pytest.raises(TypeError, match="use Derivative"):
-        Gradient(order=1, respect_to=0.1)  # type: ignore[arg-type]
+        Gradient(order=1, wrt=0.1)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="must be the Input"):
         Gradient(order=1)
     with pytest.raises(ValueError, match="dt is required"):
-        DerivativeStep(order=1)
+        DerivativeStep()
     with pytest.raises(ValueError, match="must be positive"):
-        DerivativeStep(order=1, dt=0.0)
+        DerivativeStep(dt=0.0)
     with pytest.raises(TypeError, match="dt must be a number"):
-        DerivativeStep(order=1, dt=x)  # type: ignore[arg-type]
+        DerivativeStep(dt=x)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="supports order"):
-        Gradient(order=3, respect_to=x)
+        Gradient(order=3, wrt=x)
 
 
 def test_derivative_wrt_input_in_a_multi_dimensional_relation():
@@ -679,7 +682,7 @@ def test_derivative_wrt_input_in_a_multi_dimensional_relation():
     model = Modely(
         "derivative_multi_dim_model",
         inputs=[x],
-        outputs=[Output("dx", Gradient(order=1, respect_to=x)(fun))],
+        outputs=[Output("dx", Gradient(order=1, wrt=x)(fun))],
     ).build()
 
     values = np.array([[[1.0, 2.0, 3.0]]], dtype=np.float32)
@@ -708,15 +711,15 @@ def _build_mixed_derivative_model(name):
             inputs=[x, init],
             outputs=[
                 Output("fun", fun),
-                Output("dx", Gradient(order=1, respect_to=x)(fun)),
-                Output("dx2", Gradient(order=2, respect_to=x)(fun)),
+                Output("dx", Gradient(order=1, wrt=x)(fun)),
+                Output("dx2", Gradient(order=2, wrt=x)(fun)),
                 Output(
                     "dt",
-                    DerivativeStep(order=1, dt=0.1)(init, fun),
+                    DerivativeStep(dt=0.1)(init, fun),
                 ),
                 Output(
                     "dt_smooth",
-                    DerivativeStep(order=1, dt=0.1, window=2, poly_order=1)(fun),
+                    DerivativeStep(dt=0.1, poly_order=1)(fun),
                 ),
             ],
         ),
@@ -801,7 +804,7 @@ def test_derivative_wrt_time_needs_no_fixed_batch_to_export():
     time_model = Modely(
         "derivative_time_onnx_model",
         inputs=[v],
-        outputs=[Output("dt", DerivativeStep(order=1, dt=0.1)(v))],
+        outputs=[Output("dt", DerivativeStep(dt=0.1)(v))],
     ).build()
 
     x = Input("onnx_grad_x", dim=1, sw=1)
@@ -809,7 +812,7 @@ def test_derivative_wrt_time_needs_no_fixed_batch_to_export():
     gradient_model = Modely(
         "derivative_grad_onnx_model",
         inputs=[x],
-        outputs=[Output("dx", Gradient(order=1, respect_to=x)(fun))],
+        outputs=[Output("dx", Gradient(order=1, wrt=x)(fun))],
     ).build()
 
     assert not _traces_backward_pass(time_model.model)
@@ -837,7 +840,7 @@ def test_train_through_a_derivative():
     converge to the target."""
     x = Input("dtrain_x", dim=1, sw=1)
     fun = Fir(features=1, bias=False, name="dtrain_fir")([x])
-    derivative = Output("dx", Gradient(order=1, respect_to=x)(fun))
+    derivative = Output("dx", Gradient(order=1, wrt=x)(fun))
 
     model = Modely("derivative_train_model", inputs=[x], outputs=[derivative])
     model.minimize("slope", source=derivative, target=3.0, loss="mse")
@@ -1403,7 +1406,7 @@ def test_integrate_with_init_inverts_the_derivative_exactly():
     previous = Input("inverse_previous", dim=1, sw=1)
     window = v
 
-    derivative = DerivativeStep(order=1, dt=dt)(previous, window)
+    derivative = DerivativeStep(dt=dt)(previous, window)
     roundtrip = IntegrateStep(method="rectangular", dt=dt)(previous, derivative)
 
     model = Modely(
@@ -1604,7 +1607,7 @@ def test_differentiate_has_the_shape_of_its_input():
     # the 2 samples it does not read.
     x = Input("own_window_dx", dim=1, sw=5)
     fun = Fir(features=1)([TimeRange(2, 5)(x)])
-    derivative = Gradient(order=1, respect_to=x)(fun)
+    derivative = Gradient(order=1, wrt=x)(fun)
     assert derivative.shape.tuple == (5, 1)
     model = Modely(
         "own_window_d",

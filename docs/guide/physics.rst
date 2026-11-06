@@ -35,7 +35,7 @@ physics-informed neural networks. The model below fits
 
    t = Input("t")              # one value per sample, no window
    u = Linear(features=1)([Tanh()([Linear(features=16)([t])])])
-   du_dt = Gradient(respect_to=t)(u)
+   du_dt = Gradient(wrt=t)(u)
 
    u_out = Output("u", u)
    decay = Modely("decay", inputs=[t], outputs=[u_out])
@@ -49,21 +49,25 @@ physics-informed neural networks. The model below fits
 
 ``order=2`` gives the second derivative.
 
-**With respect to time**, ``DerivativeStep`` takes the time step ``dt``, as
-``IntegrateStep`` does, and the derivative is a causal finite difference along the
-stream's time window. The
-window length is preserved. The initial condition, the sample just before the
-window, is given first when the layer is called, ``DerivativeStep(dt=dt)(init,
-x)``; called on ``x`` alone it is zero. ``window`` and ``poly_order`` turn the plain backward
-difference into a least-squares polynomial fit, which smooths noisy measured
-signals at the price of a delay of about ``(window - 1) / 2`` samples:
+**With respect to time**, ``DerivativeStep(dt=dt)`` differentiates a stream
+along its window and keeps its length: one derivative per sample, from that
+sample and the ones before it. The value before the window, ``init``, comes
+first in the call, ``DerivativeStep(dt=dt)(init, x)``, and is zero when left
+out. Applied twice, it gives the second derivative.
+
+``poly_order`` sets how many samples before each one it reads, and so how
+exact it is: ``1``, the default, is ``(x[i] - x[i-1]) / dt``, exact on a line;
+``2`` is exact on a parabola, ``3`` on a cubic. A higher order amplifies noise
+more, so keep ``1`` for measured signals. :class:`~nnodely.Derivative` does the
+same one step at a time in a ModelyLoop (see :doc:`recurrent`).
 
 .. code-block:: python
 
    dt = 0.01
    position = Input("position", sw=10)
    velocity = DerivativeStep(dt=dt)(0.0, position)
-   smooth_velocity = DerivativeStep(dt=dt, window=5)(position)
+   acceleration = DerivativeStep(dt=dt)(velocity)
+   sharper_velocity = DerivativeStep(dt=dt, poly_order=2)(position)
    print(velocity.shape)   # Shape(S=(), T=10, D=(1,))
 
 Integrators

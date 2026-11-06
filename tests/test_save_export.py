@@ -897,12 +897,12 @@ def _derivative_model():
     relation = Sin()(Linear(features=1, name="derivative_linear")(u))
     mixed = Linear(features=2, name="derivative_mix")(window)
     relations = {
-        "d_init_stream": DerivativeStep(order=1, dt=dt)(x0, window),
-        "d_init_number": DerivativeStep(order=2, dt=dt)(0.5, window),
-        "d_smooth": DerivativeStep(order=1, dt=dt, window=3, poly_order=2)(window),
-        "d_of_layer": DerivativeStep(order=1, dt=dt)(mixed),
-        "d_wrt_input": Gradient(order=1, respect_to=u)(relation),
-        "d2_wrt_input": Gradient(order=2, respect_to=u)(relation),
+        "d_init_stream": DerivativeStep(dt=dt)(x0, window),
+        "d_init_number": DerivativeStep(dt=dt)(DerivativeStep(dt=dt)(0.5, window)),
+        "d_smooth": DerivativeStep(dt=dt, poly_order=2)(window),
+        "d_of_layer": DerivativeStep(dt=dt)(mixed),
+        "d_wrt_input": Gradient(order=1, wrt=u)(relation),
+        "d2_wrt_input": Gradient(order=2, wrt=u)(relation),
     }
     return Modely(
         "derivative_suite",
@@ -1178,7 +1178,7 @@ def _complete_vehicle_model():
             ),
             Output(
                 "vehicle_acceleration_estimate",
-                DerivativeStep(dt=dt, window=3, poly_order=2)(speed),
+                DerivativeStep(dt=dt, poly_order=2)(speed),
             ),
             Output("vehicle_grip_out", grip),
         ],
@@ -2212,8 +2212,8 @@ def _keras_two_differentiate():
         "ksd",
         inputs=[x],
         outputs=[
-            Output("ksd_first", Gradient(respect_to=x)(relation)),
-            Output("ksd_second", Gradient(order=2, respect_to=x)(relation)),
+            Output("ksd_first", Gradient(wrt=x)(relation)),
+            Output("ksd_second", Gradient(order=2, wrt=x)(relation)),
         ],
     ).build()
     return model, {"ksd_x": (2, 1, 1)}

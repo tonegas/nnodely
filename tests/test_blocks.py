@@ -239,7 +239,6 @@ def test_fuzzify(tmp_path):
             to_numpy(result1[name])[:, 0], values, rtol=1e-5, atol=1e-6
         )
 
-    model1.plot(out_dir=tmp_path, filename="fuzzify")
     model1.export_html(out_dir=tmp_path, filename="fuzzify")
 
 
@@ -2564,13 +2563,8 @@ def _derivative_model(name, length=None, dim=1, **kwargs):
 
 @pytest.mark.parametrize(
     "stencil",
-    [
-        {"order": 1},
-        {"order": 2},
-        {"order": 1, "window": 5},
-        {"order": 1, "window": 3, "poly_order": 2},
-    ],
-    ids=["first", "second", "smoothing", "bdf2"],
+    [{"poly_order": 1}, {"poly_order": 2}, {"poly_order": 3}],
+    ids=["first", "bdf2", "bdf3"],
 )
 def test_derivative_matches_derivative_step_over_the_same_samples(stencil):
     # Step by step or along a time window, the same stencil on the same
@@ -2599,6 +2593,39 @@ def test_derivative_matches_derivative_step_over_the_same_samples(stencil):
         window({f"dwindow_{name}": samples.reshape(1, 6, 1)})[f"dwindow_{name}_out"]
     )
     np.testing.assert_allclose(along.ravel(), over.ravel(), rtol=1e-5, atol=1e-3)
+
+
+def test_a_derivative_of_a_derivative_is_the_second_step_by_step():
+    # The second derivative is the first one applied twice, step by step as
+    # along a time window: the inner one starts from init, the outer one from
+    # a rate at rest.
+    samples = np.array([1.0, -2.0, 4.0, 0.5, 3.0, 2.0], dtype=np.float32)
+    signal = Input("dtwice_signal", sw=1)
+    twice = Derivative(dt=0.1)(Derivative(dt=0.1, init=0.7)(signal))
+    along = ModelyLoop(
+        "dtwice", inputs=[signal], outputs=[Output("dtwice_out", twice)]
+    ).build()
+    w = Input("dtwice_window", sw=6)
+    over = Modely(
+        "dtwice_window_model",
+        inputs=[w],
+        outputs=[
+            Output(
+                "dtwice_window_out",
+                DerivativeStep(dt=0.1)(DerivativeStep(dt=0.1)(0.7, w)),
+            )
+        ],
+    ).build()
+
+    # A rate at rest before the start is the sample before it, repeated.
+    expected = np.diff(np.concatenate([[0.7, 0.7], samples]), n=2) / 0.1**2
+    for result in (
+        along({"dtwice_signal": samples.reshape(1, 6, 1, 1)})["dtwice_out"],
+        over({"dtwice_window": samples.reshape(1, 6, 1)})["dtwice_window_out"],
+    ):
+        np.testing.assert_allclose(
+            to_numpy(result).ravel(), expected, rtol=1e-5, atol=1e-3
+        )
 
 
 def test_derivative_follows_a_dynamic_horizon_without_rebuilding():
@@ -2659,17 +2686,17 @@ def test_derivative_starts_from_none_a_number_or_a_stream():
 
 
 def test_derivative_reads_the_history_a_longer_stencil_needs():
-    # The second derivative reads the two steps before the first: one init
+    # The second-order stencil reads the two steps before the first: one init
     # sample stands for both, or the two are given, oldest first. On x = k^2
-    # with the true history 0, 1 every second difference is 2.
+    # with the true history 0, 1 it is exact, 2k.
     x = Input("dhistory_x", sw=1)
     one, two = Input("dhistory_one", sw=1), Input("dhistory_two", sw=2)
     model = ModelyLoop(
         "dhistory",
         inputs=[x, one, two],
         outputs=[
-            Output("dhistory_one_out", Derivative(order=2, dt=1.0, init=one)(x)),
-            Output("dhistory_two_out", Derivative(order=2, dt=1.0, init=two)(x)),
+            Output("dhistory_one_out", Derivative(dt=1.0, poly_order=2, init=one)(x)),
+            Output("dhistory_two_out", Derivative(dt=1.0, poly_order=2, init=two)(x)),
         ],
     ).build()
 
@@ -2680,12 +2707,13 @@ def test_derivative_reads_the_history_a_longer_stencil_needs():
             "dhistory_two": _over_steps(np.array([0.0, 1.0]).reshape(1, 2, 1), 3),
         }
     )
-    # 1 - 2*1 + 4, 1 - 2*4 + 9, 4 - 2*9 + 16
+    # (3*4 - 4*1 + 1) / 2, (3*9 - 4*4 + 1) / 2, (3*16 - 4*9 + 4) / 2
     np.testing.assert_allclose(
-        to_numpy(result["dhistory_one_out"]).ravel(), [3.0, 2.0, 2.0]
+        to_numpy(result["dhistory_one_out"]).ravel(), [4.5, 6.0, 8.0]
     )
+    # (3*4 - 4*1 + 0) / 2, then as above
     np.testing.assert_allclose(
-        to_numpy(result["dhistory_two_out"]).ravel(), [2.0, 2.0, 2.0]
+        to_numpy(result["dhistory_two_out"]).ravel(), [4.0, 6.0, 8.0]
     )
 
 
@@ -2869,10 +2897,10 @@ def test_derivative_is_trained_through():
 
 
 def _saved_derivative_model(name, length):
-    # A second derivative from a two-sample history: every argument the
+    # The second-order stencil from a two-sample history: every argument the
     # layers save.
     x, history = Input(f"{name}_x", sw=1), Input(f"{name}_history", sw=2)
-    out = Derivative(order=2, dt=0.5, init=history)(x)
+    out = Derivative(dt=0.5, poly_order=2, init=history)(x)
     return ModelyLoop(
         name,
         inputs=[x, history],
@@ -2956,10 +2984,10 @@ def test_derivative_rejects_what_it_cannot_differentiate():
         Derivative()
     with pytest.raises(TypeError, match="init must be a Stream"):
         Derivative(dt=0.1, init="zero")  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="supports order"):
-        Derivative(order=3, dt=0.1)
-    with pytest.raises(ValueError, match="reads at least"):
-        Derivative(order=2, dt=0.1, window=2)
+    with pytest.raises(ValueError, match="poly_order"):
+        Derivative(dt=0.1, poly_order=0)
+    with pytest.raises(TypeError, match="unexpected keyword argument 'order'"):
+        Derivative(order=2, dt=0.1)  # type: ignore[call-arg]
     signal = Input("dchecked_signal", dim=2, sw=1)
     with pytest.raises(ValueError, match="init holds the samples before the first"):
         Derivative(dt=0.1, init=Input("dlong_init", dim=2, sw=3))(signal)

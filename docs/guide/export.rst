@@ -120,5 +120,5 @@ such a model is exported with a batch of one unless ``batch_size`` or
 Visualization
 -------------
 
-:meth:`~nnodely.Modely.export_html` and :meth:`~nnodely.Modely.plot` draw the
-graph of a model (see :doc:`models`).
+:meth:`~nnodely.Modely.export_html` draws the graph of a model as interactive
+pages (see :doc:`models`).

@@ -259,7 +259,7 @@ def test_a_modely_starts_integrate_derivative_and_buffer_from_their_init(tmp_pat
                     ),
                 ),
                 Output("oc_one_der", Derivative(dt=0.5, init=v0)(rate)),
-                Output("oc_one_der_zero", Derivative(order=2, dt=0.5)(rate)),
+                Output("oc_one_der_zero", Derivative(dt=0.5)(Derivative(dt=0.5)(rate))),
                 Output("oc_one_buf", Buffer(sw=3, init=v0)(rate)),
                 Output("oc_one_buf_zero", Buffer(sw=3)(rate)),
                 Output("oc_one_buf_past", Buffer(sw=3, init=past0)(rate)),

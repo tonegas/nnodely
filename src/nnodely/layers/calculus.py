@@ -1,9 +1,22 @@
-"""Time integration of a rate signal along its own time axis.
+"""Calculus with respect to time: the integral and the derivative of a Stream.
 
-``IntegrateStep`` is shaped like ``DerivativeStep`` and inverse to it: the rate
-sample of an interval integrates into the value at the end of that interval,
-the window's length is preserved, and ``init`` is the value the signal had
-just before the window.
+They are configured first and then called on the Stream, like every other
+layer::
+
+    IntegrateStep(dt=0.1)(rate)                 # integral of rate   over its window
+    Integrate(dt=0.1)(rate)                     # integral of rate   step by step
+    DerivativeStep(dt=0.1)(fun)                 # d fun / d t        over its window
+    Derivative(dt=0.1)(fun)                     # d fun / d t        step by step
+
+Each integral is the inverse of the derivative beside it. ``IntegrateStep``
+integrates along the rate's own window and keeps its length: the rate sample
+of an interval integrates into the value at the end of that interval, and
+``init`` is the value the signal had just before the window.
+``DerivativeStep`` is a causal finite difference along ``fun``'s own window
+that keeps its length: one derivative per sample, the oldest one reading the
+``init`` condition. ``Integrate`` and ``Derivative`` are the same rules across
+the steps of a ModelyLoop. The derivative with respect to an Input is
+:class:`~nnodely.layers.gradient.Gradient`.
 """
 
 from __future__ import annotations
@@ -12,10 +25,19 @@ import keras
 import numpy as np
 
 from nnodely.core.layer import Layer
-from nnodely.core.shape import expand_to_rank
+from nnodely.core.shape import expand_to_rank, slice_axis
 from nnodely.core.stream import Stream
-from nnodely.layers.input import Input, _check_history, _declared_seq, _validate_init
+from nnodely.layers.input import (
+    Input,
+    _check_history,
+    _declared_seq,
+    _validate_init,
+)
 
+
+# ======================================================================
+# Integration
+# ======================================================================
 #: Quadrature rules, by the name the model writes. "euler" is the same
 #: rectangular rule under the name it has when the window is one sample and
 #: the layer is one step of a recurrence, as in ``Ode``.
@@ -83,7 +105,7 @@ def _history_and_signal(owner: str, inputs, history: tuple[str, ...]) -> list:
     return [signal, *values]
 
 
-def _operator_matrix(rule: str, window_length: int, dt: float) -> np.ndarray:
+def _quadrature_matrix(rule: str, window_length: int, dt: float) -> np.ndarray:
     """The quadrature as the matrix that applies it to a whole window at once.
 
     Row ``interval`` of the increments holds the weight each rate sample has in
@@ -128,7 +150,7 @@ class IntegrateImpl(keras.layers.Layer):
             input_shape if isinstance(input_shape[0], (list, tuple)) else [input_shape]  # type: ignore[list-item]
         )
         window_length = int(shapes[0][self.axis])
-        operator = _operator_matrix(self.rule, window_length, self.dt)
+        operator = _quadrature_matrix(self.rule, window_length, self.dt)
         self.operator = self.add_weight(
             name="operator",
             shape=operator.shape,
@@ -405,3 +427,367 @@ class Integrate:
             *history, rate
         )
         return integral._feed_back(value, init=self._init)
+
+
+# ======================================================================
+# Differentiation
+# ======================================================================
+# ----------------------------------------------------------------------
+# Finite-difference stencils
+# ----------------------------------------------------------------------
+def _stencil_coefficients(poly_order: int, dt: float) -> np.ndarray:
+    """Weights of the backward difference of order ``poly_order``.
+
+    They give the slope, at the newest sample, of the polynomial of degree
+    ``poly_order`` through the ``poly_order + 1`` newest samples - the
+    backward differentiation formula: ``(-1, 1)/dt`` for 1, ``(1, -4, 3)/(2
+    dt)`` for 2, ``(-2, 9, -18, 11)/(6 dt)`` for 3, each exact on a polynomial
+    of its degree. The weights are ordered oldest -> newest, as the samples of
+    a window are.
+    """
+    offsets = np.arange(-poly_order, 1, dtype=np.float64)
+    design = np.vander(offsets, poly_order + 1, increasing=True)
+    # Row 1 of the inverse gives the polynomial's coefficient of t: its slope
+    # at the newest sample, t = 0.
+    return np.linalg.inv(design)[1] / float(dt)
+
+
+def _difference_matrix(coefficients, window_length: int) -> np.ndarray:
+    """The stencil as the matrix that applies it to a whole window at once.
+
+    Sliding the stencil over a window is a banded matrix product - the
+    discrete differentiation operator of the window - so the layer runs as a
+    single matmul rather than a scan, and differentiates (and exports) like
+    any other linear operation.
+    """
+    past = len(coefficients) - 1
+    matrix = np.zeros((past + window_length, window_length), dtype=np.float32)
+    for column in range(window_length):
+        for offset, coefficient in enumerate(coefficients):
+            matrix[column + offset, column] = coefficient
+    return matrix
+
+
+# ----------------------------------------------------------------------
+# Finite difference with respect to time
+# ----------------------------------------------------------------------
+@keras.saving.register_keras_serializable(package="nnodely")
+class TimeDerivativeImpl(keras.layers.Layer):
+    """Causal finite difference of a whole window, one derivative per sample.
+
+    The stencil needs ``len(coefficients) - 1`` samples of history to produce
+    the oldest derivative of the window; they come from the initial condition
+    (a second input) or are taken as zero. Prepending them and applying the
+    banded operator matrix makes the layer a single matmul over the padded
+    window.
+    """
+
+    def __init__(
+        self,
+        coefficients,
+        axis: int,
+        init_time: int = 1,
+        name=None,
+        **kwargs,
+    ):
+        super().__init__(name=name, **kwargs)
+        self.coefficients = tuple(float(c) for c in coefficients)
+        self.axis = int(axis)
+        self.init_time = int(init_time)
+
+    @property
+    def past(self) -> int:
+        """Samples of history the stencil reads before the window's first."""
+        return len(self.coefficients) - 1
+
+    def build(self, input_shape):
+        shapes = (
+            input_shape if isinstance(input_shape[0], (list, tuple)) else [input_shape]  # type: ignore[list-item]
+        )
+        window_length = int(shapes[0][self.axis])
+        operator = _difference_matrix(self.coefficients, window_length)
+        self.operator = self.add_weight(
+            name="operator",
+            shape=operator.shape,
+            initializer=keras.initializers.Constant(operator),  # type: ignore[arg-type]
+            trainable=False,
+            dtype="float32",
+        )
+        super().build(input_shape)
+
+    def call(self, inputs):
+        if isinstance(inputs, (list, tuple)):
+            x, init = inputs[0], inputs[1] if len(inputs) > 1 else None
+        else:
+            x, init = inputs, None
+        time_axis = self.axis
+
+        # One sample of zeros shaped like the window's first: it both stands
+        # in for a missing initial condition and gives a given one the axes it
+        # may be broadcasting over - a scalar initial condition carries no dim
+        # size, and one may leave out the sequence axes.
+        reference = keras.ops.zeros_like(slice_axis(x, time_axis, slice(0, 1)))
+        if init is None:
+            history = reference
+        else:
+            history = expand_to_rank(init, len(reference.shape)) + reference
+        if self.init_time != self.past:
+            history = keras.ops.repeat(history, self.past, axis=time_axis)
+
+        padded = keras.ops.concatenate([history, x], axis=time_axis)
+        result = keras.ops.tensordot(padded, self.operator, axes=[[time_axis], [0]])  # type: ignore[arg-type]
+        # tensordot appends the window axis; put it back where time belongs.
+        # The axis is addressed from the front because a negative index
+        # survives tracing as a negative permutation, which ONNX rejects.
+        last_axis = len(result.shape) - 1
+        if last_axis == time_axis:  # nothing follows time, so it already is
+            return result
+        return keras.ops.moveaxis(result, last_axis, time_axis)
+
+    def compute_output_shape(self, input_shape):
+        if isinstance(input_shape[0], (list, tuple)):
+            return tuple(input_shape[0])
+        return tuple(input_shape)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "coefficients": self.coefficients,
+                "axis": self.axis,
+                "init_time": self.init_time,
+            }
+        )
+        return config
+
+
+# ----------------------------------------------------------------------
+# Symbolic layers
+# ----------------------------------------------------------------------
+class _FiniteDifference(Layer):
+    """What :class:`DerivativeStep` and :class:`Derivative` share: the time
+    step ``dt``, the backward difference of order ``poly_order``, and the
+    initial condition ``init``, the sample(s) just before the first one
+    differentiated.
+    """
+
+    def __init__(
+        self,
+        dt: float | None = None,
+        poly_order: int = 1,
+        name=None,
+        **properties,
+    ):
+        layer = type(self).__name__
+        self._dt = _validate_dt(dt, layer)
+        if (
+            isinstance(poly_order, bool)
+            or not isinstance(poly_order, (int, np.integer))
+            or poly_order < 1
+        ):
+            raise ValueError(
+                f"{layer}: poly_order is the degree of the polynomial through "
+                "the poly_order + 1 newest samples, a positive integer; got "
+                f"{poly_order!r}."
+            )
+        self._poly_order = int(poly_order)
+        super().__init__(
+            name=name, dt=self._dt, poly_order=self._poly_order, **properties
+        )
+
+    # ------------------------------------------------------------------
+    # Symbolic graph logic
+    # ------------------------------------------------------------------
+    @property
+    def past(self) -> int:
+        """Samples of history the stencil needs before the first one."""
+        return self._poly_order
+
+    def _coefficients(self) -> np.ndarray:
+        return _stencil_coefficients(self._poly_order, self._dt)
+
+    # ------------------------------------------------------------------
+    # Shape logic
+    # ------------------------------------------------------------------
+    def _check_function(self, function):
+        if not isinstance(function, Stream):
+            raise TypeError(
+                f"{self.name}: {type(self).__name__} expects a Stream input, got "
+                f"{type(function).__name__}."
+            )
+
+    # ------------------------------------------------------------------
+    # Keras layer logic
+    # ------------------------------------------------------------------
+    def call(self, xs):
+        signature = self.input_signature(xs)
+        stale = self._layer_signature is not None and self._layer_signature != signature
+        if self._layer is None or stale:
+            self._layer = self.build_layer()
+        self._layer_signature = signature
+        return self._layer(xs if len(xs) > 1 else xs[0])
+
+    # ------------------------------------------------------------------
+    # Serialization
+    # ------------------------------------------------------------------
+    @classmethod
+    def from_config(cls, config: dict, preds=None):
+        # The initial condition was serialized after the signal, so it is
+        # rebuilt with the rest of the graph: the layer is called on it, then
+        # on the signal.
+        layer = super().from_config(config)
+        return layer(*preds[1:], *preds[:1]) if preds else layer
+
+
+class DerivativeStep(_FiniteDifference):
+    """Time derivative of a Stream, along its window::
+
+        DerivativeStep(dt=0.1)(x)                          # dx/dt, from 0
+        DerivativeStep(dt=0.1)(x0, x)                      # dx/dt, from x0
+        DerivativeStep(dt=0.1)(DerivativeStep(dt=0.1)(x))  # d2x/dt2
+
+    The result has the window of ``x``: one derivative per sample, computed
+    from that sample and the ones before it.
+
+    ``dt``
+        The time between two samples.
+    ``poly_order``
+        How many samples before the current one each derivative reads, and
+        so the degree of the curves it is exact on:
+
+        * ``1`` (default) - ``(x[i] - x[i-1]) / dt``, exact on a line;
+        * ``2`` - ``(3 x[i] - 4 x[i-1] + x[i-2]) / (2 dt)``, exact on a parabola;
+        * ``3`` - ``(11 x[i] - 18 x[i-1] + 9 x[i-2] - 2 x[i-3]) / (6 dt)``,
+          exact on a cubic.
+
+        A higher order is more accurate on smooth signals, but amplifies
+        noise more: keep ``1`` for measured signals.
+    ``init``, the first argument of the call
+        The value of ``x`` before the window, which the first derivatives
+        read: a number or a Stream, one sample (repeated as needed) or
+        ``poly_order`` samples, oldest first. Zero when left out.
+
+    With ``poly_order=1``, :class:`IntegrateStep` with the same ``init``
+    gives ``x`` back. For one step at a time in a ModelyLoop, see
+    :class:`Derivative`; with respect to an Input, :class:`Gradient`.
+    """
+
+    def __init__(self, dt: float | None = None, poly_order: int = 1, name=None):
+        # Its own arguments only: one it does not take is refused, rather than
+        # kept as a setting that changes nothing.
+        super().__init__(dt=dt, poly_order=poly_order, name=name)
+
+    def __call__(self, *inputs):
+        # The initial condition is a predecessor like any other, after the
+        # signal, so that it is reconnected the same way when reloading.
+        return super().__call__(
+            _history_and_signal("DerivativeStep", inputs, ("init",))
+        )
+
+    def output_shape(self, *inputs):
+        function, *history = inputs
+        self._check_function(function)
+        self._needs_window(function)
+        if history:
+            _check_history(self.name, history[0], function, self.past)
+        # One derivative per sample: the window is preserved, so the result
+        # stays aligned with the signal it came from.
+        return function.shape
+
+    def build_layer(self):
+        init_time = 1
+        if len(self._preds) > 1:
+            init_node = self._preds[1]
+            if isinstance(init_node, Stream):
+                # A value without a window is one sample.
+                init_time = init_node.shape.time or 1
+        return TimeDerivativeImpl(
+            coefficients=self._coefficients(),
+            axis=self.shape.time_axis,  # type: ignore[arg-type]
+            init_time=init_time,
+            name=self.name,
+        )
+
+
+class Derivative(_FiniteDifference):
+    """Time derivative of a Stream, one step at a time, in a
+    :class:`~nnodely.ModelyLoop`::
+
+        Derivative(dt=0.1)(x)                        # dx/dt, from 0
+        Derivative(dt=0.1, init=x0)(x)               # dx/dt, from x0
+        Derivative(dt=0.1)(Derivative(dt=0.1)(x))    # d2x/dt2
+
+    ``x`` is one sample per step, ``sw=1``. The layer remembers the last
+    ``poly_order`` samples of ``x`` from one step to the next, and gives the
+    same values as :class:`DerivativeStep` on a window of the same samples.
+
+    ``dt``, ``poly_order``
+        As in :class:`DerivativeStep`.
+    ``init``
+        The value of ``x`` before the first step: a number, a Parameter, a
+        Constant or an Input, one sample (repeated as needed) or
+        ``poly_order`` samples, oldest first. Zero when left out.
+
+    The samples it remembers are a hidden Input, ``<name>_<x>``, that the
+    loop feeds back. In a plain :class:`~nnodely.Modely`, which has no steps,
+    they are always ``init``. With ``poly_order=1``, :class:`Integrate` with
+    the same ``init`` gives ``x`` back.
+    """
+
+    def __init__(
+        self,
+        dt: float | None = None,
+        poly_order: int = 1,
+        init: Stream | float | None = None,
+        name=None,
+    ):
+        self._init = _validate_init("Derivative", init)
+        self._calls = 0
+        super().__init__(
+            dt=dt,
+            poly_order=poly_order,
+            name=name,
+            init=self._init,
+        )
+
+    def __call__(self, function):
+        if isinstance(function, (list, tuple)) and len(function) == 1:
+            function = function[0]
+        if not isinstance(function, Stream):
+            raise TypeError(
+                f"{self.name}: Derivative expects a Stream input, got "
+                f"{type(function).__name__}."
+            )
+        self._needs_window(function)
+        if function.time != 1:
+            raise ValueError(
+                f"{self.name}: Derivative takes one sample per step, but the "
+                f"signal carries {function.time} time samples. Differentiate a "
+                "time window with DerivativeStep."
+            )
+        if isinstance(self._init, Stream):
+            _check_history(self.name, self._init, function, self.past)
+
+        # Every call differentiates a signal of its own, so each has its own
+        # past.
+        self._calls += 1
+        call_name = self.name if self._calls == 1 else f"{self.name}_{self._calls}"
+        # Named after the signal whose past it holds.
+        past = Input(
+            f"{call_name}_{function.name}",
+            dim=function.dim,
+            seq=_declared_seq(function),
+            sw=self.past,
+        )
+        past._hidden = True
+        derivative = DerivativeStep(
+            dt=self._dt, poly_order=self._poly_order, name=call_name
+        )(past, function)
+        past._feed_back(function, init=self._init)
+        return derivative
+
+    def build_layer(self):
+        raise RuntimeError(
+            f"{self.name}: a Derivative is the DerivativeStep it calls on an "
+            "Input fed back with its signal, not a layer of its own."
+        )

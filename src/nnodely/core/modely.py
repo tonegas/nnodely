@@ -915,44 +915,6 @@ class Modely:
         if self.model is not None:
             self.model.summary()
 
-    def plot(
-        self,
-        out_dir: str | os.PathLike,
-        filename: str | None = None,
-        *,
-        flatten: bool = False,
-        include_minimizers: bool = True,
-        format: str = "png",
-    ) -> None:
-        """Draw the model with Graphviz, as images in ``out_dir``.
-
-        ``out_dir`` is the folder the images are written to; a path ending in
-        an image suffix (``.png``, ``.svg``, ``.pdf``, ...) names the root image
-        instead and its parent becomes the folder. The root image is
-        ``filename``, the model name by default, in ``format``.
-
-        A node shows its name, coloured by its role; an arrow, the shape it
-        carries. Without ``flatten`` every block that wraps a model
-        (``ModelCall``, ``Loop``) is one sub-model node, and its body
-        is drawn in an image of its own, ``<filename>_<body name>``,
-        recursively. With ``flatten`` the whole model is one image, each called
-        sub-model inside a box. The recurrence of a Loop is a ``loop`` arrow,
-        minimizers - unless ``include_minimizers`` is False - are loss nodes,
-        and every image carries a legend. Needs the Graphviz ``dot`` program;
-        without it the DOT source of each image is written instead, with a
-        warning.
-        """
-        from nnodely.utils.graphviz_plot import plot_graphviz
-
-        plot_graphviz(
-            model=self,
-            out_dir=out_dir,
-            filename=filename,
-            flatten=flatten,
-            include_minimizers=include_minimizers,
-            format=format,
-        )
-
     # -------------------------------------------------------------------------
     # Save and load
     # -------------------------------------------------------------------------

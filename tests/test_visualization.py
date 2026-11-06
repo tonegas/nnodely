@@ -1,8 +1,6 @@
 import pytest
 import json
 import re
-import shutil
-from pathlib import Path
 
 from nnodely import (
     Input,
@@ -21,7 +19,7 @@ from nnodely import (
 )
 
 
-def test_plot_and_export_html(tmp_path):
+def test_export_html_writes_the_root_page(tmp_path):
     x = Input("x", dim=1, sw=3)
     out = Output("out", Fir(features=1)([x]))
     model = Modely("plot_model", inputs=[x], outputs=[out])
@@ -54,10 +52,6 @@ def test_model_composed_visualization(tmp_path):
     model2 = Modely("composed_model", inputs=[z], outputs=[z_out])
     model2.build()
 
-    # ------- Model visualization -------
-    model1.plot(tmp_path, "model1")
-    model2.plot(tmp_path, "model2")
-
     # ------- Model export to HTML -------
     model1.export_html(out_dir=tmp_path, filename="model1")
     model2.export_html(out_dir=tmp_path, filename="model2")
@@ -87,8 +81,6 @@ def test_multiple_model_composed_visualization(tmp_path):
 
     # ------- Visualize the Flatten model -------
     model3.export_html(out_dir=tmp_path, filename="model3")
-    model3.plot(tmp_path, "model3_standard")
-    model3.plot(tmp_path, "model3_flattened", flatten=True)
 
 
 def test_visualize_high_level_blocks(tmp_path):
@@ -108,10 +100,8 @@ def test_visualize_high_level_blocks(tmp_path):
     model = Modely(name="model", inputs=[input], outputs=[output])
     model_flat = model.flatten()
 
-    model.plot(tmp_path, "model_tangent")
-    model_flat.plot(tmp_path, "model_tangent_flat")
-
     model.export_html(out_dir=tmp_path, filename="model_tangent")
+    model_flat.export_html(out_dir=tmp_path, filename="model_tangent_flat")
 
 
 def test_export_html_accepts_a_file_path(tmp_path):
@@ -299,79 +289,6 @@ def test_a_loop_inlined_from_a_called_model_reads_the_streams_the_call_binds(
     assert "bound_y0" not in table
 
 
-def _minimized_plot_model(name):
-    x = Input(f"{name}_x", dim=1, sw=3)
-    y = Input(f"{name}_y", dim=1, sw=1)
-    out = Output(f"{name}_out", Fir(features=1)([x]))
-    model = Modely(name, inputs=[x, y], outputs=[out])
-    model.minimize(f"{name}_fit", out, y)
-    return model.build()
-
-
-def _dot_sources(model, out_dir, monkeypatch, **kwargs) -> dict[str, str]:
-    """The DOT source of every image ``plot`` draws, by file stem.
-
-    The ``dot`` program is made unavailable, so each image is written as its
-    DOT source - exactly what would have been drawn - without Graphviz.
-    """
-    import graphviz
-
-    def no_dot(*args, **kwargs):
-        raise graphviz.ExecutableNotFound(["dot"])
-
-    monkeypatch.setattr(graphviz.Digraph, "render", no_dot)
-    with pytest.warns(UserWarning, match="dot program was not found"):
-        model.plot(out_dir, **kwargs)
-    return {
-        path.stem: path.read_text(encoding="utf-8")
-        for path in sorted(Path(out_dir).glob("*.gv"))
-    }
-
-
-def _card_colour(source: str, node: str) -> str:
-    """The fill colour of the card drawn for ``node``."""
-    match = re.search(
-        rf'^\s*"?{re.escape(node)}"? \[label=<<TABLE[^>]*BGCOLOR="([^"]+)"',
-        source,
-        re.M,
-    )
-    assert match is not None, f"no card for {node!r}"
-    return match.group(1)
-
-
-requires_dot = pytest.mark.skipif(
-    shutil.which("dot") is None,
-    reason="drawing an image needs Graphviz's dot program, which is not installed",
-)
-
-
-def test_plot_names_a_minimizer_after_itself(tmp_path, monkeypatch):
-    # Once labelled with the loss function's repr, memory address included.
-    source = _dot_sources(_minimized_plot_model("labelled"), tmp_path, monkeypatch)[
-        "labelled"
-    ]
-
-    assert ">labelled_fit</B>" in source
-    assert " at 0x" not in source
-
-
-@requires_dot
-def test_plot_draws_into_a_folder_with_a_dot_in_its_name(tmp_path):
-    model = _minimized_plot_model("dotted")
-
-    model.plot(tmp_path / "run.1")
-
-    assert (tmp_path / "run.1" / "dotted.png").read_bytes().startswith(b"\x89PNG")
-
-
-def test_plot_without_graphviz_writes_the_dot_source_and_warns(tmp_path, monkeypatch):
-    # Once wrote the DOT text into the .png itself, without a word.
-    sources = _dot_sources(_minimized_plot_model("undrawn"), tmp_path, monkeypatch)
-
-    assert not (tmp_path / "undrawn.png").exists()
-    assert sources["undrawn"].startswith("digraph")
-
-
 def test_export_html_escapes_the_names_it_shows(tmp_path):
     # Once inserted raw: a name could close the page's <script>, or run its own.
     x = Input("escaped_x", sw=2)
@@ -403,217 +320,6 @@ def test_export_html_loads_a_pinned_vis_network(tmp_path):
         in page
     )
     assert 'integrity="sha384-' in page
-
-
-# ---------------------------------------------------------------------------
-# plot(): one image per model, or one flattened image, in the nnodely style
-# ---------------------------------------------------------------------------
-
-
-def _nested_models():
-    """model3 calls model2, which calls model1."""
-    x = Input("nest_x", sw=5)
-    model1 = Modely(
-        "model1",
-        inputs=[x],
-        outputs=[Output("nest_x_out", x * Parameter("nest_p"))],
-    ).build()
-    y = Input("nest_y", sw=5)
-    model2 = Modely(
-        "model2",
-        inputs=[y],
-        outputs=[Output("nest_y_out", Fir(features=1)([model1([y])]))],
-    ).build()
-    z = Input("nest_z", sw=5)
-    return Modely(
-        "model3",
-        inputs=[z],
-        outputs=[Output("nest_z_out", Fir(features=1)([model2([z])]))],
-    ).build()
-
-
-def _looped_model():
-    state, force = Input("loop_state", sw=1), Input("loop_force", sw=1)
-    nxt = Output("loop_next", Linear(bias=False)(state) + force)
-    body = Modely("step_body", inputs=[state, force], outputs=[nxt]).build()
-    seed, forces = Input("loop_seed", sw=1), Input("loop_forces", seq=-1, sw=1)
-    trajectory = Loop(
-        f=body, feedback={state: nxt}, name="sim_loop", init={state: seed}
-    )({force: forces})
-    return Modely(
-        "simulator", inputs=[seed, forces], outputs=[Output("loop_traj", trajectory)]
-    ).build()
-
-
-def test_plot_names_the_root_image_after_the_model(tmp_path, monkeypatch):
-    sources = _dot_sources(
-        _minimized_plot_model("named"), tmp_path / "figs", monkeypatch
-    )
-    assert list(sources) == ["named"]
-
-    renamed = _dot_sources(
-        _minimized_plot_model("renamed"),
-        tmp_path / "other",
-        monkeypatch,
-        filename="chosen",
-    )
-    assert list(renamed) == ["chosen"]
-
-
-def test_plot_draws_every_nested_body_in_an_image_of_its_own(tmp_path, monkeypatch):
-    sources = _dot_sources(_nested_models(), tmp_path, monkeypatch, filename="graph")
-
-    assert set(sources) == {"graph", "graph_model2", "graph_model2_model1"}
-    # The call of a sub-model is one SubModel node of the graph that calls it.
-    assert _card_colour(sources["graph"], "model2_call") == "#6C75DF"
-    assert _card_colour(sources["graph_model2"], "model1_call") == "#6C75DF"
-
-
-def test_plot_draws_a_body_called_twice_once(tmp_path, monkeypatch):
-    x = Input("twice_x", sw=1)
-    body = Modely(
-        "twice_body", inputs=[x], outputs=[Output("twice_out", Sin(x))]
-    ).build()
-    y = Input("twice_y", sw=1)
-    model = Modely(
-        "twice",
-        inputs=[y],
-        outputs=[Output("twice_sum", body([y]) + body([y]))],
-    ).build()
-
-    sources = _dot_sources(model, tmp_path, monkeypatch)
-
-    assert set(sources) == {"twice", "twice_twice_body"}
-
-
-def test_flattened_plot_is_one_image_with_a_box_per_sub_model(tmp_path, monkeypatch):
-    sources = _dot_sources(_nested_models(), tmp_path, monkeypatch, flatten=True)
-
-    assert list(sources) == ["model3"]
-    source = sources["model3"]
-    assert source.count("subgraph cluster_") == 2
-    # model1's box, labelled with its name, is drawn inside model2's.
-    assert source.index(">model2</B>") < source.index(">model1</B>")
-    assert "model2_call" not in re.findall(r'^\s*"?([\w/]+)"? \[label', source, re.M)
-
-
-def test_plot_draws_a_loop_as_a_sub_model_and_its_recurrence_as_an_arrow(
-    tmp_path, monkeypatch
-):
-    sources = _dot_sources(_looped_model(), tmp_path, monkeypatch)
-
-    assert set(sources) == {"simulator", "simulator_step_body"}
-    # A Loop has a body, so it is a SubModel node: no Loop block of its own.
-    assert _card_colour(sources["simulator"], "sim_loop") == "#6C75DF"
-    # Its body draws the feedback the Loop closes, as an orange "loop" arrow.
-    feedback = re.search(
-        r"loop_next -> loop_state \[([^\]]*)\]", sources["simulator_step_body"]
-    )
-    assert feedback is not None
-    assert "<B>loop</B>" in feedback.group(1)
-    assert "#F28C28" in feedback.group(1) and "constraint=false" in feedback.group(1)
-
-
-def test_flattened_plot_draws_a_loop_by_its_arrow_alone(tmp_path, monkeypatch):
-    source = _dot_sources(_looped_model(), tmp_path, monkeypatch, flatten=True)[
-        "simulator"
-    ]
-
-    assert "subgraph cluster_" not in source  # no box around a Loop body
-    assert re.search(
-        r'"sim_loop/loop_next" -> "sim_loop/loop_state" \[[^\]]*<B>loop</B>', source
-    )
-
-
-def test_plot_writes_the_shape_on_the_arrows_and_only_the_name_on_the_cards(
-    tmp_path, monkeypatch
-):
-    acc = Input("dyn_acc", seq=-1, sw=1)
-    model = Modely(
-        "dynamic",
-        inputs=[acc],
-        outputs=[Output("dyn_vel", Sin()([acc]))],
-    ).build()
-
-    root = _dot_sources(model, tmp_path, monkeypatch)["dynamic"]
-
-    assert re.search(r'dyn_acc -> \w+ \[label="\(dyn, 1, 1\)"\]', root)
-    # A card holds its name, and nothing else: no class, no shape.
-    for card in re.findall(r"<TABLE BORDER=\"1\".*?</TABLE>", root):
-        assert card.count("<TD>") == 1
-    assert "dim" not in root
-
-
-def test_every_image_carries_the_logo_and_the_legend(tmp_path, monkeypatch):
-    for source in _dot_sources(_looped_model(), tmp_path, monkeypatch).values():
-        assert "logo.png" in source
-        legend = re.findall(
-            r'<TD ALIGN="LEFT"><FONT POINT-SIZE="9"[^>]*>([^<]+)</FONT>', source
-        )
-        assert legend == [
-            "Input", "Output", "Parameter", "Constant", "SubModel", "Loss", "loop"
-        ]  # fmt: skip
-
-
-def test_plot_can_leave_the_minimizers_out(tmp_path, monkeypatch):
-    with_loss = _dot_sources(
-        _minimized_plot_model("with_loss"), tmp_path / "a", monkeypatch
-    )
-    without = _dot_sources(
-        _minimized_plot_model("without_loss"),
-        tmp_path / "b",
-        monkeypatch,
-        include_minimizers=False,
-    )
-
-    assert "__loss_with_loss_fit" in with_loss["with_loss"]
-    assert "__loss_" not in without["without_loss"]
-
-
-def test_plot_colours_inputs_green_and_outputs_red(tmp_path, monkeypatch):
-    source = _dot_sources(_minimized_plot_model("coloured"), tmp_path, monkeypatch)[
-        "coloured"
-    ]
-
-    assert _card_colour(source, "coloured_x") == "#2ECC71"
-    assert _card_colour(source, "coloured_out") == "#E74C3C"
-    # A target no output reads is drawn as the Input it is a window of.
-    assert _card_colour(source, "coloured_y") == "#2ECC71"
-
-
-@requires_dot
-def test_plot_writes_the_format_its_path_names(tmp_path):
-    model = _minimized_plot_model("formats")
-
-    model.plot(tmp_path / "graph.svg")
-    model.plot(tmp_path, "document", format="pdf")
-
-    assert b"<svg" in (tmp_path / "graph.svg").read_bytes()
-    assert (tmp_path / "document.pdf").read_bytes().startswith(b"%PDF")
-
-
-@requires_dot
-def test_plot_draws_names_graphviz_would_misread(tmp_path):
-    # Names go into HTML-like labels, where <, > and & would break the image.
-    x = Input("in<put>&", sw=2)
-    model = Modely(
-        "odd<&>names",
-        inputs=[x],
-        outputs=[Output("out&<1>", Fir(features=1)([x]))],
-    ).build()
-
-    model.plot(tmp_path, "odd")
-
-    assert (tmp_path / "odd.png").read_bytes().startswith(b"\x89PNG")
-
-
-@requires_dot
-def test_plot_draws_every_image_of_a_nested_model(tmp_path):
-    _nested_models().plot(tmp_path, "nested")
-    _looped_model().plot(tmp_path, "looped", flatten=True)
-
-    for name in ("nested", "nested_model2", "nested_model2_model1", "looped"):
-        assert (tmp_path / f"{name}.png").read_bytes().startswith(b"\x89PNG")
 
 
 def _equation_learner(name, functions, features, linear_out=None):

@@ -408,9 +408,7 @@ Inspecting a model
    print(vehicle)            # the nodes of the graph, in evaluation order
    vehicle.summary()         # the Keras summary of the built model
 
-   vehicle.export_html("model_html")             # interactive graph, one page per sub-model
-   vehicle.plot("figures")                       # figures/vehicle.png, one image per sub-model
-   vehicle.plot("figures", "all", flatten=True)  # figures/all.png, everything in one image
+   vehicle.export_html("model_html")   # interactive graph, one page per sub-model
 
 :meth:`~nnodely.Modely.export_html` writes an interactive page you can open in
 a browser. Every node is a card with its name and what it is, coloured by its
@@ -422,17 +420,3 @@ reads and feeds, and highlights everything it depends on or feeds; a
 sub-model opens on a page of its own with a double-click. The flattened page
 splices every sub-model in, its body inside a shaded region. The graph is laid
 out left to right, or by a force simulation (``physics``).
-:meth:`~nnodely.Modely.plot` draws static images with Graphviz,
-whose ``dot`` program must be installed on the system. Like ``export_html`` it
-takes a folder and a file name, the model's name by default; a path with an
-image suffix (``"model.svg"``) names the file and its format.
-
-Each node shows its name, coloured by its role - inputs green, outputs red,
-parameters, constants, sub-models and losses as in the legend - and each arrow
-the shape it carries, a dynamic sequence axis written ``dyn``. Without
-``flatten``, every block that wraps a model - a sub-model call or a
-:class:`~nnodely.Loop` - is one sub-model node, and its body is drawn in an
-image of its own named ``<filename>_<body name>``, recursively. With
-``flatten=True`` the whole model is one image, each called sub-model inside a
-box. A Loop is shown by its arrow alone: an orange ``loop`` arrow back to the
-input it feeds.

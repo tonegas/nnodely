@@ -240,7 +240,7 @@ def test_reductions(layer_class, reference, axis, reference_axis, expected_dim):
 def test_norm_gradient():
     # ------- Test the gradient of the norm, 0 at the zero vector -------
     x = Input("x", dim=3, sw=1)
-    out = Output("out", Gradient(respect_to=x)(Norm()(x)))
+    out = Output("out", Gradient(wrt=x)(Norm()(x)))
     model = Modely("arithmetic_norm_gradient_model", inputs=[x], outputs=[out])
     model.build()
 

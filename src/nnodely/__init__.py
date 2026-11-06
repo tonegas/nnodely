@@ -45,8 +45,8 @@ from nnodely.layers.function import KerasFunction
 from nnodely.layers.fuzzify import Fuzzify, Gaussian, Rectangular, Triangular
 from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.equationlearner import EquationLearner
-from nnodely.layers.derivative import Derivative, DerivativeStep, Gradient
-from nnodely.layers.integrate import Integrate, IntegrateStep
+from nnodely.layers.calculus import Derivative, DerivativeStep, Integrate, IntegrateStep
+from nnodely.layers.gradient import Gradient
 from nnodely.layers.partitions import (
     Concatenate,
     Range,
