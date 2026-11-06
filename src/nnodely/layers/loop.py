@@ -937,16 +937,16 @@ class Loop(Layer):
     def _initial_values(self) -> list[Stream]:
         """The initial value of every state, in their order: the first
         predecessors."""
-        return list(self._preds[: len(self._feedback_inputs)])
+        return list(self._preds[: len(self._feedback_inputs)])  # type: ignore
 
     @property
     def _static_sources(self) -> list[Stream]:
         """The outer stream of every body input that is not fed back, in the
         order of the static inputs: the predecessors after the initial
         values."""
-        return list(self._preds[len(self._feedback_inputs) :])
+        return list(self._preds[len(self._feedback_inputs) :])  # type: ignore
 
-    def __call__(self, inputs: dict | list | tuple | Stream | None = None):  # type: ignore[override]
+    def __call__(self, inputs: dict | list | tuple | Stream | None = None):
         """Bind the loop to its outer inputs, seeded with its ``init``.
 
         ``inputs`` is a dict keyed by body input or input name, a list with

@@ -435,7 +435,7 @@ def test_outputs_tells_what_each_output_is():
         outputs=[Output("oc_outs_level_next", level_next), doubled],
     )
     tank.minimize("fit", "oc_outs_level_next", Input("oc_outs_target", sw=1))
-    tank.minimize("reg", doubled._preds[0], 0.0)
+    tank.minimize("reg", doubled, 0.0)
 
     # A list of the declared Outputs, in their order.
     assert [output.name for output in tank.outputs] == [
