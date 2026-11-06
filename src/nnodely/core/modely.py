@@ -573,8 +573,8 @@ class Modely:
         changes this model too. Picked by name, or by position as in a list,
         and printed as a table of their inputs, outputs and Parameters.
 
-        A model called as a block is inlined when saved, so a loaded model
-        lists only the bodies of its Loops."""
+        Each is saved in a folder of its own, so a loaded model lists the same
+        ones."""
         return Models(_nodes_and_models(self)[1][1:], title=f"Models of {self.name}")
 
     @property
@@ -977,10 +977,14 @@ class Modely:
 
     def save(self, path, weights: bool = True):
         """Save the model - its graph, and its weights unless ``weights`` is
-        False - to ``path``.
+        False - to the folder ``path``.
 
-        Without weights only the architecture is saved, to be trained later
-        or elsewhere: loading it initializes the weights as ``build()`` does.
+        Every model it calls as a block, or rolls out in a Loop, is saved the
+        same way in a folder of its own inside ``path``, named after it, and
+        theirs inside theirs: the loaded model calls them again, and each
+        folder is a model that loads on its own. Without weights only the
+        architecture is saved, to be trained later or elsewhere: loading it
+        initializes the weights as ``build()`` does.
         """
         ModelSerializer.serialize(self, path, weights=weights)
 
@@ -990,8 +994,11 @@ class Modely:
         ``weights`` is False or it was saved without them.
 
         A model loaded without weights is initialized as ``build()`` does. The
-        loaded layers are layers of their own: one added to the model, or
-        another model loaded from the same file, never shares their weights.
+        models it calls are loaded from their folders, each once however many
+        times it is called, and so is every Parameter, Constant or Input they
+        share. The loaded layers are layers of their own: one added to the
+        model, or another model loaded from the same file, never shares their
+        weights.
         """
         return ModelSerializer.load(path, weights=weights)
 
@@ -1108,9 +1115,7 @@ class Models(list):
         if not positions:
             raise KeyError(
                 f"{self._title or 'Models'}: no model named {key!r}; the names "
-                f"are {[model.name for model in self]}. A model called as a "
-                "block is inlined when saved: a loaded model lists only the "
-                "bodies of its Loops."
+                f"are {[model.name for model in self]}."
             )
         return super().__getitem__(positions[0])
 

@@ -251,5 +251,5 @@ it an output of the called model; to give the called model the caller's
 state, declare an Input for it in the called model and pass the state in the
 call. A model called with a stream for a fed-back Input it declares keeps its
 feedback, and reads that stream as its initial value. A model is saved with
-its fed-back Inputs: loaded back, it feeds them back as before, and a Loop
-finds them again.
+its fed-back Inputs, and so are the models it calls: loaded back, they feed
+them back as before, and a Loop finds them again.

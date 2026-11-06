@@ -53,6 +53,9 @@ training, until ``block.unfreeze()``. The outer model freezes it by its name
 as well, ``controller.freeze("smoother")``, and a list of names freezes
 several blocks, or Parameters, at once.
 
+Saving the larger model keeps its blocks: each is saved in a folder of its own,
+with its weights, and the loaded model calls them again (see :doc:`export`).
+
 Calling the same block several times shares its weights between the calls, as
 reusing a layer does:
 

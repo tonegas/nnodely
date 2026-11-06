@@ -1440,7 +1440,12 @@ def test_save_load_leaves_minimizers_out(tmp_path):
     assert [node.name for node in restored.train_inputs] == ["minimized_x"]
     saved = json.loads((tmp_path / "saved" / "model.json").read_text(encoding="utf-8"))
     saved_names = {node["config"]["name"] for node in saved["nodes"]}
-    assert "minimized_target" not in saved_names
+    # The target is one of the inputs the model is declared with, so it is
+    # saved with it; nothing the model computes reads it.
+    assert [node.name for node in restored._inputs] == [
+        "minimized_x",
+        "minimized_target",
+    ]
     assert "minimized_auxiliary" not in saved_names
     # The auxiliary layer trains with the model, but is not part of it.
     assert model.model is not None and model.inference_model is not None
@@ -1731,6 +1736,174 @@ def test_a_custom_layer_saves_through_the_configs_it_inherits(tmp_path):
     values = {"cascade_x": np.arange(4.0, dtype=np.float32).reshape(1, 2, 2)}
     np.testing.assert_allclose(
         to_numpy(restored(values)["cascade_out"]), [[[0.0, 3.0], [4.0, 9.0]]]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Models saved in cascade: every model a model calls in a folder of its own
+# ---------------------------------------------------------------------------
+
+
+def _cascade_block(name):
+    s = Input(f"{name}_s", sw=3)
+    return Modely(
+        name, inputs=[s], outputs=[Output(f"{name}_out", Fir(features=1)([s]))]
+    )
+
+
+def _window(seed=0):
+    return np.random.default_rng(seed).normal(size=(2, 3, 1)).astype(np.float32)
+
+
+def test_a_called_model_is_saved_in_a_folder_of_its_own(tmp_path):
+    block = _cascade_block("cf_block").build()
+    x = Input("cf_x", sw=3)
+    gain = Parameter("cf_gain", value=[2.0])
+    model = Modely(
+        "cf_model", inputs=[x], outputs=[Output("cf_out", block([x]) * gain)]
+    ).build()
+    _randomize_trainable_weights(model)
+    inputs = {"cf_x": _window()}
+    _assert_round_trip(model, inputs, tmp_path)
+
+    saved = tmp_path / "saved"
+    assert sorted(p.name for p in (saved / "cf_block").iterdir()) == [
+        "model.json",
+        "model.weights.h5",
+    ]
+    loaded = Modely.load(saved)
+    assert [m.name for m in loaded.models] == ["cf_block"]
+    # The folder is the block, with the weights the model computes with.
+    alone = Modely.load(saved / "cf_block")
+    np.testing.assert_allclose(
+        to_numpy(alone({"cf_block_s": inputs["cf_x"]})["cf_block_out"]),
+        to_numpy(block({"cf_block_s": inputs["cf_x"]})["cf_block_out"]),
+        rtol=1e-6,
+    )
+    # Reached by its name, as before saving.
+    loaded.freeze("cf_block")
+    assert [(p.name, p.trainable) for p in loaded.parameters] == [
+        ("cf_gain", True),
+        *((p.name, False) for p in block.parameters),
+    ]
+
+
+def test_a_model_called_several_times_is_saved_once_and_loaded_as_one(tmp_path):
+    block = _cascade_block("co_block").build()
+    calls = [Input(f"co_x{i}", sw=3) for i in range(3)]
+    total = block([calls[0]]) + block([calls[1]]) + block([calls[2]])
+    model = Modely("co_model", inputs=calls, outputs=[Output("co_out", total)]).build()
+    _randomize_trainable_weights(model)
+    _assert_round_trip(model, {f"co_x{i}": _window(i) for i in range(3)}, tmp_path)
+
+    saved = tmp_path / "saved"
+    assert sorted(p.name for p in saved.iterdir() if p.is_dir()) == ["co_block"]
+    loaded = Modely.load(saved)
+    assert [m.name for m in loaded.models] == ["co_block"]
+
+
+def test_a_called_model_built_only_by_its_caller_is_saved_with_its_weights(tmp_path):
+    # Its weights are created by the caller's build; the block is built to
+    # write them in its own folder too.
+    block = _cascade_block("cb_block")
+    x = Input("cb_x", sw=3)
+    model = Modely("cb_model", inputs=[x], outputs=[Output("cb_out", block([x]))])
+    _randomize_trainable_weights(model.build())
+    assert not block.built
+    model.save(tmp_path / "cb_model")
+
+    alone = Modely.load(tmp_path / "cb_model" / "cb_block")
+    np.testing.assert_allclose(
+        to_numpy(alone({"cb_block_s": _window()})["cb_block_out"]),
+        to_numpy(model({"cb_x": _window()})["cb_out"]),
+        rtol=1e-6,
+    )
+
+
+def test_an_input_a_called_model_reads_undeclared_is_one_input_once_loaded(tmp_path):
+    # The block reads z without declaring it: z is the caller's input too,
+    # and saved in both folders it has to come back as one Input.
+    z, s = Input("cu_z", sw=1), Input("cu_s", sw=3)
+    block = Modely(
+        "cu_block", inputs=[s], outputs=[Output("cu_bo", Fir(features=1)([s]) + z)]
+    ).build()
+    x = Input("cu_x", sw=3)
+    model = Modely(
+        "cu_model", inputs=[x, z], outputs=[Output("cu_out", block([x]) * z)]
+    ).build()
+    _randomize_trainable_weights(model)
+    inputs = {"cu_x": _window(), "cu_z": _window(1)[:, :1]}
+    _assert_round_trip(model, inputs, tmp_path)
+    loaded = Modely.load(tmp_path / "saved")
+    assert [node.name for node in loaded.train_inputs] == ["cu_x", "cu_z"]
+
+
+def test_parameters_of_one_name_keep_their_order_once_loaded(tmp_path):
+    # Inlined, a block's Parameters used to come back in another order, and
+    # parameters[name] picked another one of that name.
+    xi, ki = Input("x", sw=3), Parameter("k", value=[2.0])
+    inner = Modely(
+        "cn_inner", inputs=[xi], outputs=[Output("y", Fir(features=1)([xi]) * ki)]
+    ).build()
+    xo, ko = Input("x", sw=3), Parameter("k", value=[10.0])
+    model = Modely(
+        "cn_model", inputs=[xo], outputs=[Output("total", inner([xo]) + xo * ko)]
+    ).build()
+    model.save(tmp_path / "cn_model")
+    loaded = Modely.load(tmp_path / "cn_model")
+
+    assert [p.name for p in loaded.parameters] == [p.name for p in model.parameters]
+    np.testing.assert_allclose(to_numpy(loaded.parameters["k"].param), [10.0])
+
+
+def test_a_model_called_in_a_loop_body_and_outside_is_one_model_once_loaded(tmp_path):
+    gain = Parameter("cl_gain", value=[0.5])
+    f = Input("cl_f", sw=1)
+    scaled = Modely("cl_scaled", inputs=[f], outputs=[Output("cl_so", f * gain)])
+    state, push = Input("cl_state", sw=1), Input("cl_push", sw=1)
+    next_state = Output("cl_next", state + scaled([push]))
+    body = Modely("cl_body", inputs=[state, push], outputs=[next_state]).build()
+    start, pushes = Input("cl_start", sw=1), Input("cl_pushes", seq=4, sw=1)
+    rollout = Loop(f=body, feedback={state: next_state}, init={state: start})(
+        {push: pushes}
+    )
+    model = Modely(
+        "cl_model",
+        inputs=[start, pushes],
+        outputs=[Output("cl_roll", rollout), Output("cl_once", scaled([start]))],
+    ).build()
+    inputs = {
+        "cl_start": np.ones((2, 1, 1), np.float32),
+        "cl_pushes": np.ones((2, 4, 1, 1), np.float32),
+    }
+    _assert_round_trip(model, inputs, tmp_path)
+
+    saved = tmp_path / "saved"
+    folders = sorted(str(p.relative_to(saved)) for p in saved.rglob("*") if p.is_dir())
+    assert len(folders) == 3 and "cl_scaled" in folders
+    loaded = Modely.load(saved)
+    assert [m.name for m in loaded.models] == [m.name for m in model.models]
+    # One model, so one gain: changing it changes both of its calls.
+    loaded.models["cl_scaled"].parameters["cl_gain"].param.assign([1.0])
+    result = loaded(dict(inputs))
+    np.testing.assert_allclose(to_numpy(result["cl_once"]).ravel(), [1.0, 1.0])
+    np.testing.assert_allclose(
+        to_numpy(result["cl_roll"])[0].ravel(), [2.0, 3.0, 4.0, 5.0]
+    )
+
+
+def test_a_declared_input_nothing_reads_is_saved(tmp_path):
+    # It is part of how the model is called: a list holds a value for it.
+    x, unused = Input("cd_x", sw=3), Input("cd_unused", sw=1)
+    model = Modely(
+        "cd_model", inputs=[x, unused], outputs=[Output("cd_out", Fir(features=1)([x]))]
+    ).build()
+    model.save(tmp_path / "cd_model")
+    loaded = Modely.load(tmp_path / "cd_model")
+    assert [node.name for node in loaded._inputs] == ["cd_x", "cd_unused"]
+    values = [_window(), np.zeros((2, 1, 1), np.float32)]
+    np.testing.assert_allclose(
+        to_numpy(loaded(values)["cd_out"]), to_numpy(model(values)["cd_out"]), rtol=1e-6
     )
 
 

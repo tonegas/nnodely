@@ -52,7 +52,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   Input too.
 - A `Parameter` or `Constant` read by several models - Loop bodies, blocks,
   the outer model - is one object in the saved model too: loaded once,
-  listed once, frozen once.
+  listed once, frozen once. So is an Input a block reads without declaring
+  it, and a model called in several places.
 - `export_keras` writes a stand-alone copy that `import_keras` gives back
   for every model: a weight read from several Keras graphs - a body rolled
   out by two Loops, a Parameter read inside and outside a body, a block also
@@ -265,8 +266,14 @@ variable, and trains, validates and exports through Keras. Models saved with
   *dim)` to `(*seq, time, features)`, or only one dim axis with `axis=k`: with a matrix and a
   bias for each position of the other dim axes, as the elements of a `Fir`, or
   with `shared_kernel=True` one for all.
-- `save(path, weights=True)` / `Modely.load(path, weights=True)`, Keras and
-  ONNX export, and interactive HTML graphs. The HTML graph colours every node
+- `save(path, weights=True)` / `Modely.load(path, weights=True)`, in
+  cascade: the path is a folder with the model's graph and weights, and
+  every model it calls as a block, or rolls out in a `Loop`, saved the same
+  way in a folder of its own, nested as the models are. The loaded model
+  calls the same models - `models` lists them, `freeze` reaches them by
+  name, one called several times is one model again - keeps the feedback of
+  the fed-back Inputs they declare, and each folder loads on its own. Keras
+  and ONNX export, and interactive HTML graphs. The HTML graph colours every node
   by its role, with a legend that highlights a role,
   a panel that explains the node selected - its shape axis by axis, what it
   reads and feeds - search, and the flattened page draws each sub-model's
@@ -326,12 +333,13 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
   history, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
-- The `.nnodely` save format is version 10: a fed-back Input is saved with
-  the stream it is fed back with and the `init` of the layer that keeps it,
-  and a `Loop` with the outputs it returns. Saves and `.keras` exports made
+- The `.nnodely` save format is version 11: a model is saved with every
+  model it calls in a folder of its own, a fed-back Input with the stream it
+  is fed back with and the `init` of the layer that keeps it, and a `Loop`
+  with the outputs it returns. Saves and `.keras` exports made
   with the 2.0 pre-releases, in which windows were taken from an Input,
   streams had several time axes or were laid out `(batch, *dim, time,
-  *seq)`, or fed-back Inputs were saved open, or a `Fuzzify` was a graph of one layer per center, or a `PReLU` or `BatchNorm` held its weights in its Keras layer, do not load;
+  *seq)`, or fed-back Inputs were saved open, or a `Fuzzify` was a graph of one layer per center, or a `PReLU` or `BatchNorm` held its weights in its Keras layer, or blocks were inlined, do not load;
   nor do saves of an earlier format version.
 - The stream fed back into an Input is named `feedback` everywhere:
   `Input.feedback(stream)` and `Loop(feedback=)` (was `callback=`). The old

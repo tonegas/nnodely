@@ -4,42 +4,16 @@ from pathlib import Path
 from nnodely.core.stream import NODE_REGISTRY, Node
 
 
-def _bound_fed_back(model) -> list[str]:
-    """The fed-back Inputs ``model``, or a model it calls, gives a stream for
-    when it calls a model that declares them: flattened, the call reads that
-    stream in their place, and their feedback is gone."""
-    from nnodely.core.modely import ModelCall
-    from nnodely.layers.input import Input
-
-    bound: set[str] = set()
-    seen: set[int] = set()
-    stack = list(model._outputs)
-    while stack:
-        node = stack.pop()
-        if id(node) in seen:
-            continue
-        seen.add(id(node))
-        if isinstance(node, ModelCall):
-            bound.update(
-                inner.name
-                for inner in node._inputs_map
-                if isinstance(inner, Input) and inner.update is not None
-            )
-            stack.extend(node._model._outputs)
-        if isinstance(node, Input) and node.update is not None:
-            stack.extend(s for s in (node.update, node.init) if isinstance(s, Node))
-        stack.extend(node._preds)
-    return sorted(bound)
-
-
-def _saved_order(flat) -> list:
-    """The nodes of ``flat`` to save, every one after its predecessors: those
-    its outputs are computed from, and those its fed-back Inputs are fed back
-    with, and start from, which are no predecessors of theirs."""
+def _saved_order(model) -> list:
+    """The nodes of ``model``'s own graph to save, every one after its
+    predecessors: those its outputs are computed from, its declared inputs -
+    read or not, they are what it is called with - and those its fed-back
+    Inputs are fed back with, and start from, which are no predecessors of
+    theirs. A model it calls is a node of it, saved in a folder of its own."""
     from nnodely.core.dag import toposort_outputs
     from nnodely.layers.input import Input
 
-    roots = list(flat._outputs)
+    roots = [*model._outputs, *model._inputs]
     while True:
         order = toposort_outputs(roots)
         reached = set(order)
@@ -55,14 +29,31 @@ def _saved_order(flat) -> list:
         roots += extra
 
 
+class _Saving:
+    """What one save shares between the models of the saved tree: an id for
+    every layer object, every Input and every model, the same in every file
+    that writes it, so that what the models share is shared again once
+    loaded."""
+
+    def __init__(self) -> None:
+        self.layers: dict[int, int] = {}
+        self.inputs: dict[int, int] = {}
+        self.models: dict[int, int] = {}
+
+    @staticmethod
+    def id_of(table: dict[int, int], obj) -> int:
+        return table.setdefault(id(obj), len(table))
+
+
 class _Loading:
     """What one load shares between the models of the saved tree.
 
     Every layer was saved under an id, the same for every node applying it
     in any model of the tree. Those nodes are given back one source, so they
     share their weights again, and the Keras layer the first model built for
-    it - a body is built before the model holding it - is handed on to the
-    models built after it.
+    it - a called model, or a body, is built before the model holding it - is
+    handed on to the models built after it. A model and an Input written in
+    several files of the tree are loaded once, and are one object again.
     """
 
     def __init__(self, weights: bool):
@@ -72,6 +63,18 @@ class _Loading:
         self.ids: dict[int, int] = {}  # id(node) -> the id its layer was saved under
         # The Parameters and Constants loaded, by the id they were saved under.
         self.values: dict[int, object] = {}
+        self.inputs: dict[int, object] = {}
+        self.models: dict[int, object] = {}
+
+    def model(self, node_data: dict, path: Path):
+        """The model a node calls, or rolls out, loaded from its folder the
+        first time the tree names it."""
+        model_id = node_data["model_id"]
+        if model_id not in self.models:
+            self.models[model_id] = ModelSerializer.load(
+                path / node_data["model"], loading=self
+            )
+        return self.models[model_id]
 
     def restore(self, node, layer_id: int | None) -> None:
         if layer_id is None:
@@ -91,44 +94,31 @@ class _Loading:
 
 class ModelSerializer:
     FORMAT = "nnodely"
-    VERSION = 10
+    VERSION = 11
 
     @staticmethod
-    def serialize(model, path, *, weights=True, layer_ids=None):
+    def serialize(model, path, *, weights=True, saving=None):
+        """Write ``model`` to the folder ``path``: its own graph in
+        ``model.json``, its weights in ``model.weights.h5``, and every model
+        it calls as a block, or rolls out in a Loop, in a folder of its own,
+        written the same way - so the models nest as their folders do, and
+        each folder is a model that loads on its own."""
         from nnodely.core.layer import Layer
-        from nnodely.core.modely import Modely
+        from nnodely.core.modely import IntermediateOutput, ModelCall, Modely
         from nnodely.layers.input import Input
         from nnodely.layers.parameter import Constant
 
-        # One id per layer object, shared by every model the save writes: a
-        # Parameter used by two bodies, or one body rolled out by two Loops,
-        # is one layer when loaded back.
-        layer_ids = {} if layer_ids is None else layer_ids
+        saving = _Saving() if saving is None else saving
         path = Path(path)
         path.mkdir(parents=True, exist_ok=True)
 
-        flat = model.flatten()
-        order = _saved_order(flat)
+        order = _saved_order(model)
         node_ids = {node: f"node_{i}" for i, node in enumerate(order)}
 
-        # What a ModelyLoop calling the loaded model would feed back other
-        # than it feeds back the saved one.
-        bound = _bound_fed_back(model)
-        if bound:
-            warnings.warn(
-                f"Model {model.name!r} calls models that declare the fed-back "
-                f"Inputs {bound}, giving a stream for each: saved, it reads that "
-                "stream in their place, as a Modely does, and keeps nothing of "
-                "their feedback, so a loop that calls the loaded model does not "
-                "feed them back. Save the Loop or ModelyLoop that feeds them "
-                "back instead.",
-                UserWarning,
-                stacklevel=3,
-            )
         if weights and model.inference_model is not None:
             saved = {id(variable) for variable in model.inference_model.weights}
-            # A wrapped body saves its weights with its own model, and a
-            # Constant is its value, saved in its config.
+            # A called model, or a body, saves its weights in its own folder,
+            # and a Constant is its value, saved in its config.
             unsaved = sorted(
                 {
                     node.name
@@ -155,7 +145,9 @@ class ModelSerializer:
                 )
 
         nodes = []
-        folders: set[str] = set()
+        # The folder of every model this one holds, by model: one called
+        # several times is written once.
+        folders: dict[int, str] = {}
 
         for node in order:
             node_data = {
@@ -164,37 +156,64 @@ class ModelSerializer:
                 "config": node.get_config(),
                 "preds": [node_ids[pred] for pred in node._preds],
             }
-            # A fed-back Input keeps the stream it is fed back with and its
-            # init, a number or a node: a loop that calls the loaded model
-            # feeds it back as it would the saved one.
-            if isinstance(node, Input) and node.update is not None:
-                node_data["feedback"] = {
-                    "update": node_ids[node.update],
-                    "init": (
-                        node_ids[node.init]
-                        if isinstance(node.init, Node)
-                        else node.init
-                    ),
-                    "hidden": node._hidden,
-                }
+            if isinstance(node, Input):
+                # An Input a called model reads without declaring it is the
+                # one this model reads too: written in both files, it is
+                # loaded as one.
+                node_data["input"] = saving.id_of(saving.inputs, node)
+                # A fed-back Input keeps the stream it is fed back with and
+                # its init, a number or a node: a loop that calls the loaded
+                # model feeds it back as it would the saved one.
+                if node.update is not None:
+                    node_data["feedback"] = {
+                        "update": node_ids[node.update],
+                        "init": (
+                            node_ids[node.init]
+                            if isinstance(node.init, Node)
+                            else node.init
+                        ),
+                        "hidden": node._hidden,
+                    }
             if isinstance(node, Layer):
-                node_data["layer"] = layer_ids.setdefault(
-                    id(node._source), len(layer_ids)
+                node_data["layer"] = saving.id_of(saving.layers, node._source)
+            if isinstance(node, IntermediateOutput):
+                call = node._pred
+                inner = call._outputs_map[node]
+                node_data["output"] = next(
+                    index
+                    for index, output in enumerate(call._model._outputs)
+                    if output is inner
                 )
-            # A block that wraps a model (a Loop) saves that model
-            # as a model of its own, in a folder named after the block, so
-            # nested blocks nest their folders the same way. Two blocks can
-            # share a name, so a folder already taken gets a suffix.
-            body = getattr(node, "_f", None)
-            if isinstance(body, Modely):
-                folder, index = node.name, 1
-                while folder in folders:
-                    folder, index = f"{node.name}_{index}", index + 1
-                folders.add(folder)
+            # A model this one calls as a block, or a Loop rolls out, is saved
+            # as a model of its own, in a folder named after it - the model
+            # called, or the Loop - so nested models nest their folders the
+            # same way. Two can share a name, so a folder already taken gets
+            # a suffix.
+            held = (
+                node._model
+                if isinstance(node, ModelCall)
+                else getattr(node, "_f", None)
+            )
+            if isinstance(held, Modely):
+                folder = folders.get(id(held))
+                if folder is None:
+                    base = held.name if isinstance(node, ModelCall) else node.name
+                    folder, index = base, 1
+                    while folder in folders.values():
+                        folder, index = f"{base}_{index}", index + 1
+                    folders[id(held)] = folder
+                    if weights and not held.built:
+                        # Built for the weights it computes with here - the
+                        # ones this model shares with it - not to run on its
+                        # own: what that would warn about does not apply.
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore", UserWarning)
+                            held.build()
+                    ModelSerializer.serialize(
+                        held, path / folder, weights=weights, saving=saving
+                    )
                 node_data["model"] = folder
-                ModelSerializer.serialize(
-                    body, path / folder, weights=weights, layer_ids=layer_ids
-                )
+                node_data["model_id"] = saving.id_of(saving.models, held)
             nodes.append(node_data)
 
         data = {
@@ -205,8 +224,8 @@ class ModelSerializer:
                 "optional_inputs": sorted(model.optional_inputs),
             },
             "nodes": nodes,
-            "inputs": [node_ids[x] for x in flat._inputs],
-            "outputs": [node_ids[x] for x in flat._outputs],
+            "inputs": [node_ids[x] for x in model._inputs],
+            "outputs": [node_ids[x] for x in model._outputs],
         }
 
         with open(path / "model.json", "w", encoding="utf-8") as f:
@@ -224,7 +243,7 @@ class ModelSerializer:
 
     @staticmethod
     def deserialize(data, path, *, loading):
-        from nnodely.core.modely import Modely
+        from nnodely.core.modely import IntermediateOutput, ModelCall, Modely
         from nnodely.layers.parameter import _Value
 
         if data["model"].get("roll") is not None:
@@ -234,6 +253,8 @@ class ModelSerializer:
             )
 
         node_map = {}
+        # The streams each call returned, by the id of the call.
+        calls: dict[str, list] = {}
 
         for node_data in data["nodes"]:
             cls = NODE_REGISTRY.get(node_data["class_name"])
@@ -245,24 +266,38 @@ class ModelSerializer:
                 )
 
             layer_id = node_data.get("layer")
+            input_id = node_data.get("input")
             # A Parameter or Constant read by several models of the tree is
             # one object, written in the file of each: loaded once, it is the
-            # same object in all of them.
+            # same object in all of them. So is an Input a called model reads
+            # without declaring it.
             if issubclass(cls, _Value) and layer_id in loading.values:
                 node_map[node_data["id"]] = loading.values[layer_id]
                 continue
+            if input_id is not None and input_id in loading.inputs:
+                node_map[node_data["id"]] = loading.inputs[input_id]
+                continue
 
             preds = [node_map[pred_id] for pred_id in node_data["preds"]]
+            if cls is ModelCall:
+                # The called model is loaded, built and given its weights from
+                # its folder, then called on the streams it was called on.
+                returned = loading.model(node_data, path)(preds)
+                calls[node_data["id"]] = (
+                    returned if isinstance(returned, list) else [returned]
+                )
+                node_map[node_data["id"]] = calls[node_data["id"]][0]._pred
+                continue
+            if cls is IntermediateOutput:
+                node_map[node_data["id"]] = calls[node_data["preds"][0]][
+                    node_data["output"]
+                ]
+                continue
             config = node_data["config"]
             if "model" in node_data:
-                # The wrapped model is loaded, built and given its weights
-                # first, then handed to the block as the `f` it was built with.
-                config = {
-                    **config,
-                    "f": ModelSerializer.load(
-                        path / node_data["model"], loading=loading
-                    ),
-                }
+                # The body is loaded, built and given its weights first, then
+                # handed to the block as the `f` it was built with.
+                config = {**config, "f": loading.model(node_data, path)}
             node = cls.from_config(
                 config,
                 preds=preds,
@@ -270,19 +305,23 @@ class ModelSerializer:
             loading.restore(node, layer_id)
             if issubclass(cls, _Value) and layer_id is not None:
                 loading.values[layer_id] = node
+            if input_id is not None:
+                loading.inputs[input_id] = node
             node_map[node_data["id"]] = node
 
         # Fed back once the streams they are fed back with, which read them,
         # exist.
         for node_data in data["nodes"]:
             feedback = node_data.get("feedback")
-            if feedback is not None:
+            state = node_map[node_data["id"]]
+            # An Input loaded in another file of the tree already is.
+            if feedback is not None and state.update is None:
                 init = feedback["init"]
-                node_map[node_data["id"]]._feed_back(
+                state._feed_back(
                     node_map[feedback["update"]],
                     init=node_map[init] if isinstance(init, str) else init,
                 )
-                node_map[node_data["id"]]._hidden = feedback["hidden"]
+                state._hidden = feedback["hidden"]
 
         inputs = [node_map[node_id] for node_id in data["inputs"]]
         outputs = [node_map[node_id] for node_id in data["outputs"]]

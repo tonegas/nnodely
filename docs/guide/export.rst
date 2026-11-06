@@ -46,6 +46,15 @@ composed and exported again. Its layers are layers of their own: a layer added
 to it, the model it was saved from, or another model loaded from the same file
 never share their weights.
 
+The path is a folder: the model's graph in ``model.json``, its weights in
+``model.weights.h5``, and every model it calls as a block, or rolls out in a
+:class:`~nnodely.Loop`, saved the same way in a folder of its own inside it,
+named after that model - nested as the models are. The restored model calls
+the same models: :attr:`~nnodely.Modely.models` lists them, ``freeze`` reaches
+them by name, and a model called several times is one model again. Each folder
+is a model that loads on its own: ``Modely.load("controller.nnodely/smoother")``
+takes a trained block out of the model that holds it.
+
 Weights are saved and loaded by default. ``model.save(path, weights=False)``
 saves the architecture alone, to be trained later or on another machine, and
 ``Modely.load(path, weights=False)`` ignores the saved weights; either way the

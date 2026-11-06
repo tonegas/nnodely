@@ -876,9 +876,9 @@ def test_models_refuses_a_name_two_models_carry():
         caller.models["amb_missing"]
 
 
-def test_a_loaded_model_lists_only_the_bodies_of_its_loops(tmp_path):
-    """Saving inlines a model called as a block, so the loaded model no
-    longer calls it; the body of a Loop is saved as a model of its own."""
+def test_a_loaded_model_lists_the_models_it_was_saved_with(tmp_path):
+    """A model called as a block is saved as a model of its own, as the body
+    of a Loop is, so the loaded model calls it again."""
     from nnodely import Loop
 
     u = Input("saved_u", sw=1)
@@ -899,6 +899,5 @@ def test_a_loaded_model_lists_only_the_bodies_of_its_loops(tmp_path):
     model.save(tmp_path / "saved_model")
     loaded = Modely.load(tmp_path / "saved_model")
 
-    assert [m.name for m in loaded.models] == ["saved_body"]
-    with pytest.raises(KeyError, match="inlined when saved"):
-        loaded.models["saved_block"]
+    assert [m.name for m in loaded.models] == ["saved_block", "saved_body"]
+    assert loaded.models["saved_block"].name == "saved_block"

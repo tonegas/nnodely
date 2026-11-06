@@ -791,8 +791,9 @@ def test_saving_warns_of_feedback_the_loaded_model_would_lose(tmp_path):
         warnings.simplefilter("error", UserWarning)
         plain.save(tmp_path / "oc_warn_plain_arch", weights=False)
 
-    # A call giving a stream for a fed-back Input its model declares:
-    # flattened, the stream replaces the Input.
+    # A call giving a stream for a fed-back Input its model declares: the
+    # called model is saved as it is, in a folder of its own, so the loaded
+    # model keeps the feedback, and saving has nothing to warn about.
     state, drive = Input("oc_warn_state", sw=1), Input("oc_warn_drive", sw=1)
     following = Output("oc_warn_next", state * 0.5 + drive)
     state.feedback(following)
@@ -801,12 +802,24 @@ def test_saving_warns_of_feedback_the_loaded_model_would_lose(tmp_path):
     outer = Modely(
         "oc_warn_outer", inputs=[a, b], outputs=[Output("oc_warn_o", block([a, b]))]
     ).build()
-    with pytest.warns(UserWarning, match=r"fed-back Inputs \['oc_warn_state'\]"):
-        outer.save(tmp_path / "oc_warn_outer")
-    # The model that declares it saves it fed back, and does not warn.
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
-        block.build().save(tmp_path / "oc_warn_block")
+        outer.save(tmp_path / "oc_warn_outer")
+    loaded = Modely.load(tmp_path / "oc_warn_outer")
+    rollouts = []
+    for tag, model in (("original", outer), ("loaded", loaded)):
+        start, push = Input(f"oc_warn_{tag}_a", sw=1), Input(f"oc_warn_{tag}_b", sw=1)
+        out = Output(f"oc_warn_{tag}_o", model([start, push]))
+        loop = ModelyLoop(f"oc_warn_{tag}", inputs=[start, push], outputs=[out])
+        data = {
+            f"oc_warn_{tag}_a": np.zeros((1, 3, 1, 1), np.float32),
+            f"oc_warn_{tag}_b": np.ones((1, 3, 1, 1), np.float32),
+        }
+        rollouts.append(to_numpy(loop.build()(data)[out.name]).ravel())
+    # From 0, fed back at every step: 1, 1 * 0.5 + 1, 1.5 * 0.5 + 1. Read
+    # from the data instead it would stay 0 * 0.5 + 1.
+    np.testing.assert_allclose(rollouts[0], [1.0, 1.5, 1.75])
+    np.testing.assert_allclose(rollouts[1], rollouts[0])
 
 
 @pytest.mark.parametrize("call_first", [True, False])
