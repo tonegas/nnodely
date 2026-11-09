@@ -454,10 +454,14 @@ def _loss_graph(losses: Sequence[float], cols: int, rows: int) -> list[str]:
         return math.log10(loss) if log else loss
 
     low, high = (min(finite), max(finite)) if finite else (None, None)
-    span = scale(high) - scale(low) if finite else 0.0
+    span = scale(high) - scale(low) if low and high else 0.0
     # Never below an eighth: a flat loss is still a line on the axis.
     eighths = [
-        (1 + round((scale(loss) - scale(low)) / span * (rows * 8 - 1)) if span else 1)
+        (
+            1 + round((scale(loss) - scale(low)) / span * (rows * 8 - 1))
+            if span and low
+            else 1
+        )
         if math.isfinite(loss)
         else 0
         for loss in losses

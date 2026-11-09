@@ -123,7 +123,7 @@ def test_legacy_printer_reports_the_training_time(capsys):
 
     ## The last row of the table, across it
     assert lines[-3].startswith("├") and lines[-1].startswith("└")
-    (seconds,) = re.fullmatch(r"│ training time: (\S+) s +│", lines[-2]).groups()
+    (seconds,) = re.fullmatch(r"│ training time: (\S+) s +│", lines[-2]).groups()  # type: ignore
     assert float(seconds) >= 0.0
 
 
@@ -231,7 +231,10 @@ def test_the_nnodely_printer_charts_the_total_loss():
     from nnodely.utils.printers import _loss_graph
 
     def chart(losses, rows):
-        return [re.sub(r"\x1b\[[0-9;]*m", "", line) for line in _loss_graph(losses, 34, rows)]
+        return [
+            re.sub(r"\x1b\[[0-9;]*m", "", line)
+            for line in _loss_graph(losses, 34, rows)
+        ]
 
     # A loss falling over three decades, a column per epoch.
     lines = chart([10.0 ** -(epoch / 4) for epoch in range(13)], 10)
@@ -352,7 +355,7 @@ def test_the_nnodely_printer_redraws_one_output_in_a_notebook(monkeypatch):
     assert len(shown) >= 2 and all("\x1b[38;2" in frame for frame in shown)
     assert "COMPLETE" in shown[-1]
     # The cell's text holds no cursor moves and no frame, only the summary.
-    out = stream.getvalue()
+    out = stream.getvalue()  # type: ignore
     assert not any(code in out for code in ("\x1b[H", "\x1b[2J", "\x1b[?25"))
     assert "nnodely Training Complete" in re.sub(r"\x1b\[[0-9;]*m", "", out)
 
@@ -368,4 +371,4 @@ def test_the_tiny_printer_redraws_one_output_in_a_notebook(monkeypatch):
     # A few times a second, and the last epoch once training ends.
     assert 2 <= len(shown) < 50
     assert "Epoch 50/50" in shown[-1]
-    assert stream.getvalue() == ""
+    assert stream.getvalue() == ""  # type: ignore
