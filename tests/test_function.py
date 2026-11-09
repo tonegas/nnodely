@@ -40,7 +40,7 @@ class Norm(keras.layers.Layer):
 
 
 def test_keras_function_applies_a_keras_layer_to_a_stream():
-    x = Input("kf_x", sw=3)
+    x = Input("kf_x", tw=3)
     cubed = KerasFunction(Power(exponent=3.0))([x])  # an instance
     squared = KerasFunction(Power)([x])  # a class, made with no arguments
     model = Modely(
@@ -57,8 +57,8 @@ def test_keras_function_applies_a_keras_layer_to_a_stream():
 
 
 def test_keras_function_passes_its_streams_as_separate_arguments():
-    a = Input("kf_a", sw=1)
-    b = Input("kf_b", sw=1)
+    a = Input("kf_a", tw=1)
+    b = Input("kf_b", tw=1)
     shifted = KerasFunction(Shifted)([a, b])
     model = Modely(
         "kf_two_inputs", inputs=[a, b], outputs=[Output("kf_shifted", shifted)]
@@ -74,7 +74,7 @@ def test_keras_function_passes_its_streams_as_separate_arguments():
 
 
 def test_keras_function_reads_its_output_shape_off_the_layer():
-    v = Input("kf_v", dim=3, seq=-1, sw=2)
+    v = Input("kf_v", dim=3, seq=-1, tw=2)
     length = KerasFunction(Norm)([v])
     model = Modely("kf_norm", inputs=[v], outputs=[Output("kf_length", length)]).build()
     # The dim is reduced, the time window and the dynamic sequence kept.
@@ -89,7 +89,7 @@ def test_keras_function_reads_its_output_shape_off_the_layer():
 
 
 def test_keras_function_shares_an_instance_and_makes_a_class_anew():
-    x = Input("kf_share_x", sw=1)
+    x = Input("kf_share_x", tw=1)
     gain = Gain()
     shared = [KerasFunction(gain)([x]) for _ in range(2)]
     apart = [KerasFunction(Gain)([x]) for _ in range(2)]
@@ -120,7 +120,7 @@ def test_keras_function_shares_an_instance_and_makes_a_class_anew():
 def test_keras_function_trains_the_weights_of_its_layer():
     # gain * x against 3 on x = 1: one SGD step on (g - 3)^2 at lr 0.25 moves
     # the gain from 1 to 1 - 0.25 * 2 * (1 - 3) = 2.
-    x = Input("kf_train_x", sw=1)
+    x = Input("kf_train_x", tw=1)
     gain = Gain()
     out = Output("kf_train_out", KerasFunction(gain)([x]))
     model = Modely("kf_train", inputs=[x], outputs=[out])
@@ -154,8 +154,8 @@ def _custom_function_model():
         def call(self, x):
             return x + 10.0
 
-    x = Input("kf_saved_x", sw=1)
-    y = Input("kf_saved_y", sw=1)
+    x = Input("kf_saved_x", tw=1)
+    y = Input("kf_saved_y", tw=1)
     gain = Gain()
     model = Modely(
         "kf_saved",
@@ -229,7 +229,7 @@ def test_keras_functions_export_to_onnx(tmp_path):
 def test_one_keras_layer_wrapped_twice_saves_and_loads_as_one(tmp_path):
     # Two wrappers of one instance once saved its weights once and loaded two
     # layers: "expected 1 variables, but received 0".
-    x = Input("kf_twice_x", sw=1)
+    x = Input("kf_twice_x", tw=1)
     gain = Gain()
     model = Modely(
         "kf_twice",

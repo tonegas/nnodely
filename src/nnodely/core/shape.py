@@ -6,19 +6,19 @@ A stream has three kinds of axes:
   trajectory. A Loop rolls out along the outermost one, and adds its rollout
   as a new outermost sequence axis. A sequence axis may be dynamic
   (``None``), its length known only at run time.
-- ``time``, its window: the consecutive samples along which the temporal
+- ``tw``, its time window: the consecutive samples along which the temporal
   operations (filters, derivatives, integrals, time selections) act, or
-  ``None`` for a stream without one - an Input declared without ``sw``, a
-  number, a Parameter or Constant declared without ``time``.
+  ``None`` for a stream without one - an Input declared without ``tw``, a
+  number, a Parameter or Constant declared without ``tw``.
 - ``dim``, its feature axes, one or more.
 
 A tensor holds them after its batch axis, the window only when there is one::
 
-    (batch, *seq, time, *dim)        (batch, *seq, *dim)
+    (batch, *seq, tw, *dim)        (batch, *seq, *dim)
 
 This module is the only one that knows that layout. A layer asks the Shape
 of its stream where an axis is (:attr:`Shape.seq_axes`,
-:attr:`Shape.time_axis`, :attr:`Shape.dim_axes`) and hands its Keras layer
+:attr:`Shape.tw_axis`, :attr:`Shape.dim_axes`) and hands its Keras layer
 the tensor axis to act on; code that sees only tensors uses the helpers at
 the end of this module.
 """
@@ -64,28 +64,28 @@ class Shape:
     """The sizes of the axes of a stream, batch aside.
 
     ``seq`` is the tuple of its sequence axes, outermost first, ``()`` for
-    none; an int is one axis. ``time`` is the length of its window, one
+    none; an int is one axis. ``tw`` is the length of its window, one
     sample by default, or ``None`` for no window. ``dim`` is one feature by
     default.
     """
 
     dim: tuple[int, ...]
-    time: int | None
+    tw: int | None
     seq: tuple[int | None, ...]
 
-    def __init__(self, dim=None, time: int | None = 1, seq=None):
+    def __init__(self, dim=None, tw: int | None = 1, seq=None):
         # Always tuples: a shape read back from JSON arrives as lists, and two
         # shapes that describe the same axes have to compare equal.
         self.dim = _axes(dim, (1,))
         self.seq = _axes(seq, ())
-        if time is not None and (
-            isinstance(time, bool) or not isinstance(time, int) or time < 1
+        if tw is not None and (
+            isinstance(tw, bool) or not isinstance(tw, int) or tw < 1
         ):
             raise TypeError(
-                f"time is the length of the window, a positive int or None, got "
-                f"{time!r}; the axes outside the window are seq."
+                f"tw is the length of the window, a positive int or None, got "
+                f"{tw!r}; the axes outside the window are seq."
             )
-        self.time = None if time is None else int(time)
+        self.tw = None if tw is None else int(tw)
 
     @classmethod
     def from_tensor_shape(
@@ -94,26 +94,26 @@ class Shape:
         *,
         seq_rank: int | None = None,
         dim_rank: int | None = None,
-        time: bool = True,
+        tw: bool = True,
     ) -> "Shape":
         """The Shape of a tensor of ``shape``, batch axis excluded, told apart
         by how many sequence axes, or dim axes, it has, and whether it has a
         window."""
         shape = tuple(shape)
-        window = 1 if time else 0
+        window = 1 if tw else 0
         if seq_rank is None:
             seq_rank = len(shape) - window - int(dim_rank)  # type: ignore[arg-type]
         return cls(
             dim=shape[seq_rank + window :],
-            time=shape[seq_rank] if time else None,
+            tw=shape[seq_rank] if tw else None,
             seq=shape[:seq_rank],
         )
 
-    def replace(self, dim=_KEEP, time=_KEEP, seq=_KEEP) -> "Shape":
+    def replace(self, dim=_KEEP, tw=_KEEP, seq=_KEEP) -> "Shape":
         """This shape with its dim axes, its window or its sequence changed."""
         return Shape(
             dim=self.dim if dim is _KEEP else dim,
-            time=self.time if time is _KEEP else time,  # type: ignore[arg-type]
+            tw=self.tw if tw is _KEEP else tw,  # type: ignore[arg-type]
             seq=self.seq if seq is _KEEP else seq,
         )
 
@@ -139,22 +139,22 @@ class Shape:
 
         And one stream must already have the shape of the result, the others
         broadcasting into it: two streams that would both be broadcast, one
-        along the time of the other and the other along its dim - a matrix of
+        along the window of the other and the other along its dim - a matrix of
         one sample and the window of a scalar - are not combined.
         """
         values = [False] * len(shapes) if values is None else list(values)
-        windows = [shape.time for shape in shapes if shape.time is not None]
-        time = max(windows) if windows else None
+        windows = [shape.tw for shape in shapes if shape.tw is not None]
+        tw = max(windows) if windows else None
         for shape, value in zip(shapes, values):
-            if shape.time is None and time is not None and not value:
+            if shape.tw is None and tw is not None and not value:
                 raise ValueError(
-                    f"{owner}: a stream with no time, {shape!r}, cannot be "
-                    f"combined with a stream with a window of {time}. Declare "
-                    "the Input with a window, sw=1 for one sample."
+                    f"{owner}: a stream with no tw, {shape!r}, cannot be "
+                    f"combined with a stream with a window of {tw}. Declare "
+                    "the Input with a window, tw=1 for one sample."
                 )
-            if shape.time not in (None, 1, time):
+            if shape.tw not in (None, 1, tw):
                 raise ValueError(
-                    f"{owner}: streams with windows of {shape.time} and {time} "
+                    f"{owner}: streams with windows of {shape.tw} and {tw} "
                     "cannot be combined: only a single sample, T=1, broadcasts "
                     "along the window of another."
                 )
@@ -195,11 +195,11 @@ class Shape:
                     "the dims must be the same, or one of them a scalar."
                 )
 
-        result = Shape(dim=dim, time=time, seq=seq)
+        result = Shape(dim=dim, tw=tw, seq=seq)
         if not any(shape._fills(result, value) for shape, value in zip(shapes, values)):
             raise ValueError(
                 f"{owner}: streams of {' and '.join(map(repr, shapes))} cannot be "
-                "combined: each would be broadcast, one along the time of another "
+                "combined: each would be broadcast, one along the window of another "
                 "and that one along its dim. A single sample combines with a "
                 "window only if its dim is a scalar or the same."
             )
@@ -214,17 +214,15 @@ class Shape:
     @property
     def _window(self) -> tuple:
         """The window as axes: one, or none."""
-        return () if self.time is None else (self.time,)
+        return () if self.tw is None else (self.tw,)
 
     def _fills(self, result: "Shape", value: bool = False) -> bool:
         """Whether this shape is already ``result``'s, but for axes of 1: a
         stream of it would not be broadcast to ``result``. A value without a
         window counts as one sample of ``result``'s."""
-        time = (
-            1 if value and self.time is None and result.time is not None else self.time
-        )
+        tw = 1 if value and self.tw is None and result.tw is not None else self.tw
         return (
-            time == result.time
+            tw == result.tw
             and _same_steps(_padded(self.seq, len(result.seq)), result.seq)
             and _padded(self.dim, len(result.dim)) == result.dim
         )
@@ -235,7 +233,7 @@ class Shape:
     @property
     def dimensions(self) -> tuple:
         """The sequence, the window and the dim, in the order of the tensor."""
-        return self.seq, self.time, self.dim
+        return self.seq, self.tw, self.dim
 
     @property
     def rank(self) -> int:
@@ -290,9 +288,9 @@ class Shape:
         return tuple(range(1, 1 + self.seq_rank))
 
     @property
-    def time_axis(self) -> int | None:
+    def tw_axis(self) -> int | None:
         """The axis of the window, None without one."""
-        return None if self.time is None else 1 + self.seq_rank
+        return None if self.tw is None else 1 + self.seq_rank
 
     @property
     def dim_axes(self) -> tuple[int, ...]:
@@ -303,13 +301,11 @@ class Shape:
     # Serialization and display
     # ------------------------------------------------------------------
     def get_config(self):
-        return {"dim": tuple(self.dim), "time": self.time, "seq": tuple(self.seq)}
+        return {"dim": tuple(self.dim), "tw": self.tw, "seq": tuple(self.seq)}
 
     @classmethod
     def from_config(cls, config: dict) -> "Shape":
-        return cls(
-            dim=config.get("dim"), time=config.get("time"), seq=config.get("seq")
-        )
+        return cls(dim=config.get("dim"), tw=config.get("tw"), seq=config.get("seq"))
 
     # A Shape reads as the sizes of one sample, as keras.Input takes them.
     def __iter__(self):
@@ -324,7 +320,7 @@ class Shape:
     def __repr__(self):
         # Named axes: a bare (3, 10) reads as well as three features of ten
         # samples as ten features of three.
-        return f"Shape(S={_sizes(self.seq)}, T={self.time}, D={_sizes(self.dim)})"
+        return f"Shape(S={_sizes(self.seq)}, T={self.tw}, D={_sizes(self.dim)})"
 
 
 def _is_scalar(dim) -> bool:

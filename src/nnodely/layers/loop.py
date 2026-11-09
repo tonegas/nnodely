@@ -62,7 +62,7 @@ class LoopOutput(Layer):
             name=f"{loop.name}_{output_node.name}",
             preds=[loop],
             dim=output_node.dim,
-            time=result_shape.time,
+            tw=result_shape.tw,
             seq=result_shape.seq,
             index=self._index,
         )
@@ -832,7 +832,7 @@ class Loop(Layer):
     ``x, v = Loop(f=step)(inputs)``, or pick one, ``loop[1]``; used where one
     stream is read - an Output, an operator, a layer - it raises.
 
-    A state declared with a window (``sw=n``) is fed back by shifting: the
+    A state declared with a window (``tw=n``) is fed back by shifting: the
     oldest step is dropped and the new output appended, so after ``n`` steps
     the window is entirely self-predicted. A fed-back output is therefore a
     single sample, and the window of its input reads no future samples. A
@@ -989,7 +989,7 @@ class Loop(Layer):
         ):
             step = source.shape.without_outer_seq() if rolled else source.shape
             if source is not node and (
-                step.time != node.time or not _same_steps(step.seq, node.seq)
+                step.tw != node.tw or not _same_steps(step.seq, node.seq)
             ):
                 raise ValueError(
                     f"Loop input {node.name!r} expects the sequence and window "
@@ -1096,11 +1096,11 @@ class Loop(Layer):
         fewer sequence axes: the value fed back sizes it at run time. A
         dynamic axis of the value matches any length of the input's.
         """
-        if value.shape.time is None and node.time is not None and not value._is_value:
+        if value.shape.tw is None and node.tw is not None and not value._is_value:
             raise ValueError(
                 f"Loop initial value {value.name!r} has no window, {value.shape}, "
                 f"and the fed-back input {node.name!r} has one, {node.shape}: "
-                "declare the Input with sw=1."
+                "declare the Input with tw=1."
             )
         source = value.shape.without_outer_seq().tuple if rolled else value.shape.tuple
         target = tuple(node.shape.tuple)
@@ -1145,8 +1145,8 @@ class Loop(Layer):
                     "be the same."
                 )
             # Without a window, the output replaces the input as it is.
-            if node.time is None or output.time is None:
-                if (node.time, output.time) != (None, None):
+            if node.tw is None or output.tw is None:
+                if (node.tw, output.tw) != (None, None):
                     raise ValueError(
                         f"Loop feedback {node.name!r} -> {output.name!r}: the "
                         f"output is {output.shape}, the input {node.shape}: both "
@@ -1156,11 +1156,11 @@ class Loop(Layer):
                 continue
             # The output is the next sample of the input: a window of outputs
             # would be shifted in as one step.
-            if output.time != 1:
+            if output.tw != 1:
                 raise ValueError(
                     f"Loop feedback {node.name!r} -> {output.name!r}: the output "
                     f"must be a single sample, the next one of the input, got a "
-                    f"window of {output.time}."
+                    f"window of {output.tw}."
                 )
             # The window is shifted to end at the sample fed back, so it cannot
             # read past the current one.
@@ -1170,10 +1170,10 @@ class Loop(Layer):
                     f"window reads {node.future} future samples, but a fed-back "
                     "input can only read up to its current sample."
                 )
-            if node.time == 1:
+            if node.tw == 1:
                 shift_axes.append(None)
             else:
-                shift_axes.append(node.shape.time_axis)
+                shift_axes.append(node.shape.tw_axis)
         return shift_axes
 
     def _call_order(self) -> list[str]:

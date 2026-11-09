@@ -56,11 +56,11 @@ def _sequence(name: str, seq) -> tuple:
     return tuple(None if length in (-1, "dyn") else length for length in seq)
 
 
-def _window(name: str, sw) -> tuple[int, int] | None:
-    """The samples ``sw`` declares, ``(past, future)``; None without a window."""
-    if sw is None:
+def _window(name: str, tw) -> tuple[int, int] | None:
+    """The samples ``tw`` declares, ``(past, future)``; None without a window."""
+    if tw is None:
         return None
-    window = tuple(sw) if isinstance(sw, (list, tuple)) else (sw, 0)
+    window = tuple(tw) if isinstance(tw, (list, tuple)) else (tw, 0)
     if (
         len(window) != 2
         or not all(isinstance(n, int) and not isinstance(n, bool) for n in window)
@@ -68,9 +68,9 @@ def _window(name: str, sw) -> tuple[int, int] | None:
         or sum(window) < 1
     ):
         raise ValueError(
-            f"{name}: sw is the window, n samples up to and including the "
+            f"{name}: tw is the window, n samples up to and including the "
             "current one, or (past, future) samples, at least one in all; got "
-            f"{sw!r}."
+            f"{tw!r}."
         )
     return window
 
@@ -98,11 +98,11 @@ def _check_history(owner: str, init, signal, past: int, name: str = "init") -> N
     The rule of every layer that starts from the past of a signal:
     ``IntegrateStep`` and ``DerivativeStep`` before a window, ``Integrate``,
     ``Derivative`` and ``Buffer`` before the first step of a loop."""
-    samples, seq = init.shape.time, tuple(init.seq)
+    samples, seq = init.shape.tw, tuple(init.seq)
     if samples is None and not init._is_value:
         raise ValueError(
             f"{owner}: {name} has no window, {init.shape}, and is read from "
-            "data: declare the Input with sw=1, one sample."
+            "data: declare the Input with tw=1, one sample."
         )
     if samples not in (None, 1, past):
         held = (
@@ -137,10 +137,10 @@ class Input(Stream):
     A signal the model reads from data, declared once with the shape of that
     data.
 
-    ``sw`` sets the window, ``T``: ``sw=n`` is the last ``n`` samples, up to
-    and including the current one, and ``sw=(past, future)`` is ``past``
+    ``tw`` sets the window, ``T``: ``tw=n`` is the last ``n`` samples, up to
+    and including the current one, and ``tw=(past, future)`` is ``past``
     samples up to the current one followed by the next ``future``, so
-    ``T = past + future``. Without ``sw`` the Input has no window: one value
+    ``T = past + future``. Without ``tw`` the Input has no window: one value
     per sample, which does not combine with a stream that has one. ``dim``
     sets the feature axes, one feature by default, each of at least one
     feature. ``seq`` sets the
@@ -154,7 +154,7 @@ class Input(Stream):
     An Input can also be fed back, the value at the end of the previous step,
     with :meth:`feedback`::
 
-        x = Input("x", sw=1)                             # x[k-1]
+        x = Input("x", tw=1)                             # x[k-1]
         x_next = x.feedback(IntegrateStep(dt=dt)(x, v))  # x[k]
 
     It is declared before the stream it is fed back with, so the streams of a
@@ -168,19 +168,19 @@ class Input(Stream):
         *,
         dim: int | tuple | None = None,
         seq: int | str | tuple[int | str, ...] | None = None,
-        sw: int | tuple[int, int] | None = None,
+        tw: int | tuple[int, int] | None = None,
     ):
         sequence = _sequence(name, seq)
-        window = _window(name, sw)
+        window = _window(name, tw)
         if sequence and window is None:
             raise ValueError(
-                f"{name}: a sequence needs a window: declare sw as well, sw=1 "
+                f"{name}: a sequence needs a window: declare tw as well, tw=1 "
                 "for one sample per step."
             )
         super().__init__(
             name=name,
             dim=_dimension(name, dim),
-            time=None if window is None else sum(window),
+            tw=None if window is None else sum(window),
             seq=sequence,
             preds=None,
         )
@@ -227,7 +227,7 @@ class Input(Stream):
         that keeps its state in an Input of its own starts it."""
         if self.future:
             raise ValueError(
-                f"Input {self.name!r} reads future samples, sw=({self.past}, "
+                f"Input {self.name!r} reads future samples, tw=({self.past}, "
                 f"{self.future}): fed back, it holds values already computed, so "
                 "its window reads no future samples."
             )
@@ -241,9 +241,9 @@ class Input(Stream):
                 f"Input {self.name!r} is already fed back with {self.update.name!r}."
             )
         # One sample of the Input, or no window for an Input without one.
-        sample = self.shape.replace(time=None if self.time is None else 1)
+        sample = self.shape.replace(tw=None if self.tw is None else 1)
         if (
-            stream.time != sample.time
+            stream.tw != sample.tw
             or tuple(stream.dim) != tuple(sample.dim)
             or tuple(stream.seq) != tuple(sample.seq)
         ):
@@ -261,7 +261,7 @@ class Input(Stream):
             {
                 "dim": tuple(self.dim),
                 "seq": tuple(-1 if length is None else length for length in self.seq),
-                "sw": None if self.time is None else (self.past, self.future),
+                "tw": None if self.tw is None else (self.past, self.future),
             }
         )
         return config
@@ -273,9 +273,9 @@ def _seq_cell(seq) -> str:
     return f"({', '.join(axes)}{',' if len(axes) == 1 else ''})"
 
 
-def _sw_cell(node: Input) -> str:
-    """The window as ``sw`` declares it: n samples, or (past, future)."""
-    if node.time is None:
+def _tw_cell(node: Input) -> str:
+    """The window as ``tw`` declares it: n samples, or (past, future)."""
+    if node.tw is None:
         return "-"
     return str(node.past) if not node.future else f"({node.past}, {node.future})"
 
@@ -289,7 +289,7 @@ class Inputs(list):
     _HEADER = (
         "input",
         "seq",
-        "sw",
+        "tw",
         "dim",
         "declared",
         "fed back with",
@@ -325,7 +325,7 @@ class Inputs(list):
             (
                 row["input"].name,
                 _seq_cell(row["seq"]),
-                _sw_cell(row["input"]),
+                _tw_cell(row["input"]),
                 str(tuple(row["input"].dim)),
                 "yes" if row["declared"] else "no",
                 row["fed back with"] or "-",

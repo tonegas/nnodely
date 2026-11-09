@@ -2,7 +2,7 @@
 DAG - Lazy/DAG approach. No global graph.
 Each node has predecessors; Model traverses from output backwards.
 
-Axes: a stream is laid out (batch, *seq, time, *dim), or (batch, *seq, *dim)
+Axes: a stream is laid out (batch, *seq, tw, *dim), or (batch, *seq, *dim)
 without a window, see core/shape.py. Default: dim=1, no window, no sequence.
 """
 

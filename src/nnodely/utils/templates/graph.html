@@ -445,9 +445,9 @@
         <h3>Arrows</h3>
         <div class="help-grid" id="helpEdges"></div>
         <h3>Shapes</h3>
-        <p>A shape is written <span class="mono">(seq…, time, dim…)</span>, the batch
+        <p>A shape is written <span class="mono">(seq…, tw, dim…)</span>, the batch
            left out. <b>seq</b> are sequence axes - the steps of a rollout, for instance -
-           and <span class="mono">dyn</span> marks a length set by the data; <b>time</b>
+           and <span class="mono">dyn</span> marks a length set by the data; <b>tw</b>
            is the window, how many samples are read at once; <b>dim</b> are the features
            of each sample.</p>
         <h3>Views</h3>
@@ -707,7 +707,7 @@
         const axes = (nodeDetails[id] || {}).axes;
         if (!axes) return "";
         const parts = [...axes.seq.map(String)];
-        if (axes.time !== null && axes.time !== undefined) parts.push(String(axes.time));
+        if (axes.tw !== null && axes.tw !== undefined) parts.push(String(axes.tw));
         parts.push(...axes.dim.map(String));
         return "(" + parts.join(", ") + ")";
     }
@@ -1175,11 +1175,11 @@
             el("td", { text: size === "dyn"
                 ? "sequence axis, its length set by the data"
                 : `sequence axis of ${size} step${size === 1 ? "" : "s"}` + (index === 0 && axes.seq.length > 1 ? " (outermost)" : "") }))));
-        if (axes.time !== null && axes.time !== undefined) {
-            rows.append(el("tr", {}, el("td", { text: `time ${axes.time}` }),
-                el("td", { text: axes.time === 1 ? "one sample per step" : `a window of ${axes.time} samples` })));
+        if (axes.tw !== null && axes.tw !== undefined) {
+            rows.append(el("tr", {}, el("td", { text: `tw ${axes.tw}` }),
+                el("td", { text: axes.tw === 1 ? "one sample per step" : `a window of ${axes.tw} samples` })));
         } else {
-            rows.append(el("tr", {}, el("td", { text: "time -" }), el("td", { text: "no window: one value per sample" })));
+            rows.append(el("tr", {}, el("td", { text: "tw -" }), el("td", { text: "no window: one value per sample" })));
         }
         const features = axes.dim.reduce((a, b) => a * b, 1);
         rows.append(el("tr", {}, el("td", { text: `dim ${axes.dim.join("×")}` }),

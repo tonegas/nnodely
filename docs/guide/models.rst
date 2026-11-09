@@ -8,7 +8,7 @@ Inputs and outputs
 ------------------
 
 :class:`~nnodely.Input` declares a signal read from data, with the window of
-samples the model reads (``sw``, see :doc:`concepts`), and
+samples the model reads (``tw``, see :doc:`concepts`), and
 :class:`~nnodely.Output` names a stream the model exposes:
 
 .. code-block:: python
@@ -16,28 +16,28 @@ samples the model reads (``sw``, see :doc:`concepts`), and
    import numpy as np
    from nnodely import Input, Modely, Output
 
-   velocity = Input("velocity", sw=1)              # the current sample
-   altitude = Input("altitude", dim=3, sw=1)       # three features per sample
-   gear = Input("gear", sw=1)
+   velocity = Input("velocity", tw=1)              # the current sample
+   altitude = Input("altitude", dim=3, tw=1)       # three features per sample
+   gear = Input("gear", tw=1)
 
 Parameters and constants
 ------------------------
 
 A :class:`~nnodely.Parameter` is a trainable tensor used directly in the graph,
 and a :class:`~nnodely.Constant` is a fixed one. Both declare their shape as an
-Input does, with ``time`` for the window: ``dim`` the feature axes, one
-feature by default, each at least 1; ``time`` the number of samples of the
+Input does, with ``tw`` for the window: ``dim`` the feature axes, one
+feature by default, each at least 1; ``tw`` the number of samples of the
 window - without it the value has none and applies to every sample, of any
 stream; ``seq`` the sequence axes, outermost first, which need a window. Like
-every stream they are laid out ``(batch, *seq, time, *dim)`` - without the
+every stream they are laid out ``(batch, *seq, tw, *dim)`` - without the
 window when they have none - the same value for every sample.
 
 A constant requires a ``value``; a parameter without one starts from a draw of
 its ``initializer``. A ``value`` fills the declared shape: a list of numbers
-holds exactly as many as the shape, read in the order ``(*seq, time, *dim)``;
+holds exactly as many as the shape, read in the order ``(*seq, tw, *dim)``;
 an array of several axes has the declared sizes, in any order, and its axes
 are moved into place. Anything else raises ``ValueError``. Without ``dim``,
-``seq`` and ``time`` take the axes of the value of their sizes, and the axes
+``seq`` and ``tw`` take the axes of the value of their sizes, and the axes
 they leave are its ``dim``, in their order - all of them, without a window,
 when neither is given:
 
@@ -50,11 +50,11 @@ when neither is given:
    gravity = Constant("gravity", value=9.81)
    offsets = Constant("offsets", value=[1.0, 2.0, 3.0])    # dim (3,), no window
    # A window of 2 samples of 3 features, from a list or from a matrix:
-   ramp = Parameter("ramp", value=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5], time=2, dim=3)
-   table = Constant("table", value=np.ones((3, 2)), time=2, dim=3)  # moved to (2, 3)
-   grid = Constant("grid", value=np.ones((2, 4, 6)), time=4)  # the dim is (2, 6)
+   ramp = Parameter("ramp", value=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5], tw=2, dim=3)
+   table = Constant("table", value=np.ones((3, 2)), tw=2, dim=3)  # moved to (2, 3)
+   grid = Constant("grid", value=np.ones((2, 4, 6)), tw=4)  # the dim is (2, 6)
    # A sequence of 4 windows of 2 samples, drawn from the initializer:
-   path = Parameter("path", seq=4, time=2, dim=3, initializer="zeros")
+   path = Parameter("path", seq=4, tw=2, dim=3, initializer="zeros")
 
    air_drag = -1.0 * drag * velocity * velocity
 
@@ -175,7 +175,7 @@ Some examples:
    )
 
    # a gain scheduled by the gear: one FIR filter per gear, blended
-   torque = Input("torque", sw=10)
+   torque = Input("torque", tw=10)
    gear_membership = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function=Triangular)([gear])
    engine_force = LocalModel(lambda cell: Fir(features=1))([torque], [gear_membership])
 
@@ -370,7 +370,7 @@ Inference
 ---------
 
 A built model is called with a dictionary that maps each input - its name or
-the Input itself - to an array of shape ``(batch, *seq, time, *dim)``, batch
+the Input itself - to an array of shape ``(batch, *seq, tw, *dim)``, batch
 axis included. Inputs only the minimizers read, such as targets, and keys that
 name no input are ignored, so the arrays of a :class:`~nnodely.DataLoader` -
 ``as_dict()`` or ``get_samples(n)`` - can be passed as they are. A list works

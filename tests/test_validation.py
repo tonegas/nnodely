@@ -10,8 +10,8 @@ from nnodely import TimeSelect
 
 def _identity_model(name, *, dim=None, window=1, loss="mse"):
     """A model whose prediction is its input, so the error is fully controlled."""
-    x = Input(f"{name}_x", dim=dim, sw=window)
-    target = Input(f"{name}_target", dim=dim, sw=window)
+    x = Input(f"{name}_x", dim=dim, tw=window)
+    target = Input(f"{name}_target", dim=dim, tw=window)
     prediction = Output(f"{name}_prediction", x)
 
     model = Modely(name, inputs=[x], outputs=[prediction])
@@ -85,7 +85,7 @@ def test_relative_indicators_are_undefined_on_a_constant_target():
 
 
 def test_every_element_of_the_tensor_is_scored():
-    ## (samples, time, dim) - an error hidden past the first scalar still counts
+    ## (samples, tw, dim) - an error hidden past the first scalar still counts
     true = np.zeros((4, 3, 2))
     pred = np.zeros((4, 3, 2))
     pred[2, 2, 1] = 1.0
@@ -373,7 +373,7 @@ def test_validate_rejects_an_empty_dataset():
 
 
 def test_validate_requires_a_built_model_and_a_minimizer():
-    x = Input("unbuilt_x", sw=1)
+    x = Input("unbuilt_x", tw=1)
     model = Modely("unbuilt", inputs=[x], outputs=[Output("unbuilt_out", x)])
 
     with pytest.raises(ValueError, match="not built"):
@@ -428,12 +428,12 @@ def _decay_model(name):
     The weight is 1 and the data decays by 0.8 a step, so the error grows
     along the rollout.
     """
-    body_x = Input(f"{name}_body_x", sw=1)
+    body_x = Input(f"{name}_body_x", tw=1)
     body_out = Output(
         f"{name}_body_out", Linear(features=1, kernel="ones", bias=False)(body_x)
     )
     body = Modely(f"{name}_body", inputs=[body_x], outputs=[body_out]).build()
-    seed = Input(f"{name}_x", seq=-1, sw=1)
+    seed = Input(f"{name}_x", seq=-1, tw=1)
     loop = Loop(
         f=body,
         feedback={body_x: body_out},
@@ -442,7 +442,7 @@ def _decay_model(name):
     )()
     out = Output(f"{name}_out", loop)
     model = Modely(name, inputs=[seed], outputs=[out])
-    model.minimize("rollout", out, Input(f"{name}_target", seq=-1, sw=1))
+    model.minimize("rollout", out, Input(f"{name}_target", seq=-1, tw=1))
     model.build()
     return model
 

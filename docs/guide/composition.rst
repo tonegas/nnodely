@@ -12,11 +12,11 @@ order of the ``inputs`` the block was declared with:
    import numpy as np
    from nnodely import Fir, Input, Linear, Modely, Output, ReLU
 
-   signal = Input("signal", sw=10)
+   signal = Input("signal", tw=10)
    filtered = Output("filtered", Fir(features=1)([signal]))
    smoother = Modely("smoother", inputs=[signal], outputs=[filtered]).build()
 
-   raw = Input("raw", sw=10)
+   raw = Input("raw", tw=10)
    smoothed = smoother([raw])   # or smoother(raw), smoother({signal: raw}), smoother({"signal": raw})
    command = Output("command", ReLU()([Linear(features=1)([smoothed])]))
 
@@ -76,9 +76,9 @@ are used, so a name never changes what a model computes:
 
    from nnodely import Input, Modely, Output, Parameter
 
-   u = Input("u", sw=1)
+   u = Input("u", tw=1)
    block = Modely("block", inputs=[u], outputs=[Output("y", u * Parameter("k", value=2.0))])
-   x = Input("x", sw=1)
+   x = Input("x", tw=1)
    model = Modely("model", inputs=[x], outputs=[Output("out", block([x * Parameter("k", value=10.0)]))])
 
    # model.parameters["k"] raises: [0] k in 'model'; [1] k in 'block'
@@ -97,8 +97,8 @@ reusing a layer does:
 
 .. code-block:: python
 
-   left = Input("left", sw=10)
-   right = Input("right", sw=10)
+   left = Input("left", tw=10)
+   right = Input("right", tw=10)
    both = Output("both", smoother([left]) + smoother([right]))
    stereo = Modely("stereo", inputs=[left, right], outputs=[both]).build()
 

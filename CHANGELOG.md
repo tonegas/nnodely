@@ -28,7 +28,7 @@ variable, and trains, validates and exports through Keras. Models saved with
   holds the features of each sample laid out as the input's `dim`, or flat in
   row-major order; another layout of as many values is refused rather than
   reordered. `windowed=True` takes arrays already laid out as the model's
-  tensors, `(N, *seq, time, *dim)`, and uses them as given: dynamic sequence
+  tensors, `(N, *seq, tw, *dim)`, and uses them as given: dynamic sequence
   lengths, several per input, are read from their shape, and rollouts of
   different lengths are padded and masked.
 - `minimize()` with any Keras loss and a `gain` per objective; targets can
@@ -89,7 +89,7 @@ variable, and trains, validates and exports through Keras. Models saved with
   them, unpacked (`x, v = Loop(...)(inputs)`) or indexed (`loop[1]`), and
   read as one stream it is an error. An output it adds for an update is not
   returned.
-- `Buffer(sw=n, init=None)(signal)`: the last `n` values of a signal computed
+- `Buffer(tw=n, init=None)(signal)`: the last `n` values of a signal computed
   one sample per step, the current one included - the window a model reads of
   what another computes, such as a controller's commands fed to a plant. Its
   past values are a hidden Input fed back with the signal, and `init` holds
@@ -298,8 +298,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   `PReLU` (`"<layer>_alpha"`) and the scale and offset of a `BatchNorm`
   (`"<layer>_gamma"`, `"<layer>_beta"`) are Parameters too, listed and
   frozen with the others; a BatchNorm holds its moving statistics itself.
-- `Linear` maps the whole dim of a multi-dimensional input, `(*seq, time,
-  *dim)` to `(*seq, time, features)`, or only one dim axis with `axis=k`: with a matrix and a
+- `Linear` maps the whole dim of a multi-dimensional input, `(*seq, tw,
+  *dim)` to `(*seq, tw, features)`, or only one dim axis with `axis=k`: with a matrix and a
   bias for each position of the other dim axes, as the elements of a `Fir`, or
   with `shared_kernel=True` one for all.
 - `save(path, weights=True)` / `Modely.load(path, weights=True)`, in
@@ -323,21 +323,23 @@ variable, and trains, validates and exports through Keras. Models saved with
 
 ### Changed
 
-- Every stream is laid out `(batch, *seq, time, *dim)`, a `Parameter` or a
+- Every stream is laid out `(batch, *seq, tw, *dim)`, a `Parameter` or a
   `Constant` included: their value is repeated for every sample. The
   sequence axes come first, outermost first: where a `Loop` rolls out (and
-  where a collected rollout is added). Then the window, `time`, where `Fir`,
+  where a collected rollout is added). Then the time window, `tw`, where `Fir`,
   derivatives, integrals and the time selections act - or no window at all:
   `(batch, *seq, *dim)`. Then the dims. `Shape` holds `seq` (a tuple,
-  possibly empty), `time` (an int, or `None` without a window) and `dim`,
+  possibly empty), `tw` (an int, or `None` without a window) and `dim`,
   and prints as `Shape(S=(5,), T=3, D=(4,))`; `shape.dimensions` is
-  `(seq, time, dim)`. The arrays given to a model or built by `DataLoader`
-  are laid out the same, `(samples, *seq, time, *dim)`.
+  `(seq, tw, dim)`. The arrays given to a model or built by `DataLoader`
+  are laid out the same, `(samples, *seq, tw, *dim)`. `tw` is the one name
+  of the window everywhere: `Input(tw=)`, `Buffer(tw=)`, `Parameter(tw=)`,
+  `Constant(tw=)`, `Shape(tw=)`, `stream.tw`, `shape.tw_axis`.
 - An `Input` is declared once, with the shape of the data it reads, and does
-  not change: `Input("x", dim=4, seq=5, sw=3)` is
-  `Shape(S=(5,), T=3, D=(4,))`. `sw=n` is the last `n` samples up to and
-  including the current one, `sw=(past, future)` adds future samples,
-  `T = past + future`. Without `sw` the Input has no window: one value per
+  not change: `Input("x", dim=4, seq=5, tw=3)` is
+  `Shape(S=(5,), T=3, D=(4,))`. `tw=n` is the last `n` samples up to and
+  including the current one, `tw=(past, future)` adds future samples,
+  `T = past + future`. Without `tw` the Input has no window: one value per
   sample, `(samples, *dim)` in the data. A sequence, `seq=5` or
   `seq=(4, -1)` (outermost first, `-1` or `"dyn"` dynamic), needs a window.
   `dim` is one feature by default, each axis at least 1: `dim=0` or `dim=()`
@@ -358,21 +360,21 @@ variable, and trains, validates and exports through Keras. Models saved with
   `Fir`, the `Time*` layers, `DerivativeStep`, `IntegrateStep` - refuse a
   stream without one.
 - A `Parameter` or `Constant` declares its shape as an `Input` does, with
-  `time` for the window: `seq`, `time` and `dim` are sizes - `dim` one
+  `tw` for the window: `seq`, `tw` and `dim` are sizes - `dim` one
   feature by default, each axis at least 1, and a sequence of fixed lengths
   that needs a window. A `value` fills that shape: a list of numbers holds
-  exactly as many, read in the order `(*seq, time, *dim)`
-  (`value=[1, ..., 10], time=2, dim=5`); an array of several axes has the
+  exactly as many, read in the order `(*seq, tw, *dim)`
+  (`value=[1, ..., 10], tw=2, dim=5`); an array of several axes has the
   declared sizes, in any order, its axes moved into place (a `(2, 3, 4, 5)`
-  array with `seq=5, time=3, dim=(2, 4)` is `S=(5,), T=3, D=(2, 4)`).
-  Anything else raises `ValueError`. Without `dim`, `seq` and `time` take
+  array with `seq=5, tw=3, dim=(2, 4)` is `S=(5,), T=3, D=(2, 4)`).
+  Anything else raises `ValueError`. Without `dim`, `seq` and `tw` take
   the axes of the value of their sizes, and the axes they leave are the dim,
-  in their order (a `(2, 4, 6)` value with `time=4` is `T=4, D=(2, 6)`); with
+  in their order (a `(2, 4, 6)` value with `tw=4` is `T=4, D=(2, 6)`); with
   neither, every axis is dim and the value has no window: `value=[1, 2, 3]`
   is `D=(3,)`. A `Constant` requires a value; a `Parameter` without one is
   drawn by its `initializer` in the declared shape. `.value` and the
-  variable are laid out `(*seq, time, *dim)`, without the window when no
-  `time` is given.
+  variable are laid out `(*seq, tw, *dim)`, without the window when no
+  `tw` is given.
 - `BatchNorm` normalizes along the first dim axis by default; `Softmax`,
   `PReLU` and `BatchNorm` take an explicit `axis` as a tensor axis, the batch
   as 0, as Keras does: a negative one counts from the last dim axis.
@@ -382,13 +384,13 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
   history, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
-- The `.nnodely` save format is version 12: a model is saved with every
+- The `.nnodely` save format is version 13: a model is saved with every
   model it calls in a folder of its own, a fed-back Input with the stream it
   is fed back with and the `init` of the layer that keeps it, and a `Loop`
   with the outputs it returns. Saves and `.keras` exports made
   with the 2.0 pre-releases, in which windows were taken from an Input,
-  streams had several time axes or were laid out `(batch, *dim, time,
-  *seq)`, or fed-back Inputs were saved open, or a `Fuzzify` was a graph of one layer per center, or a `PReLU` or `BatchNorm` held its weights in its Keras layer, or blocks were inlined, or a `Parameter` or `Constant` was saved with the axes of its value in place of their sizes, do not load;
+  streams had several tw axes or were laid out `(batch, *dim, tw,
+  *seq)`, or fed-back Inputs were saved open, or the window was saved as `time` and `sw`, or a `Fuzzify` was a graph of one layer per center, or a `PReLU` or `BatchNorm` held its weights in its Keras layer, or blocks were inlined, or a `Parameter` or `Constant` was saved with the axes of its value in place of their sizes, do not load;
   nor do saves of an earlier format version.
 - The stream fed back into an Input is named `feedback` everywhere:
   `Input.feedback(stream)` and `Loop(feedback=)` (was `callback=`). The old
@@ -438,7 +440,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `model.trainModel(...)` | `model.train(data, val_data=..., epochs=..., batch_size=..., lr=...)` |
 | `model.analyzeModel(...)`, performance reports | `model.validate(data)` |
 | `x.closedLoop(...)`, `x.connect(...)`, `prediction_samples=` | `x.feedback(stream)` in a `ModelyLoop` or a `Loop` |
-| `x.tw(seconds)`, `x.sw(samples)` | `Input("x", sw=samples)` or `sw=(past, future)`, declared once; `TimeSelect` / `TimeRange` take parts of the window |
+| `x.tw(seconds)`, `x.sw(samples)` | `Input("x", tw=samples)` or `tw=(past, future)`, declared once - `tw` counts samples, not seconds as 1.x's `tw()`; `TimeSelect` / `TimeRange` take parts of the window |
 | `saveModel` / `loadModel` | `model.save(path)` / `Modely.load(path)` |
 | `exportPythonModel`, `saveTorchModel` | `model.export_keras(path)` |
 | `exportONNX` / `onnxInference` | `model.export_onnx(path)` / `Modely.validate_onnx(file, inputs)` |
@@ -457,7 +459,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `LocalModel(input_function, output_function, pass_indexes=...)` | `LocalModel(input_function, output_function, vectorized=False)(inputs, activations)`: a function is a factory of the cell index, a layer instance is shared by every cell |
 | `Fuzzify(output_dimension, range=..., functions=...)` | `Fuzzify(centers, function=...)`: the centers listed explicitly; `normalize=True` makes the memberships add up to one |
 | `Optimizer`, `SGD`, `Adam` | `train(optimizer="sgd" / "adam" / a Keras optimizer)` |
-| `Parameter(name, dimensions, sw=..., values=..., init=...)`, `Constant(name, values, sw=...)` | `Parameter(name, value=..., time=...)` or `Parameter(name, dim=..., time=..., initializer=...)`, `Constant(name, value=..., time=...)` |
+| `Parameter(name, dimensions, tw=..., values=..., init=...)`, `Constant(name, values, tw=...)` | `Parameter(name, value=..., tw=...)` or `Parameter(name, dim=..., tw=..., initializer=...)`, `Constant(name, value=..., tw=...)` |
 | `ParamFun` | the function written with streams and `Parameter`s, or a custom `Layer` |
 | `clearNames` | not needed: names never decide which layers share weights |
 

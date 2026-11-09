@@ -56,7 +56,7 @@ def _block_input(stream: Stream, name: str) -> Input:
     """An Input of the shape of ``stream``, which a block reads it as: its dim,
     its sequence, a dynamic axis declared with -1, and its window."""
     seq = tuple(-1 if size is None else size for size in stream.seq)
-    return Input(name, dim=stream.dim, seq=seq or None, sw=stream.shape.time)
+    return Input(name, dim=stream.dim, seq=seq or None, tw=stream.shape.tw)
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -71,7 +71,7 @@ class FuzzyProductImpl(keras.layers.Layer):
 
     def call(self, xs):
         xs = list(xs) if isinstance(xs, (list, tuple)) else [xs]
-        # Each activation (batch, time, n_k), or (batch, n_k) without a
+        # Each activation (batch, tw, n_k), or (batch, n_k) without a
         # window: the product runs over the last axis, a window of one sample
         # broadcasting along a longer one.
         result = xs[0]
@@ -90,8 +90,8 @@ class FuzzyProduct(Layer):
 
     def output_shape(self, *inputs):
         cells = prod(activation.dim[0] for activation in inputs)
-        windows = [activation.time for activation in inputs if activation.time]
-        return Shape(dim=(cells,), time=max(windows) if windows else None)
+        windows = [activation.tw for activation in inputs if activation.tw]
+        return Shape(dim=(cells,), tw=max(windows) if windows else None)
 
     def build_layer(self):
         return FuzzyProductImpl(name=self.name)
@@ -213,9 +213,9 @@ class CellWeight(Multiply):
 
     def output_shape(self, *inputs):
         stack, mu = inputs[0].shape, inputs[1].shape
-        if stack.time is None:
+        if stack.tw is None:
             return stack
-        return stack.replace(time=max(stack.time, mu.time))
+        return stack.replace(tw=max(stack.tw, mu.tw))
 
 
 class CellSum(Layer):
@@ -378,7 +378,7 @@ class LocalModel:
 
         # The memberships, of dim (N,), line up with the last dim axis of the
         # stack, its cell axis, and with its window.
-        times = {stream.time for stream in [*activations, stack]}
+        times = {stream.tw for stream in [*activations, stack]}
         if None in times and len(times) > 1:
             raise ValueError(
                 f"{self.name}: the activations and the cells all have a window, "

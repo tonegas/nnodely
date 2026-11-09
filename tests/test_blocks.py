@@ -51,7 +51,7 @@ def test_fuzzify(tmp_path):
         def call(self, x, y):
             return keras.ops.power(x, 2) + y
 
-    x = Input("x", dim=1, sw=1)
+    x = Input("x", dim=1, tw=1)
     fuzzy_rectangular = Fuzzify(centers=[0.0, 0.5, 1.0], function=Rectangular)
     fuzzy_triangular = Fuzzify(centers=[0.0, 0.5, 1.0], function=Triangular)
     # The functions themselves, not normalized.
@@ -256,7 +256,7 @@ def test_fuzzify_multi_temporal():
         def call(self, x):
             return keras.ops.power(x, 2)
 
-    x = Input("x", dim=1, sw=2)
+    x = Input("x", dim=1, tw=2)
     x_window = x  # temporal window of length 2
     fuzzy_rectangular = Fuzzify(centers=[0.0, 0.5, 1.0], function=Rectangular)
     fuzzy_triangular = Fuzzify(centers=[0.0, 0.5, 1.0], function=Triangular)
@@ -331,7 +331,7 @@ def test_fuzzify_multi_temporal():
 
     def matrix(function, bounds=(-np.inf, np.inf)):
         """function(x_t - c, y_t) on every center (rows) at every step
-        (columns), for each sample: (batch, centers, time); x_t held within
+        (columns), for each sample: (batch, centers, tw); x_t held within
         the bounds."""
         return np.array(
             [
@@ -392,7 +392,7 @@ def test_fuzzify_multi_temporal():
 
 
 def test_fuzzify_with_trainable_centers():
-    x = Input("x", dim=1, sw=1)
+    x = Input("x", dim=1, tw=1)
 
     class CustomFunction(keras.layers.Layer):
         # A trainable custom function: k is a Keras weight, 2 to begin with.
@@ -405,7 +405,7 @@ def test_fuzzify_with_trainable_centers():
         def call(self, x):
             return self.k * x
 
-    fir_input = Input("fir_input", dim=1, sw=3)
+    fir_input = Input("fir_input", dim=1, tw=3)
     # 4 centers for each sample: 0, 0.5, 1 and 1.5 times its last fir_input.
     fir = Fir(
         features=4,
@@ -515,7 +515,7 @@ def test_fuzzify_on_moving_centers_matches_fixed_centers():
     # Untrained, centers in a Parameter give what the same numbers give - uneven
     # ones too, on a time window and a dynamic sequence - and so do a lone
     # center and a list of numbers and scalar Parameters, bounded or not.
-    x = Input("same_x", seq=-1, sw=2)
+    x = Input("same_x", seq=-1, tw=2)
     values = [0.0, 0.5, 2.0]
     pairs = {
         "triangular": (
@@ -576,7 +576,7 @@ def test_fuzzify_on_moving_centers_matches_fixed_centers():
 
     for length in (3, 5):
         samples = np.random.default_rng(length).uniform(-0.5, 2.5, (4, 1, 2, length))
-        samples = samples.transpose(0, 3, 2, 1)  # (batch, seq, time, dim)
+        samples = samples.transpose(0, 3, 2, 1)  # (batch, seq, tw, dim)
         result = model({"same_x": samples.astype(np.float32)})
         for key in pairs:
             np.testing.assert_allclose(
@@ -588,8 +588,8 @@ def test_fuzzify_on_moving_centers_matches_fixed_centers():
 
 
 def test_fuzzify_rejects_centers_it_cannot_use():
-    x = Input("bad_centers_x", seq=3, sw=1)
-    u = Input("bad_centers_u", sw=3)
+    x = Input("bad_centers_x", seq=3, tw=1)
+    u = Input("bad_centers_u", tw=3)
     with pytest.raises(ValueError, match="vector of shape"):
         Fuzzify(
             Parameter("bad_matrix", value=[[0.0, 1.0], [2.0, 3.0]]), function=Triangular
@@ -601,7 +601,7 @@ def test_fuzzify_rejects_centers_it_cannot_use():
     with pytest.raises(ValueError, match="2 functions for 3 centers"):
         Fuzzify(Parameter("bad_count", value=[0.0, 0.5, 1.0]), function=[Sin, Cos])
     # Centers with a sequence axis follow the signal's.
-    s = Input("bad_centers_s", seq=2, sw=1)
+    s = Input("bad_centers_s", seq=2, tw=1)
     with pytest.raises(ValueError, match="with a sequence"):
         Fuzzify(Fir(features=2)(s), function=Triangular)([x])
 
@@ -611,7 +611,7 @@ def test_fuzzify_centers_follow_the_gradient():
     # x - c on two trainable centers, against x - c on 1 and 3: the mean
     # squared error is ((c0 - 1)^2 + (c1 - 3)^2) / 2 whatever x, so an SGD
     # step at lr 0.5 moves every center halfway to its target.
-    x = Input("step_x", sw=1)
+    x = Input("step_x", tw=1)
     centers = Parameter("step_centers", value=[0.0, 1.0])
     shifted = Output(
         "step_out", Fuzzify(centers, function=Identity, normalize=False)([x])
@@ -633,7 +633,7 @@ def test_fuzzify_centers_follow_the_gradient():
     # Centers computed by a Fir, u times its kernel with u = 2, against 2 and
     # 6: d/dk of ((2 k0 - 2)^2 + (2 k1 - 6)^2) / 2 is (4 k0 - 4, 4 k1 - 12),
     # so an SGD step at lr 0.125 moves the kernel from (0, 1) halfway to (1, 3).
-    y, u = Input("fir_step_x", sw=1), Input("fir_step_u", sw=1)
+    y, u = Input("fir_step_x", tw=1), Input("fir_step_u", tw=1)
     kernel = Parameter("fir_step_kernel", value=[[0.0, 1.0]])
     computed = Fir(features=2, kernel=kernel, bias=False)(u)
     out = Output(
@@ -658,7 +658,7 @@ def test_fuzzify_centers_follow_the_gradient():
 def test_fuzzify_learns_where_its_triangles_sit():
     # Triangles on 0, 1 and 2 fitted to triangles on 0, 1.4 and 2: the
     # middle center moves to 1.4, the outer ones stay where they are.
-    x = Input("learn_x", sw=1)
+    x = Input("learn_x", tw=1)
     centers = Parameter("learn_centers", value=[0.0, 1.0, 2.0])
     learned = Output("learn_out", Fuzzify(centers, function=Triangular)([x]))
     model = Modely("learn_model", inputs=[x], outputs=[learned])
@@ -685,7 +685,7 @@ def test_fuzzify_learns_where_its_triangles_sit():
 
 
 def test_membership_functions_are_layers_of_their_own():
-    x = Input("member_x", sw=5)
+    x = Input("member_x", tw=5)
     window = x
     # Centered at 0: each reads the window shifted by its center.
     layers = {
@@ -721,7 +721,7 @@ def test_membership_functions_are_layers_of_their_own():
 
 
 def test_membership_functions_keep_the_shape_of_any_stream():
-    x = Input("member_shape_x", dim=(2, 3), seq=-1, sw=2)
+    x = Input("member_shape_x", dim=(2, 3), seq=-1, tw=2)
     bell = Gaussian()([x])
     for node in (Triangular()([x]), Rectangular()([x]), bell):
         assert node.shape.dimensions == ((None,), 2, (2, 3))
@@ -731,7 +731,7 @@ def test_membership_functions_keep_the_shape_of_any_stream():
 
     for length in (3, 5):
         values = np.random.default_rng(length).normal(size=(1, 2, 3, 2, length))
-        values = values.transpose(0, 4, 3, 1, 2)  # (batch, seq, time, *dim)
+        values = values.transpose(0, 4, 3, 1, 2)  # (batch, seq, tw, *dim)
         result = to_numpy(model({"member_shape_x": values})["member_shape_bell"])
         np.testing.assert_allclose(result, np.exp(-0.5 * values**2), rtol=1e-5)
 
@@ -746,7 +746,7 @@ def test_membership_functions_reject_widths_they_cannot_have():
 
 
 def test_fuzzify_with_uneven_centers_leans_its_triangles_and_adds_up_to_one():
-    x = Input("uneven_x", sw=1)
+    x = Input("uneven_x", tw=1)
     fuzzy = Fuzzify([0.0, 1.0, 3.0], function=Triangular)([x])
     model = Modely(
         "uneven_model", inputs=[x], outputs=[Output("uneven_out", fuzzy)]
@@ -761,7 +761,7 @@ def test_fuzzify_with_uneven_centers_leans_its_triangles_and_adds_up_to_one():
 
 
 def test_fuzzify_sorts_its_centers_with_their_functions():
-    x = Input("sorted_x", sw=1)
+    x = Input("sorted_x", tw=1)
     fuzzy = Fuzzify([1.0, 0.0], function=[Gaussian, Rectangular])([x])
     model = Modely(
         "sorted_model", inputs=[x], outputs=[Output("sorted_out", fuzzy)]
@@ -774,7 +774,7 @@ def test_fuzzify_sorts_its_centers_with_their_functions():
 
 
 def test_fuzzify_with_a_single_center():
-    x = Input("single_x", sw=1)
+    x = Input("single_x", tw=1)
     fuzzy = Fuzzify([0.0], function=Triangular, normalize=True, name="single_fuzzy")(
         [x]
     )
@@ -800,7 +800,7 @@ def test_fuzzify_with_a_single_center():
 
 
 def test_fuzzify_with_a_layer_instance_or_a_weighted_layer_class():
-    x = Input("instance_x", sw=1)
+    x = Input("instance_x", tw=1)
     # An instance is shared by every center and reads x - center.
     bell = Fuzzify([0.0, 1.0], function=Gaussian(sigma=0.5), normalize=False)([x])
     # A class is made anew for each center: two Linear, with their own weights,
@@ -835,7 +835,7 @@ def test_fuzzify_with_a_layer_instance_or_a_weighted_layer_class():
 
 
 def test_fuzzify_follows_a_time_window_and_a_dynamic_sequence():
-    x = Input("dynamic_fuzzy_x", seq=-1, sw=4)
+    x = Input("dynamic_fuzzy_x", seq=-1, tw=4)
     placed = Fuzzify([0.0, 1.0], function=Triangular, bounds=True)([x])
     waves = Fuzzify([0.0, 1.0], function=Sin, normalize=False)([x])
     assert placed.shape.dimensions == ((None,), 4, (2,))
@@ -848,7 +848,7 @@ def test_fuzzify_follows_a_time_window_and_a_dynamic_sequence():
 
     for length in (3, 5):
         values = np.random.default_rng(length).uniform(-1, 2, size=(1, 1, 4, length))
-        values = values.transpose(0, 3, 2, 1)  # (batch, seq, time, dim)
+        values = values.transpose(0, 3, 2, 1)  # (batch, seq, tw, dim)
         result = model({"dynamic_fuzzy_x": values.astype(np.float32)})
         np.testing.assert_allclose(
             to_numpy(result["dynamic_waves"]),
@@ -863,7 +863,7 @@ def test_fuzzify_follows_a_time_window_and_a_dynamic_sequence():
 
 
 def test_fuzzify_takes_a_membership_name_for_its_class():
-    x = Input("named_x", sw=1)
+    x = Input("named_x", tw=1)
     named = Fuzzify([0.0, 0.5, 1.0], function=["triangular", "Rectangular", "GAUSSIAN"])
     classes = Fuzzify([0.0, 0.5, 1.0], function=[Triangular, Rectangular, Gaussian])
     model = Modely(
@@ -883,8 +883,8 @@ def test_fuzzify_takes_a_membership_name_for_its_class():
 
 
 def test_fuzzify_rejects_what_it_cannot_use():
-    x = Input("bad_fuzzy_x", sw=1)
-    v = Input("bad_fuzzy_v", dim=2, sw=1)
+    x = Input("bad_fuzzy_x", tw=1)
+    v = Input("bad_fuzzy_v", dim=2, tw=1)
     with pytest.raises(ValueError, match="at least one center"):
         Fuzzify([], function=Triangular)
     with pytest.raises(ValueError, match="2 functions for 3 centers"):
@@ -936,7 +936,7 @@ def test_fuzzify_shares_a_keras_layer_instance_between_its_centers():
         def call(self, x):
             return self.gain * x
 
-    x = Input("keras_instance_x", sw=1)
+    x = Input("keras_instance_x", tw=1)
     scaled = Scaled()
     fuzzy = Fuzzify([0.0, 1.0, 2.0], function=scaled, normalize=False)([x])
     model = Modely(
@@ -955,7 +955,7 @@ def test_fuzzify_shares_a_keras_layer_instance_between_its_centers():
 def test_fuzzify_is_one_layer():
     # The bounds, every membership and their normalization are one layer,
     # reading the signal and the centers that move.
-    x = Input("one_layer_x", sw=3)
+    x = Input("one_layer_x", tw=3)
     centers = Parameter("one_layer_centers", value=[0.0, 1.0, 2.0])
     middle = Parameter("one_layer_middle", value=[1.0])
     moving = Fuzzify(centers, function=Triangular, bounds=True)([x])
@@ -985,7 +985,7 @@ def test_fuzzify_is_one_layer():
 def test_placed_memberships_follow_their_centers():
     # Sized by the centers as they are, the sets move with them, their
     # widths too: the centers of a triangle are those of its neighbors.
-    x = Input("follow_x", sw=1)
+    x = Input("follow_x", tw=1)
     centers = Parameter("follow_centers", value=[0.0, 1.0, 2.0])
     model = Modely(
         "follow",
@@ -1023,7 +1023,7 @@ def test_placed_memberships_follow_their_centers():
 
 
 def test_membership_widths_take_a_parameter():
-    x = Input("width_x", sw=1)
+    x = Input("width_x", tw=1)
     radius = Parameter("width_radius", value=[1.0, 2.0])  # (left, right)
     sigma = Parameter("width_sigma", value=[0.5])
     leaning = Triangular(radius=radius)([x - 1.0])
@@ -1073,7 +1073,7 @@ def test_membership_widths_take_a_parameter():
 def test_membership_widths_train():
     # Triangles of radius 0.5 and a bell of sigma 0.5 fitted to a radius and
     # a sigma of 1.
-    x = Input("train_width_x", sw=1)
+    x = Input("train_width_x", tw=1)
     radius = Parameter("train_radius", value=[0.5])
     sigma = Parameter("train_sigma", value=[0.5])
     triangles = Output(
@@ -1105,7 +1105,7 @@ def test_a_parameter_read_by_rectangles_trains_where_it_is_read_elsewhere():
     # stay where they are. Read by triangles too, they train there, toward
     # the same targets, and the rectangles follow them.
     def fit(name, shared):
-        x = Input(f"{name}_x", sw=1)
+        x = Input(f"{name}_x", tw=1)
         centers = Parameter(f"{name}_centers", value=[0.0, 1.0, 2.0])
         radius = Parameter(f"{name}_radius", value=[0.5])
         boxes = Output(f"{name}_boxes", Fuzzify(centers, function=Rectangular)([x]))
@@ -1143,7 +1143,7 @@ def test_membership_widths_of_zero_or_below_give_no_nan():
     # A width at zero or below is held at 1e-7: its set collapses, and
     # neither the memberships nor the gradients become NaN. So do centers
     # that meet.
-    x = Input("nan_x", sw=1)
+    x = Input("nan_x", tw=1)
     radius = Parameter("nan_radius", value=[0.5])
     sigma = Parameter("nan_sigma", value=[0.5])
     centers = Parameter("nan_centers", value=[0.0, 0.0, 1.0])
@@ -1173,7 +1173,7 @@ def test_membership_widths_of_zero_or_below_give_no_nan():
 def test_fuzzify_takes_the_shape_its_functions_give():
     # The memberships side by side as the functions give them: two features
     # each, or the one sample a Fir makes of a window.
-    x = Input("given_shape_x", sw=3)
+    x = Input("given_shape_x", tw=3)
     features = Fuzzify([0.0, 1.0], function=Linear(features=2), normalize=False)
     filtered = Fuzzify([0.0, 1.0], function=Fir, normalize=False)
     pairs, samples = features([x]), filtered([x])
@@ -1210,7 +1210,7 @@ def test_fuzzify_plot_draws_the_memberships_as_they_are_now():
     def triangles(grid, centers, radius):
         return np.maximum(1 - np.abs(grid[:, None] - np.array(centers)) / radius, 0)
 
-    x = Input("plot_x", sw=1)
+    x = Input("plot_x", tw=1)
     centers = Parameter("plot_centers", value=[0.0, 1.0, 2.0])
     fuzzy = Fuzzify(centers, function=Triangular, normalize=False)
     memberships = fuzzy([x])
@@ -1251,7 +1251,7 @@ def test_fuzzify_plot_draws_a_fuzzify_not_applied_yet():
     _, values, _ = _drawn(ax, 2)
     np.testing.assert_allclose(values[:, 0], [1.0, 0.5, 0.0, 0.0, 0.0], atol=1e-6)
 
-    computed = Fuzzify(Linear(features=3)([Input("plot_u", sw=1)]), function=Triangular)
+    computed = Fuzzify(Linear(features=3)([Input("plot_u", tw=1)]), function=Triangular)
     with pytest.raises(ValueError, match="is computed, with no value of its own"):
         computed.plot()
     plt.close("all")
@@ -1259,8 +1259,8 @@ def test_fuzzify_plot_draws_a_fuzzify_not_applied_yet():
 
 def test_local_model_with_user_functions():
     # ------- No input function: the input itself, weighted cell by cell ----
-    x = Input("x", dim=1, sw=1)
-    k = Input("k", dim=1, sw=1)
+    x = Input("x", dim=1, tw=1)
+    k = Input("k", dim=1, tw=1)
 
     fuzzy_k = Fuzzify(centers=[0.0, 0.5, 1.0], function="rectangular")([k])
     local_model = LocalModel(output_function=ReLU(), name="local_model")([x], [fuzzy_k])
@@ -1302,11 +1302,11 @@ def _fir_factory(kernel, bias, sizes):
 
 def test_local_model_matches_explicit_cells():
     # ------- One Fir per membership, with the weights given as Parameters -------
-    x = Input("x_local", dim=1, sw=4)
-    k = Input("k_local", dim=1, sw=1)
+    x = Input("x_local", dim=1, tw=4)
+    k = Input("k_local", dim=1, tw=1)
     centers = [0.0, 1.0, 2.0]
     rng = np.random.default_rng(0)
-    kernel = rng.normal(size=(3, 4, 2)).astype(np.float32)  # (cell, time, features)
+    kernel = rng.normal(size=(3, 4, 2)).astype(np.float32)  # (cell, tw, features)
     bias = rng.normal(size=(3, 2)).astype(np.float32)
 
     activation = Fuzzify(centers=centers, function=Triangular)([k])
@@ -1341,9 +1341,9 @@ def test_local_model_matches_explicit_cells():
 
 
 def _two_fuzzy_inputs(prefix):
-    x = Input(f"{prefix}_x", dim=1, sw=5)
-    j = Input(f"{prefix}_j", dim=1, sw=1)
-    k = Input(f"{prefix}_k", dim=1, sw=1)
+    x = Input(f"{prefix}_x", dim=1, tw=5)
+    j = Input(f"{prefix}_j", dim=1, tw=1)
+    k = Input(f"{prefix}_k", dim=1, tw=1)
     activation_j = Fuzzify(centers=[0.0, 1.0, 2.0, 3.0], function=Triangular)([j])
     activation_k = Fuzzify(centers=[0.0, 1.0, 2.0, 3.0, 4.0], function=Triangular)([k])
     data = {
@@ -1447,8 +1447,8 @@ def test_local_model_per_cell_once_and_vectorized_paths_agree():
 
 def test_local_model_vectorized_fir_on_vector_cells():
     # ------- Fir(features=N) on a vector gives (*cell, N): the cells -------
-    x = Input("vector_cells_x", dim=2, sw=4)
-    g, h = Input("vector_cells_g", sw=1), Input("vector_cells_h", sw=1)
+    x = Input("vector_cells_x", dim=2, tw=4)
+    g, h = Input("vector_cells_g", tw=1), Input("vector_cells_h", tw=1)
     activations = [
         Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)([g]),
         Fuzzify(centers=[0.0, 1.0], function=Triangular)([h]),
@@ -1504,9 +1504,9 @@ def test_local_model_vectorized_fir_on_vector_cells():
 
 def test_local_model_passes_cell_index():
     # ------- A factory builds each cell from its (i_j, i_k) index -------
-    x = Input("index_x", dim=1, sw=1)
-    j = Input("index_j", dim=1, sw=1)
-    k = Input("index_k", dim=1, sw=1)
+    x = Input("index_x", dim=1, tw=1)
+    j = Input("index_j", dim=1, tw=1)
+    k = Input("index_k", dim=1, tw=1)
     activation_j = Fuzzify(centers=[0.0, 1.0], function=Rectangular)([j])
     activation_k = Fuzzify(centers=[0.0, 1.0, 2.0], function=Rectangular)([k])
 
@@ -1541,8 +1541,8 @@ def test_local_model_passes_cell_index():
 
 
 def test_local_model_repeated_call_shares_weights():
-    x = Input("shared_local_x", sw=3)
-    g = Input("shared_local_g", sw=1)
+    x = Input("shared_local_x", tw=3)
+    g = Input("shared_local_g", tw=1)
     mu = Fuzzify(centers=[0.0, 1.0], function=Triangular)(g)
     local = LocalModel(lambda index: Fir(features=1), name="shared_local")
     model = Modely(
@@ -1569,9 +1569,9 @@ def test_local_model_repeated_call_shares_weights():
 
 def test_local_model_is_a_block(tmp_path):
     # ------- Each call is a model of its own, called as a block -------
-    x = Input("block_local_x", sw=3)
-    g = Input("block_local_g", sw=1)
-    k = Input("block_local_k", sw=1)
+    x = Input("block_local_x", tw=3)
+    g = Input("block_local_g", tw=1)
+    k = Input("block_local_k", tw=1)
     mu = Fuzzify(centers=[0.0, 1.0], function=Triangular)(g)
     shared = Fir(features=1, name="block_local_shared")(x)
     # The functions read streams of the graph that are not inputs of the block.
@@ -1602,8 +1602,8 @@ def test_local_model_is_a_block(tmp_path):
 
 def test_local_model_scalar_input_one_fuzzy_function_by_hand():
     # ------- y = x * sum_i mu_i(g) * gain_i, centers 0, 1, 2 -------
-    x = Input("x_hand", sw=1)
-    g = Input("g_hand", sw=1)
+    x = Input("x_hand", tw=1)
+    g = Input("g_hand", tw=1)
     mu = Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)(g)
     gains = [1.0, 10.0, 100.0]
     y = LocalModel(
@@ -1636,9 +1636,9 @@ def test_local_model_scalar_input_one_fuzzy_function_by_hand():
 
 def test_local_model_matrix_input_two_fuzzy_functions_by_hand():
     # ------- 3 x 2 = 6 cells over a 2x2 matrix, cell (i, j) is i * 2 + j -------
-    X = Input("X_hand", dim=(2, 2), sw=1)
-    a = Input("a_hand", sw=1)
-    b = Input("b_hand", sw=1)
+    X = Input("X_hand", dim=(2, 2), tw=1)
+    a = Input("a_hand", tw=1)
+    b = Input("b_hand", tw=1)
     mu_a = Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)(a)
     mu_b = Fuzzify(centers=[0.0, 1.0], function=Triangular)(b)
     # Cell c filters every entry of X with the gain c + 1, entry by entry.
@@ -1682,9 +1682,9 @@ def test_local_model_matrix_input_two_fuzzy_functions_by_hand():
 
 def test_local_model_matrix_input_without_input_function_by_hand():
     # ------- Y = sum_c sin(mu_c * X), the output applied to the (2, 2, 6) stack ----
-    X = Input("X_plain", dim=(2, 2), sw=3)
-    a = Input("a_plain", sw=1)
-    b = Input("b_plain", sw=1)
+    X = Input("X_plain", dim=(2, 2), tw=3)
+    a = Input("a_plain", tw=1)
+    b = Input("b_plain", tw=1)
     mu_a = Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)(a)
     mu_b = Fuzzify(centers=[0.0, 1.0], function=Triangular)(b)
     weighted = LocalModel()([X], [mu_a, mu_b])
@@ -1698,7 +1698,7 @@ def test_local_model_matrix_input_without_input_function_by_hand():
     ).build()
 
     values = np.arange(12, dtype=np.float32).reshape(1, 2, 2, 3) / 4.0
-    values = values.transpose(0, 3, 1, 2)  # (batch, time, *dim)
+    values = values.transpose(0, 3, 1, 2)  # (batch, tw, *dim)
     result = model(
         {
             "X_plain": values,
@@ -1720,9 +1720,9 @@ def test_local_model_matrix_input_without_input_function_by_hand():
 
 def test_local_model_memberships_along_the_window_by_hand():
     # ------- y[t] = x[t] * sum_(a, b) mu_a[a, t] * mu_b[b] * (a * 2 + b + 1) -------
-    x = Input("x_window", sw=3)
-    a = Input("a_window", sw=3)
-    b = Input("b_window", sw=1)
+    x = Input("x_window", tw=3)
+    a = Input("a_window", tw=3)
+    b = Input("b_window", tw=1)
     mu_a = Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)(
         a
     )  # one membership per sample
@@ -1756,8 +1756,8 @@ def test_local_model_memberships_along_the_window_by_hand():
 
 
 def test_local_model_rejects_mismatched_inputs():
-    x = Input("x_invalid", dim=1, sw=2)
-    k = Input("k_invalid", dim=1, sw=3)
+    x = Input("x_invalid", dim=1, tw=2)
+    k = Input("k_invalid", dim=1, tw=3)
     activation = Fuzzify(centers=[0.0, 1.0], function=Triangular)([TimeSelect(-1)(k)])
 
     with pytest.raises(TypeError, match=r"pass a factory f\(index\)"):
@@ -1788,15 +1788,15 @@ def test_local_model_rejects_mismatched_inputs():
     with pytest.raises(ValueError, match="must match, or be 1"):
         LocalModel(name="windowed_local")([x], [windowed_activation])
 
-    sequence = Input("k_invalid_seq", dim=1, seq=-1, sw=1)
+    sequence = Input("k_invalid_seq", dim=1, seq=-1, tw=1)
     sequence_activation = Fuzzify(centers=[0.0, 1.0], function=Triangular)([sequence])
     with pytest.raises(ValueError, match="activation 0 must have no sequence"):
         LocalModel(name="sequence_local")([x], [sequence_activation])
 
 
 def test_equation_learner_composes_symbolic_functions_and_multiple_inputs():
-    x = Input("equation_x", sw=1)
-    y = Input("equation_y", sw=1)
+    x = Input("equation_x", tw=1)
+    y = Input("equation_y", tw=1)
     equation = EquationLearner(
         functions=["identity", (lambda left, right: left * right, 2), Sin],
         linear_in=Linear(
@@ -1837,7 +1837,7 @@ def test_equation_learner_composes_symbolic_functions_and_multiple_inputs():
 
 
 def test_equation_learner_supports_layer_classes_and_basis_output():
-    x = Input("basis_x", sw=1)
+    x = Input("basis_x", tw=1)
     equation = EquationLearner(
         functions=[Sin, Cos, "add"],
         linear_in=Linear(features=4, kernel="ones", bias=False),
@@ -1896,7 +1896,7 @@ def test_equation_learner_rejects_invalid_configuration():
 
 
 def test_equation_learner_rejects_invalid_calls():
-    x = Input("invalid_eql_x", sw=1)
+    x = Input("invalid_eql_x", tw=1)
     with pytest.raises(TypeError, match="must return a Stream"):
         EquationLearner([lambda stream: 1.0])(x)
 
@@ -1904,7 +1904,7 @@ def test_equation_learner_rejects_invalid_calls():
         EquationLearner(["sin"])([np.ones(1)])
 
     with pytest.raises(ValueError, match="one-dimensional dim"):
-        EquationLearner(["sin"])(Input("invalid_eql_m", dim=(2, 2), sw=1))
+        EquationLearner(["sin"])(Input("invalid_eql_m", dim=(2, 2), tw=1))
 
 
 @pytest.mark.parametrize(
@@ -1936,7 +1936,7 @@ def test_equation_learner_rejects_invalid_calls():
     ],
 )
 def test_equation_learner_named_functions(name, function):
-    x = Input(f"named_eql_{name}_x", sw=1)
+    x = Input(f"named_eql_{name}_x", tw=1)
     learner = EquationLearner(
         [name], linear_in=Linear(features=1, kernel="ones", bias=False)
     )
@@ -1958,7 +1958,7 @@ def test_equation_learner_named_functions(name, function):
 
 
 def test_equation_learner_atan2_takes_two_arguments():
-    x, y = Input("atan2_eql_x", sw=1), Input("atan2_eql_y", sw=1)
+    x, y = Input("atan2_eql_x", tw=1), Input("atan2_eql_y", tw=1)
     learner = EquationLearner(
         ["atan2"],
         linear_in=Linear(
@@ -1988,7 +1988,7 @@ def test_equation_learner_atan2_takes_two_arguments():
     [("maximum", np.maximum), ("minimum", np.minimum), ("mod", np.mod)],
 )
 def test_equation_learner_named_binary_functions(name, function):
-    x, y = Input(f"{name}_eql_x", sw=1), Input(f"{name}_eql_y", sw=1)
+    x, y = Input(f"{name}_eql_x", tw=1), Input(f"{name}_eql_y", tw=1)
     learner = EquationLearner(
         [name],
         linear_in=Linear(
@@ -2034,7 +2034,7 @@ def _threshold_learner(threshold):
 
 
 def test_equation_learner_threshold_drops_small_coefficients():
-    x, v = Input("threshold_x", sw=1), Input("threshold_v", sw=1)
+    x, v = Input("threshold_x", tw=1), Input("threshold_v", tw=1)
     learner = _threshold_learner(threshold=0.01)
     model = Modely(
         "threshold_model",
@@ -2068,7 +2068,7 @@ def test_equation_learner_threshold_drops_small_coefficients():
 
 
 def test_equation_learner_threshold_changes_a_built_model():
-    x, v = Input("rethreshold_x", sw=1), Input("rethreshold_v", sw=1)
+    x, v = Input("rethreshold_x", tw=1), Input("rethreshold_v", tw=1)
     learner = _threshold_learner(threshold=None)
     first, second = learner([x, v]), learner([x, v])
     model = Modely(
@@ -2109,7 +2109,7 @@ def test_equation_learner_threshold_changes_a_built_model():
 
 
 def test_equation_learner_threshold_reaches_a_model_used_as_a_block():
-    inner = Input("block_eql_inner", sw=1)
+    inner = Input("block_eql_inner", tw=1)
     learner = EquationLearner(
         ["identity"],
         linear_in=Linear(features=1, kernel="ones", bias=False),
@@ -2124,7 +2124,7 @@ def test_equation_learner_threshold_reaches_a_model_used_as_a_block():
         inputs=[inner],
         outputs=[Output("block_eql_y", learner(inner))],
     ).build()
-    outer = Input("block_eql_outer", sw=1)
+    outer = Input("block_eql_outer", tw=1)
     model = Modely(
         "block_eql_model",
         inputs=[outer],
@@ -2143,16 +2143,16 @@ def test_equation_learner_threshold_reaches_a_model_used_as_a_block():
 
 def test_integrate():
     # make a simple forward Euler integrator step
-    x = Input("x", sw=1)
-    x0 = Input("x0", sw=1)
+    x = Input("x", tw=1)
+    x0 = Input("x0", tw=1)
     integrate = IntegrateStep(method="euler", dt=0.1)(x0, x)
     out = Output("x_hat", integrate)
     model = Modely(name="integrator", inputs=[x, x0], outputs=[out])
     model.build()
 
     # make a loop that rolls out the integrator along a sequence of rates
-    x_seq = Input("x_seq", seq=-1, sw=1)
-    x0_loop = Input("x0_loop", sw=1)
+    x_seq = Input("x_seq", seq=-1, tw=1)
+    x0_loop = Input("x0_loop", tw=1)
     loop = Loop(f=model, feedback={x0: out}, init={x0: x0_loop})({x: x_seq})
     out_loop = Output("x_hat_loop", loop)
     model_loop = Modely(
@@ -2165,8 +2165,8 @@ def test_integrate():
     np.testing.assert_allclose(by_hand, [[[[0.1]], [[0.3]], [[0.6]]]], rtol=1e-6)
 
     # The block, in a ModelyLoop, closes the same feedback: one rate per step.
-    y = Input("y", sw=1)
-    y0 = Input("y0", sw=1)
+    y = Input("y", tw=1)
+    y0 = Input("y0", tw=1)
     new_integrate = Integrate(method="euler", dt=0.1, init=y0)(y)
     out_int = Output("y_hat", new_integrate)
     new_model = ModelyLoop("new_integrator", inputs=[y, y0], outputs=[out_int]).build()
@@ -2188,7 +2188,7 @@ def _over_steps(value, steps):
 
 
 def _integrate_model(name, length=None, dim=1, **kwargs):
-    rate = Input(f"{name}_rate", dim=dim, sw=1)
+    rate = Input(f"{name}_rate", dim=dim, tw=1)
     out = Output(f"{name}_out", Integrate(**kwargs)(rate))
     return ModelyLoop(name, inputs=[rate], outputs=[out], length=length).build()
 
@@ -2198,7 +2198,7 @@ def test_integrate_matches_integrate_step_over_the_same_samples(solver):
     # Step by step or along a time window, the same rule on the same samples.
     samples = np.array([1.0, -2.0, 4.0, 0.5, 3.0], dtype=np.float32)
     horizon = _integrate_model(f"along_{solver}", method=solver, dt=0.1, init=0.7)
-    w = Input(f"window_{solver}", sw=5)
+    w = Input(f"window_{solver}", tw=5)
     window = Modely(
         f"window_{solver}",
         inputs=[w],
@@ -2244,7 +2244,7 @@ def test_integrate_starts_from_none_a_number_or_a_stream():
     rate = np.full((1, 3, 1, 1), 2.0, dtype=np.float32)
     zero = _integrate_model("from_zero", dt=0.1)
     number = _integrate_model("from_number", dt=0.1, init=5.0)
-    r, r0 = Input("from_stream_rate", sw=1), Input("from_stream_init", sw=1)
+    r, r0 = Input("from_stream_rate", tw=1), Input("from_stream_init", tw=1)
     stream = ModelyLoop(
         "from_stream",
         inputs=[r, r0],
@@ -2278,10 +2278,10 @@ def test_integrate_starts_from_none_a_number_or_a_stream():
 
 def test_integrate_each_feature_of_a_vector_rate():
     rate, start = (
-        Input("vector_rate", dim=2, sw=1),
-        Input("vector_init", dim=2, sw=1),
+        Input("vector_rate", dim=2, tw=1),
+        Input("vector_init", dim=2, tw=1),
     )
-    scalar_start = Input("vector_scalar_init", sw=1)
+    scalar_start = Input("vector_scalar_init", tw=1)
     steps = rate
     model = ModelyLoop(
         "vector",
@@ -2317,7 +2317,7 @@ def test_integrate_twice_from_acceleration_to_position():
     # Constant acceleration: the trapezoid of a linear velocity is exact, once
     # each starts from the rate it had before the first step.
     dt, steps, a, v0, x0 = 0.1, 20, 2.0, 1.0, 3.0
-    acc = Input("acc", sw=1)
+    acc = Input("acc", tw=1)
     vel = Integrate(method="trapezoidal", dt=dt, init=v0, init_rate=a)(acc)
     pos = Integrate(method="trapezoidal", dt=dt, init=x0, init_rate=v0)(vel)
     # Without the rate before the first step, it was zero: at rest.
@@ -2344,11 +2344,11 @@ def test_integrate_is_trained_through():
     # x = Integrate(k * u): the gain of the rate is learnt from the trajectory.
     # (A fixed horizon: one trajectory per simulation.)
     steps = 8
-    u = Input("trained_u", sw=1)
+    u = Input("trained_u", tw=1)
     k = Parameter("trained_k", value=0.5)
     x = Output("trained_x", Integrate(dt=0.1)(u * k))
     model = ModelyLoop("trained", inputs=[u], outputs=[x], length=steps)
-    model.minimize("fit", x, Input("trained_target", sw=1))
+    model.minimize("fit", x, Input("trained_target", tw=1))
     model.build()
     rng = np.random.default_rng(0)
     rates = rng.uniform(-1.0, 1.0, (64, steps)).astype(np.float32)
@@ -2370,7 +2370,7 @@ def test_integrate_is_trained_through():
 def test_integrate_round_trips_through_save_and_the_keras_file(tmp_path):
     import keras
 
-    rate, start = Input("saved_rate", sw=1), Input("saved_init", sw=1)
+    rate, start = Input("saved_rate", tw=1), Input("saved_init", tw=1)
     model = ModelyLoop(
         "saved_integrator",
         inputs=[rate, start],
@@ -2410,7 +2410,7 @@ def test_integrate_round_trips_through_save_and_the_keras_file(tmp_path):
 def test_integrate_a_rate_from_a_layer_with_parameter_weights(layer):
     # rate = 2u + 1 on [1, 2, 3, 4] is [3, 5, 7, 9]; Euler with dt = 1 sums it.
     name = f"prate_{layer.__name__.lower()}"
-    u = Input(f"{name}_u", sw=1)
+    u = Input(f"{name}_u", tw=1)
     gain = Parameter(f"{name}_gain", value=[2.0])
     offset = Parameter(f"{name}_offset", value=[1.0])
     rate = layer(features=1, kernel=gain, bias=offset)(u)
@@ -2429,7 +2429,7 @@ def test_integrate_a_rate_from_a_layer_with_parameter_weights(layer):
 def test_integrate_feeds_further_relations():
     # The result is the value at the end of the step, a stream to compute with
     # like any other.
-    acc = Input("further_acc", sw=1)
+    acc = Input("further_acc", tw=1)
     vel = Integrate(dt=0.1)(acc)
     gain = Parameter("further_gain", value=3.0)
     model = ModelyLoop(
@@ -2451,11 +2451,11 @@ def test_integrate_feeds_further_relations():
 def test_a_dynamic_integrate_trains_on_simulations_of_different_lengths():
     # Every simulation is one trajectory of its own length; the loader pads the
     # shorter ones, and the padded steps are left out of the loss.
-    u = Input("dynamic_trained_u", sw=1)
+    u = Input("dynamic_trained_u", tw=1)
     k = Parameter("dynamic_trained_k", value=0.5)
     x = Output("dynamic_trained_x", Integrate(dt=0.1)(u * k))
     model = ModelyLoop("dynamic_trained", inputs=[u], outputs=[x])
-    model.minimize("fit", x, Input("dynamic_trained_target", sw=1))
+    model.minimize("fit", x, Input("dynamic_trained_target", tw=1))
     model.build()
     rng = np.random.default_rng(1)
     simulations = []
@@ -2480,18 +2480,18 @@ def test_integrate_rejects_what_it_cannot_integrate():
     with pytest.raises(ValueError, match="has none"):
         Integrate(dt=0.1)(Input("no_window"))
     with pytest.raises(ValueError, match="one rate sample per step"):
-        Integrate(dt=0.1)(Input("windowed", sw=3))
+        Integrate(dt=0.1)(Input("windowed", tw=3))
     with pytest.raises(ValueError, match="method must be one of"):
         Integrate(method="rk4", dt=0.1)
     with pytest.raises(ValueError, match="integrates one rate"):
-        Integrate(dt=0.1)([Input("first", sw=1), Input("second", sw=1)])
-    rate = Input("checked_rate", dim=2, sw=1)
+        Integrate(dt=0.1)([Input("first", tw=1), Input("second", tw=1)])
+    rate = Input("checked_rate", dim=2, tw=1)
     with pytest.raises(ValueError, match="single sample"):
-        Integrate(dt=0.1, init=Input("long_init", dim=2, sw=2))(rate)
+        Integrate(dt=0.1, init=Input("long_init", dim=2, tw=2))(rate)
     with pytest.raises(ValueError, match="init has dim"):
-        Integrate(dt=0.1, init=Input("wide_init", dim=3, sw=1))(rate)
+        Integrate(dt=0.1, init=Input("wide_init", dim=3, tw=1))(rate)
     with pytest.raises(ValueError, match="init has the sequence"):
-        Integrate(dt=0.1, init=Input("seq_init", dim=2, seq=4, sw=1))(rate)
+        Integrate(dt=0.1, init=Input("seq_init", dim=2, seq=4, tw=1))(rate)
     # The rate before the first step is read by the trapezoid alone.
     with pytest.raises(ValueError, match="only the trapezoidal method"):
         Integrate(dt=0.1, init_rate=1.0)
@@ -2499,14 +2499,14 @@ def test_integrate_rejects_what_it_cannot_integrate():
         Integrate(
             method="trapezoidal",
             dt=0.1,
-            init_rate=Input("wide_rate", dim=3, sw=1),
+            init_rate=Input("wide_rate", dim=3, tw=1),
         )(rate)
 
 
 def test_derivative():
     # A one-step backward difference: the step reads the previous sample.
-    x = Input("dstep_x", sw=1)
-    previous = Input("dstep_previous", sw=1)
+    x = Input("dstep_x", tw=1)
+    previous = Input("dstep_previous", tw=1)
     out = Output("dstep_out", DerivativeStep(dt=0.1)(previous, x))
     model = Modely(
         name="differentiator",
@@ -2516,8 +2516,8 @@ def test_derivative():
 
     # A loop that rolls the step out along a sequence of samples, feeding each
     # sample back as the previous one of the next step.
-    x_seq = Input("dstep_x_seq", seq=-1, sw=1)
-    x0_loop = Input("dstep_x0_loop", sw=1)
+    x_seq = Input("dstep_x_seq", seq=-1, tw=1)
+    x0_loop = Input("dstep_x0_loop", tw=1)
     derivative, _ = Loop(
         f=model, feedback={previous: "dstep_sample"}, init={previous: x0_loop}
     )({x: x_seq})
@@ -2535,8 +2535,8 @@ def test_derivative():
     np.testing.assert_allclose(by_hand.ravel(), [5.0, 20.0, 30.0], rtol=1e-5)
 
     # The layer, in a ModelyLoop, gives the same derivatives step by step.
-    y = Input("dstep_y", sw=1)
-    y0 = Input("dstep_y0", sw=1)
+    y = Input("dstep_y", tw=1)
+    y0 = Input("dstep_y0", tw=1)
     new_model = ModelyLoop(
         "new_differentiator",
         inputs=[y, y0],
@@ -2556,7 +2556,7 @@ def test_derivative():
 
 
 def _derivative_model(name, length=None, dim=1, **kwargs):
-    signal = Input(f"{name}_signal", dim=dim, sw=1)
+    signal = Input(f"{name}_signal", dim=dim, tw=1)
     out = Output(f"{name}_out", Derivative(**kwargs)(signal))
     return ModelyLoop(name, inputs=[signal], outputs=[out], length=length).build()
 
@@ -2572,7 +2572,7 @@ def test_derivative_matches_derivative_step_over_the_same_samples(stencil):
     name = "_".join(f"{key}{value}" for key, value in stencil.items())
     samples = np.array([1.0, -2.0, 4.0, 0.5, 3.0, 2.0], dtype=np.float32)
     horizon = _derivative_model(f"dalong_{name}", dt=0.1, init=0.7, **stencil)
-    w = Input(f"dwindow_{name}", sw=6)
+    w = Input(f"dwindow_{name}", tw=6)
     window = Modely(
         f"dwindow_{name}",
         inputs=[w],
@@ -2600,12 +2600,12 @@ def test_a_derivative_of_a_derivative_is_the_second_step_by_step():
     # along a time window: the inner one starts from init, the outer one from
     # a rate at rest.
     samples = np.array([1.0, -2.0, 4.0, 0.5, 3.0, 2.0], dtype=np.float32)
-    signal = Input("dtwice_signal", sw=1)
+    signal = Input("dtwice_signal", tw=1)
     twice = Derivative(dt=0.1)(Derivative(dt=0.1, init=0.7)(signal))
     along = ModelyLoop(
         "dtwice", inputs=[signal], outputs=[Output("dtwice_out", twice)]
     ).build()
-    w = Input("dtwice_window", sw=6)
+    w = Input("dtwice_window", tw=6)
     over = Modely(
         "dtwice_window_model",
         inputs=[w],
@@ -2653,7 +2653,7 @@ def test_derivative_starts_from_none_a_number_or_a_stream():
     signal = np.array([2.0, 3.0, 5.0], dtype=np.float32).reshape(1, 3, 1, 1)
     zero = _derivative_model("dfrom_zero", dt=0.1)
     number = _derivative_model("dfrom_number", dt=0.1, init=1.0)
-    x, x0 = Input("dfrom_stream_signal", sw=1), Input("dfrom_stream_init", sw=1)
+    x, x0 = Input("dfrom_stream_signal", tw=1), Input("dfrom_stream_init", tw=1)
     stream = ModelyLoop(
         "dfrom_stream",
         inputs=[x, x0],
@@ -2689,8 +2689,8 @@ def test_derivative_reads_the_history_a_longer_stencil_needs():
     # The second-order stencil reads the two steps before the first: one init
     # sample stands for both, or the two are given, oldest first. On x = k^2
     # with the true history 0, 1 it is exact, 2k.
-    x = Input("dhistory_x", sw=1)
-    one, two = Input("dhistory_one", sw=1), Input("dhistory_two", sw=2)
+    x = Input("dhistory_x", tw=1)
+    one, two = Input("dhistory_one", tw=1), Input("dhistory_two", tw=2)
     model = ModelyLoop(
         "dhistory",
         inputs=[x, one, two],
@@ -2719,10 +2719,10 @@ def test_derivative_reads_the_history_a_longer_stencil_needs():
 
 def test_derivative_each_feature_of_a_vector_signal():
     x, start = (
-        Input("dvector_signal", dim=2, sw=1),
-        Input("dvector_init", dim=2, sw=1),
+        Input("dvector_signal", dim=2, tw=1),
+        Input("dvector_init", dim=2, tw=1),
     )
-    scalar_start = Input("dvector_scalar_init", sw=1)
+    scalar_start = Input("dvector_scalar_init", tw=1)
     model = ModelyLoop(
         "dvector",
         inputs=[x, start, scalar_start],
@@ -2752,7 +2752,7 @@ def test_derivative_each_feature_of_a_vector_signal():
 
 def test_integrate_and_derivative_invert_each_other_step_by_step():
     dt = 0.1
-    x, x0 = Input("dinverse_x", sw=1), Input("dinverse_init", sw=1)
+    x, x0 = Input("dinverse_x", tw=1), Input("dinverse_init", tw=1)
     model = ModelyLoop(
         "dinverse",
         inputs=[x, x0],
@@ -2784,7 +2784,7 @@ def test_derivative_undoes_integrate_step_by_step():
     # Derivative undoes the Integrate it follows, step by step. Over the
     # one-sample window of each step, DerivativeStep reads only init.
     dt, v0, x0 = 0.1, 1.0, 3.0
-    acc = Input("dloop_acc", sw=1)
+    acc = Input("dloop_acc", tw=1)
     pos = Integrate(dt=dt, init=x0)(Integrate(dt=dt, init=v0)(acc))
     vel = Derivative(dt=dt, init=x0)(pos)
     model = ModelyLoop(
@@ -2816,7 +2816,7 @@ def test_derivative_of_a_signal_from_a_layer_with_parameter_weights(layer):
     # signal = 2u + 1 on [1, 2, 4, 7] is [3, 5, 9, 15]; from zero with dt = 1
     # the differences are [3, 2, 4, 6].
     name = f"dlayer_{layer.__name__.lower()}"
-    u = Input(f"{name}_u", sw=1)
+    u = Input(f"{name}_u", tw=1)
     gain = Parameter(f"{name}_gain", value=[2.0])
     offset = Parameter(f"{name}_offset", value=[1.0])
     signal = layer(features=1, kernel=gain, bias=offset)(u)
@@ -2834,7 +2834,7 @@ def test_derivative_of_a_signal_from_a_layer_with_parameter_weights(layer):
 
 def test_a_derivative_feeds_any_relation():
     # The result is the derivative at the step, a stream to compute with.
-    x = Input("ddynamic_further_x", sw=1)
+    x = Input("ddynamic_further_x", tw=1)
     d = Derivative(dt=0.5)(x)
     gain = Parameter("ddynamic_further_gain", value=3.0)
     model = ModelyLoop(
@@ -2871,11 +2871,11 @@ def test_derivative_is_trained_through():
     # v = Derivative(k * x): the gain is learnt from the derivative of the
     # trajectory.
     steps = 8
-    x = Input("dtrained_x", sw=1)
+    x = Input("dtrained_x", tw=1)
     k = Parameter("dtrained_k", value=0.5)
     v = Output("dtrained_v", Derivative(dt=1.0)(x * k))
     model = ModelyLoop("dtrained", inputs=[x], outputs=[v], length=steps)
-    model.minimize("fit", v, Input("dtrained_target", sw=1))
+    model.minimize("fit", v, Input("dtrained_target", tw=1))
     model.build()
     rng = np.random.default_rng(0)
     positions = np.cumsum(rng.uniform(-1.0, 1.0, (64, steps)), axis=1).astype(
@@ -2899,7 +2899,7 @@ def test_derivative_is_trained_through():
 def _saved_derivative_model(name, length):
     # The second-order stencil from a two-sample history: every argument the
     # layers save.
-    x, history = Input(f"{name}_x", sw=1), Input(f"{name}_history", sw=2)
+    x, history = Input(f"{name}_x", tw=1), Input(f"{name}_history", tw=2)
     out = Derivative(dt=0.5, poly_order=2, init=history)(x)
     return ModelyLoop(
         name,
@@ -2979,7 +2979,7 @@ def test_derivative_rejects_what_it_cannot_differentiate():
     with pytest.raises(ValueError, match="has none"):
         Derivative(dt=0.1)(Input("dno_window"))
     with pytest.raises(ValueError, match="one sample per step"):
-        Derivative(dt=0.1)(Input("dwindowed", sw=3))
+        Derivative(dt=0.1)(Input("dwindowed", tw=3))
     with pytest.raises(ValueError, match="dt is required"):
         Derivative()
     with pytest.raises(TypeError, match="init must be a Stream"):
@@ -2988,19 +2988,19 @@ def test_derivative_rejects_what_it_cannot_differentiate():
         Derivative(dt=0.1, poly_order=0)
     with pytest.raises(TypeError, match="unexpected keyword argument 'order'"):
         Derivative(order=2, dt=0.1)  # type: ignore[call-arg]
-    signal = Input("dchecked_signal", dim=2, sw=1)
+    signal = Input("dchecked_signal", dim=2, tw=1)
     with pytest.raises(ValueError, match="init holds the samples before the first"):
-        Derivative(dt=0.1, init=Input("dlong_init", dim=2, sw=3))(signal)
+        Derivative(dt=0.1, init=Input("dlong_init", dim=2, tw=3))(signal)
     with pytest.raises(ValueError, match="init has dim"):
-        Derivative(dt=0.1, init=Input("dwide_init", dim=3, sw=1))(signal)
+        Derivative(dt=0.1, init=Input("dwide_init", dim=3, tw=1))(signal)
     with pytest.raises(ValueError, match="init has the sequence"):
-        Derivative(dt=0.1, init=Input("dseq_init", dim=2, seq=4, sw=1))(signal)
+        Derivative(dt=0.1, init=Input("dseq_init", dim=2, seq=4, tw=1))(signal)
 
 
 def test_my_localmodel():
-    x = Input("x_local", dim=(2, 2), sw=4)
-    g = Input("g_local", dim=1, sw=1)
-    k = Input("k_local", dim=1, sw=1)
+    x = Input("x_local", dim=(2, 2), tw=4)
+    g = Input("g_local", dim=1, tw=1)
+    k = Input("k_local", dim=1, tw=1)
     mu = Fuzzify(centers=[0.0, 1.0, 2.0], function=Triangular)(g)
     mu_k = Fuzzify(centers=[0.0, 1.0], function=Triangular)(k)
     local = LocalModel(
@@ -3026,7 +3026,7 @@ def test_fuzzify_rectangles_hold_every_value_once():
     # Each rectangle reaches halfway to the centers next to it, half-open:
     # once, on uneven centers, a rectangle reached halfway to the right on
     # both sides, two sets held 0.25, and the edges 0.5 and 1.5 held none.
-    x = Input("boxes_x", sw=1)
+    x = Input("boxes_x", tw=1)
     even = Fuzzify([0.0, 1.0, 2.0], function=Rectangular)([x])
     uneven = Fuzzify([0.0, 1.0, 3.0], function=Rectangular)([x])
     moving = Fuzzify(
@@ -3057,7 +3057,7 @@ def test_fuzzify_rectangles_hold_every_value_once():
 
 
 def test_local_model_refuses_a_layer_class():
-    x = Input("class_cells_x", sw=1)
+    x = Input("class_cells_x", tw=1)
     mu = Fuzzify([0.0, 1.0], function=Triangular)([x])
     with pytest.raises(TypeError, match="pass a layer instance"):
         LocalModel(Tanh)([x], [mu])
@@ -3066,7 +3066,7 @@ def test_local_model_refuses_a_layer_class():
 def test_equation_learner_called_twice_applies_one_projection():
     # Its default input projection was made anew at every call, so two calls
     # on one stream gave different results.
-    x = Input("twice_eql_x", sw=1)
+    x = Input("twice_eql_x", tw=1)
     learner = EquationLearner(["sin", "multiply"], linear_out=Linear(features=1))
     first, second = learner([x]), learner([x])
     model = Modely(
@@ -3081,13 +3081,13 @@ def test_equation_learner_called_twice_applies_one_projection():
     )
 
     # On a dynamic sequence too.
-    s = Input("twice_eql_s", seq=-1, sw=1)
+    s = Input("twice_eql_s", seq=-1, tw=1)
     assert learner([s]).shape.dimensions[:2] == ((None,), 1)
 
 
 def test_local_model_with_an_elementwise_function_on_several_inputs():
     # The function is applied to each input, and a cell is one stream.
-    x, y = Input("several_cells_x", sw=1), Input("several_cells_y", sw=1)
+    x, y = Input("several_cells_x", tw=1), Input("several_cells_y", tw=1)
     mu = Fuzzify([0.0, 1.0], function=Triangular)([x])
     with pytest.raises(ValueError, match="a cell is one stream"):
         LocalModel(Tanh())([x, y], [mu])
@@ -3097,7 +3097,7 @@ def test_local_model_with_an_elementwise_function_on_several_inputs():
 def test_a_block_shares_an_input_it_does_not_declare_with_its_caller(call_first):
     # A call once saw only what its caller had inlined before it: reached
     # first, it made an Input of its own, and the model read two Inputs x.
-    x, u, r = Input("shared_x", sw=1), Input("shared_u", sw=1), Input("shared_r", sw=1)
+    x, u, r = Input("shared_x", tw=1), Input("shared_u", tw=1), Input("shared_r", tw=1)
     block = Modely("shared_block", inputs=[r], outputs=[Output("shared_bo", x + r)])
     y = block([u]) + x if call_first else x + block([u])
     model = Modely("shared_model", inputs=[x, u], outputs=[Output("shared_y", y)])

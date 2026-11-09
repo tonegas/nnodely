@@ -20,7 +20,7 @@ from nnodely import (
 
 
 def test_export_html_writes_the_root_page(tmp_path):
-    x = Input("x", dim=1, sw=3)
+    x = Input("x", dim=1, tw=3)
     out = Output("out", Fir(features=1)([x]))
     model = Modely("plot_model", inputs=[x], outputs=[out])
     model.build()
@@ -31,8 +31,8 @@ def test_export_html_writes_the_root_page(tmp_path):
 
 def test_model_composed_visualization(tmp_path):
     # ------- Model definition and building -------
-    x = Input("x", dim=1, sw=10)
-    y = Input("y", dim=1, sw=10)
+    x = Input("x", dim=1, tw=10)
+    y = Input("y", dim=1, tw=10)
 
     x_stream = x
     y_stream = y
@@ -45,7 +45,7 @@ def test_model_composed_visualization(tmp_path):
     model1.build()
 
     # ------- Model composition -------
-    z = Input("z", dim=1, sw=10)
+    z = Input("z", dim=1, tw=10)
     z_stream = z
     z_fir = Fir(features=1)([model1([z_stream, z_stream])])
     z_out = Output("z_pred", z_fir)
@@ -59,21 +59,21 @@ def test_model_composed_visualization(tmp_path):
 
 def test_multiple_model_composed_visualization(tmp_path):
     # ------- Model Flatten and Visualization -------
-    x = Input("x", dim=1, sw=5)
+    x = Input("x", dim=1, tw=5)
     param = Parameter("param1", dim=1)
     x_param = x * param
     x_out = Output("x_out", x_param)
     model1 = Modely("model1", inputs=[x], outputs=[x_out])
     model1.build()
 
-    y = Input("y", dim=1, sw=5)
+    y = Input("y", dim=1, tw=5)
     y_fir = Fir(features=1)([model1([y])])
     y_out = Output("y_out", y_fir)
     model2 = Modely("model2", inputs=[y], outputs=[y_out])
     model2.build()
 
-    z = Input("z", dim=1, sw=5)
-    const_z = Constant("const_z", value=[1.0, 2.0, 3.0, 4.0, 5.0], time=5)
+    z = Input("z", dim=1, tw=5)
+    const_z = Constant("const_z", value=[1.0, 2.0, 3.0, 4.0, 5.0], tw=5)
     z_fir = Fir(features=1)([model2([z + const_z])])
     z_out = Output("z_out", z_fir)
     model3 = Modely("model3", inputs=[z], outputs=[z_out])
@@ -93,7 +93,7 @@ def test_visualize_high_level_blocks(tmp_path):
             out = Output(name=f"{self.name}_out", stream=ret)
             return Modely(name=f"{self.name}", inputs=inputs, outputs=[out])(inputs)
 
-    input = Input("input", sw=1)
+    input = Input("input", tw=1)
     tan = Tangent(name="tangent")([input])
     output = Output("output", tan)
 
@@ -105,7 +105,7 @@ def test_visualize_high_level_blocks(tmp_path):
 
 
 def test_export_html_accepts_a_file_path(tmp_path):
-    x = Input("x", dim=1, sw=3)
+    x = Input("x", dim=1, tw=3)
     out = Output("out", Fir(features=1)([x]))
     model = Modely("path_model", inputs=[x], outputs=[out])
     model.build()
@@ -117,11 +117,11 @@ def test_export_html_accepts_a_file_path(tmp_path):
 
 
 def test_export_html_describes_the_loop_boundary(tmp_path):
-    seed_input = Input("in1", sw=1)
+    seed_input = Input("in1", tw=1)
     body_output = Output("body_out", Linear(features=1)(seed_input))
     body = Modely("loop_body", inputs=[seed_input], outputs=[body_output]).build()
 
-    seed = Input("in1_seq", seq=5, sw=1)
+    seed = Input("in1_seq", seq=5, tw=1)
     seed_window = seed
     loop = Loop(
         f=body,
@@ -130,7 +130,7 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
         init={seed_input: seed_window},
     )()
     model = Modely("loop_model", inputs=[seed], outputs=[Output("out1", loop)])
-    target = Input("target", seq=5, sw=1)
+    target = Input("target", seq=5, tw=1)
     model.minimize("err", source=model.outputs[0], target=target)
     model.build()
 
@@ -156,12 +156,12 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
 
 
 def test_export_html_layout_survives_feedback_cycles(tmp_path):
-    seed_input = Input("in1", sw=1)
+    seed_input = Input("in1", tw=1)
     # Without weights: their Parameters would branch off the chain.
     body_output = Output("body_out", Sin(seed_input))
     body = Modely("cyc_body", inputs=[seed_input], outputs=[body_output]).build()
 
-    seed = Input("in1_seq", seq=5, sw=1)
+    seed = Input("in1_seq", seq=5, tw=1)
     loop = Loop(
         f=body,
         feedback={seed_input: body_output},
@@ -209,11 +209,11 @@ def _assert_no_dangling(page):
 
 
 def test_flattened_page_inlines_a_loop_body(tmp_path):
-    seed_input = Input("in1", sw=1)
+    seed_input = Input("in1", tw=1)
     body_output = Output("body_out", Linear(features=1)(seed_input))
     body = Modely("inline_body", inputs=[seed_input], outputs=[body_output]).build()
 
-    seed = Input("in1_seq", seq=4, sw=1)
+    seed = Input("in1_seq", seq=4, tw=1)
     seed_window = seed
     loop = Loop(
         f=body,
@@ -252,11 +252,11 @@ def test_a_loop_inlined_from_a_called_model_reads_the_streams_the_call_binds(
     # Inlined in the step of the outer loop, the inner Loop reads k, which
     # the call binds to its x; it was once drawn reading x, and k was left
     # alone on the flattened page.
-    x = Input("bound_x", sw=1)
+    x = Input("bound_x", tw=1)
     inner = ModelyLoop(
         "bound_inner", inputs=[x], outputs=[Output("bound_xx", Integrate(dt=1)(x))]
     ).build()
-    k = Input("bound_k", sw=1, seq=-1)
+    k = Input("bound_k", tw=1, seq=-1)
     outer = ModelyLoop(
         "bound_outer",
         inputs=[k],
@@ -274,13 +274,13 @@ def test_a_loop_inlined_from_a_called_model_reads_the_streams_the_call_binds(
     _assert_no_dangling(page)
 
     # The state of a called loop starts from the stream the call binds.
-    y0 = Input("bound_y0", sw=1)
+    y0 = Input("bound_y0", tw=1)
     seeded = ModelyLoop(
         "bound_seeded",
         inputs=[x, y0],
         outputs=[Output("bound_xs", Integrate(dt=1, init=y0)(x))],
     ).build()
-    k0 = Input("bound_k0", sw=1, seq=-1)
+    k0 = Input("bound_k0", tw=1, seq=-1)
     caller = Modely(
         "bound_caller", inputs=[k, k0], outputs=[Output("bound_o", seeded([k, k0]))]
     ).build()
@@ -291,7 +291,7 @@ def test_a_loop_inlined_from_a_called_model_reads_the_streams_the_call_binds(
 
 def test_export_html_escapes_the_names_it_shows(tmp_path):
     # Once inserted raw: a name could close the page's <script>, or run its own.
-    x = Input("escaped_x", sw=2)
+    x = Input("escaped_x", tw=2)
     out = Output("o</script><script>alert(2)//", Fir(features=1)([x]))
     model = Modely("<img src=x onerror=alert(1)>", inputs=[x], outputs=[out]).build()
 
@@ -305,7 +305,7 @@ def test_export_html_escapes_the_names_it_shows(tmp_path):
 
 
 def test_export_html_loads_a_pinned_vis_network(tmp_path):
-    x = Input("pinned_x", sw=2)
+    x = Input("pinned_x", tw=2)
     model = Modely(
         "pinned",
         inputs=[x],
@@ -324,7 +324,7 @@ def test_export_html_loads_a_pinned_vis_network(tmp_path):
 
 def _equation_learner(name, functions, features, linear_out=None):
     """An EquationLearner on x, every argument x, built into a model."""
-    x = Input("x", sw=1)
+    x = Input("x", tw=1)
     learner = EquationLearner(
         functions,
         linear_in=Linear(features=features, kernel="ones", bias=False),
@@ -341,7 +341,7 @@ def test_equation_learner_plot_returns_the_equation_it_draws():
     import matplotlib.pyplot as plt
     import sympy
 
-    x, v = Input("x", sw=1), Input("v", dim=2, sw=1)
+    x, v = Input("x", tw=1), Input("v", dim=2, tw=1)
     learner = EquationLearner(
         ["identity", Sin, (lambda a, b: a * b, 2)],
         linear_in=Linear(
@@ -432,7 +432,7 @@ def test_equation_learner_plot_writes_the_new_math_functions():
         r"\operatorname{round}{\left(x \right)}",
     ]
 
-    x, v = Input("x", sw=1), Input("v", sw=1)
+    x, v = Input("x", tw=1), Input("v", tw=1)
     binary = EquationLearner(
         ["maximum", "minimum", "mod"],
         linear_in=Linear(
@@ -507,7 +507,7 @@ def test_equation_learner_plot_breaks_a_long_equation_into_lines():
     import matplotlib.pyplot as plt
 
     # With the arguments of the default projection, each one its own.
-    x = Input("x", sw=1)
+    x = Input("x", tw=1)
     learner = EquationLearner(
         ["sin"] * 12, linear_out=Linear(features=1), name="long_drawn"
     )
@@ -525,6 +525,6 @@ def test_equation_learner_plot_needs_a_built_model():
     with pytest.raises(RuntimeError, match="build the model first"):
         learner.plot()
 
-    learner(Input("unbuilt_drawn_x", sw=1))
+    learner(Input("unbuilt_drawn_x", tw=1))
     with pytest.raises(RuntimeError, match="build the model first"):
         learner.plot()

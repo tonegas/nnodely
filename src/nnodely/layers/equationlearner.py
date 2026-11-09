@@ -290,7 +290,7 @@ class EquationLearner:
                 f"{call_name}_input_{index}",
                 dim=stream.dim,
                 seq=seq or None,
-                sw=stream.shape.time,
+                tw=stream.shape.tw,
             )
             internal_inputs.append(internal_input)
             internal_streams.append(internal_input)

@@ -224,7 +224,7 @@ class Modely:
         if node not in self._order:
             return  # an input this model does not read
         if (
-            stream.time != node.time
+            stream.tw != node.tw
             or not _same_sizes(stream.seq, node.seq)
             or tuple(stream.dim) != tuple(node.dim)
         ):
@@ -1325,10 +1325,10 @@ def _rename_hidden_states(model: Modely) -> None:
             taken[node.name] = node
 
 
-def _same_sizes(time: tuple, other: tuple) -> bool:
+def _same_sizes(sizes: tuple, other: tuple) -> bool:
     """Whether two tuples of axis sizes match: as many axes, of the same
     lengths, a dynamic one (None) matching any."""
-    return len(time) == len(other) and all(
+    return len(sizes) == len(other) and all(
         None in (size, other_size) or size == other_size
-        for size, other_size in zip(time, other)
+        for size, other_size in zip(sizes, other)
     )

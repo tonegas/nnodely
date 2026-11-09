@@ -27,7 +27,7 @@ A built model can be stored in three formats:
    import numpy as np
    from nnodely import Fir, Input, Modely, Output, ReLU
 
-   x = Input("x", sw=10)
+   x = Input("x", tw=10)
    y = Output("y", ReLU()([Fir(features=1)([x])]))
    model = Modely("filter", inputs=[x], outputs=[y]).build()
    sample = {"x": np.random.rand(1, 10, 1).astype("float32")}

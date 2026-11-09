@@ -89,10 +89,10 @@ class ConstantImpl(ParameterImpl):
     trainable_value = False
 
 
-def _declared_shape(owner: str, dim, time, seq) -> Shape:
-    """The shape ``dim``, ``time`` and ``seq`` declare, the sizes of the axes
+def _declared_shape(owner: str, dim, tw, seq) -> Shape:
+    """The shape ``dim``, ``tw`` and ``seq`` declare, the sizes of the axes
     as for an Input: ``dim`` one feature by default, each axis at least 1;
-    ``time`` the window, none by default; ``seq`` the sequence axes,
+    ``tw`` the window, none by default; ``seq`` the sequence axes,
     outermost first, each of a fixed length - a value holds every step - and
     only with a window."""
     sequence = () if seq is None else _positive_sizes(seq)
@@ -102,20 +102,20 @@ def _declared_shape(owner: str, dim, time, seq) -> Shape:
             f"tuple of them, outermost first, each at least 1 - a value holds "
             f"every step of its sequence, so none is dynamic; got {seq!r}."
         )
-    if sequence and time is None:
+    if sequence and tw is None:
         raise ValueError(
-            f"{owner}: a sequence needs a window: declare time as well, time=1 "
+            f"{owner}: a sequence needs a window: declare tw as well, tw=1 "
             "for one sample per step."
         )
-    if time is not None:
-        window = _positive_sizes(time) if isinstance(time, Integral) else None
+    if tw is not None:
+        window = _positive_sizes(tw) if isinstance(tw, Integral) else None
         if window is None:
             raise ValueError(
-                f"{owner}: time is the length of the window, an int of at least "
-                f"1, or None for no window; got {time!r}."
+                f"{owner}: tw is the length of the window, an int of at least "
+                f"1, or None for no window; got {tw!r}."
             )
-        time = window[0]
-    return Shape(dim=_dimension(owner, dim), time=time, seq=sequence)
+        tw = window[0]
+    return Shape(dim=_dimension(owner, dim), tw=tw, seq=sequence)
 
 
 def _take_axes(shape: tuple, sizes: tuple) -> tuple[int, ...] | None:
@@ -132,12 +132,12 @@ def _take_axes(shape: tuple, sizes: tuple) -> tuple[int, ...] | None:
     return tuple(taken)
 
 
-def _value_layout(owner: str, value, dim, time, seq) -> tuple[np.ndarray, Shape]:
-    """``value`` laid out ``(*seq, time, *dim)``, as a tensor holds a sample,
+def _value_layout(owner: str, value, dim, tw, seq) -> tuple[np.ndarray, Shape]:
+    """``value`` laid out ``(*seq, tw, *dim)``, as a tensor holds a sample,
     and the shape of its stream, declared as for an Input
     (:func:`_declared_shape`).
 
-    Without ``dim``, ``seq`` and ``time`` take the axes of the value of their
+    Without ``dim``, ``seq`` and ``tw`` take the axes of the value of their
     sizes, and the axes they leave are its dim, in their order: all of them
     when neither is given - like a number, the value then has no window and
     applies to every sample of any stream. A dim of one when they leave none.
@@ -149,11 +149,11 @@ def _value_layout(owner: str, value, dim, time, seq) -> tuple[np.ndarray, Shape]
     array = np.atleast_1d(np.asarray(value, dtype=np.float32))
     if array.size == 0:
         raise ValueError(f"{owner}: value must not be empty.")
-    shape = _declared_shape(owner, dim, time, seq)
+    shape = _declared_shape(owner, dim, tw, seq)
     if dim is None:
         # A value's sequence has fixed lengths: none is None.
         sequence = cast(tuple[int, ...], shape.seq)
-        outer = (*sequence, *(() if shape.time is None else (shape.time,)))
+        outer = (*sequence, *(() if shape.tw is None else (shape.tw,)))
         taken = _take_axes(array.shape, outer)
         if taken is not None:
             rest = tuple(axis for axis in range(array.ndim) if axis not in taken)
@@ -163,7 +163,7 @@ def _value_layout(owner: str, value, dim, time, seq) -> tuple[np.ndarray, Shape]
         if array.ndim > 1:
             raise ValueError(
                 f"{owner}: shape error, a value of shape {array.shape} has no "
-                f"axes of the sizes seq and time declare, (*seq, time) = "
+                f"axes of the sizes seq and tw declare, (*seq, tw) = "
                 f"{outer}; the axes they leave are its dim."
             )
 
@@ -172,7 +172,7 @@ def _value_layout(owner: str, value, dim, time, seq) -> tuple[np.ndarray, Shape]
         if array.size != math.prod(declared):
             raise ValueError(
                 f"{owner}: shape error, {array.size} values given where the "
-                f"declared shape (*seq, time, *dim) = {declared} holds "
+                f"declared shape (*seq, tw, *dim) = {declared} holds "
                 f"{math.prod(declared)}."
             )
         return array.reshape(declared), shape
@@ -180,7 +180,7 @@ def _value_layout(owner: str, value, dim, time, seq) -> tuple[np.ndarray, Shape]
     if order is None or len(order) != array.ndim:
         raise ValueError(
             f"{owner}: shape error, a value of shape {array.shape} does not have "
-            f"the sizes of the declared shape (*seq, time, *dim) = {declared}, "
+            f"the sizes of the declared shape (*seq, tw, *dim) = {declared}, "
             f"in any order. Give a value of those sizes, or the "
             f"{math.prod(declared)} values as a list."
         )
@@ -199,19 +199,19 @@ class _Value(Layer):
     # Not read from data: without a window it applies to any stream's.
     _is_value = True
 
-    def __init__(self, name, value, initializer, dim, time, seq):
+    def __init__(self, name, value, initializer, dim, tw, seq):
         owner = type(self).__name__ + ("" if name is None else f" {name!r}")
         if value is None:
-            shape = _declared_shape(owner, dim, time, seq)
+            shape = _declared_shape(owner, dim, tw, seq)
         else:
-            value, shape = _value_layout(owner, value, dim, time, seq)
+            value, shape = _value_layout(owner, value, dim, tw, seq)
 
         self.value = value
         self._initializer = initializer
 
         super().__init__(
             name=name,
-            time=shape.time,
+            tw=shape.tw,
             dim=shape.dim,
             seq=shape.seq,
             value=None if value is None else value.tolist(),
@@ -233,7 +233,7 @@ class _Value(Layer):
     def get_config(self):
         # Read from no stream, a value keeps its shape in its config rather
         # than taking it from its inputs as other layers do: the sizes of its
-        # axes, and the value laid out (*seq, time, *dim) as they declare it.
+        # axes, and the value laid out (*seq, tw, *dim) as they declare it.
         config = super().get_config()
         config.update(self.shape.get_config())
         return config
@@ -251,11 +251,11 @@ class Parameter(_Value):
     """
     Trainable symbolic parameter.
 
-    ``seq``, ``time`` and ``dim`` declare its shape as for an
+    ``seq``, ``tw`` and ``dim`` declare its shape as for an
     :class:`~nnodely.Input`: ``dim`` the feature axes, one feature by
-    default, each of at least one; ``time`` the window, ``T``; ``seq`` the
+    default, each of at least one; ``tw`` the window, ``T``; ``seq`` the
     sequence axes, outermost first, each of a fixed length, and only with a
-    window. Without ``time`` it has no window, and applies to every sample of
+    window. Without ``tw`` it has no window, and applies to every sample of
     any stream. Without ``value``, ``initializer``, any Keras initializer,
     draws its initial value.
 
@@ -263,17 +263,17 @@ class Parameter(_Value):
     shape, in its order (row-major); an array of several axes has the sizes
     of the shape, in any order - its axes are moved into place, those of one
     size keeping their order. Anything else raises ``ValueError``. Given a
-    value and no ``dim``, ``seq`` and ``time`` take the axes of the value of
+    value and no ``dim``, ``seq`` and ``tw`` take the axes of the value of
     their sizes, and the axes they leave are the dim, in their order - all of
     them when neither is given, one feature when they leave none.
-    :attr:`value` and the variable hold it laid out ``(*seq, time, *dim)``,
+    :attr:`value` and the variable hold it laid out ``(*seq, tw, *dim)``,
     without the window when it has none::
 
         Parameter("p", value=np.ones((2, 3, 2)))                   # S=(), T=None, D=(2, 3, 2)
-        Parameter("p", value=np.ones((2, 4, 6)), time=4)           # S=(), T=4, D=(2, 6)
-        Parameter("p", value=[1.0, 2.0, 3.0], time=3)              # S=(), T=3, D=(1,)
-        Parameter("p", value=np.ones((3, 4, 2)), seq=2, time=3, dim=4)  # S=(2,), T=3, D=(4,)
-        Parameter("p", dim=(3, 2), time=4, initializer="ones")     # S=(), T=4, D=(3, 2)
+        Parameter("p", value=np.ones((2, 4, 6)), tw=4)           # S=(), T=4, D=(2, 6)
+        Parameter("p", value=[1.0, 2.0, 3.0], tw=3)              # S=(), T=3, D=(1,)
+        Parameter("p", value=np.ones((3, 4, 2)), seq=2, tw=3, dim=4)  # S=(2,), T=3, D=(4,)
+        Parameter("p", dim=(3, 2), tw=4, initializer="ones")     # S=(), T=4, D=(3, 2)
 
     ``trainable=False`` keeps the value as it is through training, as
     :meth:`freeze` does, before or after the model is built; the flag is
@@ -282,7 +282,7 @@ class Parameter(_Value):
     Like every stream it is laid out with a batch axis first, the same value
     for every sample::
 
-        (batch, *seq, [time,] *dim)
+        (batch, *seq, [tw,] *dim)
     """
 
     def __init__(
@@ -291,13 +291,13 @@ class Parameter(_Value):
         *,
         value=None,
         initializer="random_normal",
-        time=None,
+        tw=None,
         dim=None,
         seq=None,
         trainable: bool = True,
     ):
         self._trainable = bool(trainable)
-        super().__init__(name, value, initializer, dim, time, seq)
+        super().__init__(name, value, initializer, dim, tw, seq)
 
     @property
     def trainable(self) -> bool:
@@ -378,13 +378,13 @@ class Parameters(list):
         return picked[0]
 
     def __str__(self):
-        header = ("parameter", "seq", "time", "dim", "values", "trainable")
+        header = ("parameter", "seq", "tw", "dim", "values", "trainable")
 
         def row(parameter):
             return (
                 parameter.name,
                 str(tuple(parameter.shape.seq)),
-                str(parameter.shape.time),
+                str(parameter.shape.tw),
                 str(tuple(parameter.shape.dim)),
                 str(math.prod(parameter.shape.tuple)),
                 "yes" if parameter.trainable else "no",
@@ -411,31 +411,29 @@ class Constant(_Value):
     Non-trainable symbolic constant layer.
 
     A :class:`Parameter` that training does not change, and that requires a
-    ``value``: ``seq``, ``time`` and ``dim`` declare its shape, and the value
+    ``value``: ``seq``, ``tw`` and ``dim`` declare its shape, and the value
     fills it, as for a Parameter - without ``dim``, the axes ``seq`` and
-    ``time`` leave are the dim::
+    ``tw`` leave are the dim::
 
         Constant("c", value=[1.0, 2.0, 3.0])                 # S=(), T=None, D=(3,)
-        Constant("c", value=[1.0, 2.0, 3.0], time=3)         # S=(), T=3, D=(1,)
-        Constant("c", value=[[1.0, 2.0, 3.0]], time=1, dim=3)  # S=(), T=1, D=(3,)
+        Constant("c", value=[1.0, 2.0, 3.0], tw=3)         # S=(), T=3, D=(1,)
+        Constant("c", value=[[1.0, 2.0, 3.0]], tw=1, dim=3)  # S=(), T=1, D=(3,)
 
     Numbers used in arithmetic with a stream become constants automatically.
 
     Like every stream it is laid out with a batch axis first, the same value
     for every sample::
 
-        (batch, *seq, [time,] *dim)
+        (batch, *seq, [tw,] *dim)
     """
 
     _impl = ConstantImpl
     _trainable = False
 
-    def __init__(
-        self, name: str | None = None, *, value, time=None, dim=None, seq=None
-    ):
+    def __init__(self, name: str | None = None, *, value, tw=None, dim=None, seq=None):
         if value is None:
             raise ValueError("Constant requires a value.")
-        super().__init__(name, value, None, dim, time, seq)
+        super().__init__(name, value, None, dim, tw, seq)
 
     @property
     def constant(self):
@@ -538,7 +536,7 @@ class Weight(Parameter):
         # Declared by its shape and the shape its initializer draws, which
         # take the place of a Parameter's value and axes.
         config = super().get_config()
-        for key in ("value", "dim", "time", "seq"):
+        for key in ("value", "dim", "tw", "seq"):
             del config[key]
         config.update({"shape": self._weight_shape, "draw": self._draw_shape})
         return config

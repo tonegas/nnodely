@@ -16,7 +16,7 @@ class Output(Stream):
         super().__init__(
             name=name,
             dim=stream.shape.dim,
-            time=stream.shape.time,
+            tw=stream.shape.tw,
             seq=stream.shape.seq,
             preds=[stream],
         )
@@ -36,7 +36,7 @@ class Outputs(list):
     as a table of their shapes, the stream each names, the Inputs that
     stream is fed back into and the minimizers that read it."""
 
-    _HEADER = ("output", "seq", "time", "dim", "stream", "feeds back", "minimized by")
+    _HEADER = ("output", "seq", "tw", "dim", "stream", "feeds back", "minimized by")
 
     def __init__(self, rows: list[dict]):
         super().__init__(row["output"] for row in rows)
@@ -63,7 +63,7 @@ class Outputs(list):
             (
                 row["output"].name,
                 _seq_cell(row["output"].seq),
-                "-" if row["output"].time is None else str(row["output"].time),
+                "-" if row["output"].tw is None else str(row["output"].tw),
                 str(tuple(row["output"].dim)),
                 row["stream"],
                 ", ".join(row["feeds back"]) or "-",

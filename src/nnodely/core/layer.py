@@ -128,7 +128,7 @@ class Layer(Stream, metaclass=_LayerType):
     # is applied to each of them, and returns one result per stream.
     _one_stream = False
 
-    def __init__(self, name=None, preds=None, time=None, dim=None, seq=None, **kwargs):
+    def __init__(self, name=None, preds=None, tw=None, dim=None, seq=None, **kwargs):
         self._properties = dict(kwargs)
         self._inputs = None
         self._layer = None
@@ -141,7 +141,7 @@ class Layer(Stream, metaclass=_LayerType):
         super().__init__(
             name=next_name(self.__class__.__name__) if name is None else name,
             dim=dim,
-            time=time,
+            tw=tw,
             preds=preds,
             seq=seq,
         )
@@ -203,7 +203,7 @@ class Layer(Stream, metaclass=_LayerType):
                 f"{len(inputs)}."
             )
         # The result has a window if a stream it is computed from has one.
-        window = any(input_node.shape.time is not None for input_node in inputs)
+        window = any(input_node.shape.tw is not None for input_node in inputs)
         inferred = [
             self._restore_dynamic_axes(
                 self._shape_from_tensor(
@@ -259,16 +259,16 @@ class Layer(Stream, metaclass=_LayerType):
             )
 
         return Shape.from_tensor_shape(
-            tuple(int(axis) for axis in shape), seq_rank=seq_rank, time=window
+            tuple(int(axis) for axis in shape), seq_rank=seq_rank, tw=window
         )
 
     def _needs_window(self, stream) -> None:
         """Refuse ``stream`` if it has no window, the axis this layer acts on."""
-        if stream.shape.time is None:
+        if stream.shape.tw is None:
             raise ValueError(
                 f"{self.name}: {type(self).__name__} acts on the window of its "
                 f"stream, and {stream.name!r} has none, {stream.shape}. Declare "
-                "the Input with a window, sw=n for its last n samples."
+                "the Input with a window, tw=n for its last n samples."
             )
 
     # ------------------------------------------------------------------
@@ -461,7 +461,7 @@ class BinaryOp(Layer):
         return {
             "seq_ranks": tuple(shape.seq_rank for shape in shapes),
             "dim_ranks": tuple(shape.dim_rank for shape in shapes),
-            "windows": tuple(shape.time is not None for shape in shapes),
+            "windows": tuple(shape.tw is not None for shape in shapes),
         }
 
     def output_shape(self, *inputs):  # type: ignore

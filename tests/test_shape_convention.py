@@ -1,4 +1,4 @@
-"""Every stream is laid out ``(batch, *time, *dim)``.
+"""Every stream is laid out ``(batch, *tw, *dim)``.
 
 A Parameter or a Constant is no exception: its value is repeated for every
 sample of the batch, so the layers that slice, project or combine streams
@@ -47,19 +47,19 @@ def _repeated(sample):
 
 
 def test_a_parameter_and_a_constant_are_repeated_for_every_sample():
-    x = Input("repeat_x", sw=1)
+    x = Input("repeat_x", tw=1)
     parameter = Parameter("repeat_parameter", value=[1.0, 2.0, 3.0])
-    constant = Constant("repeat_constant", value=[4.0, 5.0], time=2)
+    constant = Constant("repeat_constant", value=[4.0, 5.0], tw=2)
 
     _, result = _evaluate("repeat", {"parameter": parameter, "constant": constant}, x)
 
-    ## Without time of its own, a value has no window
+    ## Without tw of its own, a value has no window
     np.testing.assert_allclose(result["parameter"], _repeated([1.0, 2.0, 3.0]))
     np.testing.assert_allclose(result["constant"], _repeated([[4.0], [5.0]]))
 
 
 def test_dim_slicing_of_a_parameter_selects_along_its_dim_axis():
-    x = Input("dim_slice_x", sw=1)
+    x = Input("dim_slice_x", tw=1)
     parameter = Parameter("dim_slice_parameter", value=[1.0, 2.0, 3.0])
 
     _, result = _evaluate(
@@ -77,9 +77,9 @@ def test_dim_slicing_of_a_parameter_selects_along_its_dim_axis():
     np.testing.assert_allclose(result["sum"], _repeated([6.0]))
 
 
-def test_time_slicing_of_a_constant_selects_along_its_time_axis():
-    x = Input("time_slice_x", sw=1)
-    constant = Constant("time_slice_constant", value=[1.0, 2.0, 3.0, 4.0], time=4)
+def test_time_slicing_of_a_constant_selects_along_its_tw_axis():
+    x = Input("time_slice_x", tw=1)
+    constant = Constant("time_slice_constant", value=[1.0, 2.0, 3.0, 4.0], tw=4)
 
     _, result = _evaluate(
         "time_slice",
@@ -95,15 +95,15 @@ def test_time_slicing_of_a_constant_selects_along_its_time_axis():
 
 
 def test_concatenation_joins_a_parameter_with_an_input_sample_by_sample():
-    x = Input("join_x", sw=1)
+    x = Input("join_x", tw=1)
     parameter = Parameter("join_parameter", value=[1.0, 2.0])
-    window = Constant("join_window", value=[5.0, 6.0], time=2)
+    window = Constant("join_window", value=[5.0, 6.0], tw=2)
 
     _, result = _evaluate(
         "join",
         {
             "dim": Concatenate()([x, parameter]),
-            "time": TimeConcatenate()([x, window]),
+            "tw": TimeConcatenate()([x, window]),
         },
         x,
     )
@@ -113,14 +113,14 @@ def test_concatenation_joins_a_parameter_with_an_input_sample_by_sample():
         result["dim"], [[[value, 1.0, 2.0]] for value in samples]
     )
     np.testing.assert_allclose(
-        result["time"], [[[value], [5.0], [6.0]] for value in samples]
+        result["tw"], [[[value], [5.0], [6.0]] for value in samples]
     )
 
 
 def test_linear_and_fir_project_a_parameter_like_an_input():
-    x = Input("project_x", sw=1)
+    x = Input("project_x", tw=1)
     vector = Parameter("project_vector", value=[1.0, 2.0, 3.0])
-    window = Parameter("project_window", value=[1.0, 2.0, 3.0, 4.0], time=4)
+    window = Parameter("project_window", value=[1.0, 2.0, 3.0, 4.0], tw=4)
     matrix = Parameter("project_matrix", value=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
     linear = Linear(features=2, kernel=matrix, bias=False, name="project_linear")(
         [vector]
@@ -142,8 +142,8 @@ def test_linear_and_fir_project_a_parameter_like_an_input():
 
 
 def test_division_and_power_keep_the_samples_apart():
-    a = Input("apart_a", seq=4, sw=1)
-    b = Input("apart_b", sw=1)
+    a = Input("apart_a", seq=4, tw=1)
+    b = Input("apart_b", tw=1)
     # b, one sample, broadcasts along the sequence of a: one
     # value per sample.
     quotient = a / b
@@ -177,7 +177,7 @@ def test_division_and_power_keep_the_samples_apart():
 def test_a_dynamic_sequence_axis_survives_shape_inference():
     # A layer whose shape is probed with dummy zeros - elementwise, arithmetic,
     # a Parameter, a projection - keeps a dynamic sequence axis dynamic.
-    x = Input("dynamic_shape_x", dim=2, seq=-1, sw=1)
+    x = Input("dynamic_shape_x", dim=2, seq=-1, tw=1)
     sample = x
     gain = Parameter("dynamic_shape_gain", value=2.0)
     streams = {
@@ -213,26 +213,26 @@ def test_a_dynamic_sequence_axis_survives_shape_inference():
 
 def test_only_the_dynamic_sequence_axes_become_dynamic_again():
     # A fixed sequence axis next to a dynamic one keeps its size.
-    x = Input("mixed_seq_x", seq=(-1, 3), sw=1)
+    x = Input("mixed_seq_x", seq=(-1, 3), tw=1)
     doubled = x * 2.0
     assert doubled.shape.dimensions[:2] == ((None, 3), 1)
-    fixed = Input("fixed_seq_x", seq=4, sw=1) * 2.0
+    fixed = Input("fixed_seq_x", seq=4, tw=1) * 2.0
     assert fixed.shape.dimensions[:2] == ((4,), 1)
 
 
 def test_a_shape_prints_its_named_axes():
     # Once a bare (3, 10): three features of ten samples, or the other way round?
-    assert repr(Input("named_x", dim=3, sw=10).shape) == "Shape(S=(), T=10, D=(3,))"
+    assert repr(Input("named_x", dim=3, tw=10).shape) == "Shape(S=(), T=10, D=(3,))"
     assert (
-        repr(Input("named_m", dim=(3, 2), seq=(-1, 4), sw=1).shape)
+        repr(Input("named_m", dim=(3, 2), seq=(-1, 4), tw=1).shape)
         == "Shape(S=(dyn, 4), T=1, D=(3, 2))"
     )
-    window = Input("named_w", dim=2, sw=5)
+    window = Input("named_w", dim=2, tw=5)
     assert "shape=Shape(S=(), T=5, D=(2,))" in repr(window)
 
 
 def test_concatenation_repeats_a_single_sample_along_a_window():
-    x = Input("repeat_join_x", sw=3)
+    x = Input("repeat_join_x", tw=3)
     parameter = Parameter("repeat_join_parameter", value=[7.0])
     joined = Concatenate()([x, parameter])
     assert joined.shape.dimensions == ((), 3, (2,))

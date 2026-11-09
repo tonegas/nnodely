@@ -26,9 +26,9 @@ from nnodely import (
 def test_partitioning_windows():
     # ------- Model with time window partitioning, Past and Future -------
     # x = Input("x", dim=1, sampling=0.1) ## x is sampled at 0.1Hz, so 1 sample every 10 seconds
-    x = Input("x", dim=1, sw=5)
-    y = Input("y", dim=1, sw=(2, 3))
-    z = Input("z", dim=1, sw=(4, 3))
+    x = Input("x", dim=1, tw=5)
+    y = Input("y", dim=1, tw=(2, 3))
+    z = Input("z", dim=1, tw=(4, 3))
 
     x_stream1 = TimeRange(2, 5)(x)  ## 3 samples of x in the past
     y_stream1 = TimeRange(2, 5)(y)  ## 3 samples of y in the future
@@ -98,7 +98,7 @@ def test_partitioning_windows():
     assert data_train._dataset["x"].shape == (6, 5, 1)
     assert data_train._dataset["y"].shape == (6, 5, 1)
     assert data_train._dataset["z"].shape == (6, 7, 1)
-    # Each sample is (time, dim): the windows read down the time axis.
+    # Each sample is (tw, dim): the windows read down the tw axis.
     assert data_train._dataset["x"][..., 0].tolist() == [
         [1, 2, 3, 4, 5],
         [2, 3, 4, 5, 6],
@@ -168,7 +168,7 @@ def _run(name, inputs, relation, data):
 
 
 def test_seq_select_drops_the_axis():
-    x = Input("seq_select_x", dim=2, seq=5, sw=2)
+    x = Input("seq_select_x", dim=2, seq=5, tw=2)
     window = x
     third = SeqSelect(2)([window])
     last = SeqSelect(-1)([window])
@@ -188,7 +188,7 @@ def test_seq_select_drops_the_axis():
 
 
 def test_seq_select_dynamic_counts_from_the_end_of_the_data():
-    x = Input("seq_select_dyn_x", seq=-1, sw=1)
+    x = Input("seq_select_dyn_x", seq=-1, tw=1)
     last = SeqSelect(-1)([x])
     assert last.shape.dimensions == ((), 1, (1,))
 
@@ -202,7 +202,7 @@ def test_seq_select_dynamic_counts_from_the_end_of_the_data():
 
 
 def test_seq_select_nested_axis():
-    x = Input("seq_select_nested_x", seq=(-1, -1), sw=1)
+    x = Input("seq_select_nested_x", seq=(-1, -1), tw=1)
     outer = SeqSelect(0, axis=1)([x])
     inner = SeqSelect(-1, axis=0)([x])
     assert outer.shape.seq == (None,)
@@ -219,7 +219,7 @@ def test_seq_select_nested_axis():
 
 
 def test_seq_range_fixed():
-    x = Input("seq_range_x", dim=2, seq=6, sw=1)
+    x = Input("seq_range_x", dim=2, seq=6, tw=1)
     middle = SeqRange(1, 4)([x])
     tail = SeqRange(-3, None)([x])
     # One step long, the range is selected: its axis is removed.
@@ -239,7 +239,7 @@ def test_seq_range_fixed():
 
 
 def test_seq_range_dynamic():
-    x = Input("seq_range_dyn_x", seq=-1, sw=1)
+    x = Input("seq_range_dyn_x", seq=-1, tw=1)
     head = SeqRange(0, 2)([x])
     tail = SeqRange(-3, None)([x])
     open_start = SeqRange(None, 2)([x])
@@ -262,9 +262,9 @@ def test_seq_range_dynamic():
 
 
 def test_seq_concatenate():
-    x = Input("seq_concat_x", dim=2, seq=3, sw=1)
-    y = Input("seq_concat_y", dim=2, seq=5, sw=1)
-    d = Input("seq_concat_d", dim=2, seq=-1, sw=1)
+    x = Input("seq_concat_x", dim=2, seq=3, tw=1)
+    y = Input("seq_concat_y", dim=2, seq=5, tw=1)
+    d = Input("seq_concat_d", dim=2, seq=-1, tw=1)
     joined = SeqConcatenate()([x, y])
     dynamic = SeqConcatenate()([x, d])
     assert joined.shape.seq == (8,)
@@ -294,8 +294,8 @@ def test_seq_concatenate():
 
 
 def test_seq_concatenate_nested_axis():
-    x = Input("seq_concat_nested_x", seq=(-1, 2), sw=1)
-    y = Input("seq_concat_nested_y", seq=(-1, 3), sw=1)
+    x = Input("seq_concat_nested_x", seq=(-1, 2), tw=1)
+    y = Input("seq_concat_nested_y", seq=(-1, 3), tw=1)
     joined = SeqConcatenate(axis=1)([x, y])
     assert joined.shape.seq == (None, 5)
 
@@ -313,7 +313,7 @@ def test_seq_concatenate_nested_axis():
 
 
 def test_seq_stack():
-    a, b, c = (Input(f"seq_stack_{name}", dim=2, sw=1) for name in "abc")
+    a, b, c = (Input(f"seq_stack_{name}", dim=2, tw=1) for name in "abc")
     stacked = SeqStack()([a, b, c])
     assert stacked.shape.dimensions == ((3,), 1, (2,))
 
@@ -328,8 +328,8 @@ def test_seq_stack():
 
 
 def test_seq_stack_new_inner_axis_of_dynamic_sequences():
-    x = Input("seq_stack_dyn_x", seq=-1, sw=1)
-    y = Input("seq_stack_dyn_y", seq=-1, sw=1)
+    x = Input("seq_stack_dyn_x", seq=-1, tw=1)
+    y = Input("seq_stack_dyn_y", seq=-1, tw=1)
     stacked = SeqStack(axis=-1)([x, y])
     assert stacked.shape.seq == (None, 2)
 
@@ -347,7 +347,7 @@ def test_seq_stack_new_inner_axis_of_dynamic_sequences():
 
 
 def test_seq_reverse():
-    x = Input("seq_reverse_x", dim=2, seq=(-1, 3), sw=1)
+    x = Input("seq_reverse_x", dim=2, seq=(-1, 3), tw=1)
     outer = SeqReverse()([x])
     inner = SeqReverse(axis=1)([x])
     assert outer.shape.seq == inner.shape.seq == (None, 3)
@@ -363,9 +363,9 @@ def test_seq_reverse():
 
 
 def test_partition_ops_reject_invalid_declarations():
-    x = Input("seq_invalid_x", seq=4, sw=2)
-    y = Input("seq_invalid_y", seq=(2, 4), sw=1)
-    plain = Input("seq_invalid_plain", sw=3)
+    x = Input("seq_invalid_x", seq=4, tw=2)
+    y = Input("seq_invalid_y", seq=(2, 4), tw=1)
+    plain = Input("seq_invalid_plain", tw=3)
 
     with pytest.raises(ValueError, match="out of bounds for seq axis 0"):
         SeqSelect(4)([TimeSelect(-1)(x)])
@@ -394,8 +394,8 @@ def test_partition_ops_reject_invalid_declarations():
 
 
 def test_select_drops_its_axis_unless_kept():
-    x = Input("select_keep_x", dim=(4, 3), sw=1)
-    v = Input("select_keep_v", dim=4, sw=1)
+    x = Input("select_keep_x", dim=(4, 3), tw=1)
+    v = Input("select_keep_v", dim=4, tw=1)
     dropped = Select(1)([x])
     kept = Select(-1, axis=1, keep_dim=True)([x])
     # A stream always has a dim: the only axis of a vector stays, as a scalar.
@@ -415,7 +415,7 @@ def test_select_drops_its_axis_unless_kept():
 
 
 def test_seq_select_drops_its_axis_and_time_select_keeps_the_window():
-    x = Input("time_keep_x", dim=2, seq=-1, sw=3)
+    x = Input("time_keep_x", dim=2, seq=-1, tw=3)
     window = x
     last_step = SeqSelect(-1)([window])
     last_sample = TimeSelect(-1)([window])
@@ -441,8 +441,8 @@ def test_seq_select_drops_its_axis_and_time_select_keeps_the_window():
 
 
 def test_time_ops_act_on_the_window_and_keep_the_sequence():
-    x = Input("inner_ops_x", seq=4, sw=2)
-    y = Input("inner_ops_y", seq=4, sw=3)
+    x = Input("inner_ops_x", seq=4, tw=2)
+    y = Input("inner_ops_y", seq=4, tw=3)
     x_window, y_window = x, y
     newest = TimeSelect(-1)([x_window])
     middle = TimeRange(1, 3)([y_window])
@@ -475,7 +475,7 @@ def test_time_ops_act_on_the_window_and_keep_the_sequence():
 
 def test_a_selected_sample_broadcasts_along_the_window():
     # One sample, the newest, combines with every sample of the window.
-    x = Input("relative_x", sw=4)
+    x = Input("relative_x", tw=4)
     window = x
     relative = window - TimeSelect(-1)([window])
     assert relative.shape.dimensions == ((), 4, (1,))
@@ -492,16 +492,16 @@ def test_seq_select_closes_a_loop_chained_over_chunks():
     # #209: an outer Loop chains the chunks of an inner one, each chunk seeded
     # by the last position and velocity of the one before.
     vx0, px0, ax = (
-        Input("chunk_vx0", sw=1),
-        Input("chunk_px0", sw=1),
-        Input("chunk_ax", sw=1),
+        Input("chunk_vx0", tw=1),
+        Input("chunk_px0", tw=1),
+        Input("chunk_ax", tw=1),
     )
     outvx = Output("chunk_outvx", vx0 + ax)
     outpx = Output("chunk_outpx", px0 + vx0)
     step = Modely("chunk_step", inputs=[ax, vx0, px0], outputs=[outvx, outpx]).build()
 
-    ax_sq = Input("chunk_ax_sq", seq=-1, sw=1)
-    px0_init, vx0_init = Input("chunk_px0_init", sw=1), Input("chunk_vx0_init", sw=1)
+    ax_sq = Input("chunk_ax_sq", seq=-1, tw=1)
+    px0_init, vx0_init = Input("chunk_px0_init", tw=1), Input("chunk_vx0_init", tw=1)
     velocity, position = Loop(
         f=step,
         feedback={vx0: outvx, px0: outpx},
@@ -517,8 +517,8 @@ def test_seq_select_closes_a_loop_chained_over_chunks():
         ],
     ).build()
 
-    ax_sq_sq = Input("chunk_ax_sq_sq", seq=(-1, -1), sw=1)
-    px0_seed, vx0_seed = Input("chunk_px0_seed", sw=1), Input("chunk_vx0_seed", sw=1)
+    ax_sq_sq = Input("chunk_ax_sq_sq", seq=(-1, -1), tw=1)
+    px0_seed, vx0_seed = Input("chunk_px0_seed", tw=1), Input("chunk_vx0_seed", tw=1)
     trajectory, _, _ = Loop(
         f=chunk,
         feedback={"chunk_px0_init": "chunk_last_px", "chunk_vx0_init": "chunk_last_vx"},
@@ -559,8 +559,8 @@ def test_one_seq_op_applied_to_streams_of_two_shapes():
     # axis of the second. Counted from the innermost, -1 is the sequence axis
     # right outside the window of both.
     reverse = SeqReverse(axis=-1)
-    c = Input("two_shapes_c", seq=(3, 4), sw=1)
-    d = Input("two_shapes_d", dim=(2, 2), seq=3, sw=1)
+    c = Input("two_shapes_c", seq=(3, 4), tw=1)
+    d = Input("two_shapes_d", dim=(2, 2), seq=3, tw=1)
     model = Modely(
         "two_shapes",
         inputs=[c, d],
@@ -579,7 +579,7 @@ def test_one_seq_op_applied_to_streams_of_two_shapes():
 def test_a_window_only_a_minimizer_reads_widens_the_training_input():
     from nnodely import Fir
 
-    x = Input("trained_window_x", sw=(2, 1))
+    x = Input("trained_window_x", tw=(2, 1))
     out = Output("trained_window_out", Fir(features=1)(TimeRange(0, 2)(x)))
     model = Modely("trained_window", inputs=[x], outputs=[out])
     model.minimize("fit", out, TimeRange(1, 3)(x))  # one sample ahead
@@ -590,7 +590,7 @@ def test_a_window_only_a_minimizer_reads_widens_the_training_input():
 def test_the_newest_sample_and_the_whole_window_in_one_model():
     from nnodely import Fir, Parameter
 
-    x = Input("whole_and_window_x", sw=3)
+    x = Input("whole_and_window_x", tw=3)
     taps = Parameter("whole_and_window_taps", value=[[1.0], [10.0], [100.0]])
     model = Modely(
         "whole_and_window",
@@ -603,8 +603,8 @@ def test_the_newest_sample_and_the_whole_window_in_one_model():
 
     ## The data holds the window; TimeSelect(-1) is its newest sample - also
     ## in a relation declared after the build
-    assert x.shape.time == 3
-    assert (TimeSelect(-1)(x) * 2.0).shape.time == 1
+    assert x.shape.tw == 3
+    assert (TimeSelect(-1)(x) * 2.0).shape.tw == 1
     values = np.array([[[1.0], [2.0], [3.0]], [[4.0], [5.0], [6.0]]], np.float32)
     result = model({"whole_and_window_x": values})
     np.testing.assert_allclose(to_numpy(result["whole"]), [[[6.0]], [[12.0]]])
@@ -612,7 +612,7 @@ def test_the_newest_sample_and_the_whole_window_in_one_model():
 
 
 def test_every_window_keeps_the_sequence_of_its_input():
-    x = Input("first_seq_x", seq=-1, sw=(3, 1))
+    x = Input("first_seq_x", seq=-1, tw=(3, 1))
     assert x.shape.dimensions == ((None,), 4, (1,))
     # Every part of the window keeps the sequence of the Input.
     assert TimeRange(0, 3)(x).shape.dimensions == ((None,), 3, (1,))

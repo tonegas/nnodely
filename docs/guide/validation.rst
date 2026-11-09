@@ -72,10 +72,10 @@ The model below is trained on part of a signal and validated on the rest:
    u_data = np.sin(t) + 0.5 * np.sin(3.1 * t)
    y_data = np.convolve(u_data, np.exp(-np.arange(20) / 5.0) / 5.0)[: len(t)]
 
-   u = Input("u", sw=20)
+   u = Input("u", tw=20)
    y = Output("y", Fir(features=1)([u]))
    model = Modely("filter", inputs=[u], outputs=[y])
-   model.minimize("response", y, Input("y_target", sw=1))
+   model.minimize("response", y, Input("y_target", tw=1))
    model.build()
 
    signals = {"u": u_data, "y_target": y_data}

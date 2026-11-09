@@ -65,7 +65,7 @@ from nnodely import *
 
 set_seed(42)
 
-x = Input("x", sw=2)  # a window of two samples: [x[t-1], x[t]]
+x = Input("x", tw=2)  # a window of two samples: [x[t-1], x[t]]
 prev, cur = TimeSelect(0)(x), TimeSelect(1)(x)
 out = Output("out", Parameter("A") * prev + Parameter("B") * cur)
 
@@ -81,7 +81,7 @@ loop = Loop(f=model, feedback={x: out}, init={x: x}, length=10)()
 fib = Output("fib", loop)
 generator = Modely("FibonacciGenerator", inputs=[x], outputs=[fib]).build()
 
-start = np.array([[[0.0], [1.0]]], dtype=np.float32)  # (batch, time, dim)
+start = np.array([[[0.0], [1.0]]], dtype=np.float32)  # (batch, tw, dim)
 print(generator({"x": start}))  # Make inference
 
 generator.save("path/to/fibonacci_model")  # Save the nnodely model
@@ -92,7 +92,7 @@ generator.save("path/to/fibonacci_model")  # Save the nnodely model
 
 | | Blocks |
 |---|---|
-| **Signals** | `Input` with a sequence and a sample window (`sw`), fed back with its next value (`feedback`), `Output`, `Parameter`, `Constant`, arithmetic on streams |
+| **Signals** | `Input` with a sequence and a sample window (`tw`), fed back with its next value (`feedback`), `Output`, `Parameter`, `Constant`, arithmetic on streams |
 | **Structured layers** | `Fir` [[1]](#1), `Linear`, `LocalModel` [[1]](#1) [[3]](#3) [[4]](#4) [[5]](#5), `Fuzzify` [[2]](#2), `EquationLearner` [[6]](#6), `Interpolation`, `BatchNorm` |
 | **Calculus** | `Gradient` w.r.t. inputs, and `DerivativeStep` over a window and `Derivative` step by step w.r.t. time, for physics-informed [[7]](#7) and Sobolev [[8]](#8) training · `IntegrateStep` over a window, and `Integrate` step by step · `Ode` (Euler, midpoint, Heun, RK4) |
 | **Recurrence** | `ModelyLoop` for models declared one step at a time, their states fed back in one rollout, with `Buffer` for the window of a signal computed step by step · `Loop` for rollouts over whole trajectories |
@@ -126,7 +126,7 @@ a reference written for LLMs and coding agents rather than for people. It is den
 
 - the hard rules of the library: lifecycle order, how objectives and targets work, naming and weight sharing.
 - a table that maps physical concepts and equations to nnodely blocks;
-- the shape convention `(batch, *seq, time, *dim)` and how windows and sequences are aligned by the `DataLoader`;
+- the shape convention `(batch, *seq, tw, *dim)` and how windows and sequences are aligned by the `DataLoader`;
 - exact signatures of every block, of `Modely` and of `DataLoader`;
 - when to use `ModelyLoop`, `Loop` or `Ode`, and how to align their training data;
 - which models can be saved or exported to Keras and ONNX, on which backend;

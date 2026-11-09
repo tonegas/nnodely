@@ -8,9 +8,9 @@ from nnodely import TimeRange, TimeSelect
 
 
 def test_dataset_creation_and_iteration():
-    x = Input("x", dim=1, sw=5)
-    y = Input("y", dim=1, sw=(2, 3))
-    z = Input("z", dim=1, sw=(4, 3))
+    x = Input("x", dim=1, tw=5)
+    y = Input("y", dim=1, tw=(2, 3))
+    z = Input("z", dim=1, tw=(4, 3))
 
     x_stream1 = TimeRange(2, 5)(x)  ## 3 samples of x in the past
     y_stream1 = TimeRange(2, 5)(y)  ## 3 samples of y in the future
@@ -85,8 +85,8 @@ def test_dataset_creation_and_iteration():
 
 
 def test_sequence_windows_are_created_on_temporal_windows():
-    x = Input("x", dim=1, seq=3, sw=5)
-    target = Input("target", dim=1, sw=1)
+    x = Input("x", dim=1, seq=3, tw=5)
+    target = Input("target", dim=1, tw=1)
     x_window = x
     output = Output("out", x_window)
     model = Modely("sequence_dataset", inputs=[x], outputs=[output])
@@ -123,7 +123,7 @@ def test_sequence_windows_are_created_on_temporal_windows():
 
 
 def test_step_subsamples_sample_windows():
-    x = Input("step_x", dim=1, sw=3)
+    x = Input("step_x", dim=1, tw=3)
     model = Modely(
         "step_windows_model",
         inputs=[x],
@@ -136,7 +136,7 @@ def test_step_subsamples_sample_windows():
         step=2,
     )
 
-    ## [1, 2, 3, 4, 5] with sw=3 and step=2 -> [[1, 2, 3], [3, 4, 5]]
+    ## [1, 2, 3, 4, 5] with tw=3 and step=2 -> [[1, 2, 3], [3, 4, 5]]
     assert loader._dataset["step_x"].shape == (2, 3, 1)
     np.testing.assert_array_equal(
         loader._dataset["step_x"][:, :, 0],
@@ -145,8 +145,8 @@ def test_step_subsamples_sample_windows():
 
 
 def test_step_keeps_multiple_inputs_aligned():
-    x = Input("step_align_x", dim=1, sw=3)
-    y = Input("step_align_y", dim=1, sw=1)
+    x = Input("step_align_x", dim=1, tw=3)
+    y = Input("step_align_y", dim=1, tw=1)
     model = Modely(
         "step_align_model",
         inputs=[x, y],
@@ -179,7 +179,7 @@ def test_step_keeps_multiple_inputs_aligned():
 
 
 def test_step_subsamples_sequences():
-    x = Input("step_seq_x", dim=1, seq=3, sw=2)
+    x = Input("step_seq_x", dim=1, seq=3, tw=2)
     model = Modely(
         "step_sequence_model",
         inputs=[x],
@@ -192,7 +192,7 @@ def test_step_subsamples_sequences():
         step=2,
     )
 
-    ## [1, ..., 6] with sw=2, seq=3 and step=2 ->
+    ## [1, ..., 6] with tw=2, seq=3 and step=2 ->
     ## [[[1, 2], [2, 3], [3, 4]], [[3, 4], [4, 5], [5, 6]]]
     assert loader._dataset["step_seq_x"].shape == (2, 3, 2, 1)
     np.testing.assert_array_equal(
@@ -206,7 +206,7 @@ def test_step_subsamples_sequences():
 
 
 def test_step_subsamples_sequences_with_seq_length():
-    x = Input("step_seq_length_x", dim=1, seq=-1, sw=2)
+    x = Input("step_seq_length_x", dim=1, seq=-1, tw=2)
     model = Modely(
         "step_seq_length_model",
         inputs=[x],
@@ -232,7 +232,7 @@ def test_step_subsamples_sequences_with_seq_length():
 
 
 def test_step_does_not_mix_csv_files():
-    x = Input("step_csv_x", dim=1, sw=2)
+    x = Input("step_csv_x", dim=1, tw=2)
     model = Modely(
         "step_csv_model",
         inputs=[x],
@@ -263,7 +263,7 @@ def test_step_does_not_mix_csv_files():
 
 
 def test_invalid_step_raises():
-    x = Input("step_invalid_x", dim=1, sw=1)
+    x = Input("step_invalid_x", dim=1, tw=1)
     model = Modely(
         "step_invalid_model",
         inputs=[x],
@@ -277,7 +277,7 @@ def test_invalid_step_raises():
 
 
 def test_format_maps_multiple_columns_to_one_input():
-    x = Input("multi_column_x", dim=3, sw=2)
+    x = Input("multi_column_x", dim=3, tw=2)
     model = Modely(
         "multi_column_model",
         inputs=[x],
@@ -309,7 +309,7 @@ def test_format_maps_multiple_columns_to_one_input():
 
 
 def test_format_rejects_a_column_count_that_does_not_match_dim():
-    x = Input("wrong_width_x", dim=3, sw=2)
+    x = Input("wrong_width_x", dim=3, tw=2)
     model = Modely(
         "wrong_width_model",
         inputs=[x],
@@ -327,7 +327,7 @@ def test_format_rejects_a_column_count_that_does_not_match_dim():
 def test_a_matrix_input_reads_its_data_as_dim_or_flat_never_reordered():
     # Only the number of values was checked before reshaping: (N, 3, 2) fed to
     # dim=(2, 3) was taken, every matrix scrambled.
-    x = Input("matrix_x", dim=(2, 3), sw=1)
+    x = Input("matrix_x", dim=(2, 3), tw=1)
     model = Modely(
         "matrix_model", inputs=[x], outputs=[Output("matrix_out", x)]
     ).build()
@@ -342,7 +342,7 @@ def test_a_matrix_input_reads_its_data_as_dim_or_flat_never_reordered():
 
 
 def test_on_short_skips_simulations_that_are_too_short():
-    x = Input("short_x", dim=1, sw=4)
+    x = Input("short_x", dim=1, tw=4)
     model = Modely(
         "short_model",
         inputs=[x],
@@ -370,7 +370,7 @@ def test_on_short_skips_simulations_that_are_too_short():
 
 
 def test_simulations_are_windowed_independently():
-    x = Input("independent_x", dim=1, sw=2)
+    x = Input("independent_x", dim=1, tw=2)
     model = Modely(
         "independent_model",
         inputs=[x],
@@ -393,7 +393,7 @@ def test_simulations_are_windowed_independently():
 
 
 def test_multiple_dynamic_sequence_lengths_are_rejected():
-    x = Input("two_dynamic_x", dim=1, seq=(-1, -1), sw=2)
+    x = Input("two_dynamic_x", dim=1, seq=(-1, -1), tw=2)
     model = Modely(
         "two_dynamic_model",
         inputs=[x],
@@ -409,7 +409,7 @@ def test_multiple_dynamic_sequence_lengths_are_rejected():
 
 
 def test_full_sequence_spans_each_simulation_and_pads():
-    x = Input("full_x", dim=1, seq=-1, sw=1)
+    x = Input("full_x", dim=1, seq=-1, tw=1)
     model = Modely(
         "full_model",
         inputs=[x],
@@ -441,7 +441,7 @@ def test_full_sequence_spans_each_simulation_and_pads():
 
 
 def test_full_sequence_leaves_the_inner_levels_alone():
-    x = Input("full_nested_x", dim=1, seq=(-1, 2), sw=1)
+    x = Input("full_nested_x", dim=1, seq=(-1, 2), tw=1)
     model = Modely(
         "full_nested_model",
         inputs=[x],
@@ -466,7 +466,7 @@ def test_full_sequence_leaves_the_inner_levels_alone():
 
 
 def test_full_sequence_of_equal_simulations_needs_no_mask():
-    x = Input("uniform_x", dim=1, seq=-1, sw=1)
+    x = Input("uniform_x", dim=1, seq=-1, tw=1)
     model = Modely(
         "uniform_model",
         inputs=[x],
@@ -487,7 +487,7 @@ def test_full_sequence_of_equal_simulations_needs_no_mask():
 
 
 def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
-    x = Input("full_step_x", dim=1, seq=-1, sw=1)
+    x = Input("full_step_x", dim=1, seq=-1, tw=1)
     model = Modely(
         "full_step_model",
         inputs=[x],
@@ -503,7 +503,7 @@ def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
             step=2,
         )
 
-    inner = Input("full_inner_x", dim=1, seq=(2, -1), sw=1)
+    inner = Input("full_inner_x", dim=1, seq=(2, -1), tw=1)
     inner_model = Modely(
         "full_inner_model",
         inputs=[inner],
@@ -520,11 +520,11 @@ def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
 
 
 def test_uncollected_loop_warns_on_simulations_of_different_lengths():
-    body_x = Input("warn_body_x", dim=1, sw=1)
+    body_x = Input("warn_body_x", dim=1, tw=1)
     body_out = Output("warn_body_out", body_x)
     body = Modely("warn_body", inputs=[body_x], outputs=[body_out]).build()
 
-    seed = Input("warn_x", dim=1, seq=-1, sw=1)
+    seed = Input("warn_x", dim=1, seq=-1, tw=1)
     loop = Loop(
         f=body,
         feedback={body_x: body_out},
@@ -573,8 +573,8 @@ def _samples_model():
     """pred = 2 * x[t] from a 3-sample window of x, against y[t + 1]."""
     from nnodely import Parameter
 
-    x = Input("samples_x", sw=3)
-    y = Input("samples_y", sw=(0, 1))
+    x = Input("samples_x", tw=3)
+    y = Input("samples_y", tw=(0, 1))
     window = x
     pred = Output("samples_pred", TimeSelect(-1)(x) * Parameter(value=[2.0]))
     model = Modely(
@@ -681,8 +681,8 @@ def test_inference_on_get_samples_is_a_time_series():
 
 
 def _csv_model():
-    x = Input("csv_x", sw=1)
-    y = Input("csv_y", sw=1)
+    x = Input("csv_x", tw=1)
+    y = Input("csv_y", tw=1)
     return Modely(
         "csv_model", inputs=[x, y], outputs=[Output("csv_out", x + y)]
     ).build()
@@ -750,7 +750,7 @@ def test_na_cells_are_kept_as_nan_with_a_warning(tmp_path):
 
 
 def _window_model():
-    x = Input("win_x", sw=10)
+    x = Input("win_x", tw=10)
     return Modely("win_model", inputs=[x], outputs=[Output("win_out", x)]).build()
 
 
@@ -774,9 +774,9 @@ def test_windowed_data_is_used_as_given():
 
 
 def test_windowed_data_round_trips_what_the_loader_builds():
-    x = Input("trip_x", dim=2, sw=5)
-    y = Input("trip_y", sw=(2, 3))
-    s = Input("trip_s", seq=3, sw=2)
+    x = Input("trip_x", dim=2, tw=5)
+    y = Input("trip_y", tw=(2, 3))
+    s = Input("trip_s", seq=3, tw=2)
     model = Modely(
         "trip_model",
         inputs=[x, y, s],
@@ -799,8 +799,8 @@ def test_windowed_data_round_trips_what_the_loader_builds():
 
 
 def test_windowed_target_is_not_shifted_again():
-    x = Input("next_x", sw=1)
-    y = Input("next_y", sw=(0, 1))  # the next sample
+    x = Input("next_x", tw=1)
+    y = Input("next_y", tw=(0, 1))  # the next sample
     model = Modely("next_model", inputs=[x], outputs=[Output("next_out", x)])
     model.minimize("next", "next_out", y)
     model.build()
@@ -823,8 +823,8 @@ def test_windowed_target_is_not_shifted_again():
 def test_windowed_data_reads_several_dynamic_lengths_from_its_shape():
     from nnodely import Parameter
 
-    x = Input("dyn2_x", seq=(-1, -1), sw=1)
-    y = Input("dyn2_y", seq=(-1, -1), sw=1)
+    x = Input("dyn2_x", seq=(-1, -1), tw=1)
+    y = Input("dyn2_y", seq=(-1, -1), tw=1)
     gain = Parameter("dyn2_gain", value=1.0)
     model = Modely("dyn2_model", inputs=[x], outputs=[Output("dyn2_out", x * gain)])
     model.minimize("dyn2", "dyn2_out", y)
@@ -845,7 +845,7 @@ def test_windowed_data_reads_several_dynamic_lengths_from_its_shape():
 
 
 def test_windowed_rollouts_of_different_lengths_are_padded_and_masked():
-    x = Input("roll_x", seq=-1, sw=1)
+    x = Input("roll_x", seq=-1, tw=1)
     model = Modely("roll_model", inputs=[x], outputs=[Output("roll_out", x)]).build()
     long = np.arange(15, dtype=np.float32).reshape(3, 5, 1, 1)
     short = np.arange(100, 106, dtype=np.float32).reshape(2, 3, 1, 1)
@@ -875,8 +875,8 @@ def test_windowed_rollouts_of_different_lengths_are_padded_and_masked():
 
 
 def test_windowed_lengths_that_cannot_be_padded_are_rejected():
-    x = Input("pad_x", seq=(-1, -1), sw=1)
-    u = Input("pad_u", seq=-1, sw=1)
+    x = Input("pad_x", seq=(-1, -1), tw=1)
+    u = Input("pad_u", seq=-1, tw=1)
     model = Modely(
         "pad_model",
         inputs=[x, u],
@@ -908,14 +908,14 @@ def test_windowed_lengths_that_cannot_be_padded_are_rejected():
 def test_windowed_modelyloop_matches_the_windows_it_would_build():
     from nnodely import IntegrateStep, ModelyLoop, Parameter
 
-    force, x, v = Input("wl_F", sw=1), Input("wl_x", sw=1), Input("wl_v", sw=1)
+    force, x, v = Input("wl_F", tw=1), Input("wl_x", tw=1), Input("wl_v", tw=1)
     k = Parameter("wl_k", value=1.0)
     v_next = v.feedback(IntegrateStep(dt=0.1)(v, force - k * x))
     x_next = x.feedback(IntegrateStep(dt=0.1)(x, v_next))
     model = ModelyLoop(
         "wl_loop", inputs=[force, x, v], outputs=[Output("wl_x_next", x_next)]
     )
-    model.minimize("wl", "wl_x_next", Input("wl_x_meas", sw=1))
+    model.minimize("wl", "wl_x_next", Input("wl_x_meas", tw=1))
     model.build()
     signals = {
         name: np.random.rand(60) for name in ("wl_F", "wl_x", "wl_v", "wl_x_meas")
@@ -952,7 +952,7 @@ def test_windowed_rejects_a_wrong_layout_and_options_it_does_not_use():
 
 
 def test_windowed_inputs_hold_the_same_number_of_samples():
-    a, b = Input("count_a", sw=2), Input("count_b", sw=2)
+    a, b = Input("count_a", tw=2), Input("count_b", tw=2)
     model = Modely("count_model", inputs=[a, b], outputs=[Output("count_out", a + b)])
     model.build()
 

@@ -158,7 +158,7 @@ def _safe_attrs(node) -> dict:
         "name": getattr(node, "name", None),
     }
 
-    for attr in ("time", "dim", "shape"):
+    for attr in ("tw", "dim", "shape"):
         if hasattr(node, attr):
             try:
                 attrs[attr] = str(getattr(node, attr))
@@ -176,7 +176,7 @@ def _safe_attrs(node) -> dict:
         shape = node.shape
         attrs["axes"] = {
             "seq": ["dyn" if size is None else size for size in shape.seq],
-            "time": shape.time,
+            "tw": shape.tw,
             "dim": list(shape.dim),
         }
     except Exception:
@@ -361,7 +361,7 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
 
 
 def _axes_text(shape) -> str:
-    """A shape as the page writes it, ``(*seq, time, *dim)``, a dynamic axis
+    """A shape as the page writes it, ``(*seq, tw, *dim)``, a dynamic axis
     as ``dyn``."""
     axes = getattr(shape, "tuple", None)
     if axes is None:

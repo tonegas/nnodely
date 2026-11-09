@@ -210,14 +210,14 @@ class TimeSelect(Layer):
     def output_shape(self, *inputs):
         self._needs_window(inputs[0])
         shape = inputs[0].shape
-        _index(self.name, self._idx, shape.time, "the window")
-        return shape.replace(time=1)
+        _index(self.name, self._idx, shape.tw, "the window")
+        return shape.replace(tw=1)
 
     def build_layer(self):
         shape = self._preds[0].shape  # type: ignore[union-attr]
         return SelectImpl(
-            idx=_index(self.name, self._idx, shape.time, "the window"),
-            axis=shape.time_axis,
+            idx=_index(self.name, self._idx, shape.tw, "the window"),
+            axis=shape.tw_axis,
             keep_dim=True,
             name=self.name,
         )
@@ -245,13 +245,13 @@ class TimeRange(Layer):
         self._needs_window(inputs[0])
         shape = inputs[0].shape
         return shape.replace(
-            time=_range_length(self.name, self._start, self._end, shape.time)
+            tw=_range_length(self.name, self._start, self._end, shape.tw)
         )
 
     def build_layer(self):
         shape = self._preds[0].shape  # type: ignore[union-attr]
         return RangeImpl(
-            start=self._start, end=self._end, axis=shape.time_axis, name=self.name
+            start=self._start, end=self._end, axis=shape.tw_axis, name=self.name
         )
 
 
@@ -311,12 +311,12 @@ class TimeConcatenate(Layer):
                     f"{self.name}: all inputs must have the same sequence and dim, "
                     f"got {shape} and {other}."
                 )
-        return shape.replace(time=sum(node.shape.time for node in inputs))  # type: ignore[misc]
+        return shape.replace(tw=sum(node.shape.tw for node in inputs))  # type: ignore[misc]
 
     def build_layer(self):
         shape = _concatenation_inputs(self)[0].shape
         return TimeConcatenateImpl(
-            axis=shape.time_axis,  # type: ignore[arg-type]
+            axis=shape.tw_axis,  # type: ignore[arg-type]
             input_rank=shape.rank,
             name=self.name,
         )
@@ -340,7 +340,7 @@ class TimeReverse(Layer):
 
     def build_layer(self):
         shape = self._preds[0].shape  # type: ignore[union-attr]
-        return TimeReverseImpl(axis=shape.time_axis, name=self.name)
+        return TimeReverseImpl(axis=shape.tw_axis, name=self.name)
 
 
 class SeqSelect(Layer):
@@ -461,7 +461,7 @@ class SeqConcatenate(Layer):
             other = input_node.shape
             if (
                 other.dim != shape.dim
-                or other.time != shape.time
+                or other.tw != shape.tw
                 or other.seq_rank != shape.seq_rank
                 or others(other.seq) != others(shape.seq)
             ):
@@ -577,7 +577,7 @@ class ConcatenateImpl(keras.layers.Layer):
             )
         rank = self.input_rank + 1
         # Zeros of one feature along the axis, shaped like the reference:
-        # added to a single sample, they repeat it along its time.
+        # added to a single sample, they repeat it along its window.
         zeros = keras.ops.zeros_like(
             slice_axis(xs[self.reference], self.axis, slice(0, 1))
         )
@@ -635,7 +635,7 @@ class Concatenate(Layer):
             # window of one, or as a value; data without a window does not
             # take one.
             single = _is_scalar(shape._steps) and (
-                shape.time is not None or input_node._is_value or reference.time is None
+                shape.tw is not None or input_node._is_value or reference.tw is None
             )
             if not compatible_dim or not (shape._steps == reference._steps or single):
                 raise ValueError(
@@ -668,7 +668,7 @@ def _concatenation_values(xs, input_rank):
         raise ValueError("Concatenate implementations require at least two tensors.")
     if any(len(value.shape) != input_rank + 1 for value in xs):
         raise ValueError(
-            "All tensors must be laid out (batch, *seq, [time,] *dim), of rank "
+            "All tensors must be laid out (batch, *seq, [tw,] *dim), of rank "
             f"{input_rank + 1}."
         )
     return list(xs)

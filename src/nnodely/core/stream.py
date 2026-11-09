@@ -106,21 +106,21 @@ class Stream(Node):
         self,
         name: str,
         dim=None,
-        time=None,
+        tw=None,
         preds: list[Node] | None = None,
         seq=None,
     ):
         super().__init__(name, preds)
-        self.shape = Shape(dim=dim, time=time, seq=seq)
+        self.shape = Shape(dim=dim, tw=tw, seq=seq)
 
     @property
     def dim(self) -> tuple[int, ...]:
         return self.shape.dim
 
     @property
-    def time(self) -> int | None:
+    def tw(self) -> int | None:
         """The length of the window, None without one."""
-        return self.shape.time
+        return self.shape.tw
 
     @property
     def seq(self) -> tuple[int | None, ...]:

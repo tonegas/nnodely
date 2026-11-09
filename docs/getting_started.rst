@@ -87,8 +87,8 @@ every 50 samples. In a real application these arrays come from measurements.
        position[i + 1] = position[i] + dt * velocity[i + 1]
 
 **The model.** An :class:`~nnodely.Input` is a signal the model reads,
-declared with the window of samples it reads: ``sw=(5, 1)`` is the last five
-samples of ``x`` and the next one, and ``sw=1`` is the current sample of
+declared with the window of samples it reads: ``tw=(5, 1)`` is the last five
+samples of ``x`` and the next one, and ``tw=1`` is the current sample of
 ``F``. :class:`~nnodely.TimeRange` and :class:`~nnodely.TimeSelect` take
 parts of a window.
 
@@ -99,8 +99,8 @@ parts of a window.
 
    set_seed(0)
 
-   x = Input("x", sw=(5, 1))
-   F = Input("F", sw=1)
+   x = Input("x", tw=(5, 1))
+   F = Input("F", tw=1)
    x_next = Fir(features=1)([TimeRange(0, 5)(x)]) + Fir(features=1)([F])
    x_next_est = Output("x_next_est", x_next)
 

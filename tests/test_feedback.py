@@ -40,13 +40,13 @@ def _rolled(model, data, output):
 
 def _integrate_step_loop(tag, seeded):
     # The state is no fed-back Input of the graph: the Loop is told.
-    u, y = Input(f"{tag}_u", sw=1), Input(f"{tag}_y", sw=1)
+    u, y = Input(f"{tag}_u", tw=1), Input(f"{tag}_y", tw=1)
     step = Modely(
         f"{tag}_step",
         inputs=[u, y],
         outputs=[Output(f"{tag}_next", IntegrateStep(dt=1)(y, u))],
     )
-    u_seq, y0 = Input(f"{tag}_u_seq", seq=-1, sw=1), Input(f"{tag}_y0", sw=1)
+    u_seq, y0 = Input(f"{tag}_u_seq", seq=-1, tw=1), Input(f"{tag}_y0", tw=1)
     init = {y: y0} if seeded else None
     trajectory = Loop(f=step, feedback={y: f"{tag}_next"}, init=init)(
         {f"{tag}_u": u_seq}
@@ -60,10 +60,10 @@ def _integrate_step_loop(tag, seeded):
 
 def _feedback_loop(tag, seeded):
     # The graph feeds y back: the Loop finds it.
-    u, y = Input(f"{tag}_u", sw=1), Input(f"{tag}_y", sw=1)
+    u, y = Input(f"{tag}_u", tw=1), Input(f"{tag}_y", tw=1)
     y_next = y.feedback(IntegrateStep(dt=1)(y, u))
     step = Modely(f"{tag}_step", inputs=[u, y], outputs=[Output(f"{tag}_next", y_next)])
-    u_seq, y0 = Input(f"{tag}_u_seq", seq=-1, sw=1), Input(f"{tag}_y0", sw=1)
+    u_seq, y0 = Input(f"{tag}_u_seq", seq=-1, tw=1), Input(f"{tag}_y0", tw=1)
     init = {y: y0} if seeded else None
     trajectory = Loop(f=step, init=init)({f"{tag}_u": u_seq})
     return Modely(
@@ -76,14 +76,14 @@ def _feedback_loop(tag, seeded):
 def _integrate_loop(tag, seeded):
     # The state of Integrate is hidden: the Loop finds it, and it starts from
     # the init of Integrate, an input of the step bound like any other.
-    u, y0 = Input(f"{tag}_u", sw=1), Input(f"{tag}_y0", sw=1)
+    u, y0 = Input(f"{tag}_u", tw=1), Input(f"{tag}_y0", tw=1)
     y_next = Integrate(dt=1, init=y0 if seeded else None)(u)
     step = Modely(
         f"{tag}_step",
         inputs=[u, y0] if seeded else [u],
         outputs=[Output(f"{tag}_next", y_next)],
     )
-    u_seq, y0_init = Input(f"{tag}_u_seq", seq=-1, sw=1), Input(f"{tag}_y0i", sw=1)
+    u_seq, y0_init = Input(f"{tag}_u_seq", seq=-1, tw=1), Input(f"{tag}_y0i", tw=1)
     inputs = {f"{tag}_u": u_seq, **({f"{tag}_y0": y0_init} if seeded else {})}
     trajectory = Loop(f=step)(inputs)
     return Modely(
@@ -94,7 +94,7 @@ def _integrate_loop(tag, seeded):
 
 
 def _integrate_modelyloop(tag, seeded):
-    u, y0 = Input(f"{tag}_u", sw=1), Input(f"{tag}_y0", sw=1)
+    u, y0 = Input(f"{tag}_u", tw=1), Input(f"{tag}_y0", tw=1)
     y_next = Integrate(dt=1, init=y0 if seeded else None)(u)
     return ModelyLoop(
         tag,
@@ -105,7 +105,7 @@ def _integrate_modelyloop(tag, seeded):
 
 def _feedback_modelyloop(tag, seeded):
     # Among the inputs, y starts from its data.
-    u, y = Input(f"{tag}_u", sw=1), Input(f"{tag}_y", sw=1)
+    u, y = Input(f"{tag}_u", tw=1), Input(f"{tag}_y", tw=1)
     y_next = y.feedback(IntegrateStep(dt=1)(y, u))
     return ModelyLoop(
         tag,
@@ -149,7 +149,7 @@ def test_every_way_of_writing_the_integrator_rolls_out_the_same(
 
 def test_a_loop_finds_the_feedback_of_a_loaded_step(tmp_path):
     # Saved with the step, the feedback is found again once it is loaded.
-    u, y, y0 = Input("fb_ld_u", sw=1), Input("fb_ld_y", sw=1), Input("fb_ld_y0", sw=1)
+    u, y, y0 = Input("fb_ld_u", tw=1), Input("fb_ld_y", tw=1), Input("fb_ld_y0", tw=1)
     y_next = y.feedback(y + Integrate(dt=1, init=y0)(u))
     step = Modely(
         "fb_ld_step", inputs=[u, y, y0], outputs=[Output("fb_ld_next", y_next)]
@@ -158,8 +158,8 @@ def test_a_loop_finds_the_feedback_of_a_loaded_step(tmp_path):
     loaded = Modely.load(tmp_path / "fb_ld_step")
 
     def rolled(body, tag):
-        u_seq = Input(f"{tag}_u", seq=-1, sw=1)
-        y_init, y0_init = Input(f"{tag}_y", sw=1), Input(f"{tag}_y0", sw=1)
+        u_seq = Input(f"{tag}_u", seq=-1, tw=1)
+        y_init, y0_init = Input(f"{tag}_y", tw=1), Input(f"{tag}_y0", tw=1)
         trajectory = Loop(f=body, init={"fb_ld_y": y_init})(
             {"fb_ld_u": u_seq, "fb_ld_y0": y0_init}
         )
@@ -178,7 +178,7 @@ def test_a_loop_finds_the_feedback_of_a_loaded_step(tmp_path):
 
 
 def test_two_integrates_that_start_from_one_input_bind_it_once():
-    u, y0 = Input("fb_two_u", sw=1), Input("fb_two_y0", sw=1)
+    u, y0 = Input("fb_two_u", tw=1), Input("fb_two_y0", tw=1)
     step = Modely(
         "fb_two_step",
         inputs=[u, y0],
@@ -189,7 +189,7 @@ def test_two_integrates_that_start_from_one_input_bind_it_once():
     )
     loop = Loop(f=step)
     assert [node.name for node in loop._seed_inputs] == ["fb_two_y0"]
-    u_seq, y0_init = Input("fb_two_u_seq", seq=-1, sw=1), Input("fb_two_y0i", sw=1)
+    u_seq, y0_init = Input("fb_two_u_seq", seq=-1, tw=1), Input("fb_two_y0i", tw=1)
     slow, fast = loop({"fb_two_u": u_seq, "fb_two_y0": y0_init})
     model = Modely(
         "fb_two",
@@ -205,8 +205,8 @@ def test_two_integrates_that_start_from_one_input_bind_it_once():
 
 def test_feedback_given_to_the_loop_adds_to_the_one_the_graph_declares():
     # y is fed back by the graph, x by the Loop; each reads the other.
-    u = Input("fb_mix_u", sw=1)
-    x, y = Input("fb_mix_x", sw=1), Input("fb_mix_y", sw=1)
+    u = Input("fb_mix_u", tw=1)
+    x, y = Input("fb_mix_x", tw=1), Input("fb_mix_y", tw=1)
     y_next = y.feedback(y + x)
     x_next = Output("fb_mix_x_next", x + u)
     step = Modely(
@@ -214,7 +214,7 @@ def test_feedback_given_to_the_loop_adds_to_the_one_the_graph_declares():
         inputs=[u, x, y],
         outputs=[x_next, Output("fb_mix_y_next", y_next)],
     )
-    u_seq, x0 = Input("fb_mix_u_seq", seq=-1, sw=1), Input("fb_mix_x0", sw=1)
+    u_seq, x0 = Input("fb_mix_u_seq", seq=-1, tw=1), Input("fb_mix_x0", tw=1)
     loop = Loop(f=step, feedback={x: x_next}, init={x: x0})({u: u_seq})
     xs, ys = loop
     model = Modely(
@@ -233,7 +233,7 @@ def test_feedback_given_to_the_loop_adds_to_the_one_the_graph_declares():
 def test_a_loop_returns_the_outputs_of_the_step_not_the_ones_it_adds(tmp_path):
     # The update of y is no output: the body gains one for it, which the Loop
     # does not return, so it is the one output of the step, a stream.
-    u, y = Input("fb_ret_u", sw=1), Input("fb_ret_y", sw=1)
+    u, y = Input("fb_ret_u", tw=1), Input("fb_ret_y", tw=1)
     y.feedback(y + u)
     step = Modely("fb_ret_step", inputs=[u], outputs=[Output("fb_ret_twice", y * 2.0)])
     loop = Loop(f=step)
@@ -241,7 +241,7 @@ def test_a_loop_returns_the_outputs_of_the_step_not_the_ones_it_adds(tmp_path):
         "fb_ret_twice",
         "fb_ret_y_next",
     ]
-    u_seq = Input("fb_ret_u_seq", seq=-1, sw=1)
+    u_seq = Input("fb_ret_u_seq", seq=-1, tw=1)
     model = Modely(
         "fb_ret",
         inputs=[u_seq],
@@ -257,14 +257,14 @@ def test_a_loop_returns_the_outputs_of_the_step_not_the_ones_it_adds(tmp_path):
 
 
 def test_a_loop_refuses_a_feedback_or_an_initial_value_it_cannot_apply():
-    u, s0 = Input("fb_err_u", sw=1), Input("fb_err_s0", sw=1)
-    u_seq = Input("fb_err_u_seq", seq=-1, sw=1)
+    u, s0 = Input("fb_err_u", tw=1), Input("fb_err_s0", tw=1)
+    u_seq = Input("fb_err_u_seq", seq=-1, tw=1)
 
     plain = Modely("fb_err_plain", inputs=[u], outputs=[Output("fb_err_po", u * 2.0)])
     with pytest.raises(ValueError, match="'fb_err_plain' has no fed-back Input"):
         Loop(f=plain)
 
-    y = Input("fb_err_y", sw=1)
+    y = Input("fb_err_y", tw=1)
     y_next = y.feedback(y + u)
     step = Modely(
         "fb_err_step",
@@ -279,7 +279,7 @@ def test_a_loop_refuses_a_feedback_or_an_initial_value_it_cannot_apply():
 
     # The init of Integrate is an input of the step, not a state; its output
     # is no input; and an init the step does not declare is refused.
-    y0 = Input("fb_err_y0", sw=1)
+    y0 = Input("fb_err_y0", tw=1)
     integral = Integrate(dt=1, init=y0)(u)
     step = Modely(
         "fb_err_int", inputs=[u, y0], outputs=[Output("fb_err_int_o", integral)]
@@ -295,7 +295,7 @@ def test_a_loop_refuses_a_feedback_or_an_initial_value_it_cannot_apply():
         Loop(f=undeclared)
 
     # An Input the step reads, which nothing feeds back, is declared.
-    w, z = Input("fb_err_w", sw=1), Input("fb_err_z", sw=1)
+    w, z = Input("fb_err_w", tw=1), Input("fb_err_z", tw=1)
     z.feedback(z + w)
     reads = Modely("fb_err_reads", inputs=[z], outputs=[Output("fb_err_ro", z + u)])
     with pytest.raises(
@@ -305,14 +305,14 @@ def test_a_loop_refuses_a_feedback_or_an_initial_value_it_cannot_apply():
 
 
 def test_a_loop_with_several_outputs_returns_them_all(tmp_path):
-    u, y = Input("fb_all_u", sw=1), Input("fb_all_y", sw=1)
+    u, y = Input("fb_all_u", tw=1), Input("fb_all_y", tw=1)
     y_next = y.feedback(y + u)
     step = Modely(
         "fb_all_step",
         inputs=[u, y],
         outputs=[Output("fb_all_next", y_next), Output("fb_all_twice", y_next * 2.0)],
     )
-    u_seq = Input("fb_all_u_seq", seq=-1, sw=1)
+    u_seq = Input("fb_all_u_seq", seq=-1, tw=1)
     loop = Loop(f=step)({u: u_seq})
 
     # Read as one stream, it raises: an Output, an operator, a layer.
@@ -348,14 +348,14 @@ def test_a_loop_with_several_outputs_returns_them_all(tmp_path):
 def test_a_state_starts_from_zero_along_a_dynamic_sequence(tmp_path):
     # A state with a dynamic sequence axis that starts from zero, or from a
     # number, takes the length of that axis from the value fed back.
-    x = Input("fb_dyn_x", sw=1)
+    x = Input("fb_dyn_x", tw=1)
     inner = ModelyLoop(
         "fb_dyn_inner",
         inputs=[x],
         outputs=[Output("fb_dyn_xx", Integrate(dt=1)(x))],
     ).build()
-    k = Input("fb_dyn_k", sw=1, seq=-1)
-    s = Input("fb_dyn_s", sw=1, seq=-1)
+    k = Input("fb_dyn_k", tw=1, seq=-1)
+    s = Input("fb_dyn_s", tw=1, seq=-1)
     model = ModelyLoop(
         "fb_dyn",
         inputs=[k],
@@ -364,7 +364,7 @@ def test_a_state_starts_from_zero_along_a_dynamic_sequence(tmp_path):
             # integrates what it returns.
             Output("fb_dyn_kk", Integrate(dt=1)(inner([k]))),
             Output("fb_dyn_from_two", Integrate(dt=1, init=2.0)(k)),
-            Output("fb_dyn_buf", Buffer(sw=2)(k)),
+            Output("fb_dyn_buf", Buffer(tw=2)(k)),
             Output("fb_dyn_sum", s.feedback(s + k)),
         ],
     ).build()
@@ -394,17 +394,17 @@ def test_a_state_starts_from_zero_along_a_dynamic_sequence(tmp_path):
 def test_a_dynamic_initial_value_feeds_a_state_of_a_static_sequence():
     # A Loop pinned to three steps returns a sequence of 3; the init of the
     # Integrate on it is read from data of a dynamic sequence, which matches.
-    x = Input("fb_pin_x", sw=1)
+    x = Input("fb_pin_x", tw=1)
     step = Modely(
         "fb_pin_step", inputs=[x], outputs=[Output("fb_pin_xx", Integrate(dt=1)(x))]
     ).build()
-    k_seq = Input("fb_pin_k_seq", sw=1, seq=-1)
+    k_seq = Input("fb_pin_k_seq", tw=1, seq=-1)
     inner = Modely(
         "fb_pin_inner",
         inputs=[k_seq],
         outputs=[Output("fb_pin_rows", Loop(f=step, length=3)({x: k_seq}))],
     ).build()
-    k, k0 = Input("fb_pin_k", sw=1, seq=-1), Input("fb_pin_k0", sw=1, seq=-1)
+    k, k0 = Input("fb_pin_k", tw=1, seq=-1), Input("fb_pin_k0", tw=1, seq=-1)
     rate = inner([k])
     assert tuple(rate.seq) == (3,)
     model = ModelyLoop(
@@ -427,16 +427,16 @@ def test_a_dynamic_initial_value_feeds_a_state_of_a_static_sequence():
 def test_a_loop_is_called_with_a_dict_a_list_or_its_one_stream():
     # The list skips the fed-back y, and takes y0, the init of the Integrate.
     u, y, y0 = (
-        Input("fb_call_u", sw=1),
-        Input("fb_call_y", sw=1),
-        Input("fb_call_y0", sw=1),
+        Input("fb_call_u", tw=1),
+        Input("fb_call_y", tw=1),
+        Input("fb_call_y0", tw=1),
     )
     y_next = y.feedback(y * 0.0 + Integrate(dt=1, init=y0)(u))
     step = Modely(
         "fb_call_step", inputs=[u, y, y0], outputs=[Output("fb_call_next", y_next)]
     )
     loop = Loop(f=step)
-    u_seq, y0_init = Input("fb_call_u_seq", seq=-1, sw=1), Input("fb_call_y0i", sw=1)
+    u_seq, y0_init = Input("fb_call_u_seq", seq=-1, tw=1), Input("fb_call_y0i", tw=1)
     data = {"fb_call_u_seq": _u(), "fb_call_y0i": _y0()}
 
     def rolled(called, tag):
@@ -458,7 +458,7 @@ def test_a_loop_is_called_with_a_dict_a_list_or_its_one_stream():
         loop(3.0)  # type: ignore[arg-type]
 
     # With one input, its stream alone.
-    x = Input("fb_call_x", sw=1)
+    x = Input("fb_call_x", tw=1)
     single = Modely(
         "fb_call_single",
         inputs=[x],
@@ -475,7 +475,7 @@ def test_a_loop_is_called_with_a_dict_a_list_or_its_one_stream():
 
 
 def test_close_and_callback_are_gone():
-    x = Input("fb_gone_x", sw=1)
+    x = Input("fb_gone_x", tw=1)
     assert not hasattr(x, "close")
     step = Modely("fb_gone", inputs=[x], outputs=[Output("fb_gone_o", x + 1.0)])
     with pytest.raises(TypeError, match="callback"):

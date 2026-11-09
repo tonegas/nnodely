@@ -101,8 +101,8 @@ def _step_rmse(error: np.ndarray, real: np.ndarray, dim_rank: int):
     """RMSE of every channel at every step of the outermost sequence axis,
     over the real points of that step; None for a signal without a sequence.
 
-    ``error`` is laid out ``(samples, *seq, time, *dim)``, ``real`` marks its real
-    points ``(samples, *time)``.
+    ``error`` is laid out ``(samples, *seq, tw, *dim)``, ``real`` marks its real
+    points ``(samples, *tw)``.
     """
     if error.ndim - 1 - dim_rank < 2:
         return None
@@ -161,7 +161,7 @@ def score_signal(
 ) -> SignalScore:
     """Score one minimizer's prediction against its reference.
 
-    Both signals are laid out ``(samples, *time, *dim)``, their last
+    Both signals are laid out ``(samples, *tw, *dim)``, their last
     ``dim_rank`` axes being the channels. ``valid``, broadcastable to them,
     marks the real points: a padded one is left out of every indicator.
     ``loss_value`` is the minimizer's loss, computed as training computes it.

@@ -12,10 +12,10 @@ class LinearImpl(keras.layers.Layer):
     sample of the window and every step of the sequence.
 
     Input convention:
-        [batch, *seq, time, *dim]
+        [batch, *seq, tw, *dim]
 
     Output convention, with ``axis=None``:
-        [batch, *seq, time, features]
+        [batch, *seq, tw, features]
 
     With ``axis=k`` only dim axis ``k`` is projected, and ``features``
     takes its place among the dim axes: with a matrix of its own at every
@@ -70,14 +70,14 @@ class LinearImpl(keras.layers.Layer):
         kernel = keras.ops.reshape(kernel[0], self.kernel_shape)
 
         if self.axis is None:
-            # The dim, the last axes of (batch, *seq, time, *dim), contracted
-            # with the first axes of the kernel: (batch, *seq, time, out).
+            # The dim, the last axes of (batch, *seq, tw, *dim), contracted
+            # with the first axes of the kernel: (batch, *seq, tw, out).
             y = keras.ops.tensordot(x, kernel, axes=self.dim_rank)
             if bias:
                 y = y + keras.ops.reshape(bias[0][0], self.bias_shape)
             return y
 
-        # The projected axis moved last, (batch, *time, *kept, 1, projected):
+        # The projected axis moved last, (batch, *tw, *kept, 1, projected):
         # every position of the kept axes times its matrix, or the shared one.
         # The axes are addressed from the front, which ONNX needs.
         last = len(x.shape) - 1
@@ -108,8 +108,8 @@ class Linear(_ParameterWeights):
     With ``axis=None`` the whole dim is projected: every feature of a sample
     feeds every output::
 
-        input:  (batch, *seq, time, *dim)
-        output: (batch, *seq, time, features)
+        input:  (batch, *seq, tw, *dim)
+        output: (batch, *seq, tw, features)
         kernel: (*dim, features)
         bias:   (features,)
 

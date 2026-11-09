@@ -37,9 +37,9 @@ class DataLoader:
 
     Windows:
 
-    - Temporal windows, the time ``T``, come from ``Input(..., sw=...)``. All
+    - Temporal windows, ``T``, come from ``Input(..., tw=...)``. All
       inputs are aligned so that every window ends on the same sample; an
-      Input without a window reads that sample, with no time axis.
+      Input without a window reads that sample, with no tw axis.
     - Sequence windows, the sequence axes, come from ``Input(..., seq=...)``:
       one sliding window per declared length, applied on top of the temporal
       windows. Only one length may be dynamic (``-1``), and ``seq_length``
@@ -56,7 +56,7 @@ class DataLoader:
 
     Final dataset format, laid out as the model's tensors::
 
-        {name: np.ndarray of shape (N, *seq, time, *dim)}
+        {name: np.ndarray of shape (N, *seq, tw, *dim)}
 
     Windowed sources:
 
@@ -73,19 +73,19 @@ class DataLoader:
       dynamic length has to match between simulations.
     - The flag is explicit because the shape alone cannot tell the two
       readings apart: an ``(N, 1, 1)`` array is ``N`` samples of one value
-      either way, but a raw target ``sw=(0, 1)`` is shifted one sample ahead,
+      either way, but a raw target ``tw=(0, 1)`` is shifted one sample ahead,
       and an already windowed one is not.
 
     Example::
 
-        x = Input("x", sw=5)
+        x = Input("x", tw=5)
         y = Output("y", Fir(features=1)([x]))
         model = Modely("model", inputs=[x], outputs=[y]).build()
 
         loader = DataLoader(model, source={"x": np.arange(10.0)})
         loader[0]  # {"x": array([[0.], [1.], [2.], [3.], [4.]])}
 
-        windows = np.random.rand(100, 5, 1)  # (N, time, dim)
+        windows = np.random.rand(100, 5, 1)  # (N, tw, dim)
         loader = DataLoader(model, source={"x": windows}, windowed=True)
         len(loader)  # 100
     """
@@ -203,7 +203,7 @@ class DataLoader:
         return self._num_steps
 
     def get_input(self, name: str) -> np.ndarray:
-        """All the samples of one input, shaped ``(N, *time, *dim)``."""
+        """All the samples of one input, shaped ``(N, *tw, *dim)``."""
         return self._dataset[name]
 
     def get_step(self, idx: int) -> Dict[str, Any]:
@@ -280,7 +280,7 @@ class DataLoader:
         return self._simulations[simulation]
 
     def as_dict(self) -> Dict[str, np.ndarray]:
-        """The whole dataset as ``{name: array of shape (N, *time, *dim)}``."""
+        """The whole dataset as ``{name: array of shape (N, *tw, *dim)}``."""
         return self._dataset
 
     # ------------------------------------------------------------------
@@ -510,7 +510,7 @@ class DataLoader:
             )
 
     # ------------------------------------------------------------------
-    # Read windowed: source -> one {name: (N, *seq, time, *dim)} set per
+    # Read windowed: source -> one {name: (N, *seq, tw, *dim)} set per
     # simulation, used as given
     # ------------------------------------------------------------------
 
@@ -591,7 +591,7 @@ class DataLoader:
         return f"(N, {', '.join(sizes)})"
 
     def _windowed_shape(self, name: str, shape: tuple) -> tuple | None:
-        """``shape`` read as the tensor of an input, ``(N, *seq, time, *dim)``,
+        """``shape`` read as the tensor of an input, ``(N, *seq, tw, *dim)``,
         or None when it is not: every fixed axis its size, every dynamic one
         at least a step. The last axis may be left out for a single feature."""
         node = self._input_nodes[name]
@@ -630,7 +630,7 @@ class DataLoader:
         return np.reshape(values, shape)
 
     # ------------------------------------------------------------------
-    # Window: simulations -> {name: (N, *time, *dim)}
+    # Window: simulations -> {name: (N, *tw, *dim)}
     # ------------------------------------------------------------------
 
     def _build(
@@ -818,7 +818,7 @@ class DataLoader:
         sequence: tuple[int, ...],
     ) -> np.ndarray:
         """Temporal windows of one input, then one sliding window per
-        sequence axis, laid out ``(N, *seq, time, *dim)``, or ``(N, *dim)``
+        sequence axis, laid out ``(N, *seq, tw, *dim)``, or ``(N, *dim)``
         for an input without a window."""
         past, future = self._input_specs[name]
         width = past + future
@@ -829,11 +829,11 @@ class DataLoader:
         # Input without a window is the one sample, without the window axis.
         windows = sliding_window_view(values, window_shape=width, axis=0)
         windows = np.moveaxis(windows[first - past + 1 : last - past + 1], -1, 1)
-        if self._input_nodes[name].shape.time is None:
+        if self._input_nodes[name].shape.tw is None:
             windows = windows[:, 0]
 
         # Each sliding window appends its axis; moved right after the samples it
-        # becomes the outermost time, so the innermost outer axis comes first.
+        # becomes the outermost axis, so the innermost outer axis comes first.
         for length in reversed(sequence):
             windows = sliding_window_view(windows, window_shape=length, axis=0)
             windows = np.moveaxis(windows, -1, 1)

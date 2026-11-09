@@ -17,7 +17,7 @@ class ModelyLoop(Modely):
     """A model declared one step at a time, whose fed-back Inputs are all fed
     back by a single rollout::
 
-        x, v = Input("x", sw=1), Input("v", sw=1)
+        x, v = Input("x", tw=1), Input("v", tw=1)
         a = (F - k * x - c * v) / m
         v_next = v.feedback(IntegrateStep(dt=dt)(v, a))
         x_next = x.feedback(IntegrateStep(dt=dt)(x, v_next))
@@ -133,18 +133,18 @@ class ModelyLoop(Modely):
         the horizon its new outermost sequence axis."""
         rolled = self._rolled_inputs.get(node.name)
         if rolled is None:
-            if node.time is None:
+            if node.tw is None:
                 raise ValueError(
                     f"ModelyLoop {self.name!r} reads its Input {node.name!r} one "
                     "step at a time, so its data carries the horizon as a "
-                    "sequence axis, which needs a window: declare it with sw=1."
+                    "sequence axis, which needs a window: declare it with tw=1."
                 )
             horizon = -1 if self._length is None else self._length
             rolled = Input(
                 node.name,
                 dim=node.dim,
                 seq=(horizon, *(-1 if size is None else size for size in node.seq)),
-                sw=(node.past, node.future),
+                tw=(node.past, node.future),
             )
             self._rolled_inputs[node.name] = rolled
         return rolled

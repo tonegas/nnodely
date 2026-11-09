@@ -74,8 +74,8 @@ on the state :math:`s = (x, \dot x)`:
 .. code-block:: python
 
    horizon = 20
-   state = Input("state", dim=2, sw=1)
-   F_step = Input("F_step", sw=1)
+   state = Input("state", dim=2, tw=1)
+   F_step = Input("F_step", tw=1)
    next_state = Output(
        "next_state",
        Linear(features=2, bias=False)([state])
@@ -83,8 +83,8 @@ on the state :math:`s = (x, \dot x)`:
    )
    body = Modely("step", inputs=[state, F_step], outputs=[next_state]).build()
 
-   s0 = Input("s0", dim=2, seq=horizon, sw=1)
-   F_seq = Input("F_seq", seq=horizon, sw=1)
+   s0 = Input("s0", dim=2, seq=horizon, tw=1)
+   F_seq = Input("F_seq", seq=horizon, tw=1)
    trajectory = Output(
        "trajectory",
        Loop(f=body, feedback={state: next_state}, init={state: s0})(
@@ -93,7 +93,7 @@ on the state :math:`s = (x, \dot x)`:
    )
 
    simulator = Modely("msd_loop", inputs=[s0, F_seq], outputs=[trajectory])
-   s_next = Input("s_next", dim=2, seq=horizon, sw=1)
+   s_next = Input("s_next", dim=2, seq=horizon, tw=1)
    simulator.minimize("trajectory", trajectory, s_next)
    simulator.build()
    print(trajectory.shape)   # Shape(S=(20,), T=1, D=(2,)): 20 steps of 1 sample of 2 states
@@ -114,13 +114,13 @@ is that output, a stream. With more, it is all of them: unpack them,
 ``loop[1]``; read as one stream - in an ``Output``, an operator or a layer -
 it raises. An output the loop adds to the body for an update the body does
 not declare, as the state of an ``Integrate``, is not returned. A fed-back
-input with a window, ``Input(..., sw=n)``, is fed back by
+input with a window, ``Input(..., tw=n)``, is fed back by
 shifting: after ``n`` steps the window contains only predictions. A fed-back output is therefore a single
 sample, and the window of a fed-back input cannot read future samples
-(``sw=(p, f)`` with ``f > 0``). A fed-back input without a window is replaced
+(``tw=(p, f)`` with ``f > 0``). A fed-back input without a window is replaced
 by an output without one.
 
-With a dynamic sequence, ``Input(..., seq=-1, sw=1)``, the rollout follows the length of the
+With a dynamic sequence, ``Input(..., seq=-1, tw=1)``, the rollout follows the length of the
 data it receives, and no ``length`` is needed. Together
 with ``seq_length="full"`` in the :class:`~nnodely.DataLoader`, this trains on
 whole simulations of different lengths (see :doc:`data`).
@@ -134,11 +134,11 @@ stream of the outer graph, as it binds the force.
 
    from nnodely import Integrate
 
-   F_k, v0 = Input("F_k", sw=1), Input("v0", sw=1)
+   F_k, v0 = Input("F_k", tw=1), Input("v0", tw=1)
    v_next = Integrate(dt=dt, init=v0)(F_k / m)
    impulse = Modely("impulse", inputs=[F_k, v0], outputs=[Output("v_next", v_next)])
 
-   F_dyn, v_start = Input("F_dyn", seq=-1, sw=1), Input("v_start", sw=1)
+   F_dyn, v_start = Input("F_dyn", seq=-1, tw=1), Input("v_start", tw=1)
    velocities = Loop(f=impulse)({F_k: F_dyn, v0: v_start})
 
 As a Modely, the Loop can also be called with a list, one stream per input in
@@ -164,9 +164,9 @@ to be identified:
 
    from nnodely import Buffer, IntegrateStep, ModelyLoop, Parameter
 
-   F_in = Input("F_in", sw=1)    # the force of this step
-   pos = Input("pos", sw=1)      # the position at the end of the previous step
-   vel = Input("vel", sw=1)      # the velocity at the end of the previous step
+   F_in = Input("F_in", tw=1)    # the force of this step
+   pos = Input("pos", tw=1)      # the position at the end of the previous step
+   vel = Input("vel", tw=1)      # the velocity at the end of the previous step
    k_hat = Parameter("k_hat", value=1.0)
    c_hat = Parameter("c_hat", value=1.0)
 
@@ -175,7 +175,7 @@ to be identified:
    pos_next = pos.feedback(IntegrateStep(dt=dt)(pos, vel_next))
 
    msd = ModelyLoop("msd", inputs=[F_in, pos, vel], outputs=[Output("pos_next", pos_next)])
-   msd.minimize("position", "pos_next", Input("pos_meas", sw=1))
+   msd.minimize("position", "pos_next", Input("pos_meas", tw=1))
    msd.build()
 
 Every Input of a ModelyLoop carries the horizon as its outermost sequence
@@ -223,23 +223,23 @@ as at the first step of a ModelyLoop.
 A model called as a block in a ModelyLoop keeps the feedback of its own
 fed-back Inputs, one state per call. Where it reads a window of a signal that
 the step computes, a :class:`~nnodely.Buffer` holds the past values:
-``Buffer(sw=3)(u)`` is ``[u[k-2], u[k-1], u[k]]``, its newest sample the value
+``Buffer(tw=3)(u)`` is ``[u[k-2], u[k-1], u[k]]``, its newest sample the value
 of this step. Its ``init`` holds the past values before the first step, as the
 ``init`` of a Derivative holds the samples its stencil reads: one sample,
-repeated, or ``sw - 1`` of them, oldest first. Here a proportional controller
+repeated, or ``tw - 1`` of them, oldest first. Here a proportional controller
 drives a plant that reads its last three commands:
 
 .. code-block:: python
 
-   forces = Input("forces", sw=3)
-   level = Input("level", sw=1)
+   forces = Input("forces", tw=3)
+   level = Input("level", tw=1)
    level_next = level.feedback(0.9 * level + Fir(features=1, bias=False)([forces]))
    plant = Modely("plant", inputs=[forces], outputs=[Output("level_next", level_next)])
 
-   reference = Input("reference", sw=1)
-   measured = Input("measured", sw=1)
+   reference = Input("reference", tw=1)
+   measured = Input("measured", tw=1)
    command = Output("command", (reference - measured) * 0.5)
-   measured.feedback(plant([Buffer(sw=3)(command)]))
+   measured.feedback(plant([Buffer(tw=3)(command)]))
    control = ModelyLoop("control", inputs=[reference],
                         outputs=[command, Output("level", measured)]).build()
    print(control({"reference": np.ones((1, 20, 1, 1))})["level"].shape)   # (1, 20, 1, 1)

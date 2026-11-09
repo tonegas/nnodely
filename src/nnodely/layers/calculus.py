@@ -162,15 +162,15 @@ class IntegrateImpl(keras.layers.Layer):
 
     def call(self, inputs):
         x, *history = inputs if isinstance(inputs, (list, tuple)) else [inputs]
-        time_axis = self.axis
+        tw_axis = self.axis
 
-        result = keras.ops.tensordot(x, self.operator, axes=[[time_axis], [0]])  # type: ignore[arg-type]
-        # tensordot appends the window axis; put it back where time belongs.
+        result = keras.ops.tensordot(x, self.operator, axes=[[tw_axis], [0]])  # type: ignore[arg-type]
+        # tensordot appends the window axis; put it back where tw belongs.
         # The axis is addressed from the front because a negative index
         # survives tracing as a negative permutation, which ONNX rejects.
         last_axis = len(result.shape) - 1
-        if last_axis != time_axis:
-            result = keras.ops.moveaxis(result, last_axis, time_axis)
+        if last_axis != tw_axis:
+            result = keras.ops.moveaxis(result, last_axis, tw_axis)
 
         # An initial condition may leave out the sequence axes, and a scalar
         # one the dim size: adding it broadcasts along both.
@@ -200,7 +200,7 @@ class IntegrateImpl(keras.layers.Layer):
 
 class IntegrateStep(Layer):
     """
-    Time integration of a rate signal along its own time axis::
+    Time integration of a rate signal along its own tw axis::
 
         IntegrateStep(method="euler"|"rectangular"|"trapezoidal", dt=0.01)(rate)
         IntegrateStep(method="euler", dt=0.01)(init, rate)
@@ -237,7 +237,7 @@ class IntegrateStep(Layer):
       is what turns a relative increment into the absolute quantity
       mechanical models are written in::
 
-          velocity = IntegrateStep(dt=dt)(v0, acceleration)  # Input(..., sw=n)
+          velocity = IntegrateStep(dt=dt)(v0, acceleration)  # Input(..., tw=n)
           position = IntegrateStep(dt=dt)(x0, velocity)
 
     * ``init_rate``, for the trapezoidal rule only, is the rate at the sample
@@ -303,7 +303,7 @@ class IntegrateStep(Layer):
         return IntegrateImpl(
             dt=self._dt,
             rule=_METHOD_RULE[self._method],
-            axis=self.shape.time_axis,
+            axis=self.shape.tw_axis,
             name=self.name,
         )
 
@@ -390,16 +390,16 @@ class Integrate:
             raise TypeError(
                 f"{self.name}: Integrate expects a Stream, got {type(rate).__name__}."
             )
-        if rate.time is None:
+        if rate.tw is None:
             raise ValueError(
                 f"{self.name}: Integrate acts on the window of its stream, and "
                 f"{rate.name!r} has none, {rate.shape}. Declare the Input with a "
-                "window, sw=1 for one sample per step."
+                "window, tw=1 for one sample per step."
             )
-        if rate.time != 1:
+        if rate.tw != 1:
             raise ValueError(
                 f"{self.name}: Integrate takes one rate sample per step, but the "
-                f"rate carries {rate.time} time samples. Integrate a time window "
+                f"rate carries {rate.tw} time samples. Integrate a time window "
                 "with IntegrateStep."
             )
         for value, name in ((self._init, "init"), (self._init_rate, "init_rate")):
@@ -411,7 +411,7 @@ class Integrate:
         call_name = self.name if self._calls == 1 else f"{self.name}_{self._calls}"
 
         def hidden(name):
-            node = Input(name, dim=rate.dim, seq=_declared_seq(rate), sw=1)
+            node = Input(name, dim=rate.dim, seq=_declared_seq(rate), tw=1)
             node._hidden = True
             return node
 
@@ -486,14 +486,14 @@ class TimeDerivativeImpl(keras.layers.Layer):
         self,
         coefficients,
         axis: int,
-        init_time: int = 1,
+        init_tw: int = 1,
         name=None,
         **kwargs,
     ):
         super().__init__(name=name, **kwargs)
         self.coefficients = tuple(float(c) for c in coefficients)
         self.axis = int(axis)
-        self.init_time = int(init_time)
+        self.init_tw = int(init_tw)
 
     @property
     def past(self) -> int:
@@ -520,29 +520,29 @@ class TimeDerivativeImpl(keras.layers.Layer):
             x, init = inputs[0], inputs[1] if len(inputs) > 1 else None
         else:
             x, init = inputs, None
-        time_axis = self.axis
+        tw_axis = self.axis
 
         # One sample of zeros shaped like the window's first: it both stands
         # in for a missing initial condition and gives a given one the axes it
         # may be broadcasting over - a scalar initial condition carries no dim
         # size, and one may leave out the sequence axes.
-        reference = keras.ops.zeros_like(slice_axis(x, time_axis, slice(0, 1)))
+        reference = keras.ops.zeros_like(slice_axis(x, tw_axis, slice(0, 1)))
         if init is None:
             history = reference
         else:
             history = expand_to_rank(init, len(reference.shape)) + reference
-        if self.init_time != self.past:
-            history = keras.ops.repeat(history, self.past, axis=time_axis)
+        if self.init_tw != self.past:
+            history = keras.ops.repeat(history, self.past, axis=tw_axis)
 
-        padded = keras.ops.concatenate([history, x], axis=time_axis)
-        result = keras.ops.tensordot(padded, self.operator, axes=[[time_axis], [0]])  # type: ignore[arg-type]
-        # tensordot appends the window axis; put it back where time belongs.
+        padded = keras.ops.concatenate([history, x], axis=tw_axis)
+        result = keras.ops.tensordot(padded, self.operator, axes=[[tw_axis], [0]])  # type: ignore[arg-type]
+        # tensordot appends the window axis; put it back where tw belongs.
         # The axis is addressed from the front because a negative index
         # survives tracing as a negative permutation, which ONNX rejects.
         last_axis = len(result.shape) - 1
-        if last_axis == time_axis:  # nothing follows time, so it already is
+        if last_axis == tw_axis:  # nothing follows tw, so it already is
             return result
-        return keras.ops.moveaxis(result, last_axis, time_axis)
+        return keras.ops.moveaxis(result, last_axis, tw_axis)
 
     def compute_output_shape(self, input_shape):
         if isinstance(input_shape[0], (list, tuple)):
@@ -555,7 +555,7 @@ class TimeDerivativeImpl(keras.layers.Layer):
             {
                 "coefficients": self.coefficients,
                 "axis": self.axis,
-                "init_time": self.init_time,
+                "init_tw": self.init_tw,
             }
         )
         return config
@@ -695,16 +695,16 @@ class DerivativeStep(_FiniteDifference):
         return function.shape
 
     def build_layer(self):
-        init_time = 1
+        init_tw = 1
         if len(self._preds) > 1:
             init_node = self._preds[1]
             if isinstance(init_node, Stream):
                 # A value without a window is one sample.
-                init_time = init_node.shape.time or 1
+                init_tw = init_node.shape.tw or 1
         return TimeDerivativeImpl(
             coefficients=self._coefficients(),
-            axis=self.shape.time_axis,  # type: ignore[arg-type]
-            init_time=init_time,
+            axis=self.shape.tw_axis,  # type: ignore[arg-type]
+            init_tw=init_tw,
             name=self.name,
         )
 
@@ -717,7 +717,7 @@ class Derivative(_FiniteDifference):
         Derivative(dt=0.1, init=x0)(x)               # dx/dt, from x0
         Derivative(dt=0.1)(Derivative(dt=0.1)(x))    # d2x/dt2
 
-    ``x`` is one sample per step, ``sw=1``. The layer remembers the last
+    ``x`` is one sample per step, ``tw=1``. The layer remembers the last
     ``poly_order`` samples of ``x`` from one step to the next, and gives the
     same values as :class:`DerivativeStep` on a window of the same samples.
 
@@ -759,10 +759,10 @@ class Derivative(_FiniteDifference):
                 f"{type(function).__name__}."
             )
         self._needs_window(function)
-        if function.time != 1:
+        if function.tw != 1:
             raise ValueError(
                 f"{self.name}: Derivative takes one sample per step, but the "
-                f"signal carries {function.time} time samples. Differentiate a "
+                f"signal carries {function.tw} time samples. Differentiate a "
                 "time window with DerivativeStep."
             )
         if isinstance(self._init, Stream):
@@ -777,7 +777,7 @@ class Derivative(_FiniteDifference):
             f"{call_name}_{function.name}",
             dim=function.dim,
             seq=_declared_seq(function),
-            sw=self.past,
+            tw=self.past,
         )
         past._hidden = True
         derivative = DerivativeStep(

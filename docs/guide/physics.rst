@@ -64,7 +64,7 @@ same one step at a time in a ModelyLoop (see :doc:`recurrent`).
 .. code-block:: python
 
    dt = 0.01
-   position = Input("position", sw=10)
+   position = Input("position", tw=10)
    velocity = DerivativeStep(dt=dt)(0.0, position)
    acceleration = DerivativeStep(dt=dt)(velocity)
    sharper_velocity = DerivativeStep(dt=dt, poly_order=2)(position)
@@ -86,8 +86,8 @@ recurrent model:
 
 .. code-block:: python
 
-   acceleration = Input("acceleration", sw=1)
-   v = Input("v", sw=1)
+   acceleration = Input("acceleration", tw=1)
+   v = Input("v", tw=1)
    v_next = IntegrateStep(dt=dt)(v, acceleration)   # v + dt * a
 
 On a longer window it returns the whole integrated trajectory in one pass, so
@@ -95,7 +95,7 @@ position can be obtained from acceleration with no rollout:
 
 .. code-block:: python
 
-   acceleration_window = Input("acceleration_window", sw=50)
+   acceleration_window = Input("acceleration_window", tw=50)
    v_window = IntegrateStep(dt=dt)(acceleration_window)
    x_window = IntegrateStep(dt=dt)(v_window)
    print(x_window.shape)   # Shape(S=(), T=50, D=(1,))
@@ -119,8 +119,8 @@ step:
 
 .. code-block:: python
 
-   acc = Input("acc", sw=1)           # one acceleration per step
-   v0, a0 = Input("v0", sw=1), Input("a0", sw=1)
+   acc = Input("acc", tw=1)           # one acceleration per step
+   v0, a0 = Input("v0", tw=1), Input("a0", tw=1)
    velocity = Integrate(method="trapezoidal", dt=dt, init=v0, init_rate=a0)(acc)
    position = Integrate(method="trapezoidal", dt=dt, init=0.0, init_rate=v0)(velocity)
    kinematics = ModelyLoop("kinematics", inputs=[acc, v0, a0],
@@ -142,8 +142,8 @@ one, a signal at rest before the start. The results of ``Integrate`` and
 
 .. code-block:: python
 
-   x = Input("x", sw=1)               # one position per step
-   x0 = Input("x0", sw=1)
+   x = Input("x", tw=1)               # one position per step
+   x0 = Input("x0", tw=1)
    v = Derivative(dt=dt, init=x0)(x)
    x_again = Integrate(dt=dt, init=x0)(v)   # x again, in a ModelyLoop on x and x0
 
@@ -162,8 +162,8 @@ body of a :class:`~nnodely.Loop`. Here a pendulum with an unknown ratio
    def pendulum(theta, omega, g_over_l):
        return omega, -1.0 * g_over_l * Sin()([theta])
 
-   theta = Input("theta", sw=1)
-   omega = Input("omega", sw=1)
+   theta = Input("theta", tw=1)
+   omega = Input("omega", tw=1)
    g_over_l = Parameter("g_over_l", value=5.0)
    theta_next, omega_next = Ode(
        pendulum, [theta, omega], dt=0.05, method="rk4", args=(g_over_l,)
@@ -174,8 +174,8 @@ body of a :class:`~nnodely.Loop`. Here a pendulum with an unknown ratio
        outputs=[Output("theta_next", theta_next), Output("omega_next", omega_next)],
    ).build()
 
-   theta0 = Input("theta0", seq=100, sw=1)
-   omega0 = Input("omega0", seq=100, sw=1)
+   theta0 = Input("theta0", seq=100, tw=1)
+   omega0 = Input("omega0", seq=100, tw=1)
    theta_traj, omega_traj = Loop(
        f=step,
        feedback={"theta": "theta_next", "omega": "omega_next"},

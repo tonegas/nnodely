@@ -102,7 +102,7 @@ class BatchNorm(_ParameterWeights):
 
     Input and output::
 
-        [batch, *seq, time, *dim]
+        [batch, *seq, tw, *dim]
 
     Statistics are accumulated per feature: by default along the first dim
     axis. ``axis`` picks another tensor axis, counted with the batch as 0.

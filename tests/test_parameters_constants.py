@@ -33,53 +33,53 @@ def test_parameter_and_constant_declaration():
     c2 = Constant(
         "const2",
         value=[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
-        time=2,
+        tw=2,
         dim=5,
     )
     c3 = Constant(
         "const3",
         value=[[1.0, 2.0, 3.0, 4.0, 5.0], [6.0, 7.0, 8.0, 9.0, 10.0]],
-        time=2,
+        tw=2,
         dim=5,
     )
-    c4 = Constant("const4", value=np.ones((2, 3), dtype=np.float32), time=2, dim=3)
+    c4 = Constant("const4", value=np.ones((2, 3), dtype=np.float32), tw=2, dim=3)
     c5 = Constant(
-        "const5", value=np.ones((2, 3, 4), dtype=np.float32), time=2, dim=(3, 4)
+        "const5", value=np.ones((2, 3, 4), dtype=np.float32), tw=2, dim=(3, 4)
     )
     c6 = Constant(
         "const6",
         value=np.ones((2, 3, 4, 5), dtype=np.float32),
         seq=5,
-        time=3,
+        tw=3,
         dim=(2, 4),
     )
     c7 = Constant(
         "const7",
         value=[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
         seq=2,
-        time=2,
+        tw=2,
         dim=3,
     )
     c8 = Constant(
         "const8",
         value=np.ones((2, 3, 4, 5), dtype=np.float32),
         seq=5,
-        time=3,
+        tw=3,
         dim=(2, 4),
     )
-    c9 = Constant("const9", value=np.ones((6), dtype=np.float32), time=2, dim=3)
+    c9 = Constant("const9", value=np.ones((6), dtype=np.float32), tw=2, dim=3)
 
     ## constant error
     with pytest.raises(ValueError, match="requires a value"):
         Constant("no_value", value=None)
     with pytest.raises(ValueError, match="shape error"):
-        Constant("error1", value=[1.0, 2.0, 3.0], time=2, dim=5)
+        Constant("error1", value=[1.0, 2.0, 3.0], tw=2, dim=5)
     with pytest.raises(ValueError, match="shape error"):
         Constant(
             "error2",
             value=np.ones((2, 3, 4), dtype=np.float32),
             seq=2,
-            time=2,
+            tw=2,
             dim=(3, 4),
         )
 
@@ -88,46 +88,46 @@ def test_parameter_and_constant_declaration():
     p2 = Parameter(
         "param2",
         value=[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
-        time=2,
+        tw=2,
         dim=5,
     )
     p3 = Parameter(
         "param3",
         value=[[1.0, 2.0, 3.0, 4.0, 5.0], [6.0, 7.0, 8.0, 9.0, 10.0]],
-        time=2,
+        tw=2,
         dim=5,
     )
-    p4 = Parameter("param4", value=np.ones((2, 3), dtype=np.float32), time=2, dim=3)
+    p4 = Parameter("param4", value=np.ones((2, 3), dtype=np.float32), tw=2, dim=3)
     p5 = Parameter(
-        "param5", value=np.ones((2, 3, 4), dtype=np.float32), time=2, dim=(3, 4)
+        "param5", value=np.ones((2, 3, 4), dtype=np.float32), tw=2, dim=(3, 4)
     )
     p6 = Parameter(
         "param6",
         value=np.ones((2, 3, 4, 5), dtype=np.float32),
         seq=5,
-        time=3,
+        tw=3,
         dim=(2, 4),
     )
     p7 = Parameter(
         "param7",
         value=[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
         seq=2,
-        time=2,
+        tw=2,
         dim=3,
     )
     p8 = Parameter(
         "param8",
         value=np.ones((2, 3, 4, 5), dtype=np.float32),
         seq=5,
-        time=3,
+        tw=3,
         dim=(2, 4),
     )
-    p9 = Parameter("param9", value=np.ones((6), dtype=np.float32), time=2, dim=3)
-    p10 = Parameter("param10", dim=3, time=2, seq=2, initializer="ones")
-    p11 = Parameter("param11", dim=(3, 4), time=2, seq=2, initializer="ones")
-    p12 = Parameter("param12", dim=(3, 4, 5), time=2, seq=2, initializer="ones")
+    p9 = Parameter("param9", value=np.ones((6), dtype=np.float32), tw=2, dim=3)
+    p10 = Parameter("param10", dim=3, tw=2, seq=2, initializer="ones")
+    p11 = Parameter("param11", dim=(3, 4), tw=2, seq=2, initializer="ones")
+    p12 = Parameter("param12", dim=(3, 4, 5), tw=2, seq=2, initializer="ones")
 
-    # Each takes the shape it declares, its value laid out (*seq, time, *dim).
+    # Each takes the shape it declares, its value laid out (*seq, tw, *dim).
     declared = [
         ((c1, p1), ((), None, (1,))),
         ((c2, p2, c3, p3), ((), 2, (5,))),
@@ -158,7 +158,7 @@ def test_parameter_shape_is_inferred_like_constant():
         "parameter_with_axes",
         value=np.ones((1, 3, 4), dtype=np.float32),
         seq=4,
-        time=3,
+        tw=3,
         dim=1,
     )
 
@@ -167,7 +167,7 @@ def test_parameter_shape_is_inferred_like_constant():
 
 
 def test_parameter_constant_model_inference():
-    x = Input("x", dim=1, sw=1)
+    x = Input("x", dim=1, tw=1)
     parameter = Parameter("param1", value=[1.0])
     constant = Constant("const1", value=[1.0])
 
@@ -217,7 +217,7 @@ def test_parameter_constant_model_inference():
 
 
 def test_parameter_through_a_layer_keeps_the_batch_axis():
-    x = Input("x", dim=4, sw=1)
+    x = Input("x", dim=4, tw=1)
     parameter = Parameter("param_exp", value=np.zeros(4, dtype=np.float32))
 
     y = x * Exp()([parameter])
@@ -241,7 +241,7 @@ def test_parameter_through_a_layer_keeps_the_batch_axis():
     ],
     ids=["number", "vector", "matrix", "three_axes"],
 )
-def test_a_value_is_laid_out_dim_time_seq(value, dimensions):
+def test_a_value_is_laid_out_dim_tw_seq(value, dimensions):
     # Unless told otherwise, every axis of a value is a dim axis and the value
     # has no window - for both classes alike. It is held as given.
     for node in (Constant(value=value), Parameter(value=value)):
@@ -253,19 +253,19 @@ def test_a_value_is_laid_out_dim_time_seq(value, dimensions):
 @pytest.mark.parametrize(
     "sizes, dimensions, order",
     [
-        ({"seq": 2, "time": 3, "dim": 4}, ((2,), 3, (4,)), (0, 1, 2)),
-        ({"seq": 4, "time": 3, "dim": 2}, ((4,), 3, (2,)), (2, 1, 0)),
-        ({"time": 3, "dim": (2, 4)}, ((), 3, (2, 4)), (1, 0, 2)),
-        ({"time": 3, "dim": (4, 2)}, ((), 3, (4, 2)), (1, 2, 0)),
-        ({"seq": 3, "time": 2, "dim": 4}, ((3,), 2, (4,)), (1, 0, 2)),
+        ({"seq": 2, "tw": 3, "dim": 4}, ((2,), 3, (4,)), (0, 1, 2)),
+        ({"seq": 4, "tw": 3, "dim": 2}, ((4,), 3, (2,)), (2, 1, 0)),
+        ({"tw": 3, "dim": (2, 4)}, ((), 3, (2, 4)), (1, 0, 2)),
+        ({"tw": 3, "dim": (4, 2)}, ((), 3, (4, 2)), (1, 2, 0)),
+        ({"seq": 3, "tw": 2, "dim": 4}, ((3,), 2, (4,)), (1, 0, 2)),
     ],
     ids=["in_order", "all_moved", "time_first", "dim_reordered", "seq_first"],
 )
 def test_a_value_of_several_axes_is_moved_into_the_declared_order(
     sizes, dimensions, order
 ):
-    # seq, time and dim are sizes, as for an Input: a value has them, in
-    # any order, and is laid out (*seq, time, *dim) - its axes moved into
+    # seq, tw and dim are sizes, as for an Input: a value has them, in
+    # any order, and is laid out (*seq, tw, *dim) - its axes moved into
     # place, not its values read again in another order.
     values = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
     for node in (Constant(value=values, **sizes), Parameter(value=values, **sizes)):
@@ -278,28 +278,28 @@ def test_axes_of_one_size_keep_their_order():
     values = np.arange(12, dtype=np.float32).reshape(2, 3, 2)
     # (3, 2, 2) declared: the window takes the axis of 3, the two axes of 2
     # are the dim, the first of them first.
-    node = Parameter("same_sizes", value=values, time=3, dim=(2, 2))
+    node = Parameter("same_sizes", value=values, tw=3, dim=(2, 2))
     assert node.shape.dimensions == ((), 3, (2, 2))
     np.testing.assert_array_equal(node.value, np.transpose(values, (1, 0, 2)))
 
 
 def test_a_list_of_values_fills_the_declared_shape_in_order():
-    # As many values as the shape holds, laid out (*seq, time, *dim),
+    # As many values as the shape holds, laid out (*seq, tw, *dim),
     # row-major: the first dim values are the first sample.
     values = np.arange(12, dtype=np.float32)
     for node in (
-        Constant("flat_constant", value=values.tolist(), seq=2, time=2, dim=3),
-        Parameter("flat_parameter", value=values, seq=2, time=2, dim=3),
+        Constant("flat_constant", value=values.tolist(), seq=2, tw=2, dim=3),
+        Parameter("flat_parameter", value=values, seq=2, tw=2, dim=3),
     ):
         assert node.shape.dimensions == ((2,), 2, (3,))
         np.testing.assert_array_equal(node.value, values.reshape(2, 2, 3))
 
 
 def test_a_list_and_its_matrix_give_one_value_in_a_model():
-    x = Input("filled_x", sw=1)
-    flat = Constant("filled_flat", value=list(range(10)), time=2, dim=5)
-    matrix = Constant("filled_matrix", value=np.arange(10).reshape(2, 5), time=2, dim=5)
-    moved = Constant("filled_moved", value=np.arange(10).reshape(2, 5).T, time=2, dim=5)
+    x = Input("filled_x", tw=1)
+    flat = Constant("filled_flat", value=list(range(10)), tw=2, dim=5)
+    matrix = Constant("filled_matrix", value=np.arange(10).reshape(2, 5), tw=2, dim=5)
+    moved = Constant("filled_moved", value=np.arange(10).reshape(2, 5).T, tw=2, dim=5)
     model = Modely(
         "filled_model",
         inputs=[x],
@@ -320,17 +320,17 @@ def test_a_list_and_its_matrix_give_one_value_in_a_model():
 @pytest.mark.parametrize(
     "shape, sizes, dimensions, order",
     [
-        ((2, 4, 6), {"time": 4}, ((), 4, (2, 6)), (1, 0, 2)),
-        ((2, 3, 5, 4), {"seq": 5, "time": 3}, ((5,), 3, (2, 4)), (2, 1, 0, 3)),
-        ((4, 2, 6), {"time": 4}, ((), 4, (2, 6)), (0, 1, 2)),
+        ((2, 4, 6), {"tw": 4}, ((), 4, (2, 6)), (1, 0, 2)),
+        ((2, 3, 5, 4), {"seq": 5, "tw": 3}, ((5,), 3, (2, 4)), (2, 1, 0, 3)),
+        ((4, 2, 6), {"tw": 4}, ((), 4, (2, 6)), (0, 1, 2)),
         # Axes of one size keep their order: the window takes the first.
-        ((2, 3, 2), {"time": 2}, ((), 2, (3, 2)), (0, 1, 2)),
-        # Neither seq nor time: every axis is a dim axis, no window.
+        ((2, 3, 2), {"tw": 2}, ((), 2, (3, 2)), (0, 1, 2)),
+        # Neither seq nor tw: every axis is a dim axis, no window.
         ((2, 4, 6), {}, ((), None, (2, 4, 6)), (0, 1, 2)),
     ],
-    ids=["time", "seq_and_time", "time_in_place", "same_sizes", "none"],
+    ids=["tw", "seq_and_time", "time_in_place", "same_sizes", "none"],
 )
-def test_without_dim_the_axes_seq_and_time_leave_are_the_dim(
+def test_without_dim_the_axes_seq_and_tw_leave_are_the_dim(
     shape, sizes, dimensions, order
 ):
     values = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
@@ -340,27 +340,27 @@ def test_without_dim_the_axes_seq_and_time_leave_are_the_dim(
         np.testing.assert_array_equal(node.value, np.transpose(values, order))
 
 
-def test_without_dim_a_value_that_seq_and_time_take_whole_has_one_feature():
+def test_without_dim_a_value_that_seq_and_tw_take_whole_has_one_feature():
     assert Parameter(
-        "taken_list", value=[1.0, 2.0, 3.0, 4.0], time=4
+        "taken_list", value=[1.0, 2.0, 3.0, 4.0], tw=4
     ).shape.dimensions == (
         (),
         4,
         (1,),
     )
-    matrix = Constant("taken_matrix", value=np.ones((2, 4)), seq=2, time=4)
+    matrix = Constant("taken_matrix", value=np.ones((2, 4)), seq=2, tw=4)
     assert matrix.shape.dimensions == ((2,), 4, (1,))
-    # A list whose length is no axis of seq or time fills them, a dim of one.
-    flat = Constant("taken_flat", value=np.arange(8.0), seq=2, time=4)
+    # A list whose length is no axis of seq or tw fills them, a dim of one.
+    flat = Constant("taken_flat", value=np.arange(8.0), seq=2, tw=4)
     assert flat.shape.dimensions == ((2,), 4, (1,))
     np.testing.assert_array_equal(flat.value, np.arange(8.0).reshape(2, 4, 1))
 
 
 def test_a_value_whose_left_axes_are_its_dim_computes_and_round_trips(tmp_path):
-    # time=4 takes the axis of 4; the dim is the axes left, (2, 6), in order.
+    # tw=4 takes the axis of 4; the dim is the axes left, (2, 6), in order.
     values = np.arange(48, dtype=np.float32).reshape(2, 4, 6)
-    x = Input("left_x", dim=(2, 6), sw=4)
-    offset = Constant("left_offset", value=values, time=4)
+    x = Input("left_x", dim=(2, 6), tw=4)
+    offset = Constant("left_offset", value=values, tw=4)
     model = Modely(
         "left_model", inputs=[x], outputs=[Output("left_out", x + offset)]
     ).build()
@@ -374,7 +374,7 @@ def test_a_value_whose_left_axes_are_its_dim_computes_and_round_trips(tmp_path):
 
 
 def test_a_value_without_dim_axes_keeps_a_dim_of_one():
-    window = Parameter("window", value=[1.0, 2.0, 3.0, 4.0], time=4)
+    window = Parameter("window", value=[1.0, 2.0, 3.0, 4.0], tw=4)
 
     assert window.shape.dimensions == ((), 4, (1,))
 
@@ -386,8 +386,8 @@ def test_a_vector_value_becomes_a_column():
 
 
 def test_a_parameter_without_value_is_drawn_with_the_shape_it_is_given():
-    x = Input("drawn_x", sw=1)
-    parameter = Parameter("drawn", dim=(3, 2), time=4, seq=5, initializer="ones")
+    x = Input("drawn_x", tw=1)
+    parameter = Parameter("drawn", dim=(3, 2), tw=4, seq=5, initializer="ones")
     model = Modely(
         "drawn_model",
         inputs=[x],
@@ -405,44 +405,44 @@ def test_a_parameter_without_value_is_drawn_with_the_shape_it_is_given():
 def test_a_value_that_does_not_fill_the_declared_shape_is_refused(cls):
     # A list of another number of values.
     with pytest.raises(ValueError, match="3 values given where .* holds 10"):
-        cls("short", value=[1.0, 2.0, 3.0], time=2, dim=5)
+        cls("short", value=[1.0, 2.0, 3.0], tw=2, dim=5)
     # As many values, but sizes no order of the axes gives: one axis more,
     # or another size.
     with pytest.raises(ValueError, match="shape error, a value of shape"):
-        cls("extra_axis", value=np.ones((2, 3, 2, 2, 5)), seq=5, time=3, dim=(2, 4))
+        cls("extra_axis", value=np.ones((2, 3, 2, 2, 5)), seq=5, tw=3, dim=(2, 4))
     with pytest.raises(ValueError, match="shape error, a value of shape"):
-        cls("other_sizes", value=np.ones((2, 3, 4)), seq=2, time=2, dim=(3, 4))
-    # Without dim, time must find an axis of its size.
-    with pytest.raises(ValueError, match="has no axes of the sizes seq and time"):
-        cls("no_window_axis", value=np.ones((2, 3)), time=4)
+        cls("other_sizes", value=np.ones((2, 3, 4)), seq=2, tw=2, dim=(3, 4))
+    # Without dim, tw must find an axis of its size.
+    with pytest.raises(ValueError, match="has no axes of the sizes seq and tw"):
+        cls("no_window_axis", value=np.ones((2, 3)), tw=4)
     # A list without dim fills a dim of one.
     with pytest.raises(ValueError, match="12 values given where .* holds 4"):
-        cls("list_no_dim", value=list(range(12)), time=4)
+        cls("list_no_dim", value=list(range(12)), tw=4)
 
 
 @pytest.mark.parametrize("cls", [Parameter, Constant])
-def test_dim_time_and_seq_are_declared_as_for_an_input(cls):
+def test_dim_tw_and_seq_are_declared_as_for_an_input(cls):
     def make(**sizes):
         return cls("declared", value=np.ones(6), **sizes)
 
     for dim in (0, (2, 0), (), -1, 2.0):
         with pytest.raises(ValueError, match="dim is the size of each feature"):
-            make(time=6, dim=dim)
-    for time in (0, -1, (2, 3), 1.5, True):
-        with pytest.raises(ValueError, match="time is the length of the window"):
-            make(time=time, dim=3)
+            make(tw=6, dim=dim)
+    for tw in (0, -1, (2, 3), 1.5, True):
+        with pytest.raises(ValueError, match="tw is the length of the window"):
+            make(tw=tw, dim=3)
     # A sequence needs a window, and holds every step: none is dynamic.
     with pytest.raises(ValueError, match="a sequence needs a window"):
         make(seq=2, dim=3)
     for seq in (-1, "dyn", 0, (2, None)):
         with pytest.raises(ValueError, match="seq is the length of each sequence"):
-            make(seq=seq, time=1, dim=3)
+            make(seq=seq, tw=1, dim=3)
 
 
 def test_a_parameter_without_value_is_declared_by_its_sizes_alone():
     assert Parameter("only_dim", dim=(3, 4)).shape.dimensions == ((), None, (3, 4))
     assert Parameter("one_feature").shape.dimensions == ((), None, (1,))
-    assert Parameter("sized", seq=2, time=2, dim=3).shape.dimensions == (
+    assert Parameter("sized", seq=2, tw=2, dim=3).shape.dimensions == (
         (2,),
         2,
         (3,),
@@ -456,16 +456,16 @@ def test_a_parameter_without_value_is_declared_by_its_sizes_alone():
 def test_an_input_has_at_least_one_feature():
     for dim in (0, (2, 0), (), -1):
         with pytest.raises(ValueError, match="dim is the size of each feature"):
-            Input("featureless", dim=dim, sw=1)
-    assert Input("featured", dim=(2, 3), sw=1).shape.dimensions == ((), 1, (2, 3))
+            Input("featureless", dim=dim, tw=1)
+    assert Input("featured", dim=(2, 3), tw=1).shape.dimensions == ((), 1, (2, 3))
 
 
-def test_a_matrix_value_given_its_time_axis_is_a_dim_by_time_stream():
-    # time=4, dim=3: the columns of the 3 x 4 matrix are its time steps, the
+def test_a_matrix_value_given_its_tw_axis_is_a_dim_by_tw_stream():
+    # tw=4, dim=3: the columns of the 3 x 4 matrix are its time steps, the
     # rows its dim.
-    x = Input("matrix_x", dim=3, sw=4)
+    x = Input("matrix_x", dim=3, tw=4)
     values = np.arange(12, dtype=np.float32).reshape(3, 4)
-    parameter = Parameter("matrix_parameter", value=values, time=4, dim=3)
+    parameter = Parameter("matrix_parameter", value=values, tw=4, dim=3)
     model = Modely(
         "matrix_model", inputs=[x], outputs=[Output("matrix_out", x + parameter)]
     ).build()
@@ -477,7 +477,7 @@ def test_a_matrix_value_given_its_time_axis_is_a_dim_by_time_stream():
 
 
 def test_only_a_parameter_is_trained():
-    x = Input("trained_x", sw=1)
+    x = Input("trained_x", tw=1)
     parameter = Parameter("trained_gain", value=[1.0])
     constant = Constant("fixed_gain", value=[1.0])
     model = Modely(
@@ -510,11 +510,11 @@ def test_a_constant_requires_a_value_and_declares_its_sizes_like_a_parameter():
 
 
 def test_values_given_their_sizes_round_trip_through_save(tmp_path):
-    x = Input("axes_x", sw=1)
+    x = Input("axes_x", tw=1)
     values = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
     # Its axes moved into place when declared; saved as laid out.
-    parameter = Parameter("axes_parameter", value=values, time=3, dim=(4, 2))
-    constant = Constant("axes_constant", value=[1.0, 2.0, 3.0], time=3)
+    parameter = Parameter("axes_parameter", value=values, tw=3, dim=(4, 2))
+    constant = Constant("axes_constant", value=[1.0, 2.0, 3.0], tw=3)
     model = Modely(
         "axes_model",
         inputs=[x],
@@ -555,7 +555,7 @@ def _trainable_ids(model):
 
 
 def test_freeze_and_unfreeze_a_parameter_or_a_whole_model():
-    x = Input("freeze_x", dim=(2, 3), sw=2)
+    x = Input("freeze_x", dim=(2, 3), tw=2)
     # A Fir kernel is laid out (*dim, window, features), as its values are.
     a = Parameter("freeze_a", value=np.array([0.5] * 12).reshape(2, 3, 2))
     b = Parameter("freeze_b", dim=(2, 3, 2))
@@ -583,7 +583,7 @@ def test_freeze_and_unfreeze_a_parameter_or_a_whole_model():
 
 
 def test_a_parameter_frozen_before_build_is_built_frozen():
-    x = Input("prebuild_x", sw=1)
+    x = Input("prebuild_x", tw=1)
     a = Parameter("prebuild_a", value=[1.0]).freeze()
     b = Parameter("prebuild_b", value=[1.0], trainable=False)
     c = Parameter("prebuild_c", value=[1.0])
@@ -601,12 +601,12 @@ def test_a_frozen_parameter_keeps_its_value_through_training():
     # out = a x + b x against 5 on x = 1: the gradient of (a + b - 5)^2 is
     # 2 (a + b - 5) for either, so one SGD step at lr 0.1 from a = b = 1
     # moves the trainable one by 0.6.
-    x = Input("frozen_x", sw=1)
+    x = Input("frozen_x", tw=1)
     a = Parameter("frozen_a", value=[1.0])
     b = Parameter("frozen_b", value=[1.0])
     out = Output("frozen_out", x * a + x * b)
     model = Modely("frozen_model", inputs=[x], outputs=[out])
-    model.minimize("frozen_fit", out, Input("frozen_y", sw=1))
+    model.minimize("frozen_fit", out, Input("frozen_y", tw=1))
     model.build()
     data = DataLoader(
         model,
@@ -631,22 +631,22 @@ def test_a_frozen_parameter_keeps_its_value_through_training():
 
 def test_model_freeze_reaches_layer_weights_called_models_and_loop_bodies():
     # A block called as a model, with a Parameter of its own.
-    u = Input("reach_u", sw=1)
+    u = Input("reach_u", tw=1)
     gain = Parameter("reach_gain", value=[2.0])
     block = Modely(
         "reach_block", inputs=[u], outputs=[Output("reach_block_out", u * gain)]
     ).build()
     # A Loop body whose Linear makes its own weights.
-    q = Input("reach_q", sw=1)
+    q = Input("reach_q", tw=1)
     body = Modely(
         "reach_body",
         inputs=[q],
         outputs=[Output("reach_next", Linear(features=1)(q))],
     ).build()
-    seed = Input("reach_seed", seq=3, sw=1)
+    seed = Input("reach_seed", seq=3, tw=1)
     loop = Loop(f=body, feedback={q: "reach_next"}, init={q: seed})()
 
-    x = Input("reach_x", sw=2)
+    x = Input("reach_x", tw=2)
     model = Modely(
         "reach_model",
         inputs=[x, seed],
@@ -680,7 +680,7 @@ def _still_trainable(model):
 
 
 def test_freeze_and_unfreeze_parameters_by_name():
-    x = Input("named_x", sw=1)
+    x = Input("named_x", tw=1)
     k = Parameter("named_k", value=[1.0])
     g = Parameter("named_g", value=[2.0])
     h = Parameter("named_h", value=[3.0])
@@ -700,29 +700,29 @@ def test_freeze_and_unfreeze_parameters_by_name():
 
 
 def test_freeze_and_unfreeze_a_model_it_reaches_by_name():
-    u = Input("reached_u", sw=1)
+    u = Input("reached_u", tw=1)
     inner_gain = Parameter("reached_inner_gain", value=[3.0])
     inner = Modely(
         "reached_inner",
         inputs=[u],
         outputs=[Output("reached_inner_out", u * inner_gain)],
     )
-    v = Input("reached_v", sw=1)
+    v = Input("reached_v", tw=1)
     gain = Parameter("reached_gain", value=[2.0])
     block = Modely(
         "reached_block",
         inputs=[v],
         outputs=[Output("reached_block_out", inner([v]) * gain)],
     )
-    q = Input("reached_q", sw=1)
+    q = Input("reached_q", tw=1)
     body = Modely(
         "reached_body",
         inputs=[q],
         outputs=[Output("reached_next", Linear(features=1, name="reached_lin")(q))],
     )
-    seed = Input("reached_seed", seq=3, sw=1)
+    seed = Input("reached_seed", seq=3, tw=1)
     loop = Loop(f=body, feedback={q: "reached_next"}, init={q: seed})()
-    x = Input("reached_x", sw=1)
+    x = Input("reached_x", tw=1)
     k = Parameter("reached_k", value=[1.0])
     model = Modely(
         "reached",
@@ -754,10 +754,10 @@ def test_freeze_and_unfreeze_a_model_it_reaches_by_name():
 
 
 def test_freeze_refuses_a_name_it_cannot_resolve_and_changes_nothing():
-    x = Input("unresolved_x", sw=1)
+    x = Input("unresolved_x", tw=1)
     k = Parameter("unresolved_k", value=[1.0])
     shared = Parameter("unresolved_shared", value=[1.0])
-    w = Input("unresolved_w", sw=1)
+    w = Input("unresolved_w", tw=1)
     named_alike = Modely(
         "unresolved_shared", inputs=[w], outputs=[Output("unresolved_w_out", w * 2.0)]
     )
@@ -785,7 +785,7 @@ def test_freeze_refuses_a_name_it_cannot_resolve_and_changes_nothing():
 
 
 def test_the_trainable_flag_is_saved_with_the_model(tmp_path):
-    x = Input("saved_flag_x", sw=2)
+    x = Input("saved_flag_x", tw=2)
     frozen = Parameter("saved_frozen", value=[2.0]).freeze()
     free = Parameter("saved_free", value=[3.0])
     fir = Fir(features=1, name="saved_flag_fir")([x])
@@ -808,11 +808,11 @@ def test_the_trainable_flag_is_saved_with_the_model(tmp_path):
 
 
 def test_model_parameters_lists_every_parameter_and_prints_a_table():
-    x = Input("table_x", dim=(2, 3), sw=2)
+    x = Input("table_x", dim=(2, 3), tw=2)
     # A Fir kernel is laid out (*dim, window, features), as its values are.
     a = Parameter("a", value=np.full((2, 3, 2), 0.5))
     b = Parameter("b", dim=(2, 3, 2)).freeze()
-    c = Parameter("c", value=np.ones(4), time=4)
+    c = Parameter("c", value=np.ones(4), tw=4)
     fir1 = Fir(features=1, kernel=a, bias=False)([x])
     fir2 = Fir(features=1, kernel=b, bias=False)([x])
     linear = Linear(features=2, name="lin")([fir1 + fir2])
@@ -833,7 +833,7 @@ def test_model_parameters_lists_every_parameter_and_prints_a_table():
     assert str(model.parameters) == "\n".join(
         [
             "┏━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓",
-            "┃ parameter  ┃ seq ┃ time ┃ dim       ┃ values ┃ trainable ┃",
+            "┃ parameter  ┃ seq ┃ tw   ┃ dim       ┃ values ┃ trainable ┃",
             "┡━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩",
             "│ a          │ ()  │ None │ (2, 3, 2) │ 12     │ yes       │",
             "│ b          │ ()  │ None │ (2, 3, 2) │ 12     │ no        │",
@@ -850,7 +850,7 @@ def test_model_parameters_lists_every_parameter_and_prints_a_table():
 
 
 def test_model_parameters_prints_a_table_per_model():
-    u = Input("per_model_u", sw=1)
+    u = Input("per_model_u", tw=1)
     shared = Parameter("per_model_shared", value=2.0)
     frozen = Parameter("per_model_frozen", value=1.0).freeze()
     body = Modely(
@@ -858,7 +858,7 @@ def test_model_parameters_prints_a_table_per_model():
         inputs=[u],
         outputs=[Output("per_model_body_out", u * shared + frozen)],
     )
-    z = Input("per_model_z", sw=1)
+    z = Input("per_model_z", tw=1)
     top = Modely(
         "per_model_top",
         inputs=[z],
@@ -868,7 +868,7 @@ def test_model_parameters_prints_a_table_per_model():
     # Still one list, in the order the graph reaches them.
     assert top.parameters == [shared, frozen]
     top_rule = "┏━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓"
-    header = "┃ parameter        ┃ seq ┃ time ┃ dim  ┃ values ┃ trainable ┃"
+    header = "┃ parameter        ┃ seq ┃ tw   ┃ dim  ┃ values ┃ trainable ┃"
     open_columns = "├──────────────────┬─────┬──────┬──────┬────────┬───────────┤"
     shared_row = "│ per_model_shared │ ()  │ None │ (1,) │ 1      │ yes       │"
     frozen_row = "│ per_model_frozen │ ()  │ None │ (1,) │ 1      │ no        │"

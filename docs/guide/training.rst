@@ -18,8 +18,8 @@ The examples on this page use a small first-order system, :math:`y[t+1] =
    for t in range(999):
        y_data[t + 1] = 0.9 * y_data[t] + 0.5 * u_data[t]
 
-   y = Input("y", sw=(1, 1))   # the current sample and the next one
-   u = Input("u", sw=1)
+   y = Input("y", tw=(1, 1))   # the current sample and the next one
+   u = Input("u", tw=1)
    y_now = TimeSelect(0)(y)
    y_next = Output(
        "y_next",
@@ -44,7 +44,7 @@ The **target** is one of:
 - an input, or a part of its window, read from the data: here
   ``TimeSelect(-1)(y)``, the sample after the current one. An input may be
   read by the model and be a target at once, or be declared only as a
-  target, such as ``Input("y_measured", sw=1)``;
+  target, such as ``Input("y_measured", tw=1)``;
 - a number, which is compared with every sample of the source;
 - nothing: ``minimize(name, residual)`` drives ``residual`` to zero, which is
   how physical constraints are imposed (see :doc:`physics`).
@@ -87,7 +87,7 @@ and its ``param`` is the Keras variable the built model computes with -
 
    print(model.parameters)
    # ┏━━━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓
-   # ┃ parameter    ┃ seq ┃ time ┃ dim    ┃ values ┃ trainable ┃
+   # ┃ parameter    ┃ seq ┃ tw   ┃ dim    ┃ values ┃ trainable ┃
    # ┡━━━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩
    # │ fir_y_kernel │ ()  │ None │ (1, 1) │ 1      │ yes       │
    # │ fir_y_bias   │ ()  │ None │ (1,)   │ 1      │ yes       │

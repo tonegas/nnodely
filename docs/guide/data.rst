@@ -12,11 +12,11 @@ created.
    import pandas as pd
    from nnodely import DataLoader, Fir, Input, Modely, Output
 
-   x = Input("x", sw=3)
-   u = Input("u", dim=2, sw=1)
+   x = Input("x", tw=3)
+   u = Input("u", dim=2, tw=1)
    y = Output("y", Fir(features=1)([x]) + Fir(features=1)([u]))
    model = Modely("example", inputs=[x, u], outputs=[y])
-   model.minimize("fit", y, Input("y_target", sw=1))
+   model.minimize("fit", y, Input("y_target", tw=1))
    model.build()
 
 Sources
@@ -82,7 +82,7 @@ Samples
 -------
 
 Every sample is a dictionary with one array per input, shaped
-``(*seq, time, *dim)``, the layout of the model's streams - ``(*dim)`` for an
+``(*seq, tw, *dim)``, the layout of the model's streams - ``(*dim)`` for an
 input declared without a window, its current sample. The loader can be
 indexed, iterated, and converted to the full arrays:
 
@@ -90,7 +90,7 @@ indexed, iterated, and converted to the full arrays:
 
    sample = loader[0]
    print({name: value.shape for name, value in sample.items()})
-   arrays = loader.as_dict()   # {name: (samples, *seq, time, *dim)}
+   arrays = loader.as_dict()   # {name: (samples, *seq, tw, *dim)}
 
 ``step`` sets how many samples separate two consecutive windows:
 
@@ -108,7 +108,7 @@ length, on top of the time windows. Sequences are used by rollouts (see
 
 .. code-block:: python
 
-   s = Input("s", seq=20, sw=1)
+   s = Input("s", seq=20, tw=1)
    seq_model = Modely(
        "sequence", inputs=[s], outputs=[Output("s_out", s * 2.0)]
    )
@@ -138,7 +138,7 @@ DataFrame, and it then reads zeros.
 
 .. code-block:: python
 
-   d = Input("d", seq=-1, sw=1)
+   d = Input("d", seq=-1, tw=1)
    dyn_model = Modely("dynamic", inputs=[d], outputs=[Output("d_out", d)])
    dyn_model.build()
 
@@ -158,7 +158,7 @@ Windowed data
 
 Data whose windows are already built, by another tool or by hand, is passed
 with ``windowed=True``. Every array is then laid out as the model's tensor of
-its input, ``(samples, *seq, time, *dim)``, and used as it is: the loader
+its input, ``(samples, *seq, tw, *dim)``, and used as it is: the loader
 builds no window, aligns nothing and drops no sample, so sample ``i`` of every
 input is row ``i`` of its array. The last axis may be left out for an input of
 a single feature:
@@ -168,8 +168,8 @@ a single feature:
    windows = DataLoader(
        model,
        source={
-           "x": np.random.rand(500, 3),      # (N, time): a single feature
-           "u": np.random.rand(500, 1, 2),   # (N, time, dim)
+           "x": np.random.rand(500, 3),      # (N, tw): a single feature
+           "u": np.random.rand(500, 1, 2),   # (N, tw, dim)
            "y_target": np.random.rand(500, 1),
        },
        windowed=True,
@@ -185,7 +185,7 @@ between simulations:
 
 .. code-block:: python
 
-   d2 = Input("d2", seq=(-1, -1), sw=1)
+   d2 = Input("d2", seq=(-1, -1), tw=1)
    d2_model = Modely("dynamic2", inputs=[d2], outputs=[Output("d2_out", d2)])
    d2_model.build()
 
@@ -200,8 +200,8 @@ between simulations:
    print(rollouts.as_dict()["d2"].shape, rollouts.mask.shape)   # (12, 30, 5, 1, 1) (12, 30)
 
 The flag is explicit because the shape alone cannot tell raw data from
-windowed data. With ``x = Input("x", sw=1)`` and a target
-``Input("y", sw=(0, 1))``, two ``(N, 1, 1)`` arrays are valid either way: read
+windowed data. With ``x = Input("x", tw=1)`` and a target
+``Input("y", tw=(0, 1))``, two ``(N, 1, 1)`` arrays are valid either way: read
 as signals, ``y`` is shifted one sample ahead of ``x``; read as windows, the
 pairs are kept as given. ``windowed=True`` takes dicts only, since a DataFrame
 or a CSV file holds one sample per row, and it refuses ``step`` and

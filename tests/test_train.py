@@ -45,8 +45,8 @@ def custom_quartic_loss(y_true, y_pred):
 @pytest.mark.slow
 def test_train_basic():
     # ------- Model definition and training -------
-    x = Input("x", dim=1, sw=5)
-    y = Input("y", dim=1, sw=5)
+    x = Input("x", dim=1, tw=5)
+    y = Input("y", dim=1, tw=5)
     x_fir = Fir(features=1)([x])
     y_fir = Fir(features=1)([y])
 
@@ -55,7 +55,7 @@ def test_train_basic():
 
     # ------- Define loss and minimizer -------
     model1.minimize(
-        "error", source=x_out, target=Input("x_target", dim=1, sw=1), loss="mse"
+        "error", source=x_out, target=Input("x_target", dim=1, tw=1), loss="mse"
     )
     model1.build()
 
@@ -99,7 +99,7 @@ def test_train_basic():
     model1.minimize(
         "error_fir_x",
         source=x_fir,
-        target=Input("x_target", dim=1, sw=1),
+        target=Input("x_target", dim=1, tw=1),
         loss="mse",
     )
     model1.minimize(
@@ -121,14 +121,14 @@ def test_train_basic():
 @pytest.mark.slow
 def test_train_with_parameters():
     # ------- Model definition with Parameters and Constants -------
-    x = Input("x", dim=1, sw=1)
+    x = Input("x", dim=1, tw=1)
     param = Parameter("param1", value=[1.0])
     const = Constant("const1", value=[1.0])
     x_param = x * param + const
     x_out = Output("x_out", x_param)
     model = Modely("model", inputs=[x], outputs=[x_out])
     model.minimize(
-        "error", source=x_out, target=Input("x_target", dim=1, sw=1), loss="mse"
+        "error", source=x_out, target=Input("x_target", dim=1, tw=1), loss="mse"
     )
     model.build()
 
@@ -166,8 +166,8 @@ def test_train_with_parameters():
 
 
 def test_training_values_fir_linear():
-    input1 = Input("in1", sw=1)
-    target = Input("target1", sw=1)
+    input1 = Input("in1", tw=1)
+    target = Input("target1", tw=1)
 
     fir_kernel = Parameter("fir_kernel", value=[1.0])
     fir_out = Fir(features=1, kernel=fir_kernel, bias=False)(input1)
@@ -245,8 +245,8 @@ def test_training_values_fir_linear():
 def test_training_values_fir_linear_only_model():
     ## The old test trained one sub-model at a time (`trainModel(models=...)`);
     ## the new API has a single model, so the other block is frozen instead
-    input1 = Input("in1", sw=1)
-    target = Input("target1", sw=1)
+    input1 = Input("in1", tw=1)
+    target = Input("target1", tw=1)
 
     fir_kernel = Parameter("fir_kernel", value=[1.0])
     fir_out = Fir(features=1, kernel=fir_kernel, bias=False)(input1)
@@ -328,8 +328,8 @@ def test_training_values_fir_linear_only_model():
 
 
 def test_training_values_fir_linear_more_samples():
-    input1 = Input("in1", sw=1)
-    target = Input("out1", sw=1)
+    input1 = Input("in1", tw=1)
+    target = Input("out1", tw=1)
 
     fir_kernel = Parameter("fir_kernel", value=[1.0])
     fir_out = Fir(features=1, kernel=fir_kernel, bias=False)(input1)
@@ -409,8 +409,8 @@ def test_training_values_fir_linear_more_samples():
 
 
 def test_training_values_linear_fir_window():
-    input1 = Input("in1", dim=2, sw=2)
-    target = Input("target", sw=1)
+    input1 = Input("in1", dim=2, tw=2)
+    target = Input("target", tw=1)
 
     lin_out = Linear(features=1)(input1)
     fir_kernel = Parameter("fir_kernel", value=[4.0, 5.0])
@@ -487,10 +487,10 @@ def test_training_values_linear_fir_window():
 
 @pytest.mark.slow
 def test_training_values_fir_and_linear_closed_loop():
-    input1 = Input("in1", sw=1)
-    input2 = Input("in2", sw=1)
-    target1 = Input("target1", sw=1)
-    target2 = Input("target2", sw=1)
+    input1 = Input("in1", tw=1)
+    input2 = Input("in2", tw=1)
+    target1 = Input("target1", tw=1)
+    target2 = Input("target2", tw=1)
 
     fir_kernel = Parameter("fir_kernel", value=[1.0])
     fir_out = Fir(features=1, kernel=fir_kernel, bias=False)(input1)
@@ -524,8 +524,8 @@ def test_training_values_fir_and_linear_closed_loop():
     reset_weights()
 
     # ------- Six closed loop steps from a zero state -------
-    seed1 = Input("seed1", seq=6, sw=1)
-    seed2 = Input("seed2", seq=6, sw=1)
+    seed1 = Input("seed1", seq=6, tw=1)
+    seed2 = Input("seed2", seq=6, tw=1)
     loop1 = Loop(
         f=body1,
         feedback={input1: output1},
@@ -604,8 +604,8 @@ def test_training_values_fir_and_linear_closed_loop():
 
 
 def test_training_values_linear():
-    input1 = Input("in1", sw=1)
-    target = Input("out1", sw=1)
+    input1 = Input("in1", tw=1)
+    target = Input("out1", tw=1)
     linear_out = Linear(kernel="ones", bias="ones")(input1)
     output1 = Output("out", linear_out)
 
@@ -694,8 +694,8 @@ def test_resolve_optimizer_instance_and_config():
 
 
 def test_train_with_custom_optimizer():
-    input_node = Input("custom_optimizer_input", sw=1)
-    target = Input("custom_optimizer_target", sw=1)
+    input_node = Input("custom_optimizer_input", tw=1)
+    target = Input("custom_optimizer_target", tw=1)
     linear = Linear(kernel="ones", bias="ones")(input_node)
 
     model = Modely(
@@ -729,8 +729,8 @@ def test_train_with_custom_optimizer():
 
 
 def test_train_equation_learner_updates_symbolic_coefficients():
-    input_node = Input("equation_train_input", sw=1)
-    target = Input("equation_train_target", sw=1)
+    input_node = Input("equation_train_input", tw=1)
+    target = Input("equation_train_target", tw=1)
     equation = EquationLearner(
         functions=["identity"],
         linear_in=Linear(features=1, kernel="ones", bias=False),
@@ -772,8 +772,8 @@ def test_train_equation_learner_trains_coefficients_below_the_threshold():
     # A dropped coefficient computes as zero, but trains with the gradient it
     # would have if kept: it is not stuck at zero, and counts again once it
     # grows past the threshold.
-    input_node = Input("dropped_train_input", sw=1)
-    target = Input("dropped_train_target", sw=1)
+    input_node = Input("dropped_train_input", tw=1)
+    target = Input("dropped_train_target", tw=1)
     equation = EquationLearner(
         functions=["identity"],
         linear_in=Linear(features=1, kernel="ones", bias=False),
@@ -821,8 +821,8 @@ def test_train_equation_learner_fine_tunes_with_a_threshold():
     # set one and fine-tune at a lower learning rate, without a rebuild.
     import sympy
 
-    input_node = Input("law_input", sw=1)
-    target = Input("law_target", sw=1)
+    input_node = Input("law_input", tw=1)
+    target = Input("law_target", tw=1)
     # Started from fixed projections, every argument x and every coefficient
     # zero, the fit is alike on every backend: from random ones it can stall
     # in a local minimum.
@@ -916,8 +916,8 @@ def test_resolve_loss_instance_and_config():
 
 @pytest.mark.parametrize("loss_name", ["mse", "mae", "huber", "log_cosh"])
 def test_train_with_named_loss(loss_name):
-    input_node = Input(f"{loss_name}_input", sw=1)
-    target = Input(f"{loss_name}_target", sw=1)
+    input_node = Input(f"{loss_name}_input", tw=1)
+    target = Input(f"{loss_name}_target", tw=1)
     linear = Linear(kernel="ones", bias="zeros")(input_node)
     output = Output(f"{loss_name}_output", linear)
     model = Modely(f"{loss_name}_model", inputs=[input_node], outputs=[output])
@@ -942,9 +942,9 @@ def test_train_with_named_loss(loss_name):
 
 
 def test_train_with_multiple_minimizer_losses():
-    input_node = Input("multi_loss_input", sw=1)
-    mse_target = Input("mse_target", sw=1)
-    mae_target = Input("mae_target", sw=1)
+    input_node = Input("multi_loss_input", tw=1)
+    mse_target = Input("mse_target", tw=1)
+    mae_target = Input("mae_target", tw=1)
     mse_linear = Linear(kernel="ones", bias="zeros")(input_node)
     mae_linear = Linear(kernel="ones", bias="zeros")(input_node)
     mse_output = Output("mse_output", mse_linear)
@@ -979,8 +979,8 @@ def test_train_with_multiple_minimizer_losses():
 
 
 def test_train_with_custom_loss_function():
-    input_node = Input("custom_loss_input", sw=1)
-    target = Input("custom_loss_target", sw=1)
+    input_node = Input("custom_loss_input", tw=1)
+    target = Input("custom_loss_target", tw=1)
     linear = Linear(kernel="ones", bias="ones")(input_node)
     output = Output("custom_loss_output", linear)
     model = Modely("custom_loss_model", inputs=[input_node], outputs=[output])
@@ -1008,9 +1008,9 @@ def test_train_with_custom_loss_function():
 
 
 def test_train_with_loop():
-    state = Input("state", sw=1)
-    x = Input("x", seq=5, sw=1)
-    target = Input("target", sw=1)
+    state = Input("state", tw=1)
+    x = Input("x", seq=5, tw=1)
+    target = Input("target", tw=1)
     relation = Linear(features=1, kernel="ones", bias="zeros")(state)
     output = Output("out", relation)
     body = Modely("body", inputs=[state], outputs=[output])
@@ -1097,9 +1097,9 @@ def test_train_with_loop_under_xla(monkeypatch):
             self, *args, **{**kwargs, "jit_compile": True}
         ),
     )
-    state = Input("state", sw=1)
-    x = Input("x", seq=5, sw=1)
-    target = Input("target", seq=5, sw=1)
+    state = Input("state", tw=1)
+    x = Input("x", seq=5, tw=1)
+    target = Input("target", seq=5, tw=1)
     relation = Linear(features=1, kernel="ones")(state)
     output = Output("out", relation)
     body = Modely("body", inputs=[state], outputs=[output]).build()
@@ -1139,14 +1139,14 @@ def test_masked_loss_ignores_padded_target_steps():
 def test_train_on_simulations_of_different_lengths(tmp_path):
     ## x[t + 1] = w * x[t], rolled out over the whole simulation
     ratio = 0.8
-    body_x = Input("pad_body_x", dim=1, sw=1)
+    body_x = Input("pad_body_x", dim=1, tw=1)
     relation = Linear(features=1, kernel="ones", bias=False, name="pad_body_linear")(
         body_x
     )
     body_out = Output("pad_body_out", relation)
     body = Modely("pad_body", inputs=[body_x], outputs=[body_out]).build()
 
-    seed = Input("pad_x", dim=1, seq=-1, sw=1)
+    seed = Input("pad_x", dim=1, seq=-1, tw=1)
     loop = Loop(
         f=body,
         feedback={body_x: body_out},
@@ -1157,7 +1157,7 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
     output = Output("pad_out", loop)
     model = Modely("pad_loop_model", inputs=[seed], outputs=[output])
     model.minimize(
-        "pad_error", output, Input("pad_target", dim=1, seq=-1, sw=1), loss="mse"
+        "pad_error", output, Input("pad_target", dim=1, seq=-1, tw=1), loss="mse"
     )
     model.build()
 
@@ -1217,11 +1217,11 @@ def test_masked_loss_survives_a_diverging_padded_rollout():
 
 
 def test_train_with_val_data_reports_validation_loss():
-    x = Input("val_data_x", sw=1)
+    x = Input("val_data_x", tw=1)
     relation = Linear(features=1, kernel="ones", bias=False, name="val_data_linear")(x)
     output = Output("val_data_output", relation)
     model = Modely("val_data_model", inputs=[x], outputs=[output])
-    model.minimize("val_data_error", output, Input("val_data_target", sw=1))
+    model.minimize("val_data_error", output, Input("val_data_target", tw=1))
     model.build()
 
     train = DataLoader(
@@ -1248,7 +1248,7 @@ def test_train_with_val_data_reports_validation_loss():
 def test_train_target_window_of_an_input_with_a_wider_window():
     # x feeds the model through sw(3) and is its own target through next(), so
     # the data column of x is four samples wide while the target is the last.
-    x = Input("wide_target_x", sw=(3, 1))
+    x = Input("wide_target_x", tw=(3, 1))
     taps = Parameter("wide_target_taps", value=np.ones(3))
     fir = Fir(features=1, kernel=taps, bias=False, name="wide_target_fir")(
         [TimeRange(0, 3)(x)]
@@ -1277,7 +1277,7 @@ def test_train_target_window_of_an_input_with_a_wider_window():
 
 
 def test_train_refuses_arguments_it_cannot_use():
-    x, y = Input("args_x", sw=1), Input("args_y", sw=1)
+    x, y = Input("args_x", tw=1), Input("args_y", tw=1)
     out = Output("args_out", Linear(features=1)(x))
     model = Modely("args_model", inputs=[x], outputs=[out])
     model.minimize("args_fit", out, y)

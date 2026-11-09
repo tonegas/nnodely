@@ -28,16 +28,16 @@ Shapes
 Every stream has a shape made of three parts, laid out after the batch axis
 as
 
-``(batch, *seq, time, *dim)``
+``(batch, *seq, tw, *dim)``
 
 - **seq** (``S``): the sequence axes, outermost first, possibly none: the
   steps of a trajectory, along which a :class:`~nnodely.Loop` rolls out (see
   :doc:`recurrent`).
-- **time** (``T``): the window, the consecutive samples the stream carries -
-  or none. An input declared with ``sw`` has one; an input declared without
-  it is one value per sample, with no time axis: ``(batch, *seq, *dim)``. A
+- **tw** (``T``), the time window: the consecutive samples the stream carries -
+  or none. An input declared with ``tw`` has one; an input declared without
+  it is one value per sample, with no tw axis: ``(batch, *seq, *dim)``. A
   number, and a :class:`~nnodely.Parameter` or :class:`~nnodely.Constant`
-  declared without time, have none either.
+  declared without tw, have none either.
 - **dim** (``D``): the feature axes. ``Input("u", dim=3)`` is a
   three-component signal, and ``dim=(3, 2)`` is a 3x2 matrix per sample. The
   default is one feature.
@@ -46,11 +46,11 @@ as
 
    u = Input("u", dim=3)
    print(u.shape)          # Shape(S=(), T=None, D=(3,)): no window
-   uw = Input("uw", dim=3, sw=10)
+   uw = Input("uw", dim=3, tw=10)
    print(uw.shape)         # Shape(S=(), T=10, D=(3,)): 10 samples of 3 features
-   print(uw.dim, uw.time, uw.seq)
+   print(uw.dim, uw.tw, uw.seq)
 
-   w = Input("w", dim=3, seq=5, sw=10)
+   w = Input("w", dim=3, seq=5, tw=10)
    print(w.shape)          # Shape(S=(5,), T=10, D=(3,)): 5 steps of those
 
 Temporal operations - :class:`~nnodely.Fir`, derivatives, integrals, time
@@ -60,18 +60,18 @@ selections - act on the window, and refuse a stream without one; a
 Windows
 -------
 
-An input declares its window once, with ``sw``, and keeps it: the data a
+An input declares its window once, with ``tw``, and keeps it: the data a
 model reads from the input has that shape. Windows are counted in
 **samples**, not seconds: the sampling time only appears where the physics
 needs it, as the ``dt`` of :doc:`derivatives and integrators <physics>`.
 
-``sw=n``
+``tw=n``
     the last ``n`` samples, up to and including the current one.
-``sw=(p, f)``
+``tw=(p, f)``
     ``p`` samples up to and including the current one, followed by the next
     ``f`` samples: ``T = p + f``.
-no ``sw``
-    the current sample, without a time axis.
+no ``tw``
+    the current sample, without a tw axis.
 
 The layers that read an input take what they need of its window:
 :class:`~nnodely.TimeSelect` one sample, :class:`~nnodely.TimeRange` a part.
@@ -80,7 +80,7 @@ The layers that read an input take what they need of its window:
 
    from nnodely import TimeRange, TimeSelect
 
-   x = Input("x", sw=(4, 1))        # x[t-3], x[t-2], x[t-1], x[t], x[t+1]
+   x = Input("x", tw=(4, 1))        # x[t-3], x[t-2], x[t-1], x[t], x[t+1]
    past = TimeRange(0, 4)(x)        # x[t-3] ... x[t]
    now = TimeSelect(-2)(x)          # x[t]
    following = TimeSelect(-1)(x)    # x[t+1]
@@ -89,10 +89,10 @@ The layers that read an input take what they need of its window:
 The :class:`~nnodely.DataLoader` builds samples of every input's window, all
 aligned on the current sample ``t``.
 
-``seq=`` declares the input's sequence: ``Input("w", seq=5, sw=3)`` is five
+``seq=`` declares the input's sequence: ``Input("w", seq=5, tw=3)`` is five
 consecutive windows of three samples; ``seq=(4, 5)`` is four sequences of five
 steps (outermost first, ``-1`` or ``"dyn"`` for a length that follows the
-data). A sequence needs a window: ``sw=1`` for one sample per step.
+data). A sequence needs a window: ``tw=1`` for one sample per step.
 
 Layers
 ------
@@ -135,7 +135,7 @@ which applies to every sample:
 
 Two streams combine when their shapes agree:
 
-- **time**: the same window, or one of them a single sample, ``T=1``, which
+- **tw**: the same window, or one of them a single sample, ``T=1``, which
   applies to every sample of the other's window. A value without a window - a
   number, a Parameter, a Constant - applies to every sample of any stream; an
   input without a window does not combine with a stream that has one.
@@ -149,12 +149,12 @@ Two streams combine when their shapes agree:
 
 .. code-block:: python
 
-   v = Input("v", dim=3, sw=4)
-   s = Input("s", sw=4)
+   v = Input("v", dim=3, tw=4)
+   s = Input("s", tw=4)
    v * gain                 # S=(), T=4, D=(3,): the gain applies to every feature and sample
    v + s                    # S=(), T=4, D=(3,): the scalar window, to every feature
    v + TimeSelect(-1)(s)    # S=(), T=4, D=(3,): the newest sample, to every sample
-   # v + Input("s3", sw=3) is refused: windows of 4 and of 3 samples
+   # v + Input("s3", tw=3) is refused: windows of 4 and of 3 samples
    # v + Input("plain", dim=3) is refused: a stream without a window
 
 Names

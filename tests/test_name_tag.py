@@ -49,7 +49,7 @@ class Sin(Layer):
 def _block(name, k=2.0):
     """``k * fir(x)``: a Parameter ``k`` and a Fir ``fir``, named alike in
     every block made here."""
-    x = Input("x", sw=3)
+    x = Input("x", tw=3)
     fir = Fir(features=1, kernel="ones", bias=False, name="fir")([x])
     return Modely(
         name, inputs=[x], outputs=[Output("y", fir * Parameter("k", value=[k]))]
@@ -60,7 +60,7 @@ def _two_ks():
     """A model whose block and own graph each have a Parameter ``k``: the
     model's own 10, then the block's 2."""
     block = _block("tag_inner").build()
-    x = Input("x", sw=3)
+    x = Input("x", tw=3)
     k = Parameter("k", value=[10.0])
     return Modely(
         "tag_outer", inputs=[x], outputs=[Output("total", block([x * k]))]
@@ -82,7 +82,7 @@ def _html_ids(model, folder):
 
 def test_a_name_one_object_carries_picks_it():
     block = _block("tag_alone").build()
-    x = Input("tag_alone_x", sw=3)
+    x = Input("tag_alone_x", tw=3)
     model = Modely(
         "tag_alone_model", inputs=[x], outputs=[Output("tag_out", block([x]))]
     )
@@ -111,7 +111,7 @@ def test_a_name_several_parameters_carry_is_refused_listing_them():
 
 
 def test_two_parameters_of_one_name_in_one_model_are_told_apart_by_index():
-    x = Input("tag_one_x", sw=1)
+    x = Input("tag_one_x", tw=1)
     first, second = Parameter("gain", value=[2.0]), Parameter("gain", value=[3.0])
     model = Modely(
         "tag_one", inputs=[x], outputs=[Output("tag_one_y", x * first + x * second)]
@@ -156,7 +156,7 @@ def test_the_indices_are_the_same_once_saved_and_loaded(tmp_path):
 def test_two_copies_of_one_loaded_model_are_picked_by_index(tmp_path):
     _block("tag_copy").build().save(tmp_path / "copy")
     left, right = Modely.load(tmp_path / "copy"), Modely.load(tmp_path / "copy")
-    a = Input("tag_copy_a", sw=3)
+    a = Input("tag_copy_a", tw=3)
     both = Modely(
         "tag_copies", inputs=[a], outputs=[Output("tag_copy_o", left([a]) + right([a]))]
     ).build()
@@ -225,7 +225,7 @@ def test_freeze_takes_a_list_of_names_and_indices():
 def test_freeze_a_model_name_two_copies_carry(tmp_path):
     _block("tag_frozen").build().save(tmp_path / "frozen")
     left, right = Modely.load(tmp_path / "frozen"), Modely.load(tmp_path / "frozen")
-    a = Input("tag_frozen_a", sw=3)
+    a = Input("tag_frozen_a", tw=3)
     both = Modely(
         "tag_frozen_both",
         inputs=[a],
@@ -249,7 +249,7 @@ def test_freeze_a_model_name_two_copies_carry(tmp_path):
 def _twice():
     """One block called on two Inputs: two streams named 'y'."""
     block = _block("tag_twice_block").build()
-    a, b = Input("tag_a", sw=3), Input("tag_b", sw=3)
+    a, b = Input("tag_a", tw=3), Input("tag_b", tw=3)
     ya, yb = block([a]), block([b])
     model = Modely(
         "tag_twice", inputs=[a, b], outputs=[Output("oa", ya), Output("ob", yb)]
@@ -275,7 +275,7 @@ def test_two_calls_of_one_block_are_minimized_apart():
     # Once both streams were returned by the training model under one key,
     # their name, and the build refused them.
     model, ya, yb = _twice()
-    ta, tb = Input("tag_ta", sw=1), Input("tag_tb", sw=1)
+    ta, tb = Input("tag_ta", tw=1), Input("tag_tb", tw=1)
     model.minimize("fit_a", ya, ta).minimize("fit_b", yb, tb).build()
 
     data = {
@@ -291,11 +291,11 @@ def test_two_calls_of_one_block_are_minimized_apart():
 
 
 def test_a_minimized_stream_named_like_an_output_is_its_own():
-    x = Input("tag_same_x", sw=1)
+    x = Input("tag_same_x", tw=1)
     doubled = x * 2.0
     doubled.name = "tag_same_y"  # named like the output, another stream
     model = Modely("tag_same", inputs=[x], outputs=[Output("tag_same_y", x * 3.0)])
-    model.minimize("fit", doubled, Input("tag_same_t", sw=1)).build()
+    model.minimize("fit", doubled, Input("tag_same_t", tw=1)).build()
 
     data = {
         "tag_same_x": np.ones((1, 1, 1), np.float32),
@@ -312,7 +312,7 @@ def test_a_minimized_stream_named_like_an_output_is_its_own():
 
 
 def test_two_inputs_of_one_name_are_refused():
-    first, second = Input("tag_twin", sw=1), Input("tag_twin", sw=1)
+    first, second = Input("tag_twin", tw=1), Input("tag_twin", tw=1)
     model = Modely(
         "tag_twins", inputs=[first, second], outputs=[Output("o", first + second)]
     )
@@ -323,7 +323,7 @@ def test_two_inputs_of_one_name_are_refused():
 
 
 def test_a_loaded_model_gives_its_own_inputs_by_name(tmp_path):
-    z, v = Input("tag_z", sw=1), Input("tag_v", sw=3)
+    z, v = Input("tag_z", tw=1), Input("tag_v", tw=3)
     model = Modely(
         "tag_reads_z",
         inputs=[v],
@@ -335,7 +335,7 @@ def test_a_loaded_model_gives_its_own_inputs_by_name(tmp_path):
     z_loaded = loaded.inputs["tag_z"]
     assert any(node is z_loaded for node in loaded._order)
     # So a model calling it reads that same Input, the data of both.
-    x = Input("tag_x", sw=3)
+    x = Input("tag_x", tw=3)
     outer = Modely(
         "tag_reads_too",
         inputs=[x, z_loaded],
@@ -351,13 +351,13 @@ def test_a_loaded_model_gives_its_own_inputs_by_name(tmp_path):
 def test_a_kept_state_yields_its_name_to_an_input_of_the_user():
     # Integrate keeps its state in an Input named after it and its rate,
     # tag_tank_tag_rate: the user's own Input of that name keeps it.
-    rate = Input("tag_rate", sw=1)
+    rate = Input("tag_rate", tw=1)
     plant = Modely(
         "tag_plant",
         inputs=[rate],
         outputs=[Output("tag_level", Integrate(dt=1.0, name="tag_tank")(rate))],
     ).build()
-    q, mine = Input("tag_q", sw=1), Input("tag_tank_tag_rate", sw=1)
+    q, mine = Input("tag_q", tw=1), Input("tag_tank_tag_rate", tw=1)
     sim = ModelyLoop(
         "tag_sim",
         inputs=[q, mine],
@@ -380,7 +380,7 @@ def test_a_kept_state_yields_its_name_to_an_input_of_the_user():
 
 
 def _sin_model():
-    x = Input("tag_sin_x", sw=3)
+    x = Input("tag_sin_x", tw=3)
     return Modely(
         "tag_sin", inputs=[x], outputs=[Output("tag_sin_y", nnodely.Sin(x))]
     ).build()
@@ -435,7 +435,7 @@ def test_html_draws_one_block_called_twice_as_two_calls(tmp_path):
 
 
 def test_html_draws_two_layers_of_one_name_apart(tmp_path):
-    x = Input("tag_html_x", sw=3)
+    x = Input("tag_html_x", tw=3)
     first, second = Fir(features=1, name="tag_f"), Fir(features=1, name="tag_f")
     model = Modely(
         "tag_html", inputs=[x], outputs=[Output("tag_html_y", first([x]) + second([x]))]

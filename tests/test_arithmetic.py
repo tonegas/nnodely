@@ -63,7 +63,7 @@ import pytest
 )
 def test_arithmetic(layer_class, reference, low, high):
     # ------- Test arithmetic layers -------
-    x = Input("x", dim=1, sw=3)
+    x = Input("x", dim=1, tw=3)
     window = 3
     out = Output("out", layer_class()([x]))
     model = Modely(
@@ -89,7 +89,7 @@ def test_arithmetic(layer_class, reference, low, high):
 
 def test_arithmetic_chain():
     # ------- Test chained arithmetic layers -------
-    x = Input("x", dim=1, sw=2)
+    x = Input("x", dim=1, tw=2)
     out = Output("out", Log(name="log")(Abs()(Exp()([x]))))
     model = Modely("arithmetic_chain_model", inputs=[x], outputs=[out])
     model.build()
@@ -105,7 +105,7 @@ def test_arithmetic_chain():
 
 def test_unary_minus():
     # ------- Test -x as Negative -------
-    x = Input("x", dim=2, sw=3)
+    x = Input("x", dim=2, tw=3)
     negated = -x
     assert isinstance(negated, Negative)
     assert negated.dimensions == x.dimensions
@@ -124,8 +124,8 @@ def test_unary_minus():
 
 def test_stream_operators():
     # ------- Test 2 ** x, x % y, abs(x) and +x -------
-    x = Input("x", dim=2, sw=3)
-    y = Input("y", dim=2, sw=3)
+    x = Input("x", dim=2, tw=3)
+    y = Input("y", dim=2, tw=3)
     assert +x is x
     assert isinstance(abs(x), Abs)
     assert isinstance(x % y, Mod)
@@ -164,8 +164,8 @@ def test_stream_operators():
 
 def test_maximum_minimum():
     # ------- Test elementwise extremum of streams -------
-    x = Input("x", dim=2, sw=3)
-    y = Input("y", dim=2, sw=1)  # one sample, broadcast along the window
+    x = Input("x", dim=2, tw=3)
+    y = Input("y", dim=2, tw=1)  # one sample, broadcast along the window
     bound = Parameter("bound", value=[0.5, -0.5])
     largest = Maximum([x, y, bound])
     smallest = Minimum()([x, bound])
@@ -221,7 +221,7 @@ def test_maximum_minimum():
 )
 def test_reductions(layer_class, reference, axis, reference_axis, expected_dim):
     # ------- Test reductions over the dim axes -------
-    x = Input("x", dim=(2, 3), sw=4)
+    x = Input("x", dim=(2, 3), tw=4)
     out = Output("out", layer_class(axis=axis)([x]))
     model = Modely("arithmetic_reduction_model", inputs=[x], outputs=[out])
     model.build()
@@ -239,7 +239,7 @@ def test_reductions(layer_class, reference, axis, reference_axis, expected_dim):
 
 def test_norm_gradient():
     # ------- Test the gradient of the norm, 0 at the zero vector -------
-    x = Input("x", dim=3, sw=1)
+    x = Input("x", dim=3, tw=1)
     out = Output("out", Gradient(wrt=x)(Norm()(x)))
     model = Modely("arithmetic_norm_gradient_model", inputs=[x], outputs=[out])
     model.build()
@@ -254,11 +254,11 @@ def test_norm_gradient():
 
 def test_cross():
     # ------- Test the cross product of 3-vectors -------
-    a = Input("a", dim=3, sw=2)
-    b = Input("b", dim=3, sw=2)
+    a = Input("a", dim=3, tw=2)
+    b = Input("b", dim=3, tw=2)
     omega = Parameter("omega", value=[0.0, 0.0, 2.0])
-    m = Input("m", dim=(3, 2), sw=1)  # two vectors, along dim axis 0
-    n = Input("n", dim=(3, 2), sw=1)
+    m = Input("m", dim=(3, 2), tw=1)  # two vectors, along dim axis 0
+    n = Input("n", dim=(3, 2), tw=1)
     relations = {
         "cross": Cross()([a, b]),
         "turned": Cross()([omega, a]),  # omega applies to every sample
@@ -290,7 +290,7 @@ def test_cross():
         )
 
     with pytest.raises(ValueError, match="3-vectors"):
-        Cross()([Input("c", dim=2, sw=2), Input("d", dim=2, sw=2)])
+        Cross()([Input("c", dim=2, tw=2), Input("d", dim=2, tw=2)])
     with pytest.raises(ValueError, match="reads two streams"):
         Cross()([a])
     with pytest.raises(TypeError, match="configured first"):
@@ -299,8 +299,8 @@ def test_cross():
 
 def test_math_layers_save_load_and_export(tmp_path):
     # ------- Test the math layers saved, loaded and exported to Keras -------
-    x = Input("x", dim=3, sw=2)
-    y = Input("y", dim=3, sw=2)
+    x = Input("x", dim=3, tw=2)
+    y = Input("y", dim=3, tw=2)
     bound = Parameter("bound", value=[0.1, 0.2, 0.3])
     relations = {
         "cross": Cross(name="cross_layer")([x, y]),
@@ -350,7 +350,7 @@ def test_sum_impl_of_2_0_0_keras_files_still_loads():
 
 def test_arithmetic_save_load(tmp_path):
     # ------- Test arithmetic layer serialization -------
-    x = Input("x", dim=1, sw=3)
+    x = Input("x", dim=1, tw=3)
     out = Output("out", Sqrt(name="sqrt")([x]))
     model = Modely("arithmetic_save_model", inputs=[x], outputs=[out])
     model.build()
@@ -379,7 +379,7 @@ def test_arithmetic_save_load(tmp_path):
 )
 def test_clamp(minimum, maximum):
     # ------- Test clamp bounds -------
-    x = Input("x", dim=1, sw=3)
+    x = Input("x", dim=1, tw=3)
     window = 3
     out = Output("out", Clamp(min=minimum, max=maximum)([x]))
     model = Modely("arithmetic_clamp_model", inputs=[x], outputs=[out])
@@ -417,7 +417,7 @@ def test_clamp_invalid_bounds():
 )
 def test_sum(axis, reference_axis, expected_dim):
     # ------- Test sum over the dim axes -------
-    x = Input("x", dim=(2, 3), sw=4)
+    x = Input("x", dim=(2, 3), tw=4)
     window = 4
     out = Output("out", Sum(axis=axis)([x]))
     model = Modely("arithmetic_sum_model", inputs=[x], outputs=[out])
@@ -437,14 +437,14 @@ def test_sum(axis, reference_axis, expected_dim):
 
 def test_sum_axis_out_of_bounds():
     # ------- Test sum axis validation -------
-    x = Input("x", dim=(2, 3), sw=2)
+    x = Input("x", dim=(2, 3), tw=2)
     with pytest.raises(ValueError):
         Sum(axis=2)([x])
 
 
 def test_clamp_sum_save_load(tmp_path):
     # ------- Test clamp and sum serialization -------
-    x = Input("x", dim=(2, 3), sw=3)
+    x = Input("x", dim=(2, 3), tw=3)
     out = Output("out", Sum(name="sum")(Clamp(min=-0.5, max=0.5, name="clamp")([x])))
     model = Modely("arithmetic_clamp_sum_save_model", inputs=[x], outputs=[out])
     model.build()

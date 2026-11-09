@@ -47,7 +47,7 @@ class FirImpl(keras.layers.Layer):
         dim = tuple(int(axis) for axis in shape.dim)
         # A scalar has a single element: its kernel is the shared one.
         elements = () if self.shared_kernel or dim == (1,) else dim
-        self.kernel_shape = (*elements, shape.time, self.features)
+        self.kernel_shape = (*elements, shape.tw, self.features)
         self.bias_shape = (*elements, self.features)
         for label, shape, expected in zip(
             ("kernel", "bias"), input_shape[1:], (self.kernel_shape, self.bias_shape)
@@ -66,7 +66,7 @@ class FirImpl(keras.layers.Layer):
         # (batch, *seq, *dim, 1, window): the window of every element is
         # multiplied by its kernel, so neither the batch nor a sequence axis
         # left dynamic has to be reshaped.
-        x = transpose(x, [BATCH_AXIS, *seq, *shape.dim_axes, shape.time_axis])
+        x = transpose(x, [BATCH_AXIS, *seq, *shape.dim_axes, shape.tw_axis])
         y = keras.ops.matmul(keras.ops.expand_dims(x, -2), kernel)
         y = keras.ops.squeeze(y, -2)
         if bias:
@@ -111,7 +111,7 @@ class Fir(_ParameterWeights):
     of zeros, and ``bias=False`` leaves it out::
 
         W = Parameter("W", dim=(3, 5, 4))   # (*dim, window, features)
-        Fir(features=4, kernel=W, bias=False)([x])  # x = Input("x", dim=3, sw=5)
+        Fir(features=4, kernel=W, bias=False)([x])  # x = Input("x", dim=3, tw=5)
     """
 
     def __init__(
@@ -138,7 +138,7 @@ class Fir(_ParameterWeights):
         self._needs_window(x)
         dim = tuple(x.dim)
         elements = () if self._shared_kernel or dim == (1,) else dim
-        return (*elements, x.shape.time, self._features), (
+        return (*elements, x.shape.tw, self._features), (
             *elements,
             self._features,
         )
@@ -149,7 +149,7 @@ class Fir(_ParameterWeights):
         return kernel_shape[-2:], bias_shape[-1:]
 
     def output_shape(self, *inputs):
-        # Declared rather than probed with a dummy tensor, which a time axis
+        # Declared rather than probed with a dummy tensor, which a tw axis
         # left dynamic cannot be given.
         dim = tuple(inputs[0].dim)
         if self._features == 1:
@@ -160,7 +160,7 @@ class Fir(_ParameterWeights):
             out_dim = (*dim, self._features)
         # The window becomes one sample; the sequence is kept.
         shape = inputs[0].shape
-        return shape.replace(dim=out_dim, time=1)
+        return shape.replace(dim=out_dim, tw=1)
 
     def build_layer(self):
         return FirImpl(

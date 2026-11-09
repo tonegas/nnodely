@@ -18,8 +18,8 @@ def window_size():
 
 
 def test_basic_model_build_and_inference(batch_size, window_size):
-    x = Input("x", dim=1, sw=window_size)
-    y = Input("y", dim=1, sw=window_size)
+    x = Input("x", dim=1, tw=window_size)
+    y = Input("y", dim=1, tw=window_size)
 
     x_stream = x
     y_stream = y
@@ -41,8 +41,8 @@ def test_basic_model_build_and_inference(batch_size, window_size):
 
 def test_model_inference_with_composed_model(batch_size, window_size):
     # ------- Model definition and building -------
-    x = Input("x", dim=1, sw=window_size)
-    y = Input("y", dim=1, sw=window_size)
+    x = Input("x", dim=1, tw=window_size)
+    y = Input("y", dim=1, tw=window_size)
 
     x_stream = x
     y_stream = y
@@ -55,7 +55,7 @@ def test_model_inference_with_composed_model(batch_size, window_size):
     model1.build()
 
     # ------- Model composition -------
-    z = Input("z", dim=1, sw=window_size)
+    z = Input("z", dim=1, tw=window_size)
     z_stream = z
     z_fir = Fir(features=1)(model1([z_stream, z_stream]))
     z_out = Output("z_pred", z_fir)
@@ -78,7 +78,7 @@ def test_model_inference_with_composed_model(batch_size, window_size):
 
 
 def test_inference_accepts_a_backend_tensor():
-    x = Input("backend_tensor_x", dim=1, sw=1)
+    x = Input("backend_tensor_x", dim=1, tw=1)
     output = Output("backend_tensor_out", x * 2.0)
     model = Modely("backend_tensor_model", inputs=[x], outputs=[output]).build()
 
@@ -103,8 +103,8 @@ def _minimized_model(name):
     The target is an input only the loss reads, and the second minimizer
     regularizes a stream that no declared output exposes.
     """
-    x = Input(f"{name}_x", dim=1, sw=3)
-    target = Input(f"{name}_target", dim=1, sw=1)
+    x = Input(f"{name}_x", dim=1, tw=3)
+    target = Input(f"{name}_target", dim=1, tw=1)
     hidden = Linear(features=1, name=f"{name}_hidden")(TimeSelect(-1)(x))
     prediction = Output(f"{name}_pred", Fir(features=1, name=f"{name}_fir")(x) + hidden)
     model = Modely(name, inputs=[x, target], outputs=[prediction])
@@ -164,7 +164,7 @@ def test_inference_returns_only_declared_outputs():
 
 def test_inference_keeps_an_input_that_outputs_and_minimizers_both_read():
     # A reconstruction: the input is both what the model reads and its target.
-    x = Input("reconstruct_x", dim=1, sw=1)
+    x = Input("reconstruct_x", dim=1, tw=1)
     rebuilt = Output("reconstruct_out", Linear(features=1)(x))
     model = Modely("reconstruct", inputs=[x], outputs=[rebuilt])
     model.minimize("reconstruct_fit", source=rebuilt, target=x)
@@ -198,7 +198,7 @@ def test_inference_runs_with_the_trained_weights():
 
 
 def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
-    state = Input("minimized_body_state", dim=1, sw=1)
+    state = Input("minimized_body_state", dim=1, tw=1)
     gain = Parameter("minimized_body_gain", value=[2.0])
     relation = Linear(
         features=1, kernel=gain, bias=False, name="minimized_body_linear"
@@ -208,12 +208,12 @@ def test_loop_rolls_out_a_body_trained_with_its_own_minimizers():
     body.minimize(
         "minimized_body_fit",
         source=next_state,
-        target=Input("minimized_body_target", dim=1, sw=1),
+        target=Input("minimized_body_target", dim=1, tw=1),
     )
     body.build()
 
     # The loop runs the body as declared: its target is not an input of the loop.
-    seed = Input("minimized_body_seed", dim=1, seq=4, sw=1)
+    seed = Input("minimized_body_seed", dim=1, seq=4, tw=1)
     loop = Loop(
         f=body,
         feedback={state: next_state},
@@ -264,7 +264,7 @@ def test_inference_takes_its_arrays_as_a_block_takes_its_streams():
     with pytest.raises(ValueError, match="two values for its input"):
         model({x: windows, "keyed_inference_x": windows})
     with pytest.raises(TypeError, match="streams and arrays together"):
-        model({x: windows, "keyed_inference_target": Input("keyed_other", sw=1)})
+        model({x: windows, "keyed_inference_target": Input("keyed_other", tw=1)})
 
 
 def test_a_model_that_reads_no_input_is_refused_at_build():
@@ -279,7 +279,7 @@ def test_a_model_that_reads_no_input_is_refused_at_build():
     with pytest.raises(ValueError, match="reads no Input"):
         only_values.build()
 
-    state = Input("numbers_state", sw=1)
+    state = Input("numbers_state", tw=1)
     step = Output("numbers_next", Linear(bias=False)(state))
     body = Modely("numbers_body", inputs=[state], outputs=[step]).build()
     driven_by_numbers = Loop(
@@ -295,7 +295,7 @@ def test_a_model_that_reads_no_input_is_refused_at_build():
 def test_two_inputs_of_one_name_are_refused():
     # The data is keyed by input name: two Inputs named alike read one array,
     # and a model with them once ran silently on the wrong values.
-    a, b = Input("twin_name", sw=1), Input("twin_name", sw=1)
+    a, b = Input("twin_name", tw=1), Input("twin_name", tw=1)
     model = Modely("twin_names", inputs=[a, b], outputs=[Output("twin_out", a + b)])
     with pytest.raises(ValueError, match="two different Inputs named 'twin_name'"):
         model.build()
@@ -305,8 +305,8 @@ def test_a_build_that_fails_leaves_the_model_as_it_was():
     # A failed build once left the model with the outputs of the build it
     # attempted and the Keras model of the one before: with the minimizer
     # that broke it removed, training failed on a bare KeyError.
-    y = Input("failed_build_y", sw=4)
-    target = Input("failed_build_target", sw=1)
+    y = Input("failed_build_y", tw=4)
+    target = Input("failed_build_target", tw=1)
     out = Output("failed_build_out", Fir(features=1)([y]))
     model = Modely("failed_build", inputs=[y], outputs=[out])
     model.minimize("fit", out, target)
@@ -323,7 +323,7 @@ def test_a_build_that_fails_leaves_the_model_as_it_was():
         ]
 
     built = state()
-    model.minimize("clash", out, Input("failed_build_y", sw=2))
+    model.minimize("clash", out, Input("failed_build_y", tw=2))
     with pytest.raises(ValueError, match="two different Inputs named"):
         model.build()
     assert state() == built
@@ -339,7 +339,7 @@ def test_a_build_that_fails_leaves_the_model_as_it_was():
 def test_a_file_that_is_not_an_nnodely_2_model_is_refused(tmp_path):
     import json
 
-    x = Input("file_check_x", sw=1)
+    x = Input("file_check_x", tw=1)
     Modely(
         "file_check", inputs=[x], outputs=[Output("file_check_out", x * 2.0)]
     ).build().save(tmp_path / "model")

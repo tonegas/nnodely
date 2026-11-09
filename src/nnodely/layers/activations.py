@@ -121,7 +121,7 @@ class PReLU(_ParameterWeights):
     def _weight_shapes(self, x):
         shared_axes = self._shared_axes
         if shared_axes is None:
-            window = [] if x.shape.time_axis is None else [x.shape.time_axis]
+            window = [] if x.shape.tw_axis is None else [x.shape.tw_axis]
             shared_axes = [*x.shape.seq_axes, *window]
         elif isinstance(shared_axes, int):
             shared_axes = [shared_axes]

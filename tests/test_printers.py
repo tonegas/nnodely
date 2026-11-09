@@ -15,8 +15,8 @@ from nnodely.utils.printers import (
 
 
 def _single_minimizer_model():
-    x = Input("printer_x", dim=1, sw=5)
-    t = Input("printer_t", dim=1, sw=1)
+    x = Input("printer_x", dim=1, tw=5)
+    t = Input("printer_t", dim=1, tw=1)
     out = Output("printer_pred", Fir(features=1)([x]))
     model = Modely("printer_model", inputs=[x, t], outputs=[out])
     model.minimize("curv_error", source=out, target=t)
@@ -254,7 +254,7 @@ def test_the_nnodely_printer_charts_the_total_loss():
 
 
 def test_tables_are_coloured_where_colour_shows(monkeypatch):
-    x = Input("tab_colour_x", sw=1)
+    x = Input("tab_colour_x", tw=1)
     model = Modely("tab_colour", inputs=[x], outputs=[Output("tab_colour_y", x * 2)])
     plain = str(model.inputs)
     assert "\x1b[" not in plain  # the tests run with NO_COLOR
@@ -276,7 +276,7 @@ def test_tables_are_coloured_in_a_notebook_not_wherever_ipykernel_is_imported(
     import sys
     import types
 
-    x = Input("tab_nb_x", sw=1)
+    x = Input("tab_nb_x", tw=1)
     model = Modely("tab_nb", inputs=[x], outputs=[Output("tab_nb_y", x * 2)])
     monkeypatch.delenv("NO_COLOR")
     monkeypatch.delenv("FORCE_COLOR", raising=False)
@@ -291,9 +291,9 @@ def test_tables_are_coloured_in_a_notebook_not_wherever_ipykernel_is_imported(
 
 
 def test_a_model_prints_as_a_table_of_its_inputs_outputs_and_minimizers():
-    x, y = Input("repr_x", sw=1), Input("repr_y", sw=1)
+    x, y = Input("repr_x", tw=1), Input("repr_y", tw=1)
     model = Modely("repr_model", inputs=[x, y], outputs=[Output("repr_out", x + y)])
-    model.minimize("fit", "repr_out", Input("repr_ref", sw=1))
+    model.minimize("fit", "repr_out", Input("repr_ref", tw=1))
     model.minimize("reg", "repr_out", 1.0)
     # Its name heads the table; the names of each kind are inline: every
     # Input it reads, as inputs lists them, the target it is not declared

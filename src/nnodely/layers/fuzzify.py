@@ -197,7 +197,7 @@ def _width(width, owner: str, label: str, pair: bool) -> list[float] | Stream:
         if (
             not width._is_value
             or tuple(width.shape.dim) not in dims
-            or width.shape.time is not None
+            or width.shape.tw is not None
         ):
             raise ValueError(
                 f"{owner}: a {label} stream is a Parameter of dim "
@@ -555,7 +555,7 @@ class Fuzzify(Layer):
         ]
         first = shapes[0]
         if any(
-            shape.dim_rank != 1 or (shape.seq, shape.time) != (first.seq, first.time)
+            shape.dim_rank != 1 or (shape.seq, shape.tw) != (first.seq, first.tw)
             for shape in shapes
         ):
             raise ValueError(
@@ -729,7 +729,7 @@ def _centers(centers, owner: str) -> tuple[list[float | None] | None, list[Strea
         if centers.shape.dim_rank != 1 or not _one_step(centers):
             raise ValueError(
                 f"{owner}: a stream of centers is a vector of shape (n,), one "
-                f"sample; got dim {centers.shape.dim}, time {centers.shape.time}."
+                f"sample; got dim {centers.shape.dim}, tw {centers.shape.tw}."
             )
         return None, [centers]
     items = list(centers)
@@ -745,7 +745,7 @@ def _centers(centers, owner: str) -> tuple[list[float | None] | None, list[Strea
             raise ValueError(
                 f"{owner}: in a list every center is a number or a scalar "
                 f"stream, dim (1,) and one sample; center {index} has "
-                f"dim {item.shape.dim}, time {item.shape.time}."
+                f"dim {item.shape.dim}, tw {item.shape.tw}."
             )
         listed.append(None)
         streams.append(item)
@@ -755,7 +755,7 @@ def _centers(centers, owner: str) -> tuple[list[float | None] | None, list[Strea
 def _one_step(stream: Stream) -> bool:
     """Whether a stream holds one sample - a window of one, or none; its
     sequence, if any, must be the signal's."""
-    return stream.shape.time in (None, 1)
+    return stream.shape.tw in (None, 1)
 
 
 def _current_value(stream: Stream, owner: str):
