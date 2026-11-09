@@ -6,6 +6,7 @@ import numpy as np
 import keras
 
 from nnodely.core.layer import Layer, _refuse_non_streams, _refuse_uncalled
+from nnodely.core.dag import is_key, pick
 from nnodely.core.shape import Shape
 from nnodely.layers.input import _dimension, _positive_sizes
 from nnodely.utils.printers import _table
@@ -357,16 +358,24 @@ class Parameters(list):
         self._title = title
 
     def __getitem__(self, key):  # type: ignore[override]
-        """A Parameter by its name, or by position as in a list."""
-        if isinstance(key, str):
-            for parameter in self:
-                if parameter.name == key:
-                    return parameter
+        """A Parameter by its name, by its name and its index among those of
+        that name, ``("k", 1)``, or by position as in a list. A name several
+        Parameters carry raises ``ValueError`` listing them."""
+        if not is_key(key):
+            return super().__getitem__(key)
+        candidates = [
+            (parameter, f"in {model!r}")
+            for model, group in self._groups
+            for parameter in group
+        ]
+        owner = self._title or "Parameters"
+        picked = pick(candidates, key, kind="Parameter", owner=owner)
+        if not picked:
             raise KeyError(
-                f"{self._title or 'Parameters'}: no Parameter named {key!r}; "
+                f"{owner}: no Parameter named {key if isinstance(key, str) else key[0]!r}; "
                 f"the names are {[parameter.name for parameter in self]}."
             )
-        return super().__getitem__(key)
+        return picked[0]
 
     def __str__(self):
         header = ("parameter", "seq", "time", "dim", "values", "trainable")

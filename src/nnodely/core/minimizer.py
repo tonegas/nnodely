@@ -2,11 +2,12 @@
 the built graph, and turned into the loss the training model minimizes."""
 
 import warnings
+from typing import cast
 
 import keras
 import numpy as np
 
-from nnodely.core.dag import _streams_from
+from nnodely.core.dag import is_key, pick, toposort_outputs
 from nnodely.core.layer import Layer
 from nnodely.core.shape import OUTER_AXIS, expand_to_rank, outer_view
 from nnodely.core.stream import Node, Stream
@@ -251,46 +252,64 @@ def _minimizer_stream(model, value, side: str, minimizer: str) -> Stream:
     """A minimizer side as a Stream, looking a name up in the model.
 
     A name can be any stream of the model's graph, one of its declared inputs,
-    or a stream the registered minimizers already compare.
+    or a stream the registered minimizers already compare; ``(name, index)``
+    picks one of several streams of that name, in the order the graph reaches
+    them.
     """
     if isinstance(value, Stream):
         return value
-    if not isinstance(value, str):
+    if not is_key(value):
         raise TypeError(
-            f"The {side} of minimizer {minimizer!r} must be a Stream or the "
-            f"name of one, got {type(value).__name__}."
+            f"The {side} of minimizer {minimizer!r} must be a Stream, the "
+            f"name of one, or its name and index among those of that name, "
+            f"('y', 1); got {type(value).__name__}."
         )
     roots: list[Node] = [*model._outputs, *model._inputs]
     for registered in model._minimizers:
         roots.extend((registered["source"], registered["target"]))
-    matches = [stream for stream in _streams_from(roots) if stream.name == value]
+    candidates = [
+        (stream, _where(stream))
+        for stream in toposort_outputs(cast(list, roots))
+        if isinstance(stream, Stream)
+    ]
+    matches = pick(
+        candidates,
+        value,
+        kind="stream",
+        owner=f"The {side} of minimizer {minimizer!r} in model {model.name!r}",
+    )
     if not matches:
+        name = value if isinstance(value, str) else value[0]
         outputs = sorted(output.name for output in model._outputs)
         raise ValueError(
-            f"The {side} {value!r} of minimizer {minimizer!r} is not the name "
+            f"The {side} {name!r} of minimizer {minimizer!r} is not the name "
             f"of a stream of model {model.name!r}. Its outputs are {outputs}."
         )
-    if len(matches) > 1:
-        raise ValueError(
-            f"The {side} {value!r} of minimizer {minimizer!r} is ambiguous: "
-            f"{len(matches)} streams of model {model.name!r} carry that name. "
-            "Pass the stream itself."
-        )
     return matches[0]
+
+
+def _where(stream: Stream) -> str:
+    """What ``stream`` is, for the listing of a name several carry: its
+    kind, and the call that returns it, for the output of a block."""
+    call = getattr(stream, "_pred", None)
+    returned = (
+        f" returned by {call.name!r} on {[pred.name for pred in call._preds]}"
+        if call is not None
+        else ""
+    )
+    kind = type(stream).__name__
+    return f"({'an' if kind[0] in 'AEIOU' else 'a'} {kind}{returned})"
 
 
 def _resolve_minimizer_terms(model) -> list[_MinimizerTerm]:
     """Resolve every minimizer of ``model`` to the graph outputs of its build."""
     assert model.model is not None
-    # The forward pass returns a dict keyed by the names of these nodes.
-    output_names = {node.name for node in model._train_outputs}
 
     def output_name(minimizer, side):
+        # The key the forward pass returns the side under, given by build().
         node = minimizer[side]
         name = model._minimizer_outputs.get(node)
-        if name is None and not isinstance(node, Input):
-            name = node.name
-        if name not in output_names:
+        if name is None:
             raise ValueError(
                 f"The {side} {node.name!r} of minimizer {minimizer['name']!r} "
                 "is not an output of the built model. Call build() after "

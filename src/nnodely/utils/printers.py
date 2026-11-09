@@ -486,7 +486,9 @@ def _loss_graph(losses: Sequence[float], cols: int, rows: int) -> list[str]:
 
 def _ink(letter: str) -> tuple[int, int]:
     """The first and last column a glyph is drawn in."""
-    columns = [x for row in _GLYPHS[letter] for x, cell in enumerate(row) if cell == "#"]
+    columns = [
+        x for row in _GLYPHS[letter] for x, cell in enumerate(row) if cell == "#"
+    ]
     return min(columns), max(columns)
 
 

@@ -301,6 +301,25 @@ class Inputs(list):
         super().__init__(row["input"] for row in rows)
         self._rows = rows
 
+    def __getitem__(self, key):  # type: ignore[override]
+        """An Input by its name, by its name and its index among those of
+        that name, ``("x", 1)``, or by position as in a list."""
+        from nnodely.core.dag import is_key, pick  # dag imports this module
+
+        if not is_key(key):
+            return super().__getitem__(key)
+        candidates = [
+            (row["input"], "(declared)" if row["declared"] else "(not declared)")
+            for row in self._rows
+        ]
+        picked = pick(candidates, key, kind="Input", owner="Inputs")
+        if not picked:
+            raise KeyError(
+                f"Inputs: no Input named {key if isinstance(key, str) else key[0]!r}; "
+                f"the names are {[node.name for node in self]}."
+            )
+        return picked[0]
+
     def __str__(self):
         cells = [
             (

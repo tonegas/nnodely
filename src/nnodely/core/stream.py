@@ -8,7 +8,36 @@ from typing import Any, Sequence
 
 from nnodely.core.shape import Shape
 
+#: Every node class, by its module and name (:func:`class_path`): a model
+#: saves the class of each node so, and is loaded with that class, not with
+#: another of the same name - a layer class of the user's named ``Sin``
+#: leaves nnodely's own in place.
 NODE_REGISTRY: dict[str, type["Node"]] = {}
+
+
+def class_path(cls: type) -> str:
+    """``cls`` by its module and its name, as a model saves it."""
+    return f"{cls.__module__}.{cls.__qualname__}"
+
+
+def registered_class(saved: str) -> type["Node"] | None:
+    """The node class a model was saved with: by its module and name; else
+    by its name alone, as a model saved before classes were saved with their
+    module, or one whose class has moved to another module - when exactly one
+    class has that name. None if no class has it."""
+    if saved in NODE_REGISTRY:
+        return NODE_REGISTRY[saved]
+    name = saved.rsplit(".", 1)[-1]
+    alike = [cls for cls in NODE_REGISTRY.values() if cls.__qualname__ == name]
+    if len(alike) > 1:
+        raise ValueError(
+            f"The saved model holds a {saved!r} node, and {len(alike)} classes "
+            f"are named {name!r}: {sorted(class_path(cls) for cls in alike)}. "
+            "Import the module that defines the one it was saved with, from "
+            "where it was saved."
+        )
+    return alike[0] if alike else None
+
 
 #: Every node name this process has used - given, generated or loaded - with
 #: the "_"-separated prefixes it is built from. Layers are told apart by the
@@ -30,7 +59,7 @@ class Node:
         super().__init_subclass__(**kwargs)
 
         if not inspect.isabstract(cls):
-            NODE_REGISTRY[cls.__name__] = cls
+            NODE_REGISTRY[class_path(cls)] = cls
 
     def __init__(self, name: str, preds: list[Node] | None = None) -> None:
         self.name = name
@@ -219,8 +248,4 @@ class Stream(Node):
         return None
 
     def __repr__(self):
-        return (
-            f"name={self.name!r}, "
-            f"shape={self.shape}, "
-            f")"
-        )
+        return f"name={self.name!r}, shape={self.shape}, )"

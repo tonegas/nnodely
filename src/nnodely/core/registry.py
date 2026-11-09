@@ -1,7 +1,7 @@
 import json
 import warnings
 from pathlib import Path
-from nnodely.core.stream import NODE_REGISTRY, Node
+from nnodely.core.stream import Node, class_path, registered_class
 
 
 def _saved_order(model) -> list:
@@ -152,7 +152,7 @@ class ModelSerializer:
         for node in order:
             node_data = {
                 "id": node_ids[node],
-                "class_name": node.__class__.__name__,
+                "class_name": class_path(type(node)),
                 "config": node.get_config(),
                 "preds": [node_ids[pred] for pred in node._preds],
             }
@@ -257,7 +257,7 @@ class ModelSerializer:
         calls: dict[str, list] = {}
 
         for node_data in data["nodes"]:
-            cls = NODE_REGISTRY.get(node_data["class_name"])
+            cls = registered_class(node_data["class_name"])
             if cls is None:
                 raise ValueError(
                     f"The saved model holds a {node_data['class_name']!r} node, "

@@ -55,25 +55,66 @@ def _copy_logo(out_path: Path) -> str | None:
     return "imgs/logo_info.png"
 
 
-def _block_ports(node):
+def _graph_ids(model_obj) -> dict[int, str]:
+    """The id every node of ``model_obj``'s graph is drawn under, by the
+    node: its name, and for a further node of that name - two calls of one
+    model, two layers named alike - its name with ``~2``, ``~3``. Nodes are
+    told apart by object, never by name."""
+    ids: dict[int, str] = {}
+    used: set[str] = set()
+    for node in model_obj._order:
+        name = getattr(node, "name", str(node))
+        drawn, index = name, 2
+        while drawn in used:
+            drawn, index = f"{name}~{index}", index + 1
+        used.add(drawn)
+        ids[id(node)] = drawn
+    return ids
+
+
+def _block_ports(node, outer_ids: dict[int, str] | None = None):
     """The model a block node wraps, plus how that body is bound to this graph.
 
     A block hides a whole model behind one node, so the drill-down is only
     readable if both pages name the same ports: which body input every
     predecessor feeds, which body output every successor reads, and which
-    outputs are fed back inside the block.
+    outputs are fed back inside the block. Each side is named by the id its
+    page draws it under: ``outer_ids`` for this graph's, the body's own for
+    the body. ``same`` marks a port that binds one stream to itself - the
+    same node, or an Input bound to an Input of its name, as a ModelyLoop
+    binds the Inputs of its step - drawn as one node.
     """
+    held = node._model if isinstance(node, ModelCall) else getattr(node, "_f", None)
+    if not isinstance(held, Modely):
+        return None
+    outer_ids = outer_ids or {}
+    body_ids = _graph_ids(held)
+
+    def outer(stream) -> str:
+        return outer_ids.get(id(stream)) or stream.name
+
+    def body(stream) -> str:
+        return body_ids.get(id(stream)) or stream.name
+
+    def port(inner, stream, role: str) -> dict:
+        same = inner is stream or (
+            isinstance(inner, Input)
+            and isinstance(stream, Input)
+            and inner.name == stream.name
+        )
+        return {"body": body(inner), "outer": outer(stream), "role": role, "same": same}
+
     if isinstance(node, ModelCall):
         return node._model, {
             "block": "ModelCall",
             "detail": {},
             "inputs": [
-                {"body": body.name, "outer": outer.name, "role": "input"}
-                for body, outer in node._inputs_map.items()
+                port(inner, stream, "input")
+                for inner, stream in node._inputs_map.items()
             ],
             "outputs": [
-                {"body": body.name, "outer": outer.name}
-                for outer, body in node._outputs_map.items()
+                {"body": body(inner), "outer": outer(stream)}
+                for stream, inner in node._outputs_map.items()
             ],
             "feedback": [],
         }
@@ -89,19 +130,19 @@ def _block_ports(node):
                 and node._horizon_index is not None,
             },
             "inputs": [
-                {"body": body.name, "outer": outer.name, "role": "initial"}
-                for body, outer in zip(node._feedback_inputs, node._initial_values)
+                port(inner, stream, "initial")
+                for inner, stream in zip(node._feedback_inputs, node._initial_values)
             ]
             + [
-                {"body": body.name, "outer": outer.name, "role": "input"}
-                for body, outer in zip(node._static_inputs, node._static_sources)
+                port(inner, stream, "input")
+                for inner, stream in zip(node._static_inputs, node._static_sources)
             ],
             "outputs": [
-                {"body": body.name, "outer": outer.name}
-                for body, outer in zip(node._returns, node._loop_outputs)
+                {"body": body(inner), "outer": outer(stream)}
+                for inner, stream in zip(node._returns, node._loop_outputs)
             ],
             "feedback": [
-                {"from": output.name, "to": input_node.name}
+                {"from": body(output), "to": body(input_node)}
                 for input_node, output in zip(
                     node._feedback_inputs, node._feedback_outputs
                 )
@@ -181,14 +222,16 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
     seen_nodes: set[str] = set()
     seen_edges: set[tuple[str, str]] = set()
     alias = alias or {}
+    ids = _graph_ids(model_obj)
 
-    def outer_id(name: str) -> str:
-        """Display id of a node of this graph, by name."""
-        return alias.get(name, prefix + name)
+    def outer_id(drawn: str) -> str:
+        """Display id of a node of this graph, by the id its own page draws
+        it under."""
+        return alias.get(drawn, prefix + drawn)
 
     def ident(node) -> str:
         """Display id of a node of this graph."""
-        return outer_id(getattr(node, "name", str(node)))
+        return outer_id(ids.get(id(node), getattr(node, "name", str(node))))
 
     def add_edge(pred, src: str, dst: str, role: str | None = None) -> None:
         if (src, dst) in seen_edges:
@@ -201,16 +244,15 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
     # read one output each, and the body output the block node itself
     # stands for when something reads it as a value instead.
     block_results: dict[str, dict] = {}
-    present = {getattr(node, "name", None) for node in model_obj._order}
+    present = set(ids.values())
     if inline:
-        blocks = {
-            node.name: _block_ports(node)
-            for node in model_obj._order
-            if _block_ports(node) is not None
-        }
+        for node in model_obj._order:
+            ports = _block_ports(node, ids)
+            if ports is not None:
+                blocks[ids[id(node)]] = ports
 
     for node in model_obj._order:
-        name = getattr(node, "name", str(node))
+        name = ids[id(node)]
         ports = blocks.get(name)
 
         if ports is not None:
@@ -223,7 +265,7 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
             body_alias = {
                 port["body"]: outer_id(port["outer"])
                 for port in port_map["inputs"]
-                if port["body"] == port["outer"]
+                if port["same"]
             }
             body_nodes, body_edges, body_feedbacks = _collect_graph(
                 submodel, inline=True, prefix=body_prefix, alias=body_alias
@@ -301,16 +343,16 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
         seen_nodes.add(nid)
 
     for node in model_obj._order:
-        if getattr(node, "name", None) in blocks:
+        if ids[id(node)] in blocks:
             continue
         for pred in getattr(node, "_preds", []) or []:
-            pred_name = getattr(pred, "name", None)
-            if pred_name in blocks:
+            pred_name = ids.get(id(pred))
+            if pred_name is not None and pred_name in blocks:
                 # A consumer reads the block either through one of its
                 # selector nodes, already bound above, or straight off the
                 # block node, which now resolves to the body output.
-                results = block_results[pred_name] if pred_name else {}
-                if getattr(node, "name", None) not in results["selectors"]:
+                results = block_results[pred_name]
+                if ids[id(node)] not in results["selectors"]:
                     add_edge(pred, results["primary"], ident(node))
                 continue
             add_edge(pred, ident(pred), ident(node))
@@ -352,7 +394,7 @@ def _node_role(node, region: str | None, states: set, own_outputs: set, nid: str
     if type(node) is IntermediateOutput or isinstance(node, LoopOutput):
         return "inner_output"
     if isinstance(node, Output):
-        return "output" if not region and node.name in own_outputs else "inner_output"
+        return "output" if not region and id(node) in own_outputs else "inner_output"
     if isinstance(node, Parameter):
         return "parameter"
     if isinstance(node, Constant):
@@ -487,12 +529,13 @@ def export_html(
             render_model, inline=flattened
         )
         levels = _levels(graph_nodes, graph_edges)
+        page_ids = _graph_ids(model_obj)
 
         # Every block left as one node gets a page of its own; flattened, they
         # are all spliced in, so there is none.
         url_map: dict[str, str] = {}
         for node, nid, kind, attrs in graph_nodes:
-            ports = _block_ports(node)
+            ports = _block_ports(node, page_ids)
             if ports is None:
                 continue
             submodel, port_map = ports
@@ -555,7 +598,7 @@ def export_html(
                     )
                 )
         states = {record["to"] for record in feedbacks}
-        own_outputs = {output.name for output in render_model._outputs}
+        own_outputs = {id(output) for output in render_model._outputs}
 
         vis_nodes: list[dict] = []
         node_details: dict[str, dict] = {}
@@ -563,7 +606,11 @@ def export_html(
         for node, nid, kind, attrs in graph_nodes:
             region = attrs.get("inlined_in")
             role = _node_role(node, region, states, own_outputs, nid)
-            short = nid[len(region) + 1 :] if region and nid.startswith(region + "/") else nid
+            short = (
+                nid[len(region) + 1 :]
+                if region and nid.startswith(region + "/")
+                else nid
+            )
             record = {
                 "id": nid,
                 "label": short,
@@ -579,7 +626,11 @@ def export_html(
                 record["url"] = url_map[nid]
             if nid in entry_ports:
                 port = entry_ports[nid]
-                record["port"] = {"side": "in", "outer": port["outer"], "role": port["role"]}
+                record["port"] = {
+                    "side": "in",
+                    "outer": port["outer"],
+                    "role": port["role"],
+                }
             elif nid in exit_ports:
                 record["port"] = {"side": "out", "outer": exit_ports[nid]["outer"]}
             attrs["role"] = role
@@ -591,7 +642,9 @@ def export_html(
         for region in list(regions):
             parts = region.split("/")
             for depth in range(1, len(parts)):
-                regions.setdefault("/".join(parts[:depth]), {"id": "/".join(parts[:depth])})
+                regions.setdefault(
+                    "/".join(parts[:depth]), {"id": "/".join(parts[:depth])}
+                )
 
         vis_edges: list[dict] = []
         for pred, src, dst, role in graph_edges:
@@ -608,7 +661,36 @@ def export_html(
             vis_edges.append(record)
         vis_edges.extend(feedbacks)
 
-        # Training objectives, so the loss wiring is visible here too.
+        # Training objectives, so the loss wiring is visible here too. A side
+        # is the node drawn for it, by object; one the graph does not draw -
+        # a target is usually an Input no output depends on - is drawn here,
+        # under an id of its own.
+        drawn: dict[int, str] = {}
+
+        def endpoint_id(endpoint) -> str:
+            nid = page_ids.get(id(endpoint))
+            if nid is not None and nid in visible:
+                return nid
+            if id(endpoint) not in drawn:
+                base = nid or endpoint.name
+                nid, index = base, 2
+                while nid in visible:
+                    nid, index = f"{base}~{index}", index + 1
+                drawn[id(endpoint)] = nid
+                vis_nodes.append(
+                    {
+                        "id": nid,
+                        "label": endpoint.name,
+                        "role": "target",
+                        "kind": type(endpoint).__name__,
+                        "subtitle": "training target",
+                        "level": levels.get(nid, 0),
+                    }
+                )
+                node_details[nid] = {**_safe_attrs(endpoint), "role": "target"}
+                visible.add(nid)
+            return drawn[id(endpoint)]
+
         for index, minimizer in enumerate(getattr(model_obj, "_minimizers", [])):
             min_name = minimizer.get("name", f"loss_{index}")
             loss = minimizer.get("loss")
@@ -618,6 +700,11 @@ def export_html(
                 or type(loss).__name__
             )
             loss_id = f"__min_{min_name}"
+            sides = [
+                (side, endpoint, endpoint_id(endpoint))
+                for side in ("source", "target")
+                if (endpoint := minimizer.get(side)) is not None
+            ]
             vis_nodes.append(
                 {
                     "id": loss_id,
@@ -625,10 +712,7 @@ def export_html(
                     "role": "loss",
                     "kind": "Minimizer",
                     "subtitle": f"loss · {loss_label}",
-                    "level": max(
-                        levels.get(getattr(minimizer.get("source"), "name", ""), 0),
-                        levels.get(getattr(minimizer.get("target"), "name", ""), 0),
-                    )
+                    "level": max((levels.get(nid, 0) for _, _, nid in sides), default=0)
                     + 1,
                 }
             )
@@ -641,31 +725,10 @@ def export_html(
                 "target": getattr(minimizer.get("target"), "name", None),
             }
 
-            for side, endpoint in (
-                ("source", minimizer.get("source")),
-                ("target", minimizer.get("target")),
-            ):
-                name = getattr(endpoint, "name", None)
-                if name is None:
-                    continue
-                # A target is usually an Input that no output depends on, so it
-                # is absent from the traversal and has to be drawn here.
-                if name not in visible:
-                    vis_nodes.append(
-                        {
-                            "id": name,
-                            "label": name,
-                            "role": "target",
-                            "kind": type(endpoint).__name__,
-                            "subtitle": "training target",
-                            "level": levels.get(name, 0),
-                        }
-                    )
-                    node_details[name] = {**_safe_attrs(endpoint), "role": "target"}
-                    visible.add(name)
+            for side, endpoint, nid in sides:
                 vis_edges.append(
                     {
-                        "from": name,
+                        "from": nid,
                         "to": loss_id,
                         "kind": "loss",
                         "label": side,

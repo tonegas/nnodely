@@ -173,14 +173,32 @@ variable, and trains, validates and exports through Keras. Models saved with
   included. Given a name or a list of names, they act on those alone: a
   Parameter by its name, or a model the graph reaches - a block, a Loop
   body, the model of a LocalModel - by its name, for all its Parameters:
-  `model.freeze(["k", "g"])`, `model.freeze("submodel")`. A name that
-  matches nothing raises, and nothing is frozen. Before or after `build()`;
-  saved with the model.
+  `model.freeze(["k", "g"])`, `model.freeze("submodel")`. A name several
+  carry freezes them all, with a warning listing them, and `("k", 1)` picks
+  one. A name that matches nothing raises, and nothing is frozen. Before or
+  after `build()`; saved with the model.
   `Modely.parameters` lists them all, finds one by name
   (`model.parameters["kernel"]`), and prints as a table of their names,
   shapes, numbers of values and trainable flags - a section per model when
   the models it calls have Parameters, each under the first model whose
   graph reaches it - and a total of the values, all and trainable.
+- Name tags. Nothing keeps two objects from sharing a name - two layers named
+  alike, a block and the model calling it, two copies of one loaded model,
+  which only names reach. Every call taking a name - `parameters[...]`,
+  `models[...]`, `inputs[...]`, `outputs[...]`, the sides of `minimize`,
+  `freeze` and `unfreeze` - looks it up among the objects the graph reaches,
+  in that order, the model's own first: a name several carry raises
+  `ValueError` listing them, each with its index and the model it is in, and
+  `(name, index)` picks one, the same after save and load. Inside nnodely the
+  objects are used, not their names: two calls of one block, or a stream
+  named like an output, are minimized apart; HTML graphs draw every node and
+  every call apart (`blk_call`, `blk_call~2`). `inputs` gives the Inputs of
+  the graph, so a model can read one a loaded block reads. Input and output
+  names stay one per model, the keys of the data; the state a layer keeps,
+  named like another Input of the model, takes a free name. Node classes are
+  saved with their module, so a class of your own named like one of
+  nnodely's - a `Sin` - never takes its place on load; a class saved by its
+  name alone loads when one class has that name.
 - Early stopping in `train()`: the name of a monitored loss (made into a Keras
   `EarlyStopping` with `early_stopping_kwargs`), its configuration, or any
   callback, Keras's or your own.

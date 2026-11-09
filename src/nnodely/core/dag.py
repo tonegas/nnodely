@@ -6,6 +6,7 @@ Axes: a stream is laid out (batch, *seq, time, *dim), or (batch, *seq, *dim)
 without a window, see core/shape.py. Default: dim=1, no window, no sequence.
 """
 
+import warnings
 from copy import copy
 
 import keras
@@ -311,12 +312,23 @@ def toposort_outputs(outputs: list[Output]) -> list[Node]:
     return order
 
 
-def _read_nodes(roots, declared=None) -> list[Node]:
+def _read_nodes(roots, declared=None, originals=None) -> list[Node]:
     """Every node ``roots`` read, inside the models they call too, in the
     order the graph reaches them; with ``declared``, the inputs of a Modely,
-    as it reads them (see Scope.declared)."""
+    as it reads them (see Scope.declared). They are copies, made inlining
+    the models called: ``originals``, if given, is filled with the node of
+    the graph each Input copied stands for, by the id of the copy."""
+    from nnodely.layers.input import Input
+
     scope = Scope(declared=None if declared is None else set(declared))
-    return toposort_outputs([flatten_node(root, scope) for root in roots])
+    nodes = toposort_outputs([flatten_node(root, scope) for root in roots])
+    if originals is not None:
+        # A hidden state left undeclared is inlined as its init, which can be
+        # an Input of another name: only a copy of its own name is the node.
+        for node, copied in scope.merged_memo().items():
+            if isinstance(node, Input) and copied.name == node.name:
+                originals.setdefault(id(copied), node)
+    return nodes
 
 
 def _read_inputs(roots, declared=None) -> dict[str, Any]:
@@ -378,10 +390,14 @@ def _nodes_and_models(model: "Modely") -> tuple[list[Node], list["Modely"]]:
     return [node for _, nodes in groups for node in nodes], [m for m, _ in groups]
 
 
-def _nodes_by_model(model: "Modely") -> list[tuple["Modely", list[Node]]]:
+def _nodes_by_model(
+    model: "Modely", holders: dict[int, "Modely"] | None = None
+) -> list[tuple["Modely", list[Node]]]:
     """Every model the walk of :func:`_nodes_and_models` reaches, in that
     order, each with the nodes it reaches first: those of its own graph -
-    not of the models it calls - but those an earlier model reached already."""
+    not of the models it calls - but those an earlier model reached already.
+    ``holders``, if given, is filled with the model whose graph first reaches
+    each one, by id, ``model`` aside."""
     from nnodely.core.modely import Modely
 
     found: set[int] = set()
@@ -418,5 +434,94 @@ def _nodes_by_model(model: "Modely") -> list[tuple["Modely", list[Node]]]:
             for inner in (getattr(node, "_model", None), getattr(node, "_f", None)):
                 if isinstance(inner, Modely):
                     models.append(inner)
+                    if holders is not None:
+                        holders.setdefault(id(inner), current)
             stack.extend(reversed(node._preds))
     return groups
+
+
+# ------------------------------------------------------------------
+# Picking the objects of a model by name
+# ------------------------------------------------------------------
+# Names are how the user reaches a Parameter, a model or a stream, and nothing
+# keeps two objects from sharing one: layers named alike by hand, a block and
+# the model calling it, two copies of one loaded model. So every call taking a
+# name looks it up among the objects the graph reaches, in that order, as
+# ``(object, where)`` pairs; a key is a name, or ``(name, index)``, the
+# index-th of the objects carrying that name. Inside nnodely the objects
+# themselves are used, never their names.
+
+
+def is_key(key) -> bool:
+    """Whether ``key`` picks by name: a name, or ``(name, index)``."""
+    return isinstance(key, str) or (
+        isinstance(key, tuple)
+        and len(key) == 2
+        and isinstance(key[0], str)
+        and isinstance(key[1], int)
+        and not isinstance(key[1], bool)
+    )
+
+
+def pick(
+    candidates: list[tuple[Any, str]],
+    key,
+    *,
+    kind: str,
+    owner: str,
+    kinds: str | None = None,
+    every: bool = False,
+) -> list:
+    """The objects of ``candidates`` that ``key`` picks, ``[]`` for none.
+
+    A name alone picks the object carrying it. When several do, it raises
+    ``ValueError`` listing them, with their index and where each is - unless
+    ``every``, which picks them all and warns. ``(name, index)`` picks the
+    index-th of them, in the order of ``candidates``. ``kinds`` is the
+    plural of ``kind``, its name with an s by default.
+
+    The warning is for the user's call: a method of a model, which finds the
+    objects through a helper of its own."""
+    if not is_key(key):
+        raise TypeError(
+            f"{owner}: a {kind} is picked by its name, as 'k', or by its name "
+            f"and its index among those of that name, as ('k', 1); got {key!r}."
+        )
+    name, index = (key, None) if isinstance(key, str) else key
+    found = [(item, where) for item, where in candidates if item.name == name]
+    if not found:
+        return []
+    if index is not None:
+        if not 0 <= index < len(found):
+            raise IndexError(
+                f"{owner}: ({name!r}, {index}) picks the {kind} of index {index} "
+                f"among those named {name!r}, and there "
+                f"{'is' if len(found) == 1 else 'are'} {len(found)}: "
+                f"{_listing(name, found)}"
+            )
+        return [found[index][0]]
+    if len(found) == 1:
+        return [found[0][0]]
+    listing = (
+        f"{owner}: the name {name!r} is ambiguous, {len(found)} "
+        f"{kinds or kind + 's'} carry "
+        f"it - indices {list(range(len(found)))}, in the order the graph reaches "
+        f"them: {_listing(name, found)}"
+    )
+    if every:
+        warnings.warn(
+            f"{listing}. All of them are picked; pick one with ({name!r}, index), "
+            "or give them names of their own.",
+            UserWarning,
+            stacklevel=4,
+        )
+        return [item for item, _ in found]
+    raise ValueError(
+        f"{listing}. Pick one with ({name!r}, index), or give them names of their own."
+    )
+
+
+def _listing(name: str, found: list[tuple[Any, str]]) -> str:
+    return "; ".join(
+        f"[{index}] {name} {where}" for index, (_, where) in enumerate(found)
+    )
