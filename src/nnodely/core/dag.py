@@ -478,10 +478,7 @@ def pick(
     ``ValueError`` listing them, with their index and where each is - unless
     ``every``, which picks them all and warns. ``(name, index)`` picks the
     index-th of them, in the order of ``candidates``. ``kinds`` is the
-    plural of ``kind``, its name with an s by default.
-
-    The warning is for the user's call: a method of a model, which finds the
-    objects through a helper of its own."""
+    plural of ``kind``, its name with an s by default."""
     if not is_key(key):
         raise TypeError(
             f"{owner}: a {kind} is picked by its name, as 'k', or by its name "
@@ -513,7 +510,7 @@ def pick(
             f"{listing}. All of them are picked; pick one with ({name!r}, index), "
             "or give them names of their own.",
             UserWarning,
-            stacklevel=4,
+            stacklevel=2,
         )
         return [item for item, _ in found]
     raise ValueError(

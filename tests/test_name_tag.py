@@ -192,6 +192,23 @@ def test_freeze_picks_every_parameter_of_a_name_and_warns():
     assert not model.parameters["k", 1].trainable
 
 
+def test_a_freeze_that_raises_warns_of_nothing():
+    model = _two_ks()
+
+    # "k" alone is ambiguous, "nope" unknown: nothing is frozen, and the
+    # warning that every k would be is not given.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(ValueError, match="no Parameter and no model named 'nope'"):
+            model.freeze(["k", "nope"])
+    assert not [w for w in caught if issubclass(w.category, UserWarning)]
+    assert all(p.trainable for p in model.parameters)
+    # When it freezes, the warning points at the line calling freeze.
+    with pytest.warns(UserWarning) as record:
+        model.freeze("k")
+    assert record[0].filename == __file__
+
+
 def test_freeze_takes_a_list_of_names_and_indices():
     model = _two_ks()
 

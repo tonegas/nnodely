@@ -827,28 +827,35 @@ class Modely:
             *((model, f"(a model) in {holders[id(model)].name!r}") for model in models),
         ]
         picked: dict[int, Parameter] = {}
-        for key in keys:
-            found = pick(
-                candidates,
-                key,
-                kind="Parameter or model",
-                kinds="Parameters and models",
-                owner=f"Model {self.name!r}",
-                every=True,
-            )
-            if not found:
-                name = key if isinstance(key, str) else key[0]
-                raise ValueError(
-                    f"Model {self.name!r} reaches no Parameter and no model "
-                    f"named {name!r}. Its Parameters are "
-                    f"{[parameter.name for parameter in parameters]}, its "
-                    f"models {list(dict.fromkeys(model.name for model in models))}."
+        # A name several carry warns once every key is resolved: a call that
+        # raises picks nothing, and warns of nothing.
+        with warnings.catch_warnings(record=True) as ambiguous:
+            warnings.simplefilter("always")
+            for key in keys:
+                found = pick(
+                    candidates,
+                    key,
+                    kind="Parameter or model",
+                    kinds="Parameters and models",
+                    owner=f"Model {self.name!r}",
+                    every=True,
                 )
-            for item in found:
-                for parameter in (
-                    [item] if isinstance(item, Parameter) else _parameters(item)
-                ):
-                    picked.setdefault(id(parameter), parameter)
+                if not found:
+                    name = key if isinstance(key, str) else key[0]
+                    raise ValueError(
+                        f"Model {self.name!r} reaches no Parameter and no model "
+                        f"named {name!r}. Its Parameters are "
+                        f"{[parameter.name for parameter in parameters]}, its "
+                        f"models {list(dict.fromkeys(model.name for model in models))}."
+                    )
+                for item in found:
+                    for parameter in (
+                        [item] if isinstance(item, Parameter) else _parameters(item)
+                    ):
+                        picked.setdefault(id(parameter), parameter)
+        for warning in ambiguous:
+            # For the line calling freeze or unfreeze.
+            warnings.warn(warning.message, warning.category, stacklevel=3)
         return list(picked.values())
 
     # -------------------------------------------------------------------------
