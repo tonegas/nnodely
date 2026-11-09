@@ -61,7 +61,8 @@ def test_legacy_printer_draws_the_loss_table(capsys):
     ## its train and val columns
     assert lines == [
         "┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓",
-        "┃ epoch      ┃ curv_error            ┃ total                 ┃",
+        "┃ epoch      ┃       curv_error      ┃         total         ┃",
+        "┃            ┣━━━━━━━━━━━┳━━━━━━━━━━━╋━━━━━━━━━━━┳━━━━━━━━━━━┫",
         "┃            ┃     train ┃       val ┃     train ┃       val ┃",
         "┡━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━┩",
         "│ 60/6000    │ 2.099e-06 │ 1.226e-06 │ 2.099e-06 │ 1.226e-06 │",

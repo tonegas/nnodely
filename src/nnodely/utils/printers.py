@@ -122,7 +122,8 @@ class LegacyPrinter(keras.callbacks.Callback):
     ends::
 
         ┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
-        ┃ epoch      ┃ curv_error            ┃ total                 ┃
+        ┃ epoch      ┃       curv_error      ┃         total         ┃
+        ┃            ┣━━━━━━━━━━━┳━━━━━━━━━━━╋━━━━━━━━━━━┳━━━━━━━━━━━┫
         ┃            ┃     train ┃       val ┃     train ┃       val ┃
         ┡━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━┩
         │ 60/6000    │ 2.099e-06 │ 1.226e-06 │ 2.099e-06 │ 1.226e-06 │
@@ -226,12 +227,16 @@ class LegacyPrinter(keras.callbacks.Callback):
         # The name of a group spans its train and val columns.
         group = 2 * _CELL + 3
         spans = [_EPOCH_CELL] + [group] * len(self._groups)
-        names = ["epoch", *(name[:group] for name in self._groups)]
+        names = ["epoch", *(name[:group].center(group) for name in self._groups)]
         sides = ["", *(["train".rjust(_CELL), "val".rjust(_CELL)] * len(self._groups))]
+        # A rule under the names, beside the epoch, which spans both rows.
+        pair = "━" * (_CELL + 2) + "┳" + "━" * (_CELL + 2)
+        split = "┃" + " " * (_EPOCH_CELL + 2) + "┣" + "╋".join([pair] * len(self._groups)) + "┫"
         bold = "\033[1m"
         return [
             (_box_rule(spans, "┏", "━", "┳", "┓"), ""),
             (_box_row(names, spans, "┃"), bold),
+            (split, ""),
             (_box_row(sides, self._widths, "┃"), bold),
             (_box_rule(self._widths, "┡", "━", "╇", "┩"), ""),
         ]
@@ -986,7 +991,7 @@ class _NotebookView:
 # =====================================================================
 
 #: The characters the box of a table is drawn with.
-_BOX = set("┏┳┓┃┡╇┻┩│├┬┴┼┤└┘━─")
+_BOX = set("┏┳┓┃┣╋┫┡╇┻┩│├┬┴┼┤└┘━─")
 
 
 def _table(
