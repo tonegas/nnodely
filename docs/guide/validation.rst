@@ -16,8 +16,7 @@ for, with :math:`e = \hat y - y`:
    * - Indicator
      - Meaning
    * - Loss
-     - The loss the objective is trained with, ``seq_weights`` and masking
-       included.
+     - The loss the objective is trained with, masking included.
    * - RMSE, MAE, Max error
      - Root-mean-square, mean and peak of :math:`|e|`, in the signal's units.
    * - Bias, Error std

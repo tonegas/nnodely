@@ -422,7 +422,7 @@ def test_validate_scores_each_channel_of_a_signal():
     assert all(len(line) <= 80 for line in text.splitlines())
 
 
-def _decay_model(name, seq_weights=None):
+def _decay_model(name):
     """x[k + 1] = w x[k], rolled out over each whole simulation.
 
     The weight is 1 and the data decays by 0.8 a step, so the error grows
@@ -442,9 +442,7 @@ def _decay_model(name, seq_weights=None):
     )()
     out = Output(f"{name}_out", loop)
     model = Modely(name, inputs=[seed], outputs=[out])
-    model.minimize(
-        "rollout", out, Input(f"{name}_target", seq=-1, sw=1), seq_weights=seq_weights
-    )
+    model.minimize("rollout", out, Input(f"{name}_target", seq=-1, sw=1))
     model.build()
     return model
 
@@ -461,9 +459,9 @@ def _simulations(name):
 
 
 def test_validate_reports_the_loss_train_reports_on_the_same_data():
-    ## Padded simulations and step weights: masked and weighted the same way
+    ## Padded simulations: masked the same way
     name = "same_loss"
-    model = _decay_model(name, seq_weights=lambda steps: np.arange(1.0, steps + 1.0))
+    model = _decay_model(name)
     data = DataLoader(model, source=_simulations(name), seq_length="full")
     assert data.mask is not None
 

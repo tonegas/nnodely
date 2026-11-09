@@ -31,8 +31,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   tensors, `(N, *seq, time, *dim)`, and uses them as given: dynamic sequence
   lengths, several per input, are read from their shape, and rollouts of
   different lengths are padded and masked.
-- `minimize()` with any Keras loss, a `gain` per objective and `seq_weights`
-  along a rollout; targets can be computed streams or numbers.
+- `minimize()` with any Keras loss and a `gain` per objective; targets can
+  be computed streams or numbers.
 - A layer whose constructor takes only `name` is applied as it is created:
   `Sin(x)` is `Sin()(x)`. These are `Sin`, `Cos`, `Tan`, `Asin`, `Acos`,
   `Atan`, `Atan2`, `Exp`, `Log`, `Log10`, `Sqrt`, `Abs`, `Floor`, `Ceil`,
@@ -105,25 +105,19 @@ variable, and trains, validates and exports through Keras. Models saved with
   printed as a table of their shapes, the stream each names - in a
   ModelyLoop, the stream of the step it collects - the Inputs a loop feeds
   that stream back into and the minimizers that read it.
-- `Modely.minimizers`: the minimizers of a model, then those of every model
-  it computes with, printed as a table of their source and target, loss,
-  gain and seq_weights - one table per model when the models it calls have
-  minimizers. The `train()` of each model minimizes those listed under it.
-  Setting the gain, loss or seq_weights of a row changes that minimizer in
-  the model it is listed under, from the next `train()`:
-  `model.minimizers[0]["gain"] = 0.1`. One inherited changes in that model
-  only, not in the block.
-- A model trains on the minimizers of the blocks it calls with its own:
-  `<block>.<minimizer>`, once per call (`<block>.<k>.<minimizer>` for a
-  block called several times), each computed on what that call computes,
-  with the block's gain. A block passes on what it trains on, so a block
-  inside a block gives `<outer>.<inner>.<minimizer>`. An Input of the block
-  the call does not bind, such as its target, is read from the model's data.
-  `remove_minimizer("<block>.<minimizer>")` removes one the model is not to
-  train on; one the model declares under that name replaces it. The bodies
-  of Loops are not inherited from yet.
+- `Modely.minimizers`: the minimizers of a model - those its `train()`
+  minimizes, not those of the models it calls - printed as a table of their
+  source and target, loss and gain. Setting the gain or loss of a row
+  changes that minimizer in the model, from the next `train()`:
+  `model.minimizers[0]["gain"] = 0.1`.
 - The tables a model prints - `inputs`, `outputs`, `models`, `parameters`
-  and `minimizers` - are drawn as boxes, in the nnodely colours when the
+  and `minimizers` - are drawn as boxes, the table alone: its first column
+  is named after what it lists (`input`, `output`, `model`, `parameter`,
+  `minimizer`), and the `parameters` table ends with a `total` row of the
+  values, all and trainable. A model prints (`print(model)`, its repr) as one
+  too: its name, then the names of the Inputs it reads, its outputs and its
+  minimizers. The `"legacy"` training printer draws its loss table the same
+  way, the training time as its last row. In the nnodely colours when the
   standard output is a terminal or a notebook at the time the table is turned
   into text, plain otherwise. `NO_COLOR` prints them plain - for a table
   written to a file from a terminal - and `FORCE_COLOR` colours them anyway.
@@ -184,9 +178,9 @@ variable, and trains, validates and exports through Keras. Models saved with
   saved with the model.
   `Modely.parameters` lists them all, finds one by name
   (`model.parameters["kernel"]`), and prints as a table of their names,
-  shapes, numbers of values and trainable flags - one table per model when
+  shapes, numbers of values and trainable flags - a section per model when
   the models it calls have Parameters, each under the first model whose
-  graph reaches it.
+  graph reaches it - and a total of the values, all and trainable.
 - Early stopping in `train()`: the name of a monitored loss (made into a Keras
   `EarlyStopping` with `early_stopping_kwargs`), its configuration, or any
   callback, Keras's or your own.
@@ -304,7 +298,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   body in a region of its own. Selecting a node keeps its colours, and the
   layout switches between left to right and force at any size.
 - Training printers (`"tiny"`, `"legacy"`, `"nnodely"`), `set_seed()` for
-  reproducible runs, and `nnodely.__version__`.
+  reproducible runs, and `nnodely.__version__`. The `"nnodely"` console
+  charts the total loss along the epochs, on a log scale. In a notebook,
+  `"nnodely"` and `"tiny"` redraw one output of the cell in place, a few
+  times a second, instead of appending a frame at every repaint.
 
 ### Changed
 
@@ -397,12 +394,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   `DataLoader.dataset` and the settings a layer keeps, such as `Loop.f` or
   `Linear.features`. `Modely.minimizers` is the table of the minimizers (see
   Added): in 2.0.0 it was the list the model trains on. Its rows set the
-  gain, loss and seq_weights of a minimizer; `minimize` declares one and
+  gain and loss of a minimizer; `minimize` declares one and
   `remove_minimizer` removes one.
-- A model calling a block that has minimizers trains on them too (see
-  Added), so its data needs the targets those read that the call does not
-  bind. `model.remove_minimizer("<block>.<minimizer>")` trains the model as
-  before.
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
 
@@ -412,6 +405,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   predictions is a `Loop` or a `ModelyLoop`; a neural ODE is an `Ode` step,
   the layers of its field created outside `f`, rolled out by a `Loop`.
   Saves and `.keras` exports holding one of them do not load.
+- The `seq_weights` of `minimize()`, in 2.0.0 the weight of each step of a
+  rollout or window. It is planned for a future version.
 
 ## Migrating from 1.x
 

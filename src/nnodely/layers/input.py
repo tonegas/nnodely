@@ -287,7 +287,7 @@ class Inputs(list):
     data must hold of it and, fed back by a Loop, what it starts from."""
 
     _HEADER = (
-        "name",
+        "input",
         "seq",
         "sw",
         "dim",
@@ -297,10 +297,9 @@ class Inputs(list):
         "starts from",
     )
 
-    def __init__(self, rows: list[dict], title: str = ""):
+    def __init__(self, rows: list[dict]):
         super().__init__(row["input"] for row in rows)
         self._rows = rows
-        self._title = title
 
     def __str__(self):
         cells = [
@@ -316,18 +315,6 @@ class Inputs(list):
             )
             for row in self._rows
         ]
-        fed_back = sum(row["fed back with"] is not None for row in self._rows)
-        return _table(
-            self._title,
-            self._HEADER,
-            [("", cells)],
-            [
-                f"{len(self)} inputs, {fed_back} fed back",
-                "fed back with: the stream a loop feeds back into the Input at "
-                "the next step; a Modely reads the Input from data instead",
-                "data: required, optional (zeros where left out), target (to train "
-                "and validate) or - (fed back only)",
-            ],
-        )
+        return _table(self._HEADER, [("", cells)])
 
     __repr__ = __str__

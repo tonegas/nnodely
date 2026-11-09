@@ -1,7 +1,6 @@
 import os
 import warnings
 
-from collections import Counter
 from collections.abc import Mapping
 from typing import Any, Callable
 
@@ -25,7 +24,6 @@ from nnodely.core.minimizer import (
     _minimizer_stream,
     _resolve_minimizer_terms,
     _validate_gain,
-    _validate_seq_weights,
 )
 from nnodely.core.validation import ValidationResult
 from nnodely.utils.utils import (
@@ -83,21 +81,19 @@ class Modely:
         self.inference_inputs = []  # List of Input nodes the declared outputs read (no minimizer-only input)
         # Inputs the data may leave out: they read zeros.
         self.optional_inputs: set[str] = set()
-        # The minimizers the model declares, dicts with keys 'name', 'source',
-        # 'target', 'loss', 'gain' and 'seq_weights'; _minimizers adds those it
-        # inherits from the blocks it calls.
-        self._own_minimizers: list[dict] = []
-        # The names remove_minimizer removed: an inherited one stays out.
-        self._removed_minimizers: set[str] = set()
-        # name -> {key: value} the model set on a minimizer it inherits.
-        self._minimizer_overrides: dict[str, dict] = {}
+        self._minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
         self._minimizer_outputs: dict[Node, str] = {}  # minimizer side -> graph output
-        # (call, stream of the block) -> the stream of this model reading it out
-        # of the call, so every minimizer reading it reads one graph output.
-        self._lifted: dict[tuple, Output] = {}
 
     def __repr__(self) -> str:
-        return f"Model {self.name}"
+        """The model as a table: its name, then the names of every Input it
+        reads, as :attr:`inputs` lists them, of its outputs and of its
+        minimizers."""
+        rows = [
+            ("inputs", ", ".join(node.name for node in self.inputs) or "-"),
+            ("outputs", ", ".join(node.name for node in self._outputs) or "-"),
+            ("minimizers", ", ".join(m["name"] for m in self._minimizers) or "-"),
+        ]
+        return _table(("model", self.name), [("", rows)])
 
     def __call__(self, inputs) -> Any:
         """Run the model on arrays, or use it as a block on streams.
@@ -461,7 +457,6 @@ class Modely:
         target: Output | Stream | str | float | None = None,
         loss: str | dict[str, Any] | keras.losses.Loss | Callable = "mse",
         gain: float = 1.0,
-        seq_weights: Any = None,
     ):
         """Register a Keras loss to minimize during training.
 
@@ -484,30 +479,9 @@ class Modely:
             0.5 gives it half the importance, 2 twice. Its own logged and
             validated loss stays unweighted, the way Keras logs a
             ``loss_weight``.
-        seq_weights:
-            One weight per step of the outer axis of the source - the
-            rollout of its outermost Loop, its outermost sequence axis, or its
-            window without one - such as
-            ``np.exp(0.1 * np.arange(N))`` to weigh the last predictions more,
-            or a callable of the number of steps returning them, such as
-            ``lambda n: np.exp(0.1 * np.arange(n))``, for a sequence whose
-            length is dynamic. Normalized to mean one, so only their profile
-            matters; the logged and validated loss is the weighted one. None
-            weighs every step the same. It suits losses computed element by
-            element, as the regression losses are.
 
         A name identifies one minimizer: registering a name again replaces the
         minimizer it names, in its place, and warns that it did.
-
-        A model also minimizes, with its own, the minimizers of every block its
-        graph calls - those the block trains on, the ones it inherits
-        included - on what each call computes: named ``<block>.<minimizer>``,
-        or ``<block>.<k>.<minimizer>`` for the k-th call of a block called
-        several times. The block's streams are read where the call computes
-        them, from the streams it is given; an Input of the block the call
-        does not bind is read from the data of this model. :meth:`remove_minimizer`
-        removes one the model is not to train on. The bodies of Loops are not
-        inherited from.
         """
         if not isinstance(name, str) or not name:
             raise ValueError(f"A minimizer name is a non-empty string, got {name!r}.")
@@ -539,34 +513,28 @@ class Modely:
         target = _minimizer_stream(self, target, "target", name)
         resolved_loss = _resolve_loss(loss)
         gain = _validate_gain(gain, name)
-        seq_weights = _validate_seq_weights(seq_weights, source, name)
         minimizer = {
             "name": name,
             "source": source,
             "target": target,
             "loss": resolved_loss,
             "gain": gain,
-            "seq_weights": seq_weights,
         }
-        # One inherited is replaced too: the model's own takes its name.
-        if any(existing["name"] == name for existing in self._minimizers):
-            warnings.warn(
-                f"Minimizer {name!r} already exists in model {self.name!r}: "
-                "it is replaced by the new one.",
-                UserWarning,
-                stacklevel=2,
-            )
-        for index, existing in enumerate(self._own_minimizers):
+        for index, existing in enumerate(self._minimizers):
             if existing["name"] == name:
-                self._own_minimizers[index] = minimizer
+                warnings.warn(
+                    f"Minimizer {name!r} already exists in model {self.name!r}: "
+                    "it is replaced by the new one.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                self._minimizers[index] = minimizer
                 return self
-        self._own_minimizers.append(minimizer)
+        self._minimizers.append(minimizer)
         return self
 
     def remove_minimizer(self, name: str):
-        """Remove a minimizer by name: one the model declares, or one it
-        inherits from a block it calls, which it then no longer inherits. An
-        unknown name only warns."""
+        """Remove a registered minimizer by name; an unknown name only warns."""
         if all(minimizer["name"] != name for minimizer in self._minimizers):
             warnings.warn(
                 f"Model {self.name!r} has no minimizer named {name!r}: nothing "
@@ -575,89 +543,20 @@ class Modely:
                 stacklevel=2,
             )
             return
-        self._own_minimizers = [m for m in self._own_minimizers if m["name"] != name]
-        self._removed_minimizers.add(name)
-
-    @property
-    def _minimizers(self) -> list[dict]:
-        """The minimizers the model trains on: those it declares, then, once
-        per call, those every block its graph calls trains on - but those
-        removed, and those the model declares a minimizer of the name of."""
-        own = {minimizer["name"] for minimizer in self._own_minimizers}
-        calls = [node for node in self._order if isinstance(node, ModelCall)]
-        counts = Counter(call._model.name for call in calls)
-        reached: Counter[str] = Counter()
-        inherited = []
-        for call in calls:
-            block = call._model
-            reached[block.name] += 1
-            label = block.name
-            if counts[block.name] > 1:
-                label = f"{block.name}.{reached[block.name]}"
-            for minimizer in block._minimizers:
-                name = f"{label}.{minimizer['name']}"
-                if name in own or name in self._removed_minimizers:
-                    continue
-                inherited.append(
-                    {
-                        **minimizer,
-                        "name": name,
-                        "source": self._lift(minimizer["source"], call, label),
-                        "target": self._lift(minimizer["target"], call, label),
-                        "inherited_from": block,
-                        **self._minimizer_overrides.get(name, {}),
-                    }
-                )
-        return [*self._own_minimizers, *inherited]
+        self._minimizers = [m for m in self._minimizers if m["name"] != name]
 
     def _set_minimizer(self, name: str, key: str, value):
-        """Set the loss, gain or seq_weights - ``key`` - of the minimizer
-        ``name``, checked as :meth:`minimize` checks it: in the minimizer the
-        model declares, or, inherited, in this model only. Returns the value
-        set."""
+        """Set the loss or gain - ``key`` - of the minimizer ``name``, checked
+        as :meth:`minimize` checks it. Returns the value set."""
         minimizer = next((m for m in self._minimizers if m["name"] == name), None)
         if minimizer is None:
             raise ValueError(f"Model {self.name!r} has no minimizer named {name!r}.")
         if key == "gain":
             value = _validate_gain(value, name)
-        elif key == "loss":
+        else:
             value = _resolve_loss(value)
-        else:
-            value = _validate_seq_weights(value, minimizer["source"], name)
-        own = next((m for m in self._own_minimizers if m["name"] == name), None)
-        if own is not None:
-            own[key] = value
-        else:
-            self._minimizer_overrides.setdefault(name, {})[key] = value
+        minimizer[key] = value
         return value
-
-    def _lift(self, side: Stream, call: "ModelCall", label: str) -> Node:
-        """``side``, a stream of the block ``call`` calls, as the stream of
-        this model that computes it there. A value is shared, and an Input
-        reads the stream the call binds it to, or else its own data; any
-        other stream is read out of the call, under ``<label>.<its name>``."""
-        if isinstance(side, Input):
-            return call._inputs_map.get(side, side)
-        if side._is_value:
-            return side
-        key = (call, side)
-        if key not in self._lifted:
-            # An output of the block is the stream the call already returns:
-            # one more of its name would make the name ambiguous in this model.
-            read = next(
-                (
-                    out
-                    for out, inner in call._outputs_map.items()
-                    if isinstance(out, IntermediateOutput) and inner is side
-                ),
-                None,
-            )
-            # Named after the call: a block called twice reads out two streams
-            # of one name, and the graph addresses its outputs by name.
-            self._lifted[key] = Output(
-                f"{label}.{side.name}", read or IntermediateOutput(side, call)
-            )
-        return self._lifted[key]
 
     # -------------------------------------------------------------------------
     # Parameters and freezing
@@ -669,9 +568,11 @@ class Modely:
         the weights of its layers, of the models it calls and of the bodies of
         its Loops, in the order the graph reaches them. A
         list of the Parameter objects, printed as a table of their names,
-        shapes, numbers of values and whether training changes them: a table
-        per model when the models it computes with have Parameters, each
-        Parameter under the first model whose graph reaches it."""
+        shapes, numbers of values and whether training changes them: a
+        section per model, under its name, when the models it computes with
+        have Parameters, each Parameter under the first model whose graph
+        reaches it. The last row totals the values of all the Parameters and,
+        under trainable, those training changes."""
         return Parameters(
             [
                 (model.name, [node for node in nodes if isinstance(node, Parameter)])
@@ -700,9 +601,15 @@ class Modely:
         calls, or only by a minimizer - and every Input fed back inside the
         step of a Loop it rolls out, as a ModelyLoop does. A list of the Input
         objects, printed as a table of their shapes and of how each is fed:
-        whether it is declared, the stream it is fed back with, what the data
-        must hold of it and, fed back by a Loop, what it starts from."""
-        return Inputs(self._input_rows(), title=f"Inputs of {self.name}")
+
+        - declared: whether the model is declared with it;
+        - fed back with: the stream a loop feeds back into the Input at the
+          next step; a Modely reads the Input from data instead;
+        - data: what the data must hold of it - ``required``, ``optional``
+          (zeros where left out), ``target`` (to train and validate) or
+          ``-`` (fed back only);
+        - starts from: fed back by a Loop, what its first step reads."""
+        return Inputs(self._input_rows())
 
     def _input_rows(self) -> list[dict]:
         """A row of :attr:`inputs` per Input the graph reads, then one per
@@ -775,10 +682,15 @@ class Modely:
     @property
     def outputs(self) -> Outputs:
         """The outputs the model was declared with, in that order. A list of
-        the Output objects, printed as a table of their shapes, the stream
-        each names, the Inputs a loop feeds that stream back into and the
-        minimizers that read it."""
-        return Outputs(self._output_rows(), title=f"Outputs of {self.name}")
+        the Output objects, printed as a table of their shapes and of:
+
+        - stream: the stream the output names; in a ModelyLoop, the stream of
+          the step, collected over the steps;
+        - feeds back: the Inputs a loop feeds that stream back into at the
+          next step;
+        - minimized by: the minimizers that read it, as ``name (source)`` or
+          ``name (target)``."""
+        return Outputs(self._output_rows())
 
     def _output_rows(self) -> list[dict]:
         """A row of :attr:`outputs` per declared output."""
@@ -791,12 +703,7 @@ class Modely:
         minimized: dict[int, list[str]] = {}
         for minimizer in self._minimizers:
             for side in ("source", "target"):
-                stream = minimizer[side]
-                # One inherited reads the stream the call returns through a
-                # name of its own.
-                if "inherited_from" in minimizer and isinstance(stream, Output):
-                    stream = stream._preds[0]
-                minimized.setdefault(id(stream), []).append(
+                minimized.setdefault(id(minimizer[side]), []).append(
                     f"{minimizer['name']} ({side})"
                 )
         rows = []
@@ -821,31 +728,17 @@ class Modely:
 
     @property
     def minimizers(self) -> "Minimizers":
-        """The minimizers of the model, then those of every model it computes
-        with, as :attr:`models` lists them. A list of :class:`Minimizer`, one
-        per minimizer - its name, source, target, loss, gain and seq_weights,
-        the model it is listed under and, for one inherited from a block the
-        model calls, ``inherited_from``, that block - printed as a table, one
-        per model when the models it computes with have minimizers. Setting
-        the loss, gain or seq_weights of one changes it in the model it is
-        listed under: ``model.minimizers[0]["gain"] = 0.1``.
+        """The minimizers of the model, those its :meth:`train` minimizes. A
+        list of :class:`Minimizer`, one per minimizer - its name, source,
+        target, loss and gain, and the model - printed as a table. Setting
+        the loss or gain of one changes it in the model:
+        ``model.minimizers[0]["gain"] = 0.1``.
 
-        The :meth:`train` of each model minimizes those listed under it: its
-        own, and those it inherits from the blocks it calls (see
-        :meth:`minimize`). The body of a Loop trains its own with its own
-        :meth:`train`."""
+        The minimizers of the models it calls, blocks or Loop bodies, are not
+        listed and not trained on: each is minimized by the :meth:`train` of
+        its own model."""
         return Minimizers(
-            [
-                (
-                    model.name,
-                    [
-                        Minimizer({**minimizer, "model": model})
-                        for minimizer in model._minimizers
-                    ],
-                )
-                for model in _nodes_and_models(self)[1]
-            ],
-            title=f"Minimizers of {self.name}",
+            [Minimizer({**minimizer, "model": self}) for minimizer in self._minimizers]
         )
 
     def freeze(self, names: str | list[str] | None = None):
@@ -1010,9 +903,10 @@ class Modely:
 
         ``printer`` selects how progress is rendered: ``"tiny"`` prints a compact
         summary of the training progress, ``"legacy"`` prints the scrolling
-        per-minimizer loss table of the original nnodely trainer, ``"nnodely"``
-        drives the animated machine-room console, ``None`` prints nothing, and
-        any Keras callback is used as given.
+        per-minimizer loss table, drawn as the tables of a model are,
+        ``"nnodely"`` drives the animated machine-room console with a chart of
+        the total loss, ``None`` prints nothing, and any Keras callback is used
+        as given.
         """
         if not self._minimizers:
             raise ValueError("No minimizers defined. Call minimize() before train().")
@@ -1239,9 +1133,6 @@ class IntermediateOutput(Output):
         super().__init__(name=out.name, stream=out)
         self._pred = model_call
         self._preds = [model_call]
-        # The stream of the called model it reads out: an output of it, or,
-        # for a minimizer inherited from it, any stream of its graph.
-        self._internal = out
 
 
 class Models(list):
@@ -1274,7 +1165,7 @@ class Models(list):
         return super().__getitem__(positions[0])
 
     def __str__(self):
-        header = ("name", "inputs", "outputs", "parameters", "built")
+        header = ("model", "inputs", "outputs", "parameters", "built")
         rows = [
             (
                 model.name,
@@ -1285,27 +1176,20 @@ class Models(list):
             )
             for model in self
         ]
-        built = sum(model.built for model in self)
-        return _table(
-            self._title, header, [("", rows)], [f"{len(self)} models, {built} built"]
-        )
+        return _table(header, [("", rows)])
 
     __repr__ = __str__
 
 
 class Minimizer(Mapping):
     """One minimizer, as :attr:`Modely.minimizers` lists it: its name, source,
-    target, loss, gain and seq_weights, ``model``, the model it is listed
-    under, and, inherited from a block, ``inherited_from``.
+    target, loss and gain, and ``model``, the model it is of.
 
-    Setting its loss, gain or seq_weights changes the minimizer in the model
-    it is listed under, checked as :meth:`Modely.minimize` checks them, from
-    the next :meth:`Modely.train`: one inherited only in that model, not in
-    the block. What it compares is set by :meth:`Modely.minimize`. A row
-    holds what the minimizer was when listed: list them again to see what a
-    change made of the others, such as those inheriting it."""
+    Setting its loss or gain changes the minimizer in its model, checked as
+    :meth:`Modely.minimize` checks them, from the next :meth:`Modely.train`.
+    What it compares is set by :meth:`Modely.minimize`."""
 
-    _SETTABLE = ("loss", "gain", "seq_weights")
+    _SETTABLE = ("loss", "gain")
 
     def __init__(self, row: dict):
         self._row = row
@@ -1325,9 +1209,9 @@ class Minimizer(Mapping):
     def __setitem__(self, key, value):
         if key not in self._SETTABLE:
             raise TypeError(
-                f"Minimizer {self._row['name']!r}: its loss, gain and "
-                f"seq_weights can be set, not its {key!r}; declare it again "
-                "with minimize() to change what it compares."
+                f"Minimizer {self._row['name']!r}: its loss and gain can be "
+                f"set, not its {key!r}; declare it again with minimize() to "
+                "change what it compares."
             )
         self._row[key] = self._row["model"]._set_minimizer(
             self._row["name"], key, value
@@ -1335,25 +1219,18 @@ class Minimizer(Mapping):
 
 
 class Minimizers(list):
-    """The minimizers of a model and of the models it computes with, as
-    :attr:`Modely.minimizers` lists them: a list of :class:`Minimizer`,
-    printed as a table of the streams each compares, its loss, its gain and
-    its seq_weights - a table per model when the models it calls have
-    minimizers of their own.
+    """The minimizers of a model, as :attr:`Modely.minimizers` lists them: a
+    list of :class:`Minimizer`, printed as a table of the streams each
+    compares, its loss and its gain."""
 
-    ``groups`` pairs the name of each model with its minimizers, the model
-    itself first."""
+    _HEADER = ("minimizer", "source", "target", "loss", "gain")
 
-    _HEADER = ("name", "source", "target", "loss", "gain", "seq_weights")
-
-    def __init__(self, groups: list[tuple[str, list[Minimizer]]], title: str = ""):
-        super().__init__(row for _, group in groups for row in group)
-        self._groups = groups
-        self._title = title
+    def __init__(self, minimizers: list[Minimizer]):
+        super().__init__(minimizers)
 
     def __str__(self):
         def cells(row):
-            target, weights = row["target"], row["seq_weights"]
+            target = row["target"]
             return (
                 row["name"],
                 row["source"].name,
@@ -1366,32 +1243,9 @@ class Minimizers(list):
                 else target.name,
                 validation.loss_name(row["loss"]),
                 str(row["gain"]),
-                "-"
-                if weights is None
-                else "callable"
-                if callable(weights)
-                else str(weights.shape),
             )
 
-        # A section per model only when the models it calls have some.
-        sections = [
-            (f"{name}: {len(group)} minimizers", [cells(row) for row in group])
-            for name, group in self._groups
-            if group
-        ]
-        if not any(group for _, group in self._groups[1:]):
-            sections = [("", [cells(row) for row in self])]
-        return _table(
-            self._title,
-            self._HEADER,
-            sections,
-            [
-                f"{len(self)} minimizers",
-                "the train() of a model minimizes those listed under it: its own "
-                "and, as <block>.<minimizer>, those of the blocks it calls; "
-                "remove_minimizer() removes one",
-            ],
-        )
+        return _table(self._HEADER, [("", [cells(row) for row in self])])
 
     __repr__ = __str__
 
