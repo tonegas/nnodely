@@ -325,7 +325,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   `T = past + future`. Without `sw` the Input has no window: one value per
   sample, `(samples, *dim)` in the data. A sequence, `seq=5` or
   `seq=(4, -1)` (outermost first, `-1` or `"dyn"` dynamic), needs a window.
-  There is no `sw()`, `next()` or `last()` on an Input: the layers that read
+  `dim` is one feature by default, each axis at least 1: `dim=0` or `dim=()`
+  is refused. There is no `sw()`, `next()` or `last()` on an Input: the layers that read
   it take what they need of its window, `TimeSelect(-1)(x)` its newest
   sample, `TimeRange(0, 3)(x)` its first three. `Gradient(wrt=x)`
   has the shape of `x`.
@@ -341,13 +342,22 @@ variable, and trains, validates and exports through Keras. Models saved with
   sequence and window of the others. The layers that act on the window -
   `Fir`, the `Time*` layers, `DerivativeStep`, `IntegrateStep` - refuse a
   stream without one.
-- A `Parameter` or `Constant` `value` is all dim by default, without a
-  window: an array of shape `(2, 3, 2)` is `D=(2, 3, 2)`. Given with a
-  value, `dim`, `time` and `seq` name its axes, `time` one, the window, and
-  `seq` one or several, outermost first (`dim=0, time=1, seq=2` makes a
-  `(2, 3, 4)` value `S=(4,), T=3, D=(2,)`); without one, they are sizes.
-  `.value` and the variable are laid out `(*seq, time, *dim)`, without the
-  window when no `time` is given.
+- A `Parameter` or `Constant` declares its shape as an `Input` does, with
+  `time` for the window: `seq`, `time` and `dim` are sizes - `dim` one
+  feature by default, each axis at least 1, and a sequence of fixed lengths
+  that needs a window. A `value` fills that shape: a list of numbers holds
+  exactly as many, read in the order `(*seq, time, *dim)`
+  (`value=[1, ..., 10], time=2, dim=5`); an array of several axes has the
+  declared sizes, in any order, its axes moved into place (a `(2, 3, 4, 5)`
+  array with `seq=5, time=3, dim=(2, 4)` is `S=(5,), T=3, D=(2, 4)`).
+  Anything else raises `ValueError`. Without `dim`, `seq` and `time` take
+  the axes of the value of their sizes, and the axes they leave are the dim,
+  in their order (a `(2, 4, 6)` value with `time=4` is `T=4, D=(2, 6)`); with
+  neither, every axis is dim and the value has no window: `value=[1, 2, 3]`
+  is `D=(3,)`. A `Constant` requires a value; a `Parameter` without one is
+  drawn by its `initializer` in the declared shape. `.value` and the
+  variable are laid out `(*seq, time, *dim)`, without the window when no
+  `time` is given.
 - `BatchNorm` normalizes along the first dim axis by default; `Softmax`,
   `PReLU` and `BatchNorm` take an explicit `axis` as a tensor axis, the batch
   as 0, as Keras does: a negative one counts from the last dim axis.
@@ -357,13 +367,13 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
   history, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
-- The `.nnodely` save format is version 11: a model is saved with every
+- The `.nnodely` save format is version 12: a model is saved with every
   model it calls in a folder of its own, a fed-back Input with the stream it
   is fed back with and the `init` of the layer that keeps it, and a `Loop`
   with the outputs it returns. Saves and `.keras` exports made
   with the 2.0 pre-releases, in which windows were taken from an Input,
   streams had several time axes or were laid out `(batch, *dim, time,
-  *seq)`, or fed-back Inputs were saved open, or a `Fuzzify` was a graph of one layer per center, or a `PReLU` or `BatchNorm` held its weights in its Keras layer, or blocks were inlined, do not load;
+  *seq)`, or fed-back Inputs were saved open, or a `Fuzzify` was a graph of one layer per center, or a `PReLU` or `BatchNorm` held its weights in its Keras layer, or blocks were inlined, or a `Parameter` or `Constant` was saved with the axes of its value in place of their sizes, do not load;
   nor do saves of an earlier format version.
 - The stream fed back into an Input is named `feedback` everywhere:
   `Input.feedback(stream)` and `Loop(feedback=)` (was `callback=`). The old

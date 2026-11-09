@@ -49,7 +49,7 @@ def _repeated(sample):
 def test_a_parameter_and_a_constant_are_repeated_for_every_sample():
     x = Input("repeat_x", sw=1)
     parameter = Parameter("repeat_parameter", value=[1.0, 2.0, 3.0])
-    constant = Constant("repeat_constant", value=[[4.0, 5.0]], time=1)
+    constant = Constant("repeat_constant", value=[4.0, 5.0], time=2)
 
     _, result = _evaluate("repeat", {"parameter": parameter, "constant": constant}, x)
 
@@ -79,7 +79,7 @@ def test_dim_slicing_of_a_parameter_selects_along_its_dim_axis():
 
 def test_time_slicing_of_a_constant_selects_along_its_time_axis():
     x = Input("time_slice_x", sw=1)
-    constant = Constant("time_slice_constant", value=[[1.0, 2.0, 3.0, 4.0]], time=1)
+    constant = Constant("time_slice_constant", value=[1.0, 2.0, 3.0, 4.0], time=4)
 
     _, result = _evaluate(
         "time_slice",
@@ -97,7 +97,7 @@ def test_time_slicing_of_a_constant_selects_along_its_time_axis():
 def test_concatenation_joins_a_parameter_with_an_input_sample_by_sample():
     x = Input("join_x", sw=1)
     parameter = Parameter("join_parameter", value=[1.0, 2.0])
-    window = Constant("join_window", value=[[5.0, 6.0]], time=1)
+    window = Constant("join_window", value=[5.0, 6.0], time=2)
 
     _, result = _evaluate(
         "join",
@@ -120,7 +120,7 @@ def test_concatenation_joins_a_parameter_with_an_input_sample_by_sample():
 def test_linear_and_fir_project_a_parameter_like_an_input():
     x = Input("project_x", sw=1)
     vector = Parameter("project_vector", value=[1.0, 2.0, 3.0])
-    window = Parameter("project_window", value=[[1.0, 2.0, 3.0, 4.0]], time=1)
+    window = Parameter("project_window", value=[1.0, 2.0, 3.0, 4.0], time=4)
     matrix = Parameter("project_matrix", value=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
     linear = Linear(features=2, kernel=matrix, bias=False, name="project_linear")(
         [vector]

@@ -426,8 +426,10 @@ def test_a_dynamic_initial_value_feeds_a_state_of_a_static_sequence():
 
 def test_a_loop_is_called_with_a_dict_a_list_or_its_one_stream():
     # The list skips the fed-back y, and takes y0, the init of the Integrate.
-    u, y, y0 = Input("fb_call_u", sw=1), Input("fb_call_y", sw=1), Input(
-        "fb_call_y0", sw=1
+    u, y, y0 = (
+        Input("fb_call_u", sw=1),
+        Input("fb_call_y", sw=1),
+        Input("fb_call_y0", sw=1),
     )
     y_next = y.feedback(y * 0.0 + Integrate(dt=1, init=y0)(u))
     step = Modely(

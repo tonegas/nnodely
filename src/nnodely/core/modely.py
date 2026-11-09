@@ -1360,7 +1360,9 @@ class Minimizers(list):
                 # A Constant of one value - a number given as the target -
                 # prints as that value.
                 str(float(target.value.ravel()[0]))
-                if isinstance(target, Constant) and target.value.size == 1
+                if isinstance(target, Constant)
+                and target.value is not None
+                and target.value.size == 1
                 else target.name,
                 validation.loss_name(row["loss"]),
                 str(row["gain"]),
