@@ -180,7 +180,6 @@ class ModelyLoop(Modely):
         target: Output | Stream | str | float | None = None,
         loss: str | dict[str, Any] | keras.losses.Loss | Callable = "mse",
         gain: float = 1.0,
-        seq_weights: Any = None,
     ):
         """Register a loss between two trajectories, as :meth:`Modely.minimize`
         does. ``source`` and ``target`` are given as streams of the step - an
@@ -192,5 +191,4 @@ class ModelyLoop(Modely):
             self._trajectory(target, name),
             loss=loss,
             gain=gain,
-            seq_weights=seq_weights,
         )

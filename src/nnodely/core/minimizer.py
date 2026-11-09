@@ -11,7 +11,7 @@ from nnodely.core.layer import Layer
 from nnodely.core.shape import OUTER_AXIS, expand_to_rank, outer_view
 from nnodely.core.stream import Node, Stream
 from nnodely.layers.input import Input
-from nnodely.utils.utils import MaskedLoss, _resolve_loss, _weighted_sequence_loss
+from nnodely.utils.utils import MaskedLoss, _resolve_loss
 
 
 def _depends_on_dynamic_input(node) -> bool:
@@ -96,44 +96,6 @@ def _validate_gain(gain, minimizer: str) -> float:
     return gain
 
 
-def _seq_weights_for(seq_weights, steps: int | None, minimizer: str):
-    """One weight per step of an outer axis ``steps`` long, normalized to mean one.
-
-    A callable is given the number of steps. Weights are not negative, and not
-    all zero: a negative weight would maximize the error of its step, and all
-    zeros would train nothing. ``steps=None`` leaves the length unchecked.
-    """
-    weights = seq_weights(steps) if callable(seq_weights) else seq_weights
-    weights = np.asarray(weights, dtype=np.float32)
-    if weights.ndim != 1 or steps is not None and weights.shape != (steps,):
-        raise ValueError(
-            f"The seq_weights of minimizer {minimizer!r} must be one weight per "
-            f"step of the outer axis, {steps} of them, got shape {weights.shape}."
-        )
-    if not np.isfinite(weights).all() or (weights < 0).any() or not weights.any():
-        raise ValueError(
-            f"The seq_weights of minimizer {minimizer!r} must be finite, not "
-            f"negative and not all zero, got {weights.tolist()}."
-        )
-    return weights / weights.mean()
-
-
-def _validate_seq_weights(seq_weights, source: Stream, minimizer: str):
-    """The seq_weights of a minimizer, checked as far as its source allows.
-
-    A dynamic sequence follows the data, whatever length its stream declares,
-    so its weights are checked once the data sets the length.
-    """
-    if seq_weights is None:
-        return None
-    steps = None if _depends_on_dynamic_input(source) else source.shape.outer
-    if callable(seq_weights):
-        if steps is not None:
-            _seq_weights_for(seq_weights, steps, minimizer)
-        return seq_weights
-    return _seq_weights_for(seq_weights, steps, minimizer)
-
-
 class _MinimizerTerm:
     """One minimizer, resolved against the outputs of the built graph."""
 
@@ -146,12 +108,9 @@ class _MinimizerTerm:
         loss,
         masked,
         gain=1.0,
-        seq_weights=None,
     ):
         self.name = name
         self.gain = gain  # weight of this term in the total loss
-        # weight of each step of the outer axis, or a callable of its length
-        self.seq_weights = seq_weights
         self.source = source  # name of the graph output holding the prediction
         self.target = target  # name of the graph output holding the reference
         # a target computed from constants alone, which broadcasts to its source
@@ -248,12 +207,6 @@ class MinimizerModel(keras.Model):
         valid = _rollout_mask(term, target, y)
         if valid is not None:
             target = keras.ops.where(valid, target, keras.ops.full_like(target, np.nan))
-        if term.seq_weights is not None:
-            # The rollout is unrolled, so its length is static here.
-            weights = _seq_weights_for(
-                term.seq_weights, source.shape[OUTER_AXIS], term.name
-            )
-            return _weighted_sequence_loss(term.loss, target, source, weights)
         # A loss function returns one value per sample, a Loss instance the
         # reduced value: the mean is how compile() reduces either.
         return keras.ops.mean(term.loss(target, source))
@@ -279,7 +232,6 @@ class MinimizerModel(keras.Model):
             value = self._term_loss(term, source, target, y)
             # Logged unweighted by the gain, as Keras logs a per-output loss
             # under loss_weights; only the total the optimizer sees is weighted.
-            # The seq_weights are part of the loss itself, so they are logged.
             # Each batch weighs as many samples as it holds, as in Keras's own
             # loss: a short last batch would otherwise count as a full one.
             term.tracker.update_state(value, sample_weight=keras.ops.shape(source)[0])
@@ -356,7 +308,6 @@ def _resolve_minimizer_terms(model) -> list[_MinimizerTerm]:
             masked=_depends_on_dynamic_input(minimizer["source"])
             or _depends_on_dynamic_input(minimizer["target"]),
             gain=minimizer.get("gain", 1.0),
-            seq_weights=minimizer.get("seq_weights"),
         )
         for minimizer in model._minimizers
     ]

@@ -31,8 +31,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   tensors, `(N, *seq, time, *dim)`, and uses them as given: dynamic sequence
   lengths, several per input, are read from their shape, and rollouts of
   different lengths are padded and masked.
-- `minimize()` with any Keras loss, a `gain` per objective and `seq_weights`
-  along a rollout; targets can be computed streams or numbers.
+- `minimize()` with any Keras loss and a `gain` per objective; targets can
+  be computed streams or numbers.
 - A layer whose constructor takes only `name` is applied as it is created:
   `Sin(x)` is `Sin()(x)`. These are `Sin`, `Cos`, `Tan`, `Asin`, `Acos`,
   `Atan`, `Atan2`, `Exp`, `Log`, `Log10`, `Sqrt`, `Abs`, `Floor`, `Ceil`,
@@ -107,9 +107,9 @@ variable, and trains, validates and exports through Keras. Models saved with
   that stream back into and the minimizers that read it.
 - `Modely.minimizers`: the minimizers of a model - those its `train()`
   minimizes, not those of the models it calls - printed as a table of their
-  source and target, loss, gain and seq_weights. Setting the gain, loss or
-  seq_weights of a row changes that minimizer in the model, from the next
-  `train()`: `model.minimizers[0]["gain"] = 0.1`.
+  source and target, loss and gain. Setting the gain or loss of a row
+  changes that minimizer in the model, from the next `train()`:
+  `model.minimizers[0]["gain"] = 0.1`.
 - The tables a model prints - `inputs`, `outputs`, `models`, `parameters`
   and `minimizers` - are drawn as boxes, the table alone: its first column
   is named after what it lists (`input`, `output`, `model`, `parameter`,
@@ -381,7 +381,7 @@ variable, and trains, validates and exports through Keras. Models saved with
   `DataLoader.dataset` and the settings a layer keeps, such as `Loop.f` or
   `Linear.features`. `Modely.minimizers` is the table of the minimizers (see
   Added): in 2.0.0 it was the list the model trains on. Its rows set the
-  gain, loss and seq_weights of a minimizer; `minimize` declares one and
+  gain and loss of a minimizer; `minimize` declares one and
   `remove_minimizer` removes one.
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
@@ -392,6 +392,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   predictions is a `Loop` or a `ModelyLoop`; a neural ODE is an `Ode` step,
   the layers of its field created outside `f`, rolled out by a `Loop`.
   Saves and `.keras` exports holding one of them do not load.
+- The `seq_weights` of `minimize()`, in 2.0.0 the weight of each step of a
+  rollout or window. It is planned for a future version.
 
 ## Migrating from 1.x
 

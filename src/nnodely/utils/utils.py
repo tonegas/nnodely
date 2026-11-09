@@ -4,8 +4,6 @@ import math
 import keras
 from typing import Any, Callable, Collection, cast
 
-from nnodely.core.shape import outer_view
-
 SUPPORTED_OPTIMIZERS = {
     "sgd",
     "rmsprop",
@@ -95,7 +93,7 @@ class MaskedLoss(keras.losses.Loss):
         y_true = keras.ops.where(valid, y_true, zero)
         y_pred = keras.ops.where(valid, y_pred, zero)
         # A Loss instance is called unreduced, like a loss function: this Loss
-        # reduces, and seq_weights weigh the values before it does.
+        # reduces.
         loss = self.loss.call if isinstance(self.loss, keras.losses.Loss) else self.loss
         if callable(loss):
             return loss(y_true, y_pred)
@@ -112,21 +110,6 @@ class MaskedLoss(keras.losses.Loss):
         config = dict(config)
         config["loss"] = keras.losses.deserialize(config["loss"])
         return cls(**config)
-
-
-def _weighted_sequence_loss(loss, y_true, y_pred, weights):
-    """Mean of ``loss`` with each step of the outer step axis scaled by
-    ``weights``.
-
-    A Keras loss reduces the last axis: a trailing axis of one is added for it
-    to reduce instead, so every step keeps its own value. The weights have
-    mean one, so uniform weights give back the unweighted loss.
-    """
-    if isinstance(loss, keras.losses.Loss):
-        loss = loss.call  # one value per element, before the Loss reduces them
-    values = loss(keras.ops.expand_dims(y_true, -1), keras.ops.expand_dims(y_pred, -1))
-    weights = keras.ops.reshape(keras.ops.cast(weights, values.dtype), (1, -1))
-    return keras.ops.mean(values * outer_view(weights, len(values.shape)))
 
 
 def _resolve_optimizer(

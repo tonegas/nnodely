@@ -26,7 +26,6 @@ from nnodely import (
     DataLoader,
     Input,
     Linear,
-    Loop,
     Modely,
     Output,
     Parameter,
@@ -1041,244 +1040,6 @@ def test_minimize_rejects_an_invalid_gain(gain, error):
     assert model._minimizers == []
 
 
-# -----------------------------------------------------------------------------
-# Sequence weights: the weight of each step along the outer time axis
-# -----------------------------------------------------------------------------
-
-
-def _windows(name, width):
-    """CSV column as sliding windows of ``width`` samples, oldest first."""
-    return np.stack(
-        [_column(name, past=width, shift=s) for s in range(1 - width, 1)], axis=-1
-    )
-
-
-def _window_model(**minimize_options):
-    """``pred = 2 * x`` against ``y``, windows of 3: a known error at every step."""
-    x = Input("x", sw=3)
-    y = Input("y", sw=3)
-    out = Output("pred", x * Parameter(value=[2.0]))
-    model = Modely("model", inputs=[x], outputs=[out])
-    model.minimize("error", out, y, **minimize_options)
-    model.build()
-    X, Y = _windows("data_1", 3), _windows("data_3", 3)
-    return model, X, Y
-
-
-def _elementwise(kind, y_true, y_pred):
-    error = np.asarray(y_pred) - np.asarray(y_true)
-    if kind == "mae":
-        return np.abs(error)
-    return error**2
-
-
-@pytest.mark.parametrize("kind", ["mse", "mae", "mse_instance"])
-def test_seq_weights_weigh_each_step_trained_logged_and_validated(kind):
-    weights = np.exp(0.5 * np.arange(3))
-    loss = keras.losses.MeanSquaredError() if kind == "mse_instance" else kind
-    model, X, Y = _window_model(loss=loss, seq_weights=weights)
-    data = _load(model)
-    normalized = weights / weights.mean()
-    expected = float(np.mean(normalized * _elementwise(kind.split("_")[0], Y, 2 * X)))
-
-    history = model.train(
-        train_data=data,
-        epochs=1,
-        batch_size=len(data),
-        optimizer="sgd",
-        lr=0.0,
-        shuffle=False,
-        printer=None,
-    )
-
-    np.testing.assert_allclose(history["loss"][0], expected, rtol=1e-5)
-    np.testing.assert_allclose(history["error_loss"][0], expected, rtol=1e-5)
-    np.testing.assert_allclose(
-        _validation_losses(model, data)["error"], expected, rtol=1e-5
-    )
-
-
-def test_uniform_seq_weights_give_the_unweighted_loss():
-    model, X, Y = _window_model(seq_weights=[4.0, 4.0, 4.0])
-
-    np.testing.assert_allclose(
-        _training_loss(model, _load(model)), _mse(Y, 2 * X), rtol=1e-5
-    )
-
-
-def test_seq_weights_on_the_last_step_only_give_its_error():
-    model, X, Y = _window_model(seq_weights=[0.0, 0.0, 1.0])
-
-    np.testing.assert_allclose(
-        _training_loss(model, _load(model)), _mse(Y[:, -1], 2 * X[:, -1]), rtol=1e-5
-    )
-
-
-def test_seq_weights_are_stored_normalized_to_mean_one():
-    model, _, _ = _window_model(seq_weights=[1.0, 2.0, 3.0])
-
-    np.testing.assert_allclose(model._minimizers[0]["seq_weights"], [0.5, 1.0, 1.5])
-
-
-def test_minimize_default_seq_weights_are_none():
-    x, _, _, out = _gain_model()
-    model = Modely("model", inputs=[x], outputs=[out])
-
-    model.minimize("error", out, 1.0)
-
-    assert model._minimizers[0]["seq_weights"] is None
-
-
-def test_seq_weights_weigh_the_rollout_steps_of_a_loop():
-    # c = 0, d = 2: the loop predicts 2 * y at every step, whatever it feeds back
-    x, y = Input("x", sw=1), Input("y", sw=1)
-    step = x * Parameter("c", value=[0.0]) + y * Parameter("d", value=[2.0])
-    body = Modely("body", inputs=[x, y], outputs=[Output("step", step)]).build()
-    x_seq, y_seq = Input("x_seq", seq=4, sw=1), Input("y_seq", seq=4, sw=1)
-    t_seq = Input("t_seq", seq=4, sw=1)
-    loop = Loop(f=body, feedback={"x": "step"}, init={"x": x_seq})({"y": y_seq})
-    out = Output("rollout", loop)
-    model = Modely("model", inputs=[x_seq, y_seq], outputs=[out])
-    weights = np.exp(np.arange(4))
-    model.minimize("error", out, t_seq, seq_weights=weights)
-    model.build()
-    rng = np.random.default_rng(0)
-    raw = {
-        name: rng.normal(size=20).astype(np.float32)
-        for name in ("x_seq", "y_seq", "t_seq")
-    }
-    data = DataLoader(model, source=raw)
-    Y = np.stack([raw["y_seq"][i : i + 4] for i in range(17)])
-    T = np.stack([raw["t_seq"][i : i + 4] for i in range(17)])
-    expected = float(np.mean(weights / weights.mean() * (2 * Y - T) ** 2))
-
-    np.testing.assert_allclose(_training_loss(model, data), expected, rtol=1e-5)
-
-
-@pytest.mark.parametrize(
-    "seq_weights",
-    [
-        [1.0, 2.0],
-        [1.0, -1.0, 1.0],
-        [1.0, float("nan"), 1.0],
-        [0.0, 0.0, 0.0],
-        [[1.0, 1.0, 1.0]],
-    ],
-    ids=["wrong_length", "negative", "nan", "all_zero", "two_dimensional"],
-)
-def test_minimize_rejects_invalid_seq_weights(seq_weights):
-    x, y = Input("x", sw=3), Input("y", sw=3)
-    out = Output("pred", x * Parameter(value=[2.0]))
-    model = Modely("model", inputs=[x], outputs=[out])
-
-    with pytest.raises(ValueError, match="seq_weights"):
-        model.minimize("error", out, y, seq_weights=seq_weights)
-    assert model._minimizers == []
-
-
-def test_callable_seq_weights_are_evaluated_with_the_sequence_length():
-    model, X, Y = _window_model(seq_weights=lambda n: np.exp(0.5 * np.arange(n)))
-    weights = np.exp(0.5 * np.arange(3))
-    expected = _mse(0, np.sqrt(weights / weights.mean()) * (2 * X - Y))
-
-    np.testing.assert_allclose(_training_loss(model, _load(model)), expected, rtol=1e-5)
-
-
-def _dynamic_loop_model(seq_weights):
-    """A rollout of dynamic length predicting ``2 * y`` at every step."""
-    x, y = Input("x", sw=1), Input("y", sw=1)
-    step = x * Parameter("c", value=[0.0]) + y * Parameter("d", value=[2.0])
-    body = Modely("body", inputs=[x, y], outputs=[Output("step", step)]).build()
-    x_seq, y_seq = Input("x_seq", seq=-1, sw=1), Input("y_seq", seq=-1, sw=1)
-    t_seq = Input("t_seq", seq=-1, sw=1)
-    loop = Loop(f=body, feedback={"x": "step"}, length=3, init={"x": x_seq})(
-        {"y": y_seq}
-    )
-    out = Output("rollout", loop)
-    model = Modely("model", inputs=[x_seq, y_seq], outputs=[out])
-    model.minimize("error", out, t_seq, seq_weights=seq_weights)
-    model.build()
-    rng = np.random.default_rng(0)
-    raw = {
-        name: rng.normal(size=20).astype(np.float32)
-        for name in ("x_seq", "y_seq", "t_seq")
-    }
-    return model, raw
-
-
-def _rollout_loss(raw, width, weights):
-    samples = 20 - width + 1
-    Y = np.stack([raw["y_seq"][i : i + width] for i in range(samples)])
-    T = np.stack([raw["t_seq"][i : i + width] for i in range(samples)])
-    return float(np.mean(weights / weights.mean() * (2 * Y - T) ** 2))
-
-
-@pytest.mark.parametrize("width", [5, 8])
-def test_callable_seq_weights_follow_the_length_of_a_dynamic_rollout(width):
-    model, raw = _dynamic_loop_model(lambda n: np.exp(0.3 * np.arange(n)))
-    data = DataLoader(model, source=raw, seq_length=width)
-    expected = _rollout_loss(raw, width, np.exp(0.3 * np.arange(width)))
-
-    np.testing.assert_allclose(_training_loss(model, data), expected, rtol=1e-5)
-    np.testing.assert_allclose(
-        _validation_losses(model, data)["error"], expected, rtol=1e-5
-    )
-
-
-def test_array_seq_weights_on_a_dynamic_rollout_match_the_data_length():
-    # The stream declares length=3, but the rollout follows the data: 5 steps
-    weights = np.array([1.0, 1.0, 2.0, 3.0, 5.0])
-    model, raw = _dynamic_loop_model(weights)
-    data = DataLoader(model, source=raw, seq_length=5)
-
-    np.testing.assert_allclose(
-        _training_loss(model, data), _rollout_loss(raw, 5, weights), rtol=1e-5
-    )
-
-
-def test_minimize_rejects_a_callable_giving_the_wrong_number_of_weights():
-    x, y = Input("x", sw=3), Input("y", sw=3)
-    out = Output("pred", x * Parameter(value=[2.0]))
-    model = Modely("model", inputs=[x], outputs=[out])
-
-    with pytest.raises(ValueError, match="seq_weights"):
-        model.minimize("error", out, y, seq_weights=lambda n: np.ones(n + 1))
-    assert model._minimizers == []
-
-
-def test_seq_weights_weigh_a_padded_rollout_with_a_loss_instance():
-    # On padded simulations the loss is masked, and a Loss instance reduced
-    # every step to one value before the weights were applied: they were lost.
-    def history(loss, seq_weights):
-        u = Input("padded_u", seq=-1, sw=1)
-        out = Output("padded_out", u * Parameter("padded_k", value=1.0))
-        model = Modely("padded", inputs=[u], outputs=[out])
-        model.minimize(
-            "fit",
-            out,
-            Input("padded_t", seq=-1, sw=1),
-            loss=loss,
-            seq_weights=seq_weights,
-        )
-        model.build()
-        simulations = [
-            {"padded_u": np.arange(1.0, 1.0 + n), "padded_t": np.zeros(n)}
-            for n in (2, 4)
-        ]
-        data = DataLoader(model, source=simulations, seq_length="full")
-        trained = model.train(
-            data, epochs=1, batch_size=2, optimizer="sgd", lr=0.0, printer=None
-        )
-        return trained["loss"][0]
-
-    weights = [1.0, 0.0, 0.0, 0.0]
-    weighted = history("mse", weights)
-    assert weighted != pytest.approx(history("mse", None))
-    np.testing.assert_allclose(
-        history(keras.losses.MeanSquaredError(), weights), weighted, rtol=1e-6
-    )
-
-
 def _cells(line):
     """The cells of a row of a printed table."""
     return [cell.strip() for cell in re.split("[│┃]", line)[1:-1]]
@@ -1293,8 +1054,8 @@ def test_minimizers_lists_only_those_of_the_model():
     z = Input("tab_min_z", sw=1)
     top_out = Output("tab_min_top_out", body([z]))
     top = Modely("tab_min_top", inputs=[z], outputs=[top_out])
-    top.minimize("fit", top_out, 3.0, gain=0.5, seq_weights=[2.0])
-    top.minimize("reg", "tab_min_z", None, seq_weights=lambda n: np.ones(n))
+    top.minimize("fit", top_out, 3.0, gain=0.5)
+    top.minimize("reg", "tab_min_z", None)
 
     # The model's own, not those of the block it calls.
     assert [(row["name"], row["model"]) for row in top.minimizers] == [
@@ -1306,18 +1067,11 @@ def test_minimizers_lists_only_those_of_the_model():
     # The table alone: its header, a row per minimizer and the box.
     lines = text.splitlines()
     assert len(lines) == 6 and lines[0].startswith("┏") and lines[-1].startswith("└")
-    assert _cells(lines[1]) == [
-        "minimizer",
-        "source",
-        "target",
-        "loss",
-        "gain",
-        "seq_weights",
-    ]
+    assert _cells(lines[1]) == ["minimizer", "source", "target", "loss", "gain"]
     # A number given as the target prints as that number.
     assert [_cells(line) for line in lines[3:5]] == [
-        ["fit", "tab_min_top_out", "3.0", "mean_squared_error", "0.5", "(1,)"],
-        ["reg", "tab_min_z", "0.0", "mean_squared_error", "1.0", "callable"],
+        ["fit", "tab_min_top_out", "3.0", "mean_squared_error", "0.5"],
+        ["reg", "tab_min_z", "0.0", "mean_squared_error", "1.0"],
     ]
 
     # The block lists its own.
@@ -1328,7 +1082,6 @@ def test_minimizers_lists_only_those_of_the_model():
         "tab_min_target",
         "mean_absolute_error",
         "1.0",
-        "-",
     ]
     bare = Modely("tab_min_bare", inputs=[u], outputs=[body_out])
     assert list(bare.minimizers) == [] and len(str(bare.minimizers).splitlines()) == 4

@@ -24,7 +24,6 @@ from nnodely.core.minimizer import (
     _minimizer_stream,
     _resolve_minimizer_terms,
     _validate_gain,
-    _validate_seq_weights,
 )
 from nnodely.core.validation import ValidationResult
 from nnodely.utils.utils import (
@@ -458,7 +457,6 @@ class Modely:
         target: Output | Stream | str | float | None = None,
         loss: str | dict[str, Any] | keras.losses.Loss | Callable = "mse",
         gain: float = 1.0,
-        seq_weights: Any = None,
     ):
         """Register a Keras loss to minimize during training.
 
@@ -481,17 +479,6 @@ class Modely:
             0.5 gives it half the importance, 2 twice. Its own logged and
             validated loss stays unweighted, the way Keras logs a
             ``loss_weight``.
-        seq_weights:
-            One weight per step of the outer axis of the source - the
-            rollout of its outermost Loop, its outermost sequence axis, or its
-            window without one - such as
-            ``np.exp(0.1 * np.arange(N))`` to weigh the last predictions more,
-            or a callable of the number of steps returning them, such as
-            ``lambda n: np.exp(0.1 * np.arange(n))``, for a sequence whose
-            length is dynamic. Normalized to mean one, so only their profile
-            matters; the logged and validated loss is the weighted one. None
-            weighs every step the same. It suits losses computed element by
-            element, as the regression losses are.
 
         A name identifies one minimizer: registering a name again replaces the
         minimizer it names, in its place, and warns that it did.
@@ -526,14 +513,12 @@ class Modely:
         target = _minimizer_stream(self, target, "target", name)
         resolved_loss = _resolve_loss(loss)
         gain = _validate_gain(gain, name)
-        seq_weights = _validate_seq_weights(seq_weights, source, name)
         minimizer = {
             "name": name,
             "source": source,
             "target": target,
             "loss": resolved_loss,
             "gain": gain,
-            "seq_weights": seq_weights,
         }
         for index, existing in enumerate(self._minimizers):
             if existing["name"] == name:
@@ -561,18 +546,15 @@ class Modely:
         self._minimizers = [m for m in self._minimizers if m["name"] != name]
 
     def _set_minimizer(self, name: str, key: str, value):
-        """Set the loss, gain or seq_weights - ``key`` - of the minimizer
-        ``name``, checked as :meth:`minimize` checks it. Returns the value
-        set."""
+        """Set the loss or gain - ``key`` - of the minimizer ``name``, checked
+        as :meth:`minimize` checks it. Returns the value set."""
         minimizer = next((m for m in self._minimizers if m["name"] == name), None)
         if minimizer is None:
             raise ValueError(f"Model {self.name!r} has no minimizer named {name!r}.")
         if key == "gain":
             value = _validate_gain(value, name)
-        elif key == "loss":
-            value = _resolve_loss(value)
         else:
-            value = _validate_seq_weights(value, minimizer["source"], name)
+            value = _resolve_loss(value)
         minimizer[key] = value
         return value
 
@@ -748,9 +730,9 @@ class Modely:
     def minimizers(self) -> "Minimizers":
         """The minimizers of the model, those its :meth:`train` minimizes. A
         list of :class:`Minimizer`, one per minimizer - its name, source,
-        target, loss, gain and seq_weights, and the model - printed as a
-        table. Setting the loss, gain or seq_weights of one changes it in the
-        model: ``model.minimizers[0]["gain"] = 0.1``.
+        target, loss and gain, and the model - printed as a table. Setting
+        the loss or gain of one changes it in the model:
+        ``model.minimizers[0]["gain"] = 0.1``.
 
         The minimizers of the models it calls, blocks or Loop bodies, are not
         listed and not trained on: each is minimized by the :meth:`train` of
@@ -1200,13 +1182,13 @@ class Models(list):
 
 class Minimizer(Mapping):
     """One minimizer, as :attr:`Modely.minimizers` lists it: its name, source,
-    target, loss, gain and seq_weights, and ``model``, the model it is of.
+    target, loss and gain, and ``model``, the model it is of.
 
-    Setting its loss, gain or seq_weights changes the minimizer in its model,
-    checked as :meth:`Modely.minimize` checks them, from the next
-    :meth:`Modely.train`. What it compares is set by :meth:`Modely.minimize`."""
+    Setting its loss or gain changes the minimizer in its model, checked as
+    :meth:`Modely.minimize` checks them, from the next :meth:`Modely.train`.
+    What it compares is set by :meth:`Modely.minimize`."""
 
-    _SETTABLE = ("loss", "gain", "seq_weights")
+    _SETTABLE = ("loss", "gain")
 
     def __init__(self, row: dict):
         self._row = row
@@ -1226,9 +1208,9 @@ class Minimizer(Mapping):
     def __setitem__(self, key, value):
         if key not in self._SETTABLE:
             raise TypeError(
-                f"Minimizer {self._row['name']!r}: its loss, gain and "
-                f"seq_weights can be set, not its {key!r}; declare it again "
-                "with minimize() to change what it compares."
+                f"Minimizer {self._row['name']!r}: its loss and gain can be "
+                f"set, not its {key!r}; declare it again with minimize() to "
+                "change what it compares."
             )
         self._row[key] = self._row["model"]._set_minimizer(
             self._row["name"], key, value
@@ -1238,16 +1220,16 @@ class Minimizer(Mapping):
 class Minimizers(list):
     """The minimizers of a model, as :attr:`Modely.minimizers` lists them: a
     list of :class:`Minimizer`, printed as a table of the streams each
-    compares, its loss, its gain and its seq_weights."""
+    compares, its loss and its gain."""
 
-    _HEADER = ("minimizer", "source", "target", "loss", "gain", "seq_weights")
+    _HEADER = ("minimizer", "source", "target", "loss", "gain")
 
     def __init__(self, minimizers: list[Minimizer]):
         super().__init__(minimizers)
 
     def __str__(self):
         def cells(row):
-            target, weights = row["target"], row["seq_weights"]
+            target = row["target"]
             return (
                 row["name"],
                 row["source"].name,
@@ -1258,11 +1240,6 @@ class Minimizers(list):
                 else target.name,
                 validation.loss_name(row["loss"]),
                 str(row["gain"]),
-                "-"
-                if weights is None
-                else "callable"
-                if callable(weights)
-                else str(weights.shape),
             )
 
         return _table(self._HEADER, [("", [cells(row) for row in self])])
