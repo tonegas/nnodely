@@ -480,16 +480,34 @@ def _loss_graph(losses: Sequence[float], cols: int, rows: int) -> list[str]:
     return out
 
 
+def _ink(letter: str) -> tuple[int, int]:
+    """The first and last column a glyph is drawn in."""
+    columns = [x for row in _GLYPHS[letter] for x, cell in enumerate(row) if cell == "#"]
+    return min(columns), max(columns)
+
+
+def _wordmark_width() -> int:
+    """Columns of the wordmark: each letter as wide as it is drawn, the next
+    one column after it."""
+    widths = [last - first + 1 for first, last in map(_ink, _WORDMARK)]
+    return sum(widths) + len(widths) - 1
+
+
 def _draw_wordmark(canvas: _Canvas, x0: int, y0: int, sweep: float) -> None:
-    """Paint 'nnodely' in the logo gradient with a highlight sweeping across."""
-    width = len(_WORDMARK) * 6
-    for index, letter in enumerate(_WORDMARK):
+    """Paint 'nnodely' in the logo gradient with a highlight sweeping across.
+
+    Each letter is placed by its own width, so they are evenly spaced
+    whatever the columns a glyph leaves empty."""
+    width = _wordmark_width()
+    left = x0
+    for letter in _WORDMARK:
+        first, last = _ink(letter)
         rows = _GLYPHS[letter]
         for dy, row in enumerate(rows):
             for dx, cell in enumerate(row):
                 if cell != "#":
                     continue
-                x = x0 + index * 6 + dx
+                x = left + dx - first
                 y = y0 + dy
                 # The gradient runs down the glyphs exactly as it does in the
                 # logo; the sweep is a soft specular band travelling right.
@@ -497,6 +515,7 @@ def _draw_wordmark(canvas: _Canvas, x0: int, y0: int, sweep: float) -> None:
                 distance = abs((x - x0) / max(1, width) - sweep)
                 highlight = math.exp(-((distance * 6.0) ** 2))
                 canvas.set(x, y, _shade(colour, 1.0 + 0.75 * highlight))
+        left += last - first + 2
 
 
 class _Line:
@@ -761,7 +780,8 @@ class NNodelyPrinter(keras.callbacks.Callback):
         self._stream.flush()
 
     def _banner(self, elapsed: float) -> list[str]:
-        mark_width = len(_WORDMARK) * 6 + 2
+        # The wordmark two columns in, and one after it.
+        mark_width = _wordmark_width() + 3
         canvas = _Canvas(mark_width, 5)
         _draw_wordmark(canvas, 2, 0, (elapsed * 0.32) % 1.7 - 0.35)
 
