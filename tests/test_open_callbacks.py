@@ -420,8 +420,11 @@ def test_inputs_tells_how_each_input_is_fed():
     assert rows["oc_tab_source"]["data"] == "required"
     (state,) = [row for name, row in rows.items() if name.endswith("_oc_tab_source")]
     assert state["data"] is None and state["starts from"] == "oc_tab_x0, first step"
-    text = str(loop.inputs)
-    assert text.startswith("Inputs of oc_tab_loop") and "4 inputs, 2 fed back" in text
+    # The table alone: the header, named after what it lists, and a row per
+    # Input.
+    lines = str(loop.inputs).splitlines()
+    assert lines[0].startswith("┏") and lines[1].startswith("┃ input ")
+    assert len(lines) == 3 + 4 + 1 and lines[-1].startswith("└")
 
 
 def test_outputs_tells_what_each_output_is():
@@ -451,8 +454,9 @@ def test_outputs_tells_what_each_output_is():
     assert rows["oc_outs_doubled"]["feeds back"] == []
     assert rows["oc_outs_doubled"]["minimized by"] == ["reg (source)"]
     text = str(tank.outputs)
-    assert text.startswith("Outputs of oc_outs_tank")
-    assert "2 outputs, 1 fed back, 2 minimized" in text
+    lines = text.splitlines()
+    assert lines[0].startswith("┏") and lines[1].startswith("┃ output ")
+    assert len(lines) == 3 + 2 + 1 and lines[-1].startswith("└")
     assert repr(tank.outputs) == text
 
     # In a ModelyLoop each output is a trajectory: the row names the stream

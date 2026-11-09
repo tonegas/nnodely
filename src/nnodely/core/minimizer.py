@@ -71,11 +71,6 @@ def _reaches_trainable_weight(node) -> bool:
         inner = getattr(current, "_model", None)
         if isinstance(inner, Modely):
             stack.extend(inner._outputs)
-        # A stream read out of a call, as an inherited minimizer reads one
-        # its block computes: any stream of the block, not only an output.
-        internal = getattr(current, "_internal", None)
-        if internal is not None:
-            stack.append(internal)
         stack.extend(current._preds)
     return False
 
@@ -347,8 +342,7 @@ def _resolve_minimizer_terms(model) -> list[_MinimizerTerm]:
             raise ValueError(
                 f"The {side} {node.name!r} of minimizer {minimizer['name']!r} "
                 "is not an output of the built model. Call build() after "
-                "adding a minimizer - to the model, or to a block it calls, "
-                "which it inherits - before train()."
+                "adding a minimizer, before train()."
             )
         return name
 

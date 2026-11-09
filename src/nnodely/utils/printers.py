@@ -909,7 +909,7 @@ def _supports_colour(stream: Any) -> bool:
 # =====================================================================
 
 #: The characters the box of a table is drawn with.
-_BOX = set("┏┳┓┃┡╇┻┩│├┬┴┤└┘━─")
+_BOX = set("┏┳┓┃┡╇┻┩│├┬┴┼┤└┘━─")
 
 
 def _table_colour() -> bool:
@@ -923,20 +923,19 @@ def _table_colour() -> bool:
 
 
 def _table(
-    title: str,
     header: tuple[str, ...],
     sections: list[tuple[str, list[tuple[str, ...]]]],
-    notes: list[str],
+    total: tuple[str, ...] | None = None,
 ) -> str:
-    """A table as nnodely prints one: ``title`` above a box, ``header`` in
-    heavy lines, then the rows of each section - a (title, rows) pair - under
-    a row of its title when it has one, and ``notes`` below the box, the
-    first plain and the others dimmed. The columns line up across the
-    sections. In colour (see :func:`_table_colour`) the box takes the brand
-    gradient, the titles the brand colour."""
+    """A table as nnodely prints one: ``header`` in heavy lines, then the
+    rows of each section - a (title, rows) pair - under a row of its title
+    when it has one, and, given, the ``total`` row last, under a rule. The
+    columns line up across the sections. In colour (see
+    :func:`_table_colour`) the box takes the brand gradient, the titles the
+    brand colour."""
     rows = [row for _, section in sections for row in section]
     widths = [
-        max(len(row[column]) for row in (header, *rows))
+        max(len(row[column]) for row in (header, *rows, *([total] if total else [])))
         for column in range(len(header))
     ]
     # The title of a section spans the box, which widens to hold it.
@@ -954,7 +953,6 @@ def _table(
     bold, brand = "\033[1m", "\033[1m" + _fg(_BRAND[2])
     titled = bool(sections) and bool(sections[0][0])
     lines = [
-        *([(title, brand)] if title else []),
         (rule("┏", "━", "┳", "┓"), ""),
         (row(header, "┃"), bold),
         (rule("┡", "━", "┻" if titled else "╇", "┩"), ""),
@@ -968,10 +966,11 @@ def _table(
                 (rule("├", "─", "┬", "┤"), ""),
             ]
         lines += [(row(cells, "│"), "") for cells in section]
+    if total is not None:
+        if rows:
+            lines.append((rule("├", "─", "┼", "┤"), ""))
+        lines.append((row(total, "│"), bold))
     lines.append((rule("└", "─", "┴", "┘"), ""))
-    lines += [
-        (f" {note}", "" if i == 0 else _fg(_STEEL)) for i, note in enumerate(notes)
-    ]
     if not _table_colour():
         return "\n".join(line for line, _ in lines)
 

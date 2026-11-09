@@ -164,7 +164,8 @@ def flatten_node(node: Node, scope: Scope) -> Any:
             call_scope.inits = inits
             scope.calls[model_call] = call_scope
 
-        flat_output = flatten_node(node._internal, call_scope)
+        internal_output = model_call._outputs_map[node]
+        flat_output = flatten_node(internal_output, call_scope)
 
         scope.memo[node] = flat_output
         return flat_output

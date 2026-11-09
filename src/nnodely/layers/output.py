@@ -36,12 +36,11 @@ class Outputs(list):
     as a table of their shapes, the stream each names, the Inputs that
     stream is fed back into and the minimizers that read it."""
 
-    _HEADER = ("name", "seq", "time", "dim", "stream", "feeds back", "minimized by")
+    _HEADER = ("output", "seq", "time", "dim", "stream", "feeds back", "minimized by")
 
-    def __init__(self, rows: list[dict], title: str = ""):
+    def __init__(self, rows: list[dict]):
         super().__init__(row["output"] for row in rows)
         self._rows = rows
-        self._title = title
 
     def __str__(self):
         cells = [
@@ -56,19 +55,6 @@ class Outputs(list):
             )
             for row in self._rows
         ]
-        fed_back = sum(bool(row["feeds back"]) for row in self._rows)
-        minimized = sum(bool(row["minimized by"]) for row in self._rows)
-        return _table(
-            self._title,
-            self._HEADER,
-            [("", cells)],
-            [
-                f"{len(self)} outputs, {fed_back} fed back, {minimized} minimized",
-                "stream: the stream the output names; in a ModelyLoop, the "
-                "stream of the step, collected over the steps",
-                "feeds back: the Inputs a loop feeds that stream back into at "
-                "the next step",
-            ],
-        )
+        return _table(self._HEADER, [("", cells)])
 
     __repr__ = __str__

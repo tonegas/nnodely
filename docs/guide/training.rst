@@ -78,21 +78,24 @@ statistics of a ``BatchNorm``, which training keeps updating.
    model.unfreeze("fir_y_bias")
 
 :attr:`~nnodely.Modely.parameters` lists them, in the order the graph reaches
-them, and prints as a table. A Parameter is also found by its name, and its
-``param`` is the Keras variable the built model computes with - ``value`` is
-the value it was declared with:
+them, and prints as a table, its last row the total of the values, of all the
+Parameters and of the trainable ones. A Parameter is also found by its name,
+and its ``param`` is the Keras variable the built model computes with -
+``value`` is the value it was declared with:
 
 .. code-block:: python
 
    print(model.parameters)
-   # Parameters of first_order
-   # name          seq  time  dim     values  trainable
-   # ------------  ---  ----  ------  ------  ---------
-   # fir_y_kernel  ()   None  (1, 1)  1       yes
-   # fir_y_bias    ()   None  (1,)    1       yes
-   # fir_u_kernel  ()   None  (1, 1)  1       yes
-   # fir_u_bias    ()   None  (1,)    1       yes
-   # 4 parameters, 4 values, 4 trainable
+   # ┏━━━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓
+   # ┃ parameter    ┃ seq ┃ time ┃ dim    ┃ values ┃ trainable ┃
+   # ┡━━━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩
+   # │ fir_y_kernel │ ()  │ None │ (1, 1) │ 1      │ yes       │
+   # │ fir_y_bias   │ ()  │ None │ (1,)   │ 1      │ yes       │
+   # │ fir_u_kernel │ ()  │ None │ (1, 1) │ 1      │ yes       │
+   # │ fir_u_bias   │ ()  │ None │ (1,)   │ 1      │ yes       │
+   # ├──────────────┼─────┼──────┼────────┼────────┼───────────┤
+   # │ total        │     │      │        │ 4      │ 4         │
+   # └──────────────┴─────┴──────┴────────┴────────┴───────────┘
    kernel = model.parameters["fir_y_kernel"].param   # the trained values
 
 A model used as a block is frozen the same way, ``block.freeze()``, or by its

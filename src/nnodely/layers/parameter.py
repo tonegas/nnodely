@@ -307,8 +307,9 @@ class Parameter(_Value):
 class Parameters(list):
     """The Parameters of a model, as :attr:`Modely.parameters` lists them: a
     list of the Parameter objects, printed as a table of their names, shapes,
-    numbers of values and whether training changes them - a table per model
-    when the models it calls have Parameters of their own.
+    numbers of values and whether training changes them - a section per model
+    when the models it calls have Parameters of their own - and a last row
+    totalling the values, all and trainable.
 
     ``groups`` pairs the name of each model with its Parameters, the model
     itself first."""
@@ -331,7 +332,7 @@ class Parameters(list):
         return super().__getitem__(key)
 
     def __str__(self):
-        header = ("name", "seq", "time", "dim", "values", "trainable")
+        header = ("parameter", "seq", "time", "dim", "values", "trainable")
 
         def row(parameter):
             return (
@@ -343,23 +344,18 @@ class Parameters(list):
                 "yes" if parameter.trainable else "no",
             )
 
-        def summary(parameters):
-            values = [math.prod(p.shape.tuple) for p in parameters]
-            trainable = sum(v for v, p in zip(values, parameters) if p.trainable)
-            return (
-                f"{len(parameters)} parameters, {sum(values)} values, "
-                f"{trainable} trainable"
-            )
-
         # A section per model only when the models it calls have some.
         sections = [
-            (f"{name}: {summary(group)}", [row(parameter) for parameter in group])
+            (name, [row(parameter) for parameter in group])
             for name, group in self._groups
             if group
         ]
         if not any(group for _, group in self._groups[1:]):
             sections = [("", [row(parameter) for parameter in self])]
-        return _table(self._title, header, sections, [summary(self)])
+        values = [math.prod(p.shape.tuple) for p in self]
+        trainable = sum(v for v, p in zip(values, self) if p.trainable)
+        total = ("total", "", "", "", str(sum(values)), str(trainable))
+        return _table(header, sections, total)
 
     __repr__ = __str__
 
