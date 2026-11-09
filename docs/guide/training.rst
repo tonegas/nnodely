@@ -134,7 +134,8 @@ per-epoch losses, with the validation ones under ``val_`` keys when
 ``printer``
     how progress is shown: ``"legacy"`` (the default, a per-objective loss
     table), ``"tiny"`` (one compact block), ``"nnodely"`` (an animated
-    console), ``None`` (nothing), or any ``keras.callbacks.Callback``.
+    console charting the total loss), ``None`` (nothing), or any
+    ``keras.callbacks.Callback``.
 
 .. code-block:: python
 

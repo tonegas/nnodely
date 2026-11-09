@@ -30,7 +30,16 @@ def _single_minimizer_model():
     return model, DataLoader(model, source=source)
 
 
-def test_legacy_printer_reproduces_the_original_table(capsys):
+def _rows(out):
+    """The epoch rows of a loss table: the cells of each, stripped."""
+    return [
+        [cell.strip() for cell in line.split("│")[1:-1]]
+        for line in out.splitlines()
+        if line.startswith("│") and "/" in line
+    ]
+
+
+def test_legacy_printer_draws_the_loss_table(capsys):
     printer = LegacyPrinter(epochs=6000, minimizers=["curv_error"], max_rows=100)
 
     ## 6000 epochs over at most 100 rows is one row every 60 epochs
@@ -48,15 +57,16 @@ def test_legacy_printer_reproduces_the_original_table(capsys):
     )
     lines = capsys.readouterr().out.splitlines()
 
+    ## Drawn as the tables of a model are, the name of each minimizer over
+    ## its train and val columns
     assert lines == [
-        "================= nnodely Training =================",
-        "|  Epoch   |     curv_error    |       Total       |",
-        "|          |        Loss       |        Loss       |",
-        "|          |  train  |   val   |  train  |   val   |",
-        "|--------------------------------------------------|",
-        "| 60/6000  |2.099e-06|1.226e-06|2.099e-06|1.226e-06|",
+        "┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓",
+        "┃ epoch      ┃ curv_error            ┃ total                 ┃",
+        "┃            ┃     train ┃       val ┃     train ┃       val ┃",
+        "┡━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━┩",
+        "│ 60/6000    │ 2.099e-06 │ 1.226e-06 │ 2.099e-06 │ 1.226e-06 │",
     ]
-    assert all(len(line) == 52 for line in lines)
+    assert all(len(line) == printer._width for line in lines)
 
 
 def test_legacy_printer_keeps_the_row_count_bounded(capsys):
@@ -66,14 +76,10 @@ def test_legacy_printer_keeps_the_row_count_bounded(capsys):
         printer.on_epoch_end(epoch, {"loss": 1.0, "a_loss": 1.0})
     printer.on_train_end()
 
-    rows = [
-        line
-        for line in capsys.readouterr().out.splitlines()
-        if line.startswith("|") and "/" in line
-    ]
+    rows = _rows(capsys.readouterr().out)
     assert len(rows) == 10
     ## The last epoch is always reported, whatever the stride
-    assert rows[-1].startswith("|1000/1000")
+    assert rows[-1][0] == "1000/1000"
 
 
 def test_legacy_printer_always_prints_the_final_epoch(capsys):
@@ -84,12 +90,7 @@ def test_legacy_printer_always_prints_the_final_epoch(capsys):
         printer.on_epoch_end(epoch, {"loss": 1.0})
     printer.on_train_end()
 
-    rows = [
-        line.split("|")[1].strip()
-        for line in capsys.readouterr().out.splitlines()
-        if line.startswith("|") and "/" in line
-    ]
-    assert rows == ["3/7", "6/7", "7/7"]
+    assert [row[0] for row in _rows(capsys.readouterr().out)] == ["3/7", "6/7", "7/7"]
 
 
 def test_legacy_printer_falls_back_to_the_total_loss(capsys):
@@ -97,15 +98,16 @@ def test_legacy_printer_falls_back_to_the_total_loss(capsys):
     printer = LegacyPrinter(epochs=1, minimizers=["only"])
     printer.on_train_begin()
     printer.on_epoch_end(0, {"loss": 0.25})
-    row = capsys.readouterr().out.splitlines()[-1]
 
-    assert row.split("|")[2:6] == ["     0.25", "    -    ", "     0.25", "    -    "]
+    (row,) = _rows(capsys.readouterr().out)
+    assert row[1:] == ["0.25", "-", "0.25", "-"]
 
 
 def test_legacy_printer_columns_stay_aligned_for_wide_values(capsys):
     printer = LegacyPrinter(epochs=1, minimizers=["a"])
     printer.on_train_begin()
     printer.on_epoch_end(0, {"loss": -1.23456789e-123, "val_loss": 9.87654321e-321})
+    printer.on_train_end()
     lines = capsys.readouterr().out.splitlines()
 
     ## Precision is dropped instead of the table widening
@@ -119,10 +121,30 @@ def test_legacy_printer_reports_the_training_time(capsys):
     printer.on_train_end()
     lines = capsys.readouterr().out.splitlines()
 
-    assert " nnodely Training Time " in lines[-3]
-    assert lines[-2].startswith("Total time of Training:")
-    assert float(lines[-2][30:]) >= 0.0
-    assert lines[-1] == "=" * 80
+    ## The last row of the table, across it
+    assert lines[-3].startswith("├") and lines[-1].startswith("└")
+    (seconds,) = re.fullmatch(r"│ training time: (\S+) s +│", lines[-2]).groups()
+    assert float(seconds) >= 0.0
+
+
+def test_legacy_printer_is_coloured_where_the_tables_are(capsys, monkeypatch):
+    def run():
+        printer = LegacyPrinter(epochs=2, minimizers=["a"])
+        printer.on_train_begin()
+        for epoch in range(2):
+            printer.on_epoch_end(epoch, {"loss": 1.0, "a_loss": 1.0})
+        printer.on_train_end()
+        return capsys.readouterr().out
+
+    plain = run()
+    assert "\x1b[" not in plain  # the tests run with NO_COLOR
+    monkeypatch.delenv("NO_COLOR")
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    coloured = run()
+    assert "\x1b[" in coloured
+    ## Only the time it took differs
+    strip = re.compile(r"\x1b\[[0-9;]*m|training time: \S+")
+    assert strip.sub("", coloured) == strip.sub("", plain)
 
 
 def test_legacy_printer_rejects_a_non_positive_max_rows():
@@ -205,6 +227,28 @@ def test_a_loss_that_is_not_finite_is_drawn_not_raised(losses):
     assert channel.trend() == 0.0
 
 
+def test_the_nnodely_printer_charts_the_total_loss():
+    from nnodely.utils.printers import _loss_graph
+
+    def chart(losses, rows):
+        return [re.sub(r"\x1b\[[0-9;]*m", "", line) for line in _loss_graph(losses, 34, rows)]
+
+    # A loss falling over three decades, a column per epoch.
+    lines = chart([10.0 ** -(epoch / 4) for epoch in range(13)], 10)
+    assert all(len(line) == 34 for line in lines)
+    # Its highest and lowest value on the axis.
+    assert lines[0].startswith("        1 ┤") and lines[-1].startswith("    0.001 ┤")
+    # On a log scale: the first column fills the chart, the last only its floor.
+    columns = [line[11:24] for line in lines]
+    assert [column[0] for column in columns] == ["█"] * 10
+    assert [column[-1] for column in columns] == [" "] * 9 + ["▁"]
+    # A loss that is not finite leaves its column empty.
+    assert [line[11:14] for line in chart([1.0, float("nan"), 2.0], 2)] == [
+        "  █",
+        "▁ █",
+    ]
+
+
 def test_tables_are_coloured_where_colour_shows(monkeypatch):
     x = Input("tab_colour_x", sw=1)
     model = Modely("tab_colour", inputs=[x], outputs=[Output("tab_colour_y", x * 2)])
@@ -265,3 +309,63 @@ def test_a_model_prints_as_a_table_of_its_inputs_outputs_and_minimizers():
     # A model without minimizers.
     bare = Modely("repr_bare", inputs=[x], outputs=[Output("repr_bare_out", x * 2)])
     assert repr(bare).splitlines()[5] == "│ minimizers │ -             │"
+
+
+def _notebook(monkeypatch):
+    """Run as a notebook does: the output stream of a kernel, which sets
+    FORCE_COLOR, and a display recording the text of each output it shows."""
+    import sys
+    import types
+
+    shown = []
+
+    class Handle:
+        def update(self, bundle, raw):
+            shown.append(bundle["text/plain"])
+
+    def display(bundle, raw, display_id):
+        shown.append(bundle["text/plain"])
+        return Handle()
+
+    module = types.ModuleType("IPython.display")
+    module.display = display  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "IPython.display", module)
+    OutStream = type("OutStream", (io.StringIO,), {"__module__": "ipykernel.iostream"})
+    monkeypatch.setattr(sys, "stdout", OutStream())
+    monkeypatch.delenv("NO_COLOR")
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    return sys.stdout, shown
+
+
+def test_the_nnodely_printer_redraws_one_output_in_a_notebook(monkeypatch):
+    # A notebook ignores the cursor moves a terminal is repainted with: every
+    # frame was appended to the cell, thousands in a run of a few minutes.
+    stream, shown = _notebook(monkeypatch)
+    monkeypatch.setattr("atexit.register", lambda _: pytest.fail("no cursor to show"))
+    printer = NNodelyPrinter(epochs=3, minimizers=["a"])
+    printer.on_train_begin()
+    for epoch in range(3):
+        printer.on_epoch_end(epoch, {"loss": 1.0 / (epoch + 1), "a_loss": 1.0})
+    printer.on_train_end()
+
+    # Every frame in one output, in colour, the last one the finished run.
+    assert len(shown) >= 2 and all("\x1b[38;2" in frame for frame in shown)
+    assert "COMPLETE" in shown[-1]
+    # The cell's text holds no cursor moves and no frame, only the summary.
+    out = stream.getvalue()
+    assert not any(code in out for code in ("\x1b[H", "\x1b[2J", "\x1b[?25"))
+    assert "nnodely Training Complete" in re.sub(r"\x1b\[[0-9;]*m", "", out)
+
+
+def test_the_tiny_printer_redraws_one_output_in_a_notebook(monkeypatch):
+    stream, shown = _notebook(monkeypatch)
+    printer = TinyPrinter(epochs=50)
+    printer.on_train_begin()
+    for epoch in range(50):
+        printer.on_epoch_end(epoch, {"loss": 1.0})
+    printer.on_train_end()
+
+    # A few times a second, and the last epoch once training ends.
+    assert 2 <= len(shown) < 50
+    assert "Epoch 50/50" in shown[-1]
+    assert stream.getvalue() == ""

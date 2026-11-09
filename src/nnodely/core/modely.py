@@ -903,9 +903,10 @@ class Modely:
 
         ``printer`` selects how progress is rendered: ``"tiny"`` prints a compact
         summary of the training progress, ``"legacy"`` prints the scrolling
-        per-minimizer loss table of the original nnodely trainer, ``"nnodely"``
-        drives the animated machine-room console, ``None`` prints nothing, and
-        any Keras callback is used as given.
+        per-minimizer loss table, drawn as the tables of a model are,
+        ``"nnodely"`` drives the animated machine-room console with a chart of
+        the total loss, ``None`` prints nothing, and any Keras callback is used
+        as given.
         """
         if not self._minimizers:
             raise ValueError("No minimizers defined. Call minimize() before train().")

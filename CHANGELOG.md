@@ -116,8 +116,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   `minimizer`), and the `parameters` table ends with a `total` row of the
   values, all and trainable. A model prints (`print(model)`, its repr) as one
   too: its name, then the names of the Inputs it reads, its outputs and its
-  minimizers. In
-  the nnodely colours when the
+  minimizers. The `"legacy"` training printer draws its loss table the same
+  way, the training time as its last row. In the nnodely colours when the
   standard output is a terminal or a notebook at the time the table is turned
   into text, plain otherwise. `NO_COLOR` prints them plain - for a table
   written to a file from a terminal - and `FORCE_COLOR` colours them anyway.
@@ -298,7 +298,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   body in a region of its own. Selecting a node keeps its colours, and the
   layout switches between left to right and force at any size.
 - Training printers (`"tiny"`, `"legacy"`, `"nnodely"`), `set_seed()` for
-  reproducible runs, and `nnodely.__version__`.
+  reproducible runs, and `nnodely.__version__`. The `"nnodely"` console
+  charts the total loss along the epochs, on a log scale. In a notebook,
+  `"nnodely"` and `"tiny"` redraw one output of the cell in place, a few
+  times a second, instead of appending a frame at every repaint.
 
 ### Changed
 
