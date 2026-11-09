@@ -10,13 +10,14 @@ from nnodely.core.dag import (
     flatten,
     _flatten_graph,
     _parameters,
-    _parameters_and_models,
     _nodes_and_models,
     _nodes_by_model,
     _read_inputs,
     _read_nodes,
     _source_input_tensors,
     _source_names,
+    is_key,
+    pick,
 )
 from nnodely.core.minimizer import (
     MinimizerModel,
@@ -254,23 +255,36 @@ class Modely:
         """
         from nnodely.core.layer import Identity
 
+        _rename_hidden_states(self)
         # A minimizer reads both of its sides from the forward pass, so every
         # source and target has to be an output of the graph. An Input is not
         # the value of any layer, so it is exposed through an Identity.
         # Everything is computed aside and checked, and taken by the model
         # only once its Keras models are made.
-        extra_outputs = []
+        # The training model returns them by a key of their own: the name of
+        # a declared output for one, else its name when no other output has
+        # it - two calls of one block return streams of one name.
+        extra_outputs, extra_keys = [], []
         minimizer_outputs: dict[Node, str] = {}
+        keys = {node.name for node in self._outputs}
         for minimizer in self._minimizers:
             for node in (minimizer["source"], minimizer["target"]):
                 if node in minimizer_outputs:
                     continue
                 exposed = Identity()([node]) if isinstance(node, Input) else node
-                if exposed not in self._outputs:
-                    extra_outputs.append(exposed)
-                minimizer_outputs[node] = exposed.name
+                if exposed in self._outputs:
+                    minimizer_outputs[node] = exposed.name
+                    continue
+                key, index = exposed.name, 1
+                while key in keys:
+                    key, index = f"{exposed.name}_{index}", index + 1
+                keys.add(key)
+                extra_outputs.append(exposed)
+                extra_keys.append(key)
+                minimizer_outputs[node] = key
 
         train_outputs = self._outputs + extra_outputs
+        output_keys = [node.name for node in self._outputs] + extra_keys
         flat, flatten_memo = _flatten_graph(
             self.name,
             self._inputs,
@@ -320,7 +334,7 @@ class Modely:
 
         flat_graph_outputs = [flatten_memo[node] for node in train_outputs]
         keras_inputs, keras_outputs = self._resolve_graph(
-            flat._order, train_inputs, flat_graph_outputs
+            flat._order, train_inputs, list(zip(output_keys, flat_graph_outputs))
         )
         model = MinimizerModel(
             name=self.name + "_train",
@@ -377,7 +391,7 @@ class Modely:
                 node._reinitialize()
         return self
 
-    def _resolve_graph(self, order, inputs, output_nodes):
+    def _resolve_graph(self, order, inputs, keyed_outputs):
         # Applying one layer several times yields one node per application, so
         # tensors are keyed by node identity: keying them by name made each
         # application overwrite the previous one. The concrete Keras layer is
@@ -428,22 +442,23 @@ class Modely:
 
         keras_inputs = {node.name: tensor_map[node] for node in inputs}
 
-        # Outputs are addressed by name, so two different nodes claiming one name
-        # would silently drop one of them. Calling a model several times produces
-        # exactly that: its outputs all carry the body's output names.
+        # The declared outputs are addressed by name, so two different nodes
+        # claiming one name would silently drop one of them. Calling a model
+        # several times produces exactly that: its outputs all carry the
+        # body's output names. The keys of the others are their own.
         keras_outputs = {}
         claimed: dict[str, Node] = {}
-        for node in output_nodes:
-            owner = claimed.get(node.name)
+        for key, node in keyed_outputs:
+            owner = claimed.get(key)
             if owner is not None and owner is not node:
                 raise ValueError(
                     f"Model {self.name!r} has two different outputs named "
-                    f"{node.name!r}. Calling one model several times returns outputs "
+                    f"{key!r}. Calling one model several times returns outputs "
                     "that share its output names, so wrap them in Output nodes with "
                     "distinct names before exposing them."
                 )
-            claimed[node.name] = node
-            keras_outputs[node.name] = tensor_map[node]
+            claimed[key] = node
+            keras_outputs[key] = tensor_map[node]
         return keras_inputs, keras_outputs
 
     # -------------------------------------------------------------------------
@@ -453,8 +468,8 @@ class Modely:
     def minimize(
         self,
         name: str,
-        source: Output | Stream | str,
-        target: Output | Stream | str | float | None = None,
+        source: Output | Stream | str | tuple[str, int],
+        target: Output | Stream | str | tuple[str, int] | float | None = None,
         loss: str | dict[str, Any] | keras.losses.Loss | Callable = "mse",
         gain: float = 1.0,
     ):
@@ -592,8 +607,15 @@ class Modely:
         and printed as a table of their inputs, outputs and Parameters.
 
         Each is saved in a folder of its own, so a loaded model lists the same
-        ones."""
-        return Models(_nodes_and_models(self)[1][1:], title=f"Models of {self.name}")
+        ones. A name several of them carry is picked with its index among
+        them, ``models["block", 1]``."""
+        holders: dict[int, Modely] = {}
+        models = [model for model, _ in _nodes_by_model(self, holders)][1:]
+        return Models(
+            models,
+            title=f"Models of {self.name}",
+            where=[f"in {holders[id(model)].name!r}" for model in models],
+        )
 
     @property
     def inputs(self) -> Inputs:
@@ -623,7 +645,10 @@ class Modely:
             for side in (minimizer["source"], minimizer["target"])
         ]
         forward = _read_inputs(self._outputs, self._inputs)
-        read = _read_nodes([*self._outputs, *sides], self._inputs)
+        # The rows give the Inputs of the graph, not the copies reading it
+        # makes: an Input a called model reads is the one to pass on.
+        originals: dict[int, Input] = {}
+        read = _read_nodes([*self._outputs, *sides], self._inputs, originals)
         rows = []
         by_name: dict[str, dict] = {}
         for name, node in {
@@ -634,7 +659,7 @@ class Modely:
             else:
                 data = "optional" if name in self.optional_inputs else "required"
             by_name[name] = {
-                "input": node,
+                "input": originals.get(id(node), node),
                 "seq": tuple(node.seq),
                 "declared": name in declared,
                 "fed back with": None if node.update is None else node.update.name,
@@ -741,7 +766,9 @@ class Modely:
             [Minimizer({**minimizer, "model": self}) for minimizer in self._minimizers]
         )
 
-    def freeze(self, names: str | list[str] | None = None):
+    def freeze(
+        self, names: str | tuple[str, int] | list[str | tuple[str, int]] | None = None
+    ):
         """Keep Parameters of the model as they are through training.
 
         Without ``names``, every one: those of its relations and of the
@@ -757,7 +784,9 @@ class Modely:
             parameter.freeze()
         return self
 
-    def unfreeze(self, names: str | list[str] | None = None):
+    def unfreeze(
+        self, names: str | tuple[str, int] | list[str | tuple[str, int]] | None = None
+    ):
         """Let training change Parameters of the model again: every one, or
         those ``names`` picks, as :meth:`freeze` finds them. Returns the
         model."""
@@ -766,38 +795,60 @@ class Modely:
         return self
 
     def _parameters_named(self, names) -> list[Parameter]:
-        """The Parameters ``names`` picks, every one for None. Each name is
-        checked before any of them is used, so an unknown one changes
-        nothing."""
-        parameters, models = _parameters_and_models(self)
+        """The Parameters ``names`` picks, every one for None. A key - a name,
+        or ``(name, index)`` - picks among the Parameters and the models the
+        graph reaches, the Parameters first, each in the order it reaches
+        them; a model stands for all its Parameters. A name several carry
+        picks them all, and warns. Each key is checked before any of them is
+        used, so an unknown one changes nothing."""
+        holders: dict[int, Modely] = {}
+        groups = _nodes_by_model(self, holders)
+        parameters = [
+            node for _, nodes in groups for node in nodes if isinstance(node, Parameter)
+        ]
         if names is None:
             return parameters
-        names = [names] if isinstance(names, str) else list(names)
-        given = [name for name in names if not isinstance(name, str)]
+        keys = [names] if is_key(names) else list(names)
+        given = [key for key in keys if not is_key(key)]
         if given:
             raise TypeError(
-                f"Model {self.name!r} picks Parameters by name, a string or a "
-                f"list of strings; got {type(given[0]).__name__}."
+                f"Model {self.name!r} picks Parameters by name, or by name and "
+                "index among those of that name, ('k', 1): one, or a list of "
+                f"them; got {type(given[0]).__name__}."
             )
+        models = [model for model, _ in groups[1:]]
+        candidates = [
+            *(
+                (parameter, f"(a Parameter) in {model.name!r}")
+                for model, nodes in groups
+                for parameter in nodes
+                if isinstance(parameter, Parameter)
+            ),
+            *((model, f"(a model) in {holders[id(model)].name!r}") for model in models),
+        ]
         picked: dict[int, Parameter] = {}
-        for name in names:
-            named = [parameter for parameter in parameters if parameter.name == name]
-            called = [model for model in models if model.name == name]
-            if named and called:
-                raise ValueError(
-                    f"Model {self.name!r} reaches a Parameter and a model both "
-                    f"named {name!r}: rename one of them to pick it."
-                )
-            if not (named or called):
+        for key in keys:
+            found = pick(
+                candidates,
+                key,
+                kind="Parameter or model",
+                kinds="Parameters and models",
+                owner=f"Model {self.name!r}",
+                every=True,
+            )
+            if not found:
+                name = key if isinstance(key, str) else key[0]
                 raise ValueError(
                     f"Model {self.name!r} reaches no Parameter and no model "
                     f"named {name!r}. Its Parameters are "
                     f"{[parameter.name for parameter in parameters]}, its "
                     f"models {list(dict.fromkeys(model.name for model in models))}."
                 )
-            for model in called:
-                named += _parameters(model)
-            picked.update((id(parameter), parameter) for parameter in named)
+            for item in found:
+                for parameter in (
+                    [item] if isinstance(item, Parameter) else _parameters(item)
+                ):
+                    picked.setdefault(id(parameter), parameter)
         return list(picked.values())
 
     # -------------------------------------------------------------------------
@@ -1141,28 +1192,26 @@ class Models(list):
     outputs, the number of Parameters each computes with and whether it is
     built."""
 
-    def __init__(self, models, title: str = ""):
+    def __init__(self, models, title: str = "", where: list[str] | None = None):
         super().__init__(models)
         self._title = title
+        # Where each one is, for the listing of a name several carry.
+        self._where = where or ["" for _ in models]
 
     def __getitem__(self, key):  # type: ignore[override]
-        """A model by its name, or by position as in a list."""
-        if not isinstance(key, str):
+        """A model by its name, by its name and its index among those of
+        that name, ``("block", 1)``, or by position as in a list. A name
+        several models carry raises ``ValueError`` listing them."""
+        if not is_key(key):
             return super().__getitem__(key)
-        positions = [index for index, model in enumerate(self) if model.name == key]
-        if len(positions) > 1:
-            raise ValueError(
-                f"{self._title or 'Models'}: the name {key!r} is ambiguous, "
-                f"{len(positions)} different models carry it, at positions "
-                f"{positions}. Pick one by its position, or give the models "
-                "names of their own."
-            )
-        if not positions:
+        owner = self._title or "Models"
+        picked = pick(list(zip(self, self._where)), key, kind="model", owner=owner)
+        if not picked:
             raise KeyError(
-                f"{self._title or 'Models'}: no model named {key!r}; the names "
-                f"are {[model.name for model in self]}."
+                f"{owner}: no model named {key if isinstance(key, str) else key[0]!r}; "
+                f"the names are {[model.name for model in self]}."
             )
-        return super().__getitem__(positions[0])
+        return picked[0]
 
     def __str__(self):
         header = ("model", "inputs", "outputs", "parameters", "built")
@@ -1237,7 +1286,9 @@ class Minimizers(list):
                 # A Constant of one value - a number given as the target -
                 # prints as that value.
                 str(float(target.value.ravel()[0]))
-                if isinstance(target, Constant) and target.value.size == 1
+                if isinstance(target, Constant)
+                and target.value is not None
+                and target.value.size == 1
                 else target.name,
                 validation.loss_name(row["loss"]),
                 str(row["gain"]),
@@ -1246,6 +1297,25 @@ class Minimizers(list):
         return _table(self._HEADER, [("", [cells(row) for row in self])])
 
     __repr__ = __str__
+
+
+def _rename_hidden_states(model: Modely) -> None:
+    """Give a free name to every state a layer keeps in an Input of its own
+    - Integrate, Derivative, Buffer - that has the name of another Input the
+    model reads: named after the layer and its signal, ``tank_rate``, it can
+    be named like an Input of the user's, ``tank_rate`` too. The user never
+    names or reads it, so it yields. The data is fed by input name, so the
+    model could not be built otherwise."""
+    inputs = [node for node in _nodes_and_models(model)[0] if isinstance(node, Input)]
+    taken = {node.name: node for node in inputs if not node._hidden}
+    for node in inputs:
+        if node._hidden and taken.setdefault(node.name, node) is not node:
+            name, index = node.name, 1
+            while f"{name}_{index}" in taken:
+                index += 1
+            node.name = f"{name}_{index}"
+            node._input = keras.Input(shape=node.shape.tuple, name=node.name)
+            taken[node.name] = node
 
 
 def _same_sizes(time: tuple, other: tuple) -> bool:

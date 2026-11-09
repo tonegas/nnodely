@@ -1853,7 +1853,10 @@ def test_parameters_of_one_name_keep_their_order_once_loaded(tmp_path):
     loaded = Modely.load(tmp_path / "cn_model")
 
     assert [p.name for p in loaded.parameters] == [p.name for p in model.parameters]
-    np.testing.assert_allclose(to_numpy(loaded.parameters["k"].param), [10.0])
+    # A name two Parameters carry picks one by its index, the same once loaded.
+    for parameters in (model.parameters, loaded.parameters):
+        np.testing.assert_allclose(to_numpy(parameters["k", 0].param), [10.0])
+        np.testing.assert_allclose(to_numpy(parameters["k", 1].param), [2.0])
 
 
 def test_a_model_called_in_a_loop_body_and_outside_is_one_model_once_loaded(tmp_path):

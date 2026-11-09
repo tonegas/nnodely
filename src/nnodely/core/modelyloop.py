@@ -176,8 +176,8 @@ class ModelyLoop(Modely):
     def minimize(
         self,
         name: str,
-        source: Output | Stream | str,
-        target: Output | Stream | str | float | None = None,
+        source: Output | Stream | str | tuple[str, int],
+        target: Output | Stream | str | tuple[str, int] | float | None = None,
         loss: str | dict[str, Any] | keras.losses.Loss | Callable = "mse",
         gain: float = 1.0,
     ):

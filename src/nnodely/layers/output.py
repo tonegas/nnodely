@@ -42,6 +42,22 @@ class Outputs(list):
         super().__init__(row["output"] for row in rows)
         self._rows = rows
 
+    def __getitem__(self, key):  # type: ignore[override]
+        """An output by its name, by its name and its index among those of
+        that name, ``("y", 1)``, or by position as in a list."""
+        from nnodely.core.dag import is_key, pick  # dag imports this module
+
+        if not is_key(key):
+            return super().__getitem__(key)
+        candidates = [(row["output"], f"(of {row['stream']!r})") for row in self._rows]
+        picked = pick(candidates, key, kind="output", owner="Outputs")
+        if not picked:
+            raise KeyError(
+                f"Outputs: no output named {key if isinstance(key, str) else key[0]!r}; "
+                f"the names are {[node.name for node in self]}."
+            )
+        return picked[0]
+
     def __str__(self):
         cells = [
             (

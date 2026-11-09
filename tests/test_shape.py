@@ -165,21 +165,22 @@ def test_a_rollout_mask_runs_along_the_outer_axis():
         )
 
 
-def test_a_value_names_its_sequence_and_window_axes():
+def test_a_value_declares_its_sequence_and_window_sizes():
     from nnodely import Parameter
 
     value = np.arange(12, dtype=np.float32).reshape(2, 3, 2)
-    ## Axis 2 is the sequence, axis 1 the window, axis 0 the dim
-    parameter = Parameter("p_time", value=value, dim=0, time=1, seq=2)
+    ## seq, time and dim are sizes, as for an Input; the value is laid out
+    ## (*seq, time, *dim)
+    parameter = Parameter("p_time", value=value, seq=2, time=3, dim=2)
     assert parameter.shape.dimensions == ((2,), 3, (2,))
-    np.testing.assert_array_equal(parameter.value, np.transpose(value, (2, 1, 0)))
+    np.testing.assert_array_equal(parameter.value, value)
     # Without a value, seq and time give the sizes.
     sized = Parameter("q_time", dim=3, time=4, seq=5)
     assert sized.shape.dimensions == ((5,), 4, (3,))
     # Without them, a value has no time: it applies to every sample.
     assert Parameter("r_time", value=[1.0, 2.0]).shape.dimensions == ((), None, (2,))
-    # The window is one axis of the value.
-    with pytest.raises(TypeError, match="one axis of the value"):
+    # The window is one size.
+    with pytest.raises(ValueError, match="time is the length of the window"):
         Parameter("s_time", value=value, time=(2, 1))
 
 

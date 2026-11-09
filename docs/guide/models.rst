@@ -24,17 +24,22 @@ Parameters and constants
 ------------------------
 
 A :class:`~nnodely.Parameter` is a trainable tensor used directly in the graph,
-and a :class:`~nnodely.Constant` is a fixed one. A ``value`` sets the shape:
-every axis of the value is a ``dim`` axis and the value has no window - it
-applies to every sample, of any stream - unless ``dim``, ``time`` and ``seq``
-name the axes of the value that play each part:
-``Parameter("w", value=np.ones((2, 3)), time=1)`` is a 2-feature window of 3
-samples; ``time`` names one axis, the window, and ``seq`` one or several,
-outermost first. A constant always takes its shape from its ``value``; a
-parameter can be given ``dim``, ``time`` and ``seq`` as sizes instead, and
-start from a random value. Like every stream they are laid out
-``(batch, *seq, time, *dim)`` - without the window when they have none - the
-same value for every sample:
+and a :class:`~nnodely.Constant` is a fixed one. Both declare their shape as an
+Input does, with ``time`` for the window: ``dim`` the feature axes, one
+feature by default, each at least 1; ``time`` the number of samples of the
+window - without it the value has none and applies to every sample, of any
+stream; ``seq`` the sequence axes, outermost first, which need a window. Like
+every stream they are laid out ``(batch, *seq, time, *dim)`` - without the
+window when they have none - the same value for every sample.
+
+A constant requires a ``value``; a parameter without one starts from a draw of
+its ``initializer``. A ``value`` fills the declared shape: a list of numbers
+holds exactly as many as the shape, read in the order ``(*seq, time, *dim)``;
+an array of several axes has the declared sizes, in any order, and its axes
+are moved into place. Anything else raises ``ValueError``. Without ``dim``,
+``seq`` and ``time`` take the axes of the value of their sizes, and the axes
+they leave are its ``dim``, in their order - all of them, without a window,
+when neither is given:
 
 .. code-block:: python
 
@@ -43,6 +48,13 @@ same value for every sample:
    drag = Parameter("drag", value=0.1)                     # trainable scalar
    weights = Parameter("weights", dim=3)                   # random initial value
    gravity = Constant("gravity", value=9.81)
+   offsets = Constant("offsets", value=[1.0, 2.0, 3.0])    # dim (3,), no window
+   # A window of 2 samples of 3 features, from a list or from a matrix:
+   ramp = Parameter("ramp", value=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5], time=2, dim=3)
+   table = Constant("table", value=np.ones((3, 2)), time=2, dim=3)  # moved to (2, 3)
+   grid = Constant("grid", value=np.ones((2, 4, 6)), time=4)  # the dim is (2, 6)
+   # A sequence of 4 windows of 2 samples, drawn from the initializer:
+   path = Parameter("path", seq=4, time=2, dim=3, initializer="zeros")
 
    air_drag = -1.0 * drag * velocity * velocity
 

@@ -56,6 +56,42 @@ several blocks, or Parameters, at once.
 Saving the larger model keeps its blocks: each is saved in a folder of its own,
 with its weights, and the loaded model calls them again (see :doc:`export`).
 
+Names that clash
+----------------
+
+Nothing keeps two objects from sharing a name: two layers named alike, a
+block and the model calling it, two copies of one loaded model - a loaded
+model can only be reached by the names it was saved with. A call that takes a
+name - ``parameters[...]``, ``models[...]``, ``inputs[...]``,
+``outputs[...]``, the sides of ``minimize``, ``freeze`` and ``unfreeze`` -
+looks it up among the objects the graph reaches, in that order: the model's
+own first, then those of the models it calls. A name one object carries picks
+it. A name several carry raises ``ValueError`` listing them, each with its
+index and the model it is in, and ``(name, index)`` picks one of them;
+``freeze`` and ``unfreeze`` pick them all instead, with a warning. The index
+is the same after saving and loading. Inside nnodely the objects themselves
+are used, so a name never changes what a model computes:
+
+.. code-block:: python
+
+   from nnodely import Input, Modely, Output, Parameter
+
+   u = Input("u", sw=1)
+   block = Modely("block", inputs=[u], outputs=[Output("y", u * Parameter("k", value=2.0))])
+   x = Input("x", sw=1)
+   model = Modely("model", inputs=[x], outputs=[Output("out", block([x * Parameter("k", value=10.0)]))])
+
+   # model.parameters["k"] raises: [0] k in 'model'; [1] k in 'block'
+   outer_k = model.parameters["k", 0]   # the model's own, 10
+   block_k = model.parameters["k", 1]   # the block's, 2
+   model.freeze(("k", 1))               # that one alone; freeze("k") freezes both
+
+Input and output names are the keys of the data and of the results, so they
+stay one per model: two Inputs of one name are refused when the model is
+built. The state a layer keeps - ``Integrate``, ``Derivative``, ``Buffer`` -
+is an Input named after the layer and its signal, which the user never names:
+named like another Input of the model, it takes a free name.
+
 Calling the same block several times shares its weights between the calls, as
 reusing a layer does:
 

@@ -100,7 +100,9 @@ and its ``param`` is the Keras variable the built model computes with -
 
 A model used as a block is frozen the same way, ``block.freeze()``, or by its
 name from the larger model, ``model.freeze("block")``, to train the rest of
-the larger model around it.
+the larger model around it. A name several Parameters or models carry freezes
+them all, with a warning listing them; ``model.freeze(("k", 1))`` freezes the
+one of index 1 among them (see :doc:`composition`).
 
 Training
 --------

@@ -1,10 +1,45 @@
 """Input: a signal read from data, a root of the graph."""
 
+from numbers import Integral
+
 from nnodely.core.shape import _same_steps
 from nnodely.core.stream import Stream
 from nnodely.utils.printers import _table
 
 import keras
+
+
+def _positive_sizes(sizes) -> tuple[int, ...] | None:
+    """``sizes`` - an int, or a list or tuple of them - as a tuple of ints;
+    None unless each is at least 1."""
+    items = (
+        (sizes,)
+        if isinstance(sizes, Integral)
+        else tuple(sizes)
+        if isinstance(sizes, (list, tuple))
+        else None
+    )
+    if items is None or not all(
+        isinstance(n, Integral) and not isinstance(n, bool) and int(n) >= 1
+        for n in items
+    ):
+        return None
+    return tuple(int(n) for n in items)
+
+
+def _dimension(name: str, dim) -> tuple[int, ...]:
+    """The feature axes ``dim`` declares, one feature by default: one axis
+    at least, each of at least one feature. The rule of an Input, a Parameter
+    and a Constant."""
+    if dim is None:
+        return (1,)
+    sizes = _positive_sizes(dim)
+    if not sizes:
+        raise ValueError(
+            f"{name}: dim is the size of each feature axis, an int or a tuple of "
+            f"them, each at least 1; got {dim!r}."
+        )
+    return sizes
 
 
 def _sequence(name: str, seq) -> tuple:
@@ -107,7 +142,8 @@ class Input(Stream):
     samples up to the current one followed by the next ``future``, so
     ``T = past + future``. Without ``sw`` the Input has no window: one value
     per sample, which does not combine with a stream that has one. ``dim``
-    sets the feature axes, one feature by default. ``seq`` sets the
+    sets the feature axes, one feature by default, each of at least one
+    feature. ``seq`` sets the
     sequence: the axes outside the window, outermost first, used by
     rollouts; ``-1`` or ``"dyn"`` leaves a length dynamic. A sequence needs
     a window.
@@ -143,7 +179,7 @@ class Input(Stream):
             )
         super().__init__(
             name=name,
-            dim=dim,
+            dim=_dimension(name, dim),
             time=None if window is None else sum(window),
             seq=sequence,
             preds=None,
@@ -264,6 +300,25 @@ class Inputs(list):
     def __init__(self, rows: list[dict]):
         super().__init__(row["input"] for row in rows)
         self._rows = rows
+
+    def __getitem__(self, key):  # type: ignore[override]
+        """An Input by its name, by its name and its index among those of
+        that name, ``("x", 1)``, or by position as in a list."""
+        from nnodely.core.dag import is_key, pick  # dag imports this module
+
+        if not is_key(key):
+            return super().__getitem__(key)
+        candidates = [
+            (row["input"], "(declared)" if row["declared"] else "(not declared)")
+            for row in self._rows
+        ]
+        picked = pick(candidates, key, kind="Input", owner="Inputs")
+        if not picked:
+            raise KeyError(
+                f"Inputs: no Input named {key if isinstance(key, str) else key[0]!r}; "
+                f"the names are {[node.name for node in self]}."
+            )
+        return picked[0]
 
     def __str__(self):
         cells = [

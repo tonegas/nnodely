@@ -11,7 +11,7 @@ import numpy as np
 from nnodely.core.dag import next_name
 from nnodely.core.layer import Layer
 from nnodely.core.shape import expand_to_rank
-from nnodely.core.stream import NODE_REGISTRY, Stream
+from nnodely.core.stream import Stream, class_path, registered_class
 from nnodely.layers.function import KerasFunction, _is_keras_layer
 from nnodely.layers.input import Input
 from nnodely.layers.parameter import _Value
@@ -597,7 +597,7 @@ class Fuzzify(Layer):
                 "function": self._function_specs(),
                 "layers": [
                     {
-                        "class_name": type(layer).__name__,
+                        "class_name": class_path(type(layer)),
                         "config": layer.get_config(),
                         "weights": len(probe._preds) - 1,
                     }
@@ -624,7 +624,13 @@ class Fuzzify(Layer):
         layers = []
         for saved in config["layers"]:
             weights, rest = rest[: saved["weights"]], rest[saved["weights"] :]
-            layer_class = cast(type[Layer], NODE_REGISTRY[saved["class_name"]])
+            layer_class = cast(type[Layer], registered_class(saved["class_name"]))
+            if layer_class is None:
+                raise ValueError(
+                    f"Fuzzify {config['name']!r} was saved with a "
+                    f"{saved['class_name']!r} function, which is not defined: "
+                    "define or import it before loading."
+                )
             node = layer_class.from_config(saved["config"], preds=[x, *weights])
             layers.append(node._source)
         config = {key: value for key, value in config.items() if key != "layers"}

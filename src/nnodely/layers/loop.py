@@ -10,6 +10,7 @@ from nnodely.core.dag import (
     _streams_from,
     flatten_fed_back,
     flatten_node,
+    pick,
     toposort_outputs,
 )
 from nnodely.core.layer import Layer
@@ -1289,8 +1290,16 @@ class Loop(Layer):
     @staticmethod
     def _find_node(nodes, value, kind):
         if isinstance(value, str):
-            matches = [node for node in nodes if node.name == value]
-            if len(matches) != 1:
+            # A name several of them carry is refused, listing them: the
+            # body is built only if its inputs and outputs have names of
+            # their own.
+            matches = pick(
+                [(node, f"(its {kind} {index})") for index, node in enumerate(nodes)],
+                value,
+                kind=kind,
+                owner="Loop feedback",
+            )
+            if not matches:
                 raise ValueError(f"feedback {kind} {value!r} was not found.")
             return matches[0]
         if value not in nodes:
