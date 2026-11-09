@@ -240,3 +240,28 @@ def test_tables_are_coloured_in_a_notebook_not_wherever_ipykernel_is_imported(
     OutStream = type("OutStream", (io.StringIO,), {"__module__": "ipykernel.iostream"})
     monkeypatch.setattr(sys, "stdout", OutStream())
     assert "\x1b[" in str(model.inputs)
+
+
+def test_a_model_prints_as_a_table_of_its_inputs_outputs_and_minimizers():
+    x, y = Input("repr_x", sw=1), Input("repr_y", sw=1)
+    model = Modely("repr_model", inputs=[x, y], outputs=[Output("repr_out", x + y)])
+    model.minimize("fit", "repr_out", Input("repr_ref", sw=1))
+    model.minimize("reg", "repr_out", 1.0)
+    # Its name heads the table; the names of each kind are inline: every
+    # Input it reads, as inputs lists them, the target it is not declared
+    # with included.
+    assert repr(model) == "\n".join(
+        [
+            "┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┓",
+            "┃ model      ┃ repr_model               ┃",
+            "┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━┩",
+            "│ inputs     │ repr_x, repr_y, repr_ref │",
+            "│ outputs    │ repr_out                 │",
+            "│ minimizers │ fit, reg                 │",
+            "└────────────┴──────────────────────────┘",
+        ]
+    )
+    assert str(model) == repr(model)
+    # A model without minimizers.
+    bare = Modely("repr_bare", inputs=[x], outputs=[Output("repr_bare_out", x * 2)])
+    assert repr(bare).splitlines()[5] == "│ minimizers │ -             │"

@@ -114,7 +114,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   and `minimizers` - are drawn as boxes, the table alone: its first column
   is named after what it lists (`input`, `output`, `model`, `parameter`,
   `minimizer`), and the `parameters` table ends with a `total` row of the
-  values, all and trainable. In the nnodely colours when the
+  values, all and trainable. A model prints (`print(model)`, its repr) as one
+  too: its name, then the names of the Inputs it reads, its outputs and its
+  minimizers. In
+  the nnodely colours when the
   standard output is a terminal or a notebook at the time the table is turned
   into text, plain otherwise. `NO_COLOR` prints them plain - for a table
   written to a file from a terminal - and `FORCE_COLOR` colours them anyway.

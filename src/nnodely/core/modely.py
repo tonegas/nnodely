@@ -86,7 +86,15 @@ class Modely:
         self._minimizer_outputs: dict[Node, str] = {}  # minimizer side -> graph output
 
     def __repr__(self) -> str:
-        return f"Model {self.name}"
+        """The model as a table: its name, then the names of every Input it
+        reads, as :attr:`inputs` lists them, of its outputs and of its
+        minimizers."""
+        rows = [
+            ("inputs", ", ".join(node.name for node in self.inputs) or "-"),
+            ("outputs", ", ".join(node.name for node in self._outputs) or "-"),
+            ("minimizers", ", ".join(m["name"] for m in self._minimizers) or "-"),
+        ]
+        return _table(("model", self.name), [("", rows)])
 
     def __call__(self, inputs) -> Any:
         """Run the model on arrays, or use it as a block on streams.
