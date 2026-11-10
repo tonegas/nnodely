@@ -423,7 +423,7 @@ def test_inputs_tells_how_each_input_is_fed():
     # The table alone: the header, named after what it lists, and a row per
     # Input.
     lines = str(loop.inputs).splitlines()
-    assert lines[0].startswith("┏") and lines[1].startswith("┃ input ")
+    assert lines[0].startswith("┏") and lines[1].startswith("┃ idx ┃ input ")
     assert len(lines) == 3 + 4 + 1 and lines[-1].startswith("└")
 
 
@@ -455,7 +455,7 @@ def test_outputs_tells_what_each_output_is():
     assert rows["oc_outs_doubled"]["minimized by"] == ["reg (source)"]
     text = str(tank.outputs)
     lines = text.splitlines()
-    assert lines[0].startswith("┏") and lines[1].startswith("┃ output ")
+    assert lines[0].startswith("┏") and lines[1].startswith("┃ idx ┃ output ")
     assert len(lines) == 3 + 2 + 1 and lines[-1].startswith("└")
     assert repr(tank.outputs) == text
 

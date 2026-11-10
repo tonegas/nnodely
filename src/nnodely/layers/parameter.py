@@ -401,7 +401,7 @@ class Parameters(list):
         values = [math.prod(p.shape.tuple) for p in self]
         trainable = sum(v for v, p in zip(values, self) if p.trainable)
         total = ("total", "", "", "", str(sum(values)), str(trainable))
-        return _table(header, sections, total)
+        return _table(header, sections, total, indexed=True)
 
     __repr__ = __str__
 

@@ -86,16 +86,16 @@ and its ``param`` is the Keras variable the built model computes with -
 .. code-block:: python
 
    print(model.parameters)
-   # ┏━━━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓
-   # ┃ parameter    ┃ seq ┃ tw   ┃ dim    ┃ values ┃ trainable ┃
-   # ┡━━━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩
-   # │ fir_y_kernel │ ()  │ None │ (1, 1) │ 1      │ yes       │
-   # │ fir_y_bias   │ ()  │ None │ (1,)   │ 1      │ yes       │
-   # │ fir_u_kernel │ ()  │ None │ (1, 1) │ 1      │ yes       │
-   # │ fir_u_bias   │ ()  │ None │ (1,)   │ 1      │ yes       │
-   # ├──────────────┼─────┼──────┼────────┼────────┼───────────┤
-   # │ total        │     │      │        │ 4      │ 4         │
-   # └──────────────┴─────┴──────┴────────┴────────┴───────────┘
+   # ┏━━━━━┳━━━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓
+   # ┃ idx ┃ parameter    ┃ seq ┃ tw   ┃ dim    ┃ values ┃ trainable ┃
+   # ┡━━━━━╇━━━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩
+   # │ 0   │ fir_y_kernel │ ()  │ None │ (1, 1) │ 1      │ yes       │
+   # │ 1   │ fir_y_bias   │ ()  │ None │ (1,)   │ 1      │ yes       │
+   # │ 2   │ fir_u_kernel │ ()  │ None │ (1, 1) │ 1      │ yes       │
+   # │ 3   │ fir_u_bias   │ ()  │ None │ (1,)   │ 1      │ yes       │
+   # ├─────┼──────────────┼─────┼──────┼────────┼────────┼───────────┤
+   # │     │ total        │     │      │        │ 4      │ 4         │
+   # └─────┴──────────────┴─────┴──────┴────────┴────────┴───────────┘
    kernel = model.parameters["fir_y_kernel"].param   # the trained values
 
 A model used as a block is frozen the same way, ``block.freeze()``, or by its

@@ -7,6 +7,7 @@ how an epoch is rendered, so :meth:`Modely.train` only has to pick one.
 from __future__ import annotations
 
 import atexit
+import itertools
 import math
 import os
 import shutil
@@ -1004,13 +1005,24 @@ def _table(
     header: tuple[str, ...],
     sections: list[tuple[str, list[tuple[str, ...]]]],
     total: tuple[str, ...] | None = None,
+    indexed: bool = False,
 ) -> str:
     """A table as nnodely prints one: ``header`` in heavy lines, then the
     rows of each section - a (title, rows) pair - under a row of its title
     when it has one, and, given, the ``total`` row last, under a rule. The
-    columns line up across the sections. In colour (see
+    columns line up across the sections. ``indexed`` opens each row with its
+    position among the rows of every section, under ``idx``: the index it is
+    picked by from the list the table prints. In colour (see
     :func:`_shows_colour`) the box takes the brand gradient, the titles the
     brand colour."""
+    if indexed:
+        header = ("idx", *header)
+        position = itertools.count()
+        sections = [
+            (name, [(str(next(position)), *cells) for cells in section])
+            for name, section in sections
+        ]
+        total = None if total is None else ("", *total)
     rows = [row for _, section in sections for row in section]
     widths = [
         max(len(row[column]) for row in (header, *rows, *([total] if total else [])))

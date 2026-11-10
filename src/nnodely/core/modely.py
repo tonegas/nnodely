@@ -1232,7 +1232,7 @@ class Models(list):
             )
             for model in self
         ]
-        return _table(header, [("", rows)])
+        return _table(header, [("", rows)], indexed=True)
 
     __repr__ = __str__
 
@@ -1301,7 +1301,7 @@ class Minimizers(list):
                 str(row["gain"]),
             )
 
-        return _table(self._HEADER, [("", [cells(row) for row in self])])
+        return _table(self._HEADER, [("", [cells(row) for row in self])], indexed=True)
 
     __repr__ = __str__
 

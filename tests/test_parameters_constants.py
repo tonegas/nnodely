@@ -832,18 +832,18 @@ def test_model_parameters_lists_every_parameter_and_prints_a_table():
     model.build()
     assert str(model.parameters) == "\n".join(
         [
-            "┏━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓",
-            "┃ parameter  ┃ seq ┃ tw   ┃ dim       ┃ values ┃ trainable ┃",
-            "┡━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩",
-            "│ a          │ ()  │ None │ (2, 3, 2) │ 12     │ yes       │",
-            "│ b          │ ()  │ None │ (2, 3, 2) │ 12     │ no        │",
-            "│ lin_kernel │ ()  │ None │ (2, 3, 2) │ 12     │ yes       │",
-            "│ lin_bias   │ ()  │ None │ (2,)      │ 2      │ yes       │",
-            "│ c          │ ()  │ 4    │ (1,)      │ 4      │ yes       │",
+            "┏━━━━━┳━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓",
+            "┃ idx ┃ parameter  ┃ seq ┃ tw   ┃ dim       ┃ values ┃ trainable ┃",
+            "┡━━━━━╇━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩",
+            "│ 0   │ a          │ ()  │ None │ (2, 3, 2) │ 12     │ yes       │",
+            "│ 1   │ b          │ ()  │ None │ (2, 3, 2) │ 12     │ no        │",
+            "│ 2   │ lin_kernel │ ()  │ None │ (2, 3, 2) │ 12     │ yes       │",
+            "│ 3   │ lin_bias   │ ()  │ None │ (2,)      │ 2      │ yes       │",
+            "│ 4   │ c          │ ()  │ 4    │ (1,)      │ 4      │ yes       │",
             # The values of all the Parameters, and of the trainable ones.
-            "├────────────┼─────┼──────┼───────────┼────────┼───────────┤",
-            "│ total      │     │      │           │ 42     │ 30        │",
-            "└────────────┴─────┴──────┴───────────┴────────┴───────────┘",
+            "├─────┼────────────┼─────┼──────┼───────────┼────────┼───────────┤",
+            "│     │ total      │     │      │           │ 42     │ 30        │",
+            "└─────┴────────────┴─────┴──────┴───────────┴────────┴───────────┘",
         ]
     )
     assert repr(model.parameters) == str(model.parameters)
@@ -867,29 +867,30 @@ def test_model_parameters_prints_a_table_per_model():
 
     # Still one list, in the order the graph reaches them.
     assert top.parameters == [shared, frozen]
-    top_rule = "┏━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓"
-    header = "┃ parameter        ┃ seq ┃ tw   ┃ dim  ┃ values ┃ trainable ┃"
-    open_columns = "├──────────────────┬─────┬──────┬──────┬────────┬───────────┤"
-    shared_row = "│ per_model_shared │ ()  │ None │ (1,) │ 1      │ yes       │"
-    frozen_row = "│ per_model_frozen │ ()  │ None │ (1,) │ 1      │ no        │"
+    top_rule = "┏━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓"
+    header = "┃ idx ┃ parameter        ┃ seq ┃ tw   ┃ dim  ┃ values ┃ trainable ┃"
+    open_columns = "├─────┬──────────────────┬─────┬──────┬──────┬────────┬───────────┤"
+    shared_row = "│ 0   │ per_model_shared │ ()  │ None │ (1,) │ 1      │ yes       │"
+    frozen_row = "│ 1   │ per_model_frozen │ ()  │ None │ (1,) │ 1      │ no        │"
     total = [
-        "├──────────────────┼─────┼──────┼──────┼────────┼───────────┤",
-        "│ total            │     │      │      │ 2      │ 1         │",
-        "└──────────────────┴─────┴──────┴──────┴────────┴───────────┘",
+        "├─────┼──────────────────┼─────┼──────┼──────┼────────┼───────────┤",
+        "│     │ total            │     │      │      │ 2      │ 1         │",
+        "└─────┴──────────────────┴─────┴──────┴──────┴────────┴───────────┘",
     ]
     # A row of the model's name opens its Parameters. One the model shares
     # with a block it calls is listed once, under the model, the first to
-    # reach it. One total, of every model.
+    # reach it. One total, of every model. The idx runs on across the models:
+    # it picks the Parameter from the list, top.parameters[1] is frozen.
     assert str(top.parameters) == "\n".join(
         [
             top_rule,
             header,
-            "┡━━━━━━━━━━━━━━━━━━┻━━━━━┻━━━━━━┻━━━━━━┻━━━━━━━━┻━━━━━━━━━━━┩",
-            "│ per_model_top                                             │",
+            "┡━━━━━┻━━━━━━━━━━━━━━━━━━┻━━━━━┻━━━━━━┻━━━━━━┻━━━━━━━━┻━━━━━━━━━━━┩",
+            "│ per_model_top                                                   │",
             open_columns,
             shared_row,
-            "├──────────────────┴─────┴──────┴──────┴────────┴───────────┤",
-            "│ per_model_body                                            │",
+            "├─────┴──────────────────┴─────┴──────┴──────┴────────┴───────────┤",
+            "│ per_model_body                                                  │",
             open_columns,
             frozen_row,
             *total,
@@ -897,7 +898,7 @@ def test_model_parameters_prints_a_table_per_model():
     )
     # The block alone is one model: one table.
     assert str(body.parameters).splitlines()[2:] == [
-        "┡━━━━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩",
+        "┡━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩",
         shared_row,
         frozen_row,
         *total,
@@ -909,5 +910,5 @@ def test_model_parameters_prints_a_table_per_model():
         outputs=[Output("per_model_wrap_out", body([z]))],
     )
     assert str(wrap.parameters).splitlines()[3] == (
-        "│ per_model_body                                            │"
+        "│ per_model_body                                                  │"
     )
