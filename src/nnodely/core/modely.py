@@ -12,11 +12,9 @@ from nnodely.core.dag import (
     _parameters,
     _nodes_and_models,
     _nodes_by_model,
-    _read_inputs,
     _read_nodes,
     _source_input_tensors,
-    _source_names,
-    is_key,
+    by_name_or_index,
     pick,
 )
 from nnodely.core.minimizer import (
@@ -81,7 +79,12 @@ class Modely:
         )
         self.inference_inputs = []  # List of Input nodes the declared outputs read (no minimizer-only input)
         # Inputs the data may leave out: they read zeros.
-        self.optional_inputs: set[str] = set()
+        self._optional_inputs: set[Input] = set()
+        # Set by build(): the key every Input and output has in the Keras
+        # models, its name then, by the id of the object; the Input of the
+        # graph each copy the build made stands for, by the id of the copy.
+        self._keys: dict[int, str] = {}
+        self._originals: dict[int, Input] = {}
         self._minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
         self._minimizer_outputs: dict[Node, str] = {}  # minimizer side -> graph output
 
@@ -137,6 +140,9 @@ class Modely:
                     "called with a list it takes one value for each, in that "
                     f"order, got {len(values)}."
                 )
+            if all(isinstance(value, Node) for value in values):
+                # Paired by position, not by name: two inputs may share one.
+                return self._call_stream(values)
             given = {node.name: value for node, value in zip(self._inputs, values)}
         else:
             raise TypeError(
@@ -147,7 +153,7 @@ class Modely:
             )
         streams = [isinstance(value, Node) for value in values]
         if all(streams):
-            return self._call_stream(given)
+            return self._call_stream(self._streams_by_name(given))
         if any(streams):
             raise TypeError(
                 f"Model {self.name!r} is called with streams and arrays together: "
@@ -156,9 +162,9 @@ class Modely:
             )
         return self._call_tensor(given)
 
-    def _call_stream(self, streams: dict[str, Any]) -> Any:
-        """The model as a block of a larger graph: every declared input reads
-        the stream given for it, and the outputs are returned as streams."""
+    def _streams_by_name(self, streams: dict[str, Any]) -> list:
+        """The stream given for each declared input, in their order, from
+        ``{input name: stream}``."""
         names = [node.name for node in self._inputs]
         # A declared input left out would be read from the data of the graph
         # above, as an input of its own.
@@ -168,7 +174,20 @@ class Modely:
                 f"Model {self.name!r} has {len(names)} inputs {names}: used as a "
                 f"block it takes a stream for each, and {missing} have none."
             )
-        arguments = [streams[name] for name in names]
+        twins = sorted({name for name in names if names.count(name) > 1})
+        if twins:
+            raise ValueError(
+                f"Model {self.name!r} has several inputs named {twins}: a dict "
+                "keyed by name cannot tell them apart. Call it with a list, "
+                "one stream per input in their order, or give one of them a "
+                "name of its own, model.inputs[i].name = 'new_name'."
+            )
+        return [streams[name] for name in names]
+
+    def _call_stream(self, arguments: list) -> Any:
+        """The model as a block of a larger graph: every declared input reads
+        the stream given for it, ``arguments`` in their order, and the outputs
+        are returned as streams."""
         for node, stream in zip(self._inputs, arguments):
             self._check_block_input(node, stream)
         mc = ModelCall(f"{self.name}_call", self)
@@ -180,19 +199,24 @@ class Modely:
 
     def _call_tensor(self, inputs: dict[str, Any]) -> Any:
         """The model run on arrays, ``{input name: array}``: its declared
-        outputs, without minimizers."""
+        outputs, without minimizers, ``{output name: tensor}``.
+
+        Every Input is read from the data by its name now and handed to Keras
+        under the key it was built with, and every output returned under its
+        name now: an Input or an output renamed since the build is still
+        found."""
         # The arrays come batched, as a DataLoader lays them out; an input only
         # a minimizer reads, such as a target, is neither needed nor passed on.
         if self.inference_model is None:
             raise ValueError("Model is not built. Call build() before calling it.")
-        given = [
-            inputs[inp.name] for inp in self.inference_inputs if inp.name in inputs
-        ]
-        left_out = [inp for inp in self.inference_inputs if inp.name not in inputs]
+        self._check_inputs_apart(self.inference_inputs)
+        read = [(self._original(node), node.name) for node in self.inference_inputs]
+        given = [(node, key) for node, key in read if node.name in inputs]
+        left_out = [(node, key) for node, key in read if node.name not in inputs]
         missing = [
-            inp.name
-            for inp in left_out
-            if inp.name not in self.optional_inputs or not given
+            node.name
+            for node, _ in left_out
+            if node not in self._optional_inputs or not given
         ]
         if missing:
             raise ValueError(
@@ -201,19 +225,76 @@ class Modely:
             )
         # An optional input left out reads zeros, one step of a dynamic
         # sequence: a ModelyLoop starts from the first step of it alone.
-        batch = np.shape(given[0])[0]
-        zeros = {
-            inp.name: np.zeros(
-                (batch, *(1 if size is None else size for size in inp.shape.tuple)),
+        batch = np.shape(inputs[given[0][0].name])[0]
+        arrays = {key: inputs[node.name] for node, key in given}
+        for node, key in left_out:
+            arrays[key] = np.zeros(
+                (batch, *(1 if size is None else size for size in node.shape.tuple)),
                 np.float32,
             )
-            for inp in left_out
+        results = self.inference_model(arrays)
+        names = [output.name for output in self._outputs]
+        twins = sorted({name for name in names if names.count(name) > 1})
+        if twins:
+            raise ValueError(
+                f"Model {self.name!r} has several outputs named {twins}, renamed "
+                "since it was built: the results are keyed by output name, so "
+                "give each output a name of its own."
+            )
+        return {
+            output.name: results[self._keys[id(output)]] for output in self._outputs
         }
-        inputs = {
-            inp.name: inputs[inp.name] if inp.name in inputs else zeros[inp.name]
-            for inp in self.inference_inputs
-        }
-        return self.inference_model(inputs)
+
+    @property
+    def optional_inputs(self) -> set[str]:
+        """The names of the Inputs the data may leave out, which then read
+        zeros: those a ModelyLoop starts a state from."""
+        return {node.name for node in self._optional_inputs}
+
+    def _original(self, node: Input) -> Input:
+        """The Input of the graph ``node``, a copy :meth:`build` made, stands
+        for: ``node`` itself if it is none."""
+        return self._originals.get(id(node), node)
+
+    def _key(self, node: Node) -> str:
+        """The key ``node`` - an Input it reads, or one of its outputs - has
+        in the Keras models of the last :meth:`build`: its name then."""
+        return self._keys.get(id(node)) or node.name
+
+    def _check_inputs_apart(self, nodes) -> None:
+        """Refuse to read data for the Inputs ``nodes``, those a build read,
+        while several carry one name: the data is keyed by input name, so
+        they would read one array. Renamed alike after the build, or loaded
+        so, they are still two Inputs, which a rename tells apart again."""
+        names = [self._original(node).name for node in nodes]
+        twins = sorted({name for name in names if names.count(name) > 1})
+        if twins:
+            raise ValueError(
+                f"Model {self.name!r} reads several Inputs named {twins}: the "
+                "data is keyed by input name, so give one of them a name of "
+                "its own, model.inputs[i].name = 'new_name' - then build "
+                "again to train with it."
+            )
+
+    def _check_names_built(self) -> None:
+        """Refuse to train or validate on data while an Input or an output
+        has another name than the one it was built with: the data and the
+        training model are keyed by those names."""
+        self._check_inputs_apart(self.train_inputs)
+        renamed = [
+            f"{key!r} is now {node.name!r}"
+            for node, key in [
+                *((self._original(node), node.name) for node in self.train_inputs),
+                *((node, self._key(node)) for node in self._outputs),
+            ]
+            if node.name != key
+        ]
+        if renamed:
+            raise ValueError(
+                f"Model {self.name!r} was built before some of its names "
+                f"changed - {', '.join(renamed)}: build it again to train or "
+                "validate with them."
+            )
 
     def _check_block_input(self, node: Input, stream) -> None:
         """Refuse a stream that this model, used as a block, cannot read as
@@ -256,6 +337,7 @@ class Modely:
         from nnodely.core.layer import Identity
 
         _rename_hidden_states(self)
+        _refresh_keras_inputs(self)
         # A minimizer reads both of its sides from the forward pass, so every
         # source and target has to be an output of the graph. An Input is not
         # the value of any layer, so it is exposed through an Identity.
@@ -302,24 +384,40 @@ class Modely:
                 "Loop seeded and driven by numbers only, has nothing to run on. "
                 "Read at least one Input."
             )
+        # The Input of the graph each copy stands for: the copy shares its
+        # Keras input, which a hidden state read as its init does not.
+        originals = {
+            id(copied): node
+            for node, copied in flatten_memo.items()
+            if isinstance(node, Input)
+            and isinstance(copied, Input)
+            and copied._input is node._input
+        }
         # The data is keyed by input name: two Inputs of one name would read
         # the same array, whatever their shapes.
         named: dict[str, Input] = {}
-        for node in train_inputs:
-            if named.setdefault(node.name, node) is not node:
-                raise ValueError(
-                    f"Model {self.name!r} reads two different Inputs named "
-                    f"{node.name!r}. The data is fed by input name, so every "
-                    "Input of a model needs a name of its own."
-                )
+        twins = [
+            node
+            for node in train_inputs
+            if named.setdefault(node.name, node) is not node
+        ]
+        if twins:
+            raise InputNameClash(
+                f"Model {self.name!r} reads two different Inputs named "
+                f"{twins[0].name!r}. The data is fed by input name, so every "
+                "Input of a model needs a name of its own.",
+                twins=[originals.get(id(node), node) for node in twins],
+                names=set(named),
+            )
         # A fed-back Input the model declares among its inputs is fed from
         # data on purpose; any other is a feedback a loop was meant to apply.
-        declared = {node.name for node in self._inputs}
+        declared = {id(node) for node in self._inputs}
         open_feedback = sorted(
             {
                 node.name
                 for node in train_inputs
-                if node.update is not None and node.name not in declared
+                if node.update is not None
+                and id(originals.get(id(node), node)) not in declared
             }
         )
         if open_feedback:
@@ -352,11 +450,11 @@ class Modely:
             node.name: keras_outputs[node.name] for node in self._outputs
         }
         read = {
-            name
+            id(source)
             for tensor in inference_outputs.values()
-            for name in _source_names(_source_input_tensors(tensor))
+            for source in _source_input_tensors(tensor)
         }
-        inference_inputs = [node for node in train_inputs if node.name in read]
+        inference_inputs = [node for node in train_inputs if id(node._input) in read]
         inference_model = keras.Model(
             name=self.name,
             inputs={node.name: keras_inputs[node.name] for node in inference_inputs},
@@ -374,6 +472,11 @@ class Modely:
                 source_node._layer_signature = flat_node._layer_signature
         self._minimizer_outputs = minimizer_outputs
         self._train_outputs = train_outputs
+        self._originals = originals
+        self._keys = {
+            **{id(originals.get(id(node), node)): node.name for node in train_inputs},
+            **{id(node): node.name for node in self._outputs},
+        }
         self.train_inputs = train_inputs
         self.model = model
         self.inference_inputs = inference_inputs
@@ -399,14 +502,13 @@ class Modely:
         # of one layer share its weights, the way repeated calls do in Keras,
         # and layers created apart never do - even under one name, as a model
         # and its reloaded copy have.
-        input_tensors = {
-            node.name: node._input for node in order if isinstance(node, Input)
-        }
         tensor_map: dict[Node, Any] = {
-            node: input_tensors[node.name] for node in order if isinstance(node, Input)
+            node: node._input for node in order if isinstance(node, Input)
         }
         layers_by_source: dict[int, Any] = {}
-        keras_names: dict[str, Any] = {name: Input for name in input_tensors}
+        keras_names: dict[str, Any] = {
+            node._input.name: Input for node in order if isinstance(node, Input)
+        }
 
         for node in [n for n in order if not isinstance(n, Input)]:
             if isinstance(node, Layer):
@@ -468,8 +570,8 @@ class Modely:
     def minimize(
         self,
         name: str,
-        source: Output | Stream | str | tuple[str, int],
-        target: Output | Stream | str | tuple[str, int] | float | None = None,
+        source: Output | Stream | str,
+        target: Output | Stream | str | float | None = None,
         loss: str | dict[str, Any] | keras.losses.Loss | Callable = "mse",
         gain: float = 1.0,
     ):
@@ -498,25 +600,9 @@ class Modely:
         A name identifies one minimizer: registering a name again replaces the
         minimizer it names, in its place, and warns that it did.
         """
-        if not isinstance(name, str) or not name:
-            raise ValueError(f"A minimizer name is a non-empty string, got {name!r}.")
-        # The validation loss of minimizer x is logged as val_x_loss, which is
-        # also the training loss of a minimizer named val_x.
-        clash = next(
-            (
-                other["name"]
-                for other in self._minimizers
-                if other["name"] in (f"val_{name}", name.removeprefix("val_"))
-                and other["name"] != name
-            ),
-            None,
+        self._check_minimizer_name(
+            name, [m for m in self._minimizers if m["name"] != name]
         )
-        if clash is not None:
-            raise ValueError(
-                f"Minimizers {name!r} and {clash!r} cannot both be declared: the "
-                "validation loss of one is logged under the training loss name "
-                "of the other."
-            )
         source = _minimizer_stream(self, source, "source", name)
         if target is None:  ## Transform it into a Constant with value zero
             target = 0.0
@@ -548,8 +634,13 @@ class Modely:
         self._minimizers.append(minimizer)
         return self
 
-    def remove_minimizer(self, name: str):
-        """Remove a registered minimizer by name; an unknown name only warns."""
+    def remove_minimizer(self, name: str | int):
+        """Remove a registered minimizer by name, or by its index in
+        :attr:`minimizers`; an unknown name only warns."""
+        if not isinstance(name, str):
+            by_name_or_index(name, f"Model {self.name!r}")  # an int, or raises
+            del self._minimizers[name]
+            return
         if all(minimizer["name"] != name for minimizer in self._minimizers):
             warnings.warn(
                 f"Model {self.name!r} has no minimizer named {name!r}: nothing "
@@ -560,18 +651,44 @@ class Modely:
             return
         self._minimizers = [m for m in self._minimizers if m["name"] != name]
 
-    def _set_minimizer(self, name: str, key: str, value):
-        """Set the loss or gain - ``key`` - of the minimizer ``name``, checked
-        as :meth:`minimize` checks it. Returns the value set."""
-        minimizer = next((m for m in self._minimizers if m["name"] == name), None)
-        if minimizer is None:
-            raise ValueError(f"Model {self.name!r} has no minimizer named {name!r}.")
-        if key == "gain":
-            value = _validate_gain(value, name)
+    def _check_minimizer_name(self, name, others: list[dict]) -> None:
+        """Refuse ``name`` for a minimizer beside the minimizers ``others``."""
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"A minimizer name is a non-empty string, got {name!r}.")
+        if any(other["name"] == name for other in others):
+            raise ValueError(
+                f"Model {self.name!r} has a minimizer named {name!r} already: "
+                "each minimizer has a name of its own, the key of its loss."
+            )
+        # The validation loss of minimizer x is logged as val_x_loss, which is
+        # also the training loss of a minimizer named val_x.
+        clash = next(
+            (
+                other["name"]
+                for other in others
+                if other["name"] in (f"val_{name}", name.removeprefix("val_"))
+            ),
+            None,
+        )
+        if clash is not None:
+            raise ValueError(
+                f"Minimizers {name!r} and {clash!r} cannot both be declared: the "
+                "validation loss of one is logged under the training loss name "
+                "of the other."
+            )
+
+    def _set_minimizer(self, minimizer: dict, key: str, value):
+        """Set the name, loss or gain - ``key`` - of ``minimizer``, one of
+        the model's, checked as :meth:`minimize` checks it."""
+        if key == "name":
+            self._check_minimizer_name(
+                value, [m for m in self._minimizers if m is not minimizer]
+            )
+        elif key == "gain":
+            value = _validate_gain(value, minimizer["name"])
         else:
             value = _resolve_loss(value)
         minimizer[key] = value
-        return value
 
     # -------------------------------------------------------------------------
     # Parameters and freezing
@@ -607,8 +724,8 @@ class Modely:
         and printed as a table of their inputs, outputs and Parameters.
 
         Each is saved in a folder of its own, so a loaded model lists the same
-        ones. A name several of them carry is picked with its index among
-        them, ``models["block", 1]``."""
+        ones. A name several of them carry is refused: pick one by its
+        index, the index column of the table, ``models[1]``."""
         holders: dict[int, Modely] = {}
         models = [model for model, _ in _nodes_by_model(self, holders)][1:]
         return Models(
@@ -638,38 +755,55 @@ class Modely:
         state of its Loops that does not start from the data of one."""
         from nnodely.layers.loop import Loop
 
-        declared = {node.name for node in self._inputs}
+        # A row per Input object: two Inputs of one name - renamed alike -
+        # are two rows, and the model refuses them when built.
+        declared = {id(node) for node in self._inputs}
         sides = [
             side
             for minimizer in self._minimizers
             for side in (minimizer["source"], minimizer["target"])
         ]
-        forward = _read_inputs(self._outputs, self._inputs)
         # The rows give the Inputs of the graph, not the copies reading it
         # makes: an Input a called model reads is the one to pass on.
+        forward_originals: dict[int, Input] = {}
+        forward = {
+            id(forward_originals.get(id(node), node))
+            for node in _read_nodes(self._outputs, self._inputs, forward_originals)
+            if isinstance(node, Input)
+        }
         originals: dict[int, Input] = {}
-        read = _read_nodes([*self._outputs, *sides], self._inputs, originals)
+        copies: dict[int, Node] = {}
+        read = _read_nodes([*self._outputs, *sides], self._inputs, originals, copies)
         rows = []
-        by_name: dict[str, dict] = {}
-        for name, node in {
-            node.name: node for node in read if isinstance(node, Input)
-        }.items():
-            if name not in forward:
+        by_input: dict[int, dict] = {}
+        for node in read:
+            if not isinstance(node, Input):
+                continue
+            original = originals.get(id(node), node)
+            if id(original) in by_input:
+                continue
+            if id(original) not in forward:
                 data = "target"
             else:
-                data = "optional" if name in self.optional_inputs else "required"
-            by_name[name] = {
-                "input": originals.get(id(node), node),
+                data = "optional" if original in self._optional_inputs else "required"
+            by_input[id(original)] = {
+                "input": original,
                 "seq": tuple(node.seq),
-                "declared": name in declared,
+                "declared": id(original) in declared,
                 "fed back with": None if node.update is None else node.update.name,
+                # The stream of the graph it is fed back with.
+                "update": None
+                if node.update is None
+                else copies.get(id(node.update), node.update),
                 "data": data,
                 "starts from": None,
             }
-            rows.append(by_name[name])
+            rows.append(by_input[id(original)])
 
         # The states, inside the step: one that starts from an Input of its
-        # own name is that Input, read from data.
+        # own name is that Input, read from data; so is one that starts from
+        # an optional Input - the Input of a ModelyLoop it starts from, by
+        # object, renamed or not.
         seen: set[int] = set()
         for loop in (node for node in read if isinstance(node, Loop)):
             for state, update, start, rolled in loop._state_starts():
@@ -677,14 +811,19 @@ class Modely:
                     continue
                 seen.add(id(state))
                 first = ", first step" if rolled else ""
+                # The Input of its own name it starts from is the one whose
+                # data it reads, its row - read here as a copy, too.
+                if isinstance(start, Input):
+                    start = originals.get(id(start), start)
                 row = (
-                    by_name.get(state.name)
-                    if isinstance(start, Input) and start.name == state.name
+                    by_input.get(id(start))
+                    if isinstance(start, Input)
+                    and (start in self._optional_inputs or start.name == state.name)
                     else None
                 )
                 if row is not None:
                     starts = f"its data{first}"
-                    if state.name in self.optional_inputs:
+                    if start in self._optional_inputs:
                         starts += ", else 0"
                 else:
                     row = {
@@ -701,6 +840,7 @@ class Modely:
                     else:
                         starts = str(start)
                 row["fed back with"] = update.name
+                row["update"] = loop._step.copied_from(update)
                 row["starts from"] = starts
         return rows
 
@@ -719,12 +859,12 @@ class Modely:
 
     def _output_rows(self) -> list[dict]:
         """A row of :attr:`outputs` per declared output."""
-        # Matched by the name :attr:`inputs` prints: the Inputs fed back
-        # inside a Loop, and their streams, are copies.
-        fed_back: dict[str, list[str]] = {}
+        # By the stream of the graph each Input is fed back with: the rows
+        # of :attr:`inputs` read copies of it, and give it.
+        fed_back: dict[int, list[str]] = {}
         for row in self._input_rows():
-            if row["fed back with"] is not None:
-                fed_back.setdefault(row["fed back with"], []).append(row["input"].name)
+            if row.get("update") is not None:
+                fed_back.setdefault(id(row["update"]), []).append(row["input"].name)
         minimized: dict[int, list[str]] = {}
         for minimizer in self._minimizers:
             for side in ("source", "target"):
@@ -738,7 +878,9 @@ class Modely:
                 {
                     "output": output,
                     "stream": stream.name,
-                    "feeds back": fed_back.get(stream.name, []),
+                    "feeds back": fed_back.get(
+                        id(stream), fed_back.get(id(output), [])
+                    ),
                     "minimized by": [
                         *minimized.get(id(output), []),
                         *minimized.get(id(output._preds[0]), []),
@@ -763,12 +905,10 @@ class Modely:
         listed and not trained on: each is minimized by the :meth:`train` of
         its own model."""
         return Minimizers(
-            [Minimizer({**minimizer, "model": self}) for minimizer in self._minimizers]
+            [Minimizer(minimizer, self) for minimizer in self._minimizers]
         )
 
-    def freeze(
-        self, names: str | tuple[str, int] | list[str | tuple[str, int]] | None = None
-    ):
+    def freeze(self, names: str | list[str] | None = None):
         """Keep Parameters of the model as they are through training.
 
         Without ``names``, every one: those of its relations and of the
@@ -784,9 +924,7 @@ class Modely:
             parameter.freeze()
         return self
 
-    def unfreeze(
-        self, names: str | tuple[str, int] | list[str | tuple[str, int]] | None = None
-    ):
+    def unfreeze(self, names: str | list[str] | None = None):
         """Let training change Parameters of the model again: every one, or
         those ``names`` picks, as :meth:`freeze` finds them. Returns the
         model."""
@@ -795,12 +933,11 @@ class Modely:
         return self
 
     def _parameters_named(self, names) -> list[Parameter]:
-        """The Parameters ``names`` picks, every one for None. A key - a name,
-        or ``(name, index)`` - picks among the Parameters and the models the
-        graph reaches, the Parameters first, each in the order it reaches
-        them; a model stands for all its Parameters. A name several carry
-        picks them all, and warns. Each key is checked before any of them is
-        used, so an unknown one changes nothing."""
+        """The Parameters ``names`` picks, every one for None. A name picks
+        among the Parameters and the models the graph reaches; a model stands
+        for all its Parameters. A name several carry raises, listing them.
+        Each name is checked before any of them is used, so a wrong one
+        changes nothing."""
         holders: dict[int, Modely] = {}
         groups = _nodes_by_model(self, holders)
         parameters = [
@@ -808,54 +945,57 @@ class Modely:
         ]
         if names is None:
             return parameters
-        keys = [names] if is_key(names) else list(names)
-        given = [key for key in keys if not is_key(key)]
+        keys = [names] if isinstance(names, str) else list(names)
+        given = [key for key in keys if not isinstance(key, str)]
         if given:
             raise TypeError(
-                f"Model {self.name!r} picks Parameters by name, or by name and "
-                "index among those of that name, ('k', 1): one, or a list of "
-                f"them; got {type(given[0]).__name__}."
+                f"Model {self.name!r} picks Parameters and models by name, a "
+                "string or a list of strings - one of several of a name is "
+                "frozen by itself, model.parameters[i].freeze(); got "
+                f"{type(given[0]).__name__}."
             )
         models = [model for model, _ in groups[1:]]
+        # Each with the list it is in, model.parameters or model.models, and
+        # its index there.
         candidates = [
             *(
-                (parameter, f"(a Parameter) in {model.name!r}")
-                for model, nodes in groups
-                for parameter in nodes
-                if isinstance(parameter, Parameter)
+                (parameter, None, f"(parameters[{index}]) in {model.name!r}")
+                for index, (model, parameter) in enumerate(
+                    (model, node)
+                    for model, nodes in groups
+                    for node in nodes
+                    if isinstance(node, Parameter)
+                )
             ),
-            *((model, f"(a model) in {holders[id(model)].name!r}") for model in models),
+            *(
+                (model, None, f"(models[{index}]) in {holders[id(model)].name!r}")
+                for index, model in enumerate(models)
+            ),
         ]
         picked: dict[int, Parameter] = {}
-        # A name several carry warns once every key is resolved: a call that
-        # raises picks nothing, and warns of nothing.
-        with warnings.catch_warnings(record=True) as ambiguous:
-            warnings.simplefilter("always")
-            for key in keys:
-                found = pick(
-                    candidates,
-                    key,
-                    kind="Parameter or model",
-                    kinds="Parameters and models",
-                    owner=f"Model {self.name!r}",
-                    every=True,
+        for key in keys:
+            found = pick(
+                candidates,
+                key,
+                kind="Parameter or model",
+                kinds="Parameters and models",
+                owner=f"Model {self.name!r}",
+                hint="Freeze or unfreeze one by itself, model.parameters[i]"
+                ".freeze() or model.models[i].freeze(), or give it a name of "
+                "its own, obj.name = 'new_name'.",
+            )
+            if not found:
+                raise ValueError(
+                    f"Model {self.name!r} reaches no Parameter and no model "
+                    f"named {key!r}. Its Parameters are "
+                    f"{[parameter.name for parameter in parameters]}, its "
+                    f"models {list(dict.fromkeys(model.name for model in models))}."
                 )
-                if not found:
-                    name = key if isinstance(key, str) else key[0]
-                    raise ValueError(
-                        f"Model {self.name!r} reaches no Parameter and no model "
-                        f"named {name!r}. Its Parameters are "
-                        f"{[parameter.name for parameter in parameters]}, its "
-                        f"models {list(dict.fromkeys(model.name for model in models))}."
-                    )
-                for item in found:
-                    for parameter in (
-                        [item] if isinstance(item, Parameter) else _parameters(item)
-                    ):
-                        picked.setdefault(id(parameter), parameter)
-        for warning in ambiguous:
-            # For the line calling freeze or unfreeze.
-            warnings.warn(warning.message, warning.category, stacklevel=3)
+            for item in found:
+                for parameter in (
+                    [item] if isinstance(item, Parameter) else _parameters(item)
+                ):
+                    picked.setdefault(id(parameter), parameter)
         return list(picked.values())
 
     # -------------------------------------------------------------------------
@@ -899,6 +1039,8 @@ class Modely:
         The whole result is returned, so the numbers can be asserted on or
         logged as well as read.
         """
+        if self.model is not None:
+            self._check_names_built()
         return validation.validate(
             self,
             val_data,
@@ -988,6 +1130,7 @@ class Modely:
         # Ensure model is built
         if not self.model:
             raise ValueError("Model is not built. Call build() before training.")
+        self._check_names_built()
 
         resolved_optimizer = _resolve_optimizer(optimizer, lr, optimizer_kwargs)
         logged = [
@@ -1206,31 +1349,42 @@ class Models(list):
         self._where = where or ["" for _ in models]
 
     def __getitem__(self, key):  # type: ignore[override]
-        """A model by its name, by its name and its index among those of
-        that name, ``("block", 1)``, or by position as in a list. A name
-        several models carry raises ``ValueError`` listing them."""
-        if not is_key(key):
-            return super().__getitem__(key)
+        """A model by its name, or by its index - the index column of the
+        table - as in a list. A name several models carry raises
+        ``ValueError`` listing them, with their index."""
         owner = self._title or "Models"
-        picked = pick(list(zip(self, self._where)), key, kind="model", owner=owner)
+        if not by_name_or_index(key, owner):
+            return super().__getitem__(key)
+        picked = pick(
+            [
+                (model, index, where)
+                for index, (model, where) in enumerate(zip(self, self._where))
+            ],
+            key,
+            kind="model",
+            owner=owner,
+            hint="Pick one by its index, models[i], or give it a name of its "
+            "own, models[i].name = 'new_name'.",
+        )
         if not picked:
             raise KeyError(
-                f"{owner}: no model named {key if isinstance(key, str) else key[0]!r}; "
-                f"the names are {[model.name for model in self]}."
+                f"{owner}: no model named {key!r}; the names are "
+                f"{[model.name for model in self]}."
             )
         return picked[0]
 
     def __str__(self):
-        header = ("model", "inputs", "outputs", "parameters", "built")
+        header = ("index", "model", "inputs", "outputs", "parameters", "built")
         rows = [
             (
+                str(index),
                 model.name,
                 ", ".join(node.name for node in model._inputs) or "-",
                 ", ".join(node.name for node in model._outputs) or "-",
                 str(len(_parameters(model))),
                 "yes" if model.built else "no",
             )
-            for model in self
+            for index, model in enumerate(self)
         ]
         return _table(header, [("", rows)])
 
@@ -1241,37 +1395,52 @@ class Minimizer(Mapping):
     """One minimizer, as :attr:`Modely.minimizers` lists it: its name, source,
     target, loss and gain, and ``model``, the model it is of.
 
-    Setting its loss or gain changes the minimizer in its model, checked as
-    :meth:`Modely.minimize` checks them, from the next :meth:`Modely.train`.
-    What it compares is set by :meth:`Modely.minimize`."""
+    Each is read as a key or an attribute, ``m["name"]`` or ``m.name``.
+    Setting its name, loss or gain - ``m.name = "fit_y"``, as any object is
+    renamed, or ``m["name"] = "fit_y"`` - changes the minimizer in its model,
+    checked as :meth:`Modely.minimize` checks them, from the next
+    :meth:`Modely.train`. What it compares is set by :meth:`Modely.minimize`;
+    anything else set raises rather than being lost."""
 
-    _SETTABLE = ("loss", "gain")
+    _SETTABLE = ("name", "loss", "gain")
+    # No attribute of its own to set: one set by mistake would be lost.
+    __slots__ = ("_minimizer", "_model")
 
-    def __init__(self, row: dict):
-        self._row = row
+    def __init__(self, minimizer: dict, model: "Modely"):
+        # The model's own entry, not a copy: what is set is set there.
+        object.__setattr__(self, "_minimizer", minimizer)
+        object.__setattr__(self, "_model", model)
+
+    def __getattr__(self, key):
+        if key in ("name", "source", "target", "loss", "gain"):
+            return self._minimizer[key]
+        if key == "model":
+            return self._model
+        raise AttributeError(f"Minimizer has no attribute {key!r}.")
+
+    def __setattr__(self, key, value):
+        self[key] = value
 
     def __getitem__(self, key):
-        return self._row[key]
+        return self._model if key == "model" else self._minimizer[key]
 
     def __iter__(self):
-        return iter(self._row)
+        return iter([*self._minimizer, "model"])
 
     def __len__(self):
-        return len(self._row)
+        return len(self._minimizer) + 1
 
     def __repr__(self):
-        return repr(self._row)
+        return repr({**self._minimizer, "model": self._model})
 
     def __setitem__(self, key, value):
         if key not in self._SETTABLE:
             raise TypeError(
-                f"Minimizer {self._row['name']!r}: its loss and gain can be "
-                f"set, not its {key!r}; declare it again with minimize() to "
-                "change what it compares."
+                f"Minimizer {self._minimizer['name']!r}: its name, loss and gain "
+                f"can be set, not its {key!r}; declare it again with minimize() "
+                "to change what it compares."
             )
-        self._row[key] = self._row["model"]._set_minimizer(
-            self._row["name"], key, value
-        )
+        self._model._set_minimizer(self._minimizer, key, value)
 
 
 class Minimizers(list):
@@ -1279,15 +1448,29 @@ class Minimizers(list):
     list of :class:`Minimizer`, printed as a table of the streams each
     compares, its loss and its gain."""
 
-    _HEADER = ("minimizer", "source", "target", "loss", "gain")
+    _HEADER = ("index", "minimizer", "source", "target", "loss", "gain")
 
     def __init__(self, minimizers: list[Minimizer]):
         super().__init__(minimizers)
 
+    def __getitem__(self, key):  # type: ignore[override]
+        """A minimizer by its name - each has one of its own - or by its
+        index - the index column of the table - as in a list."""
+        if not by_name_or_index(key, "Minimizers"):
+            return super().__getitem__(key)
+        found = next((row for row in self if row["name"] == key), None)
+        if found is None:
+            raise KeyError(
+                f"Minimizers: no minimizer named {key!r}; the names are "
+                f"{[row['name'] for row in self]}."
+            )
+        return found
+
     def __str__(self):
-        def cells(row):
+        def cells(index, row):
             target = row["target"]
             return (
+                str(index),
                 row["name"],
                 row["source"].name,
                 # A Constant of one value - a number given as the target -
@@ -1301,9 +1484,53 @@ class Minimizers(list):
                 str(row["gain"]),
             )
 
-        return _table(self._HEADER, [("", [cells(row) for row in self])])
+        return _table(
+            self._HEADER, [("", [cells(index, row) for index, row in enumerate(self)])]
+        )
 
     __repr__ = __str__
+
+
+class InputNameClash(ValueError):
+    """Raised by :meth:`Modely.build` for two different Inputs of one name
+    in the graph: ``twins`` are the Inputs after the first of each name,
+    ``names`` the names every Input of the graph carries."""
+
+    def __init__(self, message: str, twins: list[Input], names: set[str]):
+        super().__init__(message)
+        self.twins = twins
+        self.names = names
+
+
+def _build_apart(model: Modely) -> None:
+    """Build ``model`` even if Inputs of its graph share a name, as one saved
+    so is loaded: each is built under a name of its own, then given its name
+    back. They stay two Inputs, and the model runs once one is renamed."""
+    try:
+        model.build()
+    except InputNameClash as clash:
+        renamed = {node: node.name for node in clash.twins}
+        taken = set(clash.names)
+        try:
+            for node in renamed:
+                key, index = node.name, 1
+                while key in taken:
+                    key, index = f"{node.name}_{index}", index + 1
+                taken.add(key)
+                node.name = key
+            model.build()
+        finally:
+            for node, name in renamed.items():
+                node.name = name
+
+
+def _refresh_keras_inputs(model: Modely) -> None:
+    """Give every Input the model reads a Keras input of its name now: an
+    Input renamed since it was declared - ``x.name = "speed"`` - keeps the
+    Keras input of its first name, which the data would be keyed by."""
+    for node in _nodes_and_models(model)[0]:
+        if isinstance(node, Input) and node._input.name != node.name:
+            node._input = keras.Input(shape=node.shape.tuple, name=node.name)
 
 
 def _rename_hidden_states(model: Modely) -> None:

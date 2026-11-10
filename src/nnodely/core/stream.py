@@ -248,4 +248,4 @@ class Stream(Node):
         return None
 
     def __repr__(self):
-        return f"name={self.name!r}, shape={self.shape}, )"
+        return f"{type(self).__name__}(name={self.name!r}, shape={self.shape})"

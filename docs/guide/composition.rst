@@ -63,14 +63,25 @@ Nothing keeps two objects from sharing a name: two layers named alike, a
 block and the model calling it, two copies of one loaded model - a loaded
 model can only be reached by the names it was saved with. A call that takes a
 name - ``parameters[...]``, ``models[...]``, ``inputs[...]``,
-``outputs[...]``, the sides of ``minimize``, ``freeze`` and ``unfreeze`` -
-looks it up among the objects the graph reaches, in that order: the model's
-own first, then those of the models it calls. A name one object carries picks
-it. A name several carry raises ``ValueError`` listing them, each with its
-index and the model it is in, and ``(name, index)`` picks one of them;
-``freeze`` and ``unfreeze`` pick them all instead, with a warning. The index
-is the same after saving and loading. Inside nnodely the objects themselves
-are used, so a name never changes what a model computes:
+``outputs[...]``, ``minimizers[...]``, the sides of ``minimize``, ``freeze``
+and ``unfreeze`` - looks it up among the objects the graph reaches, in that
+order: the model's own first, then those of the models it calls. A name one
+object carries picks it. A name several carry raises ``ValueError`` listing
+them, each with its index and the model it is in. An item is picked by its
+name or by its index - never both: every table of a model - ``parameters``,
+``models``, ``inputs``, ``outputs``, ``minimizers`` - prints an ``index``
+column, and ``model.parameters[2]`` picks the item of that row, the same
+after saving and loading; renaming one - ``obj.name = "new_name"`` - gives
+each a name of its own. ``freeze`` and ``unfreeze`` take names; one of
+several of a name is frozen by itself, ``model.parameters[2].freeze()``.
+
+Inside nnodely the objects themselves are used, never their names, so an
+object can be renamed at any time and is still found: a renamed Parameter or
+model is picked, frozen and saved under its new name, a renamed Input is read
+from the data by its new name, a renamed output returned under it, and a
+minimizer is renamed the same way, ``model.minimizers["fit"].name = "track"``.
+Only training and validation, which key their data by the names the model was
+built with, ask for a new ``build()`` after an Input or an output is renamed:
 
 .. code-block:: python
 
@@ -81,16 +92,23 @@ are used, so a name never changes what a model computes:
    x = Input("x", tw=1)
    model = Modely("model", inputs=[x], outputs=[Output("out", block([x * Parameter("k", value=10.0)]))])
 
-   # model.parameters["k"] raises: [0] k in 'model'; [1] k in 'block'
-   outer_k = model.parameters["k", 0]   # the model's own, 10
-   block_k = model.parameters["k", 1]   # the block's, 2
-   model.freeze(("k", 1))               # that one alone; freeze("k") freezes both
+   print(model.parameters)              # index 0: the model's k, index 1: the block's
+   # model.parameters["k"] raises: ... at indices [0, 1]: [0] k in 'model'; [1] k in 'block'
+   outer_k = model.parameters[0]        # the model's own, 10
+   model.parameters[1].freeze()         # the block's alone; freeze("k") raises too
+   model.parameters[1].name = "k_block" # now each is picked by its name
+   model.unfreeze("k_block")
 
 Input and output names are the keys of the data and of the results, so they
 stay one per model: two Inputs of one name are refused when the model is
-built. The state a layer keeps - ``Integrate``, ``Derivative``, ``Buffer`` -
-is an Input named after the layer and its signal, which the user never names:
-named like another Input of the model, it takes a free name.
+built, and, renamed alike after the build, when it is run on data. They are
+still two Inputs: a model saved with them loads them apart, and runs once one
+is renamed, ``loaded.inputs[1].name = "x2"``. A block whose inputs share a
+name is called with a list, which pairs the streams with its inputs by
+position. An Input inside a block that the block does not declare reads the
+data of its name. The state a layer keeps - ``Integrate``, ``Derivative``,
+``Buffer`` - is an Input named after the layer and its signal, which the user
+never names: named like another Input of the model, it takes a free name.
 
 Calling the same block several times shares its weights between the calls, as
 reusing a layer does:

@@ -7,7 +7,7 @@ from typing import cast
 import keras
 import numpy as np
 
-from nnodely.core.dag import is_key, pick, toposort_outputs
+from nnodely.core.dag import pick, toposort_outputs
 from nnodely.core.layer import Layer
 from nnodely.core.shape import OUTER_AXIS, expand_to_rank, outer_view
 from nnodely.core.stream import Node, Stream
@@ -252,23 +252,21 @@ def _minimizer_stream(model, value, side: str, minimizer: str) -> Stream:
     """A minimizer side as a Stream, looking a name up in the model.
 
     A name can be any stream of the model's graph, one of its declared inputs,
-    or a stream the registered minimizers already compare; ``(name, index)``
-    picks one of several streams of that name, in the order the graph reaches
-    them.
+    or a stream the registered minimizers already compare. A name several
+    streams carry raises, listing them: the stream itself is passed then.
     """
     if isinstance(value, Stream):
         return value
-    if not is_key(value):
+    if not isinstance(value, str):
         raise TypeError(
-            f"The {side} of minimizer {minimizer!r} must be a Stream, the "
-            f"name of one, or its name and index among those of that name, "
-            f"('y', 1); got {type(value).__name__}."
+            f"The {side} of minimizer {minimizer!r} must be a Stream or the "
+            f"name of one, got {type(value).__name__}."
         )
     roots: list[Node] = [*model._outputs, *model._inputs]
     for registered in model._minimizers:
         roots.extend((registered["source"], registered["target"]))
     candidates = [
-        (stream, _where(stream))
+        (stream, None, _where(stream))
         for stream in toposort_outputs(cast(list, roots))
         if isinstance(stream, Stream)
     ]
@@ -277,12 +275,13 @@ def _minimizer_stream(model, value, side: str, minimizer: str) -> Stream:
         value,
         kind="stream",
         owner=f"The {side} of minimizer {minimizer!r} in model {model.name!r}",
+        hint="Pass the stream itself, or give it a name of its own, "
+        "stream.name = 'new_name'.",
     )
     if not matches:
-        name = value if isinstance(value, str) else value[0]
         outputs = sorted(output.name for output in model._outputs)
         raise ValueError(
-            f"The {side} {name!r} of minimizer {minimizer!r} is not the name "
+            f"The {side} {value!r} of minimizer {minimizer!r} is not the name "
             f"of a stream of model {model.name!r}. Its outputs are {outputs}."
         )
     return matches[0]

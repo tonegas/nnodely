@@ -1067,16 +1067,24 @@ def test_minimizers_lists_only_those_of_the_model():
     # The table alone: its header, a row per minimizer and the box.
     lines = text.splitlines()
     assert len(lines) == 6 and lines[0].startswith("┏") and lines[-1].startswith("└")
-    assert _cells(lines[1]) == ["minimizer", "source", "target", "loss", "gain"]
+    assert _cells(lines[1]) == [
+        "index",
+        "minimizer",
+        "source",
+        "target",
+        "loss",
+        "gain",
+    ]
     # A number given as the target prints as that number.
     assert [_cells(line) for line in lines[3:5]] == [
-        ["fit", "tab_min_top_out", "3.0", "mean_squared_error", "0.5"],
-        ["reg", "tab_min_z", "0.0", "mean_squared_error", "1.0"],
+        ["0", "fit", "tab_min_top_out", "3.0", "mean_squared_error", "0.5"],
+        ["1", "reg", "tab_min_z", "0.0", "mean_squared_error", "1.0"],
     ]
 
     # The block lists its own.
     lines = str(body.minimizers).splitlines()
     assert _cells(lines[3]) == [
+        "0",
         "body_fit",
         "tab_min_body_out",
         "tab_min_target",
@@ -1159,7 +1167,7 @@ def test_setting_a_listed_minimizer_changes_it_in_the_model():
 
     # Set on the block, the block's own changes; the model does not train it.
     wheel.minimizers[0]["loss"] = "mae"
-    assert _cells(str(wheel.minimizers).splitlines()[3])[3] == "mean_absolute_error"
+    assert _cells(str(wheel.minimizers).splitlines()[3])[4] == "mean_absolute_error"
     assert total() == pytest.approx(0.5 * 0.3**2)
 
     # Checked as minimize() checks them.

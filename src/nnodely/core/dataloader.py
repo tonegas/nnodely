@@ -139,6 +139,8 @@ class DataLoader:
             raise ValueError(
                 f"Model {model.name} is not built. Make sure to call {model.name}.build() first."
             )
+        # The data is keyed by the names the model was built with.
+        model._check_names_built()
 
         self._input_nodes = {node.name: node for node in model.train_inputs}
         if not self._input_nodes:

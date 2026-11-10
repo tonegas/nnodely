@@ -68,6 +68,8 @@ class ModelyLoop(Modely):
             )
         self.name = name
         self._length = length
+        # The Input of the rollout of each Input of the step, by the name of
+        # its data.
         self._rolled_inputs: dict[str, Input] = {}
 
         # The step, and the one Loop that feeds back every Input it feeds back.
@@ -85,6 +87,8 @@ class ModelyLoop(Modely):
             )
         # A fed-back Input among the inputs starts from its data, which may
         # leave it out: then, as when it is not listed, from zero.
+        # An Input reads the data of its name: a state among the inputs, or
+        # one of their names, starts from its data.
         listed = {node.name for node in inputs}
         from_data = [state for state in step.states if state.name in listed]
         for state in from_data:
@@ -108,7 +112,7 @@ class ModelyLoop(Modely):
                 "initial value of a fed-back Input, so no data sets its batch "
                 "and number of steps."
             )
-        loop = declaration({node.name: self._rolled_input(node) for node in read})
+        loop = declaration({node: self._rolled_input(node) for node in read})
         self.body = declaration._f
 
         # One trajectory per output of the body, the declared outputs first.
@@ -126,7 +130,7 @@ class ModelyLoop(Modely):
             inputs=[self._rolled_input(node) for node in inputs],
             outputs=rolled_outputs,
         )
-        self.optional_inputs = {state.name for state in from_data}
+        self._optional_inputs = {self._rolled_input(state) for state in from_data}
 
     def _rolled_input(self, node: Input) -> Input:
         """The Input of the rollout for an Input of the step: the same name,
@@ -176,8 +180,8 @@ class ModelyLoop(Modely):
     def minimize(
         self,
         name: str,
-        source: Output | Stream | str | tuple[str, int],
-        target: Output | Stream | str | tuple[str, int] | float | None = None,
+        source: Output | Stream | str,
+        target: Output | Stream | str | float | None = None,
         loss: str | dict[str, Any] | keras.losses.Loss | Callable = "mse",
         gain: float = 1.0,
     ):

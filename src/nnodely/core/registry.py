@@ -94,7 +94,7 @@ class _Loading:
 
 class ModelSerializer:
     FORMAT = "nnodely"
-    VERSION = 13
+    VERSION = 14
 
     @staticmethod
     def serialize(model, path, *, weights=True, saving=None):
@@ -104,7 +104,12 @@ class ModelSerializer:
         written the same way - so the models nest as their folders do, and
         each folder is a model that loads on its own."""
         from nnodely.core.layer import Layer
-        from nnodely.core.modely import IntermediateOutput, ModelCall, Modely
+        from nnodely.core.modely import (
+            IntermediateOutput,
+            ModelCall,
+            Modely,
+            _build_apart,
+        )
         from nnodely.layers.input import Input
         from nnodely.layers.parameter import Constant
 
@@ -208,7 +213,7 @@ class ModelSerializer:
                         # own: what that would warn about does not apply.
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore", UserWarning)
-                            held.build()
+                            _build_apart(held)
                     ModelSerializer.serialize(
                         held, path / folder, weights=weights, saving=saving
                     )
@@ -221,7 +226,12 @@ class ModelSerializer:
             "version": ModelSerializer.VERSION,
             "model": {
                 "name": model.name,
-                "optional_inputs": sorted(model.optional_inputs),
+                # By position among its inputs.
+                "optional_inputs": [
+                    index
+                    for index, node in enumerate(model._inputs)
+                    if node in model._optional_inputs
+                ],
             },
             "nodes": nodes,
             "inputs": [node_ids[x] for x in model._inputs],
@@ -330,11 +340,15 @@ class ModelSerializer:
             inputs=inputs,
             outputs=outputs,
         )
-        model.optional_inputs = set(data["model"].get("optional_inputs", ()))
+        model._optional_inputs = {
+            inputs[index] for index in data["model"].get("optional_inputs", ())
+        }
         return model
 
     @staticmethod
     def load(path, *, weights=True, loading=None):
+        from nnodely.core.modely import _build_apart
+
         path = Path(path)
 
         config_path = path / "model.json"
@@ -364,7 +378,9 @@ class ModelSerializer:
             )
 
         model = ModelSerializer.deserialize(data, path, loading=loading)
-        model.build()
+        # Saved with Inputs of one name, it loads with them: two Inputs, built
+        # apart, which a rename lets run.
+        _build_apart(model)
 
         # A model loaded without its weights - saved without them, or loaded
         # with weights=False - keeps the ones build() just gave it, as a model

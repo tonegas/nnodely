@@ -231,7 +231,13 @@ class LegacyPrinter(keras.callbacks.Callback):
         sides = ["", *(["train".rjust(_CELL), "val".rjust(_CELL)] * len(self._groups))]
         # A rule under the names, beside the epoch, which spans both rows.
         pair = "━" * (_CELL + 2) + "┳" + "━" * (_CELL + 2)
-        split = "┃" + " " * (_EPOCH_CELL + 2) + "┣" + "╋".join([pair] * len(self._groups)) + "┫"
+        split = (
+            "┃"
+            + " " * (_EPOCH_CELL + 2)
+            + "┣"
+            + "╋".join([pair] * len(self._groups))
+            + "┫"
+        )
         bold = "\033[1m"
         return [
             (_box_rule(spans, "┏", "━", "┳", "┓"), ""),

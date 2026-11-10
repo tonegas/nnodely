@@ -472,12 +472,21 @@ def test_clamp_sum_save_load(tmp_path):
     }
     assert nodes["sum"].get_config() == {"name": "sum", "axis": None}
 
+
 @pytest.mark.parametrize(
     "seq1, tw1, dim1, seq2, tw2, dim2, shape",
     [
         (1, 1, 1, 1, 1, 1, (1, 1, 1)),
         (1, 1, (2, 3), 1, 1, 1, (1, 1, 2, 3)),
-        (1, 1, (2, 3), 1, 1, 2, None), # dims lined up from the last axis, as Keras: 3 vs 2
+        (
+            1,
+            1,
+            (2, 3),
+            1,
+            1,
+            2,
+            None,
+        ),  # dims lined up from the last axis, as Keras: 3 vs 2
         (1, 4, 1, 1, 4, 1, (1, 4, 1)),
         (1, 1, 1, 1, 4, 1, None),
         (1, 2, 1, 1, 4, 1, None),
@@ -491,17 +500,57 @@ def test_clamp_sum_save_load(tmp_path):
         (None, 1, 1, None, 1, 1, (None, 1, 1)),
         (None, None, 1, None, 1, 1, (None, 1, 1)),
         (None, None, 3, None, 1, 1, None),
-        (None, None, 1, None, 3, 1, (None, 3, 1)), # broadcast along the window
-        (None, None, 2, None, 3, (2, 3), None), # dims lined up from the last axis, as Keras: 2 vs 3
-        (None, None, 2, None, 3, (4, 2), (None, 3, 4, 2)), # broadcast along the dim axes
-        (None, 3, 3, None, 3, (3, 3), (None, 3, 3, 3)), # the vector along the last axis, as Keras
-        (None, 3, (1, 3), None, 3, (3, 3), (None, 3, 3, 3)), # an axis of 1 stretches
-        (None, 3, (2, 1), None, 3, (1, 3), (None, 3, 2, 3)), # same window: dims broadcast both ways
-        (None, None, (2, 1), None, 3, (1, 3), None), # each broadcast, one along the window too
-        (3, 2, 1, None, 2, 1, (3, 2, 1)), # broadcast along the sequence, same tw
-        (3, 2, 1, None, 1, 1, None), # broadcast along the sequence, different tw
-        (3, 2, 1, None, None, 1, (3, 2, 1)), # no tw: along the sequence and the window
-        (None, 2, (2, 3), 4, 2, 3, None), # each broadcast, one along the sequence
+        (None, None, 1, None, 3, 1, (None, 3, 1)),  # broadcast along the window
+        (
+            None,
+            None,
+            2,
+            None,
+            3,
+            (2, 3),
+            None,
+        ),  # dims lined up from the last axis, as Keras: 2 vs 3
+        (
+            None,
+            None,
+            2,
+            None,
+            3,
+            (4, 2),
+            (None, 3, 4, 2),
+        ),  # broadcast along the dim axes
+        (
+            None,
+            3,
+            3,
+            None,
+            3,
+            (3, 3),
+            (None, 3, 3, 3),
+        ),  # the vector along the last axis, as Keras
+        (None, 3, (1, 3), None, 3, (3, 3), (None, 3, 3, 3)),  # an axis of 1 stretches
+        (
+            None,
+            3,
+            (2, 1),
+            None,
+            3,
+            (1, 3),
+            (None, 3, 2, 3),
+        ),  # same window: dims broadcast both ways
+        (
+            None,
+            None,
+            (2, 1),
+            None,
+            3,
+            (1, 3),
+            None,
+        ),  # each broadcast, one along the window too
+        (3, 2, 1, None, 2, 1, (3, 2, 1)),  # broadcast along the sequence, same tw
+        (3, 2, 1, None, 1, 1, None),  # broadcast along the sequence, different tw
+        (3, 2, 1, None, None, 1, (3, 2, 1)),  # no tw: along the sequence and the window
+        (None, 2, (2, 3), 4, 2, 3, None),  # each broadcast, one along the sequence
     ],
 )
 # The same policy for every stream: a Constant or a Parameter in place of an Input.

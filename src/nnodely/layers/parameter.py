@@ -6,7 +6,7 @@ import numpy as np
 import keras
 
 from nnodely.core.layer import Layer, _refuse_non_streams, _refuse_uncalled
-from nnodely.core.dag import is_key, pick
+from nnodely.core.dag import by_name_or_index, pick
 from nnodely.core.shape import Shape
 from nnodely.layers.input import _dimension, _positive_sizes
 from nnodely.utils.printers import _table
@@ -358,30 +358,43 @@ class Parameters(list):
         self._title = title
 
     def __getitem__(self, key):  # type: ignore[override]
-        """A Parameter by its name, by its name and its index among those of
-        that name, ``("k", 1)``, or by position as in a list. A name several
-        Parameters carry raises ``ValueError`` listing them."""
-        if not is_key(key):
+        """A Parameter by its name, or by its index - the index column of
+        the table - as in a list. A name several Parameters carry raises
+        ``ValueError`` listing them, with their index."""
+        owner = self._title or "Parameters"
+        if not by_name_or_index(key, owner):
             return super().__getitem__(key)
         candidates = [
-            (parameter, f"in {model!r}")
-            for model, group in self._groups
-            for parameter in group
+            (parameter, index, f"in {model!r}")
+            for index, (model, parameter) in enumerate(
+                (model, parameter)
+                for model, group in self._groups
+                for parameter in group
+            )
         ]
-        owner = self._title or "Parameters"
-        picked = pick(candidates, key, kind="Parameter", owner=owner)
+        picked = pick(
+            candidates,
+            key,
+            kind="Parameter",
+            owner=owner,
+            hint="Pick one by its index, parameters[i], or give it a name of "
+            "its own, parameters[i].name = 'new_name'.",
+        )
         if not picked:
             raise KeyError(
-                f"{owner}: no Parameter named {key if isinstance(key, str) else key[0]!r}; "
-                f"the names are {[parameter.name for parameter in self]}."
+                f"{owner}: no Parameter named {key!r}; the names are "
+                f"{[parameter.name for parameter in self]}."
             )
         return picked[0]
 
     def __str__(self):
-        header = ("parameter", "seq", "tw", "dim", "values", "trainable")
+        header = ("index", "parameter", "seq", "tw", "dim", "values", "trainable")
+        # The index of each in the whole list, across the sections.
+        index = {id(parameter): position for position, parameter in enumerate(self)}
 
         def row(parameter):
             return (
+                str(index[id(parameter)]),
                 parameter.name,
                 str(tuple(parameter.shape.seq)),
                 str(parameter.shape.tw),
@@ -400,7 +413,7 @@ class Parameters(list):
             sections = [("", [row(parameter) for parameter in self])]
         values = [math.prod(p.shape.tuple) for p in self]
         trainable = sum(v for v, p in zip(values, self) if p.trainable)
-        total = ("total", "", "", "", str(sum(values)), str(trainable))
+        total = ("", "total", "", "", "", str(sum(values)), str(trainable))
         return _table(header, sections, total)
 
     __repr__ = __str__

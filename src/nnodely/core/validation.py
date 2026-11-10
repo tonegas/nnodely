@@ -262,8 +262,15 @@ class ValidationResult:
     figures: list[str]
     history: dict[str, Any] | None = None
 
-    def __getitem__(self, name: str) -> SignalScore:
-        return self.signals[name]
+    def __getitem__(self, name: str | int) -> SignalScore:
+        """The score of a minimizer by its name, or by its index - its row in
+        :attr:`Modely.minimizers`."""
+        from nnodely.core.dag import by_name_or_index
+
+        if isinstance(name, str):
+            return self.signals[name]
+        by_name_or_index(name, "ValidationResult")  # an int, or raises
+        return list(self.signals.values())[name]
 
     def __iter__(self):
         return iter(self.signals)

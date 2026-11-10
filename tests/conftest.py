@@ -5,7 +5,7 @@ os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 # macOS backend can abort a test process when validation creates a figure.
 os.environ["MPLBACKEND"] = "Agg"
 # What a model prints - its tables - is plain text, whatever runs the tests.
-# os.environ["NO_COLOR"] = "1"
+os.environ["NO_COLOR"] = "1"
 
 import pytest
 

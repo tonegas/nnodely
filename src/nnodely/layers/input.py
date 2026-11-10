@@ -1,6 +1,7 @@
 """Input: a signal read from data, a root of the graph."""
 
 from numbers import Integral
+from typing import Any
 
 from nnodely.core.shape import _same_steps
 from nnodely.core.stream import Stream
@@ -162,6 +163,9 @@ class Input(Stream):
     written as they are, one Input per state variable.
     """
 
+    # The Keras input the data is fed to, named as the Input when built.
+    _input: Any
+
     def __init__(
         self,
         name: str,
@@ -287,6 +291,7 @@ class Inputs(list):
     data must hold of it and, fed back by a Loop, what it starts from."""
 
     _HEADER = (
+        "index",
         "input",
         "seq",
         "tw",
@@ -302,27 +307,35 @@ class Inputs(list):
         self._rows = rows
 
     def __getitem__(self, key):  # type: ignore[override]
-        """An Input by its name, by its name and its index among those of
-        that name, ``("x", 1)``, or by position as in a list."""
-        from nnodely.core.dag import is_key, pick  # dag imports this module
+        """An Input by its name, or by its index - the index column of the
+        table - as in a list."""
+        from nnodely.core.dag import by_name_or_index, pick  # dag imports this module
 
-        if not is_key(key):
+        if not by_name_or_index(key, "Inputs"):
             return super().__getitem__(key)
         candidates = [
-            (row["input"], "(declared)" if row["declared"] else "(not declared)")
-            for row in self._rows
+            (row["input"], index, "(declared)" if row["declared"] else "(not declared)")
+            for index, row in enumerate(self._rows)
         ]
-        picked = pick(candidates, key, kind="Input", owner="Inputs")
+        picked = pick(
+            candidates,
+            key,
+            kind="Input",
+            owner="Inputs",
+            hint="Pick one by its index, inputs[i], or give it a name of its "
+            "own, inputs[i].name = 'new_name'.",
+        )
         if not picked:
             raise KeyError(
-                f"Inputs: no Input named {key if isinstance(key, str) else key[0]!r}; "
-                f"the names are {[node.name for node in self]}."
+                f"Inputs: no Input named {key!r}; the names are "
+                f"{[node.name for node in self]}."
             )
         return picked[0]
 
     def __str__(self):
         cells = [
             (
+                str(index),
                 row["input"].name,
                 _seq_cell(row["seq"]),
                 _tw_cell(row["input"]),
@@ -332,7 +345,7 @@ class Inputs(list):
                 row["data"] or "-",
                 row["starts from"] or "-",
             )
-            for row in self._rows
+            for index, row in enumerate(self._rows)
         ]
         return _table(self._HEADER, [("", cells)])
 
