@@ -396,9 +396,16 @@ class Cross(BinaryOp):
         super().__init__(name=name, axis=self._axis)
 
     def build_layer(self):
-        shape = self._preds[0].shape  # type: ignore[union-attr]
-        axis = shape.resolve_dim(self._axis, self.name) - shape.dim_rank
+        result = self.shape
+        axis = self._result_axis(self._preds[0], result) - result.dim_rank  # type: ignore[arg-type]
         return CrossImpl(axis=axis, **self._alignment(), name=self.name)
+
+    def _result_axis(self, node, result) -> int:
+        """The dim axis of ``result`` that dim axis ``axis`` of ``node`` lines
+        up with: dims are lined up from the last axis."""
+        shape = node.shape
+        axis = shape.resolve_dim(self._axis, self.name)
+        return axis + result.dim_rank - shape.dim_rank
 
     def output_shape(self, *inputs):
         if len(inputs) != 2:
@@ -413,4 +420,11 @@ class Cross(BinaryOp):
                     f"{self.name}: Cross multiplies 3-vectors, and dim axis "
                     f"{self._axis} of {node.name!r}, {shape}, has length {size}."
                 )
-        return super().output_shape(*inputs)
+        result = super().output_shape(*inputs)
+        if len({self._result_axis(node, result) for node in inputs}) > 1:
+            raise ValueError(
+                f"{self.name}: dim axis {self._axis} of {inputs[0].name!r}, "
+                f"{inputs[0].shape}, and of {inputs[1].name!r}, "
+                f"{inputs[1].shape}, are different axes of the product, {result}."
+            )
+        return result

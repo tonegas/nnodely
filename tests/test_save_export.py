@@ -1847,7 +1847,9 @@ def test_parameters_of_one_name_keep_their_order_once_loaded(tmp_path):
     ).build()
     xo, ko = Input("x", tw=3), Parameter("k", value=[10.0])
     model = Modely(
-        "cn_model", inputs=[xo], outputs=[Output("total", inner([xo]) + xo * ko)]
+        "cn_model",
+        inputs=[xo],
+        outputs=[Output("total", inner([xo]) + TimeSelect(-1)(xo) * ko)],
     ).build()
     model.save(tmp_path / "cn_model")
     loaded = Modely.load(tmp_path / "cn_model")
@@ -2561,7 +2563,7 @@ def test_an_input_read_directly_and_through_a_window_round_trips(tmp_path):
 
 def test_a_parameter_declared_by_its_sizes_round_trips(tmp_path):
     ## Without tw, its variable holds the value as declared, (2, 3)
-    x = Input("rt_sizes_x", tw=1)
+    x = Input("rt_sizes_x")
     gain = Parameter("rt_sizes_gain", dim=(2, 3))
     model = Modely(
         "rt_sizes", inputs=[x], outputs=[Output("rt_sizes_out", x * gain)]
@@ -2571,7 +2573,7 @@ def test_a_parameter_declared_by_its_sizes_round_trips(tmp_path):
 
     model.save(tmp_path / "saved")
     loaded = Modely.load(tmp_path / "saved")
-    data = {"rt_sizes_x": np.full((2, 1, 1), 3.0, dtype=np.float32)}
+    data = {"rt_sizes_x": np.full((2, 1), 3.0, dtype=np.float32)}
     np.testing.assert_allclose(
         to_numpy(loaded(data)["rt_sizes_out"]),
         to_numpy(model(data)["rt_sizes_out"]),

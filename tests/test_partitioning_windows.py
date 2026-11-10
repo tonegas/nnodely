@@ -474,10 +474,11 @@ def test_time_ops_act_on_the_window_and_keep_the_sequence():
 
 
 def test_a_selected_sample_broadcasts_along_the_window():
-    # One sample, the newest, combines with every sample of the window.
+    # One sample, the newest, without a window combines with every sample of
+    # the window.
     x = Input("relative_x", tw=4)
     window = x
-    relative = window - TimeSelect(-1)([window])
+    relative = window - TimeSelect(-1, keep_tw=False)([window])
     assert relative.shape.dimensions == ((), 4, (1,))
 
     values = np.random.rand(2, 4, 1).astype(np.float32)
@@ -486,6 +487,9 @@ def test_a_selected_sample_broadcasts_along_the_window():
         values - values[:, -1:],
         rtol=1e-6,
     )
+    # Kept, as by default, its window is one sample: not one of four.
+    with pytest.raises(ValueError, match="keep_tw=False"):
+        _ = window - TimeSelect(-1)([window])
 
 
 def test_seq_select_closes_a_loop_chained_over_chunks():

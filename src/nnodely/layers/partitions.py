@@ -194,31 +194,38 @@ class Range(Layer):
 class TimeSelect(Layer):
     """
     Select one sample of the window, ``T``, as :class:`Select` does along a
-    dim axis; the window is kept, one sample long. A negative ``idx`` counts
-    from the end, so -1 is the newest sample.
+    dim axis. A negative ``idx`` counts from the end, so -1 is the newest
+    sample.
+
+    The window is kept, one sample long, ``T=1``, as a target, a sample fed
+    back or a layer acting on the window needs it. With ``keep_tw=False`` it
+    is dropped, so the sample applies to every sample of a window it is
+    combined with: ``w - TimeSelect(-1, keep_tw=False)(w)``.
 
     Examples
     --------
     T=5, idx=-1 -> T=1
+    T=5, idx=-1, keep_tw=False -> T=None
     S=(3,), T=5, idx=0 -> S=(3,), T=1
     """
 
-    def __init__(self, idx: int, name=None):
+    def __init__(self, idx: int, keep_tw: bool = True, name=None):
         self._idx = int(idx)
-        super().__init__(name=name, idx=self._idx)
+        self._keep_tw = bool(keep_tw)
+        super().__init__(name=name, idx=self._idx, keep_tw=self._keep_tw)
 
     def output_shape(self, *inputs):
         self._needs_window(inputs[0])
         shape = inputs[0].shape
         _index(self.name, self._idx, shape.tw, "the window")
-        return shape.replace(tw=1)
+        return shape.replace(tw=1 if self._keep_tw else None)
 
     def build_layer(self):
         shape = self._preds[0].shape  # type: ignore[union-attr]
         return SelectImpl(
             idx=_index(self.name, self._idx, shape.tw, "the window"),
             axis=shape.tw_axis,
-            keep_dim=True,
+            keep_dim=self._keep_tw,
             name=self.name,
         )
 

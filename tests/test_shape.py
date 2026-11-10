@@ -252,9 +252,8 @@ def test_a_value_without_tw_combines_with_every_stream():
     assert (window * gain + offsets).shape.dimensions == ((), 4, (3,))
     assert (timeless * 2.0 + 1.0).shape.dimensions == ((), None, (3,))
     assert (window * 2.0 + 1.0).shape.dimensions == ((), 4, (3,))
-    ## A stream without tw read from data does not: tw is never invented
-    with pytest.raises(ValueError, match="no tw"):
-        _ = timeless + window
+    ## So does a stream without tw read from data: the same rule for every stream
+    assert (timeless + window).shape.dimensions == ((), 4, (3,))
 
 
 def test_a_temporal_layer_needs_a_window():
@@ -304,65 +303,66 @@ def test_arithmetic_shape():
         (x1, x3, (2, 3)),  # broadcast the scalar to the whole matrix
         (x1t, x2t, (1, 4)),  # broadcast the scalar to the whole vector (same tw)
         (x1t, x3t, (1, 2, 3)),  # broadcast the scalar to the whole matrix (same tw)
-        ## if tw is 1 it can be broadcast to any tw, but not the other way around
         (x1t, x1t, (1, 1)),
-        (x1t, x2t, (1, 4)),  # broadcast the scalar to the whole vector
-        (x1t, x3t, (1, 2, 3)),  # broadcast the scalar to the whole matrix
         (x2t, x2t, (1, 4)),
-        (x1t, x1tm, (3, 1)),
-        (x1t, x2tm, (3, 4)),  # broadcast the scalar to the whole vector
-        (x1t, x3tm, (3, 2, 3)),  # broadcast the scalar to the whole matrix
-        (x2t, x2tm, (3, 4)),
+        ## no tw is broadcast to any tw, a tw of 1 included
+        (x1, x1t, (1, 1)),
+        (x1, x2t, (1, 4)),  # and the scalar to the whole vector
+        (x1, x3t, (1, 2, 3)),  # and the scalar to the whole matrix
+        (x2, x2t, (1, 4)),
+        (x3, x3t, (1, 2, 3)),
+        (x1, x1tm, (3, 1)),
+        (x1, x2tm, (3, 4)),  # and the scalar to the whole vector
+        (x1, x3tm, (3, 2, 3)),  # and the scalar to the whole matrix
+        (x2, x2tm, (3, 4)),
+        (x3, x3tm, (3, 2, 3)),
     ]
 
     ## should not be allowed
     refused = [
-        (x2, x3),  # cannot broadcast the vector to the matrix
-        (x3, x2t),  # cannot broadcast the vector to the matrix
-        (x2t, x3t),  # cannot broadcast the vector to the matrix
-        (x1, x1t),  # different tw cannot be allowed
-        (x1, x2t),  # different tw cannot be allowed
-        (x1, x3t),  # different tw cannot be allowed
-        (x2, x1t),  # different tw cannot be allowed
-        (x2, x2t),  # different tw cannot be allowed
-        (x2, x3t),  # different tw cannot be allowed
-        (x3, x1t),  # different tw cannot be allowed
-        (x3, x2t),  # different tw cannot be allowed
-        (x3, x3t),  # different tw cannot be allowed
-        (x1, x1tm),  # different tw cannot be allowed
-        (x1, x2tm),  # different tw cannot be allowed
-        (x1, x3tm),  # different tw cannot be allowed
-        (x2, x1tm),  # different tw cannot be allowed
-        (x2, x2tm),  # different tw cannot be allowed
-        (x2, x3tm),  # different tw cannot be allowed
-        (x3, x1tm),  # different tw cannot be allowed
-        (x3, x2tm),  # different tw cannot be allowed
-        (x3, x3tm),  # different tw cannot be allowed
-        # merging a temporal quantity with a spatial matrix: x3 would be
-        # broadcast along the tw of x1t, and x1t along the dim of x3
+        (x2, x3),  # the vector of 4 is no axis of the matrix
+        (x3, x2t),  # the vector of 4 is no axis of the matrix
+        (x2t, x3t),  # the vector of 4 is no axis of the matrix
+        (x2, x3t),  # the vector of 4 is no axis of the matrix
+        (x3, x2tm),  # the vector of 4 is no axis of the matrix
+        (x2, x3tm),  # the vector of 4 is no axis of the matrix
+        ## a tw of 1 is not broadcast to another tw
+        (x1t, x1tm),
+        (x1t, x2tm),
+        (x1t, x3tm),
+        (x2t, x2tm),
+        # merging a temporal quantity with a spatial one: x2 would be
+        # broadcast along the tw of x1t, and x1t along the dim of x2
+        (x2, x1t),
+        (x2, x1tm),
         (x3, x1t),
         (x3, x1tm),
     ]
     _check(allowed, refused)
 
 
-def test_only_a_scalar_dim_broadcasts():
+def test_dims_broadcast_as_keras_does():
     from nnodely import Input
 
     ## Without tw, no tw axis
     row = Input("row", dim=3)  # shape [B, 3]
+    column = Input("column", dim=2)  # shape [B, 2]
     matrix = Input("matrix", dim=(2, 3))  # shape [B, 2, 3]
+    square = Input("square", dim=(3, 3))  # shape [B, 3, 3]
     scalar = Input("scalar", dim=(1, 1))  # shape [B, 1, 1]
     row_t = Input("row_t", dim=3, tw=2)  # shape [B, 2, 3]
     matrix_t = Input("matrix_t", dim=(2, 3), tw=2)  # shape [B, 2, 2, 3]
 
-    # A vector does not broadcast to a matrix, even one whose rows it fits.
+    # Lined up from the last axis, each axis the same or 1.
     _check(
         allowed=[
             (scalar, matrix, (2, 3)),  # every axis of size 1: a scalar
             (scalar, row, (1, 3)),  # padded with a leading axis, as numpy does
+            (row, matrix, (2, 3)),  # along dim axis 0 of the matrix
+            (row, square, (3, 3)),  # along dim axis 0 of the square
+            (row_t, matrix_t, (2, 2, 3)),
         ],
-        refused=[(row, matrix), (row_t, matrix_t)],
+        refused=[(column, matrix)],  # its 2 lines up with the 3
     )
 
 

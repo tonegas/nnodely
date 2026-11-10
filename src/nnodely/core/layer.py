@@ -385,11 +385,11 @@ class BinaryOpImpl(keras.layers.Layer):
     """An elementwise operation between streams of ``seq_ranks`` sequence
     axes, a window or not (``windows``), and ``dim_ranks`` dim axes.
 
-    An operand of a single sample with fewer sequence axes, a value without
-    a window, or one with fewer dim axes, gets the axes it misses where
-    :func:`align` puts them, so it broadcasts along those, as
-    :meth:`Shape.broadcast` declares. Aligned from the end instead, as
-    broadcasting does by default, a dim axis could line up with the window.
+    An operand without a sequence, without a window, or with fewer dim axes,
+    gets the axes it misses where :func:`align` puts them, so it broadcasts
+    along those, as :meth:`Shape.broadcast` declares. Aligned from the end
+    instead, as broadcasting does by default, a dim axis could line up with
+    the window.
     """
 
     def __init__(
@@ -468,11 +468,7 @@ class BinaryOp(Layer):
         # Declared rather than probed: a dynamic sequence axis cannot be given to
         # a dummy tensor, and which operands may broadcast is a rule of the
         # streams, not of their tensors.
-        return Shape.broadcast(
-            [input_node.shape for input_node in inputs],
-            self.name,
-            values=[input_node._is_value for input_node in inputs],
-        )
+        return Shape.broadcast([input_node.shape for input_node in inputs], self.name)
 
 
 class Add(BinaryOp):

@@ -75,15 +75,25 @@ def test_automatic_layer_output_shape():
 def test_time_select():
     x = Input("time_select_input", tw=5)
     selected = TimeSelect(idx=3, name="time_select")(x)
+    dropped = TimeSelect(idx=3, keep_tw=False, name="time_select_dropped")(x)
 
     assert selected.dim == (1,)
-    assert selected.dimensions[:2] == ((), 1)
+    assert selected.dimensions[:2] == ((), 1)  # the window kept, one sample
+    assert dropped.dimensions[:2] == ((), None)  # or dropped
     assert selected.shape.seq_rank == 0
+    assert dropped.get_config() == {
+        "name": "time_select_dropped",
+        "idx": 3,
+        "keep_tw": False,
+    }
 
     model = Modely(
         "time_select_model",
         inputs=[x],
-        outputs=[Output("time_select_output", selected)],
+        outputs=[
+            Output("time_select_output", selected),
+            Output("time_select_dropped", dropped),
+        ],
     ).build()
     values = np.arange(5, dtype=np.float32).reshape((1, 5, 1))
     result = model({"time_select_input": values})
@@ -92,6 +102,11 @@ def test_time_select():
     np.testing.assert_allclose(
         to_numpy(result["time_select_output"]),
         np.array([[[3.0]]], dtype=np.float32),
+    )
+    assert result["time_select_dropped"].shape == (1, 1)
+    np.testing.assert_allclose(
+        to_numpy(result["time_select_dropped"]),
+        np.array([[3.0]], dtype=np.float32),
     )
 
 
@@ -292,9 +307,9 @@ def test_atan2_broadcasts_as_the_operators_do():
     # Keras once aligned the Constant from the right, so a batch of 3 against
     # a sequence of 4 gave (3, 4, 3, 1) where (3, 4, 1, 1) was declared.
     x = Input("atan2_seq_x", seq=4, tw=1)
-    w, u = Input("atan2_w", dim=2, tw=3), Input("atan2_u", dim=2, tw=1)
+    w, u = Input("atan2_w", dim=2, tw=3), Input("atan2_u", dim=2)
     by_constant = Atan2([x, Constant("atan2_one", value=[1.0])])
-    by_whole = Atan2([w, u])  # u one sample: one pair per sample
+    by_whole = Atan2([w, u])  # u without a window: one pair per sample
     assert by_constant.shape.dimensions == ((4,), 1, (1,))
     assert by_whole.shape.dimensions == ((), 3, (2,))
     model = Modely(
@@ -309,14 +324,14 @@ def test_atan2_broadcasts_as_the_operators_do():
     rng = np.random.default_rng(0)
     xs = rng.normal(size=(3, 4, 1, 1)).astype(np.float32)
     ws = rng.normal(size=(3, 3, 2)).astype(np.float32)
-    us = rng.normal(size=(3, 1, 2)).astype(np.float32)
+    us = rng.normal(size=(3, 2)).astype(np.float32)
     result = model({"atan2_seq_x": xs, "atan2_w": ws, "atan2_u": us})
     np.testing.assert_allclose(
         to_numpy(result["atan2_by_constant"]), np.arctan2(xs, 1.0), rtol=1e-6
     )
     np.testing.assert_allclose(
         to_numpy(result["atan2_by_whole"]),
-        np.arctan2(ws, us),
+        np.arctan2(ws, us[:, None]),
         rtol=1e-6,
     )
 

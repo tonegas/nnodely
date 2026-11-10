@@ -118,90 +118,87 @@ class Shape:
         )
 
     @staticmethod
-    def broadcast(shapes, owner: str, values=None) -> "Shape":
+    def broadcast(shapes, owner: str) -> "Shape":
         """The shape of an elementwise operation between streams of ``shapes``.
 
-        ``values`` tells, for each shape, whether its stream is a value - a
-        number, a Parameter or a Constant, or a relation of those alone -
-        rather than read from data.
+        Every stream follows the same rule, read from data or not - an Input,
+        a number, a Parameter, a Constant: an axis it does not have broadcasts
+        along the others', an axis it has must match theirs.
 
-        The window: equal, or one of them a single sample, ``T=1``, which
-        broadcasts along the other's. A value without one applies to every
-        sample of any stream; a stream from data without one does not combine
-        with a stream that has one.
+        The window: the same, or none, which applies to every sample of the
+        others'. A single sample, ``T=1``, is a window like any other.
 
         The sequence: the same - a dynamic axis matches any length and stays
-        dynamic - unless one stream's is a single step, every sequence axis of
-        size 1, which broadcasts along the other's, as numpy aligns them, from
-        the innermost. The dim axes must be the same, unless one stream's are
-        a scalar - every axis of size 1 - which broadcasts to the others' as
-        numpy aligns them, from the last.
+        dynamic - or none, which applies at every step of the others'. A
+        single step is a sequence like any other.
+
+        The dim axes: lined up from the last, as Keras broadcasts them - a dim
+        of fewer axes gets leading axes of 1 - each axis the same, or 1 in one
+        of them, which stretches along the others'.
 
         And one stream must already have the shape of the result, the others
         broadcasting into it: two streams that would both be broadcast, one
-        along the window of the other and the other along its dim - a matrix of
-        one sample and the window of a scalar - are not combined.
+        along the window of the other and the other along its dim - a matrix
+        without a window and the window of a scalar - are not combined.
+        Streams of the same sequence and window are the exception: their dims
+        broadcast both ways, as Keras's do.
         """
-        values = [False] * len(shapes) if values is None else list(values)
-        windows = [shape.tw for shape in shapes if shape.tw is not None]
-        tw = max(windows) if windows else None
-        for shape, value in zip(shapes, values):
-            if shape.tw is None and tw is not None and not value:
-                raise ValueError(
-                    f"{owner}: a stream with no tw, {shape!r}, cannot be "
-                    f"combined with a stream with a window of {tw}. Declare "
-                    "the Input with a window, tw=1 for one sample."
-                )
-            if shape.tw not in (None, 1, tw):
-                raise ValueError(
-                    f"{owner}: streams with windows of {shape.tw} and {tw} "
-                    "cannot be combined: only a single sample, T=1, broadcasts "
-                    "along the window of another."
-                )
+        windows = sorted({shape.tw for shape in shapes if shape.tw is not None})
+        if len(windows) > 1:
+            hint = (
+                " A sample taken with TimeSelect(idx, keep_tw=False) has none."
+                if windows[0] == 1
+                else ""
+            )
+            raise ValueError(
+                f"{owner}: streams with windows of "
+                f"{' and '.join(map(str, windows))} cannot be combined: the "
+                "windows must be the same, or a stream have none, which applies "
+                f"to every sample of the other's.{hint}"
+            )
+        tw = windows[0] if windows else None
 
-        seq: tuple | None = None
+        seq: tuple = ()
         for shape in shapes:
-            if seq is None or _is_scalar(seq):
-                seq = _broadcast_ones(seq, shape.seq)
-            elif _is_scalar(shape.seq):
-                seq = _broadcast_ones(shape.seq, seq)
-            elif _same_steps(shape.seq, seq):
-                seq = tuple(
-                    None if None in (size, other) else size
-                    for size, other in zip(shape.seq, seq)
-                )
-            else:
+            if not shape.seq:
+                continue
+            if seq and not _same_steps(shape.seq, seq):
                 raise ValueError(
                     f"{owner}: streams with a different sequence cannot be "
-                    f"combined, got {_sizes(seq)} and {shape!r}. Only a single "
-                    "step broadcasts along the sequence of another."
+                    f"combined, got {_sizes(seq)} and {shape!r}: the sequences "
+                    "must be the same, or a stream have none, which applies at "
+                    "every step of the other's."
                 )
-        assert seq is not None
+            seq = (
+                tuple(None if None in pair else pair[0] for pair in zip(shape.seq, seq))
+                if seq
+                else shape.seq
+            )
 
-        dim: tuple[int, ...] | None = None
+        rank = max(shape.dim_rank for shape in shapes)
+        dim = [1] * rank
         for shape in shapes:
-            if dim is None or shape.dim == dim:
-                dim = shape.dim
-            elif _is_scalar(shape.dim) or _is_scalar(dim):
-                # The scalar, padded with leading axes of 1, takes the other's.
-                rank = max(len(dim), len(shape.dim))
-                dim = tuple(
-                    max(a, b)
-                    for a, b in zip(_padded(dim, rank), _padded(shape.dim, rank))
-                )
-            else:
-                raise ValueError(
-                    f"{owner}: dim {dim} and dim {shape.dim} cannot be combined: "
-                    "the dims must be the same, or one of them a scalar."
-                )
+            for axis, size in enumerate(_padded(shape.dim, rank)):
+                if size != 1 and dim[axis] not in (1, size):
+                    raise ValueError(
+                        f"{owner}: dims "
+                        f"{' and '.join(str(s.dim) for s in shapes)} cannot be "
+                        "combined: lined up from the last axis, as Keras "
+                        "broadcasts them, each axis must be the same, or 1 in "
+                        "one of them."
+                    )
+                dim[axis] = max(dim[axis], size)
 
-        result = Shape(dim=dim, tw=tw, seq=seq)
-        if not any(shape._fills(result, value) for shape, value in zip(shapes, values)):
+        result = Shape(dim=tuple(dim), tw=tw, seq=seq)
+        same_steps = all(
+            shape.tw == tw and _same_steps(shape.seq, seq) for shape in shapes
+        )
+        if not same_steps and not any(shape._fills(result) for shape in shapes):
             raise ValueError(
                 f"{owner}: streams of {' and '.join(map(repr, shapes))} cannot be "
-                "combined: each would be broadcast, one along the window of another "
-                "and that one along its dim. A single sample combines with a "
-                "window only if its dim is a scalar or the same."
+                f"combined: none has the shape of the result, {result!r}, so "
+                "each would be broadcast, one along the window or the sequence "
+                "of another and that one along its dim."
             )
         return result
 
@@ -216,14 +213,14 @@ class Shape:
         """The window as axes: one, or none."""
         return () if self.tw is None else (self.tw,)
 
-    def _fills(self, result: "Shape", value: bool = False) -> bool:
-        """Whether this shape is already ``result``'s, but for axes of 1: a
-        stream of it would not be broadcast to ``result``. A value without a
-        window counts as one sample of ``result``'s."""
-        tw = 1 if value and self.tw is None and result.tw is not None else self.tw
+    def _fills(self, result: "Shape") -> bool:
+        """Whether this shape is already ``result``'s, but for leading dim
+        axes of 1: a stream of it would not be broadcast to ``result``. A
+        stream without a window or a sequence is broadcast along
+        ``result``'s, even of a single sample or a single step."""
         return (
-            tw == result.tw
-            and _same_steps(_padded(self.seq, len(result.seq)), result.seq)
+            self.tw == result.tw
+            and _same_steps(self.seq, result.seq)
             and _padded(self.dim, len(result.dim)) == result.dim
         )
 
@@ -341,12 +338,6 @@ def _same_steps(steps, other) -> bool:
     )
 
 
-def _broadcast_ones(ones, steps) -> tuple:
-    """``steps`` broadcast with ``ones``, a single sample - every axis of
-    size 1 - or None: ``steps`` given the leading axes ``ones`` has more."""
-    return tuple(steps) if ones is None else _padded(steps, len(ones))
-
-
 def _sizes(values) -> str:
     """Axis sizes as a tuple, a dynamic one as "dyn"."""
     items = ["dyn" if value is None else str(value) for value in values]
@@ -388,9 +379,9 @@ def align(
     ``to_seq_rank`` and ``to_dim_rank`` and a window or not, as
     :meth:`Shape.broadcast` lines them up.
 
-    A single sample of fewer sequence axes gets its missing outer ones right
-    after the batch, a value without a window gets one, and a scalar dim of
-    fewer axes its missing leading ones. ``expand_dims`` is
+    A stream of fewer sequence axes gets its missing outer ones right after
+    the batch, a stream without a window gets one, and a dim of fewer axes
+    its missing leading ones, as Keras lines dims up. ``expand_dims`` is
     ``np.expand_dims`` for numpy.
     """
     for _ in range(to_seq_rank - seq_rank):

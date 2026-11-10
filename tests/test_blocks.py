@@ -1576,7 +1576,8 @@ def test_local_model_is_a_block(tmp_path):
     shared = Fir(features=1, name="block_local_shared")(x)
     # The functions read streams of the graph that are not inputs of the block.
     local = LocalModel(
-        lambda index: lambda streams: streams[0] * shared * k, name="block_local"
+        lambda index: lambda streams: TimeSelect(-1)(streams[0]) * shared * k,
+        name="block_local",
     )
     first, second = local([x], [mu]), local([x], [mu])
     assert (first.name, second.name) == ("block_local", "block_local_2")

@@ -75,6 +75,9 @@ no ``tw``
 
 The layers that read an input take what they need of its window:
 :class:`~nnodely.TimeSelect` one sample, :class:`~nnodely.TimeRange` a part.
+``TimeSelect`` keeps the window, one sample long, ``T=1``; ``keep_tw=False``
+drops it, so the sample applies to every sample of a window it is combined
+with.
 
 .. code-block:: python
 
@@ -133,29 +136,33 @@ which applies to every sample:
    gain = Parameter("gain", value=2.0)
    z = gain * x + 1.0
 
-Two streams combine when their shapes agree:
+Two streams combine when their shapes agree. The rule is the same for every
+stream - an Input, a relation, a number, a Parameter, a Constant: an axis a
+stream does not have applies along the other's, an axis it has must match.
 
-- **tw**: the same window, or one of them a single sample, ``T=1``, which
-  applies to every sample of the other's window. A value without a window - a
-  number, a Parameter, a Constant - applies to every sample of any stream; an
-  input without a window does not combine with a stream that has one.
-- **sequence**: the same, or a single step, which applies to every step of a
-  rollout.
-- **dim**: the dims must be the same, or one of them a scalar, which applies
-  to every feature. A vector is never stretched over a matrix.
-- one of the streams must already have the shape of the result: a matrix of
-  one sample is not combined with the window of a scalar, which would have to
-  stretch both.
+- **tw**: the same window, or none, which applies to every sample of the
+  other's window. A single sample, ``T=1``, is a window like any other: it
+  does not combine with a window of 4.
+- **sequence**: the same, or none, which applies to every step of a rollout.
+  A single step does not combine with a sequence of 4.
+- **dim**: as Keras broadcasts them, lined up from the last axis, a dim of
+  fewer axes getting leading axes of 1: each axis the same, or 1 in one of
+  them, which stretches along the other's. ``(3,)`` combines with ``(2, 3)``,
+  ``(2,)`` does not.
+- one of the streams must already have the shape of the result: a matrix
+  without a window is not combined with the window of a scalar, which would
+  have to stretch both.
 
 .. code-block:: python
 
    v = Input("v", dim=3, tw=4)
    s = Input("s", tw=4)
-   v * gain                 # S=(), T=4, D=(3,): the gain applies to every feature and sample
-   v + s                    # S=(), T=4, D=(3,): the scalar window, to every feature
-   v + TimeSelect(-1)(s)    # S=(), T=4, D=(3,): the newest sample, to every sample
+   v * gain                    # S=(), T=4, D=(3,): the gain applies to every feature and sample
+   v + s                       # S=(), T=4, D=(3,): the scalar window, to every feature
+   v + Input("plain", dim=3)   # S=(), T=4, D=(3,): a stream without a window, to every sample
+   v + TimeSelect(-1, keep_tw=False)(s)   # S=(), T=4, D=(3,): the newest sample, to every sample
    # v + Input("s3", tw=3) is refused: windows of 4 and of 3 samples
-   # v + Input("plain", dim=3) is refused: a stream without a window
+   # v + TimeSelect(-1)(s) is refused: windows of 4 and of 1 sample
 
 Names
 -----

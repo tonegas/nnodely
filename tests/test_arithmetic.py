@@ -1,5 +1,8 @@
-from nnodely import Gradient, Input, Modely, Output, Parameter
+import math
+
+from nnodely import Constant, Gradient, Input, Modely, Output, Parameter
 from nnodely.core.layer import Mod
+from nnodely.core.shape import Shape
 from nnodely.layers.arithmetic import (
     Abs,
     Ceil,
@@ -165,7 +168,7 @@ def test_stream_operators():
 def test_maximum_minimum():
     # ------- Test elementwise extremum of streams -------
     x = Input("x", dim=2, tw=3)
-    y = Input("y", dim=2, tw=1)  # one sample, broadcast along the window
+    y = Input("y", dim=2)  # no window, broadcast along the window
     bound = Parameter("bound", value=[0.5, -0.5])
     largest = Maximum([x, y, bound])
     smallest = Minimum()([x, bound])
@@ -179,11 +182,11 @@ def test_maximum_minimum():
 
     rng = np.random.default_rng(0)
     xs = rng.uniform(-2.0, 2.0, size=(4, 3, 2))
-    ys = rng.uniform(-2.0, 2.0, size=(4, 1, 2))
+    ys = rng.uniform(-2.0, 2.0, size=(4, 2))
     result = model({"x": xs, "y": ys})
     np.testing.assert_allclose(
         to_numpy(result["largest"]),
-        np.maximum(np.maximum(xs, ys), [0.5, -0.5]),
+        np.maximum(np.maximum(xs, ys[:, None]), [0.5, -0.5]),
         rtol=1e-6,
     )
     np.testing.assert_allclose(
@@ -468,3 +471,145 @@ def test_clamp_sum_save_load(tmp_path):
         "max": 0.5,
     }
     assert nodes["sum"].get_config() == {"name": "sum", "axis": None}
+
+@pytest.mark.parametrize(
+    "seq1, tw1, dim1, seq2, tw2, dim2, shape",
+    [
+        (1, 1, 1, 1, 1, 1, (1, 1, 1)),
+        (1, 1, (2, 3), 1, 1, 1, (1, 1, 2, 3)),
+        (1, 1, (2, 3), 1, 1, 2, None), # dims lined up from the last axis, as Keras: 3 vs 2
+        (1, 4, 1, 1, 4, 1, (1, 4, 1)),
+        (1, 1, 1, 1, 4, 1, None),
+        (1, 2, 1, 1, 4, 1, None),
+        (1, 1, 1, 2, 1, 1, None),
+        (3, 1, 1, 2, 1, 1, None),
+        (3, 1, 1, 3, 1, 1, (3, 1, 1)),
+        (1, 1, 1, 2, 3, 1, None),
+        (2, 1, 5, 2, 3, 1, None),
+        (1, 1, 1, 2, 3, 5, None),
+        (1, 3, 1, 2, 3, 5, None),
+        (None, 1, 1, None, 1, 1, (None, 1, 1)),
+        (None, None, 1, None, 1, 1, (None, 1, 1)),
+        (None, None, 3, None, 1, 1, None),
+        (None, None, 1, None, 3, 1, (None, 3, 1)), # broadcast along the window
+        (None, None, 2, None, 3, (2, 3), None), # dims lined up from the last axis, as Keras: 2 vs 3
+        (None, None, 2, None, 3, (4, 2), (None, 3, 4, 2)), # broadcast along the dim axes
+        (None, 3, 3, None, 3, (3, 3), (None, 3, 3, 3)), # the vector along the last axis, as Keras
+        (None, 3, (1, 3), None, 3, (3, 3), (None, 3, 3, 3)), # an axis of 1 stretches
+        (None, 3, (2, 1), None, 3, (1, 3), (None, 3, 2, 3)), # same window: dims broadcast both ways
+        (None, None, (2, 1), None, 3, (1, 3), None), # each broadcast, one along the window too
+        (3, 2, 1, None, 2, 1, (3, 2, 1)), # broadcast along the sequence, same tw
+        (3, 2, 1, None, 1, 1, None), # broadcast along the sequence, different tw
+        (3, 2, 1, None, None, 1, (3, 2, 1)), # no tw: along the sequence and the window
+        (None, 2, (2, 3), 4, 2, 3, None), # each broadcast, one along the sequence
+    ],
+)
+# The same policy for every stream: a Constant or a Parameter in place of an Input.
+@pytest.mark.parametrize(
+    "kind1, kind2",
+    [
+        ("input", "input"),
+        ("constant", "input"),
+        ("input", "constant"),
+        ("parameter", "input"),
+        ("input", "parameter"),
+    ],
+)
+def test_binary_ops(seq1, tw1, dim1, seq2, tw2, dim2, shape, kind1, kind2):
+    # ------- Test binary operations with broadcasting -------
+    x = _operand(kind1, "x", seq1, tw1, dim1)
+    y = _operand(kind2, "y", seq2, tw2, dim2)
+
+    if shape is None:
+        with pytest.raises(ValueError):
+            relations = {
+                "add": x + y,
+                "sub": x - y,
+                "mul": x * y,
+                "div": x / y,
+            }
+    else:
+        relations = {
+            "add": x + y,
+            "sub": x - y,
+            "mul": x * y,
+            "div": x / y,
+        }
+        inputs = [stream for stream in (x, y) if isinstance(stream, Input)]
+        model = Modely(
+            "arithmetic_binary_ops_model",
+            inputs=inputs,
+            outputs=[Output(name, relation) for name, relation in relations.items()],
+        ).build()
+
+        # Data laid out (batch, *seq, tw, *dim), as each Input declares it.
+        data = {
+            stream.name: np.random.uniform(-2.0, 2.0, size=(1, *stream.shape.tuple))
+            for stream in inputs
+        }
+        result = model(data)
+        # None in shape is an axis the result does not have.
+        expected = (1, *(axis for axis in shape if axis is not None))
+        for name in relations.keys():
+            assert result[name].shape == expected
+
+
+def _operand(kind, name, seq, tw, dim):
+    """An operand of the sizes given: an Input, or a Constant or a Parameter
+    holding random values."""
+    if kind == "input":
+        return Input(name, dim=dim, tw=tw, seq=seq)
+    size = math.prod(Shape(dim=dim, tw=tw, seq=seq).tuple)
+    value = np.random.uniform(-2.0, 2.0, size=size).tolist()
+    value_class = Constant if kind == "constant" else Parameter
+    return value_class(name, value=value, dim=dim, tw=tw, seq=seq)
+
+
+def test_binary_ops_broadcast_the_dims_as_keras(tmp_path):
+    # ------- Dims lined up from the last axis, an axis of 1 stretching -------
+    x = Input("x", dim=2)  # no window: the same at every sample
+    cols = Input("cols", dim=(4, 2), tw=3)
+    row = Input("row", dim=3, tw=3)
+    square = Input("square", dim=(3, 3), tw=3)
+    column = Input("column", dim=(2, 1), tw=3)
+    line = Input("line", dim=(1, 3), tw=3)
+    matrix = Input("matrix", dim=(2, 3), tw=3)
+    relations = {
+        "cols": cols - x,
+        "square": row * square,
+        "both_ways": column + line,
+        "cross": Cross()([row, matrix]),
+    }
+    assert relations["both_ways"].dimensions == ((), 3, (2, 3))
+    assert relations["cross"].dimensions == ((), 3, (2, 3))
+    model = Modely(
+        "arithmetic_keras_dims_model",
+        inputs=[x, cols, row, square, column, line, matrix],
+        outputs=[Output(name, relation) for name, relation in relations.items()],
+    ).build()
+
+    rng = np.random.default_rng(0)
+    data = {
+        stream.name: rng.normal(size=(2, *stream.shape.tuple))
+        for stream in (x, cols, row, square, column, line, matrix)
+    }
+    expected = {
+        "cols": data["cols"] - data["x"][:, None, None, :],
+        "square": data["row"][:, :, None, :] * data["square"],
+        "both_ways": data["column"] + data["line"],
+        "cross": np.cross(data["row"][:, :, None, :], data["matrix"]),
+    }
+    model.export_keras(tmp_path, "keras_dims")
+    imported = Modely.import_keras(tmp_path / "keras_dims.keras")
+    for result in (model(data), imported(data)):  # type: ignore
+        for name, value in expected.items():
+            np.testing.assert_allclose(
+                to_numpy(result[name]), value, rtol=1e-5, atol=1e-6, err_msg=name
+            )
+
+    # Lined up from the last axis, 2 meets 3.
+    with pytest.raises(ValueError, match="the same, or 1"):
+        _ = x * matrix
+    # Axis 0 of (3, 4) is axis 1 of the product with (3, 3, 4), not axis 0.
+    with pytest.raises(ValueError, match="different axes"):
+        Cross(axis=0)([Input("a", dim=(3, 4)), Input("b", dim=(3, 3, 4))])

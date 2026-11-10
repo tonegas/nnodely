@@ -160,8 +160,10 @@ The tables group the available layers.
 ``Select`` drops the dim axis it selects from, and ``keep_dim=True`` keeps it
 with length 1; a stream always has a dim, so selecting from a vector gives a
 scalar ``(1,)`` either way. ``TimeSelect`` keeps the window, one sample long,
-which combines with every sample of a window: ``w - TimeSelect(-1)(w)``
-subtracts the newest sample from each. ``SeqSelect`` removes the sequence
+which combines with streams of one sample only; ``keep_tw=False`` drops it,
+so the sample combines with every sample of a window:
+``w - TimeSelect(-1, keep_tw=False)(w)`` subtracts the newest sample from
+each. ``SeqSelect`` removes the sequence
 axis it selects from, as does a ``SeqRange`` one step long: ``SeqSelect(-1)``
 takes the last step of a rollout, of any length.
 

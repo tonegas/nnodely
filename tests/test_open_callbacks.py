@@ -125,7 +125,7 @@ def test_buffer_of_a_signal_without_a_window_starts_from_init():
     model = ModelyLoop(
         "oc_buf_init",
         inputs=[u],
-        outputs=[Output("oc_buf_init_window", window + u * 0.0)],
+        outputs=[Output("oc_buf_init_window", window), Output("oc_buf_init_u_out", u)],
     ).build()
 
     result = to_numpy(model({"oc_buf_init_u": _ramp(3)})["oc_buf_init_window"])
