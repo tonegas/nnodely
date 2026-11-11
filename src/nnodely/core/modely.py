@@ -104,8 +104,12 @@ class Modely:
 
         Either way ``inputs`` is a dict keyed by Input or input name, a list
         with one value per input, in the order of ``inputs``, or the value
-        alone of a model with one input. A key that names no input the model
-        reads is ignored.
+        alone of a model with one input. Every key is resolved to its Input
+        at once, as ``model.inputs[name]`` resolves it: a name several Inputs
+        carry raises, and so does an Input the model does not read. Keyed by
+        the Inputs themselves, two of one name are told apart. A key that
+        names no input the model reads - a target, or another column - is
+        ignored.
         """
         if isinstance(inputs, Node) or hasattr(inputs, "shape"):
             # A stream or an array alone: the value of the one input.
@@ -119,15 +123,7 @@ class Modely:
             inputs = [inputs]
         if isinstance(inputs, dict):
             values = list(inputs.values())
-            given: dict[Any, Any] = {}
-            for key, value in inputs.items():
-                name = key.name if isinstance(key, Input) else key
-                if name in given:
-                    raise ValueError(
-                        f"Model {self.name!r} is given two values for its input "
-                        f"{name!r}: key it by the Input or by its name, once."
-                    )
-                given[name] = value
+            given = self._given_by_input(inputs)
         elif isinstance(inputs, (list, tuple)):
             values = list(inputs)
             # One value per input, no more and no less: paired off with zip, an
@@ -143,7 +139,7 @@ class Modely:
             if all(isinstance(value, Node) for value in values):
                 # Paired by position, not by name: two inputs may share one.
                 return self._call_stream(values)
-            given = {node.name: value for node, value in zip(self._inputs, values)}
+            given = dict(zip(self._inputs, values))
         else:
             raise TypeError(
                 f"Model {self.name!r} is called with a dict keyed by Input or "
@@ -153,7 +149,17 @@ class Modely:
             )
         streams = [isinstance(value, Node) for value in values]
         if all(streams):
-            return self._call_stream(self._streams_by_name(given))
+            # A declared input left out would be read from the data of the
+            # graph above, as an input of its own.
+            missing = [node.name for node in self._inputs if node not in given]
+            if missing:
+                names = [node.name for node in self._inputs]
+                raise ValueError(
+                    f"Model {self.name!r} has {len(names)} inputs {names}: used "
+                    f"as a block it takes a stream for each, and {missing} have "
+                    "none."
+                )
+            return self._call_stream([given[node] for node in self._inputs])
         if any(streams):
             raise TypeError(
                 f"Model {self.name!r} is called with streams and arrays together: "
@@ -162,27 +168,35 @@ class Modely:
             )
         return self._call_tensor(given)
 
-    def _streams_by_name(self, streams: dict[str, Any]) -> list:
-        """The stream given for each declared input, in their order, from
-        ``{input name: stream}``."""
-        names = [node.name for node in self._inputs]
-        # A declared input left out would be read from the data of the graph
-        # above, as an input of its own.
-        missing = [name for name in names if name not in streams]
-        if missing:
-            raise ValueError(
-                f"Model {self.name!r} has {len(names)} inputs {names}: used as a "
-                f"block it takes a stream for each, and {missing} have none."
-            )
-        twins = sorted({name for name in names if names.count(name) > 1})
-        if twins:
-            raise ValueError(
-                f"Model {self.name!r} has several inputs named {twins}: a dict "
-                "keyed by name cannot tell them apart. Call it with a list, "
-                "one stream per input in their order, or give one of them a "
-                "name of its own, model.inputs[i].name = 'new_name'."
-            )
-        return [streams[name] for name in names]
+    def _given_by_input(self, inputs: dict) -> dict[Input, Any]:
+        """``{Input: value}`` from a call keyed by Input or input name: a name
+        is resolved as ``model.inputs[name]`` resolves it - one no Input
+        carries is ignored - and an Input must be one the model reads."""
+        known = self.inputs
+        given: dict[Input, Any] = {}
+        for key, value in inputs.items():
+            if isinstance(key, Input):
+                if not any(node is key for node in known):
+                    raise ValueError(
+                        f"Model {self.name!r} does not read the Input "
+                        f"{key.name!r} it is keyed by: key it by one of its own, "
+                        "model.inputs[i]."
+                    )
+                node = key
+            elif isinstance(key, str):
+                try:
+                    node = known[key]
+                except KeyError:
+                    continue  # a name no Input of the model carries: ignored
+            else:
+                continue
+            if node in given:
+                raise ValueError(
+                    f"Model {self.name!r} is given two values for its input "
+                    f"{node.name!r}: key it by the Input or by its name, once."
+                )
+            given[node] = value
+        return given
 
     def _call_stream(self, arguments: list) -> Any:
         """The model as a block of a larger graph: every declared input reads
@@ -197,22 +211,21 @@ class Modely:
         mc._outputs_map = {new: old for old, new in zip(self._outputs, outputs)}
         return outputs[0] if len(outputs) == 1 else outputs
 
-    def _call_tensor(self, inputs: dict[str, Any]) -> Any:
-        """The model run on arrays, ``{input name: array}``: its declared
+    def _call_tensor(self, inputs: dict[Input, Any]) -> Any:
+        """The model run on arrays, ``{Input: array}``: its declared
         outputs, without minimizers, ``{output name: tensor}``.
 
-        Every Input is read from the data by its name now and handed to Keras
-        under the key it was built with, and every output returned under its
-        name now: an Input or an output renamed since the build is still
-        found."""
+        Every Input is handed to Keras under the key it was built with, and
+        every output returned under its name now: an Input or an output
+        renamed since the build is still found, and two Inputs renamed alike
+        are still two."""
         # The arrays come batched, as a DataLoader lays them out; an input only
         # a minimizer reads, such as a target, is neither needed nor passed on.
         if self.inference_model is None:
             raise ValueError("Model is not built. Call build() before calling it.")
-        self._check_inputs_apart(self.inference_inputs)
         read = [(self._original(node), node.name) for node in self.inference_inputs]
-        given = [(node, key) for node, key in read if node.name in inputs]
-        left_out = [(node, key) for node, key in read if node.name not in inputs]
+        given = [(node, key) for node, key in read if node in inputs]
+        left_out = [(node, key) for node, key in read if node not in inputs]
         missing = [
             node.name
             for node, _ in left_out
@@ -225,8 +238,8 @@ class Modely:
             )
         # An optional input left out reads zeros, one step of a dynamic
         # sequence: a ModelyLoop starts from the first step of it alone.
-        batch = np.shape(inputs[given[0][0].name])[0]
-        arrays = {key: inputs[node.name] for node, key in given}
+        batch = np.shape(inputs[given[0][0]])[0]
+        arrays = {key: inputs[node] for node, key in given}
         for node, key in left_out:
             arrays[key] = np.zeros(
                 (batch, *(1 if size is None else size for size in node.shape.tuple)),

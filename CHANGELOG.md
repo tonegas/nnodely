@@ -211,7 +211,12 @@ variable, and trains, validates and exports through Keras. Models saved with
   names stay one per model, the keys of the data: two Inputs of one name are
   refused at build, and renamed alike after it, when the model is run on
   data. Saved so, they load as the two Inputs they are, which a rename lets
-  run; a block whose inputs share a name is called with a list, by position.
+  run; a block whose inputs share a name is called with a list, by position,
+  or with a dict keyed by the Inputs themselves. A model or a block called
+  with a dict resolves every key to its Input at once, as `inputs[...]`
+  does: a name several Inputs carry raises listing them, a name none carries
+  is ignored, as another column of the data, and an Input of another model
+  raises (once taken for the model's own of its name).
   The state a layer keeps,
   named like another Input of the model, takes a free name. Node classes are
   saved with their module, so a class of your own named like one of

@@ -794,7 +794,7 @@ def test_inputs_renamed_into_a_clash_after_the_build_are_refused_when_run():
     b.name = "cb_a"
 
     # Once both read the one array given, 1 + 10 * 1, silently.
-    with pytest.raises(ValueError, match=r"several Inputs named \['cb_a'\]"):
+    with pytest.raises(ValueError, match=r"'cb_a' is ambiguous, 2 Inputs carry it"):
         model({"cb_a": _ONE})
     with pytest.raises(ValueError, match=r"several Inputs named \['cb_a'\]"):
         DataLoader(model, {"cb_a": _ONE}, windowed=True)
@@ -815,7 +815,7 @@ def test_a_model_whose_inputs_clash_is_saved_and_loaded_as_two_inputs(tmp_path):
 
     first, second = loaded.inputs[0], loaded.inputs[1]
     assert first is not second and first.name == second.name == "cs_x"
-    with pytest.raises(ValueError, match=r"several Inputs named \['cs_x'\]"):
+    with pytest.raises(ValueError, match=r"'cs_x' is ambiguous, 2 Inputs carry it"):
         loaded({"cs_x": _ONE})
     # Each is still the Input it was saved as: renamed, it is read apart.
     second.name = "cs_x2"
@@ -861,8 +861,44 @@ def test_a_block_whose_inputs_share_a_name_is_called_by_position(tmp_path):
     loaded = Modely.load(tmp_path / "outer")
     np.testing.assert_allclose(to_numpy(loaded(data)["cp_o"]), [[[21.0]]])
     # By name they are ambiguous.
-    with pytest.raises(ValueError, match=r"several inputs named \['cp_x'\]"):
+    with pytest.raises(ValueError, match=r"'cp_x' is ambiguous, 2 Inputs carry it"):
         block({"cp_x": a})
+
+
+def test_a_call_resolves_its_keys_to_the_inputs_at_once():
+    a, b = Input("ck_a", tw=1), Input("ck_b", tw=1)
+    model = Modely(
+        "ck_model", inputs=[a, b], outputs=[Output("ck_y", a + 10.0 * b)]
+    ).build()
+
+    # Renamed alike, keyed by the Inputs themselves they are still two: the
+    # Keras model keeps the keys of its build. Once both were the name 'ck_a'.
+    b.name = "ck_a"
+    result = model({a: _ONE, b: 2.0 * _ONE})["ck_y"]
+    np.testing.assert_allclose(to_numpy(result), [[[21.0]]])
+    # By the name both carry: refused as every name is, listing them.
+    with pytest.raises(ValueError, match=r"'ck_a' is ambiguous, 2 Inputs carry it"):
+        model({"ck_a": _ONE})
+    b.name = "ck_b"
+    # A name no Input carries is ignored, as another column of the data...
+    with pytest.raises(ValueError, match=r"reads the inputs \['ck_b'\]"):
+        model({"ck_a": _ONE, "ck_bb": _ONE})
+    # ... but an Input of another model, named alike, is not taken for its
+    # own: once it was read as b, 1 + 10 * 5.
+    with pytest.raises(ValueError, match="does not read the Input 'ck_b'"):
+        model({a: _ONE, Input("ck_b", tw=1): 5.0 * _ONE})
+
+    # A block whose inputs share a name is called keyed by them too.
+    xa, xb = Input("ck_x2", tw=1), Input("ck_x2", tw=1)
+    block = Modely(
+        "ck_block", inputs=[xa, xb], outputs=[Output("ck_by", xa + 10.0 * xb)]
+    )
+    p, q = Input("ck_p", tw=1), Input("ck_q", tw=1)
+    outer = Modely(
+        "ck_outer", inputs=[p, q], outputs=[Output("ck_o", block({xa: p, xb: q}))]
+    ).build()
+    result = outer({"ck_p": _ONE, "ck_q": 2.0 * _ONE})["ck_o"]
+    np.testing.assert_allclose(to_numpy(result), [[[21.0]]])
 
 
 def test_a_modelyloop_state_keeps_the_row_of_its_input_renamed(tmp_path):
