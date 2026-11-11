@@ -304,13 +304,41 @@ def test_validate_reports_the_configured_loss():
 
 
 def test_validate_names_the_source_and_the_target_signal():
+    # Each side is labelled by its own stream: the target is a time selection
+    # of an Input, named by the Output that wraps it.
     name = "label_model"
-    model = _identity_model(name)
+    x = Input(f"{name}_x", tw=1)
+    prediction = Output(f"{name}_prediction", x)
+    reference = Output(
+        f"{name}_reference", TimeSelect(-1)(Input(f"{name}_target", tw=1))
+    )
+    model = Modely(name, inputs=[x], outputs=[prediction])
+    model.minimize("tracking", source=prediction, target=reference)
+    model.build()
     values = np.linspace(0.0, 1.0, 10)
+
     score = model.validate(_data(model, name, values, values))["tracking"]
 
     assert score.source == f"{name}_prediction"
-    assert score.target == f"{name}_target"
+    assert score.target == f"{name}_reference"
+
+
+def test_validate_labels_the_target_by_its_own_name_not_by_what_it_reads():
+    # The target is a selection of the target Input that the user named like
+    # the other Input: its label is the name it was given.
+    name = "homonym_model"
+    x = Input(f"{name}_x", tw=1)
+    reference = TimeSelect(-1)(Input(f"{name}_target", tw=1))
+    reference.name = f"{name}_x"
+    prediction = Output(f"{name}_prediction", x)
+    model = Modely(name, inputs=[x], outputs=[prediction])
+    model.minimize("tracking", source=prediction, target=reference)
+    model.build()
+    values = np.linspace(0.0, 1.0, 10)
+
+    score = model.validate(_data(model, name, values, values))["tracking"]
+
+    assert score.target == f"{name}_x"
 
 
 def test_validate_draws_nothing_unless_asked():

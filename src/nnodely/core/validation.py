@@ -353,10 +353,10 @@ class ValidationResult:
 # ----------------------------------------------------------------------
 
 
-def _evaluate(model, terms, x_data: dict, mask, n_samples: int) -> dict:
+def _evaluate(model, terms, x_data: dict, mask, n_samples: int) -> list:
     """What each minimizer compares over the dataset, as training sees it.
 
-    Returns, by minimizer, its loss over the whole dataset, its source, its
+    Returns, for each term in the order of ``terms``, its loss over the whole dataset, its source, its
     target aligned with it, and the mask of their real points - None when no
     point was padded.
 
@@ -368,49 +368,37 @@ def _evaluate(model, terms, x_data: dict, mask, n_samples: int) -> dict:
     # Every input is there: Modely._training_arrays checked it.
     input_names = [node.name for node in model.train_inputs]
 
-    losses = {term.name: 0.0 for term in terms}
-    parts: dict[str, tuple[list, list, list]] = {
-        term.name: ([], [], []) for term in terms
-    }
+    losses = [0.0] * len(terms)
+    parts: list[tuple[list, list, list]] = [([], [], []) for _ in terms]
     for start in range(0, n_samples, _INFERENCE_CHUNK):
         stop = min(start + _INFERENCE_CHUNK, n_samples)
         batch = {name: x_data[name][start:stop, ...] for name in input_names}
         y = None if mask is None else mask[start:stop]
         outputs = model.model(batch, training=False)
-        for term in terms:
+        for index, term in enumerate(terms):
             source = outputs[term.source]
             target = MinimizerModel._align_target(term, outputs[term.target], source)
             value = keras.ops.convert_to_numpy(
                 MinimizerModel._term_loss(term, source, target, y)
             )
-            losses[term.name] += float(value) * (stop - start)  # type: ignore[arg-type]
+            losses[index] += float(value) * (stop - start)  # type: ignore[arg-type]
 
-            sources, targets, valids = parts[term.name]
+            sources, targets, valids = parts[index]
             sources.append(keras.ops.convert_to_numpy(source))
             targets.append(keras.ops.convert_to_numpy(target))
             valid = _rollout_mask(term, target, y)
             if valid is not None:
                 valids.append(keras.ops.convert_to_numpy(valid))
 
-    return {
-        name: (
-            losses[name] / n_samples,
+    return [
+        (
+            loss / n_samples,
             np.concatenate(sources),
             np.concatenate(targets),
             np.concatenate(valids) if valids else None,
         )
-        for name, (sources, targets, valids) in parts.items()
-    }
-
-
-def _dataset_name(node, x_data: dict) -> str | None:
-    """Name of the dataset column a node ultimately reads, if any."""
-    if node.name in x_data:
-        return node.name
-    preds = getattr(node, "_preds", [])
-    if len(preds) == 1:
-        return _dataset_name(preds[0], x_data)
-    return None
+        for loss, (sources, targets, valids) in zip(losses, parts)
+    ]
 
 
 def validate(
@@ -439,13 +427,13 @@ def validate(
     compared = _evaluate(model, terms, x_data, mask, n_samples)
 
     signals = {}
-    for minimizer, term in zip(model._minimizers, terms):
-        loss_value, y_pred, y_true, valid = compared[term.name]
-        target = minimizer["target"]
+    for minimizer, term, (loss_value, y_pred, y_true, valid) in zip(
+        model._minimizers, terms, compared
+    ):
         signals[term.name] = score_signal(
             name=term.name,
             source=minimizer["source"].name,
-            target=_dataset_name(target, x_data) or target.name,
+            target=minimizer["target"].name,
             y_true=y_true,
             y_pred=y_pred,
             valid=valid,
