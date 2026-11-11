@@ -1,5 +1,6 @@
 """Output: names a stream as an output of the model."""
 
+from nnodely.core.names import Table
 from nnodely.core.stream import Stream
 from nnodely.utils.printers import _table
 from nnodely.layers.input import _seq_cell
@@ -30,7 +31,7 @@ class Output(Stream):
         return super().from_config({**config, "stream": preds[0]})
 
 
-class Outputs(list):
+class Outputs(Table):
     """The outputs of a model, as :attr:`Modely.outputs` lists them: a list
     of the Output objects, in the order the model was declared with, printed
     as a table of their shapes, the stream each names, the Inputs that
@@ -47,35 +48,14 @@ class Outputs(list):
         "minimized by",
     )
 
+    _kind, _attr = "output", "outputs"
+
     def __init__(self, rows: list[dict]):
         super().__init__(row["output"] for row in rows)
         self._rows = rows
 
-    def __getitem__(self, key):  # type: ignore[override]
-        """An output by its name, or by its index - the index column of the
-        table - as in a list."""
-        from nnodely.core.dag import by_name_or_index, pick  # dag imports this module
-
-        if not by_name_or_index(key, "Outputs"):
-            return super().__getitem__(key)
-        candidates = [
-            (row["output"], index, f"(of {row['stream']!r})")
-            for index, row in enumerate(self._rows)
-        ]
-        picked = pick(
-            candidates,
-            key,
-            kind="output",
-            owner="Outputs",
-            hint="Pick one by its index, outputs[i], or give it a name of its "
-            "own, outputs[i].name = 'new_name'.",
-        )
-        if not picked:
-            raise KeyError(
-                f"Outputs: no output named {key!r}; the names are "
-                f"{[node.name for node in self]}."
-            )
-        return picked[0]
+    def _where(self, index, item) -> str:
+        return f"(of {self._rows[index]['stream']!r})"
 
     def __str__(self):
         cells = [

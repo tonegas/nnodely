@@ -916,3 +916,39 @@ def test_a_modelyloop_state_keeps_the_row_of_its_input_renamed(tmp_path):
         assert [row["input"].name for row in rows] == ["mr_position", "mr_u"]
         assert rows[0]["fed back with"] is not None
         assert rows[0]["starts from"] == "its data, first step, else 0"
+
+
+def test_every_lookup_resolves_a_key_alike():
+    from nnodely.core.names import NameNotFound
+
+    # A key that picks nothing is a KeyError, as a table's, and a ValueError,
+    # as a call's: either is caught.
+    model = _two_ks()
+    for lookup in (
+        lambda: model.parameters["nope"],
+        lambda: model.freeze("nope"),
+        lambda: model.minimize("fit", "nope", 1.0),
+    ):
+        with pytest.raises(NameNotFound) as error:
+            lookup()
+        assert isinstance(error.value, KeyError) and isinstance(error.value, ValueError)
+
+    # A Loop takes its body inputs by name or by themselves: a stream of
+    # another graph named like one is no longer taken for it by its name,
+    # and a key of no name is refused rather than ignored.
+    s, u = Input("lk_s", tw=1), Input("lk_u", tw=1)
+    after = Output("lk_after", s + u)
+    body = Modely("lk_body", inputs=[s, u], outputs=[after]).build()
+    s0, pushes = Input("lk_s0", tw=1), Input("lk_pushes", seq=3, tw=1)
+    with pytest.raises(ValueError, match="'lk_u' is not an input the body"):
+        Loop(f=body, feedback={s: after}, init={s: s0})({Input("lk_u", tw=1): pushes})
+    with pytest.raises(TypeError, match="by its name, a string, or by itself"):
+        Loop(f=body, feedback={s: after}, init={s: s0})({5: pushes})
+    with pytest.raises(TypeError, match="by its name, a string, or by itself"):
+        Loop(f=body, feedback={5: after})
+    loop = Loop(f=body, feedback={"lk_s": "lk_after"}, init={"lk_s": s0})
+    model = Modely(
+        "lk_model", inputs=[s0, pushes], outputs=[Output("lk_traj", loop({u: pushes}))]
+    ).build()
+    data = {"lk_s0": _ONE, "lk_pushes": np.ones((1, 3, 1, 1), np.float32)}
+    np.testing.assert_allclose(to_numpy(model(data)["lk_traj"]).ravel(), [2, 3, 4])

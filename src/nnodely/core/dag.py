@@ -10,9 +10,10 @@ from copy import copy
 
 import keras
 
+from nnodely.core.names import by_name_or_index, pick  # noqa: F401 - re-exported
 from nnodely.core.stream import NODE_NAMES, Node, Stream, reserve_name
 from nnodely.layers.output import Output
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nnodely.core.modely import Modely
@@ -443,61 +444,3 @@ def _nodes_by_model(
                         holders.setdefault(id(inner), current)
             stack.extend(reversed(node._preds))
     return groups
-
-
-# ------------------------------------------------------------------
-# Picking the objects of a model by name
-# ------------------------------------------------------------------
-# Names are how the user reaches a Parameter, a model or a stream, and nothing
-# keeps two objects from sharing one: layers named alike by hand, a block and
-# the model calling it, two copies of one loaded model. So every call taking a
-# name looks it up among the objects the graph reaches, in that order, and
-# refuses a name several carry; the lists the user reads them from are also
-# indexed by position, as the index column of their tables shows. Inside
-# nnodely the objects themselves are used, never their names.
-
-
-def by_name_or_index(key, owner: str) -> bool:
-    """Whether ``key`` picks by name: a string; an int or a slice picks by
-    position, as in a list. Anything else - a name and an index together -
-    raises ``TypeError``."""
-    if isinstance(key, str):
-        return True
-    if isinstance(key, (int, slice)) and not isinstance(key, bool):
-        return False
-    raise TypeError(
-        f"{owner}: an item is picked by its name, a string, or by its index, "
-        f"an int - the index column of the table - not both; got {key!r}."
-    )
-
-
-def pick(
-    candidates: Sequence[tuple[Any, int | None, str]],
-    name: str,
-    *,
-    kind: str,
-    owner: str,
-    hint: str,
-    kinds: str | None = None,
-) -> list:
-    """The object of ``candidates`` - ``(object, index, where)``, its index
-    in the list it is picked from, or None, and where it is - that carries
-    the name ``name``, as a list: ``[]`` for none. When several carry it,
-    raises ``ValueError`` listing them, and ``hint``: how to pick one, or to
-    rename one. ``kinds`` is the plural of ``kind``, its name with an s by
-    default."""
-    found = [
-        (item, index, where) for item, index, where in candidates if item.name == name
-    ]
-    if len(found) <= 1:
-        return [item for item, _, _ in found]
-    indices = [index for _, index, _ in found]
-    at = "" if None in indices else f", at indices {indices}"
-    listing = "; ".join(
-        f"{'' if index is None else f'[{index}] '}{name} {where}".rstrip()
-        for _, index, where in found
-    )
-    raise ValueError(
-        f"{owner}: the name {name!r} is ambiguous, {len(found)} "
-        f"{kinds or kind + 's'} carry it{at}: {listing}. {hint}"
-    )

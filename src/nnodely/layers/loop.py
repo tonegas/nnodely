@@ -11,11 +11,11 @@ from nnodely.core.dag import (
     _streams_from,
     flatten_fed_back,
     flatten_node,
-    pick,
     toposort_outputs,
 )
 from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
+from nnodely.core.names import resolve
 from nnodely.core.shape import (
     BATCH_AXIS,
     OUTER_AXIS,
@@ -786,25 +786,21 @@ class _Step:
         itself, or an Input of ``f`` - or its name - that is fed back."""
         if any(key is state for state in self.states):
             return key
-        name = key.name if isinstance(key, Stream) else key
-        if isinstance(key, Stream):
-            declared = next((node for node in self.f._inputs if node is key), None)
-        else:
-            found = pick(
-                [(node, index, "") for index, node in enumerate(self.f._inputs)],
-                key,
-                kind="input",
-                owner=f"Loop init of {self.f.name!r}",
-                hint="Key it by the Input itself.",
-            )
-            declared = found[0] if found else None
-        if declared is None:
-            raise ValueError(
-                f"Loop init key {name!r} is not an input of {self.f.name!r}: a "
-                "state kept inside a block, as the one of Integrate or "
-                "Derivative, starts from the init of the block, "
-                "Integrate(init=...)."
-            )
+        declared = resolve(
+            key,
+            [(node, index, "") for index, node in enumerate(self.f._inputs)],
+            kind="input",
+            owner=f"Loop init of {self.f.name!r}",
+            hint="Key it by the Input itself.",
+            objects=Stream,
+            missing=lambda key: (
+                f"Loop init key {getattr(key, 'name', key)!r} is "
+                f"not an input of {self.f.name!r}: a state kept inside a block, as "
+                "the one of Integrate or Derivative, starts from the init of the "
+                "block, Integrate(init=...)."
+            ),
+        )
+        name = declared.name
         state = next(
             (state for state in self.states if self.original(state) is declared),
             None,
@@ -1287,31 +1283,19 @@ class Loop(Layer):
         Input of ``f`` it stands for, or a name - one input alone carrying
         it. A state is refused: it starts from its init."""
         states = list(self._feedback_inputs)
-        candidates = [*known, *states]
-        if isinstance(key, Stream):
-            node = next(
-                (
-                    node
-                    for node in candidates
-                    if node is key or self._step.original(node) is key
-                ),
-                None,
-            )
-            # Another stream of the name of one: as the name.
-            key = key.name if node is None else node
-        if isinstance(key, str):
-            found = pick(
-                [(node, None, "") for node in candidates],
-                key,
-                kind="input",
-                owner=f"Loop {self.name!r}",
-                hint="Pass the Input itself.",
-            )
-            if not found:
-                raise ValueError(
-                    f"Loop input {key!r} is not an input the body model reads."
-                )
-            key = found[0]
+        key = resolve(
+            key,
+            [(node, None, "") for node in [*known, *states]],
+            kind="input",
+            owner=f"Loop {self.name!r}",
+            hint="Pass the Input itself.",
+            objects=Stream,
+            same=lambda node, key: node is key or self._step.original(node) is key,
+            missing=lambda key: (
+                f"Loop input {getattr(key, 'name', key)!r} is not "
+                "an input the body model reads."
+            ),
+        )
         if any(key is state for state in states):
             raise ValueError(
                 f"Loop input {key.name!r} is fed back: give its initial value "
@@ -1369,29 +1353,22 @@ class Loop(Layer):
 
     @staticmethod
     def _find_node(nodes, value, kind):
-        if isinstance(value, str):
-            # A name several of them carry is refused, listing them: the
-            # body is built only if its inputs and outputs have names of
-            # their own.
-            matches = pick(
-                [
-                    (node, None, f"(its {kind} {index})")
-                    for index, node in enumerate(nodes)
-                ],
-                value,
-                kind=kind,
-                owner="Loop feedback",
-                hint=f"Pass the {kind} itself.",
-            )
-            if not matches:
-                raise ValueError(f"feedback {kind} {value!r} was not found.")
-            return matches[0]
-        if value not in nodes:
-            raise ValueError(
-                f"feedback {kind} {getattr(value, 'name', value)!r} "
-                "does not belong to the provided Modely."
-            )
-        return value
+        # A name several of them carry is refused, listing them: the body is
+        # built only if its inputs and outputs have names of their own.
+        return resolve(
+            value,
+            [(node, None, f"(its {kind} {index})") for index, node in enumerate(nodes)],
+            kind=kind,
+            owner="Loop feedback",
+            hint=f"Pass the {kind} itself.",
+            objects=Stream,
+            missing=lambda value: (
+                f"feedback {kind} {value!r} was not found."
+                if isinstance(value, str)
+                else f"feedback {kind} {value.name!r} does not belong to the "
+                "provided Modely."
+            ),
+        )
 
     def __repr__(self):
         if self._shape is None or not self._return_all_outputs:

@@ -6,7 +6,7 @@ import numpy as np
 import keras
 
 from nnodely.core.layer import Layer, _refuse_non_streams, _refuse_uncalled
-from nnodely.core.dag import by_name_or_index, pick
+from nnodely.core.names import Table
 from nnodely.core.shape import Shape
 from nnodely.layers.input import _dimension, _positive_sizes
 from nnodely.utils.printers import _table
@@ -342,7 +342,7 @@ class Parameter(_Value):
             self._layer.reinitialize()
 
 
-class Parameters(list):
+class Parameters(Table):
     """The Parameters of a model, as :attr:`Modely.parameters` lists them: a
     list of the Parameter objects, printed as a table of their names, shapes,
     numbers of values and whether training changes them - a section per model
@@ -352,40 +352,16 @@ class Parameters(list):
     ``groups`` pairs the name of each model with its Parameters, the model
     itself first."""
 
+    _kind, _attr = "Parameter", "parameters"
+
     def __init__(self, groups: list[tuple[str, list]], title: str = ""):
         super().__init__(parameter for _, group in groups for parameter in group)
         self._groups = groups
         self._title = title
+        self._models = [model for model, group in groups for _ in group]
 
-    def __getitem__(self, key):  # type: ignore[override]
-        """A Parameter by its name, or by its index - the index column of
-        the table - as in a list. A name several Parameters carry raises
-        ``ValueError`` listing them, with their index."""
-        owner = self._title or "Parameters"
-        if not by_name_or_index(key, owner):
-            return super().__getitem__(key)
-        candidates = [
-            (parameter, index, f"in {model!r}")
-            for index, (model, parameter) in enumerate(
-                (model, parameter)
-                for model, group in self._groups
-                for parameter in group
-            )
-        ]
-        picked = pick(
-            candidates,
-            key,
-            kind="Parameter",
-            owner=owner,
-            hint="Pick one by its index, parameters[i], or give it a name of "
-            "its own, parameters[i].name = 'new_name'.",
-        )
-        if not picked:
-            raise KeyError(
-                f"{owner}: no Parameter named {key!r}; the names are "
-                f"{[parameter.name for parameter in self]}."
-            )
-        return picked[0]
+    def _where(self, index, item) -> str:
+        return f"in {self._models[index]!r}"
 
     def __str__(self):
         header = ("index", "parameter", "seq", "tw", "dim", "values", "trainable")

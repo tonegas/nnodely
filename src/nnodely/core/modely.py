@@ -14,9 +14,8 @@ from nnodely.core.dag import (
     _nodes_by_model,
     _read_nodes,
     _source_input_tensors,
-    by_name_or_index,
-    pick,
 )
+from nnodely.core.names import NameNotFound, Table, resolve
 from nnodely.core.minimizer import (
     MinimizerModel,
     _check_minimizers_train_weights,
@@ -172,24 +171,30 @@ class Modely:
         """``{Input: value}`` from a call keyed by Input or input name: a name
         is resolved as ``model.inputs[name]`` resolves it - one no Input
         carries is ignored - and an Input must be one the model reads."""
-        known = self.inputs
+        known = self.inputs._candidates()
         given: dict[Input, Any] = {}
         for key, value in inputs.items():
-            if isinstance(key, Input):
-                if not any(node is key for node in known):
-                    raise ValueError(
-                        f"Model {self.name!r} does not read the Input "
-                        f"{key.name!r} it is keyed by: key it by one of its own, "
-                        "model.inputs[i]."
-                    )
-                node = key
-            elif isinstance(key, str):
-                try:
-                    node = known[key]
-                except KeyError:
+            if not isinstance(key, (str, Input)):
+                continue  # no name and no Input: ignored, as a name none carries
+            try:
+                node = resolve(
+                    key,
+                    known,
+                    kind="Input",
+                    owner=f"Model {self.name!r}",
+                    hint="Key it by the Input itself, model.inputs[i], or give "
+                    "it a name of its own, model.inputs[i].name = 'new_name'.",
+                    objects=Input,
+                    missing=lambda key: (
+                        f"Model {self.name!r} does not read the "
+                        f"Input {getattr(key, 'name', key)!r} it is keyed by: key it by one of its "
+                        "own, model.inputs[i]."
+                    ),
+                )
+            except NameNotFound:
+                if isinstance(key, str):
                     continue  # a name no Input of the model carries: ignored
-            else:
-                continue
+                raise
             if node in given:
                 raise ValueError(
                     f"Model {self.name!r} is given two values for its input "
@@ -650,11 +655,9 @@ class Modely:
     def remove_minimizer(self, name: str | int):
         """Remove a registered minimizer by name, or by its index in
         :attr:`minimizers`; an unknown name only warns."""
-        if not isinstance(name, str):
-            by_name_or_index(name, f"Model {self.name!r}")  # an int, or raises
-            del self._minimizers[name]
-            return
-        if all(minimizer["name"] != name for minimizer in self._minimizers):
+        try:
+            picked = self.minimizers[name]
+        except NameNotFound:
             warnings.warn(
                 f"Model {self.name!r} has no minimizer named {name!r}: nothing "
                 "was removed.",
@@ -662,7 +665,9 @@ class Modely:
                 stacklevel=2,
             )
             return
-        self._minimizers = [m for m in self._minimizers if m["name"] != name]
+        rows = picked if isinstance(picked, list) else [picked]
+        removed = {id(row._minimizer) for row in rows}
+        self._minimizers = [m for m in self._minimizers if id(m) not in removed]
 
     def _check_minimizer_name(self, name, others: list[dict]) -> None:
         """Refuse ``name`` for a minimizer beside the minimizers ``others``."""
@@ -987,28 +992,26 @@ class Modely:
         ]
         picked: dict[int, Parameter] = {}
         for key in keys:
-            found = pick(
-                candidates,
+            item = resolve(
                 key,
+                candidates,
                 kind="Parameter or model",
                 kinds="Parameters and models",
                 owner=f"Model {self.name!r}",
                 hint="Freeze or unfreeze one by itself, model.parameters[i]"
                 ".freeze() or model.models[i].freeze(), or give it a name of "
                 "its own, obj.name = 'new_name'.",
+                missing=lambda key: (
+                    f"Model {self.name!r} reaches no Parameter "
+                    f"and no model named {key!r}. Its Parameters are "
+                    f"{[parameter.name for parameter in parameters]}, its models "
+                    f"{list(dict.fromkeys(model.name for model in models))}."
+                ),
             )
-            if not found:
-                raise ValueError(
-                    f"Model {self.name!r} reaches no Parameter and no model "
-                    f"named {key!r}. Its Parameters are "
-                    f"{[parameter.name for parameter in parameters]}, its "
-                    f"models {list(dict.fromkeys(model.name for model in models))}."
-                )
-            for item in found:
-                for parameter in (
-                    [item] if isinstance(item, Parameter) else _parameters(item)
-                ):
-                    picked.setdefault(id(parameter), parameter)
+            for parameter in (
+                [item] if isinstance(item, Parameter) else _parameters(item)
+            ):
+                picked.setdefault(id(parameter), parameter)
         return list(picked.values())
 
     # -------------------------------------------------------------------------
@@ -1349,42 +1352,22 @@ class IntermediateOutput(Output):
         self._preds = [model_call]
 
 
-class Models(list):
+class Models(Table):
     """The models a model computes with, as :attr:`Modely.models` lists them:
     a list of the Modely objects, printed as a table of their inputs, their
     outputs, the number of Parameters each computes with and whether it is
     built."""
 
+    _kind, _attr = "model", "models"
+
     def __init__(self, models, title: str = "", where: list[str] | None = None):
         super().__init__(models)
         self._title = title
         # Where each one is, for the listing of a name several carry.
-        self._where = where or ["" for _ in models]
+        self._places = where or ["" for _ in models]
 
-    def __getitem__(self, key):  # type: ignore[override]
-        """A model by its name, or by its index - the index column of the
-        table - as in a list. A name several models carry raises
-        ``ValueError`` listing them, with their index."""
-        owner = self._title or "Models"
-        if not by_name_or_index(key, owner):
-            return super().__getitem__(key)
-        picked = pick(
-            [
-                (model, index, where)
-                for index, (model, where) in enumerate(zip(self, self._where))
-            ],
-            key,
-            kind="model",
-            owner=owner,
-            hint="Pick one by its index, models[i], or give it a name of its "
-            "own, models[i].name = 'new_name'.",
-        )
-        if not picked:
-            raise KeyError(
-                f"{owner}: no model named {key!r}; the names are "
-                f"{[model.name for model in self]}."
-            )
-        return picked[0]
+    def _where(self, index, item) -> str:
+        return self._places[index]
 
     def __str__(self):
         header = ("index", "model", "inputs", "outputs", "parameters", "built")
@@ -1456,28 +1439,17 @@ class Minimizer(Mapping):
         self._model._set_minimizer(self._minimizer, key, value)
 
 
-class Minimizers(list):
+class Minimizers(Table):
     """The minimizers of a model, as :attr:`Modely.minimizers` lists them: a
     list of :class:`Minimizer`, printed as a table of the streams each
     compares, its loss and its gain."""
 
     _HEADER = ("index", "minimizer", "source", "target", "loss", "gain")
 
+    _kind, _attr = "minimizer", "minimizers"
+
     def __init__(self, minimizers: list[Minimizer]):
         super().__init__(minimizers)
-
-    def __getitem__(self, key):  # type: ignore[override]
-        """A minimizer by its name - each has one of its own - or by its
-        index - the index column of the table - as in a list."""
-        if not by_name_or_index(key, "Minimizers"):
-            return super().__getitem__(key)
-        found = next((row for row in self if row["name"] == key), None)
-        if found is None:
-            raise KeyError(
-                f"Minimizers: no minimizer named {key!r}; the names are "
-                f"{[row['name'] for row in self]}."
-            )
-        return found
 
     def __str__(self):
         def cells(index, row):

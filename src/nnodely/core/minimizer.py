@@ -7,7 +7,8 @@ from typing import cast
 import keras
 import numpy as np
 
-from nnodely.core.dag import pick, toposort_outputs
+from nnodely.core.dag import toposort_outputs
+from nnodely.core.names import resolve
 from nnodely.core.layer import Layer
 from nnodely.core.shape import OUTER_AXIS, expand_to_rank, outer_view
 from nnodely.core.stream import Node, Stream
@@ -270,21 +271,19 @@ def _minimizer_stream(model, value, side: str, minimizer: str) -> Stream:
         for stream in toposort_outputs(cast(list, roots))
         if isinstance(stream, Stream)
     ]
-    matches = pick(
-        candidates,
+    return resolve(
         value,
+        candidates,
         kind="stream",
         owner=f"The {side} of minimizer {minimizer!r} in model {model.name!r}",
         hint="Pass the stream itself, or give it a name of its own, "
         "stream.name = 'new_name'.",
+        missing=lambda value: (
+            f"The {side} {value!r} of minimizer {minimizer!r} "
+            f"is not the name of a stream of model {model.name!r}. Its outputs are "
+            f"{sorted(output.name for output in model._outputs)}."
+        ),
     )
-    if not matches:
-        outputs = sorted(output.name for output in model._outputs)
-        raise ValueError(
-            f"The {side} {value!r} of minimizer {minimizer!r} is not the name "
-            f"of a stream of model {model.name!r}. Its outputs are {outputs}."
-        )
-    return matches[0]
 
 
 def _where(stream: Stream) -> str:

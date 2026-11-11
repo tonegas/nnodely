@@ -3,6 +3,7 @@
 from numbers import Integral
 from typing import Any
 
+from nnodely.core.names import Table
 from nnodely.core.shape import _same_steps
 from nnodely.core.stream import Stream
 from nnodely.utils.printers import _table
@@ -284,7 +285,7 @@ def _tw_cell(node: Input) -> str:
     return str(node.past) if not node.future else f"({node.past}, {node.future})"
 
 
-class Inputs(list):
+class Inputs(Table):
     """The Inputs of a model, as :attr:`Modely.inputs` lists them: a list
     of the Input objects, printed as a table of their shapes and of how each
     is fed - whether it is declared, the stream it is fed back with, what the
@@ -302,35 +303,14 @@ class Inputs(list):
         "starts from",
     )
 
+    _kind, _attr = "Input", "inputs"
+
     def __init__(self, rows: list[dict]):
         super().__init__(row["input"] for row in rows)
         self._rows = rows
 
-    def __getitem__(self, key):  # type: ignore[override]
-        """An Input by its name, or by its index - the index column of the
-        table - as in a list."""
-        from nnodely.core.dag import by_name_or_index, pick  # dag imports this module
-
-        if not by_name_or_index(key, "Inputs"):
-            return super().__getitem__(key)
-        candidates = [
-            (row["input"], index, "(declared)" if row["declared"] else "(not declared)")
-            for index, row in enumerate(self._rows)
-        ]
-        picked = pick(
-            candidates,
-            key,
-            kind="Input",
-            owner="Inputs",
-            hint="Pick one by its index, inputs[i], or give it a name of its "
-            "own, inputs[i].name = 'new_name'.",
-        )
-        if not picked:
-            raise KeyError(
-                f"Inputs: no Input named {key!r}; the names are "
-                f"{[node.name for node in self]}."
-            )
-        return picked[0]
+    def _where(self, index, item) -> str:
+        return "(declared)" if self._rows[index]["declared"] else "(not declared)"
 
     def __str__(self):
         cells = [
