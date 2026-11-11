@@ -10,6 +10,7 @@ from nnodely.core.dag import (
     _streams_from,
     flatten_fed_back,
     flatten_node,
+    is_key,
     pick,
     toposort_outputs,
 )
@@ -829,8 +830,9 @@ class Loop(Layer):
 
     The loop returns every output of ``f``, in its order. With one, the loop
     is that output, a stream. With more, it is all of them: unpack them,
-    ``x, v = Loop(f=step)(inputs)``, or pick one, ``loop[1]``; used where one
-    stream is read - an Output, an operator, a layer - it raises.
+    ``x, v = Loop(f=step)(inputs)``, or pick one, by position, ``loop[1]``,
+    or by the name it has in ``f``, ``loop["v"]``; used where one stream is
+    read - an Output, an operator, a layer - it raises.
 
     A state declared with a window (``tw=n``) is fed back by shifting: the
     oldest step is dropped and the new output appended, so after ``n`` steps
@@ -922,7 +924,8 @@ class Loop(Layer):
             raise _SeveralOutputs(
                 f"Loop {self.name!r} returns the {len(names)} outputs {names} of "
                 f"{self._f.name!r}, and is read as one stream: unpack them, "
-                f"{', '.join(names)} = Loop(...)(inputs), or pick one, loop[i]."
+                f"{', '.join(names)} = Loop(...)(inputs), or pick one, loop[i] "
+                "or loop[name]."
             )
         return self._shape
 
@@ -1335,8 +1338,27 @@ class Loop(Layer):
     def __iter__(self):
         return iter(self._outputs())
 
-    def __getitem__(self, index: int):
-        return self._outputs()[index]
+    def __getitem__(self, key):
+        """An output by position, as in a list, or by the name it has in
+        ``f``, or by that name and its index among those of that name,
+        ``("y", 0)``."""
+        outputs = self._outputs()
+        if not is_key(key):
+            return outputs[key]
+        picked = pick(
+            [(output, "") for output in self._returns],
+            key,
+            kind="output",
+            owner=f"Loop {self.name!r}",
+        )
+        if not picked:
+            raise KeyError(
+                f"Loop {self.name!r}: no output named "
+                f"{key if isinstance(key, str) else key[0]!r}; the names are "
+                f"{[output.name for output in self._returns]}."
+            )
+        # The loop returns one stream per output of f, in its order.
+        return outputs[self._returns.index(picked[0])]
 
     def build_layer(self):
         return LoopImpl(

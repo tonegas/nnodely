@@ -86,7 +86,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   that is an Input of the step is an input of the `Loop`, bound to a stream
   of the outer graph. A `Loop` returns every output of its body, in its
   order: with one, it is that output, a stream; with more, it is all of
-  them, unpacked (`x, v = Loop(...)(inputs)`) or indexed (`loop[1]`), and
+  them, unpacked (`x, v = Loop(...)(inputs)`) or indexed, by position
+  (`loop[1]`) or by the name of the output in the body (`loop["v"]`), and
   read as one stream it is an error. An output it adds for an update is not
   returned.
 - `Buffer(tw=n, init=None)(signal)`: the last `n` values of a signal computed

@@ -110,8 +110,9 @@ The :class:`~nnodely.DataLoader` cuts the signals into sequences of
 
 The loop returns every output of the body, in its order. With one, the loop
 is that output, a stream. With more, it is all of them: unpack them,
-``position_traj, velocity_traj = Loop(...)(inputs)``, or pick one,
-``loop[1]``; read as one stream - in an ``Output``, an operator or a layer -
+``position_traj, velocity_traj = Loop(...)(inputs)``, or pick one, by
+position, ``loop[1]``, or by the name it has in the body,
+``loop["velocity"]``; read as one stream - in an ``Output``, an operator or a layer -
 it raises. An output the loop adds to the body for an update the body does
 not declare, as the state of an ``Integrate``, is not returned. A fed-back
 input with a window, ``Input(..., tw=n)``, is fed back by

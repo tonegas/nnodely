@@ -345,6 +345,33 @@ def test_a_loop_with_several_outputs_returns_them_all(tmp_path):
     )
 
 
+def test_a_loop_output_is_picked_by_its_name_in_the_step():
+    u, y = Input("fb_key_u", tw=1), Input("fb_key_y", tw=1)
+    y_next = y.feedback(y + u)
+    step = Modely(
+        "fb_key_step",
+        inputs=[u, y],
+        outputs=[Output("fb_key_next", y_next), Output("fb_key_twice", y_next * 2.0)],
+    )
+    u_seq = Input("fb_key_u_seq", seq=-1, tw=1)
+    loop = Loop(f=step)({u: u_seq})
+    y_traj, twice = loop
+    assert loop["fb_key_twice"] is twice
+    assert loop[("fb_key_next", 0)] is y_traj
+    with pytest.raises(KeyError, match=r"no output named 'fb_key_y'"):
+        loop["fb_key_y"]
+
+    # One output: the loop is that output. The one it adds for the update of
+    # z is not returned, so not picked either.
+    v, z = Input("fb_key_v", tw=1), Input("fb_key_z", tw=1)
+    z.feedback(z + v)
+    single = Modely("fb_key_single", inputs=[v], outputs=[Output("fb_key_3z", z * 3.0)])
+    one = Loop(f=single)({v: Input("fb_key_v_seq", seq=-1, tw=1)})
+    assert one["fb_key_3z"] is one
+    with pytest.raises(KeyError, match=r"the names are \['fb_key_3z'\]"):
+        one["fb_key_z_next"]
+
+
 def test_a_state_starts_from_zero_along_a_dynamic_sequence(tmp_path):
     # A state with a dynamic sequence axis that starts from zero, or from a
     # number, takes the length of that axis from the value fed back.
