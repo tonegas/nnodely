@@ -626,7 +626,7 @@ def test_a_modelyloop_input_is_renamed_on_the_modelyloop():
     # is keyed by the new name; the state stays optional.
     sim.inputs["rn_ml_x"].name = "rn_ml_position"
     sim.build()
-    assert sim.optional_inputs == {"rn_ml_position"}
+    assert {node.name for node in sim._optional_inputs} == {"rn_ml_position"}
     start = np.full((1, 4, 1, 1), 10.0, np.float32)
     result = sim({"rn_ml_position": start, "rn_ml_u": steps})["rn_ml_out"]
     np.testing.assert_allclose(to_numpy(result).ravel(), [10.0, 11.0, 12.0, 13.0])
@@ -952,3 +952,37 @@ def test_every_lookup_resolves_a_key_alike():
     ).build()
     data = {"lk_s0": _ONE, "lk_pushes": np.ones((1, 3, 1, 1), np.float32)}
     np.testing.assert_allclose(to_numpy(model(data)["lk_traj"]).ravel(), [2, 3, 4])
+
+
+def test_a_dataloader_resolves_its_keys_as_a_call_does():
+    import pandas as pd
+
+    x, w = Input("dk_x", tw=1), Input("dk_w", tw=1)
+    y = Output("dk_y", x * 2.0 + w)
+    model = Modely("dk_model", inputs=[x, w], outputs=[y])
+    model.minimize("dk_fit", y, Input("dk_t", tw=1)).build()
+    values = np.arange(4.0)
+
+    # Keyed by the Inputs themselves, as a call is: once refused as missing.
+    data = DataLoader(model, {x: values, w: values, "dk_t": values})
+    assert data.inputs == ["dk_x", "dk_w", "dk_t"]
+    np.testing.assert_array_equal(data.get_input(x).ravel(), values)
+    # format by Input: once ignored, x read its own column.
+    frame = pd.DataFrame({"dk_x": values, "dk_w": 100 + values, "dk_t": values})
+    mapped = DataLoader(model, frame, format={x: "dk_w"})
+    np.testing.assert_array_equal(mapped.get_input("dk_x").ravel(), 100 + values)
+    # A name no input carries is ignored, an Input of another model refused.
+    DataLoader(
+        model, {**{"dk_x": values, "dk_w": values, "dk_t": values}, "other": values}
+    )
+    with pytest.raises(ValueError, match="does not read the Input 'dk_x'"):
+        DataLoader(model, {Input("dk_x", tw=1): values, "dk_w": values, "dk_t": values})
+
+    # Made before the model was built again under other names, it is refused
+    # with the names on both sides - once Keras's own error, in train.
+    w.name = "dk_w2"
+    model.build()
+    with pytest.raises(
+        ValueError, match=r"reads the inputs \['dk_w2'\], which the data"
+    ):
+        model.train(data, epochs=1, printer=None)

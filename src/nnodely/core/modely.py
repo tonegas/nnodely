@@ -167,30 +167,40 @@ class Modely:
             )
         return self._call_tensor(given)
 
-    def _given_by_input(self, inputs: dict) -> dict[Input, Any]:
-        """``{Input: value}`` from a call keyed by Input or input name: a name
-        is resolved as ``model.inputs[name]`` resolves it - one no Input
-        carries is ignored - and an Input must be one the model reads."""
+    def _input_of(self, key, known: list | None = None) -> Input:
+        """The Input a key the user gives stands for - the Input itself, or
+        its name, resolved as ``model.inputs[name]`` resolves it: a name
+        several Inputs carry raises, listing them, and a name none carries, or
+        an Input the model does not read, raises :class:`NameNotFound`.
+        ``known`` is ``self.inputs._candidates()``, when the caller holds it."""
+        return resolve(
+            key,
+            self.inputs._candidates() if known is None else known,
+            kind="Input",
+            owner=f"Model {self.name!r}",
+            hint="Key it by the Input itself, model.inputs[i], or give it a "
+            "name of its own, model.inputs[i].name = 'new_name'.",
+            objects=Input,
+            missing=lambda key: (
+                f"Model {self.name!r} has no Input named {key!r}; its Inputs are "
+                f"{[node.name for node in self.inputs]}."
+                if isinstance(key, str)
+                else f"Model {self.name!r} does not read the Input {key.name!r} "
+                "it is keyed by: key it by one of its own, model.inputs[i]."
+            ),
+        )
+
+    def _given_by_input(self, inputs: Mapping) -> dict[Input, Any]:
+        """``{Input: value}`` from a dict keyed by Input or input name, every
+        key resolved by :meth:`_input_of`: a name no Input carries is ignored,
+        as another column of the data."""
         known = self.inputs._candidates()
         given: dict[Input, Any] = {}
         for key, value in inputs.items():
             if not isinstance(key, (str, Input)):
                 continue  # no name and no Input: ignored, as a name none carries
             try:
-                node = resolve(
-                    key,
-                    known,
-                    kind="Input",
-                    owner=f"Model {self.name!r}",
-                    hint="Key it by the Input itself, model.inputs[i], or give "
-                    "it a name of its own, model.inputs[i].name = 'new_name'.",
-                    objects=Input,
-                    missing=lambda key: (
-                        f"Model {self.name!r} does not read the "
-                        f"Input {getattr(key, 'name', key)!r} it is keyed by: key it by one of its "
-                        "own, model.inputs[i]."
-                    ),
-                )
+                node = self._input_of(key, known)
             except NameNotFound:
                 if isinstance(key, str):
                     continue  # a name no Input of the model carries: ignored
@@ -262,12 +272,6 @@ class Modely:
         return {
             output.name: results[self._keys[id(output)]] for output in self._outputs
         }
-
-    @property
-    def optional_inputs(self) -> set[str]:
-        """The names of the Inputs the data may leave out, which then read
-        zeros: those a ModelyLoop starts a state from."""
-        return {node.name for node in self._optional_inputs}
 
     def _original(self, node: Input) -> Input:
         """The Input of the graph ``node``, a copy :meth:`build` made, stands
@@ -1073,6 +1077,16 @@ class Modely:
         label left is the mask that tells real rollout steps from padded ones.
         """
         x_data = {name: np.asarray(values) for name, values in data.as_dict().items()}
+        # The data is keyed by the names of the build it was made for: a
+        # DataLoader made before the model was built again holds others.
+        missing = [node.name for node in self.train_inputs if node.name not in x_data]
+        if missing:
+            raise ValueError(
+                f"Model {self.name!r} reads the inputs {missing}, which the data "
+                f"does not hold; it holds {list(x_data)}. A DataLoader is keyed "
+                "by the input names of the build it was made for: make it again "
+                "once the model is built again."
+            )
         mask = getattr(data, "mask", None)
         return x_data, None if mask is None else np.asarray(mask, dtype=np.float32)
 

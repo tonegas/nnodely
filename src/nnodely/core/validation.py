@@ -365,10 +365,8 @@ def _evaluate(model, terms, x_data: dict, mask, n_samples: int) -> dict:
     mode has to be toggled here. The loss of a chunk is a mean over its
     samples, so weighing it by their number gives the loss of the dataset.
     """
+    # Every input is there: Modely._training_arrays checked it.
     input_names = [node.name for node in model.train_inputs]
-    missing = [name for name in input_names if name not in x_data]
-    if missing:
-        raise ValueError(f"Validation data is missing model inputs: {missing}.")
 
     losses = {term.name: 0.0 for term in terms}
     parts: dict[str, tuple[list, list, list]] = {
