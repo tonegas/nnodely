@@ -1,6 +1,11 @@
 Physics-Based Layers
 ====================
 
+.. seealso::
+
+   Step by step, with runnable examples: the tutorial :doc:`Calculus
+   <../tutorial/11_calculus>`.
+
 These layers bring calculus into a model: derivatives, integrators and ODE
 solvers. They are ordinary *nnodely* layers, so they train, roll out and export
 like any other relation. The time step ``dt`` is always explicit and is never

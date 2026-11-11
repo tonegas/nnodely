@@ -24,13 +24,21 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx.ext.mathjax",
+    "myst_nb",
 ]
 
 autoclass_content = "both"
 autodoc_member_order = "bysource"
 autodoc_typehints = "none"
 
-exclude_patterns = ["_build"]
+exclude_patterns = ["_build", "**.ipynb_checkpoints"]
+
+# The tutorials are notebooks, shown with the outputs they were saved with:
+# the documentation build does not run them.
+nb_execution_mode = "off"
+nb_merge_streams = True
+# $...$ and $$...$$ are math in the notebooks, as Jupyter shows them.
+myst_enable_extensions = ["dollarmath"]
 
 # -- Options for HTML output -------------------------------------------------
 

@@ -807,7 +807,8 @@ src/nnodely/
   utils/                 printers, html_export (+ templates/graph.html, logo.png), validation_plot,
                          random (set_seed), utils (loss/optimizer resolution, MaskedLoss)
 tests/                   pytest; fast suite `-m "not slow"`; all backends with scripts/test_all_backends.sh; KERAS_BACKEND defaults to tensorflow
-docs/                    Sphinx user guide (getting_started, guide/*.rst, api/*.rst)
+docs/                    Sphinx user guide (getting_started, guide/*.rst, api/*.rst); tutorial/*.ipynb, 13 notebooks
+                         rendered by myst-nb with their saved outputs (nb_execution_mode = "off": run them before committing)
 ```
 Mechanics worth knowing:
 - Symbolic call, the only one: `Layer.__call__(streams)` infers the output `Shape` (by probing `build_layer()` on zeros unless `output_shape` is overridden) and returns a *new* node of the same class with the same name and properties, and the same `_source`: the layer object it applies.

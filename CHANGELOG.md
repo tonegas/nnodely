@@ -343,6 +343,15 @@ variable, and trains, validates and exports through Keras. Models saved with
   charts the total loss along the epochs, on a log scale. In a notebook,
   `"nnodely"` and `"tiny"` redraw one output of the cell in place, a few
   times a second, instead of appending a frame at every repaint.
+- Tutorials: 13 Jupyter notebooks in `docs/tutorial`, shown in the
+  documentation with their outputs - model design and the `(S*, T, D*)` shape
+  convention, data management, training, validation and the HTML graph, save,
+  load and export, `Parameter` and `Constant`, partitioning, `Fir` and
+  `Linear`, `Fuzzify` and `LocalModel`, recurrent models (`ModelyLoop`,
+  `Loop`, `Buffer`), calculus (`IntegrateStep`, `DerivativeStep`,
+  `Integrate`, `Derivative`, `Gradient`), custom functions and layers
+  (`KerasFunction`, `Layer` subclasses) and the `EquationLearner`. Each guide
+  page links its tutorials.
 
 ### Changed
 

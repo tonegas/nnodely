@@ -1,6 +1,11 @@
 Training
 ========
 
+.. seealso::
+
+   Step by step, with runnable examples: the tutorial :doc:`Model training
+   <../tutorial/03_model_training>`.
+
 The examples on this page use a small first-order system, :math:`y[t+1] =
 0.9 \, y[t] + 0.5 \, u[t]`, split into a training and a validation set:
 

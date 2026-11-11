@@ -6,6 +6,9 @@ trained, validated, extended over time, and finally reused or exported.
 Every page is a runnable script: its code blocks, run top to bottom, work as
 they are.
 
+The :doc:`tutorials <../tutorial/index>` teach the same topics as Jupyter
+notebooks, with runnable examples and their outputs.
+
 .. toctree::
    :maxdepth: 2
 
