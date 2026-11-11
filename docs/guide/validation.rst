@@ -1,6 +1,11 @@
 Validation
 ==========
 
+.. seealso::
+
+   Step by step, with runnable examples: the tutorial :doc:`Model validation
+   <../tutorial/04_model_validation>`.
+
 :meth:`~nnodely.Modely.validate` evaluates every objective of a built model on
 a dataset, the way training evaluates it: the same forward pass (layers such as
 ``BatchNorm`` take their inference branch), the same target, aligned with the

@@ -1,6 +1,12 @@
 Model Composition
 =================
 
+.. seealso::
+
+   Step by step, with runnable examples: the tutorials :doc:`Model design
+   <../tutorial/01_model_design>`, :doc:`Custom functions and layers
+   <../tutorial/12_custom_layers>`.
+
 A :class:`~nnodely.Modely` can be used as a block of another model. Calling it
 on streams returns its outputs as streams of the outer graph. The streams are
 given the way a built model is given its arrays (see :doc:`models`): a dict

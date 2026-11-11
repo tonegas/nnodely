@@ -1,6 +1,12 @@
 Core Concepts
 =============
 
+.. seealso::
+
+   Step by step, with runnable examples: the tutorials :doc:`Model design
+   <../tutorial/01_model_design>`, :doc:`Partitioning
+   <../tutorial/07_partitioning>`.
+
 A symbolic graph
 ----------------
 

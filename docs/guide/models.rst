@@ -1,6 +1,17 @@
 Building Models
 ===============
 
+.. seealso::
+
+   Step by step, with runnable examples: the tutorials :doc:`Model design
+   <../tutorial/01_model_design>`, :doc:`Parameter and Constant
+   <../tutorial/06_parameter_constant>`, :doc:`Partitioning
+   <../tutorial/07_partitioning>`, :doc:`Fir and Linear
+   <../tutorial/08_fir_linear>`, :doc:`Fuzzify and LocalModel
+   <../tutorial/09_fuzzify_localmodel>`, :doc:`Custom functions and layers
+   <../tutorial/12_custom_layers>`, :doc:`EquationLearner
+   <../tutorial/13_equation_learner>`.
+
 This page lists the blocks a model is made of. Their full signatures are in the
 :doc:`API reference <../api/index>`.
 
