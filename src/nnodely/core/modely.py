@@ -822,10 +822,9 @@ class Modely:
             }
             rows.append(by_input[id(original)])
 
-        # The states, inside the step: one that starts from an Input of its
-        # own name is that Input, read from data; so is one that starts from
-        # an optional Input - the Input of a ModelyLoop it starts from, by
-        # object, renamed or not.
+        # The states, inside the step: one that starts from an optional Input
+        # - the Input of a ModelyLoop it starts from, by object, renamed or
+        # not - is that Input, read from data.
         seen: set[int] = set()
         for loop in (node for node in read if isinstance(node, Loop)):
             for state, update, start, rolled in loop._state_starts():
@@ -833,14 +832,12 @@ class Modely:
                     continue
                 seen.add(id(state))
                 first = ", first step" if rolled else ""
-                # The Input of its own name it starts from is the one whose
-                # data it reads, its row - read here as a copy, too.
+                # Read here as a copy, too.
                 if isinstance(start, Input):
                     start = originals.get(id(start), start)
                 row = (
                     by_input.get(id(start))
-                    if isinstance(start, Input)
-                    and (start in self._optional_inputs or start.name == state.name)
+                    if isinstance(start, Input) and start in self._optional_inputs
                     else None
                 )
                 if row is not None:

@@ -678,27 +678,27 @@ class _Step:
                     )
             starts[node] = init
 
-        # An Input is read from the data of its name: one the step reads, or
-        # starts a state from, is an input of f declared under that name.
+        # An Input the step reads, or starts a state from, is an input of f:
+        # that Input itself, not one of its name.
         states = [state for state, _ in pairs]
-        step_inputs: dict[str, Input] = {}
+        step_inputs: dict[int, Input] = {}
         for node in toposort_outputs(body_outputs):
             if isinstance(node, Input) and node.update is None and node not in states:
-                step_inputs.setdefault(node.name, node)
+                step_inputs.setdefault(self.key(node), node)
         seeds = [init for init in starts.values() if isinstance(init, Input)]
-        listed = {node.name for node in f._inputs}
+        listed = {id(node) for node in f._inputs}
         unlisted = sorted(
             {
                 node.name
                 for node in [*step_inputs.values(), *seeds]
-                if node.name not in listed
+                if self.key(node) not in listed
             }
         )
         if unlisted:
             raise ValueError(
-                f"{who} reads the Inputs {unlisted}, which nothing feeds back "
-                f"and are not among {among}: declare them there, or feed them "
-                "back with x.feedback(stream)."
+                f"{who} reads the Inputs {unlisted} without declaring them: list "
+                f"them among {among} - model.inputs[{unlisted[0]!r}] of the "
+                "model that reads them - or feed them back with x.feedback(stream)."
             )
 
         fits = (
@@ -726,7 +726,7 @@ class _Step:
             # A seed two layers start from is one Input.
             inputs = dict(step_inputs)
             for seed in seeds:
-                inputs.setdefault(seed.name, seed)
+                inputs.setdefault(self.key(seed), seed)
             self.body = Modely(
                 f.name, inputs=[*inputs.values(), *states], outputs=body_outputs
             )
@@ -780,6 +780,11 @@ class _Step:
         calls - a fed-back Input inside a called model is copied once per
         call: ``node`` itself if it is no copy."""
         return self._sources.get(id(node), self.original(node))
+
+    def key(self, node: Any) -> int:
+        """What tells two inputs apart: the Input ``node`` stands for - never
+        its name, two Inputs of one name are two."""
+        return id(self.source(node))
 
     def state(self, key) -> Input:
         """The state the ``init`` key ``key`` gives a value for: a state
@@ -931,13 +936,13 @@ class Loop(Layer):
         ]
         # An Input the body starts a state from, and does not read: an input
         # of the loop all the same, whose outer stream is that initial value.
-        # One per name: Inputs of one name read the same data.
-        static = {node.name for node in self._static_inputs}
+        # One per Input, which several states may start from.
+        static = {step.key(node) for node in self._static_inputs}
         self._seed_inputs = list(
             {
-                start.name: start
+                step.key(start): start
                 for start in step.starts.values()
-                if isinstance(start, Input) and start.name not in static
+                if isinstance(start, Input) and step.key(start) not in static
             }.values()
         )
         self._feedback_shift_axes = self._resolve_feedback(step.pairs)
@@ -1218,12 +1223,10 @@ class Loop(Layer):
         declares them: the ones the body reads that are not fed back, and the
         ones it starts a state from."""
         bindable = {
-            node.name: node for node in (*self._static_inputs, *self._seed_inputs)
+            self._step.key(n): n for n in (*self._static_inputs, *self._seed_inputs)
         }
         return [
-            bindable[node.name]
-            for node in self._step.f._inputs
-            if node.name in bindable
+            bindable[id(node)] for node in self._step.f._inputs if id(node) in bindable
         ]
 
     def _resolve_sources(self, inputs):
@@ -1315,11 +1318,11 @@ class Loop(Layer):
             else:
                 start = self._step.starts.get(node)
                 if isinstance(start, Input):
-                    # The input of the loop reading the data of its name.
+                    # The input of the loop that Input is.
                     seed = next(
                         seed
                         for seed in (*self._static_inputs, *self._seed_inputs)
-                        if seed is start or seed.name == start.name
+                        if self._step.key(seed) == self._step.key(start)
                     )
                     value = bound[id(seed)]
                 else:
