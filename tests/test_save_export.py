@@ -2324,7 +2324,7 @@ def test_a_parameter_read_by_several_models_loads_as_one(tmp_path):
     assert [p.name for p in restored.parameters] == ["one_gain", "one_fir_kernel"]
     loaded_gain = restored.parameters[0]
     loaded_loop = next(node for node in restored._order if isinstance(node, Loop))
-    assert any(node is loaded_gain for node in loaded_loop._f._order)
+    assert any(node is loaded_gain for node in loaded_loop._model._order)
     for name in ("one_loop", "one_block", "one_out"):
         np.testing.assert_allclose(
             to_numpy(restored(data)[name]), to_numpy(model(data)[name]), rtol=1e-6

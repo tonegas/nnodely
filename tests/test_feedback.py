@@ -237,7 +237,7 @@ def test_a_loop_returns_the_outputs_of_the_step_not_the_ones_it_adds(tmp_path):
     y.feedback(y + u)
     step = Modely("fb_ret_step", inputs=[u], outputs=[Output("fb_ret_twice", y * 2.0)])
     loop = Loop(f=step)
-    assert [output.name for output in loop._f.outputs] == [
+    assert [output.name for output in loop._model.outputs] == [
         "fb_ret_twice",
         "fb_ret_y_next",
     ]

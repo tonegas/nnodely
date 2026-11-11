@@ -112,7 +112,7 @@ class ModelyLoop(Modely):
                 "and number of steps."
             )
         loop = declaration({node: self._rolled_input(node) for node in read})
-        self.body = declaration._f
+        self.body = declaration._model
 
         # One trajectory per output of the body, the declared outputs first.
         trajectories = list(loop)

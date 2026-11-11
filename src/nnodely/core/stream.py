@@ -54,6 +54,8 @@ def reserve_name(name: str) -> None:
 class Node:
     name: str
     _preds: list[Node]
+    #: The model the node holds - the one it calls, or rolls out - or None.
+    _model: Any = None
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)

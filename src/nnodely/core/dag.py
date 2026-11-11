@@ -437,10 +437,9 @@ def _nodes_by_model(
                 found.add(id(node))
                 nodes.append(node)
             # A called model, or the body a block rolls out.
-            for inner in (getattr(node, "_model", None), getattr(node, "_f", None)):
-                if isinstance(inner, Modely):
-                    models.append(inner)
-                    if holders is not None:
-                        holders.setdefault(id(inner), current)
+            if isinstance(node._model, Modely):
+                models.append(node._model)
+                if holders is not None:
+                    holders.setdefault(id(node._model), current)
             stack.extend(reversed(node._preds))
     return groups

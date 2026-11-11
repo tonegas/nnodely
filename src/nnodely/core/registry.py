@@ -130,7 +130,7 @@ class ModelSerializer:
                     for node in order
                     if isinstance(node, Layer)
                     and not isinstance(node, Constant)
-                    and not isinstance(getattr(node, "_f", None), Modely)
+                    and node._model is None
                     and any(
                         id(variable) not in saved
                         for variable in getattr(node._layer, "weights", None) or []
@@ -194,11 +194,7 @@ class ModelSerializer:
             # called, or the Loop - so nested models nest their folders the
             # same way. Two can share a name, so a folder already taken gets
             # a suffix.
-            held = (
-                node._model
-                if isinstance(node, ModelCall)
-                else getattr(node, "_f", None)
-            )
+            held = node._model
             if isinstance(held, Modely):
                 folder = folders.get(id(held))
                 if folder is None:

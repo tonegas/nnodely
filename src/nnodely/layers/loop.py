@@ -500,7 +500,7 @@ def _fed_back_across_calls(
     }
     for model_call, call_scope in scope.calls.items():
         found += [
-            (node.name, cast(Any, model_call)._model.name)
+            (node.name, model_call._model.name)
             for node in call_scope.memo
             if node in here
         ]
@@ -807,7 +807,7 @@ class _Step:
         )
         name = declared.name
         state = next(
-            (state for state in self.states if self.original(state) is declared),
+            (state for state in self.states if self.key(state) == self.key(declared)),
             None,
         )
         if state is None:
@@ -922,16 +922,16 @@ class Loop(Layer):
 
     def _declare(self, step: _Step, init: dict, name, length, collect):
         self._step = step
-        self._f = step.body
+        self._model = model = step.body
         self._feedback_inputs = step.states
         self._feedback_outputs = [output for _, output in step.pairs]
         self._init = self._resolve_init(init, step)
         # A body input its outputs never read, such as a target, is no input
         # of the loop.
-        read = {id(self._f._original(node)) for node in self._f.inference_inputs}
+        read = {id(model._original(node)) for node in self._model.inference_inputs}
         self._static_inputs = [
             node
-            for node in self._f._inputs
+            for node in model._inputs
             if node not in self._feedback_inputs and id(node) in read
         ]
         # An Input the body starts a state from, and does not read: an input
@@ -963,7 +963,7 @@ class Loop(Layer):
             names = [output.name for output in self._returns]
             raise _SeveralOutputs(
                 f"Loop {self.name!r} returns the {len(names)} outputs {names} of "
-                f"{self._f.name!r}, and is read as one stream: unpack them, "
+                f"{self._model.name!r}, and is read as one stream: unpack them, "
                 f"{', '.join(names)} = Loop(...)(inputs), or pick one, loop[i]."
             )
         return self._shape
@@ -1005,11 +1005,11 @@ class Loop(Layer):
         node._preds = [*node._resolve_initial_values(bound), *static_sources]
         node._configure()
 
-        result_shapes = [node._result_shape(output) for output in self._f._outputs]
-        node.shape = result_shapes[self._f._outputs.index(self._returns[0])]
+        result_shapes = [node._result_shape(output) for output in self._model._outputs]
+        node.shape = result_shapes[self._model._outputs.index(self._returns[0])]
         node._loop_outputs = [
             LoopOutput(node, index, output, result_shapes[index])
-            for index, output in enumerate(self._f._outputs)
+            for index, output in enumerate(self._model._outputs)
             if output in self._returns
         ]
         return node
@@ -1246,7 +1246,7 @@ class Loop(Layer):
                 raise ValueError(
                     f"Loop {self.name!r} has {len(order)} inputs "
                     f"{[node.name for node in order]}, the inputs of "
-                    f"{self._f.name!r} it does not feed back: called with a list "
+                    f"{self._model.name!r} it does not feed back: called with a list "
                     "it takes one stream for each, in that order, and with a "
                     f"stream alone it has one; got {given}."
                 )
@@ -1293,7 +1293,7 @@ class Loop(Layer):
             owner=f"Loop {self.name!r}",
             hint="Pass the Input itself.",
             objects=Stream,
-            same=lambda node, key: node is key or self._step.original(node) is key,
+            same=lambda node, key: self._step.key(node) == self._step.key(key),
             missing=lambda key: (
                 f"Loop input {getattr(key, 'name', key)!r} is not "
                 "an input the body model reads."
@@ -1403,20 +1403,19 @@ class Loop(Layer):
         return self._outputs()[index]
 
     def build_layer(self):
+        model = self._model
         return LoopImpl(
-            model=self._f.inference_model,
+            model=model.inference_model,
             # The keys the body was built with: renamed since, its Inputs and
             # outputs keep them in its Keras model.
             feedback_input_names=tuple(
-                self._f._key(node) for node in self._feedback_inputs
+                model._key(node) for node in self._feedback_inputs
             ),
             feedback_output_names=tuple(
-                self._f._key(node) for node in self._feedback_outputs
+                model._key(node) for node in self._feedback_outputs
             ),
-            model_output_names=tuple(self._f._key(node) for node in self._f._outputs),
-            static_input_names=tuple(
-                self._f._key(node) for node in self._static_inputs
-            ),
+            model_output_names=tuple(model._key(node) for node in model._outputs),
+            static_input_names=tuple(model._key(node) for node in self._static_inputs),
             horizon=self._horizon,
             collect=self._collect,
             rolled_initial=tuple(self._rolled_initial),
@@ -1424,26 +1423,27 @@ class Loop(Layer):
             feedback_shift_axes=tuple(self._feedback_shift_axes),
             feedback_state_shapes=tuple(self._feedback_state_shapes),
             result_shapes=tuple(
-                self._result_shape(output).tuple for output in self._f._outputs
+                self._result_shape(output).tuple for output in model._outputs
             ),
             horizon_index=self._horizon_index,
-            primary_output_index=self._f._outputs.index(self._returns[0]),
+            primary_output_index=model._outputs.index(self._returns[0]),
             return_all_outputs=self._return_all_outputs,
             name=self.name,
         )
 
     def get_config(self):
         config = super().get_config()
+        model = self._model
         config.update(
             {
                 # By position among the inputs and outputs of the body.
                 "feedback": [
-                    [self._f._inputs.index(node), self._f._outputs.index(output)]
+                    [model._inputs.index(node), model._outputs.index(output)]
                     for node, output in zip(
                         self._feedback_inputs, self._feedback_outputs
                     )
                 ],
-                "returns": [self._f._outputs.index(output) for output in self._returns],
+                "returns": [model._outputs.index(output) for output in self._returns],
                 "length": self._length,
                 "collect": self._collect,
             }

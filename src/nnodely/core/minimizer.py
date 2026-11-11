@@ -70,7 +70,7 @@ def _reaches_trainable_weight(node) -> bool:
             layer = current._layer
             if layer is None or layer.trainable_weights:
                 return True
-        inner = getattr(current, "_model", None)
+        inner = current._model
         if isinstance(inner, Modely):
             stack.extend(inner._outputs)
         stack.extend(current._preds)
