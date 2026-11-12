@@ -59,7 +59,11 @@ class KerasFunction(Layer):
     The model saves, loads and exports with it. The class is made known to
     Keras, so it loads again in the same session; in another, define it -
     decorated with ``@keras.saving.register_keras_serializable()`` - before
-    loading. :class:`Fuzzify` wraps the Keras layers it is given in one.
+    loading. A class is known by its name, as Keras knows it: defined again,
+    the model loads with the class as it is now, and two classes of one name
+    in one session load as the last defined - register each with a package
+    of its own, ``register_keras_serializable(package=...)``, to keep them
+    apart. :class:`Fuzzify` wraps the Keras layers it is given in one.
     """
 
     def __init__(self, function, name=None):
