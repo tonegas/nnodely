@@ -234,7 +234,7 @@ class Modely:
         are returned as streams."""
         for node, stream in zip(self._inputs, arguments):
             self._check_block_input(node, stream)
-        mc = ModelCall(f"{self.name}_call", self)
+        mc = ModelCall(self.name, self)
         mc._preds = arguments
         mc._inputs_map = {old: new for old, new in zip(self._inputs, arguments)}
         outputs = [IntermediateOutput(output, mc) for output in self._outputs]

@@ -570,14 +570,14 @@ def test_a_name_like_a_path_does_not_hide_a_node(tmp_path):
     block = Modely("path_block", inputs=[x], outputs=[Output("path_y", x * 2.0)])
     u = Input("path_u", tw=1)
     named = u * 3.0
-    named.name = "path_block_call/path_x"
+    named.name = "path_block/path_x"
     model = Modely(
         "path_model", inputs=[u], outputs=[Output("p", block([u])), Output("q", named)]
     )
 
     _, flattened = _pages(model, tmp_path)
     labels = [node["label"] for node in _graph(flattened)[0]]
-    assert "path_block_call/path_x" in labels
+    assert "path_block/path_x" in labels
     assert "path_x" in labels
     _assert_no_dangling(flattened)
 
@@ -639,5 +639,5 @@ def test_blocks_named_alike_but_for_case_get_a_page_each(tmp_path):
     )
 
     _pages(model, tmp_path)
-    pages = sorted(p.name for p in tmp_path.glob("case_model__case_call*.html"))
-    assert pages == ["case_model__case_call.html", "case_model__case_call_2.html"]
+    pages = sorted(p.name for p in tmp_path.glob("case_model__case*.html"))
+    assert pages == ["case_model__case.html", "case_model__case_2.html"]

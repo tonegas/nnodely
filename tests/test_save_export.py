@@ -530,12 +530,10 @@ def test_equation_learner_save_keras_and_html(tmp_path):
         physics=False,
     )
     html = (tmp_path / "equation_learner.html").read_text(encoding="utf-8")
-    assert "equation_export_call" in html
+    assert '"label": "equation_export"' in html
     assert '"nested_model": "equation_export"' in html
 
-    nested_pages = list(
-        tmp_path.glob("onnx_equation_learner__equation_export_call.html")
-    )
+    nested_pages = list(tmp_path.glob("onnx_equation_learner__equation_export.html"))
     assert len(nested_pages) == 1
     nested_html = nested_pages[0].read_text(encoding="utf-8")
     assert "equation_export_linear_in" in nested_html

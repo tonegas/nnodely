@@ -430,11 +430,11 @@ def test_html_draws_one_block_called_twice_as_two_calls(tmp_path):
     # Two nodes each, under their own names: told apart by id, not renamed.
     nodes = _html_nodes(model, tmp_path)
     labels = [node["label"] for node in nodes]
-    assert labels.count("tag_twice_block_call") == 2
+    assert labels.count("tag_twice_block") == 2
     assert labels.count("y") == 2
     assert len({node["id"] for node in nodes}) == len(nodes)
-    assert (tmp_path / "tag_twice__tag_twice_block_call.html").exists()
-    assert (tmp_path / "tag_twice__tag_twice_block_call_2.html").exists()
+    assert (tmp_path / "tag_twice__tag_twice_block.html").exists()
+    assert (tmp_path / "tag_twice__tag_twice_block_2.html").exists()
 
 
 def test_html_draws_two_layers_of_one_name_apart(tmp_path):

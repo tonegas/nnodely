@@ -1597,8 +1597,8 @@ def test_local_model_is_a_block(tmp_path):
     assert sum(isinstance(layer, FirImpl) for layer in model.model.layers) == 1
 
     model.export_html(out_dir=tmp_path)
-    assert (tmp_path / "block_local_model__block_local_call.html").exists()
-    assert (tmp_path / "block_local_model__block_local_2_call.html").exists()
+    assert (tmp_path / "block_local_model__block_local.html").exists()
+    assert (tmp_path / "block_local_model__block_local_2.html").exists()
 
 
 def test_local_model_scalar_input_one_fuzzy_function_by_hand():
