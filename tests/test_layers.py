@@ -1642,3 +1642,24 @@ def test_a_layer_never_called_on_a_stream_is_refused():
         Modely("uncalled_out", inputs=[a], outputs=[Output("uncalled_o", Sin())])
     with pytest.raises(ValueError, match="never called on a stream"):
         Fir()([Sin()])
+
+
+def test_an_operation_of_one_stream_is_resolved_once_by_its_name():
+    # Exp, Sin and the others are one Keras layer, UnaryOpImpl, whose
+    # operation is resolved when it is made: an unknown one is refused there,
+    # once only at the first call, as an AttributeError of keras.ops. The
+    # binary operations and the reductions are resolved alike.
+    from nnodely.layers.arithmetic import BinaryOpImpl, ReduceImpl, UnaryOpImpl
+
+    with pytest.raises(
+        ValueError, match="UnaryOpImpl 'bad_sin': unknown operation 'sinn'"
+    ):
+        UnaryOpImpl("sinn", name="bad_sin")
+    with pytest.raises(ValueError, match="unknown operation 'plus'"):
+        BinaryOpImpl("plus", name="bad_add")
+    with pytest.raises(ValueError, match="unknown operation 'avg'"):
+        ReduceImpl("avg", axes=(1,), name="bad_mean")
+    # The ones keras.ops does not have are nnodely's own.
+    pi = np.full((1, 1), np.pi)
+    degrees = np.asarray(keras.ops.convert_to_numpy(UnaryOpImpl("rad2deg")(pi)))
+    np.testing.assert_allclose(degrees, [[180.0]], rtol=1e-6)

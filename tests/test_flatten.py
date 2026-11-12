@@ -1,5 +1,5 @@
 from nnodely import Input, Output, Fir, Modely, Parameter, Constant
-from nnodely.core.layer import Multiply, Add
+from nnodely.layers.arithmetic import Multiply, Add
 
 
 def test_flatten_1():

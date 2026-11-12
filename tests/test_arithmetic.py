@@ -1,7 +1,7 @@
 import math
 
 from nnodely import Constant, Gradient, Input, Modely, Output, Parameter
-from nnodely.core.layer import Mod
+from nnodely.layers.arithmetic import Mod
 from nnodely.core.shape import Shape
 from nnodely.layers.arithmetic import (
     Abs,

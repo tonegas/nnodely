@@ -1,39 +1,65 @@
-"""Arithmetic layers for nnodely."""
+"""Arithmetic layers for nnodely: the elementwise operations of one stream
+or between streams - the ones the operators + - * / ** % of a stream make -
+and the reductions over the dim axes."""
 
 import math
 
 import keras
 
-from nnodely.core.layer import BinaryOp, BinaryOpImpl, Layer
+from nnodely.core.layer import Layer
+from nnodely.core.shape import Shape, align
 
 
-def _rad2deg(x):
-    return keras.ops.multiply(x, 180.0 / math.pi)
+def _norm(x, axis, keepdims):
+    squares = keras.ops.sum(keras.ops.square(x), axis=axis, keepdims=keepdims)
+    # The slope of sqrt is infinite at 0: a zero vector is kept out of it, so
+    # that its gradient is 0 rather than NaN.
+    positive = squares > 0
+    safe = keras.ops.where(positive, squares, keras.ops.ones_like(squares))
+    return keras.ops.where(
+        positive, keras.ops.sqrt(safe), keras.ops.zeros_like(squares)
+    )
 
 
-#: The operations keras.ops does not have, by the name ArithmeticImpl is given.
-_OPERATIONS = {"rad2deg": _rad2deg}
+#: The operations keras.ops does not have, by the name a Keras layer of this
+#: module is given; every other is keras.ops's own.
+_OPERATIONS = {
+    "rad2deg": lambda x: keras.ops.multiply(x, 180.0 / math.pi),
+    "norm": _norm,
+}
+
+
+def _operation(layer: keras.layers.Layer, operation: str):
+    """The function ``operation`` names, resolved once, when ``layer`` is
+    made from its config: an unknown name is refused there."""
+    function = _OPERATIONS.get(operation) or getattr(keras.ops, operation, None)
+    if not callable(function):
+        raise ValueError(
+            f"{type(layer).__name__} {layer.name!r}: unknown operation {operation!r}."
+        )
+    return function
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
-class ArithmeticImpl(keras.layers.Layer):
+class UnaryOpImpl(keras.layers.Layer):
+    """An elementwise operation of one stream, by its name."""
+
     def __init__(self, operation: str, name=None, **kwargs):
         super().__init__(name=name, **kwargs)
         self.operation = operation
+        self._function = _operation(self, operation)
 
     def call(self, inputs):
-        operation = _OPERATIONS.get(self.operation) or getattr(
-            keras.ops, self.operation
-        )
-        return operation(inputs)
+        return self._function(inputs)
 
     def get_config(self):
-        config = super().get_config()
-        config.update({"operation": self.operation})
-        return config
+        return {**super().get_config(), "operation": self.operation}
 
 
-class Arithmetic(Layer):
+class UnaryOp(Layer):
+    """An elementwise operation of one stream - Exp, Log, Sin, ... - named
+    by ``_operation``; applied to several streams, to each of them."""
+
     _operation = ""
     _one_stream = True
 
@@ -41,100 +67,210 @@ class Arithmetic(Layer):
         super().__init__(name=name)
 
     def build_layer(self):
-        return ArithmeticImpl(operation=self._operation, name=self.name)
+        return UnaryOpImpl(operation=self._operation, name=self.name)
 
 
-class Exp(Arithmetic):
+@keras.saving.register_keras_serializable(package="nnodely")
+class BinaryOpImpl(keras.layers.Layer):
+    """An elementwise operation between streams of ``seq_ranks`` sequence
+    axes, a window or not (``windows``), and ``dim_ranks`` dim axes.
+
+    An operand without a sequence, without a window, or with fewer dim axes,
+    gets the axes it misses where :func:`align` puts them, so it broadcasts
+    along those, as :meth:`Shape.broadcast` declares. Aligned from the end
+    instead, as broadcasting does by default, a dim axis could line up with
+    the window.
+    """
+
+    def __init__(
+        self, operation: str, seq_ranks=(), dim_ranks=(), windows=(), **kwargs
+    ):
+        super().__init__(**kwargs)
+        self.operation = operation
+        self._function = _operation(self, operation)
+        self.seq_ranks = tuple(int(rank) for rank in seq_ranks)
+        self.dim_ranks = tuple(int(rank) for rank in dim_ranks)
+        self.windows = tuple(bool(window) for window in windows) or (True,) * len(
+            self.seq_ranks
+        )
+
+    def call(self, xs):
+        values = self.aligned(xs)
+        result = values[0]
+        for value in values[1:]:
+            result = self._function(result, value)
+        return result
+
+    def aligned(self, xs):
+        """``xs`` given the axes they miss to broadcast against each other."""
+        seq_rank, dim_rank = max(self.seq_ranks), max(self.dim_ranks)
+        to_window = any(self.windows)
+        return [
+            align(
+                value,
+                value_seq_rank,
+                value_dim_rank,
+                seq_rank,
+                dim_rank,
+                window=window,
+                to_window=to_window,
+            )
+            for value, value_seq_rank, value_dim_rank, window in zip(
+                xs, self.seq_ranks, self.dim_ranks, self.windows
+            )
+        ]
+
+    def get_config(self):
+        return {
+            **super().get_config(),
+            "operation": self.operation,
+            "seq_ranks": self.seq_ranks,
+            "dim_ranks": self.dim_ranks,
+            "windows": self.windows,
+        }
+
+
+class BinaryOp(Layer):
+    """An elementwise operation between streams, named by ``_operation``."""
+
+    _operation = ""
+
+    def build_layer(self) -> keras.layers.Layer:
+        return BinaryOpImpl(
+            operation=self._operation, **self._alignment(), name=self.name
+        )
+
+    def _alignment(self) -> dict:
+        """The axes of each operand, which BinaryOpImpl aligns them by."""
+        shapes = [input_node.shape for input_node in self._preds]  # type: ignore[union-attr]
+        return {
+            "seq_ranks": tuple(shape.seq_rank for shape in shapes),
+            "dim_ranks": tuple(shape.dim_rank for shape in shapes),
+            "windows": tuple(shape.tw is not None for shape in shapes),
+        }
+
+    def output_shape(self, *inputs):  # type: ignore
+        # Declared rather than probed: a dynamic sequence axis cannot be given to
+        # a dummy tensor, and which operands may broadcast is a rule of the
+        # streams, not of their tensors.
+        return Shape.broadcast([input_node.shape for input_node in inputs], self.name)
+
+
+class Add(BinaryOp):
+    _operation = "add"
+
+
+class Subtract(BinaryOp):
+    _operation = "subtract"
+
+
+class Multiply(BinaryOp):
+    _operation = "multiply"
+
+
+class Divide(BinaryOp):
+    _operation = "divide"
+
+
+class Power(BinaryOp):
+    _operation = "power"
+
+
+class Mod(BinaryOp):
+    _operation = "mod"
+
+
+class Exp(UnaryOp):
     """Wrapper for exponential transform."""
 
     _operation = "exp"
 
 
-class Expm1(Arithmetic):
+class Expm1(UnaryOp):
     """Wrapper for ``exp(x) - 1``, accurate for small x."""
 
     _operation = "expm1"
 
 
-class Log(Arithmetic):
+class Log(UnaryOp):
     """Wrapper for natural logarithm transform."""
 
     _operation = "log"
 
 
-class Log1p(Arithmetic):
+class Log1p(UnaryOp):
     """Wrapper for ``log(1 + x)``, accurate for small x."""
 
     _operation = "log1p"
 
 
-class Log10(Arithmetic):
+class Log10(UnaryOp):
     """Wrapper for base 10 logarithm transform."""
 
     _operation = "log10"
 
 
-class Log2(Arithmetic):
+class Log2(UnaryOp):
     """Wrapper for base 2 logarithm transform."""
 
     _operation = "log2"
 
 
-class Sqrt(Arithmetic):
+class Sqrt(UnaryOp):
     """Wrapper for square root transform."""
 
     _operation = "sqrt"
 
 
-class Square(Arithmetic):
+class Square(UnaryOp):
     """Wrapper for square transform."""
 
     _operation = "square"
 
 
-class Abs(Arithmetic):
+class Abs(UnaryOp):
     """Wrapper for absolute value transform."""
 
     _operation = "abs"
 
 
-class Floor(Arithmetic):
+class Floor(UnaryOp):
     """Wrapper for floor transform."""
 
     _operation = "floor"
 
 
-class Ceil(Arithmetic):
+class Ceil(UnaryOp):
     """Wrapper for ceiling transform."""
 
     _operation = "ceil"
 
 
-class Round(Arithmetic):
+class Round(UnaryOp):
     """Wrapper for rounding to the nearest integer, a half to the even one."""
 
     _operation = "round"
 
 
-class Deg2Rad(Arithmetic):
+class Deg2Rad(UnaryOp):
     """Wrapper for degrees to radians transform."""
 
     _operation = "deg2rad"
 
 
-class Rad2Deg(Arithmetic):
+class Rad2Deg(UnaryOp):
     """Wrapper for radians to degrees transform."""
 
     _operation = "rad2deg"
 
 
-class Sign(Arithmetic):
+class Sign(UnaryOp):
     """Wrapper for sign transform."""
 
     _operation = "sign"
 
 
-class Negative(Arithmetic):
+class Negative(UnaryOp):
     """Wrapper for negation transform."""
 
     _operation = "negative"
@@ -155,9 +291,7 @@ class ClampImpl(keras.layers.Layer):
         )
 
     def get_config(self):
-        config = super().get_config()
-        config.update({"min": self.min, "max": self.max})
-        return config
+        return {**super().get_config(), "min": self.min, "max": self.max}
 
 
 class Clamp(Layer):
@@ -227,26 +361,6 @@ class Minimum(_Extremum):
     _reduction = "Min"
 
 
-def _norm(x, axis, keepdims):
-    squares = keras.ops.sum(keras.ops.square(x), axis=axis, keepdims=keepdims)
-    # The slope of sqrt is infinite at 0: a zero vector is kept out of it, so
-    # that its gradient is 0 rather than NaN.
-    positive = squares > 0
-    safe = keras.ops.where(positive, squares, keras.ops.ones_like(squares))
-    return keras.ops.where(
-        positive, keras.ops.sqrt(safe), keras.ops.zeros_like(squares)
-    )
-
-
-_REDUCTIONS = {
-    "sum": keras.ops.sum,
-    "mean": keras.ops.mean,
-    "max": keras.ops.max,
-    "min": keras.ops.min,
-    "norm": _norm,
-}
-
-
 @keras.saving.register_keras_serializable(package="nnodely")
 class ReduceImpl(keras.layers.Layer):
     """Serializable implementation of a reduction over the tensor axes
@@ -255,10 +369,11 @@ class ReduceImpl(keras.layers.Layer):
     def __init__(self, operation: str, axes, name=None, **kwargs):
         super().__init__(name=name, **kwargs)
         self.operation = operation
+        self._function = _operation(self, operation)
         self.axes = tuple(int(axis) for axis in axes)
 
     def call(self, x):
-        return _REDUCTIONS[self.operation](x, axis=self.axes, keepdims=True)
+        return self._function(x, axis=self.axes, keepdims=True)
 
     def compute_output_shape(self, input_shape):
         output_shape = list(input_shape)
@@ -267,9 +382,7 @@ class ReduceImpl(keras.layers.Layer):
         return tuple(output_shape)
 
     def get_config(self):
-        config = super().get_config()
-        config.update({"operation": self.operation, "axes": self.axes})
-        return config
+        return {**super().get_config(), "operation": self.operation, "axes": self.axes}
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -376,9 +489,7 @@ class CrossImpl(BinaryOpImpl):
         return _cross(a, b, self.axis)
 
     def get_config(self):
-        config = super().get_config()
-        config.update({"axis": self.axis})
-        return config
+        return {**super().get_config(), "axis": self.axis}
 
 
 class Cross(BinaryOp):

@@ -2,98 +2,71 @@
 
 from __future__ import annotations
 
-import keras
 
-from nnodely.core.layer import BinaryOp, Layer
-
-
-@keras.saving.register_keras_serializable(package="nnodely")
-class TrigonometricImpl(keras.layers.Layer):
-    def __init__(self, operation: str, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.operation = operation
-
-    def call(self, inputs):
-        return getattr(keras.ops, self.operation)(inputs)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({"operation": self.operation})
-        return config
+from nnodely.layers.arithmetic import BinaryOp, UnaryOp
 
 
-class Trigonometric(Layer):
-    _operation = ""
-    _one_stream = True
-
-    def __init__(self, name=None):
-        super().__init__(name=name)
-
-    def build_layer(self):
-        return TrigonometricImpl(operation=self._operation, name=self.name)
-
-
-class Sin(Trigonometric):
+class Sin(UnaryOp):
     """Wrapper for sine transform."""
 
     _operation = "sin"
 
 
-class Cos(Trigonometric):
+class Cos(UnaryOp):
     """Wrapper for cosine transform."""
 
     _operation = "cos"
 
 
-class Tan(Trigonometric):
+class Tan(UnaryOp):
     """Wrapper for tangent transform."""
 
     _operation = "tan"
 
 
-class Asin(Trigonometric):
+class Asin(UnaryOp):
     """Wrapper for inverse sine transform."""
 
     _operation = "arcsin"
 
 
-class Acos(Trigonometric):
+class Acos(UnaryOp):
     """Wrapper for inverse cosine transform."""
 
     _operation = "arccos"
 
 
-class Atan(Trigonometric):
+class Atan(UnaryOp):
     """Wrapper for inverse tangent transform."""
 
     _operation = "arctan"
 
 
-class Sinh(Trigonometric):
+class Sinh(UnaryOp):
     """Wrapper for hyperbolic sine transform."""
 
     _operation = "sinh"
 
 
-class Cosh(Trigonometric):
+class Cosh(UnaryOp):
     """Wrapper for hyperbolic cosine transform."""
 
     _operation = "cosh"
 
 
-class Asinh(Trigonometric):
+class Asinh(UnaryOp):
     """Wrapper for inverse hyperbolic sine transform."""
 
     _operation = "arcsinh"
 
 
-class Acosh(Trigonometric):
+class Acosh(UnaryOp):
     """Wrapper for inverse hyperbolic cosine transform, defined from 1."""
 
     _operation = "arccosh"
 
 
-class Atanh(Trigonometric):
+class Atanh(UnaryOp):
     """Wrapper for inverse hyperbolic tangent transform, defined in (-1, 1)."""
 
     _operation = "arctanh"

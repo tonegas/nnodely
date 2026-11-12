@@ -20,7 +20,8 @@ from nnodely import (
     Parameter,
 )
 
-from nnodely.core.layer import Add, Layer
+from nnodely.core.layer import Layer
+from nnodely.layers.arithmetic import Add
 from nnodely.layers.fir import FirImpl
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.fuzzify import Fuzzify, Gaussian, Rectangular, Triangular

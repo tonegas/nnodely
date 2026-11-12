@@ -10,7 +10,7 @@ import keras
 import numpy as np
 
 from nnodely.core.dag import _undeclared_inputs, next_name
-from nnodely.core.layer import Identity, Layer, Multiply, _refuse_uncalled
+from nnodely.core.layer import Identity, Layer, _refuse_uncalled
 from nnodely.core.modely import Modely
 from nnodely.core.shape import Shape, slice_axis
 from nnodely.core.stream import Stream
@@ -24,18 +24,16 @@ from nnodely.layers.activations import (
     Swish,
     Tanh,
 )
-from nnodely.layers.arithmetic import Arithmetic, Clamp
+from nnodely.layers.arithmetic import Clamp, Multiply, UnaryOp
 from nnodely.layers.input import Input
 from nnodely.layers.output import Output
-from nnodely.layers.trigonometric import Trigonometric
 
 # Weightless layers that act on every element alone: applying one of them to
 # all the cells stacked together is the same as applying it cell by cell.
 _ELEMENTWISE = (
     Identity,
-    Arithmetic,
+    UnaryOp,
     Clamp,
-    Trigonometric,
     ReLU,
     LeakyReLU,
     ELU,

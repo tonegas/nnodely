@@ -96,6 +96,14 @@ class Node:
         return cls(**config)
 
 
+def _arithmetic():
+    """The module of the layers the operators of a stream make, imported when
+    first used: it imports this one."""
+    from nnodely.layers import arithmetic
+
+    return arithmetic
+
+
 class Stream(Node):
     _literal_constant_cache = {}
     shape: Shape
@@ -144,64 +152,40 @@ class Stream(Node):
         return self.shape.rank
 
     def __add__(self, other):
-        from nnodely.core.layer import Add
-
-        return Add()([self, self._coerce_operand(other)])
+        return _arithmetic().Add()([self, self._coerce_operand(other)])
 
     def __radd__(self, other):
-        from nnodely.core.layer import Add
-
-        return Add()([self._coerce_operand(other), self])
+        return _arithmetic().Add()([self._coerce_operand(other), self])
 
     def __sub__(self, other):
-        from nnodely.core.layer import Subtract
-
-        return Subtract()([self, self._coerce_operand(other)])
+        return _arithmetic().Subtract()([self, self._coerce_operand(other)])
 
     def __rsub__(self, other):
-        from nnodely.core.layer import Subtract
-
-        return Subtract()([self._coerce_operand(other), self])
+        return _arithmetic().Subtract()([self._coerce_operand(other), self])
 
     def __mul__(self, other):
-        from nnodely.core.layer import Multiply
-
-        return Multiply()([self, self._coerce_operand(other)])
+        return _arithmetic().Multiply()([self, self._coerce_operand(other)])
 
     def __rmul__(self, other):
-        from nnodely.core.layer import Multiply
-
-        return Multiply()([self._coerce_operand(other), self])
+        return _arithmetic().Multiply()([self._coerce_operand(other), self])
 
     def __truediv__(self, other):
-        from nnodely.core.layer import Divide
-
-        return Divide()([self, self._coerce_operand(other)])
+        return _arithmetic().Divide()([self, self._coerce_operand(other)])
 
     def __rtruediv__(self, other):
-        from nnodely.core.layer import Divide
-
-        return Divide()([self._coerce_operand(other), self])
+        return _arithmetic().Divide()([self._coerce_operand(other), self])
 
     def __pow__(self, other):
-        from nnodely.core.layer import Power
-
-        return Power()([self, self._coerce_operand(other)])
+        return _arithmetic().Power()([self, self._coerce_operand(other)])
 
     def __rpow__(self, other):
-        from nnodely.core.layer import Power
-
-        return Power()([self._coerce_operand(other), self])
+        return _arithmetic().Power()([self._coerce_operand(other), self])
 
     def __mod__(self, other):
-        from nnodely.core.layer import Mod
-
-        return Mod()([self, self._coerce_operand(other)])
+        return _arithmetic().Mod()([self, self._coerce_operand(other)])
 
     def __rmod__(self, other):
-        from nnodely.core.layer import Mod
-
-        return Mod()([self._coerce_operand(other), self])
+        return _arithmetic().Mod()([self._coerce_operand(other), self])
 
     def __neg__(self):
         from nnodely.layers.arithmetic import Negative

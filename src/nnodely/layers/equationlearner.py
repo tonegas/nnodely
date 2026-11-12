@@ -12,16 +12,7 @@ import keras
 import numpy as np
 
 from nnodely.core.dag import free_name, next_name
-from nnodely.core.layer import (
-    Add,
-    Divide,
-    Identity,
-    Layer,
-    Mod,
-    Multiply,
-    Power,
-    Subtract,
-)
+from nnodely.core.layer import Identity, Layer
 from nnodely.core.modely import Modely
 from nnodely.core.stream import Stream
 from nnodely.layers.activations import (
@@ -37,8 +28,10 @@ from nnodely.layers.activations import (
 )
 from nnodely.layers.arithmetic import (
     Abs,
+    Add,
     Ceil,
     Deg2Rad,
+    Divide,
     Exp,
     Expm1,
     Floor,
@@ -48,12 +41,16 @@ from nnodely.layers.arithmetic import (
     Log2,
     Maximum,
     Minimum,
+    Mod,
+    Multiply,
     Negative,
+    Power,
     Rad2Deg,
     Round,
     Sign,
     Sqrt,
     Square,
+    Subtract,
 )
 from nnodely.layers.fuzzify import Gaussian, Rectangular, Triangular
 from nnodely.layers.input import Input

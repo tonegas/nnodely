@@ -779,7 +779,7 @@ src/nnodely/
                          Shape.broadcast and align (arithmetic), BATCH_AXIS, OUTER_AXIS = 1, tensor helpers
   core/stream.py         Node, Stream (operator overloads, literal→Constant cache), NODE_REGISTRY (by class_path, module.qualname; registered_class), NODE_NAMES
   core/layer.py          Layer base (call on streams → new node sharing its _source; call() on tensors → build_layer();
-                         get_config/from_config cascading from Node's), BinaryOp Add/Subtract/Multiply/Divide/Power, Identity
+                         get_config/from_config cascading from Node's), Identity, _claim_keras_name
   core/modely.py         Modely (build, minimize, train, validate, inputs, save/load, export wrappers), ModelCall
   core/modelyloop.py     ModelyLoop: one Loop over its step (loop._Step finds the states), the rolled Inputs
   core/minimizer.py      objectives: checks, resolution against the built graph, MinimizerModel (the training model)
@@ -801,6 +801,10 @@ src/nnodely/
                          SeqSelect, SeqRange, SeqConcatenate, SeqStack, SeqReverse (sequence axes)
   layers/{linear,fir,localmodel,fuzzify,function,interpolation,equationlearner,batchnorm,activations,arithmetic,trigonometric}.py   function.py: KerasFunction
   layers/{parameter,output}.py   parameter.py: _Value, Parameter, Constant
+  layers/arithmetic.py   the elementwise operations and reductions: UnaryOp (base of Exp, Log, Sin, ...; Keras layer UnaryOpImpl),
+                         BinaryOp Add/Subtract/Multiply/Divide/Power/Mod (what a stream's operators make; BinaryOpImpl aligns the
+                         operands), Maximum/Minimum, Cross, Clamp, Sum/Mean/Max/Min/Norm; every Impl resolves its operation by name
+                         once (_operation: _OPERATIONS - rad2deg, norm - else keras.ops), an unknown one refused there
   layers/gradient.py     Gradient (autodiff dispatch per backend; the relation's sub-graph re-evaluated as a keras.Model)
   layers/calculus.py     with respect to time - IntegrateStep (cumulative quadrature operator matrix; init and init_rate added
                          after it), Integrate (its rules one step at a time: IntegrateStep on the hidden <name>_<rate> and,
