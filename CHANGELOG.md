@@ -233,8 +233,9 @@ variable, and trains, validates and exports through Keras. Models saved with
   rollout steps padded onto shorter simulations. A rollout also reports its
   RMSE at each step. Figures show prediction, error, parity, error
   distribution and the error along the rollout, one file per objective,
-  `<model>_<index>_<objective>.png`. The result is the list of the scores,
-  picked by objective name or index as the other tables are.
+  `<model>_<index>_<objective>.png`, drawn by `validate` or later by
+  `result.plot()` without validating again. The result is the list of the
+  scores, picked by objective name or index as the other tables are.
 - Calculus blocks `Gradient` (with respect to an input), `DerivativeStep`
   (with respect to time, over a window), `Derivative` (the same stencil one
   step at a time, in a `ModelyLoop`), `IntegrateStep`, `Integrate` (its rules

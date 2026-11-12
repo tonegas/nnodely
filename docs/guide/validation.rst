@@ -122,3 +122,13 @@ plus the RMSE along the rollout for a signal that has one. A second
 figure shows the loss curves when ``history`` is given (pass the dictionary
 returned by :meth:`~nnodely.Modely.train`). With ``show=True``, the figures
 open in an interactive Matplotlib window.
+
+The same arguments draw the figures later, from the result, without
+validating again - in another folder, or with the loss curves added:
+
+.. code-block:: python
+
+   result = model.validate(val_data)                  # numbers only
+   result.plot(out_dir="validation", history=history)  # the figures, when wanted
+
+``result.figures`` lists the files the last drawing wrote.
