@@ -21,7 +21,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   and of its Loop bodies, the Keras weights of a `KerasFunction` and the
   statistics of a `BatchNorm` included. A build that fails leaves the model
   as it was. Both take a dict keyed by Input or input name, or a list
-  in the order of the model's inputs.
+  in the order of the model's inputs. A model declares every Input it reads,
+  one a layer starts from (`Integrate(init=x0)`) and one it gives a block
+  included: one it reads undeclared is refused when the model is declared.
+  Only fed-back Inputs and Inputs only an objective reads may be left out.
 - `DataLoader` for dicts, DataFrames and CSV files or folders, with several
   simulations, sequences and padding masks. `delimiter` and
   `header` are passed to `pandas.read_csv`; n/a values are reported. An array
@@ -48,12 +51,12 @@ variable, and trains, validates and exports through Keras. Models saved with
 - A model used as a block keeps the shapes it was declared with: each stream
   it is called on must have the shape its graph reads that input with, and
   another one is refused; an `Input` given itself is read through the block's
-  own windows. An Input the block reads without declaring it is the caller's
-  Input too.
+  own windows. A block reads only the Inputs it declares, each given a
+  stream by the call.
 - A `Parameter` or `Constant` read by several models - Loop bodies, blocks,
   the outer model - is one object in the saved model too: loaded once,
-  listed once, frozen once. So is an Input a block reads without declaring
-  it, and a model called in several places.
+  listed once, frozen once. So is an Input a model reads and gives a block,
+  and a model called in several places.
 - `export_keras` writes a stand-alone copy that `import_keras` gives back
   for every model: a weight read from several Keras graphs - a body rolled
   out by two Loops, a Parameter read inside and outside a body, a block also
@@ -96,8 +99,9 @@ variable, and trains, validates and exports through Keras. Models saved with
   past values are a hidden Input fed back with the signal, and `init` holds
   them before the first step as the `init` of `Derivative` holds the samples
   its stencil reads.
-- `Modely.inputs`: every Input a model reads - declared or not, inside
-  the models it calls, or only by an objective - and every state of the Loops
+- `Modely.inputs`: every Input a model reads - those it declares, those only
+  an objective reads, and the fed-back ones, inside the models it calls too -
+  and every state of the Loops
   it rolls out, printed as a table of its shape and how it is fed: declared,
   the stream it is fed back with, what the data must hold of it and what it
   starts from. A ModelyLoop prints the rows of the Loop it is a shortcut for,

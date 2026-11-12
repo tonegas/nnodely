@@ -27,9 +27,8 @@ def test_flatten_1():
 def test_flatten_2():
     x1 = Input("x1", tw=1)
     x2 = Input("x2", tw=1)
-    x3 = Input("x3", tw=1)
     mul1 = Multiply("mul1")([x1, x2])
-    mul2 = Multiply("mul2")([x2, x3])
+    mul2 = Multiply("mul2")([x2, x1])
     add = Add("add")([mul1, mul2])
     y = Output("y", add)
     m1 = Modely(name="m1", inputs=[x1, x2], outputs=[y])

@@ -673,10 +673,13 @@ def test_feedback_and_modelyloop_reject_what_they_cannot_feed_back():
     with pytest.raises(ValueError, match="reads no fed-back Input"):
         ModelyLoop("oc_err_none", inputs=[rate], outputs=[Output("oc_err_o3", rate)])
 
-    seeded = Integrate(dt=1.0, init=Input("oc_err_init", tw=1) * 2.0)(rate)
+    start = Input("oc_err_init", tw=1)
+    seeded = Integrate(dt=1.0, init=start * 2.0)(rate)
     with pytest.raises(ValueError, match="computed from the Inputs"):
         ModelyLoop(
-            "oc_err_init_expr", inputs=[rate], outputs=[Output("oc_err_o4", seeded)]
+            "oc_err_init_expr",
+            inputs=[rate, start],
+            outputs=[Output("oc_err_o4", seeded)],
         )
 
     inner = Input("oc_err_inner", tw=1)
@@ -745,7 +748,9 @@ def test_a_saved_model_keeps_what_feeds_its_inputs_back_and_where_they_start(
         + Integrate(dt=0.1, init=count0)(error),
     )
     with pytest.warns(UserWarning, match="fed-back Inputs"):
-        controller = Modely("oc_keep", inputs=[error], outputs=[control]).build()
+        controller = Modely(
+            "oc_keep", inputs=[error, count0], outputs=[control]
+        ).build()
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         controller.save(tmp_path / "oc_keep")
@@ -755,8 +760,8 @@ def test_a_saved_model_keeps_what_feeds_its_inputs_back_and_where_they_start(
     drive = Input("oc_keep_drive", tw=1)
     outer = Modely(
         "oc_keep_outer",
-        inputs=[drive],
-        outputs=[Output("oc_keep_v", controller([drive]))],
+        inputs=[drive, count0],
+        outputs=[Output("oc_keep_v", controller([drive, count0]))],
     )
     with pytest.warns(UserWarning, match="fed-back Inputs"):
         outer.build()
@@ -767,7 +772,7 @@ def test_a_saved_model_keeps_what_feeds_its_inputs_back_and_where_they_start(
     def run(model, tag):
         e, start = Input(f"{tag}_e", tw=1), Input("oc_keep_count0", tw=1)
         looped = ModelyLoop(
-            tag, inputs=[e, start], outputs=[Output(f"{tag}_out", model([e]))]
+            tag, inputs=[e, start], outputs=[Output(f"{tag}_out", model([e, start]))]
         ).build()
         data = {f"{tag}_e": _ramp(5), "oc_keep_count0": np.full((1, 5, 1, 1), 10.0)}
         return to_numpy(looped(data)[f"{tag}_out"])

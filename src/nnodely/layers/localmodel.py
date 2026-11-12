@@ -9,7 +9,7 @@ from typing import Any, TypeGuard
 import keras
 import numpy as np
 
-from nnodely.core.dag import next_name
+from nnodely.core.dag import _undeclared_inputs, next_name
 from nnodely.core.layer import Identity, Layer, Multiply, _refuse_uncalled
 from nnodely.core.modely import Modely
 from nnodely.core.shape import Shape, slice_axis
@@ -337,12 +337,15 @@ class LocalModel:
             for index, stream in enumerate(activations)
         ]
         result = self._declare(block_inputs, block_activations, call_name)
+        # The functions may read other streams of the graph: the Inputs those
+        # read are inputs of the block too, each given itself.
+        read = _undeclared_inputs([*block_inputs, *block_activations], [result])
         self._model = Modely(
             call_name,
-            inputs=[*block_inputs, *block_activations],
+            inputs=[*block_inputs, *block_activations, *read],
             outputs=[Output(call_name, result)],
         )
-        return self._model([*inputs, *activations])
+        return self._model([*inputs, *activations, *read])
 
     def _declare(self, inputs, activations, call_name):
         """The cells on the Inputs of the block, blended and summed; their

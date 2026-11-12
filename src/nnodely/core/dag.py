@@ -216,36 +216,59 @@ def flatten_fed_back(scope: Scope) -> None:
 
 
 def flatten(model):
-    return _flatten_graph(model.name, model._inputs, model._outputs, fed_back=True)
+    from nnodely.core.modely import Modely
+
+    flat_outputs, memo = _flatten_graph(model._inputs, model._outputs, fed_back=True)
+    flat_inputs = [memo[node] for node in model._inputs if node in memo]
+    return Modely(f"{model.name}_flat", flat_inputs, flat_outputs)
 
 
 def _flatten_graph(
-    name,
     inputs: list[Any],
     outputs: list[Output],
     *,
-    return_memo: bool = False,
     fed_back: bool = False,
     one_step: bool = False,
-) -> Any:
-    """``fed_back`` inlines the stream every fed-back Input is fed back with,
-    and its init, too: without it they are left as they are, in the graph of
-    the model that declared them. ``one_step`` reads the init of every hidden
-    fed-back Input not among ``inputs`` in its place, as a Modely is built."""
-    from nnodely.core.modely import Modely
-
+) -> tuple[list[Any], dict[Node, Any]]:
+    """The copies of ``outputs`` with every model they call inlined, and the
+    copy of every node inlined, by node. ``fed_back`` inlines the stream
+    every fed-back Input is fed back with, and its init, too: without it they
+    are left as they are, in the graph of the model that declared them.
+    ``one_step`` reads the init of every hidden fed-back Input not among
+    ``inputs`` in its place, as a Modely is built."""
     scope = Scope(
         pending=[] if fed_back else None, declared=set(inputs) if one_step else None
     )
-    flat_outputs: list[Output] = [flatten_node(output, scope) for output in outputs]
+    flat_outputs: list[Any] = [flatten_node(output, scope) for output in outputs]
     flatten_fed_back(scope)
-    memo = scope.merged_memo()
-    flat_inputs: list[Any] = [memo[input] for input in inputs if input in memo]
+    return flat_outputs, scope.merged_memo()
 
-    flat_model = Modely(f"{name}_flat", flat_inputs, flat_outputs)
-    if return_memo:
-        return flat_model, memo
-    return flat_model
+
+def _undeclared_inputs(inputs, outputs) -> list:
+    """Every Input the one-step model of ``outputs`` reads that is not among
+    ``inputs`` and nothing feeds back: through its streams and the arguments
+    of the models it calls, and as the init of a hidden fed-back Input it
+    does not declare - the state of an Integrate, a Derivative or a Buffer,
+    which a Modely starts from its init. The streams the fed-back Inputs are
+    fed back with are a loop's to read, not the one-step model's."""
+    from nnodely.layers.input import Input
+
+    declared = {id(node) for node in inputs}
+    found: dict[int, Any] = {}
+    seen: set[int] = set()
+    stack = list(outputs)
+    while stack:
+        node = stack.pop()
+        if not isinstance(node, Node) or id(node) in seen:
+            continue
+        seen.add(id(node))
+        if isinstance(node, Input):
+            if node.update is None and id(node) not in declared:
+                found[id(node)] = node
+            elif node._hidden and id(node) not in declared:
+                stack.append(node.init)
+        stack.extend(node._preds)
+    return list(found.values())
 
 
 # ------------------------------------------------------------------

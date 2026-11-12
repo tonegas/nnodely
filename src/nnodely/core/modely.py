@@ -7,8 +7,10 @@ from typing import Any, Callable
 from nnodely.core import export, validation
 from nnodely.core.dag import (
     toposort,
+    toposort_outputs,
     flatten,
     _flatten_graph,
+    _undeclared_inputs,
     _parameters,
     _nodes_and_models,
     _nodes_by_model,
@@ -73,6 +75,15 @@ class Modely:
         self._order = toposort(self)
         # Read as an output, or bound to a Loop, it passed no layer call.
         _refuse_uncalled(self._order)
+        undeclared = sorted({node.name for node in _undeclared_inputs(inputs, outputs)})
+        if undeclared:
+            raise ValueError(
+                f"Model {name!r} reads the Inputs {undeclared}, which are not "
+                "among its inputs: declare them there. A model declares every "
+                "Input it reads, the init of an Integrate, a Derivative or a "
+                "Buffer too; only a fed-back Input, or one only a minimizer "
+                "reads, such as a target, may be left out."
+            )
         self.model = None  # Keras model build from this DAG
         self.train_inputs = []  # List of Input nodes that are required for training (derived from minimizers)
         self._train_outputs = []  # List of Output nodes that are required for training (derived from minimizers)
@@ -285,14 +296,13 @@ class Modely:
 
         train_outputs = self._outputs + extra_outputs
         output_keys = [node.name for node in self._outputs] + extra_keys
-        flat, flatten_memo = _flatten_graph(
-            self.name,
-            self._inputs,
-            train_outputs,
-            return_memo=True,
-            one_step=True,
+        flat_outputs, flatten_memo = _flatten_graph(
+            self._inputs, train_outputs, one_step=True
         )
-        train_inputs = [node for node in flat._order if isinstance(node, Input)]
+        flat_order = toposort_outputs(flat_outputs)
+        # A minimizer side, too, is computed by a layer called on streams.
+        _refuse_uncalled(flat_order)
+        train_inputs = [node for node in flat_order if isinstance(node, Input)]
         if not train_inputs:
             # Keras would only say that its outputs are not KerasTensors.
             raise ValueError(
@@ -332,9 +342,8 @@ class Modely:
                 stacklevel=2,
             )
 
-        flat_graph_outputs = [flatten_memo[node] for node in train_outputs]
         keras_inputs, keras_outputs = self._resolve_graph(
-            flat._order, train_inputs, list(zip(output_keys, flat_graph_outputs))
+            flat_order, train_inputs, list(zip(output_keys, flat_outputs))
         )
         model = MinimizerModel(
             name=self.name + "_train",
@@ -619,10 +628,11 @@ class Modely:
 
     @property
     def inputs(self) -> Inputs:
-        """Every Input the model reads - declared or not, inside the models it
-        calls, or only by a minimizer - and every Input fed back inside the
-        step of a Loop it rolls out, as a ModelyLoop does. A list of the Input
-        objects, printed as a table of their shapes and of how each is fed:
+        """Every Input the model reads - those it declares, those only a
+        minimizer reads, and the fed-back ones, inside the models it calls
+        too - and every Input fed back inside the step of a Loop it rolls out,
+        as a ModelyLoop does. A list of the Input objects, printed as a table
+        of their shapes and of how each is fed:
 
         - declared: whether the model is declared with it;
         - fed back with: the stream a loop feeds back into the Input at the

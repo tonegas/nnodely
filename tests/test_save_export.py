@@ -1820,16 +1820,16 @@ def test_a_called_model_built_only_by_its_caller_is_saved_with_its_weights(tmp_p
     )
 
 
-def test_an_input_a_called_model_reads_undeclared_is_one_input_once_loaded(tmp_path):
-    # The block reads z without declaring it: z is the caller's input too,
-    # and saved in both folders it has to come back as one Input.
+def test_an_input_a_model_reads_and_gives_its_block_is_one_input_once_loaded(tmp_path):
+    # The caller gives z to the block, which declares it, and reads it too:
+    # saved in both folders it has to come back as one Input.
     z, s = Input("cu_z", tw=1), Input("cu_s", tw=3)
     block = Modely(
-        "cu_block", inputs=[s], outputs=[Output("cu_bo", Fir(features=1)([s]) + z)]
+        "cu_block", inputs=[s, z], outputs=[Output("cu_bo", Fir(features=1)([s]) + z)]
     ).build()
     x = Input("cu_x", tw=3)
     model = Modely(
-        "cu_model", inputs=[x, z], outputs=[Output("cu_out", block([x]) * z)]
+        "cu_model", inputs=[x, z], outputs=[Output("cu_out", block([x, z]) * z)]
     ).build()
     _randomize_trainable_weights(model)
     inputs = {"cu_x": _window(), "cu_z": _window(1)[:, :1]}

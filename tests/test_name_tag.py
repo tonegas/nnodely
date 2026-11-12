@@ -326,7 +326,7 @@ def test_a_loaded_model_gives_its_own_inputs_by_name(tmp_path):
     z, v = Input("tag_z", tw=1), Input("tag_v", tw=3)
     model = Modely(
         "tag_reads_z",
-        inputs=[v],
+        inputs=[v, z],
         outputs=[Output("tag_rz", Fir(features=1, kernel="ones", bias=False)([v]) + z)],
     ).build()
     model.save(tmp_path / "reads_z")
@@ -334,12 +334,12 @@ def test_a_loaded_model_gives_its_own_inputs_by_name(tmp_path):
 
     z_loaded = loaded.inputs["tag_z"]
     assert any(node is z_loaded for node in loaded._order)
-    # So a model calling it reads that same Input, the data of both.
+    # So a model calling it can read that same Input, and give it to the call.
     x = Input("tag_x", tw=3)
     outer = Modely(
         "tag_reads_too",
         inputs=[x, z_loaded],
-        outputs=[Output("tag_o", loaded([x]) + z_loaded)],
+        outputs=[Output("tag_o", loaded([x, z_loaded]) + z_loaded)],
     ).build()
     result = outer({"tag_x": _WINDOW, "tag_z": np.full((1, 1, 1), 5.0, np.float32)})
     np.testing.assert_allclose(to_numpy(result["tag_o"]), [[[6.0 + 5.0 + 5.0]]])

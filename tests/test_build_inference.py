@@ -292,6 +292,47 @@ def test_a_model_that_reads_no_input_is_refused_at_build():
         looped.build()
 
 
+def test_a_model_declares_every_input_it_reads():
+    # An Input read without being declared was an input all the same, the
+    # init of an Integrate too: a block read it from the data of its caller.
+    # Only a fed-back Input, or one only a minimizer reads, is left out.
+    from nnodely import Integrate
+
+    x, y, x0 = Input("decl_x", tw=1), Input("decl_y", tw=1), Input("decl_x0", tw=1)
+    with pytest.raises(ValueError, match=r"'decl_sum' reads the Inputs \['decl_y'\]"):
+        Modely("decl_sum", inputs=[x], outputs=[Output("decl_sum_o", x + y)])
+    integral = Integrate(dt=1.0, init=x0)(x)
+    with pytest.raises(ValueError, match=r"'decl_int' reads the Inputs \['decl_x0'\]"):
+        Modely("decl_int", inputs=[x], outputs=[Output("decl_int_o", integral)])
+
+    # A caller declares what it gives a block.
+    block = Modely(
+        "decl_block", inputs=[x, x0], outputs=[Output("decl_block_o", integral)]
+    )
+    u = Input("decl_u", tw=1)
+    with pytest.raises(
+        ValueError, match=r"'decl_caller' reads the Inputs \['decl_x0'\]"
+    ):
+        Modely("decl_caller", inputs=[u], outputs=[Output("decl_co", block([u, x0]))])
+    caller = Modely(
+        "decl_caller", inputs=[u, x0], outputs=[Output("decl_co", block([u, x0]))]
+    ).build()
+    result = caller({"decl_u": np.ones((1, 1, 1)), "decl_x0": np.full((1, 1, 1), 10.0)})
+    np.testing.assert_allclose(to_numpy(result["decl_co"]).ravel(), [11.0])
+
+    state, target = Input("decl_state", tw=1), Input("decl_target", tw=1)
+    state.feedback(state + x)
+    model = Modely("decl_left_out", inputs=[x], outputs=[Output("decl_lo", state + x)])
+    model.minimize("decl_error", "decl_lo", target)
+    with pytest.warns(UserWarning, match="fed-back Inputs"):
+        model.build()
+    assert {node.name for node in model.train_inputs} == {
+        "decl_x",
+        "decl_state",
+        "decl_target",
+    }
+
+
 def test_two_inputs_of_one_name_are_refused():
     # The data is keyed by input name: two Inputs named alike read one array,
     # and a model with them once ran silently on the wrong values.

@@ -361,6 +361,12 @@ The model
    )
    vehicle.build()
 
+A model declares every Input it reads among its ``inputs``: one its outputs
+read, one it gives a model it calls, and one a layer starts from, as
+``Integrate(init=x0)``. An Input it reads without declaring it is refused when
+the model is declared. Only a fed-back Input (see :doc:`recurrent`), or an
+Input only an objective reads, such as a target, may be left out.
+
 Objectives (see :doc:`training`) and feedback (see :doc:`recurrent`) are
 declared **before** ``build()``, because they add to the graph that gets built.
 Building again, after a new objective, keeps the weights the model holds;

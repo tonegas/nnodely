@@ -34,9 +34,11 @@ than reshaped, so a rollout is not slipped into a block that reads one
 sample. A dynamic sequence matches any length. An :class:`~nnodely.Input` of
 that shape is given as it is, as ``raw`` above.
 
-An Input that a block reads without declaring it is not replaced by the call:
-it is the Input of the outer model too, read from the same data. A fed-back
-Input that a block declares reads the stream given for it at every step; in a
+A block reads no Input but those it declares (see :doc:`models`), so all it
+reads comes from the call: to give a block the data of an Input of the outer
+model, the outer model declares that Input and passes it in the call. A
+fed-back Input that a block declares reads the stream given for it at every
+step; in a
 :class:`~nnodely.ModelyLoop` it keeps its feedback instead, and the stream is
 its initial value (see :doc:`recurrent`).
 

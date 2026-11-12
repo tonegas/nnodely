@@ -157,9 +157,9 @@ class ModelSerializer:
                 "preds": [node_ids[pred] for pred in node._preds],
             }
             if isinstance(node, Input):
-                # An Input a called model reads without declaring it is the
-                # one this model reads too: written in both files, it is
-                # loaded as one.
+                # An Input a called model reads too - one this model gives
+                # it, a fed-back one - is the one this model reads: written
+                # in both files, it is loaded as one.
                 node_data["input"] = saving.id_of(saving.inputs, node)
                 # A fed-back Input keeps the stream it is fed back with and
                 # its init, a number or a node: a loop that calls the loaded
@@ -270,7 +270,7 @@ class ModelSerializer:
             # A Parameter or Constant read by several models of the tree is
             # one object, written in the file of each: loaded once, it is the
             # same object in all of them. So is an Input a called model reads
-            # without declaring it.
+            # too.
             if issubclass(cls, _Value) and layer_id in loading.values:
                 node_map[node_data["id"]] = loading.values[layer_id]
                 continue

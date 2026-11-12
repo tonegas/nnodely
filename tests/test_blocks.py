@@ -3095,12 +3095,17 @@ def test_local_model_with_an_elementwise_function_on_several_inputs():
 
 
 @pytest.mark.parametrize("call_first", [True, False])
-def test_a_block_shares_an_input_it_does_not_declare_with_its_caller(call_first):
-    # A call once saw only what its caller had inlined before it: reached
-    # first, it made an Input of its own, and the model read two Inputs x.
+def test_a_block_reads_an_input_of_its_caller_only_as_one_it_declares(call_first):
+    # A block once read an Input it did not declare as the caller's own, the
+    # same data: now every Input a model reads is declared, and given a
+    # stream in the call.
     x, u, r = Input("shared_x", tw=1), Input("shared_u", tw=1), Input("shared_r", tw=1)
-    block = Modely("shared_block", inputs=[r], outputs=[Output("shared_bo", x + r)])
-    y = block([u]) + x if call_first else x + block([u])
+    with pytest.raises(
+        ValueError, match=r"'shared_block' reads the Inputs \['shared_x'\]"
+    ):
+        Modely("shared_block", inputs=[r], outputs=[Output("shared_bo", x + r)])
+    block = Modely("shared_block", inputs=[r, x], outputs=[Output("shared_bo", x + r)])
+    y = block([u, x]) + x if call_first else x + block([u, x])
     model = Modely("shared_model", inputs=[x, u], outputs=[Output("shared_y", y)])
     model.build()
     result = model(

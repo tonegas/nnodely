@@ -288,18 +288,18 @@ def test_a_loop_refuses_a_feedback_or_an_initial_value_it_cannot_apply():
         Loop(f=step, init={y0: s0})
     with pytest.raises(ValueError, match="'fb_err_int_o' is not an input of"):
         Loop(f=step, init={"fb_err_int_o": s0})
-    undeclared = Modely(
-        "fb_err_und", inputs=[u], outputs=[Output("fb_err_und_o", integral)]
-    )
     with pytest.raises(ValueError, match=r"reads the Inputs \['fb_err_y0'\]"):
-        Loop(f=undeclared)
+        Modely("fb_err_und", inputs=[u], outputs=[Output("fb_err_und_o", integral)])
 
-    # An Input the step reads, which nothing feeds back, is declared.
+    # An Input the step reads, which nothing feeds back, is declared: the
+    # model refuses one its outputs read, the Loop one only an update reads.
     w, z = Input("fb_err_w", tw=1), Input("fb_err_z", tw=1)
     z.feedback(z + w)
-    reads = Modely("fb_err_reads", inputs=[z], outputs=[Output("fb_err_ro", z + u)])
+    with pytest.raises(ValueError, match=r"reads the Inputs \['fb_err_u'\]"):
+        Modely("fb_err_reads", inputs=[z], outputs=[Output("fb_err_ro", z + u)])
+    reads = Modely("fb_err_reads", inputs=[z, u], outputs=[Output("fb_err_ro", z + u)])
     with pytest.raises(
-        ValueError, match=r"reads the Inputs \['fb_err_u', 'fb_err_w'\]"
+        ValueError, match=r"reads the Inputs \['fb_err_w'\], which nothing feeds back"
     ):
         Loop(f=reads)
 
