@@ -259,8 +259,7 @@ class ValidationResult(Table):
     them, picked as the other tables are, by the name or the index the
     minimizer had when validated - a snapshot, which a later rename or
     removal leaves as it is. ``model`` is the model's name, ``samples`` the
-    samples scored, ``figures`` the files written and ``history`` the
-    training history drawn."""
+    samples scored and ``figures`` the files the last :meth:`plot` wrote."""
 
     _kind, _attr, _title = "minimizer", "result", "ValidationResult"
 
@@ -271,13 +270,30 @@ class ValidationResult(Table):
         model: str,
         samples: int,
         figures: list[str] | None = None,
-        history: dict[str, Any] | None = None,
     ):
         super().__init__(scores)
         self.model = model
         self.samples = samples
         self.figures = figures or []
-        self.history = history
+
+    def plot(
+        self,
+        out_dir: str | os.PathLike | None = None,
+        show: bool = False,
+        history: dict[str, Any] | None = None,
+    ) -> list[str]:
+        """Draw a figure per minimizer - plus the loss curves of ``history``,
+        the dict :meth:`Modely.train` returned - save them as PNG files in
+        ``out_dir`` and open them with ``show``. Call it again to draw them
+        again, elsewhere, without validating again. Returns the files
+        written, which ``figures`` then lists - those of this call alone."""
+        # Drawing needs matplotlib: imported here, where it is used.
+        from nnodely.utils import validation_plot
+
+        self.figures = validation_plot.render(
+            self, history=history, out_dir=out_dir, show=show
+        )
+        return self.figures
 
     def summary(self) -> str:
         width = 80
@@ -439,14 +455,9 @@ def validate(
         ],
         model=model.name,
         samples=n_samples,
-        history=history,
     )
     if out_dir is not None or show:
-        # Drawing needs matplotlib, and draws a ValidationResult: imported here,
-        # where it is used.
-        from nnodely.utils import validation_plot
-
-        result.figures = validation_plot.render(result, out_dir=out_dir, show=show)
+        result.plot(out_dir=out_dir, show=show, history=history)
     if verbose:
         print(result.summary())
     return result

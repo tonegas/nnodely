@@ -399,6 +399,31 @@ def test_validate_adds_a_history_figure_when_given_one(tmp_path):
     assert (tmp_path / f"{name}_history.png").exists()
 
 
+def test_a_result_draws_its_figures_again_without_validating(tmp_path):
+    name = "plot_model"
+    model = _identity_model(name)
+    values = np.linspace(0.0, 1.0, 16)
+    data = _data(model, name, values, values)
+    history = model.train(train_data=data, epochs=1, batch_size=4, printer=None)
+
+    result = model.validate(data, verbose=False)
+    assert result.figures == []
+    assert not hasattr(result, "history")
+
+    first = result.plot(out_dir=tmp_path / "first")
+    assert (
+        first == result.figures == [str(tmp_path / "first" / f"{name}_0_tracking.png")]
+    )
+
+    # Again, elsewhere and with the loss curves: figures lists this call's.
+    second = result.plot(out_dir=tmp_path / "second", history=history)
+    assert result.figures == second
+    assert sorted(p.name for p in (tmp_path / "second").glob("*.png")) == [
+        f"{name}_0_tracking.png",
+        f"{name}_history.png",
+    ]
+
+
 def test_validate_shows_the_figures_on_request(monkeypatch):
     name = "show_model"
     model = _identity_model(name)
