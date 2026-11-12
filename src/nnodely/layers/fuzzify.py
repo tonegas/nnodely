@@ -230,11 +230,12 @@ _MEMBERSHIPS = {
 
 
 # How Fuzzify sizes a membership class on a center, from the distances to the
-# centers on its left and on its right.
+# centers on its left and on its right: by the class, which the name a
+# FuzzifyImpl is configured with is resolved to once.
 _PLACED = {
-    "Triangular": lambda left, right: (left, right),
-    "Rectangular": lambda left, right: (left / 2.0, right / 2.0),
-    "Gaussian": lambda left, right: ((left + right) / 6.0,) * 2,
+    Triangular: lambda left, right: (left, right),
+    Rectangular: lambda left, right: (left / 2.0, right / 2.0),
+    Gaussian: lambda left, right: ((left + right) / 6.0,) * 2,
 }
 
 
@@ -330,8 +331,10 @@ class FuzzifyImpl(keras.layers.Layer):
         left, right = _neighbor_gaps(centers, self.count)
         memberships: list = [None] * self.count
         for name in dict.fromkeys(f for f in self.functions if isinstance(f, str)):
-            formula = _FORMULAS[_MEMBERSHIPS[name.lower()]._formula]
-            values = formula(shifted, *_PLACED[name](left, right))
+            # The name the config holds, resolved once: the class from here on.
+            membership = _MEMBERSHIPS[name.lower()]
+            formula = _FORMULAS[membership._formula]
+            values = formula(shifted, *_PLACED[membership](left, right))
             if self.functions.count(name) == self.count:
                 memberships = [values]
                 break
