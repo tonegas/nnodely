@@ -279,10 +279,6 @@ class ValidationResult(Table):
         self.figures = figures or []
         self.history = history
 
-    def metrics(self) -> dict[str, dict[str, float]]:
-        """Every score as plain numbers, for asserting on or logging."""
-        return {score.name: dict(score.metrics) for score in self}
-
     def summary(self) -> str:
         width = 80
         label = 30

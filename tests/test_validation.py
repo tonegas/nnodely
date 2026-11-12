@@ -286,7 +286,7 @@ def test_validate_scores_every_minimizer():
 
     assert result.model == name
     assert result.samples == 20
-    assert set(result.metrics()) == {"tracking"}
+    assert [score.name for score in result] == ["tracking"]
     assert result["tracking"].metrics["rmse"] == pytest.approx(0.0, abs=1e-6)
     ## The result is the list of the scores, picked by name or index
     assert list(result) == [result["tracking"]]

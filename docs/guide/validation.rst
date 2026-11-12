@@ -93,8 +93,7 @@ The model below is trained on part of a signal and validated on the rest:
 ``validate`` prints a summary and returns a
 :class:`~nnodely.core.validation.ValidationResult`: the list of the scores, one
 per objective, indexed by objective name or by position as the other tables
-are, and ``metrics()`` returns every number as a plain dictionary.
-The keys are ``loss``, ``rmse``, ``mae``, ``max_error``, ``bias``,
+are. Each score's ``metrics`` is a plain dictionary of numbers. The keys are ``loss``, ``rmse``, ``mae``, ``max_error``, ``bias``,
 ``std_error``, ``nrmse_pct``, ``fit_pct``, ``r2``, ``vaf_pct``,
 ``correlation`` and ``non_finite`` (the count of NaN or infinite errors). Each
 objective's :class:`~nnodely.core.validation.SignalScore` also holds the
@@ -107,7 +106,7 @@ indicators of every channel, and the points it scored:
    print(score.channel_metrics["fit_pct"])  # one value per channel
    print(score.points, score.padded)        # points scored, padded points left out
    print(score.step_rmse)                   # (steps, channels) for a rollout, else None
-   metrics = result.metrics()               # {"response": {"loss": ..., "rmse": ..., ...}}
+   metrics = {s.name: s.metrics for s in result}  # {"response": {"loss": ..., ...}}
    print(result.figures)                    # the PNG files written to out_dir
 
 The summary gives each channel a column when a signal has up to three.
