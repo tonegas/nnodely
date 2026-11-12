@@ -774,13 +774,12 @@ def test_freeze_refuses_a_name_it_cannot_resolve_and_changes_nothing():
     with pytest.raises(TypeError, match="got Parameter"):
         model.freeze([k])  # type: ignore[list-item]
     assert _frozen(model) == []
-    # A Parameter and a model of one name: both are picked, with a warning
-    # listing them; the index picks one - the Parameters come first.
-    with pytest.warns(UserWarning, match="'unresolved_shared' is ambiguous"):
+    # A Parameter and a model of one name: refused, listing them; the
+    # Parameter is frozen by itself, picked from parameters.
+    with pytest.raises(ValueError, match="'unresolved_shared' is ambiguous"):
         model.freeze("unresolved_shared")
-    assert _frozen(model) == ["unresolved_shared"]
-    model.unfreeze()
-    model.freeze(("unresolved_shared", 0))
+    assert _frozen(model) == []
+    model.parameters["unresolved_shared"].freeze()
     assert not shared.trainable
 
 

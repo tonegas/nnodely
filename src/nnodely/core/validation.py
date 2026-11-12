@@ -21,6 +21,7 @@ from typing import Any
 import keras
 import numpy as np
 
+from nnodely.core.dag import Table
 from nnodely.core.minimizer import (
     MinimizerModel,
     _resolve_minimizer_terms,
@@ -252,28 +253,31 @@ def _cell(value: float, spec: str) -> str:
     return f"{'n/a' if value != value else spec.format(value):>{_COLUMN}}"
 
 
-@dataclass
-class ValidationResult:
-    """Everything one call to :meth:`Modely.validate` produced."""
+class ValidationResult(Table):
+    """Everything one call to :meth:`Modely.validate` produced: a list of
+    :class:`SignalScore`, one per minimizer in the order the model listed
+    them, picked as the other tables are, by the name or the index the
+    minimizer had when validated - a snapshot, which a later rename or
+    removal leaves as it is. ``model`` is the model's name, ``samples`` the
+    samples scored, ``figures`` the files written and ``history`` the
+    training history drawn."""
 
-    model: str
-    samples: int
-    signals: dict[str, SignalScore]
-    figures: list[str]
-    history: dict[str, Any] | None = None
+    _kind, _attr, _title = "minimizer", "result", "ValidationResult"
 
-    def __getitem__(self, name: str) -> SignalScore:
-        return self.signals[name]
-
-    def __iter__(self):
-        return iter(self.signals)
-
-    def __len__(self) -> int:
-        return len(self.signals)
-
-    def metrics(self) -> dict[str, dict[str, float]]:
-        """Every score as plain numbers, for asserting on or logging."""
-        return {name: dict(s.metrics) for name, s in self.signals.items()}
+    def __init__(
+        self,
+        scores: list[SignalScore],
+        *,
+        model: str,
+        samples: int,
+        figures: list[str] | None = None,
+        history: dict[str, Any] | None = None,
+    ):
+        super().__init__(scores)
+        self.model = model
+        self.samples = samples
+        self.figures = figures or []
+        self.history = history
 
     def summary(self) -> str:
         width = 80
@@ -281,9 +285,9 @@ class ValidationResult:
         lines = [" nnodely Validation ".center(width, "=")]
         lines.append(f"{'Model:':<{label}}{self.model}")
         lines.append(f"{'Samples:':<{label}}{self.samples}")
-        lines.append(f"{'Minimizers:':<{label}}{len(self.signals)}")
+        lines.append(f"{'Minimizers:':<{label}}{len(self)}")
 
-        for score in self.signals.values():
+        for score in self:
             lines.append("-" * width)
             lines.append(f"{score.name}   ({score.source} vs {score.target})")
             lines.append(
@@ -343,10 +347,10 @@ class ValidationResult:
 # ----------------------------------------------------------------------
 
 
-def _evaluate(model, terms, x_data: dict, mask, n_samples: int) -> dict:
+def _evaluate(model, terms, x_data: dict, mask, n_samples: int) -> list:
     """What each minimizer compares over the dataset, as training sees it.
 
-    Returns, by minimizer, its loss over the whole dataset, its source, its
+    Returns, for each term in the order of ``terms``, its loss over the whole dataset, its source, its
     target aligned with it, and the mask of their real points - None when no
     point was padded.
 
@@ -355,54 +359,40 @@ def _evaluate(model, terms, x_data: dict, mask, n_samples: int) -> dict:
     mode has to be toggled here. The loss of a chunk is a mean over its
     samples, so weighing it by their number gives the loss of the dataset.
     """
+    # Every input is there: Modely._training_arrays checked it.
     input_names = [node.name for node in model.train_inputs]
-    missing = [name for name in input_names if name not in x_data]
-    if missing:
-        raise ValueError(f"Validation data is missing model inputs: {missing}.")
 
-    losses = {term.name: 0.0 for term in terms}
-    parts: dict[str, tuple[list, list, list]] = {
-        term.name: ([], [], []) for term in terms
-    }
+    losses = [0.0] * len(terms)
+    parts: list[tuple[list, list, list]] = [([], [], []) for _ in terms]
     for start in range(0, n_samples, _INFERENCE_CHUNK):
         stop = min(start + _INFERENCE_CHUNK, n_samples)
         batch = {name: x_data[name][start:stop, ...] for name in input_names}
         y = None if mask is None else mask[start:stop]
         outputs = model.model(batch, training=False)
-        for term in terms:
+        for index, term in enumerate(terms):
             source = outputs[term.source]
             target = MinimizerModel._align_target(term, outputs[term.target], source)
             value = keras.ops.convert_to_numpy(
                 MinimizerModel._term_loss(term, source, target, y)
             )
-            losses[term.name] += float(value) * (stop - start)  # type: ignore[arg-type]
+            losses[index] += float(value) * (stop - start)  # type: ignore[arg-type]
 
-            sources, targets, valids = parts[term.name]
+            sources, targets, valids = parts[index]
             sources.append(keras.ops.convert_to_numpy(source))
             targets.append(keras.ops.convert_to_numpy(target))
             valid = _rollout_mask(term, target, y)
             if valid is not None:
                 valids.append(keras.ops.convert_to_numpy(valid))
 
-    return {
-        name: (
-            losses[name] / n_samples,
+    return [
+        (
+            loss / n_samples,
             np.concatenate(sources),
             np.concatenate(targets),
             np.concatenate(valids) if valids else None,
         )
-        for name, (sources, targets, valids) in parts.items()
-    }
-
-
-def _dataset_name(node, x_data: dict) -> str | None:
-    """Name of the dataset column a node ultimately reads, if any."""
-    if node.name in x_data:
-        return node.name
-    preds = getattr(node, "_preds", [])
-    if len(preds) == 1:
-        return _dataset_name(preds[0], x_data)
-    return None
+        for loss, (sources, targets, valids) in zip(losses, parts)
+    ]
 
 
 def validate(
@@ -430,27 +420,25 @@ def validate(
     x_data, mask = model._training_arrays(val_data)
     compared = _evaluate(model, terms, x_data, mask, n_samples)
 
-    signals = {}
-    for minimizer, term in zip(model._minimizers, terms):
-        loss_value, y_pred, y_true, valid = compared[term.name]
-        target = minimizer["target"]
-        signals[term.name] = score_signal(
-            name=term.name,
-            source=minimizer["source"].name,
-            target=_dataset_name(target, x_data) or target.name,
-            y_true=y_true,
-            y_pred=y_pred,
-            valid=valid,
-            dim_rank=minimizer["source"].shape.dim_rank,
-            loss=loss_name(minimizer["loss"]),
-            loss_value=loss_value,
-        )
-
     result = ValidationResult(
+        [
+            score_signal(
+                name=term.name,
+                source=minimizer["source"].name,
+                target=minimizer["target"].name,
+                y_true=y_true,
+                y_pred=y_pred,
+                valid=valid,
+                dim_rank=minimizer["source"].shape.dim_rank,
+                loss=loss_name(minimizer["loss"]),
+                loss_value=loss_value,
+            )
+            for minimizer, term, (loss_value, y_pred, y_true, valid) in zip(
+                model._minimizers, terms, compared
+            )
+        ],
         model=model.name,
         samples=n_samples,
-        signals=signals,
-        figures=[],
         history=history,
     )
     if out_dir is not None or show:

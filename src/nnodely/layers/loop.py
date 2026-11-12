@@ -6,13 +6,14 @@ import keras
 from keras.src.backend.common import stateless_scope
 
 from nnodely.core.dag import (
+    _copies,
     Scope,
     _streams_from,
+    by_name_or_index,
     flatten_fed_back,
     flatten_node,
-    is_key,
-    pick,
-    toposort_outputs,
+    resolve,
+    toposort,
 )
 from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
@@ -500,7 +501,7 @@ def _fed_back_across_calls(
     }
     for model_call, call_scope in scope.calls.items():
         found += [
-            (node.name, cast(Any, model_call)._model.name)
+            (node.name, model_call._model.name)
             for node in call_scope.memo
             if node in here
         ]
@@ -515,6 +516,25 @@ def _free_name(name: str, taken: set[str]) -> str:
         candidate, index = f"{name}_{index}", index + 1
     taken.add(candidate)
     return candidate
+
+
+def _inlined_inputs(scope: Scope) -> dict[int, Input]:
+    """The Input every copy of one made inlining a graph stands for, by the
+    id of the copy - in ``scope`` and the scope of every call it makes: a
+    fed-back Input inside a called model is copied once per call."""
+    found = {
+        id(copied): node
+        for node, copied in scope.memo.items()
+        # A copy shares the Keras input of its Input; an Input of a called
+        # model bound to another Input of the caller is that one instead.
+        if isinstance(node, Input)
+        and isinstance(copied, Input)
+        and copied is not node
+        and copied._input is node._input
+    }
+    for call in scope.calls.values():
+        found.update(_inlined_inputs(call))
+    return found
 
 
 class _Step:
@@ -565,8 +585,17 @@ class _Step:
             )
         found = _fed_back(outputs)
         # The Inputs and values read from the graph of f are copies; the
-        # streams of the graph the Loop is called in are the originals.
+        # streams of the graph the Loop is called in are the originals. So
+        # are the Inputs f declares, a fed-back one copied for the step.
         self._originals = {id(copy): source for source, copy in scope.values.items()}
+        declared = {
+            id(scope.memo[node]): node for node in f._inputs if node in scope.memo
+        }
+        self._originals.update(declared)
+        # Every Input copied, inside the models f calls too, by its copy; and
+        # every node, for what reads the graph by its objects.
+        self._sources = _inlined_inputs(scope)
+        self._copies = _copies(scope)
 
         # The states feedback= gives first, in its order. One the graph feeds
         # back too is fed back with the same stream, or with none.
@@ -650,30 +679,30 @@ class _Step:
                     )
             starts[node] = init
 
+        # An Input the step reads, or starts a state from, is an input of f:
+        # that Input itself, not one of its name.
         states = [state for state, _ in pairs]
-        step_inputs: dict[str, Input] = {}
-        for node in toposort_outputs(body_outputs):
+        step_inputs: dict[int, Input] = {}
+        for node in toposort(body_outputs):
             if isinstance(node, Input) and node.update is None and node not in states:
-                step_inputs.setdefault(node.name, node)
+                step_inputs.setdefault(self.key(node), node)
         seeds = [init for init in starts.values() if isinstance(init, Input)]
-        listed = {node.name for node in f._inputs}
+        listed = {id(node) for node in f._inputs}
         unlisted = sorted(
             {
                 node.name
                 for node in [*step_inputs.values(), *seeds]
-                if node.name not in listed
+                if self.key(node) not in listed
             }
         )
         if unlisted:
             raise ValueError(
-                f"{who} reads the Inputs {unlisted}, which nothing feeds back "
-                f"and are not among {among}: declare them there, or feed them "
-                "back with x.feedback(stream)."
+                f"{who} reads the Inputs {unlisted}, which nothing feeds back, "
+                f"without declaring them: list them among {among} - "
+                f"model.inputs[{unlisted[0]!r}] of the model that reads them - or "
+                "feed them back with x.feedback(stream)."
             )
 
-        declared = {
-            id(scope.memo[node]): node for node in f._inputs if node in scope.memo
-        }
         fits = (
             not renamed
             and len(body_outputs) == len(outputs)
@@ -699,7 +728,7 @@ class _Step:
             # A seed two layers start from is one Input.
             inputs = dict(step_inputs)
             for seed in seeds:
-                inputs.setdefault(seed.name, seed)
+                inputs.setdefault(self.key(seed), seed)
             self.body = Modely(
                 f.name, inputs=[*inputs.values(), *states], outputs=body_outputs
             )
@@ -717,58 +746,71 @@ class _Step:
             self.starts = {node: self.original(init) for node, init in starts.items()}
 
     @classmethod
-    def restored(cls, body: Modely, feedback: dict, returns: list[str]):
+    def restored(cls, body: Modely, feedback: list, returns: list[int]):
         """The step of a Loop loaded back: ``body`` is the one it was saved
-        with, ``feedback`` holds every state, which start from what the Loop
-        was saved reading, and ``returns`` names the outputs it returns."""
+        with, ``feedback`` pairs every state with the output it is fed back
+        from - their positions among the inputs and outputs of ``body`` - and
+        the states start from what the Loop was saved reading; ``returns``
+        are the positions of the outputs it returns."""
         step = cls.__new__(cls)
         step.f = step.body = body
-        step.returns = [
-            Loop._find_node(body._outputs, name, "output") for name in returns
-        ]
-        step.pairs = [
-            (
-                Loop._find_node(body._inputs, key, "input"),
-                Loop._find_node(body._outputs, value, "output"),
-            )
-            for key, value in feedback.items()
-        ]
+        step.returns = [body._outputs[index] for index in returns]
+        step.pairs = [(body._inputs[i], body._outputs[o]) for i, o in feedback]
         step.starts = {}
         step._originals = {}
+        step._sources = {}
+        step._copies = {}
         return step
 
     @property
     def states(self) -> list[Input]:
         return [state for state, _ in self.pairs]
 
-    def original(self, node):
+    def original(self, node: Any) -> Any:
         """The stream of the graph the Loop is called in that ``node``, a copy
         made inlining ``f``, stands for: ``node`` itself if it is no copy."""
         return self._originals.get(id(node), node)
+
+    def copied_from(self, node: Any) -> Any:
+        """The node of the graph of ``f`` - or of a model it calls - that
+        ``node``, a node of the body, stands for: ``node`` itself if it is
+        no copy."""
+        return self._copies.get(id(node), node)
+
+    def source(self, node: Any) -> Any:
+        """The Input ``node`` is a copy of, made inlining ``f`` or a model it
+        calls - a fed-back Input inside a called model is copied once per
+        call: ``node`` itself if it is no copy."""
+        return self._sources.get(id(node), self.original(node))
+
+    def key(self, node: Any) -> int:
+        """What tells two inputs apart: the Input ``node`` stands for - never
+        its name, two Inputs of one name are two."""
+        return id(self.source(node))
 
     def state(self, key) -> Input:
         """The state the ``init`` key ``key`` gives a value for: a state
         itself, or an Input of ``f`` - or its name - that is fed back."""
         if any(key is state for state in self.states):
             return key
-        name = key.name if isinstance(key, Stream) else key
-        declared = next(
-            (
-                node
-                for node in self.f._inputs
-                if (node is key if isinstance(key, Stream) else node.name == key)
+        declared = resolve(
+            key,
+            [(node, index, "") for index, node in enumerate(self.f._inputs)],
+            kind="input",
+            owner=f"Loop init of {self.f.name!r}",
+            hint="Key it by the Input itself.",
+            objects=Stream,
+            missing=lambda key: (
+                f"Loop init key {getattr(key, 'name', key)!r} is "
+                f"not an input of {self.f.name!r}: a state kept inside a block, as "
+                "the one of Integrate or Derivative, starts from the init of the "
+                "block, Integrate(init=...)."
             ),
-            None,
         )
-        if declared is None:
-            raise ValueError(
-                f"Loop init key {name!r} is not an input of {self.f.name!r}: a "
-                "state kept inside a block, as the one of Integrate or "
-                "Derivative, starts from the init of the block, "
-                "Integrate(init=...)."
-            )
+        name = declared.name
         state = next(
-            (state for state in self.states if state.name == declared.name), None
+            (state for state in self.states if self.key(state) == self.key(declared)),
+            None,
         )
         if state is None:
             raise ValueError(
@@ -883,26 +925,27 @@ class Loop(Layer):
 
     def _declare(self, step: _Step, init: dict, name, seq, collect):
         self._step = step
-        self._f = step.body
+        self._model = model = step.body
         self._feedback_inputs = step.states
         self._feedback_outputs = [output for _, output in step.pairs]
         self._init = self._resolve_init(init, step)
         # A body input its outputs never read, such as a target, is no input
         # of the loop.
-        read = {node.name for node in self._f.inference_inputs}
+        read = {id(model._original(node)) for node in self._model.inference_inputs}
         self._static_inputs = [
             node
-            for node in self._f._inputs
-            if node not in self._feedback_inputs and node.name in read
+            for node in model._inputs
+            if node not in self._feedback_inputs and id(node) in read
         ]
         # An Input the body starts a state from, and does not read: an input
         # of the loop all the same, whose outer stream is that initial value.
-        static = {node.name for node in self._static_inputs}
+        # One per Input, which several states may start from.
+        static = {step.key(node) for node in self._static_inputs}
         self._seed_inputs = list(
             {
-                start.name: start
+                step.key(start): start
                 for start in step.starts.values()
-                if isinstance(start, Input) and start.name not in static
+                if isinstance(start, Input) and step.key(start) not in static
             }.values()
         )
         self._feedback_shift_axes = self._resolve_feedback(step.pairs)
@@ -923,9 +966,8 @@ class Loop(Layer):
             names = [output.name for output in self._returns]
             raise _SeveralOutputs(
                 f"Loop {self.name!r} returns the {len(names)} outputs {names} of "
-                f"{self._f.name!r}, and is read as one stream: unpack them, "
-                f"{', '.join(names)} = Loop(...)(inputs), or pick one, loop[i] "
-                "or loop[name]."
+                f"{self._model.name!r}, and is read as one stream: unpack them, "
+                f"{', '.join(names)} = Loop(...)(inputs), or pick one, loop[i]."
             )
         return self._shape
 
@@ -966,11 +1008,11 @@ class Loop(Layer):
         node._preds = [*node._resolve_initial_values(bound), *static_sources]
         node._configure()
 
-        result_shapes = [node._result_shape(output) for output in self._f._outputs]
-        node.shape = result_shapes[self._f._outputs.index(self._returns[0])]
+        result_shapes = [node._result_shape(output) for output in self._model._outputs]
+        node.shape = result_shapes[self._model._outputs.index(self._returns[0])]
         node._loop_outputs = [
             LoopOutput(node, index, output, result_shapes[index])
-            for index, output in enumerate(self._f._outputs)
+            for index, output in enumerate(self._model._outputs)
             if output in self._returns
         ]
         return node
@@ -1179,16 +1221,21 @@ class Loop(Layer):
                 shift_axes.append(node.shape.tw_axis)
         return shift_axes
 
-    def _call_order(self) -> list[str]:
+    def _call_order(self) -> list[Input]:
         """The inputs of the loop, those a call binds, in the order ``f``
         declares them: the ones the body reads that are not fed back, and the
         ones it starts a state from."""
-        bindable = {node.name for node in (*self._static_inputs, *self._seed_inputs)}
-        return [node.name for node in self._step.f._inputs if node.name in bindable]
+        bindable = {
+            self._step.key(n): n for n in (*self._static_inputs, *self._seed_inputs)
+        }
+        return [
+            bindable[id(node)] for node in self._step.f._inputs if id(node) in bindable
+        ]
 
     def _resolve_sources(self, inputs):
         """Outer stream feeding each body input that is not fed back, and
-        every input of the loop by name - those a state starts from too."""
+        every input of the loop by the id of its node - those a state starts
+        from too. A key is a body input, its Input of ``f``, or its name."""
         if isinstance(inputs, (Stream, list, tuple)):
             # One stream per input of the loop, in the order f declares them.
             streams = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
@@ -1200,10 +1247,11 @@ class Loop(Layer):
                     else "one stream"
                 )
                 raise ValueError(
-                    f"Loop {self.name!r} has {len(order)} inputs {order}, the "
-                    f"inputs of {self._f.name!r} it does not feed back: called "
-                    "with a list it takes one stream for each, in that order, "
-                    f"and with a stream alone it has one; got {given}."
+                    f"Loop {self.name!r} has {len(order)} inputs "
+                    f"{[node.name for node in order]}, the inputs of "
+                    f"{self._model.name!r} it does not feed back: called with a list "
+                    "it takes one stream for each, in that order, and with a "
+                    f"stream alone it has one; got {given}."
                 )
             inputs = dict(zip(order, streams))
         if not isinstance(inputs, dict):
@@ -1213,40 +1261,53 @@ class Loop(Layer):
                 f"them, or the stream of its one input; got {type(inputs).__name__}."
             )
 
-        by_name = {}
+        known = [*self._static_inputs, *self._seed_inputs]
+        by_node: dict[int, Stream] = {}
         for key, value in inputs.items():
             key_name = key.name if isinstance(key, Stream) else key
             if not isinstance(value, Stream):
                 raise TypeError(
                     f"Loop input {key_name!r} must be bound to a Stream, got {value!r}."
                 )
-            by_name[key_name] = value
-
-        states = {node.name for node in self._feedback_inputs}
-        known = {node.name for node in (*self._static_inputs, *self._seed_inputs)}
-        for key_name in by_name:
-            if key_name in states:
-                raise ValueError(
-                    f"Loop input {key_name!r} is fed back: give its initial "
-                    f"value with init=, Loop(..., init={{{key_name!r}: stream}})."
-                )
-            if key_name not in known:
-                raise ValueError(
-                    f"Loop input {key_name!r} is not an input the body model reads."
-                )
+            by_node[id(self._loop_input(key, known))] = value
 
         bound = {}
-        for node in (*self._static_inputs, *self._seed_inputs):
+        for node in known:
             # A body input left unbound is handed on to the body as it is.
             original = self._step.original(node)
-            source = by_name.get(node.name, original)
+            source: Stream = by_node[id(node)] if id(node) in by_node else original
             if source is not original and tuple(source.dim) != tuple(node.dim):
                 raise ValueError(
                     f"Loop input {node.name!r} expects dim {tuple(node.dim)}, got dim "
                     f"{tuple(source.dim)} from {source.name!r}."
                 )
-            bound[node.name] = source
-        return [bound[node.name] for node in self._static_inputs], bound
+            bound[id(node)] = source
+        return [bound[id(node)] for node in self._static_inputs], bound
+
+    def _loop_input(self, key, known: list[Input]) -> Input:
+        """The input of the loop a call's key binds: a body input itself, the
+        Input of ``f`` it stands for, or a name - one input alone carrying
+        it. A state is refused: it starts from its init."""
+        states = list(self._feedback_inputs)
+        key = resolve(
+            key,
+            [(node, None, "") for node in [*known, *states]],
+            kind="input",
+            owner=f"Loop {self.name!r}",
+            hint="Pass the Input itself.",
+            objects=Stream,
+            same=lambda node, key: self._step.key(node) == self._step.key(key),
+            missing=lambda key: (
+                f"Loop input {getattr(key, 'name', key)!r} is not "
+                "an input the body model reads."
+            ),
+        )
+        if any(key is state for state in states):
+            raise ValueError(
+                f"Loop input {key.name!r} is fed back: give its initial value "
+                f"with init=, Loop(..., init={{{key.name!r}: stream}})."
+            )
+        return key
 
     def _resolve_initial_values(self, bound):
         """Seed of every state: its init, the init of the layer that keeps it
@@ -1260,7 +1321,13 @@ class Loop(Layer):
             else:
                 start = self._step.starts.get(node)
                 if isinstance(start, Input):
-                    value = bound[start.name]
+                    # The input of the loop that Input is.
+                    seed = next(
+                        seed
+                        for seed in (*self._static_inputs, *self._seed_inputs)
+                        if self._step.key(seed) == self._step.key(start)
+                    )
+                    value = bound[id(seed)]
                 else:
                     value = 0.0 if start is None else start
             values.append(
@@ -1292,25 +1359,22 @@ class Loop(Layer):
 
     @staticmethod
     def _find_node(nodes, value, kind):
-        if isinstance(value, str):
-            # A name several of them carry is refused, listing them: the
-            # body is built only if its inputs and outputs have names of
-            # their own.
-            matches = pick(
-                [(node, f"(its {kind} {index})") for index, node in enumerate(nodes)],
-                value,
-                kind=kind,
-                owner="Loop feedback",
-            )
-            if not matches:
-                raise ValueError(f"feedback {kind} {value!r} was not found.")
-            return matches[0]
-        if value not in nodes:
-            raise ValueError(
-                f"feedback {kind} {getattr(value, 'name', value)!r} "
-                "does not belong to the provided Modely."
-            )
-        return value
+        # A name several of them carry is refused, listing them: the body is
+        # built only if its inputs and outputs have names of their own.
+        return resolve(
+            value,
+            [(node, None, f"(its {kind} {index})") for index, node in enumerate(nodes)],
+            kind=kind,
+            owner="Loop feedback",
+            hint=f"Pass the {kind} itself.",
+            objects=Stream,
+            missing=lambda value: (
+                f"feedback {kind} {value!r} was not found."
+                if isinstance(value, str)
+                else f"feedback {kind} {value.name!r} does not belong to the "
+                "provided Modely."
+            ),
+        )
 
     def __repr__(self):
         if self._shape is None or not self._return_all_outputs:
@@ -1340,33 +1404,37 @@ class Loop(Layer):
 
     def __getitem__(self, key):
         """An output by position, as in a list, or by the name it has in
-        ``f``, or by that name and its index among those of that name,
-        ``("y", 0)``."""
+        ``f`` - one or the other, never both. A name several outputs carry
+        raises, listing them with their position."""
         outputs = self._outputs()
-        if not is_key(key):
+        owner = f"Loop {self.name!r}"
+        if not by_name_or_index(key, owner):
             return outputs[key]
-        picked = pick(
-            [(output, "") for output in self._returns],
+        picked = resolve(
             key,
+            [(output, index, "") for index, output in enumerate(self._returns)],
             kind="output",
-            owner=f"Loop {self.name!r}",
+            owner=owner,
+            hint="Pick it by its position, loop[i], or give it a name of its "
+            "own in the body, output.name = 'new_name'.",
         )
-        if not picked:
-            raise KeyError(
-                f"Loop {self.name!r}: no output named "
-                f"{key if isinstance(key, str) else key[0]!r}; the names are "
-                f"{[output.name for output in self._returns]}."
-            )
         # The loop returns one stream per output of f, in its order.
-        return outputs[self._returns.index(picked[0])]
+        return outputs[self._returns.index(picked)]
 
     def build_layer(self):
+        model = self._model
         return LoopImpl(
-            model=self._f.inference_model,
-            feedback_input_names=tuple(node.name for node in self._feedback_inputs),
-            feedback_output_names=tuple(node.name for node in self._feedback_outputs),
-            model_output_names=tuple(node.name for node in self._f._outputs),
-            static_input_names=tuple(node.name for node in self._static_inputs),
+            model=model.inference_model,
+            # The keys the body was built with: renamed since, its Inputs and
+            # outputs keep them in its Keras model.
+            feedback_input_names=tuple(
+                model._key(node) for node in self._feedback_inputs
+            ),
+            feedback_output_names=tuple(
+                model._key(node) for node in self._feedback_outputs
+            ),
+            model_output_names=tuple(model._key(node) for node in model._outputs),
+            static_input_names=tuple(model._key(node) for node in self._static_inputs),
             horizon=self._horizon,
             collect=self._collect,
             rolled_initial=tuple(self._rolled_initial),
@@ -1374,25 +1442,27 @@ class Loop(Layer):
             feedback_shift_axes=tuple(self._feedback_shift_axes),
             feedback_state_shapes=tuple(self._feedback_state_shapes),
             result_shapes=tuple(
-                self._result_shape(output).tuple for output in self._f._outputs
+                self._result_shape(output).tuple for output in model._outputs
             ),
             horizon_index=self._horizon_index,
-            primary_output_index=self._f._outputs.index(self._returns[0]),
+            primary_output_index=model._outputs.index(self._returns[0]),
             return_all_outputs=self._return_all_outputs,
             name=self.name,
         )
 
     def get_config(self):
         config = super().get_config()
+        model = self._model
         config.update(
             {
-                "feedback": {
-                    node.name: output.name
+                # By position among the inputs and outputs of the body.
+                "feedback": [
+                    [model._inputs.index(node), model._outputs.index(output)]
                     for node, output in zip(
                         self._feedback_inputs, self._feedback_outputs
                     )
-                },
-                "returns": [output.name for output in self._returns],
+                ],
+                "returns": [model._outputs.index(output) for output in self._returns],
                 "seq": self._length,
                 "collect": self._collect,
             }
@@ -1406,7 +1476,8 @@ class Loop(Layer):
         # the initial value of every state, then the source of every other
         # body input it reads, in the body's order. A body input left unbound
         # was its own source; the reloaded body is a copy of its own, so it is
-        # bound to the node of the same name in the graph the loop is loaded in.
+        # bound to the predecessor saved for it - the same Input, loaded once
+        # for every file of the tree that reads it.
         config = dict(config)
         body = config.pop("f")
         feedback = config.pop("feedback")
@@ -1415,5 +1486,4 @@ class Loop(Layer):
         loop = cls._of(
             step, init=dict(zip(step.states, preds[: len(feedback)])), **config
         )
-        static_names = [node.name for node in loop._static_inputs]
-        return loop(dict(zip(static_names, preds[len(feedback) :])))
+        return loop(dict(zip(loop._static_inputs, preds[len(feedback) :])))

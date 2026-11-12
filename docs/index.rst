@@ -81,6 +81,7 @@ Contents
 
    getting_started
    guide/index
+   tutorial/index
    api/index
 
 Indices and tables

@@ -1,6 +1,11 @@
 Recurrent Models
 ================
 
+.. seealso::
+
+   Step by step, with runnable examples: the tutorial :doc:`Recurrent models
+   <../tutorial/10_recurrent_loop>`.
+
 A one-step model predicts the next sample from measured ones. Used as a
 simulator, it has to run on its own predictions instead. *nnodely* offers two
 ways to feed outputs back into inputs:

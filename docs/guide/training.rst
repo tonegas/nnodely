@@ -1,6 +1,11 @@
 Training
 ========
 
+.. seealso::
+
+   Step by step, with runnable examples: the tutorial :doc:`Model training
+   <../tutorial/03_model_training>`.
+
 The examples on this page use a small first-order system, :math:`y[t+1] =
 0.9 \, y[t] + 0.5 \, u[t]`, split into a training and a validation set:
 
@@ -97,12 +102,14 @@ and its ``param`` is the Keras variable the built model computes with -
    # │     │ total        │     │      │        │ 4      │ 4         │
    # └─────┴──────────────┴─────┴──────┴────────┴────────┴───────────┘
    kernel = model.parameters["fir_y_kernel"].param   # the trained values
+   kernel = model.parameters[0].param                # the same, by its index
 
 A model used as a block is frozen the same way, ``block.freeze()``, or by its
 name from the larger model, ``model.freeze("block")``, to train the rest of
-the larger model around it. A name several Parameters or models carry freezes
-them all, with a warning listing them; ``model.freeze(("k", 1))`` freezes the
-one of index 1 among them (see :doc:`composition`).
+the larger model around it. A name several Parameters or models carry is
+refused, listing them with their index: ``model.parameters[1].freeze()``
+freezes the one of index 1, or rename one, ``obj.name = "new_name"`` (see
+:doc:`composition`).
 
 Training
 --------

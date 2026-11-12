@@ -45,7 +45,7 @@ def test_loop(tmp_path):
         inputs=[seed],
         outputs=[output1],
     ).build()
-    assert loop._f is body
+    assert loop._model is body
     model.export_html(out_dir=tmp_path, filename="test_closed_loop")
 
     seed_values = np.zeros((1, 5, 1, 1), dtype=np.float32)

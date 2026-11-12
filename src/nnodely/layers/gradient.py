@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import keras
 
-from nnodely.core.dag import _source_input_tensors, _source_names
+from nnodely.core.dag import _source_input_tensors
 from nnodely.core.layer import Layer
 from nnodely.core.stream import Stream
 from nnodely.layers.input import Input
@@ -29,19 +29,21 @@ _SUPPORTED_ORDERS = (1, 2)
 # ----------------------------------------------------------------------
 # Graph introspection
 # ----------------------------------------------------------------------
-def _find_input(node, name: str):
-    """The Input named ``name`` among ``node``'s ancestors, if any."""
+def _input_ancestors(node) -> list[Input]:
+    """Every Input among ``node``'s ancestors, each once, in the order a walk
+    from ``node`` reaches them: the same for a graph saved and loaded."""
     seen: set[int] = set()
+    found: list[Input] = []
     stack = [node]
     while stack:
         current = stack.pop()
         if id(current) in seen:
             continue
         seen.add(id(current))
-        if isinstance(current, Input) and current.name == name:
-            return current
+        if isinstance(current, Input):
+            found.append(current)
         stack.extend(getattr(current, "_preds", None) or [])
-    return None
+    return found
 
 
 # ----------------------------------------------------------------------
@@ -225,7 +227,6 @@ class Gradient(Layer):
                 f"got {type(wrt).__name__}.{hint}"
             )
         self._wrt = wrt
-        self._wrt_name = wrt.name
         super().__init__(name=name, order=self._order, wrt=self._wrt)
 
     # ------------------------------------------------------------------
@@ -259,11 +260,20 @@ class Gradient(Layer):
     def call(self, xs):
         tensor = xs[0]
         sources = _source_input_tensors(tensor)
-        names = _source_names(sources)
-        if self._wrt_name not in names:
+        # The Input by its Keras input, the one its copy in the graph reads.
+        wrt_index = next(
+            (
+                index
+                for index, source in enumerate(sources)
+                if source is self._wrt._input
+            ),
+            None,
+        )
+        if wrt_index is None:
+            names = [source.name for source in sources]
             raise ValueError(
                 f"{self.name}: the differentiated relation does not depend on "
-                f"input {self._wrt_name!r} (it reads {names}), so its derivative "
+                f"input {self._wrt.name!r} (it reads {names}), so its derivative "
                 "is not defined by the graph. Inside a model used as a reusable "
                 "block this is what binding does: the block's own inputs are "
                 "replaced by the streams it is called with, so differentiate in "
@@ -280,7 +290,7 @@ class Gradient(Layer):
         )
         self._layer = GradientImpl(
             function_model=function_model,
-            wrt_index=names.index(self._wrt_name),
+            wrt_index=wrt_index,
             order=self._order,
             name=self.name,
         )
@@ -290,10 +300,15 @@ class Gradient(Layer):
     # Serialization
     # ------------------------------------------------------------------
     def get_config(self):
-        # The Input is saved by name, and found again among the ancestors of
-        # the relation it differentiates.
+        # The Input is saved by its position among the Inputs the relation it
+        # differentiates is computed from, and found there again.
         config = super().get_config()
-        config["wrt"] = self._wrt_name
+        # A copy of the Input - in a flattened graph - shares its Keras input.
+        config["wrt"] = next(
+            index
+            for index, node in enumerate(_input_ancestors(self._preds[0]))
+            if node._input is self._wrt._input
+        )
         return config
 
     @classmethod
@@ -302,10 +317,5 @@ class Gradient(Layer):
             raise ValueError(
                 "A Gradient needs the relation it differentiates to be rebuilt first."
             )
-        wrt = _find_input(preds[0], config["wrt"])
-        if wrt is None:
-            raise ValueError(
-                f"Gradient {config['name']!r}: input {config['wrt']!r} was "
-                "not found among the ancestors of the relation it differentiates."
-            )
+        wrt = _input_ancestors(preds[0])[config["wrt"]]
         return super().from_config({**config, "wrt": wrt}, preds=preds[:1])

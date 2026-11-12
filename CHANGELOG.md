@@ -182,8 +182,9 @@ variable, and trains, validates and exports through Keras. Models saved with
   Parameter by its name, or a model the graph reaches - a block, a Loop
   body, the model of a LocalModel - by its name, for all its Parameters:
   `model.freeze(["k", "g"])`, `model.freeze("submodel")`. A name several
-  carry freezes them all, with a warning listing them, and `("k", 1)` picks
-  one. A name that matches nothing raises, and nothing is frozen. Before or
+  carry raises, listing them; one is frozen by itself,
+  `model.parameters[2].freeze()`. A name that matches nothing raises, and
+  nothing is frozen. Before or
   after `build()`; saved with the model.
   `Modely.parameters` lists them all, finds one by name
   (`model.parameters["kernel"]`), and prints as a table of their names,
@@ -193,16 +194,38 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Name tags. Nothing keeps two objects from sharing a name - two layers named
   alike, a block and the model calling it, two copies of one loaded model,
   which only names reach. Every call taking a name - `parameters[...]`,
-  `models[...]`, `inputs[...]`, `outputs[...]`, the sides of `minimize`,
-  `freeze` and `unfreeze` - looks it up among the objects the graph reaches,
-  in that order, the model's own first: a name several carry raises
-  `ValueError` listing them, each with its index and the model it is in, and
-  `(name, index)` picks one, the same after save and load. Inside nnodely the
-  objects are used, not their names: two calls of one block, or a stream
-  named like an output, are minimized apart; HTML graphs draw every node and
+  `models[...]`, `inputs[...]`, `outputs[...]`, `minimizers[...]`, the sides
+  of `minimize`, `freeze` and `unfreeze` - looks it up among the objects the
+  graph reaches, in that order, the model's own first: a name several carry
+  raises `ValueError` listing them, each with its index and the model it is
+  in. An item is picked by its name or by its index, never both: every table
+  - `parameters`, `models`, `inputs`, `outputs`, `minimizers` - prints an
+  `idx` column, and `model.parameters[2]` picks that row, the same after
+  save and load; renaming one, `obj.name = "new_name"`, gives each its own. Inside nnodely the
+  objects are used, not their names, so anything can be renamed and is still
+  found: a renamed Input is read by its new name, a renamed output returned
+  under it, a Loop body keeps rolling out, a `Gradient` follows its input;
+  `model.minimizers["fit"].name = "track"` renames a minimizer, as any
+  object is renamed; `remove_minimizer` and a `validate` result take a name
+  or an index. Training
+  and validation ask for a new `build()` after an Input or output is
+  renamed. Two calls of one block, or a stream named like an output, are
+  minimized apart; HTML graphs draw every node and
   every call apart (`blk_call`, `blk_call~2`). `inputs` gives the Inputs of
-  the graph, so a model can read one a loaded block reads. Input and output
-  names stay one per model, the keys of the data; the state a layer keeps,
+  the graph, one row per object - two renamed alike are listed apart - so a
+  model can read one a loaded block reads; `outputs` tells the stream an
+  Input is fed back with by its object, and a ModelyLoop's state shares the
+  row of the Input it starts from, renamed or not. Input and output
+  names stay one per model, the keys of the data: two Inputs of one name are
+  refused at build, and renamed alike after it, when the model is run on
+  data. Saved so, they load as the two Inputs they are, which a rename lets
+  run; a block whose inputs share a name is called with a list, by position,
+  or with a dict keyed by the Inputs themselves. A model or a block called
+  with a dict resolves every key to its Input at once, as `inputs[...]`
+  does: a name several Inputs carry raises listing them, a name none carries
+  is ignored, as another column of the data, and an Input of another model
+  raises (once taken for the model's own of its name).
+  The state a layer keeps,
   named like another Input of the model, takes a free name. Node classes are
   saved with their module, so a class of your own named like one of
   nnodely's - a `Sin` - never takes its place on load; a class saved by its
@@ -217,7 +240,9 @@ variable, and trains, validates and exports through Keras. Models saved with
   on its own scale, pooled or averaged for the whole signal, and leave out the
   rollout steps padded onto shorter simulations. A rollout also reports its
   RMSE at each step. Figures show prediction, error, parity, error
-  distribution and the error along the rollout.
+  distribution and the error along the rollout, one file per objective,
+  `<model>_<index>_<objective>.png`. The result is the list of the scores,
+  picked by objective name or index as the other tables are.
 - Calculus blocks `Gradient` (with respect to an input), `DerivativeStep`
   (with respect to time, over a window), `Derivative` (the same stencil one
   step at a time, in a `ModelyLoop`), `IntegrateStep`, `Integrate` (its rules
@@ -328,6 +353,15 @@ variable, and trains, validates and exports through Keras. Models saved with
   charts the total loss along the epochs, on a log scale. In a notebook,
   `"nnodely"` and `"tiny"` redraw one output of the cell in place, a few
   times a second, instead of appending a frame at every repaint.
+- Tutorials: 13 Jupyter notebooks in `docs/tutorial`, shown in the
+  documentation with their outputs - model design and the `(S*, T, D*)` shape
+  convention, data management, training, validation and the HTML graph, save,
+  load and export, `Parameter` and `Constant`, partitioning, `Fir` and
+  `Linear`, `Fuzzify` and `LocalModel`, recurrent models (`ModelyLoop`,
+  `Loop`, `Buffer`), calculus (`IntegrateStep`, `DerivativeStep`,
+  `Integrate`, `Derivative`, `Gradient`), custom functions and layers
+  (`KerasFunction`, `Layer` subclasses) and the `EquationLearner`. Each guide
+  page links its tutorials.
 
 ### Changed
 
@@ -338,7 +372,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   derivatives, integrals and the time selections act - or no window at all:
   `(batch, *seq, *dim)`. Then the dims. `Shape` holds `seq` (a tuple,
   possibly empty), `tw` (an int, or `None` without a window) and `dim`,
-  and prints as `Shape(S=(5,), T=3, D=(4,))`; `shape.dimensions` is
+  and prints as `Shape(S=(5,), T=3, D=(4,))`, a stream as
+  `Input(name='x', shape=Shape(...))`; `shape.dimensions` is
   `(seq, tw, dim)`. The arrays given to a model or built by `DataLoader`
   are laid out the same, `(samples, *seq, tw, *dim)`. `tw` is the one name
   of the window everywhere: `Input(tw=)`, `Buffer(tw=)`, `Parameter(tw=)`,
@@ -392,13 +427,13 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
   history, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
-- The `.nnodely` save format is version 13: a model is saved with every
+- The `.nnodely` save format is version 14: a model is saved with every
   model it calls in a folder of its own, a fed-back Input with the stream it
   is fed back with and the `init` of the layer that keeps it, and a `Loop`
   with the outputs it returns. Saves and `.keras` exports made
   with the 2.0 pre-releases, in which windows were taken from an Input,
   streams had several tw axes or were laid out `(batch, *dim, tw,
-  *seq)`, or fed-back Inputs were saved open, or the window was saved as `time` and `sw`, or a `Fuzzify` was a graph of one layer per center, or a `PReLU` or `BatchNorm` held its weights in its Keras layer, or blocks were inlined, or a `Parameter` or `Constant` was saved with the axes of its value in place of their sizes, do not load;
+  *seq)`, or fed-back Inputs were saved open, or the window was saved as `time` and `sw`, or a `Fuzzify` was a graph of one layer per center, or a `PReLU` or `BatchNorm` held its weights in its Keras layer, or blocks were inlined, or a `Parameter` or `Constant` was saved with the axes of its value in place of their sizes, or a `Loop`, a `Gradient` or the optional inputs were saved by name, do not load;
   nor do saves of an earlier format version.
 - The stream fed back into an Input is named `feedback` everywhere:
   `Input.feedback(stream)` and `Loop(feedback=)` (was `callback=`). The old

@@ -237,7 +237,7 @@ def test_a_loop_returns_the_outputs_of_the_step_not_the_ones_it_adds(tmp_path):
     y.feedback(y + u)
     step = Modely("fb_ret_step", inputs=[u], outputs=[Output("fb_ret_twice", y * 2.0)])
     loop = Loop(f=step)
-    assert [output.name for output in loop._f.outputs] == [
+    assert [output.name for output in loop._model.outputs] == [
         "fb_ret_twice",
         "fb_ret_y_next",
     ]
@@ -357,7 +357,10 @@ def test_a_loop_output_is_picked_by_its_name_in_the_step():
     loop = Loop(f=step)({u: u_seq})
     y_traj, twice = loop
     assert loop["fb_key_twice"] is twice
-    assert loop[("fb_key_next", 0)] is y_traj
+    assert loop[0] is y_traj
+    # By its name or by its position, never both.
+    with pytest.raises(TypeError, match="not both"):
+        loop[("fb_key_next", 0)]  # type: ignore[index]
     with pytest.raises(KeyError, match=r"no output named 'fb_key_y'"):
         loop["fb_key_y"]
 

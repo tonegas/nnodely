@@ -667,7 +667,7 @@ def test_feedback_and_modelyloop_reject_what_they_cannot_feed_back():
     with pytest.raises(ValueError, match="already fed back"):
         state.feedback(rate)
     with pytest.raises(
-        ValueError, match="nothing feeds back and are not among its inputs"
+        ValueError, match="without declaring them: list them among its inputs"
     ):
         ModelyLoop("oc_err_unlisted", inputs=[], outputs=[Output("oc_err_o1", state)])
     with pytest.raises(ValueError, match="reads no fed-back Input"):
@@ -770,7 +770,9 @@ def test_a_saved_model_keeps_what_feeds_its_inputs_back_and_where_they_start(
         loaded_outer = Modely.load(tmp_path / "oc_keep_outer")
 
     def run(model, tag):
-        e, start = Input(f"{tag}_e", tw=1), Input("oc_keep_count0", tw=1)
+        # The Input the block starts its Integrate from, by its name: another
+        # Input of that name is another Input.
+        e, start = Input(f"{tag}_e", tw=1), model.inputs["oc_keep_count0"]
         looped = ModelyLoop(
             tag, inputs=[e, start], outputs=[Output(f"{tag}_out", model([e, start]))]
         ).build()

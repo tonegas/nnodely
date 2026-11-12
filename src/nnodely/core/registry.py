@@ -10,12 +10,12 @@ def _saved_order(model) -> list:
     read or not, they are what it is called with - and those its fed-back
     Inputs are fed back with, and start from, which are no predecessors of
     theirs. A model it calls is a node of it, saved in a folder of its own."""
-    from nnodely.core.dag import toposort_outputs
+    from nnodely.core.dag import toposort
     from nnodely.layers.input import Input
 
     roots = [*model._outputs, *model._inputs]
     while True:
-        order = toposort_outputs(roots)
+        order = toposort(roots)
         reached = set(order)
         extra = [
             stream
@@ -94,7 +94,7 @@ class _Loading:
 
 class ModelSerializer:
     FORMAT = "nnodely"
-    VERSION = 13
+    VERSION = 14
 
     @staticmethod
     def serialize(model, path, *, weights=True, saving=None):
@@ -104,7 +104,12 @@ class ModelSerializer:
         written the same way - so the models nest as their folders do, and
         each folder is a model that loads on its own."""
         from nnodely.core.layer import Layer
-        from nnodely.core.modely import IntermediateOutput, ModelCall, Modely
+        from nnodely.core.modely import (
+            IntermediateOutput,
+            ModelCall,
+            Modely,
+            _build_apart,
+        )
         from nnodely.layers.input import Input
         from nnodely.layers.parameter import Constant
 
@@ -125,7 +130,7 @@ class ModelSerializer:
                     for node in order
                     if isinstance(node, Layer)
                     and not isinstance(node, Constant)
-                    and not isinstance(getattr(node, "_f", None), Modely)
+                    and node._model is None
                     and any(
                         id(variable) not in saved
                         for variable in getattr(node._layer, "weights", None) or []
@@ -189,11 +194,7 @@ class ModelSerializer:
             # called, or the Loop - so nested models nest their folders the
             # same way. Two can share a name, so a folder already taken gets
             # a suffix.
-            held = (
-                node._model
-                if isinstance(node, ModelCall)
-                else getattr(node, "_f", None)
-            )
+            held = node._model
             if isinstance(held, Modely):
                 folder = folders.get(id(held))
                 if folder is None:
@@ -208,7 +209,7 @@ class ModelSerializer:
                         # own: what that would warn about does not apply.
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore", UserWarning)
-                            held.build()
+                            _build_apart(held)
                     ModelSerializer.serialize(
                         held, path / folder, weights=weights, saving=saving
                     )
@@ -221,7 +222,12 @@ class ModelSerializer:
             "version": ModelSerializer.VERSION,
             "model": {
                 "name": model.name,
-                "optional_inputs": sorted(model.optional_inputs),
+                # By position among its inputs.
+                "optional_inputs": [
+                    index
+                    for index, node in enumerate(model._inputs)
+                    if node in model._optional_inputs
+                ],
             },
             "nodes": nodes,
             "inputs": [node_ids[x] for x in model._inputs],
@@ -330,11 +336,15 @@ class ModelSerializer:
             inputs=inputs,
             outputs=outputs,
         )
-        model.optional_inputs = set(data["model"].get("optional_inputs", ()))
+        model._optional_inputs = {
+            inputs[index] for index in data["model"].get("optional_inputs", ())
+        }
         return model
 
     @staticmethod
     def load(path, *, weights=True, loading=None):
+        from nnodely.core.modely import _build_apart
+
         path = Path(path)
 
         config_path = path / "model.json"
@@ -364,7 +374,9 @@ class ModelSerializer:
             )
 
         model = ModelSerializer.deserialize(data, path, loading=loading)
-        model.build()
+        # Saved with Inputs of one name, it loads with them: two Inputs, built
+        # apart, which a rename lets run.
+        _build_apart(model)
 
         # A model loaded without its weights - saved without them, or loaded
         # with weights=False - keeps the ones build() just gave it, as a model

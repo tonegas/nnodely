@@ -286,10 +286,11 @@ def test_validate_scores_every_minimizer():
 
     assert result.model == name
     assert result.samples == 20
-    assert set(result.metrics()) == {"tracking"}
+    assert [score.name for score in result] == ["tracking"]
     assert result["tracking"].metrics["rmse"] == pytest.approx(0.0, abs=1e-6)
-    ## The result maps minimizer name to score
-    assert list(result) == ["tracking"]
+    ## The result is the list of the scores, picked by name or index
+    assert list(result) == [result["tracking"]]
+    assert result[0] is result["tracking"]
     assert len(result) == 1
 
 
@@ -304,13 +305,41 @@ def test_validate_reports_the_configured_loss():
 
 
 def test_validate_names_the_source_and_the_target_signal():
+    # Each side is labelled by its own stream: the target is a time selection
+    # of an Input, named by the Output that wraps it.
     name = "label_model"
-    model = _identity_model(name)
+    x = Input(f"{name}_x", tw=1)
+    prediction = Output(f"{name}_prediction", x)
+    reference = Output(
+        f"{name}_reference", TimeSelect(-1)(Input(f"{name}_target", tw=1))
+    )
+    model = Modely(name, inputs=[x], outputs=[prediction])
+    model.minimize("tracking", source=prediction, target=reference)
+    model.build()
     values = np.linspace(0.0, 1.0, 10)
+
     score = model.validate(_data(model, name, values, values))["tracking"]
 
     assert score.source == f"{name}_prediction"
-    assert score.target == f"{name}_target"
+    assert score.target == f"{name}_reference"
+
+
+def test_validate_labels_the_target_by_its_own_name_not_by_what_it_reads():
+    # The target is a selection of the target Input that the user named like
+    # the other Input: its label is the name it was given.
+    name = "homonym_model"
+    x = Input(f"{name}_x", tw=1)
+    reference = TimeSelect(-1)(Input(f"{name}_target", tw=1))
+    reference.name = f"{name}_x"
+    prediction = Output(f"{name}_prediction", x)
+    model = Modely(name, inputs=[x], outputs=[prediction])
+    model.minimize("tracking", source=prediction, target=reference)
+    model.build()
+    values = np.linspace(0.0, 1.0, 10)
+
+    score = model.validate(_data(model, name, values, values))["tracking"]
+
+    assert score.target == f"{name}_x"
 
 
 def test_validate_draws_nothing_unless_asked():
@@ -331,8 +360,31 @@ def test_validate_writes_one_png_per_minimizer(tmp_path):
     result = model.validate(_data(model, name, values, values), out_dir=tmp_path)
 
     written = sorted(p.name for p in tmp_path.glob("*.png"))
-    assert written == [f"{name}_tracking.png"]
-    assert result.figures == [str(tmp_path / f"{name}_tracking.png")]
+    assert written == [f"{name}_0_tracking.png"]
+    assert result.figures == [str(tmp_path / f"{name}_0_tracking.png")]
+
+
+def test_validate_writes_a_file_of_its_own_for_every_figure(tmp_path):
+    # Names alike once slugged, or alike but for case, and a minimizer named
+    # like the history figure: each figure is a file of its own.
+    name = "files_model"
+    model = _identity_model(name)
+    for other in ("history", "a b", "a_b", "Tracking"):
+        prediction, reference = (
+            model.minimizers[0]["source"],
+            model.minimizers[0]["target"],
+        )
+        model.minimize(other, source=prediction, target=reference)
+    model.build()
+    values = np.linspace(0.0, 1.0, 16)
+    data = _data(model, name, values, values)
+    history = model.train(train_data=data, epochs=1, batch_size=4, printer=None)
+
+    result = model.validate(data, out_dir=tmp_path, history=history)
+
+    written = sorted(p.name.lower() for p in tmp_path.glob("*.png"))
+    assert len(written) == len(set(written)) == 6
+    assert len(result.figures) == 6
 
 
 def test_validate_adds_a_history_figure_when_given_one(tmp_path):

@@ -54,6 +54,8 @@ def reserve_name(name: str) -> None:
 class Node:
     name: str
     _preds: list[Node]
+    #: The model the node holds - the one it calls, or rolls out - or None.
+    _model: Any = None
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -248,4 +250,4 @@ class Stream(Node):
         return None
 
     def __repr__(self):
-        return f"name={self.name!r}, shape={self.shape}, )"
+        return f"{type(self).__name__}(name={self.name!r}, shape={self.shape})"

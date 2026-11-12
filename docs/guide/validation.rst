@@ -1,6 +1,11 @@
 Validation
 ==========
 
+.. seealso::
+
+   Step by step, with runnable examples: the tutorial :doc:`Model validation
+   <../tutorial/04_model_validation>`.
+
 :meth:`~nnodely.Modely.validate` evaluates every objective of a built model on
 a dataset, the way training evaluates it: the same forward pass (layers such as
 ``BatchNorm`` take their inference branch), the same target, aligned with the
@@ -86,9 +91,9 @@ The model below is trained on part of a signal and validated on the rest:
    result = model.validate(val_data, out_dir="validation", history=history)
 
 ``validate`` prints a summary and returns a
-:class:`~nnodely.core.validation.ValidationResult`. The result can be indexed by
-objective name, and ``metrics()`` returns every number as a plain dictionary.
-The keys are ``loss``, ``rmse``, ``mae``, ``max_error``, ``bias``,
+:class:`~nnodely.core.validation.ValidationResult`: the list of the scores, one
+per objective, indexed by objective name or by position as the other tables
+are. Each score's ``metrics`` is a plain dictionary of numbers. The keys are ``loss``, ``rmse``, ``mae``, ``max_error``, ``bias``,
 ``std_error``, ``nrmse_pct``, ``fit_pct``, ``r2``, ``vaf_pct``,
 ``correlation`` and ``non_finite`` (the count of NaN or infinite errors). Each
 objective's :class:`~nnodely.core.validation.SignalScore` also holds the
@@ -101,7 +106,7 @@ indicators of every channel, and the points it scored:
    print(score.channel_metrics["fit_pct"])  # one value per channel
    print(score.points, score.padded)        # points scored, padded points left out
    print(score.step_rmse)                   # (steps, channels) for a rollout, else None
-   metrics = result.metrics()               # {"response": {"loss": ..., "rmse": ..., ...}}
+   metrics = {s.name: s.metrics for s in result}  # {"response": {"loss": ..., ...}}
    print(result.figures)                    # the PNG files written to out_dir
 
 The summary gives each channel a column when a signal has up to three.
@@ -109,7 +114,8 @@ The summary gives each channel a column when a signal has up to three.
 Plots
 -----
 
-With ``out_dir``, the figures are saved as PNG files named after the model.
+With ``out_dir``, the figures are saved as PNG files named after the model and,
+for an objective, its index and its name: ``filter_0_response.png``.
 There is one figure per objective, with the prediction against the target and
 the error over the scored points, a parity plot and the error distribution,
 plus the RMSE along the rollout for a signal that has one. A second

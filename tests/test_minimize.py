@@ -111,7 +111,7 @@ def _training_loss(model, data):
 
 def _validation_losses(model, data):
     result = model.validate(data)
-    return {name: signal.metrics["loss"] for name, signal in result.signals.items()}
+    return {score.name: score.metrics["loss"] for score in result}
 
 
 def _fit(model, data, epochs, lr, **train_kwargs):

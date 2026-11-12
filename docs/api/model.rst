@@ -14,4 +14,4 @@ Model
    :members: minimize
 
 .. autoclass:: nnodely.core.validation.ValidationResult
-   :members: metrics, summary
+   :members: summary

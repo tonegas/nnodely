@@ -84,7 +84,7 @@ def _block_ports(node, outer_ids: dict[int, str] | None = None):
     same node, or an Input bound to an Input of its name, as a ModelyLoop
     binds the Inputs of its step - drawn as one node.
     """
-    held = node._model if isinstance(node, ModelCall) else getattr(node, "_f", None)
+    held = node._model
     if not isinstance(held, Modely):
         return None
     outer_ids = outer_ids or {}
@@ -120,7 +120,7 @@ def _block_ports(node, outer_ids: dict[int, str] | None = None):
         }
 
     if isinstance(node, Loop):
-        return node._f, {
+        return node._model, {
             "block": "Loop",
             "detail": {
                 "steps": node._horizon,

@@ -1855,10 +1855,12 @@ def test_parameters_of_one_name_keep_their_order_once_loaded(tmp_path):
     loaded = Modely.load(tmp_path / "cn_model")
 
     assert [p.name for p in loaded.parameters] == [p.name for p in model.parameters]
-    # A name two Parameters carry picks one by its index, the same once loaded.
+    # Two Parameters of one name are picked by their index, the same once
+    # loaded.
     for parameters in (model.parameters, loaded.parameters):
-        np.testing.assert_allclose(to_numpy(parameters["k", 0].param), [10.0])
-        np.testing.assert_allclose(to_numpy(parameters["k", 1].param), [2.0])
+        first, second = [i for i, p in enumerate(parameters) if p.name == "k"]
+        np.testing.assert_allclose(to_numpy(parameters[first].param), [10.0])
+        np.testing.assert_allclose(to_numpy(parameters[second].param), [2.0])
 
 
 def test_a_model_called_in_a_loop_body_and_outside_is_one_model_once_loaded(tmp_path):
@@ -1952,7 +1954,7 @@ def _as_if_trained(parameters):
     """Move every Parameter away from its declared value, as training would."""
     for parameter in parameters:
         assert parameter.param is not None
-        parameter.param.assign(to_numpy(parameter.param) * 2.0 + 0.1)
+        parameter.param.assign(to_numpy(parameter.param) * 2.0 + 0.1)  # type: ignore
 
 
 def test_fir_and_linear_computing_with_parameters_save_load_and_export(tmp_path):
@@ -2322,7 +2324,7 @@ def test_a_parameter_read_by_several_models_loads_as_one(tmp_path):
     assert [p.name for p in restored.parameters] == ["one_gain", "one_fir_kernel"]
     loaded_gain = restored.parameters[0]
     loaded_loop = next(node for node in restored._order if isinstance(node, Loop))
-    assert any(node is loaded_gain for node in loaded_loop._f._order)
+    assert any(node is loaded_gain for node in loaded_loop._model._order)
     for name in ("one_loop", "one_block", "one_out"):
         np.testing.assert_allclose(
             to_numpy(restored(data)[name]), to_numpy(model(data)[name]), rtol=1e-6

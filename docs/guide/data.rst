@@ -1,6 +1,11 @@
 Datasets
 ========
 
+.. seealso::
+
+   Step by step, with runnable examples: the tutorial :doc:`Data management
+   <../tutorial/02_data_management>`.
+
 A :class:`~nnodely.DataLoader` turns recorded signals into the samples a model
 is trained and validated on. It reads the model's inputs, their windows and
 their sequence lengths, so the model has to be **built** before the loader is

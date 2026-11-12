@@ -6,17 +6,16 @@ Axes: a stream is laid out (batch, *seq, tw, *dim), or (batch, *seq, *dim)
 without a window, see core/shape.py. Default: dim=1, no window, no sequence.
 """
 
-import warnings
 from copy import copy
 
 import keras
 
 from nnodely.core.stream import NODE_NAMES, Node, Stream, reserve_name
-from nnodely.layers.output import Output
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 if TYPE_CHECKING:
     from nnodely.core.modely import Modely
+    from nnodely.layers.output import Output
     from nnodely.layers.parameter import Parameter
 
 _node_counter = 0
@@ -38,6 +37,174 @@ def next_name(prefix: str) -> str:
     # its name from here without being a node, and derives its layers' names.
     reserve_name(name)
     return name
+
+
+# ------------------------------------------------------------------
+# picking the objects of a model by name, by index or by themselves
+# ------------------------------------------------------------------
+#
+# Names are how the user reaches a Parameter, a model or a stream, and nothing
+# keeps two objects from sharing one: layers named alike by hand, a block and
+# the model calling it, two copies of one loaded model. So every call taking a
+# name looks it up among the objects the graph reaches, in that order, and
+# refuses a name several carry; the lists the user reads them from are also
+# indexed by position, as the index column of their tables shows. A key is
+# resolved to its object where the user gives it - by resolve() - and inside
+# nnodely the objects themselves are used, never their names.
+
+#: ``(object, index, where)``: an object a key may pick, its index in the
+#: list it is picked from - or None - and where it is, for the listing of a
+#: name several carry.
+Candidate = tuple[Any, "int | None", str]
+
+
+class NameNotFound(KeyError, ValueError):
+    """A key that picks nothing: a ``KeyError``, as a missing key of a table
+    is, and a ``ValueError``, as a wrong argument of a call is."""
+
+    def __str__(self) -> str:
+        # KeyError quotes its message; this one reads as a sentence.
+        return str(self.args[0]) if self.args else ""
+
+
+def by_name_or_index(key, owner: str) -> bool:
+    """Whether ``key`` picks by name: a string; an int or a slice picks by
+    position, as in a list. Anything else - a name and an index together -
+    raises ``TypeError``."""
+    if isinstance(key, str):
+        return True
+    if isinstance(key, (int, slice)) and not isinstance(key, bool):
+        return False
+    raise TypeError(
+        f"{owner}: an item is picked by its name, a string, or by its index, "
+        f"an int - the index column of the table - not both; got {key!r}."
+    )
+
+
+def pick(
+    candidates: Sequence[Candidate],
+    name: str,
+    *,
+    kind: str,
+    owner: str,
+    hint: str,
+    kinds: str | None = None,
+) -> list:
+    """The object of ``candidates`` that carries the name ``name``, as a
+    list: ``[]`` for none. When several carry it, raises ``ValueError``
+    listing them, and ``hint``: how to pick one, or to rename one. ``kinds``
+    is the plural of ``kind``, its name with an s by default."""
+    found = [
+        (item, index, where) for item, index, where in candidates if item.name == name
+    ]
+    if len(found) <= 1:
+        return [item for item, _, _ in found]
+    indices = [index for _, index, _ in found]
+    at = "" if None in indices else f", at indices {indices}"
+    listing = "; ".join(
+        f"{'' if index is None else f'[{index}] '}{name} {where}".rstrip()
+        for _, index, where in found
+    )
+    raise ValueError(
+        f"{owner}: the name {name!r} is ambiguous, {len(found)} "
+        f"{kinds or kind + 's'} carry it{at}: {listing}. {hint}"
+    )
+
+
+def resolve(
+    key,
+    candidates: Sequence[Candidate],
+    *,
+    kind: str,
+    owner: str,
+    hint: str,
+    kinds: str | None = None,
+    indices: bool = False,
+    objects: type | tuple[type, ...] | None = None,
+    same: Callable[[Any, Any], bool] | None = None,
+    missing: Callable[[Any], str] | None = None,
+) -> Any:
+    """The object of ``candidates`` the user's ``key`` picks - the one place
+    a key becomes an object:
+
+    - a name, a string: the one candidate carrying it; a name several carry
+      raises ``ValueError`` listing them (:func:`pick`);
+    - with ``indices``, an int or a slice: by position, as in a list;
+    - with ``objects``, an instance of those types: the candidate it is - or,
+      with ``same(candidate, key)``, the one it stands for, as an Input
+      stands for the copies a build makes of it.
+
+    Any other key raises ``TypeError``. A key that picks nothing raises
+    :class:`NameNotFound`, with ``missing(key)`` as its message when given."""
+    items = [item for item, _, _ in candidates]
+    plural = kinds or kind + "s"
+    if objects is not None and isinstance(key, objects):
+        match = same or (lambda item, given: item is given)
+        found = next((item for item in items if match(item, key)), None)
+        if found is None:
+            raise NameNotFound(
+                missing(key)
+                if missing
+                else f"{owner}: {getattr(key, 'name', key)!r} is not one of its "
+                f"{plural}."
+            )
+        return found
+    if indices and not by_name_or_index(key, owner):
+        return items[key]
+    if not isinstance(key, str):
+        article = "an" if kind[:1].lower() in "aeiou" else "a"
+        raise TypeError(
+            f"{owner}: {article} {kind} is picked by its name, a string"
+            f"{', or by itself' if objects is not None else ''}; got {key!r}."
+        )
+    picked = pick(candidates, key, kind=kind, kinds=kinds, owner=owner, hint=hint)
+    if not picked:
+        raise NameNotFound(
+            missing(key)
+            if missing
+            else f"{owner}: no {kind} named {key!r}; the names are "
+            f"{[item.name for item in items]}."
+        )
+    return picked[0]
+
+
+class Table(list):
+    """A list of the objects of a model a table prints - its Parameters,
+    Inputs, outputs, models or minimizers - picked by name or by index, the
+    index column of the table, as :func:`resolve` picks them. A subclass
+    sets ``_kind`` and ``_attr``, the name of its list on a model, and gives
+    where each item is with :meth:`_where`."""
+
+    _kind = "item"
+    _attr = "items"
+    _title = ""
+
+    def _owner(self) -> str:
+        return self._title or self._attr.capitalize()
+
+    def _where(self, index: int, item) -> str:
+        """Where ``item``, at ``index``, is: for the listing of a name several
+        carry."""
+        return ""
+
+    def _candidates(self) -> list[Candidate]:
+        return [
+            (item, index, self._where(index, item)) for index, item in enumerate(self)
+        ]
+
+    def __getitem__(self, key):  # type: ignore[override]
+        """An item by its name, or by its index - the index column of the
+        table - as in a list. A name several items carry raises
+        ``ValueError`` listing them, with their index."""
+        return resolve(
+            key,
+            self._candidates(),
+            kind=self._kind,
+            owner=self._owner(),
+            hint=f"Pick one by its index, {self._attr}[i], or give it a name of "
+            f"its own, {self._attr}[i].name = 'new_name'.",
+            indices=True,
+        )
 
 
 # ------------------------------------------------------------------
@@ -225,7 +392,7 @@ def flatten(model):
 
 def _flatten_graph(
     inputs: list[Any],
-    outputs: list[Output],
+    outputs: list["Output"],
     *,
     fed_back: bool = False,
     one_step: bool = False,
@@ -239,7 +406,7 @@ def _flatten_graph(
     scope = Scope(
         pending=[] if fed_back else None, declared=set(inputs) if one_step else None
     )
-    flat_outputs: list[Any] = [flatten_node(output, scope) for output in outputs]
+    flat_outputs: list["Output"] = [flatten_node(output, scope) for output in outputs]
     flatten_fed_back(scope)
     return flat_outputs, scope.merged_memo()
 
@@ -274,16 +441,17 @@ def _undeclared_inputs(inputs, outputs) -> list:
 # ------------------------------------------------------------------
 # Keras graph introspection
 # ------------------------------------------------------------------
-def _source_input_tensors(tensor):
+def _source_input_tensors(tensor) -> list[Any]:
     """The model-input tensors ``tensor`` is computed from.
 
     The Keras graph is walked rather than the nnodely DAG because the two do
     not always agree: a Constant or Parameter is wired to an arbitrary anchor
     input to give it a batch context, so the Keras sub-graph of a relation can
-    need a tensor its symbolic predecessors never mention. Sources are ordered
-    by name so a reloaded model resolves them exactly like the saved one did.
+    need a tensor its symbolic predecessors never mention. Sources are told
+    apart by object, and ordered by name so a reloaded model resolves them
+    exactly like the saved one did.
     """
-    sources: dict[str, object] = {}
+    sources: dict[int, Any] = {}
     seen: set[int] = set()
     stack = [tensor]
     while stack:
@@ -296,25 +464,19 @@ def _source_input_tensors(tensor):
             continue
         operation = history[0]
         if isinstance(operation, keras.layers.InputLayer):
-            sources[operation.name] = current
+            sources[id(current)] = current
             continue
         node = operation._inbound_nodes[history[1]]
         stack.extend(node.input_tensors)
-    return [sources[name] for name in sorted(sources)]
-
-
-def _source_names(tensors):
-    return [tensor._keras_history[0].name for tensor in tensors]
+    return sorted(sources.values(), key=lambda tensor: tensor._keras_history[0].name)
 
 
 # ------------------------------------------------------------------
 # DAG topological ordering
 # ------------------------------------------------------------------
-def toposort(model) -> list[Node]:
-    return toposort_outputs(model._outputs)
-
-
-def toposort_outputs(outputs: list[Output]) -> list[Node]:
+def toposort(roots: Sequence[Node]) -> list[Node]:
+    """Every node ``roots`` are computed from, the roots included, each
+    after its predecessors: a model's graph is ``toposort(model._outputs)``."""
     order = []
     visited = set()
 
@@ -326,44 +488,53 @@ def toposort_outputs(outputs: list[Output]) -> list[Node]:
                 dfs(pred)
         order.append(node)
 
-    for output in outputs:
-        # An output can also feed another one, e.g. a minimizer source that
-        # an Output exposes: visiting it again would apply its layer twice.
-        if output not in visited:
-            dfs(output)
+    for root in roots:
+        # A root can also feed another one, e.g. a minimizer source that an
+        # Output exposes: visiting it again would apply its layer twice.
+        if root not in visited:
+            dfs(root)
 
     return order
 
 
-def _read_nodes(roots, declared=None, originals=None) -> list[Node]:
+def _copies(scope: Scope) -> dict[int, Node]:
+    """The node of the graph every node ``scope`` - and the scope of every
+    call it makes - holds stands for, by the id of the node held: the copy
+    inlining made, or what a call returns for the output it is read as. A
+    node of the enclosing scope wins over one of a call."""
+    found: dict[int, Node] = {}
+    for call in scope.calls.values():
+        found.update(_copies(call))
+    found.update(
+        (id(held), node) for node, held in scope.memo.items() if held is not node
+    )
+    return found
+
+
+def _read_nodes(roots, declared=None, originals=None, streams=None) -> list[Node]:
     """Every node ``roots`` read, inside the models they call too, in the
     order the graph reaches them; with ``declared``, the inputs of a Modely,
     as it reads them (see Scope.declared). They are copies, made inlining
     the models called: ``originals``, if given, is filled with the node of
-    the graph each Input copied stands for, by the id of the copy."""
+    the graph each Input copied stands for, by the id of the copy, and
+    ``streams`` with the node every node read stands for (:func:`_copies`)."""
     from nnodely.layers.input import Input
 
     scope = Scope(declared=None if declared is None else set(declared))
-    nodes = toposort_outputs([flatten_node(root, scope) for root in roots])
+    nodes = toposort([flatten_node(root, scope) for root in roots])
+    if streams is not None:
+        streams.update(_copies(scope))
     if originals is not None:
         # A hidden state left undeclared is inlined as its init, which can be
         # an Input of another name: only a copy of its own name is the node.
         for node, copied in scope.merged_memo().items():
-            if isinstance(node, Input) and copied.name == node.name:
+            if (
+                isinstance(node, Input)
+                and isinstance(copied, Input)
+                and copied._input is node._input
+            ):
                 originals.setdefault(id(copied), node)
     return nodes
-
-
-def _read_inputs(roots, declared=None) -> dict[str, Any]:
-    """Every Input ``roots`` read, by name, as :func:`_read_nodes` reaches
-    them."""
-    from nnodely.layers.input import Input
-
-    return {
-        node.name: node
-        for node in _read_nodes(roots, declared)
-        if isinstance(node, Input)
-    }
 
 
 def _streams_from(roots) -> list[Stream]:
@@ -454,94 +625,9 @@ def _nodes_by_model(
                 found.add(id(node))
                 nodes.append(node)
             # A called model, or the body a block rolls out.
-            for inner in (getattr(node, "_model", None), getattr(node, "_f", None)):
-                if isinstance(inner, Modely):
-                    models.append(inner)
-                    if holders is not None:
-                        holders.setdefault(id(inner), current)
+            if isinstance(node._model, Modely):
+                models.append(node._model)
+                if holders is not None:
+                    holders.setdefault(id(node._model), current)
             stack.extend(reversed(node._preds))
     return groups
-
-
-# ------------------------------------------------------------------
-# Picking the objects of a model by name
-# ------------------------------------------------------------------
-# Names are how the user reaches a Parameter, a model or a stream, and nothing
-# keeps two objects from sharing one: layers named alike by hand, a block and
-# the model calling it, two copies of one loaded model. So every call taking a
-# name looks it up among the objects the graph reaches, in that order, as
-# ``(object, where)`` pairs; a key is a name, or ``(name, index)``, the
-# index-th of the objects carrying that name. Inside nnodely the objects
-# themselves are used, never their names.
-
-
-def is_key(key) -> bool:
-    """Whether ``key`` picks by name: a name, or ``(name, index)``."""
-    return isinstance(key, str) or (
-        isinstance(key, tuple)
-        and len(key) == 2
-        and isinstance(key[0], str)
-        and isinstance(key[1], int)
-        and not isinstance(key[1], bool)
-    )
-
-
-def pick(
-    candidates: list[tuple[Any, str]],
-    key,
-    *,
-    kind: str,
-    owner: str,
-    kinds: str | None = None,
-    every: bool = False,
-) -> list:
-    """The objects of ``candidates`` that ``key`` picks, ``[]`` for none.
-
-    A name alone picks the object carrying it. When several do, it raises
-    ``ValueError`` listing them, with their index and where each is - unless
-    ``every``, which picks them all and warns. ``(name, index)`` picks the
-    index-th of them, in the order of ``candidates``. ``kinds`` is the
-    plural of ``kind``, its name with an s by default."""
-    if not is_key(key):
-        raise TypeError(
-            f"{owner}: a {kind} is picked by its name, as 'k', or by its name "
-            f"and its index among those of that name, as ('k', 1); got {key!r}."
-        )
-    name, index = (key, None) if isinstance(key, str) else key
-    found = [(item, where) for item, where in candidates if item.name == name]
-    if not found:
-        return []
-    if index is not None:
-        if not 0 <= index < len(found):
-            raise IndexError(
-                f"{owner}: ({name!r}, {index}) picks the {kind} of index {index} "
-                f"among those named {name!r}, and there "
-                f"{'is' if len(found) == 1 else 'are'} {len(found)}: "
-                f"{_listing(name, found)}"
-            )
-        return [found[index][0]]
-    if len(found) == 1:
-        return [found[0][0]]
-    listing = (
-        f"{owner}: the name {name!r} is ambiguous, {len(found)} "
-        f"{kinds or kind + 's'} carry "
-        f"it - indices {list(range(len(found)))}, in the order the graph reaches "
-        f"them: {_listing(name, found)}"
-    )
-    if every:
-        warnings.warn(
-            f"{listing}. All of them are picked; pick one with ({name!r}, index), "
-            "or give them names of their own.",
-            UserWarning,
-            stacklevel=2,
-        )
-        return [item for item, _ in found]
-    raise ValueError(
-        f"{listing}. Pick one with ({name!r}, index), or give them names of their own."
-    )
-
-
-def _listing(name: str, found: list[tuple[Any, str]]) -> str:
-    return "; ".join(
-        f"[{index}] {name} {where}" for index, (_, where) in enumerate(found)
-    )

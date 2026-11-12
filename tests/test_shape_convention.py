@@ -231,6 +231,15 @@ def test_a_shape_prints_its_named_axes():
     assert "shape=Shape(S=(), T=5, D=(2,))" in repr(window)
 
 
+def test_a_stream_prints_its_class_name_and_shape():
+    # Once ``name='rp_b', shape=Shape(...), )``: no class, a stray comma.
+    assert (
+        repr(Input("rp_b", tw=5))
+        == "Input(name='rp_b', shape=Shape(S=(), T=5, D=(1,)))"
+    )
+    assert repr(Output("rp_o", Input("rp_c", dim=2))).startswith("Output(name='rp_o', ")
+
+
 def test_concatenation_repeats_a_single_sample_along_a_window():
     x = Input("repeat_join_x", tw=3)
     parameter = Parameter("repeat_join_parameter", value=[7.0])
