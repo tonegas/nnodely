@@ -429,19 +429,13 @@ class Modely:
         }
         # The data is keyed by input name: two Inputs of one name would read
         # the same array, whatever their shapes.
-        named: dict[str, Input] = {}
-        twins = [
-            node
-            for node in train_inputs
-            if named.setdefault(node.name, node) is not node
-        ]
+        names = [node.name for node in train_inputs]
+        twins = [name for name in names if names.count(name) > 1]
         if twins:
-            raise InputNameClash(
+            raise ValueError(
                 f"Model {self.name!r} reads two different Inputs named "
-                f"{twins[0].name!r}. The data is fed by input name, so every "
-                "Input of a model needs a name of its own.",
-                twins=[originals.get(id(node), node) for node in twins],
-                names=set(named),
+                f"{twins[0]!r}. The data is fed by input name, so every "
+                "Input of a model needs a name of its own."
             )
         # A fed-back Input the model declares among its inputs is fed from
         # data on purpose; any other is a feedback a loop was meant to apply.
@@ -1250,13 +1244,24 @@ class Modely:
         """Save the model - its graph, and its weights unless ``weights`` is
         False - to the folder ``path``.
 
-        Every model it calls as a block, or rolls out in a Loop, is saved the
-        same way in a folder of its own inside ``path``, named after it, and
-        theirs inside theirs: the loaded model calls them again, and each
-        folder is a model that loads on its own. Without weights only the
-        architecture is saved, to be trained later or elsewhere: loading it
-        initializes the weights as ``build()`` does.
+        Its Inputs need names of their own, as they do to build it, which
+        saving its weights does if it was not built.
+
+        Every model it calls as a block, or rolls out in a Loop, is saved in
+        a folder of its own inside ``path``, named after it, and theirs inside
+        theirs: the loaded model calls them again. The weights they compute
+        with here are in this model's file; a block built on its own saves
+        its own too. Each folder loads on its own, with the weights it holds:
+        to keep a block trained within this model, save the block itself,
+        ``block.save(path)``. Without weights only the architecture is
+        saved, to be trained later or elsewhere: loading it initializes the
+        weights as ``build()`` does.
         """
+        # Loaded, it is built: its Inputs need names of their own now, and its
+        # weights a Keras model to be written from.
+        self._check_inputs_apart(self._inputs)
+        if weights and not self.built:
+            self.build()
         ModelSerializer.serialize(self, path, weights=weights)
 
     @classmethod
@@ -1479,36 +1484,6 @@ class Minimizers(Table):
         return _table(self._HEADER, [("", [cells(row) for row in self])], indexed=True)
 
     __repr__ = __str__
-
-
-class InputNameClash(ValueError):
-    """Raised by :meth:`Modely.build` for two different Inputs of one name
-    in the graph: ``twins`` are the Inputs after the first of each name,
-    ``names`` the names every Input of the graph carries."""
-
-    def __init__(self, message: str, twins: list[Input], names: set[str]):
-        super().__init__(message)
-        self.twins = twins
-        self.names = names
-
-
-def _build_apart(model: Modely) -> None:
-    """Build ``model`` even if Inputs of its graph share a name, as one saved
-    so is loaded: each is built under a name of its own, then given its name
-    back. They stay two Inputs, and the model runs once one is renamed."""
-    try:
-        model.build()
-    except InputNameClash as clash:
-        renamed = {node: node.name for node in clash.twins}
-        taken = set(clash.names)
-        try:
-            for node in renamed:
-                node.name = free_name(node.name, taken)
-                taken.add(node.name)
-            model.build()
-        finally:
-            for node, name in renamed.items():
-                node.name = name
 
 
 def _refresh_keras_inputs(model: Modely) -> None:

@@ -56,9 +56,15 @@ The path is a folder: the model's graph in ``model.json``, its weights in
 :class:`~nnodely.Loop`, saved the same way in a folder of its own inside it,
 named after that model - nested as the models are. The restored model calls
 the same models: :attr:`~nnodely.Modely.models` lists them, ``freeze`` reaches
-them by name, and a model called several times is one model again. Each folder
-is a model that loads on its own: ``Modely.load("controller.nnodely/smoother")``
-takes a trained block out of the model that holds it.
+them by name, and a model called several times is one model again.
+
+The weights a block computes with in the model are in the model's file, and the
+block is not built to be saved: its folder holds its graph, and the weights of
+its own only if it was built on its own - trained alone, say. A model is built
+once loaded, so the model saved needs Inputs of names of their own, as it does
+to build; a block called by position does not. To take a block trained within
+the model out of it, save the block itself: ``smoother.save("smoother")``
+builds it, keeping the weights it was trained with.
 
 Weights are saved and loaded by default. ``model.save(path, weights=False)``
 saves the architecture alone, to be trained later or on another machine, and

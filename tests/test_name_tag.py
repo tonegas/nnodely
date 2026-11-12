@@ -808,29 +808,26 @@ def test_inputs_renamed_into_a_clash_after_the_build_are_refused_when_run():
     np.testing.assert_allclose(to_numpy(result), [[[21.0]]])
 
 
-def test_a_model_whose_inputs_clash_is_saved_and_loaded_as_two_inputs(tmp_path):
+def test_a_model_whose_inputs_clash_is_refused_at_save(tmp_path):
+    # Loaded, a model is built, and its Keras inputs need names of their own:
+    # it is refused when saved, not when loaded.
     xa, xb = Input("cs_x", tw=1), Input("cs_x", tw=1)
     model = Modely(
         "cs_twins", inputs=[xa, xb], outputs=[Output("cs_y", xa + 10.0 * xb)]
     )
-    # Not built, it cannot be: once saved, and then refused at load.
+    for weights in (True, False):
+        with pytest.raises(ValueError, match=r"several Inputs named \['cs_x'\]"):
+            model.save(tmp_path / "twins", weights=weights)
+    assert not (tmp_path / "twins").exists()
+    # Renamed, it saves, and loads as the two Inputs it has.
+    xb.name = "cs_x2"
     model.save(tmp_path / "twins")
     loaded = Modely.load(tmp_path / "twins")
-
-    first, second = loaded.inputs[0], loaded.inputs[1]
-    assert first is not second and first.name == second.name == "cs_x"
-    with pytest.raises(ValueError, match=r"'cs_x' is ambiguous, 2 Inputs carry it"):
-        loaded({"cs_x": _ONE})
-    # Each is still the Input it was saved as: renamed, it is read apart.
-    second.name = "cs_x2"
-    result = loaded({"cs_x": _ONE, "cs_x2": 2.0 * _ONE})["cs_y"]
-    np.testing.assert_allclose(to_numpy(result), [[[21.0]]])
-    loaded.build()
     result = loaded({"cs_x": _ONE, "cs_x2": 2.0 * _ONE})["cs_y"]
     np.testing.assert_allclose(to_numpy(result), [[[21.0]]])
 
 
-def test_a_model_renamed_into_a_clash_is_loaded_with_its_weights(tmp_path):
+def test_a_model_renamed_into_a_clash_is_refused_at_save(tmp_path):
     a, b = Input("cw_a", tw=3), Input("cw_b", tw=1)
     fir = Fir(features=1, name="cw_fir")([a])  # a kernel drawn at random
     model = Modely(
@@ -838,11 +835,12 @@ def test_a_model_renamed_into_a_clash_is_loaded_with_its_weights(tmp_path):
     ).build()
     before = to_numpy(model({"cw_a": _WINDOW, "cw_b": _ONE})["cw_y"])
     b.name = "cw_a"
+    with pytest.raises(ValueError, match=r"several Inputs named \['cw_a'\]"):
+        model.save(tmp_path / "clash")
+    # Renamed back, it saves with its weights.
+    b.name = "cw_b"
     model.save(tmp_path / "clash")
     loaded = Modely.load(tmp_path / "clash")
-
-    # The Input of one sample is b: renamed back, the weights are the saved ones.
-    next(node for node in loaded.inputs if node.tw == 1).name = "cw_b"
     after = to_numpy(loaded({"cw_a": _WINDOW, "cw_b": _ONE})["cw_y"])
     np.testing.assert_allclose(after, before, rtol=1e-6)
 
@@ -867,6 +865,34 @@ def test_a_block_whose_inputs_share_a_name_is_called_by_position(tmp_path):
     # By name they are ambiguous.
     with pytest.raises(ValueError, match=r"'cp_x' is ambiguous, 2 Inputs carry it"):
         block({"cp_x": a})
+
+
+def test_a_block_is_saved_with_the_model_calling_it_and_on_its_own(tmp_path):
+    x = Input("bs_x", tw=2)
+    block = Modely(
+        "bs_block",
+        inputs=[x],
+        outputs=[Output("bs_y", Fir(features=1, bias=False, name="bs_fir")(x))],
+    )
+    a = Input("bs_a", tw=2)
+    outer = Modely("bs_outer", inputs=[a], outputs=[Output("bs_o", block([a]))])
+    outer.build()
+    assert outer.inference_model is not None
+    for weight in outer.inference_model.weights:  # as trained
+        weight.assign(np.full(weight.shape, 3.0, np.float32))
+    data = np.ones((1, 2, 1), np.float32)
+
+    # The block is not built to be saved: the weights it computes with are in
+    # the file of the model calling it, its folder holds its graph.
+    outer.save(tmp_path / "outer")
+    assert not block.built
+    assert not (tmp_path / "outer" / "bs_block" / "model.weights.h5").exists()
+    loaded = Modely.load(tmp_path / "outer")
+    np.testing.assert_allclose(to_numpy(loaded({"bs_a": data})["bs_o"]), [[[6.0]]])
+    # Saved itself, it is built, keeping the weights it was trained with.
+    block.save(tmp_path / "block")
+    loaded = Modely.load(tmp_path / "block")
+    np.testing.assert_allclose(to_numpy(loaded({"bs_x": data})["bs_y"]), [[[6.0]]])
 
 
 def test_a_call_resolves_its_keys_to_the_inputs_at_once():

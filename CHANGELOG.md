@@ -218,8 +218,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   row of the Input it starts from, renamed or not. Input and output
   names stay one per model, the keys of the data: two Inputs of one name are
   refused at build, and renamed alike after it, when the model is run on
-  data. Saved so, they load as the two Inputs they are, which a rename lets
-  run; a block whose inputs share a name is called with a list, by position,
+  data, and when the model is saved: loaded, it is built. A block whose
+  inputs share a name is called with a list, by position,
   or with a dict keyed by the Inputs themselves. A model or a block called
   with a dict resolves every key to its Input at once, as `inputs[...]`
   does: a name several Inputs carry raises listing them, a name none carries
@@ -342,7 +342,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   way in a folder of its own, nested as the models are. The loaded model
   calls the same models - `models` lists them, `freeze` reaches them by
   name, one called several times is one model again - keeps the feedback of
-  the fed-back Inputs they declare, and each folder loads on its own. Keras
+  the fed-back Inputs they declare. The weights are in the file of the model
+  saved: a block not built on its own is saved as its graph, and saved
+  itself, `block.save(path)`, it is built, with the weights it was trained
+  with. `save` builds a model not built yet to write its weights. Keras
   and ONNX export, and interactive HTML graphs. The HTML graph colours every node
   by its role, with a legend that highlights a role,
   a panel that explains the node selected - its shape axis by axis, what it

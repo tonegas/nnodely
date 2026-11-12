@@ -1801,16 +1801,24 @@ def test_a_model_called_several_times_is_saved_once_and_loaded_as_one(tmp_path):
 
 
 def test_a_called_model_built_only_by_its_caller_is_saved_with_its_weights(tmp_path):
-    # Its weights are created by the caller's build; the block is built to
-    # write them in its own folder too.
+    # Its weights are created by the caller's build, and saved in the
+    # caller's file: the block is not built to be saved, its folder holds
+    # its graph. Saved itself, it is built, keeping them.
     block = _cascade_block("cb_block")
     x = Input("cb_x", tw=3)
     model = Modely("cb_model", inputs=[x], outputs=[Output("cb_out", block([x]))])
     _randomize_trainable_weights(model.build())
-    assert not block.built
     model.save(tmp_path / "cb_model")
+    assert not block.built
+    loaded = Modely.load(tmp_path / "cb_model")
+    np.testing.assert_allclose(
+        to_numpy(loaded({"cb_x": _window()})["cb_out"]),
+        to_numpy(model({"cb_x": _window()})["cb_out"]),
+        rtol=1e-6,
+    )
 
-    alone = Modely.load(tmp_path / "cb_model" / "cb_block")
+    block.save(tmp_path / "cb_block")
+    alone = Modely.load(tmp_path / "cb_block")
     np.testing.assert_allclose(
         to_numpy(alone({"cb_block_s": _window()})["cb_block_out"]),
         to_numpy(model({"cb_x": _window()})["cb_out"]),

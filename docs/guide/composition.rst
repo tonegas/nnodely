@@ -62,7 +62,8 @@ as well, ``controller.freeze("smoother")``, and a list of names freezes
 several blocks, or Parameters, at once.
 
 Saving the larger model keeps its blocks: each is saved in a folder of its own,
-with its weights, and the loaded model calls them again (see :doc:`export`).
+and the loaded model calls them again with the weights they were trained with,
+which the larger model's file holds (see :doc:`export`).
 
 Names that clash
 ----------------
