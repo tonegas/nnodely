@@ -11,11 +11,11 @@ from nnodely.core.dag import (
     _streams_from,
     flatten_fed_back,
     flatten_node,
-    toposort_outputs,
+    resolve,
+    toposort,
 )
 from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
-from nnodely.core.names import resolve
 from nnodely.core.shape import (
     BATCH_AXIS,
     OUTER_AXIS,
@@ -682,7 +682,7 @@ class _Step:
         # that Input itself, not one of its name.
         states = [state for state, _ in pairs]
         step_inputs: dict[int, Input] = {}
-        for node in toposort_outputs(body_outputs):
+        for node in toposort(body_outputs):
             if isinstance(node, Input) and node.update is None and node not in states:
                 step_inputs.setdefault(self.key(node), node)
         seeds = [init for init in starts.values() if isinstance(init, Input)]

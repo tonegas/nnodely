@@ -10,12 +10,12 @@ def _saved_order(model) -> list:
     read or not, they are what it is called with - and those its fed-back
     Inputs are fed back with, and start from, which are no predecessors of
     theirs. A model it calls is a node of it, saved in a folder of its own."""
-    from nnodely.core.dag import toposort_outputs
+    from nnodely.core.dag import toposort
     from nnodely.layers.input import Input
 
     roots = [*model._outputs, *model._inputs]
     while True:
-        order = toposort_outputs(roots)
+        order = toposort(roots)
         reached = set(order)
         extra = [
             stream

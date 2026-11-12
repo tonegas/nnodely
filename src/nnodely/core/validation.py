@@ -21,7 +21,7 @@ from typing import Any
 import keras
 import numpy as np
 
-from nnodely.core.names import Table
+from nnodely.core.dag import Table
 from nnodely.core.minimizer import (
     MinimizerModel,
     _resolve_minimizer_terms,

@@ -6,7 +6,7 @@ import numpy as np
 import keras
 
 from nnodely.core.layer import Layer, _refuse_non_streams, _refuse_uncalled
-from nnodely.core.names import Table
+from nnodely.core.dag import Table
 from nnodely.core.shape import Shape
 from nnodely.layers.input import _dimension, _positive_sizes
 from nnodely.utils.printers import _table

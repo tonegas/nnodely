@@ -782,7 +782,9 @@ src/nnodely/
   core/export.py         export_keras, import_keras, export_onnx, validate_onnx
   core/dag.py            name registry (next_name), flatten (inline ModelCalls per call scope: Scope, flatten_fed_back), toposort, stream helpers;
                          picking by name or index (by_name_or_index; pick: a name among (object, index, where)
-                         candidates in graph order, ambiguous -> ValueError listing them with the index that picks each)
+                         candidates in graph order, ambiguous -> ValueError listing them with the index that picks each;
+                         resolve: the one place a user's key - name, index or object - becomes an object, NameNotFound
+                         for none; Table: the base list of every model table)
   core/dataloader.py     DataLoader (read → per-simulation arrays → sliding windows → alignment, mask)
   core/registry.py       ModelSerializer (format 14): the model's own graph, not flattened, in model.json (+ model.weights.h5) via
                          get_config/from_config; a ModelCall saves its model, and a Loop its body, in a sub-folder (one per model

@@ -2,13 +2,11 @@
 the built graph, and turned into the loss the training model minimizes."""
 
 import warnings
-from typing import cast
 
 import keras
 import numpy as np
 
-from nnodely.core.dag import toposort_outputs
-from nnodely.core.names import resolve
+from nnodely.core.dag import resolve, toposort
 from nnodely.core.layer import Layer
 from nnodely.core.shape import OUTER_AXIS, expand_to_rank, outer_view
 from nnodely.core.stream import Node, Stream
@@ -268,7 +266,7 @@ def _minimizer_stream(model, value, side: str, minimizer: str) -> Stream:
         roots.extend((registered["source"], registered["target"]))
     candidates = [
         (stream, None, _where(stream))
-        for stream in toposort_outputs(cast(list, roots))
+        for stream in toposort(roots)
         if isinstance(stream, Stream)
     ]
     return resolve(
