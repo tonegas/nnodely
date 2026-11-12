@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 
 from nnodely.core.shape import OUTER_AXIS, slice_axis
+from nnodely.layers.input import _seq_cell, _tw_cell
+from nnodely.utils.printers import _table
 
 sliding_window_view = np.lib.stride_tricks.sliding_window_view
 
@@ -179,25 +181,28 @@ class DataLoader:
         return list(self._dataset.keys())
 
     def __repr__(self) -> str:
-        """Table of what the loader actually built, for `print(loader)`."""
-        width = 80
-        label = 30
-        lines = [" nnodely Model Dataset ".center(width, "=")]
-
-        def row(name: str, value: Any) -> None:
-            lines.append(f"{name + ':':<{label}}{value}")
-
-        row("Dataset Name", self._model.name)
+        """The dataset as a table, for `print(loader)`: a row per input, with
+        its sequence as the loader resolved it, its window, its dim and the
+        shape of its array, under the model's name, the number of samples and
+        where they came from."""
         if self._num_files is None:
-            row("Source", "in-memory dict" + (", windowed" if self._windowed else ""))
+            source = "in-memory dict" + (", windowed" if self._windowed else "")
         else:
-            row("Number of files", self._num_files)
-        row("Total number of samples", len(self))
+            source = f"{self._num_files} file{'' if self._num_files == 1 else 's'}"
+        rows = []
         for name, values in self._dataset.items():
-            row(f"Shape of {name}", tuple(values.shape))
-
-        lines.append("=" * width)
-        return "\n".join(lines)
+            node = self._input_nodes[name]
+            rows.append(
+                (
+                    name,
+                    _seq_cell(values.shape[1 : 1 + len(node.seq)]),
+                    _tw_cell(node),
+                    str(tuple(node.dim)),
+                    str(tuple(values.shape)),
+                )
+            )
+        title = f"{self._model.name}: {len(self)} samples, {source}"
+        return _table(("input", "seq", "tw", "dim", "shape"), [(title, rows)])
 
     def __len__(self) -> int:
         return self._num_steps

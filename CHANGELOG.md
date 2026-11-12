@@ -117,7 +117,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   `minimizer`), and the `parameters` table ends with a `total` row of the
   values, all and trainable. A model prints (`print(model)`, its repr) as one
   too: its name, then the names of the Inputs it reads, its outputs and its
-  minimizers. The `"legacy"` training printer draws its loss table the same
+  minimizers. So does a `DataLoader` (`print(loader)`): a row per input, with
+  its sequence as the loader resolved it, its window, its dim and the shape
+  of its array, under the model's name, the number of samples and the
+  source. The `"legacy"` training printer draws its loss table the same
   way, the training time as its last row. In the nnodely colours when the
   standard output is a terminal or a notebook at the time the table is turned
   into text, plain otherwise. `NO_COLOR` prints them plain - for a table

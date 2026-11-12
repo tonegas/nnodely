@@ -967,3 +967,35 @@ def test_windowed_inputs_hold_the_same_number_of_samples():
 def test_raw_data_laid_out_as_windows_points_to_windowed():
     with pytest.raises(ValueError, match="pass windowed=True"):
         DataLoader(_window_model(), source={"win_x": np.random.rand(100, 10, 1)})
+
+
+def test_a_loader_prints_as_a_table_of_its_inputs():
+    """A row per input, its sequence as the loader resolved it, under the
+    model's name, the number of samples and the source."""
+    from nnodely import Fir
+
+    u = Input("print_u", seq=-1, tw=(2, 1))
+    x = Input("print_x", dim=2, tw=3)
+    outputs = [
+        Output("print_y", Fir(features=1)(u)),
+        Output("print_z", Fir(features=1)(x)),
+    ]
+    model = Modely("print_model", inputs=[u, x], outputs=outputs).build()
+    loader = DataLoader(
+        model,
+        source={"print_u": np.arange(20.0), "print_x": np.ones((20, 2))},
+        seq_length=4,
+    )
+
+    assert repr(loader) == "\n".join(
+        [
+            "┏━━━━━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━┓",
+            "┃ input   ┃ seq  ┃ tw     ┃ dim  ┃ shape         ┃",
+            "┡━━━━━━━━━┻━━━━━━┻━━━━━━━━┻━━━━━━┻━━━━━━━━━━━━━━━┩",
+            "│ print_model: 14 samples, in-memory dict        │",
+            "├─────────┬──────┬────────┬──────┬───────────────┤",
+            "│ print_u │ (4,) │ (2, 1) │ (1,) │ (14, 4, 3, 1) │",
+            "│ print_x │ ()   │ 3      │ (2,) │ (14, 3, 2)    │",
+            "└─────────┴──────┴────────┴──────┴───────────────┘",
+        ]
+    )
