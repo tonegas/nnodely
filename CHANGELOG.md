@@ -204,7 +204,9 @@ variable, and trains, validates and exports through Keras. Models saved with
   save and load; renaming one, `obj.name = "new_name"`, gives each its own. Inside nnodely the
   objects are used, not their names, so anything can be renamed and is still
   found: a renamed Input is read by its new name, a renamed output returned
-  under it, a Loop body keeps rolling out, a `Gradient` follows its input;
+  under it, a Loop body keeps rolling out, a `Gradient` follows its input -
+  in a block, the copy of its state each call makes (one per call in a Loop
+  or ModelyLoop);
   `model.minimizers["fit"].name = "track"` renames a minimizer, as any
   object is renamed; `remove_minimizer` and a `validate` result take a name
   or an index. Training

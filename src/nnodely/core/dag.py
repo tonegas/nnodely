@@ -352,10 +352,10 @@ def flatten_node(node: Node, scope: Scope) -> Any:
     new_preds = [flatten_node(pred, scope) for pred in node._preds]
     new_node = copy(node)
     new_node._preds = new_preds
-    if isinstance(new_node, Layer) and not bool(
-        getattr(new_node._layer, "weights", None)
-    ):
-        new_node._layer = None
+    if isinstance(new_node, Layer):
+        new_node._copied(scope.memo)
+        if not getattr(new_node._layer, "weights", None):
+            new_node._layer = None
     scope.memo[node] = new_node
     if shared:
         scope.values[node] = new_node

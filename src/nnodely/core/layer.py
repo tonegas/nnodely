@@ -297,6 +297,11 @@ class Layer(Stream, metaclass=_LayerType):
             # it always was.
             return None
 
+    def _copied(self, memo: dict) -> None:
+        """Called on a copy of this layer made for one call of the model
+        holding it, ``memo`` the copies that call made: a layer holding a
+        node of the graph besides its streams takes the copy it means."""
+
     def _reinitialize(self) -> None:
         """Give the weights this layer holds their initial values again, as
         :meth:`Modely.build` does with ``keep_weights=False``. A layer

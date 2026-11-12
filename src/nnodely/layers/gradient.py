@@ -196,10 +196,11 @@ class Gradient(Layer):
 
     Two notes:
 
-    * It reads the input where it is declared. A model used as a reusable
-      block has its own inputs replaced by the streams it is called with, so
-      a Gradient inside such a block no longer has an input to read and says
-      so rather than guessing.
+    * It reads the input where it is declared, or the copy of it each call
+      of a block holding it makes - a state of the block, one per call in a
+      Loop. A block called on streams has its own inputs replaced by them,
+      so a Gradient against one of them no longer has an input to read and
+      says so rather than guessing.
 
     * ONNX export records the backward pass in the exported graph. Its shape
       arithmetic only converts with a fixed batch axis, so
@@ -228,6 +229,14 @@ class Gradient(Layer):
             )
         self._wrt = wrt
         super().__init__(name=name, order=self._order, wrt=self._wrt)
+
+    def _copied(self, memo: dict) -> None:
+        # The copy of the Input this call made - a state of a block, one per
+        # call in a Loop - shares its Keras input until renamed; a stream the
+        # call binds the Input to is another relation, not differentiated.
+        copy = memo.get(self._wrt)
+        if isinstance(copy, Input) and copy._input is self._wrt._input:
+            self._wrt = copy
 
     # ------------------------------------------------------------------
     # Shape logic

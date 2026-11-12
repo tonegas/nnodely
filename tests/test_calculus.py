@@ -285,6 +285,76 @@ def test_derivative_between_layers_with_parameter_weights():
     np.testing.assert_allclose(to_numpy(result["dlay_last"]).ravel(), [12.0])
 
 
+def test_a_gradient_in_a_block_called_twice_in_a_loop_reads_the_state_of_its_call():
+    # Each call keeps a state of its own, s and its copy s_2: the Gradient of
+    # each call differentiates against the state of that call. P is one
+    # Parameter, shared by both calls.
+    u, s = Input("gl_u", tw=1), Input("gl_s", tw=1)
+    p = Parameter("gl_p", value=[0.5])
+    s.feedback(s + u + p)
+    block = Modely(
+        "gl_block", inputs=[u], outputs=[Output("gl_d", Gradient(wrt=s)(s * s))]
+    )
+    a, b = Input("gl_a", tw=1), Input("gl_b", tw=1)
+    step = Modely(
+        "gl_step",
+        inputs=[a, b],
+        outputs=[Output("gl_da", block([a])), Output("gl_db", block([b]))],
+    )
+    a_seq, b_seq = Input("gl_a_seq", seq=-1, tw=1), Input("gl_b_seq", seq=-1, tw=1)
+    da, db = Loop(f=step)({a: a_seq, b: b_seq})
+    model = Modely(
+        "gl_model",
+        inputs=[a_seq, b_seq],
+        outputs=[Output("gl_oa", da), Output("gl_ob", db)],
+    ).build()
+    data = {"gl_a_seq": np.ones((1, 3, 1, 1)), "gl_b_seq": np.full((1, 3, 1, 1), 2.0)}
+
+    # d(s^2)/ds = 2 s, s adding up a + p, and b + p.
+    result = model(data)
+    np.testing.assert_allclose(to_numpy(result["gl_oa"]).ravel(), [0.0, 3.0, 6.0])
+    np.testing.assert_allclose(to_numpy(result["gl_ob"]).ravel(), [0.0, 5.0, 10.0])
+    assert [parameter.name for parameter in model.parameters] == ["gl_p"]
+    assert p.param is not None
+    p.param.assign([1.0])
+    result = model(data)
+    np.testing.assert_allclose(to_numpy(result["gl_oa"]).ravel(), [0.0, 4.0, 8.0])
+    np.testing.assert_allclose(to_numpy(result["gl_ob"]).ravel(), [0.0, 6.0, 12.0])
+
+
+def test_a_gradient_in_a_block_called_twice_in_a_modelyloop_reads_its_state():
+    u, s = Input("gm_u", tw=1), Input("gm_s", tw=1)
+    s.feedback(s + u)
+    block = Modely(
+        "gm_block", inputs=[u], outputs=[Output("gm_d", Gradient(wrt=s)(s * s))]
+    )
+    a, b = Input("gm_a", tw=1), Input("gm_b", tw=1)
+    loop = ModelyLoop(
+        "gm_loop",
+        inputs=[a, b],
+        outputs=[Output("gm_da", block([a])), Output("gm_db", block([b]))],
+    ).build()
+    result = loop({"gm_a": np.ones((1, 3, 1)), "gm_b": np.full((1, 3, 1), 2.0)})
+    np.testing.assert_allclose(to_numpy(result["gm_da"]).ravel(), [0.0, 2.0, 4.0])
+    np.testing.assert_allclose(to_numpy(result["gm_db"]).ravel(), [0.0, 4.0, 8.0])
+
+
+def test_a_gradient_against_an_input_of_a_block_bound_by_a_call_raises():
+    # Bound to z, x is no longer an input of the relation: z * z holds no
+    # partial derivative against x, d/dx (x * y) = y, and none is guessed.
+    x, y = Input("gb_x", tw=1), Input("gb_y", tw=1)
+    block = Modely(
+        "gb_block", inputs=[x, y], outputs=[Output("gb_d", Gradient(wrt=x)(x * y))]
+    )
+    z, w = Input("gb_z", tw=1), Input("gb_w", tw=1)
+    for name, streams in (("gb_zw", [z, w]), ("gb_zz", [z, z]), ("gb_e", [z + 1.0, w])):
+        model = Modely(
+            name, inputs=[z, w], outputs=[Output(f"{name}_o", block(streams))]
+        )
+        with pytest.raises(ValueError, match="does not depend on input 'gb_x'"):
+            model.build()
+
+
 def test_derivative_wrt_input_the_relation_does_not_read_raises():
     x = Input("unrelated_x", dim=1, tw=1)
     y = Input("unrelated_y", dim=1, tw=1)
