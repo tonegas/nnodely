@@ -98,7 +98,7 @@ class ModelSerializer:
     VERSION = 14
 
     @staticmethod
-    def serialize(model, path, *, weights=True, saving=None):
+    def serialize(model, path, *, weights: bool | str = True, saving=None):
         """Write ``model`` to the folder ``path``: its own graph in
         ``model.json``, its weights in ``model.weights.h5``, and every model
         it calls as a block, or rolls out in a Loop, in a folder of its own,
@@ -198,12 +198,13 @@ class ModelSerializer:
                     folder = free_name(base, set(folders.values()))
                     folders[id(held)] = folder
                     # Its weights are in this model's file, the ones it
-                    # computes with here: built on its own - trained alone,
-                    # say - it saves its own too, those this model reads not.
+                    # computes with here. Built - a Loop body always is, a
+                    # block trained alone - or with weights="all", it saves
+                    # its own too, and is built again once loaded.
                     ModelSerializer.serialize(
                         held,
                         path / folder,
-                        weights=weights and held.built,
+                        weights="all" if weights == "all" else weights and held.built,
                         saving=saving,
                     )
                 node_data["model"] = folder

@@ -345,7 +345,9 @@ variable, and trains, validates and exports through Keras. Models saved with
   the fed-back Inputs they declare. The weights are in the file of the model
   saved: a block not built on its own is saved as its graph, and saved
   itself, `block.save(path)`, it is built, with the weights it was trained
-  with. `save` builds a model not built yet to write its weights. Keras
+  with; `save(path, weights="all")` saves every block with its own weights
+  too, each folder then a trained model, and refuses a block whose Inputs
+  share a name. `save` builds a model not built yet to write its weights. Keras
   and ONNX export, and interactive HTML graphs. The HTML graph colours every node
   by its role, with a legend that highlights a role,
   a panel that explains the node selected - its shape axis by axis, what it

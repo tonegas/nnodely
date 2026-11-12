@@ -2,7 +2,7 @@ import os
 import warnings
 
 from collections.abc import Mapping
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from nnodely.core import export, validation
 from nnodely.core.dag import (
@@ -1240,7 +1240,7 @@ class Modely:
     # Save and load
     # -------------------------------------------------------------------------
 
-    def save(self, path, weights: bool = True):
+    def save(self, path, weights: bool | Literal["all"] = True):
         """Save the model - its graph, and its weights unless ``weights`` is
         False - to the folder ``path``.
 
@@ -1250,18 +1250,28 @@ class Modely:
         Every model it calls as a block, or rolls out in a Loop, is saved in
         a folder of its own inside ``path``, named after it, and theirs inside
         theirs: the loaded model calls them again. The weights they compute
-        with here are in this model's file; a block built on its own saves
-        its own too. Each folder loads on its own, with the weights it holds:
-        to keep a block trained within this model, save the block itself,
-        ``block.save(path)``. Without weights only the architecture is
-        saved, to be trained later or elsewhere: loading it initializes the
-        weights as ``build()`` does.
+        with here are in this model's file; a block built on its own - a
+        Loop body always is - saves its own too. With ``weights="all"``
+        every block does, built if it was not, keeping the weights it was
+        trained with here: each folder is then a trained model. A block
+        saving weights of its own needs Inputs of names of their own too.
+        Without weights only the architecture is saved, to be trained later
+        or elsewhere: loading it initializes the weights as ``build()`` does.
         """
-        # Loaded, it is built: its Inputs need names of their own now, and its
-        # weights a Keras model to be written from.
-        self._check_inputs_apart(self._inputs)
-        if weights and not self.built:
-            self.build()
+        if weights not in (True, False, "all"):
+            raise ValueError(f"weights is True, False or 'all', got {weights!r}.")
+        # Loaded, a model with weights of its own is built: its Inputs need
+        # names of their own, and its weights a Keras model to write them
+        # from - built to write them, not to run: what that would warn about
+        # is said once it is built to run.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            for model in _nodes_and_models(self)[1]:
+                # The model, and every block saving weights of its own.
+                if model is self or weights == "all" or (weights and model.built):
+                    model._check_inputs_apart(model._inputs)
+                    if weights and not model.built:
+                        model.build()
         ModelSerializer.serialize(self, path, weights=weights)
 
     @classmethod

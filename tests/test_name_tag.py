@@ -895,6 +895,49 @@ def test_a_block_is_saved_with_the_model_calling_it_and_on_its_own(tmp_path):
     np.testing.assert_allclose(to_numpy(loaded({"bs_x": data})["bs_y"]), [[[6.0]]])
 
 
+def test_weights_all_saves_every_block_with_its_own_weights(tmp_path):
+    x = Input("ba_x", tw=2)
+    block = Modely(
+        "ba_block",
+        inputs=[x],
+        outputs=[Output("ba_y", Fir(features=1, bias=False, name="ba_fir")(x))],
+    )
+    a = Input("ba_a", tw=2)
+    outer = Modely("ba_outer", inputs=[a], outputs=[Output("ba_o", block([a]))])
+    outer.build()
+    assert outer.inference_model is not None
+    for weight in outer.inference_model.weights:  # as trained
+        weight.assign(np.full(weight.shape, 3.0, np.float32))
+    data = np.ones((1, 2, 1), np.float32)
+
+    # Each folder is then a trained model.
+    outer.save(tmp_path / "outer", weights="all")
+    assert block.built
+    alone = Modely.load(tmp_path / "outer" / "ba_block")
+    np.testing.assert_allclose(to_numpy(alone({"ba_x": data})["ba_y"]), [[[6.0]]])
+    loaded = Modely.load(tmp_path / "outer")
+    np.testing.assert_allclose(to_numpy(loaded({"ba_a": data})["ba_o"]), [[[6.0]]])
+    with pytest.raises(ValueError, match="True, False or 'all', got 'yes'"):
+        outer.save(tmp_path / "other", weights="yes")  # type: ignore[arg-type]
+
+
+def test_weights_all_refuses_a_block_whose_inputs_share_a_name(tmp_path):
+    # Called by position the block runs, and saves with weights=True; its
+    # own weights need a Keras model of its own, which needs names apart.
+    xa, xb = Input("bt_x", tw=1), Input("bt_x", tw=1)
+    block = Modely(
+        "bt_block", inputs=[xa, xb], outputs=[Output("bt_y", xa + 10.0 * xb)]
+    )
+    a, b = Input("bt_a", tw=1), Input("bt_b", tw=1)
+    outer = Modely(
+        "bt_outer", inputs=[a, b], outputs=[Output("bt_o", block([a, b]))]
+    ).build()
+    with pytest.raises(ValueError, match=r"'bt_block' reads several Inputs named"):
+        outer.save(tmp_path / "outer", weights="all")
+    assert not (tmp_path / "outer").exists()
+    outer.save(tmp_path / "outer")
+
+
 def test_a_call_resolves_its_keys_to_the_inputs_at_once():
     a, b = Input("ck_a", tw=1), Input("ck_b", tw=1)
     model = Modely(

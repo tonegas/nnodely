@@ -64,7 +64,11 @@ its own only if it was built on its own - trained alone, say. A model is built
 once loaded, so the model saved needs Inputs of names of their own, as it does
 to build; a block called by position does not. To take a block trained within
 the model out of it, save the block itself: ``smoother.save("smoother")``
-builds it, keeping the weights it was trained with.
+builds it, keeping the weights it was trained with. To have every folder a
+trained model, save with ``weights="all"``: each block is built and saves its
+own weights too, so ``Modely.load("controller.nnodely/smoother")`` takes the
+trained block out of the saved model. Every block then needs Inputs of names
+of their own, refused otherwise before anything is written.
 
 Weights are saved and loaded by default. ``model.save(path, weights=False)``
 saves the architecture alone, to be trained later or on another machine, and
