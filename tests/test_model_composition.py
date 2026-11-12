@@ -621,7 +621,7 @@ def test_a_block_with_one_input_takes_its_stream_or_array_alone():
         pair(x)
 
 
-def test_layers_created_apart_have_their_own_weights_whatever_their_names():
+def test_layers_created_apart_have_their_own_weights_whatever_their_names(tmp_path):
     # Once shared by name: two Fir named alike were one layer.
     x = Input("twins_x", tw=2)
     first = Fir(features=1, bias=False, name="twin")([x])
@@ -646,7 +646,15 @@ def test_layers_created_apart_have_their_own_weights_whatever_their_names():
     assert len(keras_names) == len(set(keras_names))
     # Three layers: the two twins, and the one applied twice.
     assert len(model.inference_model.weights) == 3
-    result = model({"twins_x": np.ones((1, 2, 1), dtype=np.float32)})
+    data = {"twins_x": np.ones((1, 2, 1), dtype=np.float32)}
+    result = model(data)
+    np.testing.assert_allclose(to_numpy(result["twins_first"]), [[[2.0]]])
+    np.testing.assert_allclose(to_numpy(result["twins_second"]), [[[6.0]]])
+
+    # The weights file is keyed by the layers' classes and order, not by
+    # these names: saved and loaded, each twin keeps its own weights.
+    model.save(tmp_path / "twins")
+    result = Modely.load(tmp_path / "twins")(data)
     np.testing.assert_allclose(to_numpy(result["twins_first"]), [[[2.0]]])
     np.testing.assert_allclose(to_numpy(result["twins_second"]), [[[6.0]]])
 

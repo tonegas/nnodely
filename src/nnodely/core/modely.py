@@ -293,11 +293,6 @@ class Modely:
         for: ``node`` itself if it is none."""
         return self._originals.get(id(node), node)
 
-    def _key(self, node: Node) -> str:
-        """The key ``node`` - an Input it reads, or one of its outputs - has
-        in the Keras models of the last :meth:`build`: its name then."""
-        return self._keys.get(id(node)) or node.name
-
     def _check_inputs_apart(self, nodes) -> None:
         """Refuse to read data for the Inputs ``nodes``, those a build read,
         while several carry one name: the data is keyed by input name, so
@@ -322,7 +317,7 @@ class Modely:
             f"{key!r} is now {node.name!r}"
             for node, key in [
                 *((self._original(node), node.name) for node in self.train_inputs),
-                *((node, self._key(node)) for node in self._outputs),
+                *((node, self._keys[id(node)]) for node in self._outputs),
             ]
             if node.name != key
         ]

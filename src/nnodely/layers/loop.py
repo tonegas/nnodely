@@ -1420,13 +1420,15 @@ class Loop(Layer):
             # The keys the body was built with: renamed since, its Inputs and
             # outputs keep them in its Keras model.
             feedback_input_names=tuple(
-                model._key(node) for node in self._feedback_inputs
+                model._keys[id(node)] for node in self._feedback_inputs
             ),
             feedback_output_names=tuple(
-                model._key(node) for node in self._feedback_outputs
+                model._keys[id(node)] for node in self._feedback_outputs
             ),
-            model_output_names=tuple(model._key(node) for node in model._outputs),
-            static_input_names=tuple(model._key(node) for node in self._static_inputs),
+            model_output_names=tuple(model._keys[id(node)] for node in model._outputs),
+            static_input_names=tuple(
+                model._keys[id(node)] for node in self._static_inputs
+            ),
             horizon=self._horizon,
             collect=self._collect,
             rolled_initial=tuple(self._rolled_initial),
