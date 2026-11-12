@@ -413,6 +413,56 @@ def test_equation_learner_plot_returns_the_equation_it_draws():
     plt.close("all")
 
 
+def test_equation_learner_plot_gives_every_stream_a_variable_of_its_own():
+    import matplotlib.pyplot as plt
+    import sympy
+
+    def learner_on(streams, inputs, name):
+        learner = EquationLearner(
+            ["identity"],
+            linear_in=Linear(
+                features=1,
+                kernel=Parameter(f"{name}_k", value=[[1.0], [2.0]]),
+                bias=False,
+            ),
+            name=name,
+        )
+        Modely(
+            f"{name}_model",
+            inputs=inputs,
+            outputs=[Output(f"{name}_y", learner(streams))],
+        ).build()
+        return learner
+
+    # Two streams of one name are two variables: sympy took two symbols of
+    # one name for one, and added up their terms into 3 p.
+    p = Input("sym_p", tw=1)
+    q = p * 2.0
+    q.name = "sym_p"
+    learner = learner_on([p, q], [p], "sym_twins")
+    first, second = sympy.symbols("sym_p sym_p_2")
+    assert learner.plot().rhs == first + 2 * second  # type: ignore[union-attr]
+
+    # The same stream twice is one variable.
+    learner = learner_on([p, p], [p], "sym_same")
+    assert learner.plot().rhs == 3 * first  # type: ignore[union-attr]
+
+    # Named as the streams are now: renamed after the call, the new name.
+    r = Input("sym_r", tw=1)
+    s = Input("sym_s", tw=1)
+    learner = learner_on([r, s], [r, s], "sym_renamed")
+    r.name = "sym_speed"
+    assert learner.plot().rhs == sympy.Symbol("sym_speed") + 2 * sympy.Symbol("sym_s")  # type: ignore[union-attr]
+
+    # A left side nnodely names yields to a variable of the user's: f_0.
+    f = Input("f_0", tw=1)
+    learner = learner_on([f, s], [f, s], "sym_side")
+    equation = learner.plot()
+    assert equation.lhs == sympy.Symbol("f_0_2")  # type: ignore[union-attr]
+    assert equation.rhs == sympy.Symbol("f_0") + 2 * sympy.Symbol("sym_s")  # type: ignore[union-attr]
+    plt.close("all")
+
+
 def test_equation_learner_plot_writes_the_basis_without_linear_out():
     import matplotlib.pyplot as plt
     import sympy

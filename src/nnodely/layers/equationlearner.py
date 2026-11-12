@@ -11,7 +11,7 @@ from typing import Any, cast
 import keras
 import numpy as np
 
-from nnodely.core.dag import next_name
+from nnodely.core.dag import free_name, next_name
 from nnodely.core.layer import (
     Add,
     Divide,
@@ -214,8 +214,8 @@ class EquationLearner:
         self._linear_out: Linear | None = None
         self._model: Modely | None = None
         self._calls = 0
-        # The variables of the equation plot() writes, one per input feature
-        self._variables: list[str] = []
+        # The streams of the first call: plot() names its variables after them
+        self._streams: list[Stream] = []
         # The part of each projection its dropped coefficients compute, made
         # on the projection's weights at the first call and applied by every
         # call, and the nodes those applications made
@@ -274,11 +274,7 @@ class EquationLearner:
         self._calls += 1
         call_name = self.name if self._calls == 1 else f"{self.name}_{self._calls}"
         if self._calls == 1:
-            self._variables = [
-                stream.name if stream.dim[0] == 1 else f"{stream.name}_{index}"
-                for stream in streams
-                for index in range(stream.dim[0])
-            ]
+            self._streams = streams
 
         internal_inputs = []
         internal_streams = []
@@ -363,8 +359,10 @@ class EquationLearner:
         It is the equation the model computes now, with the current
         coefficients of the projections less those the threshold drops,
         expanded, its numbers rounded to ``precision`` significant digits.
-        Its variables are named after the streams of the first call, with
-        ``_i`` for each feature of a vector. The functions are written in
+        Its variables are named after the streams of the first call, as they
+        are named now, with ``_i`` for each feature of a vector; a variable
+        named like another one - two streams of one name - gets ``_2``, as
+        does a left side named like a variable. The functions are written in
         mathematical notation where there is one, the other layers by name,
         and a Python function as the expression it computes on symbols, when
         it can. Draws on ``ax``, or on a new figure sized to the equation, a
@@ -434,7 +432,24 @@ class EquationLearner:
                 for j in range(linear._features)
             ]
 
-        variables = [sympy.Symbol(name) for name in self._variables]
+        # One symbol per feature of each stream, by object - the same stream
+        # given twice is one variable - each of a name of its own: sympy takes
+        # two symbols of one name for one, and would add up their terms.
+        taken: set[str] = set()
+
+        def symbol(name: str):
+            free = free_name(name, taken)
+            taken.add(free)
+            return sympy.Symbol(free)
+
+        symbols = {
+            stream: [
+                symbol(stream.name if stream.dim[0] == 1 else f"{stream.name}_{i}")
+                for i in range(stream.dim[0])
+            ]
+            for stream in dict.fromkeys(self._streams)
+        }
+        variables = [each for stream in self._streams for each in symbols[stream]]
         arguments = iter(projection(self._linear_in, variables))
         basis = [
             _symbolic(spec, index)(*(next(arguments) for _ in range(spec.arity)))
@@ -446,9 +461,10 @@ class EquationLearner:
         else:
             sides = projection(self._linear_out, basis)
             names = ["y"] if len(sides) == 1 else [f"y_{k}" for k in range(len(sides))]
+        # A left side nnodely names yields to a variable of the user's.
         return [
             sympy.Eq(
-                sympy.Symbol(name),
+                symbol(name),
                 _rounded(
                     sympy.expand(side, power_exp=False, power_base=False, log=False),
                     precision,
