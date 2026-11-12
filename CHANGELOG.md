@@ -211,7 +211,7 @@ variable, and trains, validates and exports through Keras. Models saved with
   and validation ask for a new `build()` after an Input or output is
   renamed. Two calls of one block, or a stream named like an output, are
   minimized apart; HTML graphs draw every node and
-  every call apart (`blk_call`, `blk_call~2`). `inputs` gives the Inputs of
+  every call apart, each under its own name. `inputs` gives the Inputs of
   the graph, one row per object - two renamed alike are listed apart - so a
   model can read one a loaded block reads; `outputs` tells the stream an
   Input is fed back with by its object, and a ModelyLoop's state shares the

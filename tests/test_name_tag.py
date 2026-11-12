@@ -71,12 +71,12 @@ def _two_ks():
     ).build()
 
 
-def _html_ids(model, folder):
+def _html_nodes(model, folder):
     model.export_html(folder)
     page = (folder / f"{model.name}.html").read_text()
     nodes = re.search(r"const nodes = new vis\.DataSet\((\[.*?\])\);\n", page, re.S)
     assert nodes is not None
-    return [node["id"] for node in json.loads(nodes.group(1))]
+    return json.loads(nodes.group(1))
 
 
 # ---------------------------------------------------------------------------
@@ -427,10 +427,12 @@ def test_html_draws_one_block_called_twice_as_two_calls(tmp_path):
     model, _, _ = _twice()
     model.build()
 
-    ids = _html_ids(model, tmp_path)
-    assert ids.count("tag_twice_block_call") == 1
-    assert "tag_twice_block_call~2" in ids
-    assert {"y", "y~2"} <= set(ids)
+    # Two nodes each, under their own names: told apart by id, not renamed.
+    nodes = _html_nodes(model, tmp_path)
+    labels = [node["label"] for node in nodes]
+    assert labels.count("tag_twice_block_call") == 2
+    assert labels.count("y") == 2
+    assert len({node["id"] for node in nodes}) == len(nodes)
     assert (tmp_path / "tag_twice__tag_twice_block_call.html").exists()
     assert (tmp_path / "tag_twice__tag_twice_block_call-2.html").exists()
 
@@ -442,8 +444,9 @@ def test_html_draws_two_layers_of_one_name_apart(tmp_path):
         "tag_html", inputs=[x], outputs=[Output("tag_html_y", first([x]) + second([x]))]
     ).build()
 
-    ids = _html_ids(model, tmp_path)
-    assert {"tag_f", "tag_f~2", "tag_f_kernel", "tag_f_kernel~2"} <= set(ids)
+    labels = [node["label"] for node in _html_nodes(model, tmp_path)]
+    assert labels.count("tag_f") == 2
+    assert labels.count("tag_f_kernel") == 2
 
 
 # ---------------------------------------------------------------------------

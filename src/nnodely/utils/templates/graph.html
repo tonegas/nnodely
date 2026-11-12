@@ -715,7 +715,7 @@
     function tooltipFor(record) {
         const role = ROLES[roleOf(record)];
         const box = el("div", {},
-            el("div", { class: "tip-name", text: record.id }),
+            el("div", { class: "tip-name", text: record.label }),
             el("div", { class: "tip-line", text: `${role.label} · ${record.kind}` }));
         const shape = shapeOf(record.id);
         if (shape) box.append(el("div", { class: "tip-line mono", text: "shape " + shape }));
@@ -733,7 +733,7 @@
     function edgeTooltip(record) {
         const kind = EDGE_KINDS[record.kind] || EDGE_KINDS.data;
         const box = el("div", {},
-            el("div", { class: "tip-name", text: `${record.from} → ${record.to}` }),
+            el("div", { class: "tip-name", text: `${labelOf(record.from)} → ${labelOf(record.to)}` }),
             el("div", { class: "tip-line", text: kind.label + (record.kind === "data" ? "" : ` · ${record.label}`) }));
         if (record.shape) box.append(el("div", { class: "tip-line mono", text: "shape " + record.shape }));
         return box;
@@ -888,7 +888,7 @@
     }
     function depthOf(id) { return id.split("/").length; }
     function regionTitle(region) {
-        const name = region.id.split("/").pop();
+        const name = region.name;
         if (region.block === "Loop") {
             const steps = region.steps_from_data ? "steps from data"
                 : (region.steps ? `${region.steps} step${region.steps === 1 ? "" : "s"}` : "");
@@ -1139,10 +1139,14 @@
         return el("span", { class: "chip", style: `background:${style.fill};border-color:${style.border};color:${style.text}` },
             style.label + (extra ? ` · ${extra}` : ""));
     }
+    // What the page shows for an id: the label of its node, the name of its
+    // region - ids are the page's own, n0, n1, ..., never shown.
+    function labelOf(id) { const record = records.get(id); return record ? record.label : regionName(id); }
+    function regionName(id) { const region = REGIONS.find(r => r.id === id); return region ? region.name : id; }
     function nodeLink(id, meta) {
         const record = records.get(id);
         const role = ROLES[record ? roleOf(record) : "relation"];
-        return el("li", { onclick: () => focusNode(id), title: "Show " + id },
+        return el("li", { onclick: () => focusNode(id), title: "Show " + labelOf(id) },
             el("span", { class: "dot", style: `background:${role.fill};border-color:${role.border}` }),
             el("span", { class: "name", text: record ? record.label : id }),
             meta ? el("span", { class: "meta", text: meta }) : null);
@@ -1161,7 +1165,7 @@
     function rawTable(details) {
         const table = el("table", { class: "kv" });
         for (const [key, value] of Object.entries(details)) {
-            if (key === "block" || key === "inlined_block") continue;
+            if (key === "block") continue;
             table.append(el("tr", {}, el("th", { text: key }), el("td", {}, formatValue(value))));
         }
         return table;
@@ -1196,19 +1200,19 @@
             facts.push(detail.collect === false ? "returns the last step" : "returns every step");
         }
         if (facts.length) parts.push(el("p", { text: facts.join(" · ") }));
-        const row = (body, text, meta) => el("li", { onclick: () => focusNode(body), title: "Show " + body },
-            el("span", { class: "name mono", text: body }), el("span", { class: "meta", text: text + (meta ? ` · ${meta}` : "") }));
+        const row = (body, label, text, meta) => el("li", { onclick: () => focusNode(body), title: "Show " + label },
+            el("span", { class: "name mono", text: label }), el("span", { class: "meta", text: text + (meta ? ` · ${meta}` : "") }));
         if (ports.inputs.length) {
             parts.push(el("h3", { text: "Enters through" }),
-                linkList(ports.inputs.map(p => row(p.body, "← " + p.outer, p.role)), ""));
+                linkList(ports.inputs.map(p => row(p.body, p.body_label, "← " + p.outer_label, p.role)), ""));
         }
         if (ports.feedback.length) {
             parts.push(el("h3", { text: "Fed back each step" }),
-                linkList(ports.feedback.map(p => row(p.from, "→ " + p.to)), ""));
+                linkList(ports.feedback.map(p => row(p.from, p.from_label, "→ " + p.to_label)), ""));
         }
         if (ports.outputs.length) {
             parts.push(el("h3", { text: "Leaves through" }),
-                linkList(ports.outputs.map(p => row(p.body, "→ " + p.outer)), ""));
+                linkList(ports.outputs.map(p => row(p.body, p.body_label, "→ " + p.outer_label)), ""));
         }
         return parts;
     }
@@ -1224,7 +1228,7 @@
         const role = roleOf(record);
         const parts = [roleChip(role), el("h2", { text: record.label })];
         const kindLine = el("div", { class: "kindline" }, el("code", { text: record.kind }));
-        if (record.region) kindLine.append(" · inside ", el("code", { text: record.region }));
+        if (record.region) kindLine.append(" · inside ", el("code", { text: regionName(record.region) }));
         parts.push(kindLine);
         parts.push(el("p", { text: ROLES[role].about }));
         if (details.about && !["input", "output", "parameter", "constant"].includes(role)) {

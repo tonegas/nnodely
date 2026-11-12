@@ -142,8 +142,8 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
     assert '"nested_model": "loop_body"' in page
     # The seed is the Input itself.
     outer = seed_window.name
-    assert f'"body": "in1", "outer": "{outer}", "role": "initial"' in page
-    assert '"from": "body_out", "to": "in1"' in page
+    assert f'"body_label": "in1", "outer": "n0", "outer_label": "{outer}"' in page
+    assert '"from_label": "body_out", "to_label": "in1"' in page
     assert '"steps": 5' in page
 
     # The body page names the same ports and draws the recurrence it is under.
@@ -151,8 +151,9 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
     assert '"label": "feedback (5 steps)"' in body_page
 
     # Training objectives are visible, and an unreferenced target is drawn.
-    assert '"__min_err"' in page
-    assert f'"from": "{target.name}", "to": "__min_err"' in page
+    names = _names(page)
+    edges = {(names[e["from"]], names[e["to"]]) for e in _graph(page)[1]}
+    assert (target.name, "err") in edges
 
 
 def test_export_html_layout_survives_feedback_cycles(tmp_path):
@@ -202,6 +203,23 @@ def _graph(page):
     return nodes, edges
 
 
+def _names(page):
+    """What the page shows for every node id: its label, after the names of
+    the regions it is spliced in - ``block/body/x`` - as a reader finds it.
+    The ids themselves are the page's own, n0, n1, ..."""
+    nodes, _ = _graph(page)
+    regions = json.loads(
+        re.search(r"const REGIONS = (\[.*?\]);\n", page, re.S).group(1)  # type: ignore
+    )
+    region_names = {region["id"]: region["name"] for region in regions}
+    names = {}
+    for node in nodes:
+        parts = node["id"].split("/")
+        path = ["/".join(parts[: depth + 1]) for depth in range(len(parts) - 1)]
+        names[node["id"]] = "/".join([region_names[r] for r in path] + [node["label"]])
+    return names
+
+
 def _assert_no_dangling(page):
     nodes, edges = _graph(page)
     ids = {node["id"] for node in nodes}
@@ -232,13 +250,15 @@ def test_flattened_page_inlines_a_loop_body(tmp_path):
     # and it has to survive as one Keras layer, so the splice is display-only.
     assert len(model.flatten()._order) == len(model._order)
 
-    standard_ids = {node["id"] for node in _graph(standard)[0]}
-    flattened_ids = {node["id"] for node in _graph(flattened)[0]}
-    assert "inline_block" in standard_ids
-    assert "inline_block" not in flattened_ids
-    assert {"inline_block/in1", "inline_block/body_out"} <= flattened_ids
+    standard_names = set(_names(standard).values())
+    names = _names(flattened)
+    assert "inline_block" in standard_names
+    assert "inline_block" not in names.values()
+    assert {"inline_block/in1", "inline_block/body_out"} <= set(names.values())
 
-    labels = {(e["from"], e["to"]): e["label"] for e in _graph(flattened)[1]}
+    labels = {
+        (names[e["from"]], names[e["to"]]): e["label"] for e in _graph(flattened)[1]
+    }
     assert labels[(seed_window.name, "inline_block/in1")] == "initial"
     assert (
         labels[("inline_block/body_out", "inline_block/in1")] == "feedback (x4 steps)"
@@ -268,8 +288,9 @@ def test_a_loop_inlined_from_a_called_model_reads_the_streams_the_call_binds(
     nodes, edges = _graph(page)
     linked = {e["from"] for e in edges} | {e["to"] for e in edges}
     assert [node["id"] for node in nodes if node["id"] not in linked] == []
+    names = _names(page)
     assert ("bound_k", "bound_outer_loop/bound_inner_loop/bound_x") in {
-        (e["from"], e["to"]) for e in edges
+        (names[e["from"]], names[e["to"]]) for e in edges
     }
     _assert_no_dangling(page)
 
@@ -528,3 +549,95 @@ def test_equation_learner_plot_needs_a_built_model():
     learner(Input("unbuilt_drawn_x", tw=1))
     with pytest.raises(RuntimeError, match="build the model first"):
         learner.plot()
+
+
+# ---------------------------------------------------------------------------
+# Ids are the page's own; labels are the names, never changed
+# ---------------------------------------------------------------------------
+
+
+def _pages(model, tmp_path):
+    model.export_html(out_dir=tmp_path, filename=model.name)
+    standard = (tmp_path / f"{model.name}.html").read_text(encoding="utf-8")
+    flattened = (tmp_path / f"{model.name}__flattened.html").read_text(encoding="utf-8")
+    return standard, flattened
+
+
+def test_a_name_like_a_path_does_not_hide_a_node(tmp_path):
+    # Once, a node of the graph named like the id of a spliced body node -
+    # "block/x" - took its id and vanished from the flattened page.
+    x = Input("path_x", tw=1)
+    block = Modely("path_block", inputs=[x], outputs=[Output("path_y", x * 2.0)])
+    u = Input("path_u", tw=1)
+    named = u * 3.0
+    named.name = "path_block_call/path_x"
+    model = Modely(
+        "path_model", inputs=[u], outputs=[Output("p", block([u])), Output("q", named)]
+    )
+
+    _, flattened = _pages(model, tmp_path)
+    labels = [node["label"] for node in _graph(flattened)[0]]
+    assert "path_block_call/path_x" in labels
+    assert "path_x" in labels
+    _assert_no_dangling(flattened)
+
+
+def test_a_node_named_like_a_loss_is_drawn_apart(tmp_path):
+    x = Input("loss_x", tw=1)
+    y = Output("loss_y", Linear(features=1)(x))
+    named = x * 1.0
+    named.name = "__min_fit"
+    model = Modely("loss_model", inputs=[x], outputs=[y, Output("loss_z", named)])
+    model.minimize("fit", source=y, target=Input("loss_t", tw=1))
+
+    standard, _ = _pages(model, tmp_path)
+    nodes = _graph(standard)[0]
+    assert len({node["id"] for node in nodes}) == len(nodes)
+    assert {"__min_fit", "fit"} <= {node["label"] for node in nodes}
+    _assert_no_dangling(standard)
+
+
+def test_a_renamed_modelyloop_state_is_drawn_once(tmp_path):
+    # The rollout Input a ModelyLoop makes of its state is bound to it by
+    # object: renamed, they are still one node - once two, matched by name.
+    x, u = Input("ren_x", tw=1), Input("ren_u", tw=1)
+    x.feedback(x + u)
+    sim = ModelyLoop("ren_sim", inputs=[x, u], outputs=[Output("ren_out", x)])
+    sim.inputs["ren_x"].name = "ren_position"
+
+    _, flattened = _pages(sim, tmp_path)
+    labels = [node["label"] for node in _graph(flattened)[0]]
+    assert labels.count("ren_position") == 1
+    assert "ren_x" not in labels
+
+
+def test_two_inputs_of_one_name_bound_by_a_loop_are_two_nodes(tmp_path):
+    # Bound to the body's v, the outer v is another Input that only shares
+    # its name: drawn apart, as it would be under any other name.
+    s, v = Input("hom_s", tw=1), Input("hom_v", tw=1)
+    s.feedback(s + v)
+    body = Modely("hom_body", inputs=[s, v], outputs=[Output("hom_o", s * 1.0)])
+    outer_v, start = Input("hom_v", seq=4, tw=1), Input("hom_s0", tw=1)
+    rolled = Loop(f=body, init={s: start})({v: outer_v})
+    model = Modely(
+        "hom_model", inputs=[start, outer_v], outputs=[Output("hom_y", rolled)]
+    )
+
+    _, flattened = _pages(model, tmp_path)
+    labels = [node["label"] for node in _graph(flattened)[0]]
+    assert labels.count("hom_v") == 2
+    _assert_no_dangling(flattened)
+
+
+def test_blocks_named_alike_but_for_case_get_a_page_each(tmp_path):
+    x = Input("case_x", tw=1)
+    upper = Modely("Case", inputs=[x], outputs=[Output("case_a", x * 2.0)])
+    lower = Modely("case", inputs=[x], outputs=[Output("case_b", x * 3.0)])
+    u = Input("case_u", tw=1)
+    model = Modely(
+        "case_model", inputs=[u], outputs=[Output("p", upper([u]) + lower([u]))]
+    )
+
+    _pages(model, tmp_path)
+    pages = sorted(p.name for p in tmp_path.glob("case_model__case_call*.html"))
+    assert pages == ["case_model__case_call-2.html", "case_model__case_call.html"]

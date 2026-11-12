@@ -11,6 +11,7 @@ import shutil
 from html import escape
 from pathlib import Path
 from nnodely.core.modely import Modely, ModelCall
+from nnodely.core.modelyloop import ModelyLoop
 
 from nnodely.layers.input import Input
 from nnodely.layers.loop import Loop
@@ -57,32 +58,25 @@ def _copy_logo(out_path: Path) -> str | None:
 
 def _graph_ids(model_obj) -> dict[int, str]:
     """The id every node of ``model_obj``'s graph is drawn under, by the
-    node: its name, and for a further node of that name - two calls of one
-    model, two layers named alike - its name with ``~2``, ``~3``. Nodes are
-    told apart by object, never by name."""
-    ids: dict[int, str] = {}
-    used: set[str] = set()
-    for node in model_obj._order:
-        name = getattr(node, "name", str(node))
-        drawn, index = name, 2
-        while drawn in used:
-            drawn, index = f"{name}~{index}", index + 1
-        used.add(drawn)
-        ids[id(node)] = drawn
-    return ids
+    node: its position, ``n0``, ``n1``, ... An id is unique by construction
+    and holds no text of the user's, so no name can clash with one - nor
+    with the ``/`` a spliced body's ids are prefixed with. What the page
+    shows is the label, the node's own name, never changed."""
+    return {id(node): f"n{index}" for index, node in enumerate(model_obj._order)}
 
 
-def _block_ports(node, outer_ids: dict[int, str] | None = None):
+def _block_ports(node, outer_ids: dict[int, str] | None = None, owner=None):
     """The model a block node wraps, plus how that body is bound to this graph.
 
     A block hides a whole model behind one node, so the drill-down is only
     readable if both pages name the same ports: which body input every
     predecessor feeds, which body output every successor reads, and which
     outputs are fed back inside the block. Each side is named by the id its
-    page draws it under: ``outer_ids`` for this graph's, the body's own for
-    the body. ``same`` marks a port that binds one stream to itself - the
-    same node, or an Input bound to an Input of its name, as a ModelyLoop
-    binds the Inputs of its step - drawn as one node.
+    page draws it under - ``outer_ids`` for this graph's, the body's own for
+    the body; ``None`` for an outer stream this graph does not draw - and by
+    its label, its name. ``same`` marks a port that binds one stream to
+    itself - the same node, or, in ``owner`` a ModelyLoop, the rollout Input
+    it made of an Input of its step - drawn as one node: by object.
     """
     held = node._model
     if not isinstance(held, Modely):
@@ -90,19 +84,20 @@ def _block_ports(node, outer_ids: dict[int, str] | None = None):
     outer_ids = outer_ids or {}
     body_ids = _graph_ids(held)
 
-    def outer(stream) -> str:
-        return outer_ids.get(id(stream)) or stream.name
-
-    def body(stream) -> str:
-        return body_ids.get(id(stream)) or stream.name
+    def side(inner, stream) -> dict:
+        return {
+            "body": body_ids[id(inner)],
+            "body_label": inner.name,
+            "outer": outer_ids.get(id(stream)),
+            "outer_label": stream.name,
+        }
 
     def port(inner, stream, role: str) -> dict:
         same = inner is stream or (
-            isinstance(inner, Input)
-            and isinstance(stream, Input)
-            and inner.name == stream.name
+            isinstance(owner, ModelyLoop)
+            and owner._rolled_inputs.get(node._step.key(inner)) is stream
         )
-        return {"body": body(inner), "outer": outer(stream), "role": role, "same": same}
+        return {**side(inner, stream), "role": role, "same": same}
 
     if isinstance(node, ModelCall):
         return node._model, {
@@ -113,8 +108,7 @@ def _block_ports(node, outer_ids: dict[int, str] | None = None):
                 for inner, stream in node._inputs_map.items()
             ],
             "outputs": [
-                {"body": body(inner), "outer": outer(stream)}
-                for stream, inner in node._outputs_map.items()
+                side(inner, stream) for stream, inner in node._outputs_map.items()
             ],
             "feedback": [],
         }
@@ -138,11 +132,16 @@ def _block_ports(node, outer_ids: dict[int, str] | None = None):
                 for inner, stream in zip(node._static_inputs, node._static_sources)
             ],
             "outputs": [
-                {"body": body(inner), "outer": outer(stream)}
+                side(inner, stream)
                 for inner, stream in zip(node._returns, node._loop_outputs)
             ],
             "feedback": [
-                {"from": body(output), "to": body(input_node)}
+                {
+                    "from": body_ids[id(output)],
+                    "to": body_ids[id(input_node)],
+                    "from_label": output.name,
+                    "to_label": input_node.name,
+                }
                 for input_node, output in zip(
                     node._feedback_inputs, node._feedback_outputs
                 )
@@ -231,7 +230,7 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
 
     def ident(node) -> str:
         """Display id of a node of this graph."""
-        return outer_id(ids.get(id(node), getattr(node, "name", str(node))))
+        return outer_id(ids[id(node)])
 
     def add_edge(pred, src: str, dst: str, role: str | None = None) -> None:
         if (src, dst) in seen_edges:
@@ -244,10 +243,9 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
     # read one output each, and the body output the block node itself
     # stands for when something reads it as a value instead.
     block_results: dict[str, dict] = {}
-    present = set(ids.values())
     if inline:
         for node in model_obj._order:
-            ports = _block_ports(node, ids)
+            ports = _block_ports(node, ids, model_obj)
             if ports is not None:
                 blocks[ids[id(node)]] = ports
 
@@ -265,7 +263,7 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
             body_alias = {
                 port["body"]: outer_id(port["outer"])
                 for port in port_map["inputs"]
-                if port["same"]
+                if port["same"] and port["outer"] is not None
             }
             body_nodes, body_edges, body_feedbacks = _collect_graph(
                 submodel, inline=True, prefix=body_prefix, alias=body_alias
@@ -274,21 +272,21 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
             def body_id(body_name: str) -> str:
                 return body_alias.get(body_name, body_prefix + body_name)
 
+            region = {
+                "id": prefix + name,
+                "name": node.name,
+                "block": port_map["block"],
+                "model": submodel.name,
+                **port_map["detail"],
+            }
             for body_node, nid, kind, attrs in body_nodes:
                 if nid in seen_nodes:
                     continue
-                # The innermost block a node was spliced from: a nested body
-                # has set it already.
+                # The innermost block a node was spliced from - a nested body
+                # has set it already - and every block around it, innermost
+                # first, each a region the page draws.
                 attrs.setdefault("inlined_in", prefix + name)
-                attrs.setdefault(
-                    "inlined_block",
-                    {
-                        "id": prefix + name,
-                        "block": port_map["block"],
-                        "model": submodel.name,
-                        **port_map["detail"],
-                    },
-                )
+                attrs.setdefault("regions", []).append(region)
                 nodes.append((body_node, nid, kind, attrs))
                 seen_nodes.add(nid)
             for body_pred, src, dst, role in body_edges:
@@ -312,7 +310,7 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
             for port in port_map["outputs"]:
                 # A selector absent from this graph means the block is read
                 # as a value: a single-output Loop.
-                if port["outer"] == name or port["outer"] not in present:
+                if port["outer"] in (None, name):
                     continue
                 outer, body = outer_id(port["outer"]), body_id(port["body"])
                 if outer != body:
@@ -327,9 +325,9 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
                         {
                             "kind": "feedback",
                             "block": port_map["block"],
-                            "block_node": prefix + name,
-                            "feedback_stream": pair["from"],
-                            "feedback_input": pair["to"],
+                            "block_node": node.name,
+                            "feedback_stream": pair["from_label"],
+                            "feedback_input": pair["to_label"],
                             **port_map["detail"],
                         },
                     )
@@ -464,6 +462,9 @@ def export_html(
     logo_rel = _copy_logo(out_path)
 
     visited_pages: set[tuple[int, str, bool]] = set()
+    # The file of every page, by the block node it is the body of: names
+    # alike once slugged - "Blk" and "blk" - each get a file of their own.
+    page_files: dict[tuple[int, int], str] = {}
 
     def _slug(s: str) -> str:
         s = str(s).strip().lower()
@@ -535,15 +536,21 @@ def export_html(
         # are all spliced in, so there is none.
         url_map: dict[str, str] = {}
         for node, nid, kind, attrs in graph_nodes:
-            ports = _block_ports(node, page_ids)
+            ports = _block_ports(node, page_ids, model_obj)
             if ports is None:
                 continue
             submodel, port_map = ports
             attrs["nested_model"] = submodel.name
             attrs["block"] = port_map
 
-            sub_name = f"{_slug(page_title)}__{_slug(nid)}.html"
-            sub_title = f"{page_title} :: {nid}"
+            sub_name = page_files.get((id(model_obj), id(node)))
+            if sub_name is None:
+                stem = f"{_slug(page_title)}__{_slug(node.name)}"
+                sub_name, index = f"{stem}.html", 2
+                while sub_name in page_files.values():
+                    sub_name, index = f"{stem}-{index}.html", index + 1
+                page_files[(id(model_obj), id(node))] = sub_name
+            sub_title = f"{page_title} :: {node.name}"
             parent_for_child = os.path.relpath(file_path, start=out_path)
 
             sub_path = _export_one(
@@ -552,7 +559,7 @@ def export_html(
                 sub_title,
                 parent_rel=parent_for_child,
                 boundary={
-                    "node": nid,
+                    "node": node.name,
                     "parent": page_title,
                     "parent_rel": parent_for_child,
                     "ports": port_map,
@@ -591,8 +598,8 @@ def export_html(
                             "kind": "feedback",
                             "block": boundary["ports"]["block"],
                             "block_node": boundary["node"],
-                            "feedback_stream": pair["from"],
-                            "feedback_input": pair["to"],
+                            "feedback_stream": pair["from_label"],
+                            "feedback_input": pair["to_label"],
                             **detail,
                         },
                     )
@@ -606,14 +613,9 @@ def export_html(
         for node, nid, kind, attrs in graph_nodes:
             region = attrs.get("inlined_in")
             role = _node_role(node, region, states, own_outputs, nid)
-            short = (
-                nid[len(region) + 1 :]
-                if region and nid.startswith(region + "/")
-                else nid
-            )
             record = {
                 "id": nid,
-                "label": short,
+                "label": node.name,
                 "role": role,
                 "kind": kind,
                 "subtitle": _node_subtitle(node, kind, role),
@@ -621,30 +623,25 @@ def export_html(
             }
             if region:
                 record["region"] = region
-                regions.setdefault(region, attrs.get("inlined_block", {"id": region}))
+            for enclosing in attrs.pop("regions", []):
+                regions.setdefault(enclosing["id"], enclosing)
             if nid in url_map:
                 record["url"] = url_map[nid]
             if nid in entry_ports:
                 port = entry_ports[nid]
                 record["port"] = {
                     "side": "in",
-                    "outer": port["outer"],
+                    "outer": port["outer_label"],
                     "role": port["role"],
                 }
             elif nid in exit_ports:
-                record["port"] = {"side": "out", "outer": exit_ports[nid]["outer"]}
+                record["port"] = {
+                    "side": "out",
+                    "outer": exit_ports[nid]["outer_label"],
+                }
             attrs["role"] = role
             node_details[nid] = attrs
             vis_nodes.append(record)
-
-        # A region nested in another one is drawn inside it, even when the
-        # outer body holds no node of its own.
-        for region in list(regions):
-            parts = region.split("/")
-            for depth in range(1, len(parts)):
-                regions.setdefault(
-                    "/".join(parts[:depth]), {"id": "/".join(parts[:depth])}
-                )
 
         vis_edges: list[dict] = []
         for pred, src, dst, role in graph_edges:
@@ -668,14 +665,11 @@ def export_html(
         drawn: dict[int, str] = {}
 
         def endpoint_id(endpoint) -> str:
-            nid = page_ids.get(id(endpoint))
-            if nid is not None and nid in visible:
+            # The id the graph has for it, or one of the targets': t0, t1, ...
+            nid = page_ids.get(id(endpoint)) or f"t{len(drawn)}"
+            if nid in visible:
                 return nid
             if id(endpoint) not in drawn:
-                base = nid or endpoint.name
-                nid, index = base, 2
-                while nid in visible:
-                    nid, index = f"{base}~{index}", index + 1
                 drawn[id(endpoint)] = nid
                 vis_nodes.append(
                     {
@@ -699,7 +693,7 @@ def export_html(
                 or getattr(loss, "__name__", None)
                 or type(loss).__name__
             )
-            loss_id = f"__min_{min_name}"
+            loss_id = f"m{index}"
             sides = [
                 (side, endpoint, endpoint_id(endpoint))
                 for side in ("source", "target")
@@ -721,8 +715,8 @@ def export_html(
                 "name": min_name,
                 "role": "loss",
                 "loss": loss_label,
-                "source": getattr(minimizer.get("source"), "name", None),
-                "target": getattr(minimizer.get("target"), "name", None),
+                # The ids of the two sides, which the page links to.
+                **{side: nid for side, _, nid in sides},
             }
 
             for side, endpoint, nid in sides:
