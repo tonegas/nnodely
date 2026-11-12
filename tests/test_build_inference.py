@@ -283,7 +283,7 @@ def test_a_model_that_reads_no_input_is_refused_at_build():
     step = Output("numbers_next", Linear(bias=False)(state))
     body = Modely("numbers_body", inputs=[state], outputs=[step]).build()
     driven_by_numbers = Loop(
-        f=body, feedback={state: step}, length=4, init={state: 1.0}
+        f=body, feedback={state: step}, seq=4, init={state: 1.0}
     )()
     looped = Modely(
         "numbers_loop", inputs=[], outputs=[Output("numbers_traj", driven_by_numbers)]

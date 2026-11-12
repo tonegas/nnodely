@@ -64,7 +64,7 @@ and its recurrence, then called on the streams that drive it,
 ``collect``
     ``True`` (the default) returns the whole trajectory, with the rollout as
     its new outermost sequence axis. ``False`` returns only the last step.
-``length``
+``seq``
     fixes the number of steps. It is needed only when no initial value or
     input carries a rollout.
 
@@ -122,7 +122,7 @@ sample, and the window of a fed-back input cannot read future samples
 by an output without one.
 
 With a dynamic sequence, ``Input(..., seq=-1, tw=1)``, the rollout follows the length of the
-data it receives, and no ``length`` is needed. Together
+data it receives, and no ``seq`` is needed on the Loop. Together
 with ``seq_length="full"`` in the :class:`~nnodely.DataLoader`, this trains on
 whole simulations of different lengths (see :doc:`data`).
 
@@ -181,7 +181,7 @@ to be identified:
 
 Every Input of a ModelyLoop carries the horizon as its outermost sequence
 axis, one value per step, and every output is a trajectory: its element ``k``
-is computed at step ``k``. The horizon is as long as the data, or ``length``
+is computed at step ``k``. The horizon is as long as the data, or ``seq``
 steps when it is given. A fed-back Input listed among the inputs, as ``pos``
 and ``vel`` here, starts from its first value in the data, and reads zero when
 the data leaves it out. One that is not listed starts from zero. The state of

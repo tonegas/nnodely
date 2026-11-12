@@ -460,7 +460,7 @@ def test_loop_dynamic_length():
         f=body,
         feedback={x: body_output},
         name="dyn_loop",
-        length=3,
+        seq=3,
         init={x: initial_window},
     )({u: driver_window})
     assert loop._horizon == 3
@@ -597,7 +597,7 @@ def test_loop_multi_output():
         f=body,
         feedback={position: position_next, velocity: velocity_next},
         name="integrator_loop",
-        length=3,
+        seq=3,
         init={position: p0, velocity: v0},
     )({acceleration: a_seq})
     model = Modely(

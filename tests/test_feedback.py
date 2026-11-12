@@ -429,7 +429,7 @@ def test_a_dynamic_initial_value_feeds_a_state_of_a_static_sequence():
     inner = Modely(
         "fb_pin_inner",
         inputs=[k_seq],
-        outputs=[Output("fb_pin_rows", Loop(f=step, length=3)({x: k_seq}))],
+        outputs=[Output("fb_pin_rows", Loop(f=step, seq=3)({x: k_seq}))],
     ).build()
     k, k0 = Input("fb_pin_k", tw=1, seq=-1), Input("fb_pin_k0", tw=1, seq=-1)
     rate = inner([k])

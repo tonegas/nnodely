@@ -1150,7 +1150,7 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
     loop = Loop(
         f=body,
         feedback={body_x: body_out},
-        length=6,
+        seq=6,
         name="pad_loop",
         init={body_x: seed},
     )()

@@ -59,10 +59,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   out by two Loops, a Parameter read inside and outside a body, a block also
   used in a Loop, several `Gradient` of one relation - is written once
   per graph, with the same value. Keras could not rebuild such a file.
-- `ModelyLoop(name, inputs, outputs, length=None)`: a model declared one step
+- `ModelyLoop(name, inputs, outputs, seq=None)`: a model declared one step
   at a time, whose fed-back Inputs are all fed back by a single rollout - one
   `Loop` over its step. Every listed Input carries the horizon as its
-  outermost sequence axis - `length` steps, or as many as the data has - and
+  outermost sequence axis - `seq` steps, or as many as the data has - and
   every output is a trajectory. A fed-back Input starts from the first window
   of its data when it is listed, zeros where the data leaves it out, and from
   zero when it is not. A model called as a block keeps the feedback of its

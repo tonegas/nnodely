@@ -28,7 +28,7 @@ from nnodely.layers.input import Input
 from nnodely.layers.output import Output
 
 
-#: Steps a dynamic rollout is declared with when no ``length`` is given. It
+#: Steps a dynamic rollout is declared with when no ``seq`` is given. It
 #: only shapes the graph: the rollout follows the data it is given.
 DYNAMIC_BUILD_LENGTH = 1
 
@@ -816,12 +816,12 @@ class Loop(Layer):
     ``init`` (step 0 seeds the state), an exogenous input through
     ``inputs``.
 
-    ``length`` pins the number of steps: the length of the outermost
+    ``seq`` pins the number of steps: the length of the outermost
     sequence axis the rollout reads from the streams that carry it and,
     collected, adds to every output. It is required only when no initial
     value or input carries a rollout. A rollout declared dynamic
     (an Input with ``seq=-1``) follows the length of the sequence it is actually
-    given, and without ``length`` its streams are declared with
+    given, and without ``seq`` its streams are declared with
     ``DYNAMIC_BUILD_LENGTH`` steps.
 
     ``collect`` returns the whole trajectory, the rollout the new outermost
@@ -850,7 +850,7 @@ class Loop(Layer):
         feedback: dict | None = None,
         init: dict | None = None,
         name=None,
-        length: int | None = None,
+        seq: int | None = None,
         collect: bool = True,
     ):
         if not isinstance(f, Modely):
@@ -872,16 +872,16 @@ class Loop(Layer):
                 f"Loop: {f.name!r} has no fed-back Input: declare one with "
                 "x.feedback(stream), or give feedback=."
             )
-        self._declare(step, init or {}, name, length, collect)
+        self._declare(step, init or {}, name, seq, collect)
 
     @classmethod
-    def _of(cls, step: _Step, init: dict, name=None, length=None, collect=True):
+    def _of(cls, step: _Step, init: dict, name=None, seq=None, collect=True):
         """The Loop over a step already found."""
         loop = cls.__new__(cls)
-        loop._declare(step, init, name, length, collect)
+        loop._declare(step, init, name, seq, collect)
         return loop
 
-    def _declare(self, step: _Step, init: dict, name, length, collect):
+    def _declare(self, step: _Step, init: dict, name, seq, collect):
         self._step = step
         self._f = step.body
         self._feedback_inputs = step.states
@@ -906,7 +906,7 @@ class Loop(Layer):
             }.values()
         )
         self._feedback_shift_axes = self._resolve_feedback(step.pairs)
-        self._length = None if length is None else int(length)
+        self._length = None if seq is None else int(seq)
         self._collect = bool(collect)
         # The outputs of f; with more than one, the loop is all of them, and
         # no stream.
@@ -1041,7 +1041,7 @@ class Loop(Layer):
         if widths:
             raise ValueError(
                 f"Loop rollout inputs declare different lengths {sorted(widths)}; "
-                "pass length= to pin the number of steps."
+                "pass seq= to pin the number of steps."
             )
         if loop_sources:
             # Every rollout input is dynamic, so the data decides the number of
@@ -1049,7 +1049,7 @@ class Loop(Layer):
             return DYNAMIC_BUILD_LENGTH
         raise ValueError(
             "Loop cannot determine the rollout length: no initial value or input "
-            "carries a rollout, so pass length= to Loop."
+            "carries a rollout, so pass seq= to Loop."
         )
 
     def _result_shape(self, output):
@@ -1393,7 +1393,7 @@ class Loop(Layer):
                     )
                 },
                 "returns": [output.name for output in self._returns],
-                "length": self._length,
+                "seq": self._length,
                 "collect": self._collect,
             }
         )

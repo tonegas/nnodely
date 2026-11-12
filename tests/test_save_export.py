@@ -2346,7 +2346,7 @@ def _keras_two_loops():
     body = Modely("ks2_body", inputs=[s], outputs=[nxt]).build()
     a = Input("ks2_a", seq=3, tw=1)
     rolled = Loop(f=body, feedback={s: nxt}, collect=False, init={s: a})()
-    fixed = Loop(f=body, feedback={s: nxt}, collect=False, init={s: a}, length=2)()
+    fixed = Loop(f=body, feedback={s: nxt}, collect=False, init={s: a}, seq=2)()
     model = Modely(
         "ks2", inputs=[a], outputs=[Output("ks2_o1", rolled), Output("ks2_o2", fixed)]
     ).build()
@@ -2409,13 +2409,13 @@ def _keras_loop_in_a_body():
         feedback={si: "ksn_inner_next"},
         collect=False,
         init={si: m},
-        length=3,
+        seq=3,
     )()
     mid = Modely(
         "ksn_mid", inputs=[m], outputs=[Output("ksn_mid_out", inner_loop)]
     ).build()
     m0 = Input("ksn_m0", tw=1)
-    outer = Loop(f=mid, feedback={m: "ksn_mid_out"}, init={m: m0}, length=2)()
+    outer = Loop(f=mid, feedback={m: "ksn_mid_out"}, init={m: m0}, seq=2)()
     model = Modely(
         "ksn",
         inputs=[m0],

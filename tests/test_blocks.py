@@ -2188,10 +2188,10 @@ def _over_steps(value, steps):
     return np.repeat(np.asarray(value, dtype=np.float32)[:, None], steps, axis=1)
 
 
-def _integrate_model(name, length=None, dim=1, **kwargs):
+def _integrate_model(name, seq=None, dim=1, **kwargs):
     rate = Input(f"{name}_rate", dim=dim, tw=1)
     out = Output(f"{name}_out", Integrate(**kwargs)(rate))
-    return ModelyLoop(name, inputs=[rate], outputs=[out], length=length).build()
+    return ModelyLoop(name, inputs=[rate], outputs=[out], seq=seq).build()
 
 
 @pytest.mark.parametrize("solver", ["euler", "rectangular", "trapezoidal"])
@@ -2232,7 +2232,7 @@ def test_integrate_follows_a_dynamic_horizon_without_rebuilding():
 
 
 def test_integrate_over_a_fixed_horizon():
-    model = _integrate_model("fixed", length=4, method="euler", dt=1.0)
+    model = _integrate_model("fixed", seq=4, method="euler", dt=1.0)
     result = to_numpy(
         model({"fixed_rate": np.array([1.0, 2.0, 3.0, 4.0]).reshape(1, 4, 1, 1)})[
             "fixed_out"
@@ -2348,7 +2348,7 @@ def test_integrate_is_trained_through():
     u = Input("trained_u", tw=1)
     k = Parameter("trained_k", value=0.5)
     x = Output("trained_x", Integrate(dt=0.1)(u * k))
-    model = ModelyLoop("trained", inputs=[u], outputs=[x], length=steps)
+    model = ModelyLoop("trained", inputs=[u], outputs=[x], seq=steps)
     model.minimize("fit", x, Input("trained_target", tw=1))
     model.build()
     rng = np.random.default_rng(0)
@@ -2419,7 +2419,7 @@ def test_integrate_a_rate_from_a_layer_with_parameter_weights(layer):
         name,
         inputs=[u],
         outputs=[Output(f"{name}_out", Integrate(method="euler", dt=1.0)(rate))],
-        length=4,
+        seq=4,
     ).build()
 
     values = np.array([1.0, 2.0, 3.0, 4.0]).reshape(1, 4, 1, 1)
@@ -2556,10 +2556,10 @@ def test_derivative():
 # ---------------------------------------------------------------------------
 
 
-def _derivative_model(name, length=None, dim=1, **kwargs):
+def _derivative_model(name, seq=None, dim=1, **kwargs):
     signal = Input(f"{name}_signal", dim=dim, tw=1)
     out = Output(f"{name}_out", Derivative(**kwargs)(signal))
-    return ModelyLoop(name, inputs=[signal], outputs=[out], length=length).build()
+    return ModelyLoop(name, inputs=[signal], outputs=[out], seq=seq).build()
 
 
 @pytest.mark.parametrize(
@@ -2641,7 +2641,7 @@ def test_derivative_follows_a_dynamic_horizon_without_rebuilding():
 
 
 def test_derivative_over_a_fixed_horizon():
-    model = _derivative_model("dfixed", length=4, dt=1.0)
+    model = _derivative_model("dfixed", seq=4, dt=1.0)
     result = to_numpy(
         model({"dfixed_signal": np.array([1.0, 3.0, 6.0, 10.0]).reshape(1, 4, 1, 1)})[
             "dfixed_out"
@@ -2825,7 +2825,7 @@ def test_derivative_of_a_signal_from_a_layer_with_parameter_weights(layer):
         name,
         inputs=[u],
         outputs=[Output(f"{name}_out", Derivative(dt=1.0)(signal))],
-        length=4,
+        seq=4,
     ).build()
 
     values = np.array([1.0, 2.0, 4.0, 7.0]).reshape(1, 4, 1, 1)
@@ -2875,7 +2875,7 @@ def test_derivative_is_trained_through():
     x = Input("dtrained_x", tw=1)
     k = Parameter("dtrained_k", value=0.5)
     v = Output("dtrained_v", Derivative(dt=1.0)(x * k))
-    model = ModelyLoop("dtrained", inputs=[x], outputs=[v], length=steps)
+    model = ModelyLoop("dtrained", inputs=[x], outputs=[v], seq=steps)
     model.minimize("fit", v, Input("dtrained_target", tw=1))
     model.build()
     rng = np.random.default_rng(0)
@@ -2897,7 +2897,7 @@ def test_derivative_is_trained_through():
     np.testing.assert_allclose(to_numpy(k.param).ravel(), [2.0], atol=1e-2)
 
 
-def _saved_derivative_model(name, length):
+def _saved_derivative_model(name, seq):
     # The second-order stencil from a two-sample history: every argument the
     # layers save.
     x, history = Input(f"{name}_x", tw=1), Input(f"{name}_history", tw=2)
@@ -2906,7 +2906,7 @@ def _saved_derivative_model(name, length):
         name,
         inputs=[x, history],
         outputs=[Output(f"{name}_out", out)],
-        length=length,
+        seq=seq,
     ).build()
 
 
@@ -2919,7 +2919,7 @@ def _saved_derivative_data(name, steps):
 
 
 def test_derivative_round_trips_through_save_and_the_keras_file(tmp_path):
-    model = _saved_derivative_model("dsaved", length=None)
+    model = _saved_derivative_model("dsaved", seq=None)
     data = _saved_derivative_data("dsaved", 5)
     expected = to_numpy(model(data)["dsaved_out"])
 
@@ -2942,7 +2942,7 @@ def test_derivative_round_trips_through_save_and_the_keras_file(tmp_path):
 @requires_onnx_export
 def test_derivative_exports_to_onnx(tmp_path):
     pytest.importorskip("onnxruntime")
-    model = _saved_derivative_model("donnx", length=5)
+    model = _saved_derivative_model("donnx", seq=5)
     data = _saved_derivative_data("donnx", 5)
     model.export_onnx(tmp_path)
 
@@ -2962,7 +2962,7 @@ def test_derivative_exports_to_onnx(tmp_path):
 @requires_onnx_export
 def test_derivative_exports_to_onnx_following_the_horizon(tmp_path):
     pytest.importorskip("onnxruntime")
-    model = _saved_derivative_model("donnx_dynamic", length=None)
+    model = _saved_derivative_model("donnx_dynamic", seq=None)
     model.export_onnx(tmp_path)
 
     for steps in (2, 6):

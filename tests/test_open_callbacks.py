@@ -465,7 +465,7 @@ def test_outputs_tells_what_each_output_is():
         "oc_outs_loop",
         inputs=[rate, level],
         outputs=[Output("oc_outs_loop_level", level_next)],
-        length=4,
+        seq=4,
     )
     (row,) = loop.outputs._rows
     assert row["stream"] == level_next.name
@@ -596,7 +596,7 @@ def test_training_identifies_a_spring_from_a_measured_trajectory(tmp_path):
     )
 
 
-def test_a_dynamic_horizon_follows_the_data_and_length_pins_it():
+def test_a_dynamic_horizon_follows_the_data_and_seq_pins_it():
     rate = Input("oc_len_rate", tw=1)
     total = Input("oc_len_total", tw=1)
     total_next = total.feedback(total + rate)
@@ -611,7 +611,7 @@ def test_a_dynamic_horizon_follows_the_data_and_length_pins_it():
         "oc_len_fixed",
         inputs=[rate],
         outputs=[Output("oc_len_fixed_out", total_next)],
-        length=5,
+        seq=5,
     )
     assert fixed._inputs[0].seq == (5,)
 

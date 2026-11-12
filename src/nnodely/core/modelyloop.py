@@ -39,11 +39,11 @@ class ModelyLoop(Modely):
     fed-back Inputs it declares: the stream the call gives one is its initial
     value, read at the first step.
 
-    ``length`` is the number of steps, and the outermost sequence axis the
-    rollout adds to every Input and every output: an Input of the step
-    declared with ``seq=s`` is read from data of ``seq=(length, *s)``. None
-    leaves that axis dynamic, as many steps as the data has. Every output is
-    a trajectory: its element ``k`` is computed at step ``k``. A fed-back
+    ``seq`` is the number of steps, and the outermost sequence axis the
+    rollout adds to every Input and every output: with ``seq=n``, an Input of
+    the step declared with ``seq=s`` is read from data of ``seq=(n, *s)``.
+    None leaves that axis dynamic, as many steps as the data has. Every output
+    is a trajectory: its element ``k`` is computed at step ``k``. A fed-back
     Input that starts from data, or from an init that is an Input, reads its
     first step.
 
@@ -57,17 +57,17 @@ class ModelyLoop(Modely):
         name: str,
         inputs: list[Input],
         outputs: list[Output],
-        length: int | None = None,
+        seq: int | None = None,
     ) -> None:
-        if length is not None and (
-            isinstance(length, bool) or not isinstance(length, int) or length < 1
+        if seq is not None and (
+            isinstance(seq, bool) or not isinstance(seq, int) or seq < 1
         ):
             raise ValueError(
-                f"ModelyLoop {name!r}: length is a positive int, or None for the "
-                f"length of the data, got {length!r}."
+                f"ModelyLoop {name!r}: seq is a positive int, or None for the "
+                f"length of the data, got {seq!r}."
             )
         self.name = name
-        self._length = length
+        self._length = seq
         self._rolled_inputs: dict[str, Input] = {}
 
         # The step, and the one Loop that feeds back every Input it feeds back.
@@ -99,7 +99,7 @@ class ModelyLoop(Modely):
             step,
             init={state: self._rolled_input(state) for state in from_data},
             name=f"{name}_loop",
-            length=length,
+            seq=seq,
         )
         read = [*declaration._static_inputs, *declaration._seed_inputs]
         if not read and not from_data:
