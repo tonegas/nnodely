@@ -654,7 +654,7 @@ def test_an_input_renamed_like_another_is_listed_apart():
     with pytest.raises(ValueError, match="'rl_b' is ambiguous"):
         rows["rl_b"]
     assert rows[0] is a
-    assert "rl_b, rl_b, rl_target" in repr(model)
+    assert "rl_b, rl_b, rl_target" in str(model)
     # The data is keyed by name: refused when built, until renamed apart.
     with pytest.raises(ValueError, match="two different Inputs named 'rl_b'"):
         model.build()
