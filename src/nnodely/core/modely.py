@@ -14,8 +14,10 @@ from nnodely.core.dag import (
     _nodes_by_model,
     _read_nodes,
     _source_input_tensors,
+    NameNotFound,
+    Table,
+    resolve,
 )
-from nnodely.core.names import NameNotFound, Table, resolve
 from nnodely.core.minimizer import (
     MinimizerModel,
     _check_minimizers_train_weights,
@@ -67,7 +69,7 @@ class Modely:
         self.name = name
         self._inputs = inputs
         self._outputs = outputs
-        self._order = toposort(self)
+        self._order = toposort(outputs)
         # Read as an output, or bound to a Loop, it passed no layer call.
         _refuse_uncalled(self._order)
         self.model = None  # Keras model build from this DAG

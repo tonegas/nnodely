@@ -919,7 +919,7 @@ def test_a_modelyloop_state_keeps_the_row_of_its_input_renamed(tmp_path):
 
 
 def test_every_lookup_resolves_a_key_alike():
-    from nnodely.core.names import NameNotFound
+    from nnodely.core.dag import NameNotFound
 
     # A key that picks nothing is a KeyError, as a table's, and a ValueError,
     # as a call's: either is caught.

@@ -3,7 +3,7 @@
 from numbers import Integral
 from typing import Any
 
-from nnodely.core.names import Table
+from nnodely.core.dag import Table
 from nnodely.core.shape import _same_steps
 from nnodely.core.stream import Stream
 from nnodely.utils.printers import _table
