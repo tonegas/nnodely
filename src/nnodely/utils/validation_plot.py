@@ -217,6 +217,7 @@ def _slug(text: str) -> str:
 def render(
     result: ValidationResult,
     *,
+    history: dict[str, Any] | None = None,
     out_dir: str | os.PathLike | None = None,
     show: bool = False,
 ) -> list[str]:
@@ -230,8 +231,8 @@ def render(
         (f"{index}_{_slug(score.name)}", figure_signal(score))
         for index, score in enumerate(result)
     ]
-    if result.history:
-        history_figure = figure_history(result.history)
+    if history:
+        history_figure = figure_history(history)
         if history_figure is not None:
             figures.append(("history", history_figure))
 
