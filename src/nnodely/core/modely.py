@@ -68,12 +68,16 @@ class Modely:
 
     def __init__(self, name: str, inputs: list[Input], outputs: list[Output]) -> None:
         self.name = name
-        self._inputs = inputs
-        self._outputs = outputs
-        self._order = toposort(outputs)
+        # Lists of its own: one the caller goes on changing - reused for
+        # another model - leaves this one as it was declared.
+        self._inputs = list(inputs)
+        self._outputs = list(outputs)
+        self._order = toposort(self._outputs)
         # Read as an output, or bound to a Loop, it passed no layer call.
         _refuse_uncalled(self._order)
-        undeclared = sorted({node.name for node in _undeclared_inputs(inputs, outputs)})
+        undeclared = sorted(
+            {node.name for node in _undeclared_inputs(self._inputs, self._outputs)}
+        )
         if undeclared:
             raise ValueError(
                 f"Model {name!r} reads the Inputs {undeclared}, which are not "

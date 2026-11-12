@@ -461,6 +461,16 @@ variable, and trains, validates and exports through Keras. Models saved with
   `remove_minimizer` removes one.
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
+- A model's graph is sorted and inlined without recursion, in the same
+  order as before: declaring a model, `flatten()` and the inlining `build()`
+  does take a graph of any depth, where they stopped at Python's recursion
+  limit, about a thousand layers deep. Keras still builds its functional
+  models recursively: a graph that deep - a simulation unrolled in Python,
+  say - is rolled out with a `Loop` or `ModelyLoop`, or built after raising
+  `sys.setrecursionlimit`.
+- A `Modely` keeps lists of its own: the `inputs` and `outputs` lists it is
+  declared with are copied, so changing them afterwards - reusing one for
+  another model - leaves the model as it was declared.
 
 ### Removed
 

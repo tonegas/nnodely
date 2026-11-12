@@ -280,6 +280,7 @@ See §10 (`ModelyLoop` and `Input.feedback`, `Buffer`, `Loop`) and §11 (`Gradie
 `Modely(name: str, inputs: list[Input], outputs: list[Output])`
 - `inputs` lists every Input the model reads: one its outputs read, one it gives a model it calls, and one a layer starts from (`Integrate(init=x0)`, `Derivative`, `Buffer`). One read without being listed raises `ValueError` when the model is declared ("which are not among its inputs: declare them there") [verified]. Only fed-back Inputs (§10) and Inputs used only by objectives, such as targets, need not be listed; targets are discovered at build. After build, `model.train_inputs` holds every Input that training data must provide, and `model.inference_inputs` the ones inference reads.
 - `outputs` is a list of `Output` nodes.
+- Both lists are copied: changing them afterwards, e.g. reusing one for another model, does not change the model [verified].
 
 | Method | Purpose |
 |---|---|
@@ -304,7 +305,7 @@ See §10 (`ModelyLoop` and `Input.feedback`, `Buffer`, `Loop`) and §11 (`Gradie
 | `export_onnx(path, filename=None, *, input_signature=None, batch_size=None, opset_version=None, verbose=False)` | Writes `path/<filename or model name>.onnx`. Needs the `onnx` extra and the TF or Torch backend (§13). |
 | `Modely.validate_onnx(filename, inputs, *, return_dict=False, providers=None)` | Runs an exported ONNX file with onnxruntime. |
 
-Properties: `built`, `model` (the training keras.Model), `inference_model` (the keras.Model inference runs), `inputs`, `outputs`, `order` (topological node list), `minimizers` (list of dicts with keys `name`, `source`, `target`, `loss`, `gain`), `train_inputs`, `inference_inputs`, `train_outputs`. The Inputs the data may leave out, reading zeros - the fed-back Inputs a `ModelyLoop` lists - are marked `optional` in the `data` column of `print(model.inputs)`. `print(model)` (its repr, also shown as the last expression of a notebook cell) prints a table headed `model | <name>`, with a row each for the names of every Input it reads (as `inputs` lists them, an undeclared target included), of its outputs and of its minimizers, `-` for none [verified].
+Properties: `built`, `model` (the training keras.Model), `inference_model` (the keras.Model inference runs), `inputs`, `outputs`, `minimizers` (list of dicts with keys `name`, `source`, `target`, `loss`, `gain`), `train_inputs`, `inference_inputs`, `train_outputs`. The Inputs the data may leave out, reading zeros - the fed-back Inputs a `ModelyLoop` lists - are marked `optional` in the `data` column of `print(model.inputs)`. `print(model)` (its repr, also shown as the last expression of a notebook cell) prints a table headed `model | <name>`, with a row each for the names of every Input it reads (as `inputs` lists them, an undeclared target included), of its outputs and of its minimizers, `-` for none [verified].
 
 ---
 
@@ -545,6 +546,7 @@ JAX cannot export ONNX at all: jax2tf emits an unconvertible XlaCallModule. `exp
 | `reads the fed-back Inputs [...], which only a Loop or a ModelyLoop feeds back` (UserWarning at build) | A `Modely` reads fed-back Inputs it does not declare: they are read from data | Roll it out with `Loop` or `ModelyLoop`, or declare them. |
 | `was never called on a stream` | A layer object used as a stream: `b + Exp()`, `Output("y", Sin())` | Call it on its streams: `Exp()(b)`. |
 | `reads one stream, got 2` | `Fir` / `Linear` given several streams | Apply one to each, or join them with `Concatenate` / `TimeConcatenate`. |
+| `RecursionError` in Keras' `_build_map_helper` at `build()` | A graph about a thousand layers deep, e.g. a simulation unrolled in Python: Keras builds functional models recursively (nnodely's own walks do not) | Roll the repetition out with `Loop` / `ModelyLoop`, or raise `sys.setrecursionlimit` before `build()` (Python ≥ 3.11 keeps deep Python recursion off the C stack). |
 | `is laid out (...) per timestep, but its dim=(...)` (DataLoader) | An array whose features are laid out neither as `dim` nor flat | Lay it out `(T, *dim)`, or flat `(T, prod(dim))` in row-major order. |
 | `is not an input the body model reads` | A `Loop` bound on a body input its outputs never read | Leave it out of the call. |
 | `is saved without the weights of [...]` (UserWarning at save) | A trained weight read only by the stream a fed-back Input is fed back with, which a `Modely` does not compute | Save the `Loop` or `ModelyLoop` that computes it, or declare that stream among the outputs. |
@@ -781,7 +783,9 @@ src/nnodely/
   core/modelyloop.py     ModelyLoop: one Loop over its step (loop._Step finds the states), the rolled Inputs
   core/minimizer.py      objectives: checks, resolution against the built graph, MinimizerModel (the training model)
   core/export.py         export_keras, import_keras, export_onnx, validate_onnx
-  core/dag.py            name registry (next_name), flatten (inline ModelCalls per call scope: Scope, flatten_fed_back), toposort, stream helpers;
+  core/dag.py            name registry (next_name), flatten (inline ModelCalls per call scope: Scope, flatten_fed_back), toposort, stream helpers -
+                         toposort and flatten_node walk without recursion (an explicit stack; flatten_node runs the steps of each
+                         node, _flatten_steps, a generator, in the order a recursion would), so any depth;
                          picking by name or index (by_name_or_index; pick: a name among (object, index, where)
                          candidates in graph order, ambiguous -> ValueError listing them with the index that picks each;
                          resolve: the one place a user's key - name, index or object - becomes an object, NameNotFound

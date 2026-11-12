@@ -400,3 +400,27 @@ def test_a_file_that_is_not_an_nnodely_2_model_is_refused(tmp_path):
     config.write_text("{ not json")
     with pytest.raises(ValueError, match="not a valid model file"):
         Modely.load(tmp_path / "model")
+
+
+def test_a_model_keeps_its_own_lists_of_inputs_and_outputs():
+    # Once a model kept the very lists it was declared with: one reused for a
+    # second model changed the first, which then returned an output it was
+    # never declared with and read an Input it never declared.
+    a, b = Input("ls_a", tw=3), Input("ls_b", tw=3)
+    inputs = [a]
+    outs = [Output("ls_ya", Fir(features=1)([a]))]
+    m1 = Modely("ls_m1", inputs=inputs, outputs=outs)
+    inputs.append(b)
+    outs.append(Output("ls_yb", Fir(features=1)([b])))  # reused for a second model
+    m2 = Modely("ls_m2", inputs=inputs, outputs=outs)
+
+    m1.build()
+    assert [node.name for node in m1.outputs] == ["ls_ya"]
+    assert [node.name for node in m1.inputs] == ["ls_a"]
+    assert [node.name for node in m1.inference_inputs] == ["ls_a"]
+    window = np.ones((1, 3, 1), np.float32)
+    assert set(m1({"ls_a": window})) == {"ls_ya"}
+
+    m2.build()
+    assert [node.name for node in m2.outputs] == ["ls_ya", "ls_yb"]
+    assert set(m2({"ls_a": window, "ls_b": window})) == {"ls_ya", "ls_yb"}

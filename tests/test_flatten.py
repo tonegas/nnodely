@@ -1,5 +1,9 @@
+import sys
+
 from nnodely import Input, Output, Fir, Modely, Parameter, Constant
+from nnodely.core.dag import toposort
 from nnodely.core.layer import Multiply, Add
+from nnodely.core.stream import Node
 
 
 def test_flatten_1():
@@ -68,3 +72,32 @@ def test_flatten_2():
     m5 = Modely("m5", [g1], [h1, h2])
 
     m5.flatten()
+
+
+def test_toposort_is_depth_first_each_node_after_its_predecessors():
+    # A node shared by two readers is sorted once, before both; each node's
+    # predecessors are visited in their order, and a root already reached
+    # through another adds nothing.
+    a, b, c, d = (Node(f"topo_{n}") for n in "abcd")
+    b._preds = [a]
+    c._preds = [a, b]
+    d._preds = [c, b]
+    assert toposort([d, b]) == [a, b, c, d]
+    assert toposort([b, d]) == [a, b, c, d]
+    e = Node("topo_e", preds=[b, a])
+    assert toposort([e, d]) == [a, b, e, c, d]
+
+
+def test_a_graph_deeper_than_the_recursion_limit_is_sorted_and_flattened():
+    # Sorting and inlining a graph walk it without recursion: a chain deeper
+    # than the recursion limit is declared, sorted and flattened.
+    depth = 3 * sys.getrecursionlimit()
+    x = Input("deep_x", tw=1)
+    stream = x
+    for _ in range(depth):
+        stream = stream + 0.0
+    model = Modely("deep", inputs=[x], outputs=[Output("deep_y", stream)])
+    assert model._order[0] is x and model._order[-1] is model._outputs[0]
+    assert len(model._order) == depth + 3  # the Input, the 0.0, the sums, the Output
+    flat = model.flatten()
+    assert len(flat._order) == len(model._order)

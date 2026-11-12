@@ -11,7 +11,7 @@ from copy import copy
 import keras
 
 from nnodely.core.stream import NODE_NAMES, Node, Stream, reserve_name
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Generator, Sequence
 
 if TYPE_CHECKING:
     from nnodely.core.modely import Modely
@@ -271,6 +271,31 @@ class Scope:
 
 
 def flatten_node(node: Node, scope: Scope) -> Any:
+    """The copy of ``node`` inlined in ``scope``, every model it calls
+    inlined too, each call in a scope of its own (see :class:`Scope`).
+
+    Without recursion: the steps of each node (:func:`_flatten_steps`) ask
+    for the copies of the nodes it reads, and a stack runs the steps of the
+    nodes being copied - in the order a recursion would - so a graph of any
+    depth is inlined."""
+    stack = [_flatten_steps(node, scope)]
+    copied = None
+    while stack:
+        try:
+            wanted = stack[-1].send(copied)
+        except StopIteration as done:
+            stack.pop()
+            copied = done.value
+        else:
+            stack.append(_flatten_steps(*wanted))
+            copied = None
+    return copied
+
+
+def _flatten_steps(node: Node, scope: Scope) -> Generator[tuple[Node, Scope], Any, Any]:
+    """The steps of :func:`flatten_node` for one node: ``yield (pred,
+    scope)`` is the copy of ``pred`` inlined in ``scope``, as a recursive
+    call would give it; the copy of ``node`` is returned."""
     from nnodely.core.modely import IntermediateOutput
     from nnodely.core.layer import Layer
     from nnodely.layers.parameter import _Value
@@ -285,7 +310,7 @@ def flatten_node(node: Node, scope: Scope) -> Any:
         and node not in scope.declared
     ):
         init = Stream._coerce_operand(0.0 if node.init is None else node.init)
-        scope.memo[node] = flatten_node(init, scope)
+        scope.memo[node] = yield (init, scope)
         return scope.memo[node]
     shared = isinstance(node, _Value) or (
         isinstance(node, Input) and (node.update is None or not scope.loop)
@@ -304,10 +329,9 @@ def flatten_node(node: Node, scope: Scope) -> Any:
             # The arguments belong to the calling graph, so they are inlined in
             # the enclosing scope and stay shared between calls; only the
             # bindings they produce are local to this one.
-            arguments = {
-                internal_input: flatten_node(external_input, scope)
-                for internal_input, external_input in model_call._inputs_map.items()
-            }
+            arguments: dict[Node, Any] = {}
+            for internal_input, external_input in model_call._inputs_map.items():
+                arguments[internal_input] = yield (external_input, scope)
             # A fed-back Input the model declares reads its argument as data:
             # at every step in a Modely; in a loop it keeps its feedback, and
             # the argument is its initial value.
@@ -333,12 +357,14 @@ def flatten_node(node: Node, scope: Scope) -> Any:
             scope.calls[model_call] = call_scope
 
         internal_output = model_call._outputs_map[node]
-        flat_output = flatten_node(internal_output, call_scope)
+        flat_output = yield (internal_output, call_scope)
 
         scope.memo[node] = flat_output
         return flat_output
 
-    new_preds = [flatten_node(pred, scope) for pred in node._preds]
+    new_preds = []
+    for pred in node._preds:
+        new_preds.append((yield (pred, scope)))
     new_node = copy(node)
     new_node._preds = new_preds
     if isinstance(new_node, Layer) and not bool(
@@ -476,24 +502,30 @@ def _source_input_tensors(tensor) -> list[Any]:
 # ------------------------------------------------------------------
 def toposort(roots: Sequence[Node]) -> list[Node]:
     """Every node ``roots`` are computed from, the roots included, each
-    after its predecessors: a model's graph is ``toposort(model._outputs)``."""
-    order = []
-    visited = set()
+    after its predecessors: a model's graph is ``toposort(model._outputs)``.
 
-    def dfs(node: Node) -> None:
-        visited.add(node)
-
-        for pred in node._preds:
-            if pred not in visited:
-                dfs(pred)
-        order.append(node)
-
+    A depth-first walk, each node's predecessors in their order, without
+    recursion: a stack holds every node of the path being walked with the
+    predecessors it has left to visit, so a graph of any depth is sorted."""
+    order: list[Node] = []
+    visited: set[Node] = set()
     for root in roots:
         # A root can also feed another one, e.g. a minimizer source that an
         # Output exposes: visiting it again would apply its layer twice.
-        if root not in visited:
-            dfs(root)
-
+        if root in visited:
+            continue
+        visited.add(root)
+        stack = [(root, iter(root._preds))]
+        while stack:
+            node, preds = stack[-1]
+            for pred in preds:
+                if pred not in visited:
+                    visited.add(pred)
+                    stack.append((pred, iter(pred._preds)))
+                    break  # its predecessors first, as a recursion would
+            else:
+                stack.pop()
+                order.append(node)  # after every one of its predecessors
     return order
 
 
