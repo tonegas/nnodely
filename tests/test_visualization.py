@@ -640,4 +640,4 @@ def test_blocks_named_alike_but_for_case_get_a_page_each(tmp_path):
 
     _pages(model, tmp_path)
     pages = sorted(p.name for p in tmp_path.glob("case_model__case_call*.html"))
-    assert pages == ["case_model__case_call-2.html", "case_model__case_call.html"]
+    assert pages == ["case_model__case_call.html", "case_model__case_call_2.html"]

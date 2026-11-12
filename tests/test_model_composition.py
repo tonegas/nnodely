@@ -642,7 +642,7 @@ def test_layers_created_apart_have_their_own_weights_whatever_their_names():
 
     assert model.inference_model is not None
     keras_names = [layer.name for layer in model.inference_model.layers]
-    assert {"twin", "twin_1"} <= set(keras_names)
+    assert {"twin", "twin_2"} <= set(keras_names)
     assert len(keras_names) == len(set(keras_names))
     # Three layers: the two twins, and the one applied twice.
     assert len(model.inference_model.weights) == 3

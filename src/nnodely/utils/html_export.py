@@ -10,6 +10,7 @@ import json
 import shutil
 from html import escape
 from pathlib import Path
+from nnodely.core.dag import free_name
 from nnodely.core.modely import Modely, ModelCall
 from nnodely.core.modelyloop import ModelyLoop
 
@@ -546,9 +547,8 @@ def export_html(
             sub_name = page_files.get((id(model_obj), id(node)))
             if sub_name is None:
                 stem = f"{_slug(page_title)}__{_slug(node.name)}"
-                sub_name, index = f"{stem}.html", 2
-                while sub_name in page_files.values():
-                    sub_name, index = f"{stem}-{index}.html", index + 1
+                stems = {name.removesuffix(".html") for name in page_files.values()}
+                sub_name = free_name(stem, stems) + ".html"
                 page_files[(id(model_obj), id(node))] = sub_name
             sub_title = f"{page_title} :: {node.name}"
             parent_for_child = os.path.relpath(file_path, start=out_path)

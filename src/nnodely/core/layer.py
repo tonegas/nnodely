@@ -7,7 +7,7 @@ from typing import Any
 
 from nnodely.core.shape import Shape, align
 from nnodely.core.stream import Stream
-from nnodely.core.dag import next_name
+from nnodely.core.dag import free_name, next_name
 
 
 def _claim_keras_name(layer, taken: dict[str, Any]) -> None:
@@ -19,10 +19,7 @@ def _claim_keras_name(layer, taken: dict[str, Any]) -> None:
     layer applied several times keeps the one name it has.
     """
     if layer.name in taken and taken[layer.name] is not layer:
-        index = 1
-        while f"{layer.name}_{index}" in taken:
-            index += 1
-        layer.name = f"{layer.name}_{index}"
+        layer.name = free_name(layer.name, taken)
     taken[layer.name] = layer
 
 

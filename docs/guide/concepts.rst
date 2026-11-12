@@ -181,5 +181,5 @@ the training objectives. They must be unique within a model.
 A layer's name does not decide its weights, the layer object does: two layers
 created apart never share weights, even under the same name - a model and its
 reloaded copy, for instance. When two such layers meet in one model, the Keras
-layer of the second takes a suffix (``Fir1_1``), since Keras names the layers
+layer of the second takes a suffix (``Fir1_2``), since Keras names the layers
 of a model uniquely.

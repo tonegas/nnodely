@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from nnodely.core import export, validation
 from nnodely.core.dag import (
+    free_name,
     toposort,
     flatten,
     _flatten_graph,
@@ -393,9 +394,7 @@ class Modely:
                 if exposed in self._outputs:
                     minimizer_outputs[node] = exposed.name
                     continue
-                key, index = exposed.name, 1
-                while key in keys:
-                    key, index = f"{exposed.name}_{index}", index + 1
+                key = free_name(exposed.name, keys)
                 keys.add(key)
                 extra_outputs.append(exposed)
                 extra_keys.append(key)
@@ -1504,11 +1503,8 @@ def _build_apart(model: Modely) -> None:
         taken = set(clash.names)
         try:
             for node in renamed:
-                key, index = node.name, 1
-                while key in taken:
-                    key, index = f"{node.name}_{index}", index + 1
-                taken.add(key)
-                node.name = key
+                node.name = free_name(node.name, taken)
+                taken.add(node.name)
             model.build()
         finally:
             for node, name in renamed.items():
@@ -1535,10 +1531,7 @@ def _rename_hidden_states(model: Modely) -> None:
     taken = {node.name: node for node in inputs if not node._hidden}
     for node in inputs:
         if node._hidden and taken.setdefault(node.name, node) is not node:
-            name, index = node.name, 1
-            while f"{name}_{index}" in taken:
-                index += 1
-            node.name = f"{name}_{index}"
+            node.name = free_name(node.name, taken)
             node._input = keras.Input(shape=node.shape.tuple, name=node.name)
             taken[node.name] = node
 

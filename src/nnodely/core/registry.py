@@ -1,6 +1,7 @@
 import json
 import warnings
 from pathlib import Path
+from nnodely.core.dag import free_name
 from nnodely.core.stream import Node, class_path, registered_class
 
 
@@ -199,9 +200,7 @@ class ModelSerializer:
                 folder = folders.get(id(held))
                 if folder is None:
                     base = held.name if isinstance(node, ModelCall) else node.name
-                    folder, index = base, 1
-                    while folder in folders.values():
-                        folder, index = f"{base}_{index}", index + 1
+                    folder = free_name(base, set(folders.values()))
                     folders[id(held)] = folder
                     if weights and not held.built:
                         # Built for the weights it computes with here - the

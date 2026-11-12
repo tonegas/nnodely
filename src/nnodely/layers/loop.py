@@ -6,6 +6,7 @@ import keras
 from keras.src.backend.common import stateless_scope
 
 from nnodely.core.dag import (
+    free_name,
     _copies,
     Scope,
     _streams_from,
@@ -509,15 +510,6 @@ def _fed_back_across_calls(
     return sorted(found)
 
 
-def _free_name(name: str, taken: set[str]) -> str:
-    """``name``, or the first ``name_<i>`` not in ``taken``."""
-    candidate, index = name, 2
-    while candidate in taken:
-        candidate, index = f"{name}_{index}", index + 1
-    taken.add(candidate)
-    return candidate
-
-
 def _inlined_inputs(scope: Scope) -> dict[int, Input]:
     """The Input every copy of one made inlining a graph stands for, by the
     id of the copy - in ``scope`` and the scope of every call it makes: a
@@ -621,7 +613,7 @@ class _Step:
         renamed = False
         for node in found:
             if node.name in names:
-                node.name = _free_name(node.name, names)
+                node.name = free_name(node.name, names)
                 node._input = keras.Input(shape=node.shape.tuple, name=node.name)
                 renamed = True
             names.add(node.name)
@@ -642,9 +634,9 @@ class _Step:
                 None,
             )
             if output is None:
-                output = Output(
-                    _free_name(f"{node.name}_next", taken), cast(Stream, node.update)
-                )
+                key = free_name(f"{node.name}_next", taken)
+                taken.add(key)
+                output = Output(key, cast(Stream, node.update))
                 body_outputs.append(output)
             used.add(id(output))
             pairs.append((node, output))
