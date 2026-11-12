@@ -845,6 +845,24 @@ def test_a_model_renamed_into_a_clash_is_refused_at_save(tmp_path):
     np.testing.assert_allclose(after, before, rtol=1e-6)
 
 
+def test_a_model_renamed_since_its_build_is_built_again_to_be_exported(tmp_path):
+    # The Keras model keeps the names of its build: exported, two outputs of
+    # one shape could swap their values, as ONNX names were paired by shape.
+    x = Input("ex_x", tw=1)
+    a, b = Output("ex_a", x * 2.0), Output("ex_b", x * 3.0)
+    model = Modely("ex_model", inputs=[x], outputs=[a, b]).build()
+    a.name, x.name = "ex_z", "ex_u"
+    for export in (model.export_keras, model.export_onnx):
+        with pytest.raises(ValueError, match="'ex_a' is now 'ex_z'.*build it again"):
+            export(tmp_path)
+    assert not any(tmp_path.iterdir())
+    model.build().export_keras(tmp_path)
+    exported = keras.saving.load_model(tmp_path / "ex_model.keras")
+    assert isinstance(exported, keras.Model)
+    assert set(exported.output) == {"ex_z", "ex_b"}
+    assert [tensor.name for tensor in exported.inputs] == ["ex_u"]
+
+
 def test_a_block_whose_inputs_share_a_name_is_called_by_position(tmp_path):
     xa, xb = Input("cp_x", tw=1), Input("cp_x", tw=1)
     block = Modely(

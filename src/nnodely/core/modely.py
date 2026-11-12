@@ -314,9 +314,9 @@ class Modely:
             )
 
     def _check_names_built(self) -> None:
-        """Refuse to train or validate on data while an Input or an output
+        """Refuse to train, validate or export while an Input or an output
         has another name than the one it was built with: the data and the
-        training model are keyed by those names."""
+        Keras models are keyed by those names."""
         self._check_inputs_apart(self.train_inputs)
         renamed = [
             f"{key!r} is now {node.name!r}"
@@ -329,8 +329,7 @@ class Modely:
         if renamed:
             raise ValueError(
                 f"Model {self.name!r} was built before some of its names "
-                f"changed - {', '.join(renamed)}: build it again to train or "
-                "validate with them."
+                f"changed - {', '.join(renamed)}: build it again to use them."
             )
 
     def _check_block_input(self, node: Input, stream) -> None:

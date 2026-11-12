@@ -218,7 +218,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   row of the Input it starts from, renamed or not. Input and output
   names stay one per model, the keys of the data: two Inputs of one name are
   refused at build, and renamed alike after it, when the model is run on
-  data, and when the model is saved: loaded, it is built. A block whose
+  data, and when the model is saved: loaded, it is built. A model built
+  before an Input or an output was renamed is built again before it trains,
+  validates or is exported (Keras, ONNX): its Keras model keeps the names of
+  its build. A block whose
   inputs share a name is called with a list, by position,
   or with a dict keyed by the Inputs themselves. A model or a block called
   with a dict resolves every key to its Input at once, as `inputs[...]`
