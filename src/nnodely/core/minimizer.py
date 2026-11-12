@@ -11,7 +11,7 @@ from nnodely.core.layer import Layer
 from nnodely.core.shape import OUTER_AXIS, expand_to_rank, outer_view
 from nnodely.core.stream import Node, Stream
 from nnodely.layers.input import Input
-from nnodely.utils.utils import MaskedLoss, _resolve_loss
+from nnodely.utils.utils import MaskedLoss, _loss_key, _resolve_loss
 
 
 def _depends_on_dynamic_input(node) -> bool:
@@ -118,7 +118,7 @@ class _MinimizerTerm:
         self.masked = masked
         self.loss = MaskedLoss(loss) if masked else loss
         # Logged under the minimizer's name: two minimizers can share a source.
-        self.tracker = keras.metrics.Mean(name=f"{name}_loss")
+        self.tracker = keras.metrics.Mean(name=_loss_key(name))
 
 
 def _rollout_mask(term, target, y):

@@ -53,6 +53,15 @@ def _per_slice_initializer(initializer, draw_shape):
     return initialize
 
 
+def _loss_key(name: str) -> str:
+    """The key Keras logs the loss of the minimizer ``name`` under -
+    ``"val_"`` + it on the validation data. Prefixed, never suffixed: Keras
+    prefixes ``val_`` and logs its totals as ``loss`` and ``val_loss``, so a
+    key starting with ``loss_`` is no total and no validation key, whatever
+    the name - every minimizer's keys are its own, no name is refused."""
+    return f"loss_{name}"
+
+
 def _resolve_loss(
     loss: str | dict[str, Any] | keras.losses.Loss | Callable,
 ) -> keras.losses.Loss | Callable:

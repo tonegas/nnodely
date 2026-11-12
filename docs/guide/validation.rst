@@ -10,7 +10,7 @@ Validation
 a dataset, the way training evaluates it: the same forward pass (layers such as
 ``BatchNorm`` take their inference branch), the same target, aligned with the
 prediction as training aligns it, and the same padding mask. Its loss is the
-one :meth:`~nnodely.Modely.train` logs as ``val_<objective>_loss`` for the same
+one :meth:`~nnodely.Modely.train` logs as ``val_loss_<objective>`` for the same
 data. Next to it come the indicators a system-identification report is read
 for, with :math:`e = \hat y - y`:
 

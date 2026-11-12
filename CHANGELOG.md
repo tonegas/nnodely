@@ -425,8 +425,10 @@ variable, and trains, validates and exports through Keras. Models saved with
 - A layer is identified by the Python object it comes from: applying one layer
   object several times shares its weights, and layers created apart never
   share them, whatever their names.
-- Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
-  history, each batch weighing as many samples as it holds, as Keras weighs
+- Each minimizer logs its loss as `"loss_<minimizer name>"` in the training
+  history - `"val_loss_<minimizer name>"` on the validation data - so no
+  name clashes with Keras's totals `"loss"` and `"val_loss"` or with another
+  minimizer's keys, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
 - The `.nnodely` save format is version 14: a model is saved with every
   model it calls in a folder of its own, a fed-back Input with the stream it

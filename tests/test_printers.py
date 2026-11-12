@@ -49,8 +49,8 @@ def test_legacy_printer_draws_the_loss_table(capsys):
     printer.on_epoch_end(
         59,
         {
-            "curv_error_loss": 2.099e-06,
-            "val_curv_error_loss": 1.226e-06,
+            "loss_curv_error": 2.099e-06,
+            "val_loss_curv_error": 1.226e-06,
             "loss": 2.099e-06,
             "val_loss": 1.226e-06,
         },
@@ -74,7 +74,7 @@ def test_legacy_printer_keeps_the_row_count_bounded(capsys):
     printer = LegacyPrinter(epochs=1000, minimizers=["a"], max_rows=10)
     printer.on_train_begin()
     for epoch in range(1000):
-        printer.on_epoch_end(epoch, {"loss": 1.0, "a_loss": 1.0})
+        printer.on_epoch_end(epoch, {"loss": 1.0, "loss_a": 1.0})
     printer.on_train_end()
 
     rows = _rows(capsys.readouterr().out)
@@ -94,14 +94,31 @@ def test_legacy_printer_always_prints_the_final_epoch(capsys):
     assert [row[0] for row in _rows(capsys.readouterr().out)] == ["3/7", "6/7", "7/7"]
 
 
-def test_legacy_printer_falls_back_to_the_total_loss(capsys):
-    ## A minimizer missing from the logs mirrors the total loss
+def test_legacy_printer_leaves_a_loss_it_is_not_given_blank(capsys):
+    ## A minimizer missing from the logs is blank: once it showed the total
     printer = LegacyPrinter(epochs=1, minimizers=["only"])
     printer.on_train_begin()
     printer.on_epoch_end(0, {"loss": 0.25})
 
     (row,) = _rows(capsys.readouterr().out)
-    assert row[1:] == ["0.25", "-", "0.25", "-"]
+    assert row[1:] == ["-", "-", "0.25", "-"]
+
+
+def test_the_nnodely_printer_bolds_the_total_not_a_minimizer_named_total(monkeypatch):
+    # The total is the last row, found by its place: a minimizer named
+    # "Total" was once bold as well.
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    stream = io.StringIO()
+    printer = NNodelyPrinter(epochs=1, minimizers=["Total"], stream=stream)
+    printer.on_train_begin()
+    printer.on_epoch_end(0, {"loss": 1.0, "loss_Total": 0.5})
+    printer.on_train_end()
+
+    # Each repaint draws the row of the minimizer, plain, then the total, bold:
+    # the two coloured "Total" of a frame.
+    rows = re.findall(r";\d+m(\x1b\[1m)?Total", stream.getvalue())
+    assert rows and [bool(bold) for bold in rows] == [False, True] * (len(rows) // 2)
 
 
 def test_legacy_printer_columns_stay_aligned_for_wide_values(capsys):
@@ -133,7 +150,7 @@ def test_legacy_printer_is_coloured_where_the_tables_are(capsys, monkeypatch):
         printer = LegacyPrinter(epochs=2, minimizers=["a"])
         printer.on_train_begin()
         for epoch in range(2):
-            printer.on_epoch_end(epoch, {"loss": 1.0, "a_loss": 1.0})
+            printer.on_epoch_end(epoch, {"loss": 1.0, "loss_a": 1.0})
         printer.on_train_end()
         return capsys.readouterr().out
 
@@ -204,7 +221,7 @@ def test_nnodely_printer_arms_the_cursor_restore_only_while_training(monkeypatch
 
     for _ in range(2):
         printer.on_train_begin()
-        printer.on_epoch_end(0, {"loss": 1.0, "a_loss": 1.0})
+        printer.on_epoch_end(0, {"loss": 1.0, "loss_a": 1.0})
         printer.on_train_end()
 
     assert len(registered) == 2
@@ -221,7 +238,7 @@ def test_a_loss_that_is_not_finite_is_drawn_not_raised(losses):
     # train() on a terminal.
     from nnodely.utils.printers import _Channel
 
-    channel = _Channel("fit", "fit_loss", span=10)
+    channel = _Channel("fit", "loss_fit", span=10)
     for loss in losses:
         channel.push(loss, None)
     assert isinstance(channel.sparkline(10), str)
@@ -349,7 +366,7 @@ def test_the_nnodely_printer_redraws_one_output_in_a_notebook(monkeypatch):
     printer = NNodelyPrinter(epochs=3, minimizers=["a"])
     printer.on_train_begin()
     for epoch in range(3):
-        printer.on_epoch_end(epoch, {"loss": 1.0 / (epoch + 1), "a_loss": 1.0})
+        printer.on_epoch_end(epoch, {"loss": 1.0 / (epoch + 1), "loss_a": 1.0})
     printer.on_train_end()
 
     # Every frame in one output, in colour, the last one the finished run.

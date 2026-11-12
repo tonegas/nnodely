@@ -180,8 +180,10 @@ with the optimizer, it can be given three ways:
 - a **callback**: a configured ``keras.callbacks.EarlyStopping``, or one of
   your own that sets ``self.model.stop_training = True``.
 
-The quantities are ``"loss"``, the total, and ``"<objective>_loss"`` for each
-objective, each with a ``val_`` version when ``val_data`` is given. Monitoring
+The quantities are ``"loss"``, the total, and ``"loss_<objective>"`` for each
+objective, each with a ``val_`` version when ``val_data`` is given: the total
+validation loss is ``"val_loss"``, an objective's ``"val_loss_<objective>"``.
+Every objective's keys are its own, whatever its name. Monitoring
 a quantity that is not logged raises, rather than training to the end.
 
 .. code-block:: python
@@ -203,7 +205,7 @@ a quantity that is not logged raises, rather than training to the end.
        """Stop once the objective's loss falls below a level."""
 
        def on_epoch_end(self, epoch, logs=None):
-           if logs["one_step_loss"] < 1e-4:
+           if logs["loss_one_step"] < 1e-4:
                self.model.stop_training = True
 
 

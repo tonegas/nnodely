@@ -28,6 +28,7 @@ from nnodely.core.minimizer import (
 )
 from nnodely.core.validation import ValidationResult
 from nnodely.utils.utils import (
+    _loss_key,
     _resolve_early_stopping,
     _resolve_loss,
     _resolve_optimizer,
@@ -73,7 +74,8 @@ class Modely:
         self._order = toposort(outputs)
         # Read as an output, or bound to a Loop, it passed no layer call.
         _refuse_uncalled(self._order)
-        undeclared = sorted({node.name for node in _undeclared_inputs(inputs, outputs)})
+        # One entry per Input: two of one name are listed twice.
+        undeclared = sorted(node.name for node in _undeclared_inputs(inputs, outputs))
         if undeclared:
             raise ValueError(
                 f"Model {name!r} reads the Inputs {undeclared}, which are not "
@@ -687,26 +689,12 @@ class Modely:
         """Refuse ``name`` for a minimizer beside the minimizers ``others``."""
         if not isinstance(name, str) or not name:
             raise ValueError(f"A minimizer name is a non-empty string, got {name!r}.")
+        # Its loss is logged under a key of its name, loss_<name>, which no
+        # other name and no total of Keras can have: only the name is checked.
         if any(other["name"] == name for other in others):
             raise ValueError(
                 f"Model {self.name!r} has a minimizer named {name!r} already: "
                 "each minimizer has a name of its own, the key of its loss."
-            )
-        # The validation loss of minimizer x is logged as val_x_loss, which is
-        # also the training loss of a minimizer named val_x.
-        clash = next(
-            (
-                other["name"]
-                for other in others
-                if other["name"] in (f"val_{name}", name.removeprefix("val_"))
-            ),
-            None,
-        )
-        if clash is not None:
-            raise ValueError(
-                f"Minimizers {name!r} and {clash!r} cannot both be declared: the "
-                "validation loss of one is logged under the training loss name "
-                "of the other."
             )
 
     def _set_minimizer(self, minimizer: dict, key: str, value):
@@ -1134,7 +1122,7 @@ class Modely:
         dict of its arguments; or a callback instance - a configured
         ``keras.callbacks.EarlyStopping``, or a callback of your own that sets
         ``self.model.stop_training = True``. The quantities are ``"loss"``, the
-        total, and ``"<minimizer name>_loss"``, each with a ``val_`` version
+        total, and ``"loss_<minimizer name>"``, each with a ``val_`` version
         when ``val_data`` is given; monitoring one that is not logged raises.
         For example ``early_stopping="val_loss",
         early_stopping_kwargs={"patience": 10, "restore_best_weights": True}``.
@@ -1173,7 +1161,7 @@ class Modely:
         resolved_optimizer = _resolve_optimizer(optimizer, lr, optimizer_kwargs)
         logged = [
             "loss",
-            *(f"{minimizer['name']}_loss" for minimizer in self._minimizers),
+            *(_loss_key(minimizer["name"]) for minimizer in self._minimizers),
         ]
         if val_data is not None:
             logged += [f"val_{name}" for name in logged]

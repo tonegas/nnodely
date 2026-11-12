@@ -562,15 +562,16 @@ def test_a_minimizer_is_renamed_through_minimizers():
     assert model.minimizers["rn_track"]["source"] is y
     with pytest.raises(KeyError, match="no minimizer named 'rn_fit'"):
         model.minimizers["rn_fit"]
-    # Each name its own, and the validation names apart.
+    # Each name its own; a name like another's validation key is no clash,
+    # its loss is logged as loss_val_rn_other, that one's as val_loss_rn_other.
     with pytest.raises(ValueError, match="has a minimizer named 'rn_other' already"):
         model.minimizers["rn_track"]["name"] = "rn_other"
-    with pytest.raises(ValueError, match="cannot both be declared"):
-        model.minimizers["rn_track"]["name"] = "val_rn_other"
+    model.minimizers["rn_track"]["name"] = "val_rn_other"
+    model.minimizers["val_rn_other"]["name"] = "rn_track"
     # The loss is logged under the new name from the next train.
     data = DataLoader(model, {"rn_x": np.arange(8.0), "rn_t": np.arange(8.0)})
     history = model.train(data, epochs=1, printer=None)
-    assert "rn_track_loss" in getattr(history, "history", history)
+    assert "loss_rn_track" in getattr(history, "history", history)
 
 
 def test_a_loop_body_renamed_after_the_loop_still_rolls_out(tmp_path):
@@ -1003,3 +1004,11 @@ def test_a_loop_tells_a_state_inside_a_block_by_object():
     loop = Loop(f=body)
     with pytest.raises(ValueError, match="'is_s' is fed back: give its initial value"):
         loop({s: Input("is_pushes", seq=3, tw=1)})
+
+
+def test_two_undeclared_inputs_of_one_name_are_both_listed():
+    # The check is by object; the message once listed a set of names, so two
+    # Inputs of one name read as one.
+    first, second = Input("und_x", tw=1), Input("und_x", tw=1)
+    with pytest.raises(ValueError, match=r"reads the Inputs \['und_x', 'und_x'\]"):
+        Modely("und_model", inputs=[], outputs=[Output("und_y", first + second)])

@@ -18,6 +18,8 @@ from typing import Any, Sequence
 
 import keras
 
+from nnodely.utils.utils import _loss_key
+
 #: Width of one loss cell, and of the epoch column. A cell holds a number
 #: formatted as ``.4g``, which is at most 9 characters wide for the exponents
 #: a loss realistically reaches.
@@ -146,7 +148,7 @@ class LegacyPrinter(keras.callbacks.Callback):
         Total number of epochs, used for the stride and the ``n/total`` label.
     minimizers:
         The minimizers' names, in column order: each logs its loss under
-        ``"<name>_loss"``.
+        ``"loss_<name>"``.
     max_rows:
         Upper bound on the number of printed rows.
     """
@@ -249,11 +251,12 @@ class LegacyPrinter(keras.callbacks.Callback):
         ]
 
     def _row(self, epoch: int, logs: dict[str, Any]) -> str:
-        keys = [f"{name}_loss" for name in self._minimizers] + ["loss"]
+        keys = [_loss_key(name) for name in self._minimizers] + ["loss"]
         cells = [f"{epoch + 1}/{self._epochs}"]
         for key in keys:
-            cells.append(_format(logs.get(key, logs.get("loss"))))
-            cells.append(_format(logs.get(f"val_{key}", logs.get("val_loss"))))
+            # A loss training does not log is left blank, never filled in.
+            cells.append(_format(logs.get(key)))
+            cells.append(_format(logs.get(f"val_{key}")))
         return _box_row(cells, self._widths, "│")
 
 
@@ -674,7 +677,7 @@ class NNodelyPrinter(keras.callbacks.Callback):
         self._spark = max(10, min(28, self._width - 62))
 
         self._channels = [
-            _Channel(name, f"{name}_loss", self._spark) for name in minimizers
+            _Channel(name, _loss_key(name), self._spark) for name in minimizers
         ] + [_Channel("Total", "loss", self._spark)]
 
         self._start_time = 0.0
@@ -719,8 +722,8 @@ class NNodelyPrinter(keras.callbacks.Callback):
         total = logs.get("loss")
         for channel in self._channels:
             channel.push(
-                logs.get(channel.key, logs.get("loss")),
-                logs.get(f"val_{channel.key}", logs.get("val_loss")),
+                logs.get(channel.key),
+                logs.get(f"val_{channel.key}"),
             )
 
         # The machine works harder the faster the loss is falling: one epoch's
@@ -907,7 +910,9 @@ class NNodelyPrinter(keras.callbacks.Callback):
 
             line = _Line().add("  ")
             line.add(
-                f"{channel.name[:14]:<14}", _BRAND[1], bold=channel.name == "Total"
+                f"{channel.name[:14]:<14}",
+                _BRAND[1],
+                bold=channel is self._channels[-1],
             )
             line.raw(channel.sparkline(self._spark), self._spark)
             line.add("  train ", _STEEL).add(f"{_format(train).strip():>10}", _BONE)

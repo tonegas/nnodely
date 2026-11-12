@@ -56,11 +56,11 @@ def test_a_minimizer_validation_loss_can_be_monitored():
         epochs=50,
         batch_size=16,
         printer=None,
-        early_stopping="val_fit_loss",
+        early_stopping="val_loss_fit",
         early_stopping_kwargs={"patience": 1, "min_delta": NEVER_BETTER},
     )
 
-    assert len(history["val_fit_loss"]) == 2
+    assert len(history["val_loss_fit"]) == 2
 
 
 def test_a_configuration_builds_keras_early_stopping():
@@ -72,7 +72,7 @@ def test_a_configuration_builds_keras_early_stopping():
         batch_size=16,
         printer=None,
         early_stopping={
-            "monitor": "fit_loss",
+            "monitor": "loss_fit",
             "patience": 1,
             "min_delta": NEVER_BETTER,
         },
@@ -131,10 +131,10 @@ def test_a_custom_callback_stops_training_when_it_says_so():
         batch_size=16,
         lr=0.05,
         printer=None,
-        early_stopping=StopBelow("fit_loss", 1e-3),
+        early_stopping=StopBelow("loss_fit", 1e-3),
     )
 
-    losses = history["fit_loss"]
+    losses = history["loss_fit"]
     assert len(losses) < 500
     assert losses[-1] < 1e-3
     assert all(loss >= 1e-3 for loss in losses[:-1])

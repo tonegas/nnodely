@@ -555,7 +555,7 @@ def test_validate_reports_the_loss_train_reports_on_the_same_data():
     score = model.validate(data, verbose=False)["rollout"]
 
     assert score.metrics["loss"] == pytest.approx(
-        history["val_rollout_loss"][0], rel=1e-5
+        history["val_loss_rollout"][0], rel=1e-5
     )
 
 
@@ -579,8 +579,8 @@ def test_a_short_last_batch_weighs_only_its_samples():
     loss = model.validate(data, verbose=False)["tracking"].metrics["loss"]
 
     expected = np.mean((values - values**2) ** 2)
-    assert history["tracking_loss"][0] == pytest.approx(expected, rel=1e-5)
-    assert history["val_tracking_loss"][0] == pytest.approx(expected, rel=1e-5)
+    assert history["loss_tracking"][0] == pytest.approx(expected, rel=1e-5)
+    assert history["val_loss_tracking"][0] == pytest.approx(expected, rel=1e-5)
     assert history["val_loss"][0] == pytest.approx(expected, rel=1e-5)
     assert loss == pytest.approx(expected, rel=1e-5)
 

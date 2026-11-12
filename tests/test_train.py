@@ -1303,7 +1303,7 @@ def test_train_refuses_arguments_it_cannot_use():
     with pytest.raises(TypeError, match="train_data is a DataLoader"):
         model.train({"args_x": np.ones((4, 1, 1))}, printer=None)  # type: ignore[arg-type]
 
-    # The validation loss of args_fit is logged as val_args_fit_loss, the
-    # training loss of a minimizer named val_args_fit.
-    with pytest.raises(ValueError, match="cannot both be declared"):
-        model.minimize("val_args_fit", out, y)
+    # A name like another's validation key is no clash: the losses are logged
+    # as loss_val_args_fit and val_loss_args_fit.
+    model.minimize("val_args_fit", out, y)
+    model.remove_minimizer("val_args_fit")
