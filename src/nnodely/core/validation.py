@@ -21,7 +21,7 @@ from typing import Any
 import keras
 import numpy as np
 
-from nnodely.core.names import resolve
+from nnodely.core.names import Table
 from nnodely.core.minimizer import (
     MinimizerModel,
     _resolve_minimizer_terms,
@@ -253,37 +253,35 @@ def _cell(value: float, spec: str) -> str:
     return f"{'n/a' if value != value else spec.format(value):>{_COLUMN}}"
 
 
-@dataclass
-class ValidationResult:
-    """Everything one call to :meth:`Modely.validate` produced."""
+class ValidationResult(Table):
+    """Everything one call to :meth:`Modely.validate` produced: a list of
+    :class:`SignalScore`, one per minimizer in the order the model listed
+    them, picked as the other tables are, by the name or the index the
+    minimizer had when validated - a snapshot, which a later rename or
+    removal leaves as it is. ``model`` is the model's name, ``samples`` the
+    samples scored, ``figures`` the files written and ``history`` the
+    training history drawn."""
 
-    model: str
-    samples: int
-    signals: dict[str, SignalScore]
-    figures: list[str]
-    history: dict[str, Any] | None = None
+    _kind, _attr, _title = "minimizer", "result", "ValidationResult"
 
-    def __getitem__(self, name: str | int) -> SignalScore:
-        """The score of a minimizer by its name, or by its index - its row in
-        :attr:`Modely.minimizers`."""
-        return resolve(
-            name,
-            [(score, index, "") for index, score in enumerate(self.signals.values())],
-            kind="minimizer",
-            owner="ValidationResult",
-            hint="Pick one by its index, result[i].",
-            indices=True,
-        )
-
-    def __iter__(self):
-        return iter(self.signals)
-
-    def __len__(self) -> int:
-        return len(self.signals)
+    def __init__(
+        self,
+        scores: list[SignalScore],
+        *,
+        model: str,
+        samples: int,
+        figures: list[str] | None = None,
+        history: dict[str, Any] | None = None,
+    ):
+        super().__init__(scores)
+        self.model = model
+        self.samples = samples
+        self.figures = figures or []
+        self.history = history
 
     def metrics(self) -> dict[str, dict[str, float]]:
         """Every score as plain numbers, for asserting on or logging."""
-        return {name: dict(s.metrics) for name, s in self.signals.items()}
+        return {score.name: dict(score.metrics) for score in self}
 
     def summary(self) -> str:
         width = 80
@@ -291,9 +289,9 @@ class ValidationResult:
         lines = [" nnodely Validation ".center(width, "=")]
         lines.append(f"{'Model:':<{label}}{self.model}")
         lines.append(f"{'Samples:':<{label}}{self.samples}")
-        lines.append(f"{'Minimizers:':<{label}}{len(self.signals)}")
+        lines.append(f"{'Minimizers:':<{label}}{len(self)}")
 
-        for score in self.signals.values():
+        for score in self:
             lines.append("-" * width)
             lines.append(f"{score.name}   ({score.source} vs {score.target})")
             lines.append(
@@ -426,27 +424,25 @@ def validate(
     x_data, mask = model._training_arrays(val_data)
     compared = _evaluate(model, terms, x_data, mask, n_samples)
 
-    signals = {}
-    for minimizer, term, (loss_value, y_pred, y_true, valid) in zip(
-        model._minimizers, terms, compared
-    ):
-        signals[term.name] = score_signal(
-            name=term.name,
-            source=minimizer["source"].name,
-            target=minimizer["target"].name,
-            y_true=y_true,
-            y_pred=y_pred,
-            valid=valid,
-            dim_rank=minimizer["source"].shape.dim_rank,
-            loss=loss_name(minimizer["loss"]),
-            loss_value=loss_value,
-        )
-
     result = ValidationResult(
+        [
+            score_signal(
+                name=term.name,
+                source=minimizer["source"].name,
+                target=minimizer["target"].name,
+                y_true=y_true,
+                y_pred=y_pred,
+                valid=valid,
+                dim_rank=minimizer["source"].shape.dim_rank,
+                loss=loss_name(minimizer["loss"]),
+                loss_value=loss_value,
+            )
+            for minimizer, term, (loss_value, y_pred, y_true, valid) in zip(
+                model._minimizers, terms, compared
+            )
+        ],
         model=model.name,
         samples=n_samples,
-        signals=signals,
-        figures=[],
         history=history,
     )
     if out_dir is not None or show:

@@ -91,8 +91,9 @@ The model below is trained on part of a signal and validated on the rest:
    result = model.validate(val_data, out_dir="validation", history=history)
 
 ``validate`` prints a summary and returns a
-:class:`~nnodely.core.validation.ValidationResult`. The result can be indexed by
-objective name, and ``metrics()`` returns every number as a plain dictionary.
+:class:`~nnodely.core.validation.ValidationResult`: the list of the scores, one
+per objective, indexed by objective name or by position as the other tables
+are, and ``metrics()`` returns every number as a plain dictionary.
 The keys are ``loss``, ``rmse``, ``mae``, ``max_error``, ``bias``,
 ``std_error``, ``nrmse_pct``, ``fit_pct``, ``r2``, ``vaf_pct``,
 ``correlation`` and ``non_finite`` (the count of NaN or infinite errors). Each
@@ -114,7 +115,8 @@ The summary gives each channel a column when a signal has up to three.
 Plots
 -----
 
-With ``out_dir``, the figures are saved as PNG files named after the model.
+With ``out_dir``, the figures are saved as PNG files named after the model and,
+for an objective, its index and its name: ``filter_0_response.png``.
 There is one figure per objective, with the prediction against the target and
 the error over the scored points, a parity plot and the error distribution,
 plus the RMSE along the rollout for a signal that has one. A second

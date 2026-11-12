@@ -223,9 +223,13 @@ def render(
     """Draw every figure, save it when asked, and return the paths written."""
     import matplotlib.pyplot as plt
 
-    figures: list[tuple[str, Any]] = []
-    for name, score in result.signals.items():
-        figures.append((name, figure_signal(score)))
+    # A file per minimizer is named by its index and its name: the index
+    # keeps apart names alike once slugged - "a b" and "a_b", "Fit" and "fit"
+    # on a file system blind to case - and keeps them from the history's.
+    figures: list[tuple[str, Any]] = [
+        (f"{index}_{_slug(score.name)}", figure_signal(score))
+        for index, score in enumerate(result)
+    ]
     if result.history:
         history_figure = figure_history(result.history)
         if history_figure is not None:
@@ -235,9 +239,7 @@ def render(
     if out_dir is not None:
         os.makedirs(out_dir, exist_ok=True)
         for name, figure in figures:
-            path = os.path.join(
-                str(out_dir), f"{_slug(result.model)}_{_slug(name)}.png"
-            )
+            path = os.path.join(str(out_dir), f"{_slug(result.model)}_{name}.png")
             figure.savefig(path, dpi=150, bbox_inches="tight")
             saved.append(path)
 
