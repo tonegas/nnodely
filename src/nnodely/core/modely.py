@@ -655,23 +655,6 @@ class Modely:
         self._minimizers.append(minimizer)
         return self
 
-    def remove_minimizer(self, name: str | int):
-        """Remove a registered minimizer by name, or by its index in
-        :attr:`minimizers`; an unknown name only warns."""
-        try:
-            picked = self.minimizers[name]
-        except NameNotFound:
-            warnings.warn(
-                f"Model {self.name!r} has no minimizer named {name!r}: nothing "
-                "was removed.",
-                UserWarning,
-                stacklevel=2,
-            )
-            return
-        rows = picked if isinstance(picked, list) else [picked]
-        removed = {id(row._minimizer) for row in rows}
-        self._minimizers = [m for m in self._minimizers if id(m) not in removed]
-
     def _check_minimizer_name(self, name, others: list[dict]) -> None:
         """Refuse ``name`` for a minimizer beside the minimizers ``others``."""
         if not isinstance(name, str) or not name:
@@ -687,6 +670,11 @@ class Modely:
     def _set_minimizer(self, minimizer: dict, key: str, value):
         """Set the name, loss or gain - ``key`` - of ``minimizer``, one of
         the model's, checked as :meth:`minimize` checks it."""
+        if not any(m is minimizer for m in self._minimizers):
+            raise ValueError(
+                f"Minimizer {minimizer['name']!r} was removed from model "
+                f"{self.name!r}: declare it again with minimize()."
+            )
         if key == "name":
             self._check_minimizer_name(
                 value, [m for m in self._minimizers if m is not minimizer]
@@ -1413,7 +1401,8 @@ class Minimizer(Mapping):
     renamed, or ``m["name"] = "fit_y"`` - changes the minimizer in its model,
     checked as :meth:`Modely.minimize` checks them, from the next
     :meth:`Modely.train`. What it compares is set by :meth:`Modely.minimize`;
-    anything else set raises rather than being lost."""
+    anything else set raises rather than being lost. :meth:`remove` removes
+    it from its model, ``model.minimizers["fit"].remove()``."""
 
     _SETTABLE = ("name", "loss", "gain")
     # No attribute of its own to set: one set by mistake would be lost.
@@ -1445,6 +1434,12 @@ class Minimizer(Mapping):
 
     def __repr__(self):
         return repr({**self._minimizer, "model": self._model})
+
+    def remove(self) -> None:
+        """Remove this minimizer from its model: :meth:`Modely.train` no
+        longer minimizes it."""
+        model = self._model
+        model._minimizers = [m for m in model._minimizers if m is not self._minimizer]
 
     def __setitem__(self, key, value):
         if key not in self._SETTABLE:

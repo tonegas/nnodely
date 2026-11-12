@@ -758,9 +758,9 @@ def test_a_minimizer_is_renamed_as_any_object():
     with pytest.raises(AttributeError):
         model.minimizers[0].colour  # type: ignore[attr-defined]
     # Removed by name or by index.
-    model.remove_minimizer(1)
+    model.minimizers[1].remove()
     assert [row.name for row in model.minimizers] == ["all_track"]
-    model.remove_minimizer("all_track")
+    model.minimizers["all_track"].remove()
     assert list(model.minimizers) == []
 
 

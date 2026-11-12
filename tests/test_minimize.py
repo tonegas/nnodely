@@ -347,26 +347,34 @@ def test_minimize_rejects_an_unknown_loss():
 # -----------------------------------------------------------------------------
 
 
-def test_remove_minimizer_keeps_the_others_in_order():
+def test_a_removed_minimizer_leaves_the_others_in_order():
     x, _, _, out = _gain_model()
     model = Modely("model", inputs=[x], outputs=[out])
     model.minimize("a", out, 1.0)
     model.minimize("b", out, 2.0)
     model.minimize("c", out, 3.0)
 
-    model.remove_minimizer("b")
+    model.minimizers["b"].remove()
 
     assert [m["name"] for m in model._minimizers] == ["a", "c"]
 
 
-def test_remove_minimizer_with_an_unknown_name_warns_and_changes_nothing():
+def test_a_minimizer_is_removed_once_picked_and_is_then_gone():
     x, _, _, out = _gain_model()
     model = Modely("model", inputs=[x], outputs=[out])
     model.minimize("a", out, 1.0)
 
-    with pytest.warns(UserWarning, match="'missing'"):
-        model.remove_minimizer("missing")
+    # An unknown name picks nothing, as in every table: nothing is removed.
+    with pytest.raises(KeyError, match=r"no minimizer named 'missing'.*\['a'\]"):
+        model.minimizers["missing"].remove()
     assert [m["name"] for m in model._minimizers] == ["a"]
+    # Removed, the row picked before is no longer the model's: setting it
+    # would be lost, so it raises.
+    picked = model.minimizers["a"]
+    picked.remove()
+    assert list(model.minimizers) == []
+    with pytest.raises(ValueError, match="'a' was removed from model 'model'"):
+        picked.gain = 2.0
 
 
 def test_a_removed_name_can_be_registered_again():
@@ -374,7 +382,7 @@ def test_a_removed_name_can_be_registered_again():
     model = Modely("model", inputs=[x], outputs=[out])
     model.minimize("error", out, 1.0)
 
-    model.remove_minimizer("error")
+    model.minimizers["error"].remove()
     model.minimize("error", out, 2.0)
 
     [minimizer] = model._minimizers
@@ -388,7 +396,7 @@ def test_train_after_removing_every_minimizer_raises():
     model.build()
     data = _load(model)
 
-    model.remove_minimizer("error")
+    model.minimizers["error"].remove()
 
     with pytest.raises(ValueError, match="No minimizers"):
         model.train(train_data=data, epochs=1, printer=None)
@@ -842,7 +850,7 @@ def test_a_removed_minimizer_no_longer_trains_its_weights(rebuild):
     model.minimize("removed_error", removed, 10.0)
     model.build()
 
-    model.remove_minimizer("removed_error")
+    model.minimizers["removed_error"].remove()
     if rebuild:
         model.build()
     _fit(model, _proportional_data(model), epochs=300, lr=0.2, **CONVERGED)
@@ -858,7 +866,7 @@ def test_removed_minimizer_is_not_validated():
     model.minimize("kept", out, y)
     model.minimize("removed", out, 3.0)
     model.build()
-    model.remove_minimizer("removed")
+    model.minimizers["removed"].remove()
     data = _load(model)
 
     losses = _validation_losses(model, data)
@@ -1158,8 +1166,8 @@ def test_a_model_ignores_the_minimizers_of_a_block_it_calls():
 
     # The block keeps its own; the model has none of the block's to remove.
     assert [row["name"] for row in body.minimizers] == ["fit", "track"]
-    with pytest.warns(UserWarning, match="nothing was removed"):
-        top.remove_minimizer("ign_body.fit")
+    with pytest.raises(KeyError, match="no minimizer named 'ign_body.fit'"):
+        top.minimizers["ign_body.fit"].remove()
 
 
 def test_setting_a_listed_minimizer_changes_it_in_the_model():

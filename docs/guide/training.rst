@@ -56,8 +56,8 @@ The **target** is one of:
 
 The **loss** is anything Keras accepts: a name (``"mse"``, ``"mae"``,
 ``"huber"``, ...), a ``keras.losses.Loss`` instance, or a callable
-``loss(y_true, y_pred)``. :meth:`~nnodely.Modely.remove_minimizer` removes an
-objective by name.
+``loss(y_true, y_pred)``. ``model.minimizers["name"].remove()`` removes an
+objective, picked by its name or its index as in every table.
 
 The weights of ``Fir``, ``Linear``, ``PReLU`` and ``BatchNorm`` are
 :class:`~nnodely.Parameter` objects like any other, so freezing is done on

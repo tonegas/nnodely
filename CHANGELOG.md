@@ -208,8 +208,8 @@ variable, and trains, validates and exports through Keras. Models saved with
   in a block, the copy of its state each call makes (one per call in a Loop
   or ModelyLoop);
   `model.minimizers["fit"].name = "track"` renames a minimizer, as any
-  object is renamed; `remove_minimizer` and a `validate` result take a name
-  or an index. Training
+  object is renamed, and removed by its row, `.remove()`; a `validate`
+  result takes a name or an index. Training
   and validation ask for a new `build()` after an Input or output is
   renamed. Two calls of one block, or a stream named like an output, are
   minimized apart; HTML graphs draw every node and
@@ -470,8 +470,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   `DataLoader.dataset` and the settings a layer keeps, such as `Loop.f` or
   `Linear.features`. `Modely.minimizers` is the table of the minimizers (see
   Added): in 2.0.0 it was the list the model trains on. Its rows set the
-  gain and loss of a minimizer; `minimize` declares one and
-  `remove_minimizer` removes one.
+  gain and loss of a minimizer; `minimize` declares one and its row
+  removes it, `model.minimizers["fit"].remove()` (`remove_minimizer` is
+  gone: an unknown name now raises, as in every table, where it only
+  warned).
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
 
@@ -491,7 +493,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `model = nnodely()` and `model.addModel("name", outputs)` | `model = Modely("name", inputs=[...], outputs=[...])` |
 | `model.neuralizeModel(sample_time)` | `model.build()`; blocks that need a time step take it (`dt=`) |
 | `model.addMinimize(name, a, b, loss_function=...)` | `model.minimize(name, source, target, loss=...)`: the prediction first |
-| `model.removeMinimize(name)` | `model.remove_minimizer(name)` |
+| `model.removeMinimize(name)` | `model.minimizers[name].remove()` |
 | `model.loadData(name, source)` | `data = DataLoader(model, source=...)` |
 | `model.trainModel(...)` | `model.train(data, val_data=..., epochs=..., batch_size=..., lr=...)` |
 | `model.analyzeModel(...)`, performance reports | `model.validate(data)` |

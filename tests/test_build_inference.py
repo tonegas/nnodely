@@ -367,7 +367,7 @@ def test_a_build_that_fails_leaves_the_model_as_it_was():
         model.build()
     assert state() == built
 
-    model.remove_minimizer("clash")
+    model.minimizers["clash"].remove()
     data = DataLoader(
         model,
         source={"failed_build_y": np.zeros(12), "failed_build_target": np.zeros(12)},

@@ -95,7 +95,7 @@ def test_train_basic():
     )  # Check if the model output has changed after training, indicating that training had an effect
 
     # ------ Remove minimizer and retrain with multi loss -------
-    model1.remove_minimizer("error")
+    model1.minimizers["error"].remove()
     model1.minimize(
         "error_fir_x",
         source=x_fir,
@@ -110,7 +110,7 @@ def test_train_basic():
     model1.train(train_data=data_train, epochs=60, batch_size=4, **CONVERGED)
 
     # ------ Remove one minimizer and retrain with a constant value -------
-    model1.remove_minimizer("error_fir_y")
+    model1.minimizers["error_fir_y"].remove()
     model1.minimize(
         "error_fir_y", source=y_fir, target=3.0, loss="mse"
     )  ## this will minimize the difference between y_fir and the constant value 3.0, effectively training the model to make y_fir close to 3.0
@@ -1306,4 +1306,4 @@ def test_train_refuses_arguments_it_cannot_use():
     # A name like another's validation key is no clash: the losses are logged
     # as loss_val_args_fit and val_loss_args_fit.
     model.minimize("val_args_fit", out, y)
-    model.remove_minimizer("val_args_fit")
+    model.minimizers["val_args_fit"].remove()
