@@ -1,5 +1,6 @@
 from __future__ import annotations
 import inspect
+import math
 from abc import abstractmethod
 
 import keras
@@ -55,6 +56,11 @@ def _refuse_non_streams(layer, inputs) -> None:
             f"{', '.join(given)}. A number or an array enters the graph as a "
             "Constant."
         )
+
+
+def _without_ones(shape):
+    """``shape`` without its axes of size 1."""
+    return tuple(axis for axis in shape if axis != 1)
 
 
 def _are_streams(value) -> bool:
@@ -135,10 +141,28 @@ class Layer(Stream, metaclass=_LayerType):
     # is applied to each of them, and returns one result per stream.
     _one_stream = False
 
-    def __init__(self, name=None, preds=None, tw=None, dim=None, seq=None, **kwargs):
+    # The weights the layer computes with, as Keras layers declare theirs with
+    # add_weight: Parameters, which follow its one input among its
+    # predecessors, in the order of these labels, as its Keras layer reads
+    # them, [x, *weights]. The constructor sets each with ``weights``: a
+    # Parameter, used as it is; an initializer, by name or object, from which
+    # the layer makes a Parameter of the shape its input asks for, the first
+    # time it is called, shared by every later call; True for the default
+    # initializer of _weight_defaults; False for none. A layer with weights
+    # gives their shapes for an input with _weight_shapes, and may give the
+    # shapes their initializers draw with _draw_shapes.
+    _weight_labels: tuple[str, ...] = ()
+    _weight_defaults: dict[str, Any] = {}
+
+    def __init__(
+        self, name=None, preds=None, tw=None, dim=None, seq=None, weights=None, **kwargs
+    ):
         self._properties = dict(kwargs)
+        self._weight_settings = dict(weights or {})
+        # The Parameters holding the weights, made or taken on the first call.
+        self._weight_params: dict | None = None
         self._inputs = None
-        self._layer = None
+        self._layer: Any = None
         self._layer_signature = None
         # The layer this node applies. Every node made by calling one layer
         # object is an application of it, and they all share its weights;
@@ -332,6 +356,8 @@ class Layer(Stream, metaclass=_LayerType):
             inputs = [inputs]
 
         _refuse_non_streams(self, inputs)
+        if self._weight_labels:
+            return self._call_with_weights(inputs)
         _refuse_uncalled(inputs)
         if self._one_stream and len(inputs) > 1:
             # A layer that reads one stream, such as an activation, is
@@ -365,13 +391,122 @@ class Layer(Stream, metaclass=_LayerType):
 
     def get_config(self):
         # The arguments the layer was created with, which rebuild it; its shape
-        # follows from the streams it is called on again.
-        return {**super().get_config(), **self._properties}
+        # follows from the streams it is called on again. Its weights are saved
+        # with the graph, as the predecessors they are: an argument that sets
+        # one only says whether it is there.
+        config = {**super().get_config(), **self._properties}
+        for label in self._weight_labels:
+            if label in config:
+                config[label] = config[label] is not False
+        return config
 
     @classmethod
     def from_config(cls, config: dict, preds=None):
         layer = super().from_config(config)
-        return layer(preds) if preds else layer
+        if not preds:
+            return layer
+        if cls._weight_labels:
+            # The weights it has come back as its predecessors after its
+            # input, in the order of their labels.
+            weights = iter(preds[1:])
+            for label in cls._weight_labels:
+                if layer._weight_settings[label] is not False:
+                    layer._weight_settings[label] = next(weights)
+            return layer(preds[:1])
+        return layer(preds)
+
+    # ------------------------------------------------------------------
+    # Weights
+    # ------------------------------------------------------------------
+
+    def _weight_shapes(self, x) -> tuple[tuple[int, ...], ...]:
+        """The shapes of the weights for the input ``x``, one for each label."""
+        raise NotImplementedError
+
+    def _draw_shapes(self, shapes: tuple) -> tuple:
+        """The shapes the initializers of weights of ``shapes`` draw, one for
+        each; None for the default, the whole weight read as a matrix of its
+        last axis by all the others, as a dense layer reads its kernel."""
+        return (None,) * len(shapes)
+
+    def _call_with_weights(self, inputs) -> Any:
+        if self._one_stream and len(inputs) > 1:
+            # Applied to each stream, with the same weights.
+            return [self([x]) for x in inputs]
+        # The weights are predecessors like the input, but configured on the
+        # layer, so they are appended here and reconnected when reloading.
+        # They take the place of any further stream, which would otherwise be
+        # dropped without a word.
+        if len(inputs) > 1:
+            raise ValueError(
+                f"{self.name}: {type(self).__name__} reads one stream, got "
+                f"{len(inputs)}. Apply one to each, or join them first, "
+                "with Concatenate or TimeConcatenate."
+            )
+        # Before the weights are sized on it.
+        _refuse_uncalled(inputs)
+        if not inputs:
+            raise ValueError(
+                f"{self.name}: {type(self).__name__} reads one stream, got "
+                "none. Apply it to a stream first."
+            )
+        return self._apply([inputs[0], *self._parameters(inputs[0])])
+
+    def _parameters(self, x) -> list:
+        """The Parameters holding the weights for the input ``x``, made on
+        the first call. Each must have the shape the input asks for, axes of
+        size 1 aside: they leave the layout of the values as it is."""
+        shapes = dict(zip(self._weight_labels, self._weight_shapes(x)))
+        if self._weight_params is None:
+            draws = dict(
+                zip(self._weight_labels, self._draw_shapes(tuple(shapes.values())))
+            )
+            self._weight_params = {
+                label: self._weight(
+                    label, self._weight_settings[label], shapes[label], draws[label]
+                )
+                for label in self._weight_labels
+                if self._weight_settings[label] is not False
+            }
+        for label, weight in self._weight_params.items():
+            if _without_ones(weight.shape.tuple) != _without_ones(shapes[label]):
+                raise ValueError(
+                    f"{self.name}: {label} must have the shape "
+                    f"{tuple(shapes[label])}, axes of size 1 aside, got "
+                    f"{weight.shape.tuple}."
+                )
+        return list(self._weight_params.values())
+
+    def _weight(self, label, setting, shape, draw):
+        """The Parameter holding the weight ``label``: the one given, or one
+        made from the initializer given, named ``<layer>_<label>``."""
+        from nnodely.layers.parameter import Parameter
+
+        if isinstance(setting, Parameter):
+            return setting
+        if setting is True:
+            setting = self._weight_defaults[label]
+        if draw is None:
+            draw = shape if len(shape) <= 2 else (math.prod(shape[:-1]), shape[-1])
+        return Parameter(
+            f"{self.name}_{label}", dim=shape, initializer=setting, draw=draw
+        )
+
+    def _weight_nodes(self) -> list:
+        """The Parameters holding the weights, as this node reads them."""
+        return list(self._preds[1:]) if self._weight_labels and self._preds else []
+
+    def _weight_value(self, label: str):
+        """The variable of the Parameter holding the weight ``label``, in
+        that Parameter's shape; None without it or before the model is
+        built."""
+        present = [
+            name
+            for name in self._weight_labels
+            if self._weight_settings[name] is not False
+        ]
+        weight = dict(zip(present, self._weight_nodes())).get(label)
+        return None if weight is None else weight.param
 
 
 _BINARY_OPERATIONS = {

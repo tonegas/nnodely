@@ -911,3 +911,143 @@ def test_model_parameters_prints_a_table_per_model():
     assert str(wrap.parameters).splitlines()[3] == (
         "│ per_model_body                                                  │"
     )
+
+
+def _glorot_limit(fan_in, fan_out):
+    return np.sqrt(6.0 / (fan_in + fan_out))
+
+
+def test_the_weights_a_layer_makes_are_parameters_drawn_one_piece_at_a_time():
+    # A kernel of more than two axes is several weights side by side: each is
+    # drawn at the scale of its own fans, not of the whole tensor's.
+    x = Input("draw_x", dim=40, tw=5)
+    m = Input("draw_m", dim=(20, 30), tw=1)
+    fir = Fir(name="draw_fir")(x)  # 40 filters of 5 inputs, 1 output
+    lin = Linear(features=40, name="draw_lin")(m)  # one 600 x 40 matrix
+    model = Modely(
+        "draw_model", inputs=[x, m], outputs=[Output("f", fir), Output("l", lin)]
+    ).build()
+    kernels = {p.name: p for p in model.parameters}
+    assert all(type(p) is Parameter for p in kernels.values())
+
+    fir_kernel = to_numpy(kernels["draw_fir_kernel"].param)
+    assert fir_kernel.shape == (40, 5, 1)
+    limit = _glorot_limit(5, 1)
+    assert np.abs(fir_kernel).max() <= limit
+    assert np.abs(fir_kernel).max() > 0.9 * limit  # the whole tensor: 0.16
+
+    lin_kernel = to_numpy(kernels["draw_lin_kernel"].param)
+    assert lin_kernel.shape == (20, 30, 40)
+    limit = _glorot_limit(600, 40)
+    assert np.abs(lin_kernel).max() <= limit
+    assert np.abs(lin_kernel).max() > 0.9 * limit
+
+
+def test_a_parameter_given_draw_is_drawn_as_a_layer_draws_its_weights():
+    k = Parameter("drawn_k", dim=(40, 5, 1), initializer="glorot_uniform", draw=(5, 1))
+    whole = Parameter("whole_k", dim=(40, 5, 1), initializer="glorot_uniform")
+    x = Input("drawn_x", dim=40, tw=5)
+    model = Modely(
+        "drawn_model",
+        inputs=[x],
+        outputs=[
+            Output("a", Fir(kernel=k, bias=False)(x)),
+            Output("b", Fir(kernel=whole, bias=False)(x)),
+        ],
+    ).build()
+    assert model.built
+    drawn = to_numpy(k.param)
+    assert 0.9 * _glorot_limit(5, 1) < np.abs(drawn).max() <= _glorot_limit(5, 1)
+    # Without draw, the initializer reads the whole value, as Keras does.
+    assert np.abs(to_numpy(whole.param)).max() < 0.5
+
+
+def test_draw_must_tile_the_value_and_is_ignored_by_a_given_value():
+    with pytest.raises(ValueError, match="divide the 6 values"):
+        Parameter("bad_draw", dim=(2, 3), draw=(4,))
+    given = Parameter("given_draw", value=[[1.0, 2.0, 3.0]], draw=(3,))
+    x = Input("given_x", dim=3, tw=1)
+    Modely("given_model", inputs=[x], outputs=[Output("y", x * given)]).build()
+    np.testing.assert_array_equal(to_numpy(given.param), [[1.0, 2.0, 3.0]])
+
+
+def test_draw_is_saved_with_the_parameter(tmp_path):
+    k = Parameter("saved_k", dim=(4, 3, 1), initializer="glorot_uniform", draw=(3, 1))
+    x = Input("saved_x", dim=4, tw=3)
+    model = Modely(
+        "saved_draw", inputs=[x], outputs=[Output("y", Fir(kernel=k)(x))]
+    ).build()
+    model.save(tmp_path / "saved_draw")
+    loaded = Modely.load(tmp_path / "saved_draw")
+    restored = loaded.parameters["saved_k"]
+    assert restored._draw == (3, 1)
+    np.testing.assert_array_equal(to_numpy(restored.param), to_numpy(k.param))
+
+
+def test_a_parameter_read_only_as_a_weight_keeps_a_batch_of_one():
+    # Copied for every sample, a weight would cost a sum over the batch in
+    # the backward pass. Read anywhere else, it is copied as any stream is.
+    k = Parameter("whole_kernel", dim=(3, 2), initializer="ones")
+    g = Parameter("gain", value=2.0)
+    x = Input("whole_x", dim=3, tw=1)
+    y = Linear(features=2, kernel=k, bias=False)(x)
+    model = Modely("whole", inputs=[x], outputs=[Output("y", y * g)]).build()
+
+    def batches(parameter):
+        return {node.outputs[0].shape[0] for node in parameter._layer._inbound_nodes}
+
+    assert batches(k) == {1}
+    assert batches(g) == {None}
+    result = model({"whole_x": np.ones((4, 1, 3), dtype=np.float32)})
+    np.testing.assert_allclose(to_numpy(result["y"]), np.full((4, 1, 2), 6.0))
+
+
+def test_any_layer_can_declare_weights_held_by_parameters():
+    import keras
+
+    from nnodely.core.layer import Layer
+
+    class ScaleImpl(keras.layers.Layer):
+        def call(self, inputs):
+            x, scale = inputs
+            return x * scale[0]
+
+    class Scale(Layer):
+        _weight_labels = ("scale",)
+        _weight_defaults = {"scale": "ones"}
+
+        def __init__(self, scale: Parameter | str | bool = True, name=None):
+            super().__init__(name, weights={"scale": scale}, scale=scale)
+
+        def _weight_shapes(self, x):
+            return (tuple(x.dim),)
+
+        def output_shape(self, *inputs):
+            return inputs[0].shape
+
+        def build_layer(self):
+            return ScaleImpl(name=self.name)
+
+    a, b = Input("scale_a", dim=2, tw=1), Input("scale_b", dim=2, tw=1)
+    scale = Scale(name="sc")
+    given = Parameter("given_scale", value=[2.0, 3.0])
+    model = Modely(
+        "scale_model",
+        inputs=[a, b],
+        outputs=[
+            Output("ya", scale(a)),
+            Output("yb", scale(b)),
+            Output("yc", Scale(scale=given)(a)),
+        ],
+    ).build()
+    # Made on the first call, named after the layer, shared by the second.
+    assert [p.name for p in model.parameters] == ["sc_scale", "given_scale"]
+    ones = np.ones((1, 1, 2), dtype=np.float32)
+    result = model({"scale_a": ones, "scale_b": 2 * ones})
+    np.testing.assert_allclose(to_numpy(result["ya"]), ones)
+    np.testing.assert_allclose(to_numpy(result["yb"]), 2 * ones)
+    np.testing.assert_allclose(to_numpy(result["yc"]), [[[2.0, 3.0]]])
+    model.freeze("sc_scale")
+    assert not model.parameters["sc_scale"].trainable
+    with pytest.raises(ValueError, match="scale must have the shape"):
+        scale(Input("scale_c", dim=3, tw=1))

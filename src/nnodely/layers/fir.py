@@ -5,7 +5,8 @@ from __future__ import annotations
 import keras
 
 from nnodely.core.shape import BATCH_AXIS, Shape, transpose
-from nnodely.layers.parameter import Parameter, _check_weight_size, _ParameterWeights
+from nnodely.core.layer import Layer
+from nnodely.layers.parameter import Parameter, _check_weight_size
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -82,7 +83,7 @@ class FirImpl(keras.layers.Layer):
         return keras.ops.expand_dims(y, 1 + len(seq))
 
 
-class Fir(_ParameterWeights):
+class Fir(Layer):
     r"""Learned weighted sum over the window of a stream: one sample per window.
 
     Syntax
@@ -266,6 +267,9 @@ class Fir(_ParameterWeights):
     .. versionadded:: 2.0
     """
 
+    _weight_labels = ("kernel", "bias")
+    _weight_defaults = {"kernel": "glorot_uniform", "bias": "zeros"}
+
     def __init__(
         self,
         features: int = 1,
@@ -278,7 +282,7 @@ class Fir(_ParameterWeights):
         self._shared_kernel = bool(shared_kernel)
         super().__init__(
             name,
-            {"kernel": kernel, "bias": bias},
+            weights={"kernel": kernel, "bias": bias},
             kernel=kernel,
             bias=bias,
             features=self._features,
@@ -313,6 +317,19 @@ class Fir(_ParameterWeights):
         # The window becomes one sample; the sequence is kept.
         shape = inputs[0].shape
         return shape.replace(dim=out_dim, tw=1)
+
+    @property
+    def kernel(self):
+        """The Keras variable of the Parameter holding the kernel, in that
+        Parameter's shape; None before :meth:`Modely.build`."""
+        return self._weight_value("kernel")
+
+    @property
+    def bias(self):
+        """The Keras variable of the Parameter holding the bias, in that
+        Parameter's shape; None without a bias or before
+        :meth:`Modely.build`."""
+        return self._weight_value("bias")
 
     def build_layer(self):
         return FirImpl(

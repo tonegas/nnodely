@@ -94,7 +94,7 @@ class _Loading:
 
 class ModelSerializer:
     FORMAT = "nnodely"
-    VERSION = 14
+    VERSION = 15
 
     @staticmethod
     def serialize(model, path, *, weights=True, saving=None):

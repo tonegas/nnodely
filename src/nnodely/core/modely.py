@@ -35,7 +35,7 @@ from nnodely.utils.utils import (
 from nnodely.utils.printers import _resolve_printer, _table
 from nnodely.core.registry import ModelSerializer
 from nnodely.core.stream import Stream, Node
-from nnodely.layers.parameter import Constant, Parameter, Parameters
+from nnodely.layers.parameter import Constant, Parameter, Parameters, _Value
 from nnodely.core.dataloader import DataLoader
 
 import numpy as np
@@ -182,7 +182,7 @@ class Modely:
 
     The model prints as a table of its names:
 
-    >>> double
+    >>> print(double)
     ┏━━━━━━━━━━━━┳━━━━━━━━┓
     ┃ model      ┃ double ┃
     ┡━━━━━━━━━━━━╇━━━━━━━━┩
@@ -347,7 +347,9 @@ class Modely:
         return _table(("model", self.name), [("", rows)])
 
     def __repr__(self) -> str:
-        return f"Modely({self.name!r}, inputs={self._inputs!r}, outputs={self._outputs!r})"
+        return (
+            f"Modely({self.name!r}, inputs={self._inputs!r}, outputs={self._outputs!r})"
+        )
 
     def __call__(self, inputs) -> Any:
         """Run the model on arrays, or use it as a block on streams.
@@ -878,6 +880,26 @@ class Modely:
         keras_names: dict[str, Any] = {
             node._input.name: Input for node in order if isinstance(node, Input)
         }
+        # A Parameter that layers only read as one of their weights - never as
+        # their input, nor as an output - is read whole: it keeps a batch axis
+        # of one rather than a copy for every sample, which the backward pass
+        # would sum again.
+        readers: dict[Node, list[tuple[Node, int]]] = {}
+        for node in order:
+            for index, pred in enumerate(node._preds):
+                readers.setdefault(pred, []).append((node, index))
+        exposed = {id(node) for _, node in keyed_outputs}
+
+        def read_whole(node) -> bool:
+            uses = readers.get(node, [])
+            return (
+                bool(uses)
+                and id(node) not in exposed
+                and all(
+                    index > 0 and isinstance(reader, Layer) and reader._weight_labels
+                    for reader, index in uses
+                )
+            )
 
         for node in [n for n in order if not isinstance(n, Input)]:
             if isinstance(node, Layer):
@@ -891,7 +913,10 @@ class Modely:
                         node._layer_signature = signature
                 if len(node._preds) == 0:  ## Parameters and Constants
                     anchor = next(iter(tensor_map.values()), None)
-                    tensor_map[node] = node.call([anchor])
+                    if isinstance(node, _Value):
+                        tensor_map[node] = node.call([anchor], whole=read_whole(node))
+                    else:
+                        tensor_map[node] = node.call([anchor])
                 else:
                     tensor_map[node] = node.call(
                         [tensor_map[pred] for pred in node._preds]

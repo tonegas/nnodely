@@ -5,7 +5,6 @@ from __future__ import annotations
 import keras
 
 from nnodely.core.layer import Layer
-from nnodely.layers.parameter import _ParameterWeights
 
 
 class ReLU(Layer):
@@ -502,7 +501,7 @@ class PReLUImpl(keras.layers.Layer):
         return keras.ops.relu(x) - alpha[0] * keras.ops.relu(-x)
 
 
-class PReLU(_ParameterWeights):
+class PReLU(Layer):
     r"""Parametric rectified linear unit of every value of a stream: ``x``
     where it is positive, ``alpha * x`` elsewhere, with ``alpha`` trained.
 
@@ -674,12 +673,14 @@ class PReLU(_ParameterWeights):
     .. versionadded:: 2.0
     """
 
-    _labels = ("alpha",)
-    _defaults = {"alpha": "zeros"}
+    _weight_labels = ("alpha",)
+    _weight_defaults = {"alpha": "zeros"}
 
     def __init__(self, shared_axes=None, name=None):
         self._shared_axes = shared_axes
-        super().__init__(name, {"alpha": "zeros"}, shared_axes=self._shared_axes)
+        super().__init__(
+            name, weights={"alpha": "zeros"}, shared_axes=self._shared_axes
+        )
 
     def _weight_shapes(self, x):
         shared_axes = self._shared_axes

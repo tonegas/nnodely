@@ -374,6 +374,19 @@ variable, and trains, validates and exports through Keras. Models saved with
 
 ### Changed
 
+- The weights a layer makes are plain `Parameter`s: the `Weight` class is
+  gone. `Parameter(draw=...)` fills a value with draws of a smaller shape,
+  each drawn as a tensor of its own, as `Fir`, `Linear`, `PReLU` and
+  `BatchNorm` draw their weights; the initial values are unchanged. Any
+  `Layer` can declare weights held by Parameters (`_weight_labels`,
+  `_weight_shapes`), as Keras layers declare theirs with `add_weight`; `Fir`,
+  `Linear`, `PReLU` and `BatchNorm` derive from `Layer` directly.
+- A `Parameter` that layers only read as one of their weights is no longer
+  copied for every sample of the batch. A kernel given as a `Parameter`, as
+  in `Fir(kernel=p)`, trained up to 7 times slower than one the layer made
+  (a 256 x 256 `Linear`, batch of 1024, on TensorFlow); both now train at
+  the same speed.
+
 - Every stream is laid out `(batch, *seq, tw, *dim)`, a `Parameter` or a
   `Constant` included: their value is repeated for every sample. The
   sequence axes come first, outermost first: where a `Loop` rolls out (and
@@ -436,13 +449,13 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
   history, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
-- The `.nnodely` save format is version 14: a model is saved with every
+- The `.nnodely` save format is version 15: a model is saved with every
   model it calls in a folder of its own, a fed-back Input with the stream it
   is fed back with and the `init` of the layer that keeps it, and a `Loop`
   with the outputs it returns. Saves and `.keras` exports made
   with the 2.0 pre-releases, in which windows were taken from an Input,
   streams had several tw axes or were laid out `(batch, *dim, tw,
-  *seq)`, or fed-back Inputs were saved open, or the window was saved as `time` and `sw`, or a `Fuzzify` was a graph of one layer per center, or a `PReLU` or `BatchNorm` held its weights in its Keras layer, or blocks were inlined, or a `Parameter` or `Constant` was saved with the axes of its value in place of their sizes, or a `Loop`, a `Gradient` or the optional inputs were saved by name, do not load;
+  *seq)`, or fed-back Inputs were saved open, or the window was saved as `time` and `sw`, or a `Fuzzify` was a graph of one layer per center, or a `PReLU` or `BatchNorm` held its weights in its Keras layer, or blocks were inlined, or a `Parameter` or `Constant` was saved with the axes of its value in place of their sizes, or a `Loop`, a `Gradient` or the optional inputs were saved by name, or the weights a layer made were saved as a `Weight`, do not load;
   nor do saves of an earlier format version.
 - The stream fed back into an Input is named `feedback` everywhere:
   `Input.feedback(stream)` and `Loop(feedback=)` (was `callback=`). The old

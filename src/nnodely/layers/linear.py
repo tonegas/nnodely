@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import keras
 
-from nnodely.layers.parameter import Parameter, _check_weight_size, _ParameterWeights
+from nnodely.core.layer import Layer
+from nnodely.layers.parameter import Parameter, _check_weight_size
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -100,7 +101,7 @@ def _linear_weight_shapes(dim, features, axis, shared_kernel):
     return (*kept, dim[axis], features), (*kept, features)
 
 
-class Linear(_ParameterWeights):
+class Linear(Layer):
     r"""Learned affine map of the features of every sample of a stream:
     ``x @ kernel + bias``.
 
@@ -373,7 +374,8 @@ class Linear(_ParameterWeights):
     .. versionadded:: 2.0
     """
 
-    _defaults = {"kernel": "glorot_uniform", "bias": "glorot_uniform"}
+    _weight_labels = ("kernel", "bias")
+    _weight_defaults = {"kernel": "glorot_uniform", "bias": "glorot_uniform"}
 
     def __init__(
         self,
@@ -395,7 +397,7 @@ class Linear(_ParameterWeights):
         self._shared_kernel = bool(shared_kernel)
         super().__init__(
             name,
-            {"kernel": kernel, "bias": bias},
+            weights={"kernel": kernel, "bias": bias},
             kernel=kernel,
             bias=bias,
             features=self._features,
@@ -421,7 +423,7 @@ class Linear(_ParameterWeights):
 
     def _draw_shapes(self, shapes):
         # Along an axis, the matrix and the bias of each position alone; the
-        # whole-dim kernel as the Weight's default, one matrix.
+        # whole-dim kernel as the layer's default, one matrix.
         if self._axis is None:
             return None, None
         kernel_shape, bias_shape = shapes
@@ -438,6 +440,19 @@ class Linear(_ParameterWeights):
             else (*dim[:axis], self._features, *dim[axis + 1 :])
         )
         return inputs[0].shape.replace(dim=out_dim)
+
+    @property
+    def kernel(self):
+        """The Keras variable of the Parameter holding the kernel, in that
+        Parameter's shape; None before :meth:`Modely.build`."""
+        return self._weight_value("kernel")
+
+    @property
+    def bias(self):
+        """The Keras variable of the Parameter holding the bias, in that
+        Parameter's shape; None without a bias or before
+        :meth:`Modely.build`."""
+        return self._weight_value("bias")
 
     def build_layer(self):
         dim = tuple(self._preds[0].dim)  # type: ignore[attr-defined]

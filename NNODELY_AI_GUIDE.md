@@ -193,11 +193,11 @@ Install: `pip install "nnodely[torch]"` (or `[tensorflow]` / `[jax]`); add `onnx
 `Output(name: str, stream: Stream)`: gives a stream a public name. It is the key in results, history and `Loop` mappings.
 
 ### Parameter (trainable)
-`Parameter(name=None, *, value=None, initializer="random_normal", tw=None, dim=None, seq=None, trainable=True)`
+`Parameter(name=None, *, value=None, initializer="random_normal", tw=None, dim=None, seq=None, trainable=True, draw=None)`
 - `seq` / `tw` / `dim` are always sizes, declared as for an Input (§3): `dim` one feature by default, each at least 1; `tw` the window; `seq` fixed lengths, outermost first, only with `tw`.
 - With `value`: a list of numbers fills the declared shape row-major, or an array of several axes has the declared sizes in any order (moved into place); `ValueError` ("shape error") otherwise. Without `dim`, `seq` and `tw` take the value's axes of their sizes and the axes they leave are the dim, in order - all of them, with no window, when neither is given (§3).
 - Without `value`: the declared sizes (omitted, the Parameter is one value of dim `(1,)`, no window), and `initializer` draws the value.
-- `initializer` is any Keras initializer name or object.
+- `initializer` is any Keras initializer name or object. `draw`, a shape whose size divides the value's, fills the value with draws of that shape, each drawn as a tensor of its own (the scale of `glorot_uniform` then follows the fans of a piece); without it the value is drawn whole; ignored with `value`. The weights `Fir`, `Linear`, `PReLU` and `BatchNorm` make are plain Parameters drawn this way: one filter (`(T, features)`) or one matrix (the whole dim flattened, `(prod(D), features)`; with `axis`, `(in, out)`) at a time.
 - After build: `.param` (a Keras variable) and `.value_numpy`, laid out as the value (`(*seq, tw, *dim)`, no window axis without `tw`).
 - `p.freeze()` / `p.unfreeze()` (each returns `p`), or `p.trainable = False`, keep the value fixed through training or release it; `trainable=False` creates it frozen. Before or after build: the next `train()` follows. The flag is saved with the model. A Parameter shared by several models is frozen for all of them.
 - At runtime it has a batch axis like any stream, the same value for every sample; one without a window or a sequence applies to every sample and step of any stream's, as any stream without them does (§3).
@@ -743,7 +743,7 @@ Rules:
 - `get_config` and `from_config` cascade, as in Keras: the config holds the constructor's arguments, each class adding its own to its parent's (`Node` the name, `Layer` the properties), and `Node.from_config` makes the node with `cls(**config)`, `Layer.from_config` then calls it on its predecessors. An override starts from `config = super().get_config()` and replaces what is not JSON as given (a stream by name, a Keras layer serialized); a `from_config` override turns those back into arguments, then returns `super().from_config(config, preds=...)`.
 - Use `keras.ops` only, never backend-specific ops.
 - Register the Impl for `export_keras`.
-- Weights go in the Impl's `build()` through `add_weight`. To expose them as Parameters that can be given, shared and frozen, follow `Fir` / `Linear` / `PReLU` / `BatchNorm`: subclass `_ParameterWeights` in `nnodely/layers/parameter.py`, naming the weights in `_labels` (in the order the Impl reads them after its input) and giving their shapes in `_weight_shapes`. State a layer holds itself, as BatchNorm its statistics, is given its initial value again by its `_reinitialize()`, for `build(keep_weights=False)`.
+- Weights go in the Impl's `build()` through `add_weight`. To expose them as Parameters that can be given, shared and frozen, follow `Fir` / `Linear` / `PReLU` / `BatchNorm`: subclass `Layer` (`nnodely.core.layer`), name the weights in `_weight_labels` (in the order the Impl reads them after its input, `weight[0]` each: a Parameter read only as a weight enters with a batch axis of one), their default initializers in `_weight_defaults`, pass the settings to `super().__init__(name, weights={label: setting}, ...)` (a Parameter, an initializer, `True` for the default, `False` for none) and give their shapes for an input in `_weight_shapes(x)` (optionally the draw shapes in `_draw_shapes`). The Parameters are made on the first call, `<name>_<label>`, and shared by every later call. State a layer holds itself, as BatchNorm its statistics, is given its initial value again by its `_reinitialize()`, for `build(keep_weights=False)`.
 - A multi-input layer receives a list of tensors in `call`.
 - Classes register themselves for `save` / `load` by class name, so class names must be unique.
 - Example of a layer with its own `output_shape`: `Fir` in `nnodely/layers/fir.py`.
@@ -791,7 +791,7 @@ src/nnodely/
                          resolve: the one place a user's key - name, index or object - becomes an object, NameNotFound
                          for none; Table: the base list of every model table)
   core/dataloader.py     DataLoader (read → per-simulation arrays → sliding windows → alignment, mask)
-  core/registry.py       ModelSerializer (format 14): the model's own graph, not flattened, in model.json (+ model.weights.h5) via
+  core/registry.py       ModelSerializer (format 15): the model's own graph, not flattened, in model.json (+ model.weights.h5) via
                          get_config/from_config; a ModelCall saves its model, and a Loop its body, in a sub-folder (one per model
                          object), loaded and called again; an IntermediateOutput its output index; _Saving/_Loading share ids for
                          layers, Inputs and models over the whole tree; each fed-back Input with its update and init ("feedback")

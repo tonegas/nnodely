@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import keras
 
-from nnodely.layers.parameter import _ParameterWeights
+from nnodely.core.layer import Layer
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -96,7 +96,7 @@ class BatchNormImpl(keras.layers.Layer):
         )
 
 
-class BatchNorm(_ParameterWeights):
+class BatchNorm(Layer):
     r"""Batch normalization of a stream: every feature shifted to zero mean
     and scaled to unit variance, then scaled and offset by trained values.
 
@@ -308,8 +308,8 @@ class BatchNorm(_ParameterWeights):
     .. versionadded:: 2.0
     """
 
-    _labels = ("gamma", "beta")
-    _defaults = {"gamma": "ones", "beta": "zeros"}
+    _weight_labels = ("gamma", "beta")
+    _weight_defaults = {"gamma": "ones", "beta": "zeros"}
 
     def __init__(
         self,
@@ -327,7 +327,10 @@ class BatchNorm(_ParameterWeights):
         self._scale = bool(scale)
         super().__init__(
             name,
-            {"gamma": "ones" if scale else False, "beta": "zeros" if center else False},
+            weights={
+                "gamma": "ones" if scale else False,
+                "beta": "zeros" if center else False,
+            },
             axis=self._axis,
             momentum=self._momentum,
             epsilon=self._epsilon,
