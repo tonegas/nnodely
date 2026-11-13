@@ -168,7 +168,7 @@ def test_buffer_feeds_a_plant_that_reads_a_window_of_the_command():
     )
     # The plant's output feeds y back, which its own argument reads: still a
     # single call of the plant, one buffer.
-    fed_back = [node for node in model.body._inputs if node.update is not None]
+    fed_back = [node for node in model.models[0]._inputs if node.update is not None]
     assert len(fed_back) == 2
 
 
@@ -196,7 +196,7 @@ def test_a_model_called_twice_has_a_feedback_per_call():
     np.testing.assert_allclose(
         to_numpy(result["oc_cascade_2"]).ravel(), [1, 2, 2.75, 3.25]
     )
-    assert [node.name for node in model.body._inputs] == [
+    assert [node.name for node in model.models[0]._inputs] == [
         "oc_tank_source",
         "oc_tank_h",
         "oc_tank_h_2",
@@ -687,7 +687,9 @@ def test_feedback_and_modelyloop_reject_what_they_cannot_feed_back():
     model = ModelyLoop(
         "oc_err_minimize", inputs=[rate], outputs=[Output("oc_err_o5", inner_next)]
     )
-    with pytest.raises(ValueError, match="computed inside the step"):
+    with pytest.raises(
+        ValueError, match="a stream of the graph of 'oc_err_minimize_step'"
+    ):
         model.minimize("bad", inner_next * 2.0, rate)
 
 

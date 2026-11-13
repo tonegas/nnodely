@@ -24,6 +24,7 @@ from nnodely.core.minimizer import (
     _check_minimizers_train_weights,
     _minimizer_stream,
     _resolve_minimizer_terms,
+    _resolve_sides,
     _validate_gain,
 )
 from nnodely.core.validation import ValidationResult
@@ -716,7 +717,8 @@ class Modely:
         # only once its Keras models are made.
         # The training model returns them by a key of their own: the name of
         # a declared output for one, else its name when no other output has
-        # it - two calls of one block return streams of one name.
+        # it - two calls of one block return streams of one name. An Input
+        # is keyed by its own name, not by the Identity's.
         extra_outputs, extra_keys = [], []
         minimizer_outputs: dict[Node, str] = {}
         keys = {node.name for node in self._outputs}
@@ -728,9 +730,9 @@ class Modely:
                 if exposed in self._outputs:
                     minimizer_outputs[node] = exposed.name
                     continue
-                key, index = exposed.name, 1
+                key, index = node.name, 1
                 while key in keys:
-                    key, index = f"{exposed.name}_{index}", index + 1
+                    key, index = f"{node.name}_{index}", index + 1
                 keys.add(key)
                 extra_outputs.append(exposed)
                 extra_keys.append(key)
@@ -955,141 +957,41 @@ class Modely:
 
         Parameters
         ----------
-        name : str
-            The name of the objective. Training logs its loss as
-            ``"<name>_loss"``, and ``"val_<name>_loss"`` with validation data.
-        source : Output, Stream or str
-            The prediction: an :class:`Output`, any stream of the model, or the
-            name of one.
-        target : Output, Stream, str, float or None, default None
-            What the prediction is compared with:
+        name:
+            Identifier for this loss, used as an output name in the training
+            model.
+        source:
+            Node or stream producing the predictions (e.g. an Output node), or
+            the name of a stream of the model.
+        target:
+            Node or stream providing the target values (usually derived from
+            an Input), the name of a stream of the model, a number, or None
+            for zero. A number becomes a Constant.
+        loss:
+            Keras loss name, serialized config, Loss instance, or callable.
+        gain:
+            Weight of this loss in the total training loss, 1 by default:
+            0.5 gives it half the importance, 2 twice. Its own logged and
+            validated loss stays unweighted, the way Keras logs a
+            ``loss_weight``.
 
-            - an Input, or a stream computed from Inputs, read from the data:
-              its shape is the shape of ``source``;
-            - the name of a stream of the model;
-            - a number, compared with every value of ``source``;
-            - ``None``, the same as ``0.0``: the objective drives ``source``
-              to zero, as a physical residual.
+        A name identifies one minimizer: registering a name again replaces the
+        minimizer it names, in its place, and warns that it did.
 
-            An Input only the target reads need not be among the inputs of
-            the model.
-        loss : str, dict, keras.losses.Loss or callable, default "mse"
-            The loss function: a Keras loss name (``"mse"``, ``"mae"``,
-            ``"huber"``, ``"log_cosh"``, ...), a serialized Keras loss, a
-            ``keras.losses.Loss`` instance, or a function
-            ``loss(y_true, y_pred)``.
-        gain : float, default 1.0
-            The weight of the objective in the total loss, a finite number not
-            below zero. ``0.5`` halves its importance, ``2.0`` doubles it. Its
-            own logged and validated loss is not weighted.
+        A stream of the body of a Loop the model rolls out - as every stream
+        of the step of a :class:`ModelyLoop` is - stands for its trajectory:
+        an output of the body for the trajectory the Loop returns for it, an
+        Input it reads for the stream the Loop feeds it from. A target
+        declared one step at a time, ``Input("x_meas", tw=1)``, compared with
+        a trajectory, reads one sample per step: it is an Input of its name
+        with the horizon of the trajectory. A fed-back Input has no
+        trajectory of its own: the output it is fed back with has.
 
-        Returns
-        -------
-        Modely
-            The model itself.
-
-        Raises
-        ------
-        ValueError
-            If ``name`` is not a non-empty string ("A minimizer name is a
-            non-empty string"), or clashes with a validation loss name, such
-            as ``"fit"`` and ``"val_fit"`` ("cannot both be declared"). If
-            ``loss`` is unknown ("Unknown or invalid Keras loss"). If ``gain``
-            is negative or not finite ("must be finite and not negative").
-        KeyError
-            If a name given for ``source`` or ``target`` is the name of no
-            stream of the model ("is not the name of a stream"). The error is
-            also a ``ValueError``.
-        TypeError
-            If ``gain`` is not a number, or ``source`` is neither a stream nor
-            a name.
-
-        Warns
-        -----
-        UserWarning
-            If an objective of that name exists ("it is replaced by the new
-            one").
-
-        See Also
-        --------
-        Modely.minimizers : The objectives, as a table.
-        Modely.remove_minimizer : Remove an objective.
-        Modely.train : Minimize the objectives.
-        Modely.validate : Score every objective on a dataset.
-
-        Notes
-        -----
-        Training minimizes the total loss of the :math:`n` objectives, each
-        loss :math:`L_i` weighted by its gain :math:`g_i`:
-
-        .. math:: L = \sum_{i=1}^{n} g_i \, L_i
-
-        :math:`L_i` is the mean of the loss function over the samples. The
-        rollout steps padded onto shorter simulations add zero. Only the
-        objectives of this model are trained: those of the models it calls
-        are each trained by their own model.
-
-        Basic Examples
-        --------------
-        The output ``y`` is compared with a measured Input, ``y_meas``:
-
-        >>> from nnodely import Input, Modely, Output, Parameter
-        >>> x = Input("x", tw=1)
-        >>> y = Output("y", x + Parameter("b", value=[1.0]))
-        >>> y_meas = Input("y_meas", tw=1)
-        >>> model = Modely("offset", inputs=[x], outputs=[y])
-        >>> model = model.minimize("fit", y, y_meas)
-        >>> model.minimizers
-        ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━┓
-        ┃ idx ┃ minimizer ┃ source ┃ target ┃ loss               ┃ gain ┃
-        ┡━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━┩
-        │ 0   │ fit       │ y      │ y_meas │ mean_squared_error │ 1.0  │
-        └─────┴───────────┴────────┴────────┴────────────────────┴──────┘
-
-        Scope
-        -----
-        A stream given by its name, compared with a number, and a stream
-        driven to zero, ``target=None``:
-
-        >>> model = model.minimize("level", "y", 2.0)
-        >>> model = model.minimize("residual", y)
-        >>> model.minimizers
-        ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━┓
-        ┃ idx ┃ minimizer ┃ source ┃ target ┃ loss               ┃ gain ┃
-        ┡━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━┩
-        │ 0   │ fit       │ y      │ y_meas │ mean_squared_error │ 1.0  │
-        │ 1   │ level     │ y      │ 2.0    │ mean_squared_error │ 1.0  │
-        │ 2   │ residual  │ y      │ 0.0    │ mean_squared_error │ 1.0  │
-        └─────┴───────────┴────────┴────────┴────────────────────┴──────┘
-
-        Options
-        -------
-        ``loss`` and ``gain``:
-
-        >>> model = model.minimize("robust", y, y_meas, loss="mae", gain=0.5)
-        >>> model.minimizers["robust"].gain
-        0.5
-
-        Possible Issues
-        ---------------
-        A name registered again replaces its objective, with a warning:
-
-        >>> import warnings
-        >>> with warnings.catch_warnings(record=True) as caught:
-        ...     warnings.simplefilter("always")
-        ...     model = model.minimize("level", y, 3.0)
-        >>> str(caught[0].message)
-        "Minimizer 'level' already exists in model 'offset': it is replaced by the new one."
-
-        The validation loss of ``"fit"`` is logged as ``"val_fit_loss"``, so
-        no objective may be named ``"val_fit"``:
-
-        >>> model.minimize("val_fit", y, 0.0)
-        Traceback (most recent call last):
-            ...
-        ValueError: Minimizers 'val_fit' and 'fit' cannot both be declared...
-
-        .. versionadded:: 2.0
+        Both sides are computed from the graph of the model, from values,
+        and from Inputs only the minimizers read, such as targets, and have
+        one shape, but for a value, which broadcasts. A stream of the graph
+        of another model - a block called, a body - is refused: the model
+        has no value for it.
         """
         self._check_minimizer_name(
             name, [m for m in self._minimizers if m["name"] != name]
@@ -1103,6 +1005,7 @@ class Modely:
         ):
             target = Constant(name=None, value=[float(target)])
         target = _minimizer_stream(self, target, "target", name)
+        source, target = _resolve_sides(self, source, target, name)
         resolved_loss = _resolve_loss(loss)
         gain = _validate_gain(gain, name)
         minimizer = {
@@ -1542,8 +1445,9 @@ class Modely:
         The table gives the name, ``seq``, ``tw`` and ``dim`` of each output,
         and:
 
-        - stream: the stream the output names. In a :class:`ModelyLoop`, the
-          stream of the step, collected over the steps;
+        - stream: the stream the output names; for the trajectory of a Loop -
+          every output of a ModelyLoop - the stream of its body it collects
+          over the steps;
         - feeds back: the Inputs a loop feeds that stream back into at the
           next step;
         - minimized by: the objectives that read it, as ``name (source)`` or
@@ -1609,8 +1513,20 @@ class Modely:
         return rows
 
     def _output_stream(self, output: Output) -> Node:
-        """The stream ``output`` names."""
-        return output._preds[0]
+        """The stream ``output`` names: for the trajectory of a Loop, the
+        stream of its body it collects, as the graph the Loop was declared
+        over holds it - the step of a ModelyLoop, which the body copies."""
+        from nnodely.layers.loop import Loop, LoopOutput
+
+        stream = output._preds[0]
+        loop = stream._preds[0] if isinstance(stream, LoopOutput) else stream
+        if not isinstance(loop, Loop):
+            return stream
+        if isinstance(stream, LoopOutput):
+            collected = loop._model._outputs[stream._index]
+        else:
+            collected = loop._returns[0]  # the one output it returns
+        return loop._step.copied_from(collected._preds[0])
 
     @property
     def minimizers(self) -> "Minimizers":

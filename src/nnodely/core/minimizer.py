@@ -2,16 +2,20 @@
 the built graph, and turned into the loss the training model minimizes."""
 
 import warnings
+from typing import TYPE_CHECKING, TypeGuard
 
 import keras
 import numpy as np
 
-from nnodely.core.dag import resolve, toposort
+from nnodely.core.dag import _nodes_by_model, resolve, toposort
 from nnodely.core.layer import Layer
 from nnodely.core.shape import OUTER_AXIS, expand_to_rank, outer_view
 from nnodely.core.stream import Node, Stream
 from nnodely.layers.input import Input
 from nnodely.utils.utils import MaskedLoss, _resolve_loss
+
+if TYPE_CHECKING:
+    from nnodely.layers.loop import Loop
 
 
 def _depends_on_dynamic_input(node) -> bool:
@@ -281,6 +285,277 @@ def _minimizer_stream(model, value, side: str, minimizer: str) -> Stream:
             f"is not the name of a stream of model {model.name!r}. Its outputs are "
             f"{sorted(output.name for output in model._outputs)}."
         ),
+    )
+
+
+def _resolve_sides(model, source, target, minimizer: str) -> tuple:
+    """The streams of ``model`` a minimizer compares, its ``source`` and
+    ``target`` given as streams.
+
+    A stream of the body of a Loop the model rolls out - an output of the
+    body, or the stream it names, or an Input the Loop feeds - stands for
+    what the Loop makes of it: the trajectory it returns for an output, the
+    stream it feeds the Input from. That is how a model declared one step
+    at a time, as a ModelyLoop is, is minimized on the streams of its step.
+    A bare Input the model does not read, compared with a trajectory, that
+    has the shape of one step of it is a target declared one step at a
+    time: it reads one sample per step, an Input of its name with the
+    horizon of the trajectory.
+
+    Every other side is computed from the graph of the model, from values,
+    and from Inputs only minimizers read. One that reads the graph of
+    another model - the step of a ModelyLoop, the body of a Loop, a block
+    called - is refused, and so is a target of another shape than its
+    source.
+    """
+    nodes, known = _known_nodes(model)
+    loops = [node for node in nodes if _is_loop(node)]
+    source = _of_loops(model, source, loops, known, "source", minimizer)
+    target = _of_loops(model, target, loops, known, "target", minimizer)
+    source = _one_step_input(nodes, known, source, target)
+    target = _one_step_input(nodes, known, target, source)
+    for side, value in (("source", source), ("target", target)):
+        _refuse_foreign(model, nodes, known, value, side, minimizer)
+    _check_shapes(source, target, minimizer)
+    return source, target
+
+
+def _is_loop(node) -> TypeGuard["Loop"]:
+    # loop.py imports the module of Modely, which imports this one.
+    from nnodely.layers.loop import Loop
+
+    return isinstance(node, Loop)
+
+
+def _known_nodes(model) -> tuple[list[Node], set[int]]:
+    """Every node of the graph of ``model`` - its outputs, the inputs it
+    declares and the minimizers it has - and their ids."""
+    roots: list[Node] = [*model._outputs, *model._inputs]
+    for registered in model._minimizers:
+        roots.extend((registered["source"], registered["target"]))
+    nodes = toposort(roots)
+    return nodes, {id(node) for node in nodes}
+
+
+def _of_loops(model, value, loops, known: set[int], side: str, minimizer: str):
+    """What ``value``, a stream of the body of one of ``loops``, stands for
+    in ``model``: the trajectory the Loop returns for an output of its
+    body, or the stream it feeds an Input of its body from; ``value`` itself
+    when it is no stream of a body. A body the model rolls out more than
+    once is ambiguous, and a state has no trajectory of its own."""
+    if id(value) in known or value._is_value:
+        return value
+    # Each stream it stands for, with the name of the Loop that returns it.
+    found: dict[int, tuple[Stream, str]] = {}
+    for loop in loops:
+        step = loop._step
+        # The outputs the Loop returns, as they are in its body and in the
+        # graph it was declared over - the step of a ModelyLoop, which the
+        # body copies.
+        for returned in step.returns:
+            declared = step.copied_from(returned)
+            if any(
+                value is node
+                for node in (returned, declared, returned._preds[0], declared._preds[0])
+            ):
+                stream = _returned_by(loop, returned)
+                found[id(stream)] = (stream, loop.name)
+        if not isinstance(value, Input):
+            continue
+        key = step.key(value)
+        for state, output in step.pairs:
+            if step.key(state) == key:
+                raise ValueError(
+                    f"Minimizer {minimizer!r}: its {side} {value.name!r} is fed "
+                    f"back by Loop {loop.name!r} with {output.name!r}: within a "
+                    "step it holds the value of the step before, and it has no "
+                    f"trajectory of its own. Minimize {output.name!r}, its "
+                    "trajectory one step ahead - an output of the step, or "
+                    "declared among them."
+                )
+        for node, stream in zip(loop._static_inputs, loop._static_sources):
+            if step.key(node) == key:
+                found[id(stream)] = (stream, loop.name)
+        # An Input the body starts a state from: the initial value the
+        # Loop reads for it.
+        for state, start in step.starts.items():
+            if isinstance(start, Input) and step.key(start) == key:
+                stream = loop._initial_values[loop._feedback_inputs.index(state)]
+                found[id(stream)] = (stream, loop.name)
+    if len(found) > 1:
+        names = sorted({name for _, name in found.values()})
+        raise ValueError(
+            f"Minimizer {minimizer!r}: its {side} {value.name!r} is a stream of "
+            f"a body model {model.name!r} rolls out {len(found)} times, by the "
+            f"Loops {names}: which trajectory it stands for is ambiguous. "
+            "Pass the stream to minimize itself, the one the Loop returns."
+        )
+    if not found:
+        return value
+    ((stream, _),) = found.values()
+    # A declared output names it: the minimizer reads it as that output.
+    return next(
+        (output for output in model._outputs if output._preds[0] is stream), stream
+    )
+
+
+def _returned_by(loop, returned):
+    """The stream ``loop`` returns for ``returned``, an output of its body:
+    the loop itself, when it has one output."""
+    if not loop._return_all_outputs:
+        return loop
+    index = next(
+        index for index, node in enumerate(loop._model._outputs) if node is returned
+    )
+    return next(output for output in loop._loop_outputs if output._index == index)
+
+
+def _one_step_input(nodes: list[Node], known: set[int], value, other):
+    """``value`` read one sample per step of ``other``: a bare Input the
+    model does not read, with the shape of one step of ``other``, a
+    trajectory a Loop collects, is an Input of its name with the horizon of
+    the trajectory - the model's own, when it reads one of that shape. Any
+    other ``value`` is itself."""
+    from nnodely.core.modely import _same_sizes
+
+    if (
+        not isinstance(value, Input)
+        or id(value) in known
+        or value.update is not None
+        or value.tw is None
+    ):
+        return value
+    shape = getattr(other, "shape", None)
+    if (
+        shape is None
+        or shape.seq_rank != value.shape.seq_rank + 1
+        or not _same_sizes(shape.without_outer_seq().tuple, value.shape.tuple)
+        or not any(_is_loop(node) and node._collect for node in toposort([other]))
+    ):
+        return value
+    horizon = shape.seq[0]
+    rolled = value.shape.with_seq(horizon)
+    named = [
+        node
+        for node in nodes
+        if isinstance(node, Input) and not node._hidden and node.name == value.name
+    ]
+    window = (value.past, value.future)
+    for node in named:
+        if _same_sizes(node.shape.tuple, rolled.tuple) and (
+            (node.past, node.future) == window
+        ):
+            return node
+    if named:
+        return value  # an Input of its name, of another shape: refused next
+    return Input(
+        value.name,
+        dim=value.dim,
+        seq=tuple(-1 if size is None else size for size in rolled.seq),
+        tw=window,
+    )
+
+
+def _refuse_foreign(model, nodes, known: set[int], value, side: str, minimizer: str):
+    """Refuse ``value`` if it reads the graph of another model: a stream
+    another model computes, a fed-back Input the model does not read, or an
+    Input of the name of one the model reads - the data is fed by name."""
+    if id(value) in known:
+        return
+    inputs = {
+        node.name: node
+        for node in nodes
+        if isinstance(node, Input) and not node._hidden
+    }
+    owners: dict[int, str] | None = None
+    stack, seen = [value], set()
+    while stack:
+        node = stack.pop()
+        # A call to a block is a node, but no stream.
+        if id(node) in seen or id(node) in known or getattr(node, "_is_value", False):
+            continue
+        seen.add(id(node))
+        reads = (
+            f"its {side} {value.name!r}"
+            if node is value
+            else f"its {side} {value.name!r} reads {node.name!r}, which"
+        )
+        if isinstance(node, Input):
+            # A layer's own state - Integrate, Derivative, Buffer - is no
+            # Input of the user's: it starts from its init.
+            if node.update is not None and not node._hidden:
+                raise ValueError(
+                    f"Minimizer {minimizer!r}: {reads} is fed back, and model "
+                    f"{model.name!r} does not read it: a state of another graph "
+                    "- the step of a ModelyLoop, the body of a Loop - has no "
+                    "value in it. Minimize a stream of the model: an output, "
+                    "or one it computes."
+                )
+            twin = inputs.get(node.name)
+            if twin is not None and twin is not node:
+                raise ValueError(
+                    f"Minimizer {minimizer!r}: {reads} is not the Input "
+                    f"{node.name!r} model {model.name!r} reads, but another of "
+                    "its name - of another graph, such as the step of a "
+                    "ModelyLoop - and the data is fed by input name. Use the "
+                    f"model's own, model.inputs[{node.name!r}], or give the "
+                    "Input a name of its own."
+                )
+            continue
+        if owners is None:
+            owners = _graph_owners(model)
+        owner = owners.get(id(node))
+        if owner is not None:
+            raise ValueError(
+                f"Minimizer {minimizer!r}: {reads} is a stream of the graph of "
+                f"{owner!r} - the step of a ModelyLoop, the body of a Loop, a "
+                f"model called as a block - which model {model.name!r} does not "
+                "compute. Minimize a stream of the model: an output, which for "
+                "an output of a body is its trajectory, or a stream computed "
+                "from them; a stream inside a step is minimized declared among "
+                "the outputs."
+            )
+        stack.extend(node._preds)
+
+
+def _graph_owners(model) -> dict[int, str]:
+    """The name of the model whose graph holds each node, by id, for every
+    model ``model`` holds - the blocks it calls, the bodies of its Loops,
+    theirs too - and every graph a Loop was declared over, such as the step
+    of a ModelyLoop, which its body copies."""
+    owners: dict[int, str] = {}
+    groups = _nodes_by_model(model)
+    for held, nodes in groups[1:]:
+        for node in nodes:
+            owners.setdefault(id(node), held.name)
+    for _, nodes in groups:
+        for node in nodes:
+            if _is_loop(node) and node._step.f is not node._model:
+                declared = node._step.f
+                for inner in toposort(declared._outputs):
+                    owners.setdefault(id(inner), declared.name)
+    return owners
+
+
+def _check_shapes(source, target, minimizer: str) -> None:
+    """Refuse a target of another shape than its source, but for a value,
+    which broadcasts: a loss would broadcast one over the other and silently
+    compare, say, one sample with a whole window."""
+    from nnodely.core.modely import _same_sizes
+
+    if not _reads_input(target) or _same_sizes(source.shape.tuple, target.shape.tuple):
+        return
+    hint = ""
+    if isinstance(target, Input) and target.shape.seq_rank < source.shape.seq_rank:
+        seq = [-1 if size is None else size for size in source.shape.seq]
+        hint = (
+            f" Declare {target.name!r} with the sequence of {source.name!r}, "
+            f"seq={tuple(seq) if len(seq) > 1 else seq[0]}."
+        )
+    raise ValueError(
+        f"Minimizer {minimizer!r} compares {source.name!r} of shape "
+        f"{source.shape} with {target.name!r} of shape {target.shape}. They "
+        f"must have the same shape.{hint}"
     )
 
 

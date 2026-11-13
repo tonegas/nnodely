@@ -64,21 +64,72 @@ The **target** is one of:
 - nothing: ``minimize(name, residual)`` drives ``residual`` to zero. This is
   how a physical law is imposed (see :doc:`physics`).
 
-The **loss** is anything Keras accepts:
+Source and target have one shape - a number aside, which broadcasts - and it
+is checked when the objective is declared. Both are streams of the model: a
+stream of the graph of another model, such as a block it calls, is refused,
+as the model has no value for it. The body of a Loop the model rolls out is
+the exception: a stream of it stands for its trajectory (see
+:doc:`recurrent`).
 
-- a name, such as ``"mse"``, ``"mae"`` or ``"huber"``;
-- a ``keras.losses.Loss`` instance;
-- a function ``loss(y_true, y_pred)``.
+The **loss** is anything Keras accepts: a name (``"mse"``, ``"mae"``,
+``"huber"``, ...), a ``keras.losses.Loss`` instance, or a callable
+``loss(y_true, y_pred)``. :meth:`~nnodely.Modely.remove_minimizer` removes an
+objective by name.
 
-``gain`` weighs an objective in the total loss: ``gain=0.5`` gives it half
-the importance. The loss it logs stays unweighted.
+The weights of ``Fir``, ``Linear``, ``PReLU`` and ``BatchNorm`` are
+:class:`~nnodely.Parameter` objects like any other, so freezing is done on
+Parameters. ``p.freeze()`` keeps
+one as it is through training and ``p.unfreeze()`` releases it;
+:meth:`~nnodely.Modely.freeze` and :meth:`~nnodely.Modely.unfreeze` do it for
+every Parameter a model computes with, those of the models it calls and of
+its Loop bodies included. Given a name, or a list of names, they act on those
+alone: a Parameter by its name, as :attr:`~nnodely.Modely.parameters` lists
+it, and a model the graph reaches - a block it calls, the body of a Loop, the
+model of a LocalModel - by its own, for every Parameter of that model. A name
+that matches nothing raises, and nothing is frozen. Both work before or after
+``build()``, and the next ``train()`` follows them. The Keras weights of a
+``KerasFunction`` are not Parameters: ``freeze()`` does not reach them, so set
+``trainable`` on its Keras layer instead. Nor does it reach the moving
+statistics of a ``BatchNorm``, which training keeps updating.
 
-Step 3: training
-----------------
+.. code-block:: python
 
-:meth:`~nnodely.Modely.train` trains the model on a
-:class:`~nnodely.DataLoader`. With ``val_data``, it also computes the losses
-on a validation set at the end of every epoch:
+   model.freeze()     # every Parameter kept as it is
+   model.unfreeze()   # trained again
+   model.freeze(["fir_y_kernel", "fir_y_bias"])   # those two only
+   model.unfreeze("fir_y_bias")
+
+:attr:`~nnodely.Modely.parameters` lists them, in the order the graph reaches
+them, and prints as a table, its last row the total of the values, of all the
+Parameters and of the trainable ones. A Parameter is also found by its name,
+and its ``param`` is the Keras variable the built model computes with -
+``value`` is the value it was declared with:
+
+.. code-block:: python
+
+   print(model.parameters)
+   # ┏━━━━━┳━━━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓
+   # ┃ idx ┃ parameter    ┃ seq ┃ tw   ┃ dim    ┃ values ┃ trainable ┃
+   # ┡━━━━━╇━━━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩
+   # │ 0   │ fir_y_kernel │ ()  │ None │ (1, 1) │ 1      │ yes       │
+   # │ 1   │ fir_y_bias   │ ()  │ None │ (1,)   │ 1      │ yes       │
+   # │ 2   │ fir_u_kernel │ ()  │ None │ (1, 1) │ 1      │ yes       │
+   # │ 3   │ fir_u_bias   │ ()  │ None │ (1,)   │ 1      │ yes       │
+   # ├─────┼──────────────┼─────┼──────┼────────┼────────┼───────────┤
+   # │     │ total        │     │      │        │ 4      │ 4         │
+   # └─────┴──────────────┴─────┴──────┴────────┴────────┴───────────┘
+   kernel = model.parameters["fir_y_kernel"].param   # the trained values
+   kernel = model.parameters[0].param                # the same, by its index
+
+A model used as a block is frozen the same way, ``block.freeze()``, or by its
+name from the larger model, ``model.freeze("block")``, to train the rest of
+the larger model around it. A name several Parameters or models carry is
+refused, listing them with their index: ``model.parameters[1].freeze()``
+freezes the one of index 1, or rename one, ``obj.name = "new_name"`` (see
+:doc:`composition`).
+
+Training
+--------
 
 .. code-block:: python
 

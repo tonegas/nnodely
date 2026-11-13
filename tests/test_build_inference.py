@@ -362,7 +362,11 @@ def test_a_build_that_fails_leaves_the_model_as_it_was():
         ]
 
     built = state()
-    model.minimize("clash", out, Input("failed_build_y", tw=2))
+    # Named like y after it is minimized: the build reads two Inputs of one
+    # name.
+    twin = Input("failed_build_twin", tw=1)
+    model.minimize("clash", out, twin)
+    twin.name = "failed_build_y"
     with pytest.raises(ValueError, match="two different Inputs named"):
         model.build()
     assert state() == built

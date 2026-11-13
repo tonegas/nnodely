@@ -4,7 +4,7 @@ import os
 import warnings
 import numpy as np
 import pytest
-from nnodely import TimeRange, TimeSelect
+from nnodely import SeqSelect, TimeRange, TimeSelect
 
 
 def test_dataset_creation_and_iteration():
@@ -90,7 +90,8 @@ def test_sequence_windows_are_created_on_temporal_windows():
     x_window = x
     output = Output("out", x_window)
     model = Modely("sequence_dataset", inputs=[x], outputs=[output])
-    model.minimize("error", source=output, target=target, loss="mse")
+    last = SeqSelect(-1)([TimeSelect(-1)(x)])  # one sample, as the target
+    model.minimize("error", source=last, target=target, loss="mse")
     model.build()
 
     loader = DataLoader(
@@ -782,7 +783,7 @@ def test_windowed_data_round_trips_what_the_loader_builds():
         inputs=[x, y, s],
         outputs=[Output("trip_out", TimeSelect(-1)(x) + TimeSelect(-1)(y))],
     )
-    model.minimize("trip", TimeSelect(-1)(s), TimeSelect(-1)(y))
+    model.minimize("trip", SeqSelect(-1)([TimeSelect(-1)(s)]), TimeSelect(-1)(y))
     model.build()
     signals = {
         "trip_x": np.random.rand(40, 2),

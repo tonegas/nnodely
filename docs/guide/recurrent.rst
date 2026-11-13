@@ -248,25 +248,30 @@ data, with :math:`k` and :math:`c` to identify:
    msd.minimize("position", "pos_next", Input("pos_meas", tw=1))
    msd.build()
 
-Every Input of a ModelyLoop carries the rollout as its outermost sequence
-axis, one value per step. Every output is a trajectory, its element ``k``
-computed at step ``k``. The rollout is as long as the data, or ``seq`` steps
-when ``seq`` is given.
+Every Input of a ModelyLoop carries the horizon as its outermost sequence
+axis, one value per step, and every output is a trajectory: its element ``k``
+is computed at step ``k``. The horizon is as long as the data, or ``seq``
+steps when it is given. A fed-back Input listed among the inputs, as ``pos``
+and ``vel`` here, starts from its first value in the data, and reads zero when
+the data leaves it out. One that is not listed starts from zero. The state of
+an Integrate, a Derivative or a Buffer starts from their ``init`` (and the
+rate a trapezoidal Integrate keeps, from its ``init_rate``): a number, a
+Parameter, a Constant, or an Input whose first step is read; zero without
+one.
+The model a ModelyLoop returns is a :class:`~nnodely.Modely` of the rollout,
+and the one-step model it rolls out is ``msd.models[0]``. Its
+:meth:`~nnodely.Modely.minimize` takes the streams of the step, each standing
+for its trajectory: an output, or an Input that nothing feeds back. A target
+declared one step at a time, such as the measured position one step ahead,
+reads one sample per step. A fed-back Input has no trajectory of its own:
+minimize the output it is fed back with. The same holds for the body of any
+Loop a model rolls out, and for a model loaded back with
+:meth:`~nnodely.Modely.load`. :attr:`~nnodely.Modely.inputs` tells how each
+Input of a model is fed:
 
-The initial value of a state is:
+.. code-block:: python
 
-- its first value in the data, for a state listed among the inputs, as
-  ``pos`` and ``vel`` here. Left out of the data, it starts from zero;
-- zero, for a state not listed among the inputs;
-- the ``init`` of the layer, for the state of an ``Integrate``, a
-  ``Derivative`` or a ``Buffer``: a number, a Parameter, a Constant, or an
-  Input whose first step is read. It is zero without one.
-
-:meth:`~nnodely.ModelyLoop.minimize` compares the trajectories of streams of
-the step: an output, or an Input that nothing feeds back, such as the
-measured position one step ahead. :attr:`~nnodely.Modely.inputs` prints how
-each Input is fed: whether it is declared, what feeds it back, whether the
-data must hold it, and where it starts from.
+   print(msd.inputs)
 
 The :class:`~nnodely.DataLoader` cuts the signals into sequences of
 ``seq_length`` steps, and the target is the position one step ahead:

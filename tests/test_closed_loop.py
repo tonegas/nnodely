@@ -1022,3 +1022,20 @@ def test_buffer():
         to_numpy(result["u_c_seq"]).ravel(),
         np.array([1.0, 0.0, -1.0, -1.0, 1.0, 2.0, 0.0, -3.0, -2.0, 3.0]),
     )
+
+
+def test_a_loop_never_takes_another_object_for_a_node_of_its_step():
+    # The step keys the copies it makes by id. When the body is the model
+    # itself, the copies were dropped: an object made later could be given
+    # one of their ids, and be taken for the state the copy stood for.
+    import gc
+
+    for index in range(40):
+        s, v = Input(f"ids_s{index}", tw=1), Input(f"ids_v{index}", tw=1)
+        s_next = Output(f"ids_next{index}", s + v * 0.5)
+        body = Modely(f"ids_body{index}", inputs=[s, v], outputs=[s_next])
+        step = Loop(f=body, feedback={s: s_next})._step
+        gc.collect()
+        made = [Input(f"ids_fresh{index}_{j}", tw=1) for j in range(50)]
+        assert all(step.key(node) == id(node) for node in made)
+        assert all(step.copied_from(node) is node for node in made)

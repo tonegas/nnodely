@@ -569,6 +569,10 @@ class _Step:
         # one is copied once per call, together with the stream it is fed
         # back with.
         scope = Scope(pending=[], loop=True)
+        # The maps below are keyed by the ids of the copies: kept alive with
+        # the scope, even when the body is f itself, no other object can be
+        # given one of their ids and be taken for the node it stands for.
+        self._scope = scope
         outputs = [flatten_node(output, scope) for output in f._outputs]
         flatten_fed_back(scope)
         crossing = _fed_back_across_calls(scope)
