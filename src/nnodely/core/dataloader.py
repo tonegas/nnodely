@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from nnodely.core.shape import OUTER_AXIS, slice_axis
+from nnodely.core.stream import object_repr
 from nnodely.layers.input import Input, _seq_cell, _tw_cell
 from nnodely.utils.printers import _table
 
@@ -492,15 +493,26 @@ class DataLoader:
         """
         return list(self._dataset.keys())
 
+    def _source_text(self) -> str:
+        """Where the samples came from: memory, or how many files."""
+        if self._num_files is None:
+            return "in-memory dict" + (", windowed" if self._windowed else "")
+        return f"{self._num_files} file{'' if self._num_files == 1 else 's'}"
+
     def __repr__(self) -> str:
+        return object_repr(
+            self,
+            model=self._model,
+            samples=len(self),
+            source=self._source_text(),
+            inputs=self.inputs,
+        )
+
+    def __str__(self) -> str:
         """The dataset as a table, for `print(loader)`: a row per input, with
         its sequence as the loader resolved it, its window, its dim and the
         shape of its array, under the model's name, the number of samples and
         where they came from."""
-        if self._num_files is None:
-            source = "in-memory dict" + (", windowed" if self._windowed else "")
-        else:
-            source = f"{self._num_files} file{'' if self._num_files == 1 else 's'}"
         rows = []
         for node in self._nodes:
             values = self._dataset[node.name]
@@ -513,7 +525,7 @@ class DataLoader:
                     str(tuple(values.shape)),
                 )
             )
-        title = f"{self._model.name}: {len(self)} samples, {source}"
+        title = f"{self._model.name}: {len(self)} samples, {self._source_text()}"
         return _table(("input", "seq", "tw", "dim", "shape"), [(title, rows)])
 
     def __len__(self) -> int:

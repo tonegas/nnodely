@@ -573,5 +573,3 @@ class Inputs(Table):
             for row in self._rows
         ]
         return _table(self._HEADER, [("", cells)], indexed=True)
-
-    __repr__ = __str__

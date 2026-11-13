@@ -213,7 +213,7 @@ def _resolve_early_stopping(
             f"does not log: it logs {sorted(logged)}.{hint}"
         )
     # Every quantity training logs is a loss, but Keras infers a direction only
-    # for the names "loss" and "val_loss": "fit_loss" would raise in "auto" mode.
+    # for the names "loss" and "val_loss": "loss_fit" would raise in "auto" mode.
     if isinstance(callback, keras.callbacks.EarlyStopping) and callback.mode == "auto":
         callback.mode = "min"
     return callback

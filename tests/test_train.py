@@ -759,7 +759,7 @@ def test_train_equation_learner_updates_symbolic_coefficients():
     assert equation._linear_out is not None
     assert equation._linear_in.kernel is not None
     assert equation._linear_out.kernel is not None
-    assert np.isfinite(history["loss"][-1])
+    assert np.isfinite(history.losses["loss"][-1])
     np.testing.assert_allclose(
         to_numpy(equation._linear_in.kernel), [[1.4]], rtol=1e-5, atol=1e-5
     )
@@ -845,13 +845,13 @@ def test_train_equation_learner_fine_tunes_with_a_threshold():
     history = model.train(
         train_data=data, epochs=60, batch_size=10, lr=0.02, printer=None
     )
-    assert history["loss"][-1] < 1e-2
+    assert history.losses["loss"][-1] < 1e-2
 
     learner.threshold = 0.05
     history = model.train(
         train_data=data, epochs=20, batch_size=10, lr=0.002, printer=None
     )
-    assert history["loss"][-1] < 1e-2
+    assert history.losses["loss"][-1] < 1e-2
 
     # The equation plot() returns is the one the model computes, less the
     # coefficients below the threshold.
@@ -936,7 +936,7 @@ def test_train_with_named_loss(loss_name):
         lr=0.1,
     )
 
-    assert np.isfinite(history["loss"][-1])
+    assert np.isfinite(history.losses["loss"][-1])
     assert linear.kernel is not None
     assert not np.allclose(to_numpy(linear.kernel), [[1.0]])
 
@@ -971,7 +971,7 @@ def test_train_with_multiple_minimizer_losses():
         lr=0.1,
     )
 
-    assert np.isfinite(history["loss"][-1])
+    assert np.isfinite(history.losses["loss"][-1])
     assert mse_linear.kernel is not None
     assert mae_linear.kernel is not None
     assert not np.allclose(to_numpy(mse_linear.kernel), [[1.0]])
@@ -1079,7 +1079,7 @@ def test_train_with_loop():
 
     assert np.isfinite(final_error)
     assert final_error < initial_error
-    assert history["loss"][-1] < history["loss"][0]
+    assert history.losses["loss"][-1] < history.losses["loss"][0]
 
 
 @pytest.mark.skipif(
@@ -1115,8 +1115,8 @@ def test_train_with_loop_under_xla(monkeypatch):
 
     assert model.model is not None
     assert model.model.jit_compile
-    assert np.all(np.isfinite(history["loss"]))
-    assert history["loss"][-1] < history["loss"][0]
+    assert np.all(np.isfinite(history.losses["loss"]))
+    assert history.losses["loss"][-1] < history.losses["loss"][0]
 
 
 def test_masked_loss_ignores_padded_target_steps():
@@ -1185,8 +1185,8 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
         **CONVERGED,
     )
 
-    assert np.isfinite(history["loss"][-1])
-    assert history["loss"][-1] < history["loss"][0]
+    assert np.isfinite(history.losses["loss"][-1])
+    assert history.losses["loss"][-1] < history.losses["loss"][0]
     assert relation.kernel is not None
     np.testing.assert_allclose(to_numpy(relation.kernel), [[ratio]], atol=1e-2)
 
@@ -1241,8 +1241,8 @@ def test_train_with_val_data_reports_validation_loss():
         printer=None,
     )
 
-    np.testing.assert_allclose(history["val_loss"], [2.5, 2.5], rtol=1e-6)
-    np.testing.assert_allclose(history["loss"], [0.0, 0.0], atol=1e-6)
+    np.testing.assert_allclose(history.losses["val_loss"], [2.5, 2.5], rtol=1e-6)
+    np.testing.assert_allclose(history.losses["loss"], [0.0, 0.0], atol=1e-6)
 
 
 def test_train_target_window_of_an_input_with_a_wider_window():
@@ -1269,10 +1269,10 @@ def test_train_target_window_of_an_input_with_a_wider_window():
         printer=None,
     )
 
-    np.testing.assert_allclose(history["loss"], [20.0 / 3.0], rtol=1e-5)
+    np.testing.assert_allclose(history.losses["loss"], [20.0 / 3.0], rtol=1e-5)
     result = model.validate(data)
     np.testing.assert_allclose(
-        result["wide_target_error"].metrics["loss"], 20.0 / 3.0, rtol=1e-5
+        result.losses["loss_wide_target_error"], 20.0 / 3.0, rtol=1e-5
     )
 
 
@@ -1303,7 +1303,8 @@ def test_train_refuses_arguments_it_cannot_use():
     with pytest.raises(TypeError, match="train_data is a DataLoader"):
         model.train({"args_x": np.ones((4, 1, 1))}, printer=None)  # type: ignore[arg-type]
 
-    # The validation loss of args_fit is logged as val_args_fit_loss, the
-    # training loss of a minimizer named val_args_fit.
-    with pytest.raises(ValueError, match="cannot both be declared"):
-        model.minimize("val_args_fit", out, y)
+    # The validation loss of args_fit is logged as val_loss_args_fit, and the
+    # training loss of a minimizer named val_args_fit as loss_val_args_fit:
+    # the two names live together.
+    model.minimize("val_args_fit", out, y)
+    assert [m["name"] for m in model.minimizers][-1] == "val_args_fit"

@@ -23,7 +23,7 @@ from nnodely.core.layer import (
     Subtract,
 )
 from nnodely.core.modely import Modely
-from nnodely.core.stream import Stream
+from nnodely.core.stream import Stream, object_repr
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -475,6 +475,16 @@ class EquationLearner:
         node = dropped([stream])
         self._dropped_nodes.append(node)
         return Subtract(name=f"{call_name}_{key}_kept")([projected, node])
+
+    def __repr__(self) -> str:
+        return object_repr(
+            self,
+            name=self.name,
+            functions=[spec.label for spec in self._function_specs],
+            linear_in=self._linear_in_template,
+            linear_out=self._linear_out_template,
+            threshold=self._threshold,
+        )
 
     def __call__(self, inputs):
         streams = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]

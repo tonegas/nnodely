@@ -86,7 +86,7 @@ on a validation set at the end of every epoch:
    train_data = DataLoader(model, source={k: v[:800] for k, v in signals.items()})
    val_data = DataLoader(model, source={k: v[800:] for k, v in signals.items()})
 
-   history = model.train(
+   trained = model.train(
        train_data,
        val_data=val_data,
        epochs=50,
@@ -94,17 +94,22 @@ on a validation set at the end of every epoch:
        lr=1e-2,
        printer=None,
    )
-   print(sorted(history))
+   print(trained.losses.keys())
+   print(trained.epochs, trained.losses["val_loss_one_step"].shape)
 
 .. code-block:: text
    :class: output
 
-   ['loss', 'one_step_loss', 'val_loss', 'val_one_step_loss']
+   ['loss', 'loss_one_step', 'val_loss', 'val_loss_one_step']
+   50 (50,)
 
-``train`` returns the losses of every epoch: ``loss`` is the total, and
-``<objective>_loss`` the loss of each objective, each with a ``val_`` version
-when ``val_data`` is given. The two learned coefficients are now close to 0.9
-and 0.5.
+``train`` returns a :class:`~nnodely.core.results.TrainResult`, read by its
+attributes. Its ``losses`` hold a value per epoch under the keys Keras logs:
+``loss`` is the total, and ``loss_<objective>`` the loss of each objective,
+each with a ``val_`` version when ``val_data`` is given. ``print(trained)``
+shows a row per objective with its last losses. The model does not keep the
+result: save it in a variable. The two learned coefficients are now close to
+0.9 and 0.5.
 
 The arguments, with their defaults:
 
@@ -138,7 +143,7 @@ Step 4: optimizers
 
 .. code-block:: python
 
-   history = model.train(
+   trained = model.train(
        train_data,
        epochs=10,
        batch_size=32,
@@ -148,7 +153,7 @@ Step 4: optimizers
        printer="tiny",
    )
 
-   history = model.train(
+   trained = model.train(
        train_data,
        epochs=10,
        batch_size=32,
@@ -169,13 +174,13 @@ improving. It takes one of:
 - a **callback**: a configured ``keras.callbacks.EarlyStopping``, or one of
   your own that sets ``self.model.stop_training = True``.
 
-The names are those of the history: ``"loss"``, ``"<objective>_loss"``, and
-their ``val_`` versions when ``val_data`` is given. Watching a loss that is
+The names are the keys of ``losses``: ``"loss"``, ``"loss_<objective>"``,
+and their ``val_`` versions when ``val_data`` is given. Watching a loss that is
 not logged raises an error, rather than training to the end.
 
 .. code-block:: python
 
-   history = model.train(
+   trained = model.train(
        train_data,
        val_data=val_data,
        epochs=500,
@@ -185,7 +190,7 @@ not logged raises an error, rather than training to the end.
        early_stopping_kwargs={"patience": 10, "restore_best_weights": True},
        printer=None,
    )
-   print(len(history["loss"]) < 500)   # it stopped early
+   print(trained.epochs < 500)   # it stopped early
 
 .. code-block:: text
    :class: output
@@ -198,11 +203,11 @@ not logged raises an error, rather than training to the end.
        """Stop once the objective's loss falls below a level."""
 
        def on_epoch_end(self, epoch, logs=None):
-           if logs["one_step_loss"] < 1e-4:
+           if logs["loss_one_step"] < 1e-4:
                self.model.stop_training = True
 
 
-   history = model.train(
+   trained = model.train(
        train_data, epochs=500, batch_size=32, early_stopping=StopBelow(), printer=None
    )
 
@@ -222,16 +227,16 @@ with, in a table:
 .. code-block:: text
    :class: output
 
-   ┏━━━━━┳━━━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓
-   ┃ idx ┃ parameter    ┃ seq ┃ tw   ┃ dim    ┃ values ┃ trainable ┃
-   ┡━━━━━╇━━━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩
-   │ 0   │ fir_y_kernel │ ()  │ None │ (1, 1) │ 1      │ no        │
-   │ 1   │ fir_y_bias   │ ()  │ None │ (1,)   │ 1      │ yes       │
-   │ 2   │ fir_u_kernel │ ()  │ None │ (1, 1) │ 1      │ yes       │
-   │ 3   │ fir_u_bias   │ ()  │ None │ (1,)   │ 1      │ yes       │
-   ├─────┼──────────────┼─────┼──────┼────────┼────────┼───────────┤
-   │     │ total        │     │      │        │ 4      │ 3         │
-   └─────┴──────────────┴─────┴──────┴────────┴────────┴───────────┘
+   ┏━━━━━┳━━━━━━━━━━━━━━┳━━━━━┳━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓
+   ┃ idx ┃ parameter    ┃ seq ┃ tw ┃ dim    ┃ values ┃ trainable ┃
+   ┡━━━━━╇━━━━━━━━━━━━━━╇━━━━━╇━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩
+   │ 0   │ fir_y_kernel │ ()  │ -  │ (1, 1) │ 1      │ no        │
+   │ 1   │ fir_y_bias   │ ()  │ -  │ (1,)   │ 1      │ yes       │
+   │ 2   │ fir_u_kernel │ ()  │ -  │ (1, 1) │ 1      │ yes       │
+   │ 3   │ fir_u_bias   │ ()  │ -  │ (1,)   │ 1      │ yes       │
+   ├─────┼──────────────┼─────┼────┼────────┼────────┼───────────┤
+   │     │ total        │     │    │        │ 4      │ 3         │
+   └─────┴──────────────┴─────┴────┴────────┴────────┴───────────┘
 
 A frozen Parameter keeps its value through training, until it is unfrozen.
 :meth:`~nnodely.Modely.freeze` and :meth:`~nnodely.Modely.unfreeze` act on:

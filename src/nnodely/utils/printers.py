@@ -18,6 +18,8 @@ from typing import Any, Sequence
 
 import keras
 
+from nnodely.core.stream import object_repr
+
 #: Width of one loss cell, and of the epoch column. A cell holds a number
 #: formatted as ``.4g``, which is at most 9 characters wide for the exponents
 #: a loss realistically reaches.
@@ -67,7 +69,7 @@ class TinyPrinter(keras.callbacks.Callback):
 
     The summary holds the epoch, the time since training started, and every
     loss of the epoch, in alphabetical order: ``loss``, the total, and
-    ``<objective>_loss`` for each objective, each with a ``val_`` version
+    ``loss_<objective>`` for each objective, each with a ``val_`` version
     when there is validation data. Where it appears depends on the output:
 
     - in a terminal, it is repainted in place at every epoch, so nothing
@@ -110,8 +112,8 @@ class TinyPrinter(keras.callbacks.Callback):
     ──────────────────────────────────────────────────────────────────────
     Epoch 1/1   Elapsed: ...s
     ──────────────────────────────────────────────────────────────────────
-    err_loss                             ...
     loss                                 ...
+    loss_err                             ...
     ──────────────────────────────────────────────────────────────────────
 
     Options
@@ -134,6 +136,9 @@ class TinyPrinter(keras.callbacks.Callback):
         # The summary of the last epoch, and when the notebook last showed one.
         self._text = ""
         self._shown = 0.0
+
+    def __repr__(self) -> str:
+        return object_repr(self, epochs=self._epochs)
 
     def on_train_begin(self, logs=None):
         """Called by Keras when training starts.
@@ -221,7 +226,7 @@ class LegacyPrinter(keras.callbacks.Callback):
     minimizers : sequence of str, default ()
         The names of the objectives, called minimizers in the method names,
         one column pair each, in this order. Each logs its loss as
-        ``<name>_loss``. :meth:`Modely.train` gives the objectives of the
+        ``loss_<name>``. :meth:`Modely.train` gives the objectives of the
         model.
     max_rows : int, default 20
         The largest number of rows, at least 1.
@@ -308,6 +313,14 @@ class LegacyPrinter(keras.callbacks.Callback):
         self._widths = [_EPOCH_CELL] + [_CELL] * (2 * len(self._groups))
         self._width = sum(width + 3 for width in self._widths) + 1
         self._colour = False
+
+    def __repr__(self) -> str:
+        return object_repr(
+            self,
+            epochs=self._epochs,
+            minimizers=self._minimizers,
+            max_rows=self._max_rows,
+        )
 
     # ------------------------------------------------------------------
     # Callback hooks
@@ -396,7 +409,7 @@ class LegacyPrinter(keras.callbacks.Callback):
         ]
 
     def _row(self, epoch: int, logs: dict[str, Any]) -> str:
-        keys = [f"{name}_loss" for name in self._minimizers] + ["loss"]
+        keys = [f"loss_{name}" for name in self._minimizers] + ["loss"]
         cells = [f"{epoch + 1}/{self._epochs}"]
         for key in keys:
             cells.append(_format(logs.get(key, logs.get("loss"))))
@@ -811,7 +824,7 @@ class NNodelyPrinter(keras.callbacks.Callback):
         remaining time.
     minimizers : sequence of str, default ()
         The names of the objectives, called minimizers in the method names,
-        one line each. Each logs its loss as ``<name>_loss``.
+        one line each. Each logs its loss as ``loss_<name>``.
         :meth:`Modely.train` gives the objectives of the model.
     model_name : str, default "model"
         The name shown in the console and in the summary.
@@ -904,7 +917,7 @@ class NNodelyPrinter(keras.callbacks.Callback):
         self._spark = max(10, min(28, self._width - 62))
 
         self._channels = [
-            _Channel(name, f"{name}_loss", self._spark) for name in minimizers
+            _Channel(name, f"loss_{name}", self._spark) for name in minimizers
         ] + [_Channel("Total", "loss", self._spark)]
 
         self._start_time = 0.0
@@ -919,6 +932,16 @@ class NNodelyPrinter(keras.callbacks.Callback):
         # degrades to one line per sampled epoch rather than 24 lines a second
         # of log file.
         self._plain_stride = max(1, self._epochs // 40)
+
+    def __repr__(self) -> str:
+        return object_repr(
+            self,
+            epochs=self._epochs,
+            minimizers=[channel.name for channel in self._channels[:-1]],
+            model_name=self._model_name,
+            width=self._width,
+            fps=self._fps,
+        )
 
     # ------------------------------------------------------------------
     # Callback hooks
@@ -1260,7 +1283,8 @@ def _table(
 ) -> str:
     """A table as nnodely prints one: ``header`` in heavy lines, then the
     rows of each section - a (title, rows) pair - under a row of its title
-    when it has one, and, given, the ``total`` row last, under a rule. The
+    when it has one, under a rule when it has none and is not the first, and,
+    given, the ``total`` row last, under a rule. The
     columns line up across the sections. ``indexed`` opens each row with its
     position among the rows of every section, under ``idx``: the index it is
     picked by from the list the table prints. In colour (see
@@ -1305,6 +1329,8 @@ def _table(
                 (f"│ {name.ljust(inner)} │", brand),
                 (rule("├", "─", "┬", "┤"), ""),
             ]
+        elif index:
+            lines.append((rule("├", "─", "┼", "┤"), ""))
         lines += [(row(cells, "│"), "") for cells in section]
     if total is not None:
         if rows:

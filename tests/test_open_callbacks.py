@@ -457,7 +457,11 @@ def test_outputs_tells_what_each_output_is():
     lines = text.splitlines()
     assert lines[0].startswith("┏") and lines[1].startswith("┃ idx ┃ output ")
     assert len(lines) == 3 + 2 + 1 and lines[-1].startswith("└")
-    assert repr(tank.outputs) == text
+    assert (
+        repr(tank.outputs)
+        .splitlines()[1]
+        .startswith("  [0] 'oc_outs_level_next': Output(name='oc_outs_level_next'")
+    )
 
     # In a ModelyLoop each output is a trajectory: the row names the stream
     # of the step it collects, the one the Inputs table feeds back.

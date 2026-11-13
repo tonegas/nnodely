@@ -23,12 +23,23 @@ Guides: :doc:`../guide/models`, :doc:`../guide/training`,
 Returned objects
 ----------------
 
-:meth:`Modely.validate` returns a :class:`~nnodely.core.validation.ValidationResult`,
-a list of :class:`~nnodely.core.validation.SignalScore`, one per objective.
-You read them, and never create them, so they are not exported by the
-top-level package.
+:meth:`Modely.train` returns a :class:`~nnodely.core.results.TrainResult`,
+:meth:`Modely.validate` a :class:`~nnodely.core.results.ValidationResult`,
+with a :class:`~nnodely.core.validation.Signal` per objective. They are read
+by their attributes, and have one form: ``losses`` under the keys Keras logs,
+``loss`` and ``loss_<objective>``. You read them, and never create them, so
+they are not exported by the top-level package.
 
 Guide: :doc:`../guide/validation`. Tutorial: :doc:`../tutorial/04_model_validation`.
+
+.. currentmodule:: nnodely.core.results
+
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   TrainResult
+   ValidationResult
 
 .. currentmodule:: nnodely.core.validation
 
@@ -36,5 +47,4 @@ Guide: :doc:`../guide/validation`. Tutorial: :doc:`../tutorial/04_model_validati
    :toctree: generated
    :nosignatures:
 
-   ValidationResult
-   SignalScore
+   Signal

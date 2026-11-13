@@ -821,7 +821,14 @@ def test_models_gives_the_called_model_itself():
             "└─────┴────────────┴────────┴─────────┴────────────┴───────┘",
         ]
     )
-    assert repr(model2.models) == str(model2.models)
+    assert repr(model2.models) == "\n".join(
+        [
+            "Models(",
+            "  [0] 'sub_model1': Modely(name='sub_model1', inputs=['sub_x'], "
+            "outputs=['sub_out'], parameters=1, built=True),",
+            ")",
+        ]
+    )
 
 
 def test_models_reaches_every_depth_each_model_once():

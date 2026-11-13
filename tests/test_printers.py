@@ -305,14 +305,19 @@ def test_a_model_prints_as_a_table_of_its_inputs_outputs_and_minimizers():
             "┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━┩",
             "│ inputs     │ repr_x, repr_y, repr_ref │",
             "│ outputs    │ repr_out                 │",
+            "│ parameters │ 0                        │",
             "│ minimizers │ fit, reg                 │",
             "└────────────┴──────────────────────────┘",
         ]
     )
-    assert str(model) == str(model)
+    # repr is one line, the fields of its row in a table of models.
+    assert repr(model) == (
+        "Modely(name='repr_model', inputs=['repr_x', 'repr_y', 'repr_ref'], "
+        "outputs=['repr_out'], parameters=0, built=False)"
+    )
     # A model without minimizers.
     bare = Modely("repr_bare", inputs=[x], outputs=[Output("repr_bare_out", x * 2)])
-    assert str(bare).splitlines()[5] == "│ minimizers │ -             │"
+    assert str(bare).splitlines()[6] == "│ minimizers │ -             │"
 
 
 def _notebook(monkeypatch):

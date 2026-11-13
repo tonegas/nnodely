@@ -51,6 +51,16 @@ def reserve_name(name: str) -> None:
     NODE_NAMES.update("_".join(parts[:index]) for index in range(1, len(parts) + 1))
 
 
+def object_repr(obj, **fields) -> str:
+    """How every object of nnodely prints: ``Class(field=value, ...)`` on
+    one line. An object it refers to - a stream, a layer, a model - prints
+    by its name; reading the attribute gives the object."""
+    text = ", ".join(
+        f"{key}={getattr(value, 'name', value)!r}" for key, value in fields.items()
+    )
+    return f"{type(obj).__name__}({text})"
+
+
 class Node:
     name: str
     _preds: list[Node]
@@ -250,4 +260,12 @@ class Stream(Node):
         return None
 
     def __repr__(self):
-        return f"{type(self).__name__}(name={self.name!r}, shape={self.shape})"
+        """An Input or an Output prints as its class. A stream a call
+        returns - of a layer, an operator, a model or a loop - prints as a
+        Stream, whatever made it."""
+        from nnodely.layers.input import Input
+        from nnodely.layers.output import Output
+
+        if type(self) in (Input, Output):
+            return object_repr(self, name=self.name, shape=self.shape)
+        return f"Stream(name={self.name!r}, shape={self.shape})"

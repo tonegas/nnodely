@@ -331,7 +331,7 @@ class ModelyLoop(Modely):
         Parameters
         ----------
         name : str
-            The name of the objective, logged as ``"<name>_loss"``.
+            The name of the objective, logged as ``"loss_<name>"``.
         source : Output, Stream or str
             An output of the model, or its name.
         target : Output, Stream, str, float or None, default None
@@ -368,7 +368,7 @@ class ModelyLoop(Modely):
         >>> total_out = Output("total", total.feedback(total + rate))
         >>> counter = ModelyLoop("counter", inputs=[rate], outputs=[total_out])
         >>> counter = counter.minimize("track", "total", Input("measured", tw=1))
-        >>> counter.minimizers
+        >>> print(counter.minimizers)
         ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━┓
         ┃ idx ┃ minimizer ┃ source ┃ target   ┃ loss               ┃ gain ┃
         ┡━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━┩

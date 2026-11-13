@@ -16,6 +16,7 @@ from nnodely import (
     Parameter,
 )
 from nnodely import TimeSelect
+from nnodely.layers.parameter import Weight
 
 
 def test_parameter_constant_shapes():
@@ -831,21 +832,27 @@ def test_model_parameters_lists_every_parameter_and_prints_a_table():
     model.build()
     assert str(model.parameters) == "\n".join(
         [
-            "┏━━━━━┳━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓",
-            "┃ idx ┃ parameter  ┃ seq ┃ tw   ┃ dim       ┃ values ┃ trainable ┃",
-            "┡━━━━━╇━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩",
-            "│ 0   │ a          │ ()  │ None │ (2, 3, 2) │ 12     │ yes       │",
-            "│ 1   │ b          │ ()  │ None │ (2, 3, 2) │ 12     │ no        │",
-            "│ 2   │ lin_kernel │ ()  │ None │ (2, 3, 2) │ 12     │ yes       │",
-            "│ 3   │ lin_bias   │ ()  │ None │ (2,)      │ 2      │ yes       │",
-            "│ 4   │ c          │ ()  │ 4    │ (1,)      │ 4      │ yes       │",
+            "┏━━━━━┳━━━━━━━━━━━━┳━━━━━┳━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓",
+            "┃ idx ┃ parameter  ┃ seq ┃ tw ┃ dim       ┃ values ┃ trainable ┃",
+            "┡━━━━━╇━━━━━━━━━━━━╇━━━━━╇━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩",
+            "│ 0   │ a          │ ()  │ -  │ (2, 3, 2) │ 12     │ yes       │",
+            "│ 1   │ b          │ ()  │ -  │ (2, 3, 2) │ 12     │ no        │",
+            "│ 2   │ lin_kernel │ ()  │ -  │ (2, 3, 2) │ 12     │ yes       │",
+            "│ 3   │ lin_bias   │ ()  │ -  │ (2,)      │ 2      │ yes       │",
+            "│ 4   │ c          │ ()  │ 4  │ (1,)      │ 4      │ yes       │",
             # The values of all the Parameters, and of the trainable ones.
-            "├─────┼────────────┼─────┼──────┼───────────┼────────┼───────────┤",
-            "│     │ total      │     │      │           │ 42     │ 30        │",
-            "└─────┴────────────┴─────┴──────┴───────────┴────────┴───────────┘",
+            "├─────┼────────────┼─────┼────┼───────────┼────────┼───────────┤",
+            "│     │ total      │     │    │           │ 42     │ 30        │",
+            "└─────┴────────────┴─────┴────┴───────────┴────────┴───────────┘",
         ]
     )
-    assert repr(model.parameters) == str(model.parameters)
+    # The same items, with the index and the name they are picked by; the
+    # weights a layer made print as Weight, those declared as Parameter.
+    assert repr(model.parameters).splitlines()[1:4] == [
+        "  [0] 'a':          Parameter(name='a', shape=Shape(S=(), T=None, D=(2, 3, 2))),",
+        "  [1] 'b':          Parameter(name='b', shape=Shape(S=(), T=None, D=(2, 3, 2))),",
+        "  [2] 'lin_kernel': Weight(name='lin_kernel', shape=Shape(S=(), T=None, D=(2, 3, 2))),",
+    ]
 
 
 def test_model_parameters_prints_a_table_per_model():
@@ -866,42 +873,28 @@ def test_model_parameters_prints_a_table_per_model():
 
     # Still one list, in the order the graph reaches them.
     assert top.parameters == [shared, frozen]
-    top_rule = "┏━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓"
-    header = "┃ idx ┃ parameter        ┃ seq ┃ tw   ┃ dim  ┃ values ┃ trainable ┃"
-    open_columns = "├─────┬──────────────────┬─────┬──────┬──────┬────────┬───────────┤"
-    shared_row = "│ 0   │ per_model_shared │ ()  │ None │ (1,) │ 1      │ yes       │"
-    frozen_row = "│ 1   │ per_model_frozen │ ()  │ None │ (1,) │ 1      │ no        │"
-    total = [
-        "├─────┼──────────────────┼─────┼──────┼──────┼────────┼───────────┤",
-        "│     │ total            │     │      │      │ 2      │ 1         │",
-        "└─────┴──────────────────┴─────┴──────┴──────┴────────┴───────────┘",
-    ]
-    # A row of the model's name opens its Parameters. One the model shares
-    # with a block it calls is listed once, under the model, the first to
-    # reach it. One total, of every model. The idx runs on across the models:
-    # it picks the Parameter from the list, top.parameters[1] is frozen.
+    # A model column tells whose each Parameter is, and the rows of each model
+    # stand together, between rules. One the model shares with a block it
+    # calls is listed once, with the model, the first to reach it. One total,
+    # of every model. The idx runs on across the models: it picks the
+    # Parameter from the list, top.parameters[1] is frozen.
     assert str(top.parameters) == "\n".join(
         [
-            top_rule,
-            header,
-            "┡━━━━━┻━━━━━━━━━━━━━━━━━━┻━━━━━┻━━━━━━┻━━━━━━┻━━━━━━━━┻━━━━━━━━━━━┩",
-            "│ per_model_top                                                   │",
-            open_columns,
-            shared_row,
-            "├─────┴──────────────────┴─────┴──────┴──────┴────────┴───────────┤",
-            "│ per_model_body                                                  │",
-            open_columns,
-            frozen_row,
-            *total,
+            "┏━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━┳━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓",
+            "┃ idx ┃ parameter        ┃ model          ┃ seq ┃ tw ┃ dim  ┃ values ┃ trainable ┃",
+            "┡━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━╇━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩",
+            "│ 0   │ per_model_shared │ per_model_top  │ ()  │ -  │ (1,) │ 1      │ yes       │",
+            "├─────┼──────────────────┼────────────────┼─────┼────┼──────┼────────┼───────────┤",
+            "│ 1   │ per_model_frozen │ per_model_body │ ()  │ -  │ (1,) │ 1      │ no        │",
+            "├─────┼──────────────────┼────────────────┼─────┼────┼──────┼────────┼───────────┤",
+            "│     │ total            │                │     │    │      │ 2      │ 1         │",
+            "└─────┴──────────────────┴────────────────┴─────┴────┴──────┴────────┴───────────┘",
         ]
     )
-    # The block alone is one model: one table.
-    assert str(body.parameters).splitlines()[2:] == [
-        "┡━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩",
-        shared_row,
-        frozen_row,
-        *total,
-    ]
+    # The block alone is one model: no model column.
+    assert str(body.parameters).splitlines()[1] == (
+        "┃ idx ┃ parameter        ┃ seq ┃ tw ┃ dim  ┃ values ┃ trainable ┃"
+    )
     # A model without Parameters of its own still names the block they are of.
     wrap = Modely(
         "per_model_wrap",
@@ -909,7 +902,7 @@ def test_model_parameters_prints_a_table_per_model():
         outputs=[Output("per_model_wrap_out", body([z]))],
     )
     assert str(wrap.parameters).splitlines()[3] == (
-        "│ per_model_body                                                  │"
+        "│ 0   │ per_model_shared │ per_model_body │ ()  │ -  │ (1,) │ 1      │ yes       │"
     )
 
 
@@ -928,7 +921,9 @@ def test_the_weights_a_layer_makes_are_parameters_drawn_one_piece_at_a_time():
         "draw_model", inputs=[x, m], outputs=[Output("f", fir), Output("l", lin)]
     ).build()
     kernels = {p.name: p for p in model.parameters}
-    assert all(type(p) is Parameter for p in kernels.values())
+    # Made by the layers: Weights, which are Parameters in every way.
+    assert all(type(p) is Weight for p in kernels.values())
+    assert all(isinstance(p, Parameter) for p in kernels.values())
 
     fir_kernel = to_numpy(kernels["draw_fir_kernel"].param)
     assert fir_kernel.shape == (40, 5, 1)

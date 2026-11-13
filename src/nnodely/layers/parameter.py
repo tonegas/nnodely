@@ -8,6 +8,7 @@ import keras
 from nnodely.core.layer import Layer
 from nnodely.core.dag import Table
 from nnodely.core.shape import Shape
+from nnodely.core.stream import object_repr
 from nnodely.layers.input import _dimension, _positive_sizes
 from nnodely.utils.printers import _table
 from nnodely.utils.utils import _per_slice_initializer, _serialized_initializer
@@ -231,6 +232,10 @@ class _Value(Layer):
         # The value as it is held: its sequence axes, its window if it has
         # one, then its dim - the shape of one sample of its stream.
         self._value_shape = self.shape.tuple
+
+    def __repr__(self) -> str:
+        # Declared by the user, it prints as its class.
+        return object_repr(self, name=self.name, shape=self.shape)
 
     def build_layer(self):
         return self._impl(
@@ -688,6 +693,16 @@ class Parameter(_Value):
             self._layer.reinitialize()
 
 
+class Weight(Parameter):
+    """A Parameter a layer makes for one of its weights on its first call,
+    named ``<layer>_<weight>``, such as ``fir_kernel``. It is a Parameter in
+    every way: it differs only in the class it prints, which tells it from a
+    Parameter the user declared.
+
+    .. versionadded:: 2.0
+    """
+
+
 class Parameters(Table):
     """The Parameters of a model, as :attr:`Modely.parameters` lists them.
 
@@ -697,8 +712,9 @@ class Parameters(Table):
     ``ValueError``.
 
     Printed, it is a table of their names, shapes, numbers of values and
-    whether training changes them. There is a section per model when the
-    models it calls have Parameters of their own. The last row totals the
+    whether training changes them. When the models it calls have Parameters
+    of their own, a ``model`` column tells whose each is, and the rows of
+    each model stand together, between rules. The last row totals the
     values, all and trainable.
 
     ``groups`` pairs the name of each model with its Parameters, the model
@@ -716,32 +732,31 @@ class Parameters(Table):
         return f"in {self._models[index]!r}"
 
     def __str__(self):
-        header = ("parameter", "seq", "tw", "dim", "values", "trainable")
-
-        def row(parameter):
-            return (
-                parameter.name,
-                str(tuple(parameter.shape.seq)),
-                str(parameter.shape.tw),
-                str(tuple(parameter.shape.dim)),
-                str(math.prod(parameter.shape.tuple)),
-                "yes" if parameter.trainable else "no",
-            )
-
-        # A section per model only when the models it calls have some.
-        sections = [
-            (name, [row(parameter) for parameter in group])
-            for name, group in self._groups
-            if group
-        ]
-        if not any(group for _, group in self._groups[1:]):
-            sections = [("", [row(parameter) for parameter in self])]
+        # The model column only when the models it calls have Parameters.
+        by_model = any(group for _, group in self._groups[1:])
+        model_column = ("model",) if by_model else ()
+        header = ("parameter", *model_column, "seq", "tw", "dim", "values", "trainable")
+        sections = []
+        for model, group in self._groups:
+            rows = [
+                (
+                    p.name,
+                    *((model,) if by_model else ()),
+                    str(tuple(p.shape.seq)),
+                    "-" if p.shape.tw is None else str(p.shape.tw),
+                    str(tuple(p.shape.dim)),
+                    str(math.prod(p.shape.tuple)),
+                    "yes" if p.trainable else "no",
+                )
+                for p in group
+            ]
+            if rows:
+                sections.append(("", rows))
         values = [math.prod(p.shape.tuple) for p in self]
         trainable = sum(v for v, p in zip(values, self) if p.trainable)
-        total = ("total", "", "", "", str(sum(values)), str(trainable))
+        blank = ("",) * (len(model_column) + 3)
+        total = ("total", *blank, str(sum(values)), str(trainable))
         return _table(header, sections, total, indexed=True)
-
-    __repr__ = __str__
 
 
 class Constant(_Value):

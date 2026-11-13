@@ -987,7 +987,11 @@ def test_a_loader_prints_as_a_table_of_its_inputs():
         seq_length=4,
     )
 
-    assert repr(loader) == "\n".join(
+    assert repr(loader) == (
+        "DataLoader(model='print_model', samples=14, source='in-memory dict', "
+        "inputs=['print_u', 'print_x'])"
+    )
+    assert str(loader) == "\n".join(
         [
             "┏━━━━━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━┓",
             "┃ input   ┃ seq  ┃ tw     ┃ dim  ┃ shape         ┃",

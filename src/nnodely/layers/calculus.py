@@ -26,7 +26,7 @@ import numpy as np
 
 from nnodely.core.layer import Layer
 from nnodely.core.shape import expand_to_rank, slice_axis
-from nnodely.core.stream import Stream
+from nnodely.core.stream import Stream, object_repr
 from nnodely.layers.input import (
     Input,
     _check_history,
@@ -712,6 +712,16 @@ class Integrate:
         self._init_rate = _validate_init("Integrate", init_rate, "init_rate")
         self.name = next_name("Integrate") if name is None else name
         self._calls = 0
+
+    def __repr__(self) -> str:
+        return object_repr(
+            self,
+            name=self.name,
+            dt=self._dt,
+            method=self._method,
+            init=self._init,
+            init_rate=self._init_rate,
+        )
 
     def __call__(self, rate):
         if isinstance(rate, (list, tuple)):

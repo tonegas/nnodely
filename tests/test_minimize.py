@@ -106,12 +106,12 @@ def _training_loss(model, data):
         shuffle=False,
         printer=None,
     )
-    return history["loss"][0]
+    return history.losses["loss"][0]
 
 
 def _validation_losses(model, data):
     result = model.validate(data)
-    return {score.name: score.metrics["loss"] for score in result}
+    return {name: result.losses[f"loss_{name}"] for name in result.signals}
 
 
 def _fit(model, data, epochs, lr, **train_kwargs):
@@ -951,16 +951,18 @@ def test_gains_weight_the_total_loss_but_not_the_logged_losses():
         printer=None,
     )
 
-    np.testing.assert_allclose(history["loss"][0], 0.5 * half + 2 * double, rtol=1e-5)
-    np.testing.assert_allclose(history["half_loss"][0], half, rtol=1e-5)
-    np.testing.assert_allclose(history["double_loss"][0], double, rtol=1e-5)
+    np.testing.assert_allclose(
+        history.losses["loss"][0], 0.5 * half + 2 * double, rtol=1e-5
+    )
+    np.testing.assert_allclose(history.losses["loss_half"][0], half, rtol=1e-5)
+    np.testing.assert_allclose(history.losses["loss_double"][0], double, rtol=1e-5)
     losses = _validation_losses(model, data)
     np.testing.assert_allclose(losses["half"], half, rtol=1e-5)
     np.testing.assert_allclose(losses["double"], double, rtol=1e-5)
 
 
 def test_two_minimizers_on_one_source_each_log_their_own_loss():
-    # Keyed by their source, both were once logged as "pred_loss": the history
+    # Keyed by their source, both were once logged as "loss_pred": the history
     # kept one of the two, and the printer showed it in both columns.
     x, _, _, out = _gain_model()
     y = Input("y", tw=1)
@@ -982,9 +984,9 @@ def test_two_minimizers_on_one_source_each_log_their_own_loss():
         printer=None,
     )
 
-    np.testing.assert_allclose(history["squared_loss"][0], squared, rtol=1e-5)
-    np.testing.assert_allclose(history["absolute_loss"][0], absolute, rtol=1e-5)
-    np.testing.assert_allclose(history["loss"][0], squared + absolute, rtol=1e-5)
+    np.testing.assert_allclose(history.losses["loss_squared"][0], squared, rtol=1e-5)
+    np.testing.assert_allclose(history.losses["loss_absolute"][0], absolute, rtol=1e-5)
+    np.testing.assert_allclose(history.losses["loss"][0], squared + absolute, rtol=1e-5)
 
 
 @pytest.mark.parametrize("gain", [0.0, 0.5, 1.0, 2.0])
@@ -1063,7 +1065,7 @@ def test_minimizers_lists_only_those_of_the_model():
         ("reg", top),
     ]
     text = str(top.minimizers)
-    assert repr(top.minimizers) == text
+    assert repr(top.minimizers).startswith("Minimizers(\n  [0] 'fit': Minimizer(")
     # The table alone: its header, a row per minimizer and the box.
     lines = text.splitlines()
     assert len(lines) == 6 and lines[0].startswith("┏") and lines[-1].startswith("└")
@@ -1097,7 +1099,7 @@ def _epoch_losses(model, source):
         key: values[0]
         for key, values in model.train(
             data, epochs=1, batch_size=1, optimizer="sgd", lr=0.0, printer=None
-        ).items()
+        ).losses.items()
     }
 
 
@@ -1116,7 +1118,7 @@ def test_a_model_ignores_the_minimizers_of_a_block_it_calls():
     # The call reads 2 z = 2, so the block's output is 2: the model trains on
     # its own minimizer alone, and does not read the target of the block's.
     losses = _epoch_losses(top, {"ign_z": np.ones((1, 1))})
-    assert [key for key in losses if key.endswith("_loss")] == ["top_fit_loss"]
+    assert [key for key in losses if key.startswith("loss_")] == ["loss_top_fit"]
     assert losses["loss"] == pytest.approx(1.0)
     assert {row["input"].name: row["data"] for row in top.inputs._rows} == {
         "ign_z": "required",
@@ -1146,7 +1148,7 @@ def test_setting_a_listed_minimizer_changes_it_in_the_model():
     def total():
         return car.train(
             data, epochs=1, batch_size=1, optimizer="sgd", lr=0.0, printer=None
-        )["loss"][0]
+        ).losses["loss"][0]
 
     # v = 0.3, compared with 0.
     assert total() == pytest.approx(0.3**2)

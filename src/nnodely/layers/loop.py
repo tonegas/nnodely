@@ -24,7 +24,7 @@ from nnodely.core.shape import (
     slice_axis,
     transpose,
 )
-from nnodely.core.stream import Stream
+from nnodely.core.stream import Stream, object_repr
 from nnodely.layers.input import Input
 from nnodely.layers.output import Output
 
@@ -1646,14 +1646,16 @@ class Loop(Layer):
         )
 
     def __repr__(self):
-        if self._shape is None or not self._return_all_outputs:
-            return super().__repr__()
-        # Several outputs: no one shape to print.
-        return (
-            f"Loop(name={self.name!r}, "
-            f"outputs={[output.name for output in self._returns]}, "
-            f"predecessors={[pred.name for pred in self._preds]})"
-        )
+        """Called, a loop of one output is the stream it returns. Not called
+        yet, or with several outputs - no one stream - it is the loop."""
+        if self._shape is None:
+            return object_repr(self, name=self.name, model=self._model, bound=False)
+        if self._return_all_outputs:
+            outputs = [output.name for output in self._returns]
+            return object_repr(
+                self, name=self.name, model=self._model, bound=True, outputs=outputs
+            )
+        return Stream.__repr__(self)
 
     def _check_bound(self):
         if self._shape is None:

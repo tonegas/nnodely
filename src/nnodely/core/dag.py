@@ -173,7 +173,13 @@ class Table(list):
     Inputs, outputs, models or minimizers - picked by name or by index, the
     index column of the table, as :func:`resolve` picks them. A subclass
     sets ``_kind`` and ``_attr``, the name of its list on a model, and gives
-    where each item is with :meth:`_where`."""
+    where each item is with :meth:`_where`.
+
+    It reads as a list - iterated, it gives the objects - and as a dict of
+    them by name: ``keys()``, ``values()`` and ``items()`` are lists, and
+    ``in`` takes a name or an object. ``print`` shows the table, with the
+    ``idx`` column; ``repr`` the same items, one per line, as
+    ``[i] 'name': Object(...)``."""
 
     _kind = "item"
     _attr = "items"
@@ -205,6 +211,30 @@ class Table(list):
             f"its own, {self._attr}[i].name = 'new_name'.",
             indices=True,
         )
+
+    def __contains__(self, key) -> bool:
+        """Whether an item has the name ``key``, or is the object ``key``."""
+        if isinstance(key, str):
+            return key in self.keys()
+        return any(item is key for item in self)
+
+    def keys(self) -> list[str]:
+        return [item.name for item in self]
+
+    def values(self) -> list:
+        return list(self)
+
+    def items(self) -> list[tuple[str, Any]]:
+        return [(item.name, item) for item in self]
+
+    def __repr__(self) -> str:
+        cls = type(self).__name__
+        if not self:
+            return f"{cls}()"
+        keys = [f"[{index}] {item.name!r}:" for index, item in enumerate(self)]
+        width = max(len(key) for key in keys)
+        lines = [f"  {key:<{width}} {item!r}," for key, item in zip(keys, self)]
+        return "\n".join([f"{cls}(", *lines, ")"])
 
 
 # ------------------------------------------------------------------

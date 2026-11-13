@@ -13,7 +13,7 @@ from nnodely.core.dag import _undeclared_inputs, next_name
 from nnodely.core.layer import Identity, Layer, Multiply, _refuse_uncalled
 from nnodely.core.modely import Modely
 from nnodely.core.shape import Shape, slice_axis
-from nnodely.core.stream import Stream
+from nnodely.core.stream import Stream, object_repr
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -524,6 +524,19 @@ class LocalModel:
         # The calls made, which name the model of each, and the last model.
         self._calls = 0
         self._model: Modely | None = None
+
+    def __repr__(self) -> str:
+        # A layer prints by its name, a factory of layers by its own.
+        functions = {
+            role: getattr(function, "__name__", function)
+            for role, function in (
+                ("input_function", self._input_function),
+                ("output_function", self._output_function),
+            )
+        }
+        return object_repr(
+            self, name=self.name, **functions, vectorized=self._vectorized
+        )
 
     def __call__(self, inputs, activations):
         inputs = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]

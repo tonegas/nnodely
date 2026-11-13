@@ -276,10 +276,11 @@ Printing a model shows its name, its inputs, its outputs and its objectives.
    :class: output
 
    ┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-   ┃ model      ┃ vehicle                          ┃
+   ┃ model      ┃ vehicle (built)                  ┃
    ┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
    │ inputs     │ velocity, torque, gear, altitude │
    │ outputs    │ acceleration                     │
+   │ parameters │ 11                               │
    │ minimizers │ -                                │
    └────────────┴──────────────────────────────────┘
 

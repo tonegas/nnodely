@@ -287,8 +287,8 @@ def test_two_calls_of_one_block_are_minimized_apart():
     }
     result = model.validate(DataLoader(model, data, windowed=True), verbose=False)
     # y = 2 * (sum of the window): 12 for a, 24 for b, against 0.
-    assert result["fit_a"].metrics["loss"] == pytest.approx(144.0)
-    assert result["fit_b"].metrics["loss"] == pytest.approx(576.0)
+    assert result.losses["loss_fit_a"] == pytest.approx(144.0)
+    assert result.losses["loss_fit_b"] == pytest.approx(576.0)
 
 
 def test_a_minimized_stream_named_like_an_output_is_its_own():
@@ -304,7 +304,7 @@ def test_a_minimized_stream_named_like_an_output_is_its_own():
     }
     # The doubled stream is compared, not the output: (2 - 0)^2.
     result = model.validate(DataLoader(model, data, windowed=True), verbose=False)
-    assert result["fit"].metrics["loss"] == pytest.approx(4.0)
+    assert result.losses["loss_fit"] == pytest.approx(4.0)
 
 
 # ---------------------------------------------------------------------------
@@ -559,15 +559,13 @@ def test_a_minimizer_is_renamed_through_minimizers():
     assert model.minimizers["rn_track"]["source"] is y
     with pytest.raises(KeyError, match="no minimizer named 'rn_fit'"):
         model.minimizers["rn_fit"]
-    # Each name its own, and the validation names apart.
+    # Each name its own.
     with pytest.raises(ValueError, match="has a minimizer named 'rn_other' already"):
         model.minimizers["rn_track"]["name"] = "rn_other"
-    with pytest.raises(ValueError, match="cannot both be declared"):
-        model.minimizers["rn_track"]["name"] = "val_rn_other"
     # The loss is logged under the new name from the next train.
     data = DataLoader(model, {"rn_x": np.arange(8.0), "rn_t": np.arange(8.0)})
-    history = model.train(data, epochs=1, printer=None)
-    assert "rn_track_loss" in getattr(history, "history", history)
+    trained = model.train(data, epochs=1, printer=None)
+    assert "loss_rn_track" in trained.losses
 
 
 def test_a_loop_body_renamed_after_the_loop_still_rolls_out(tmp_path):
@@ -760,7 +758,7 @@ def test_a_minimizer_is_renamed_as_any_object():
     assert list(model.minimizers) == []
 
 
-def test_a_validation_result_is_read_by_name_or_index():
+def test_a_validation_result_is_read_by_its_attributes():
     model = _full_model().build()
     data = DataLoader(
         model,
@@ -773,10 +771,14 @@ def test_a_validation_result_is_read_by_name_or_index():
     )
     result = model.validate(data, verbose=False)
 
-    # In the order of the minimizers table.
-    assert result[0] is result["all_fit"] and result[1] is result["all_reg"]
-    with pytest.raises(TypeError, match="not both"):
-        result["all_fit", 0]  # type: ignore[index]
+    # Each dictionary in the order of the minimizers table.
+    assert result.signals.keys() == ["all_fit", "all_reg"]
+    assert result.losses.keys() == ["loss", "loss_all_fit", "loss_all_reg"]
+    # Not as a dict or a list: the error tells where the data is.
+    with pytest.raises(TypeError, match=r"\.minimizers\['all_fit'\]"):
+        result["all_fit"]
+    with pytest.raises(TypeError, match="read by its attributes"):
+        result[0]
 
 
 # ---------------------------------------------------------------------------

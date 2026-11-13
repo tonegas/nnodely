@@ -2,8 +2,8 @@ Validating a Model
 ==================
 
 At the end of this page you will be able to score a trained model on a
-dataset with the indicators of system identification, read the scores in
-code, and save the plots of what the model did.
+dataset with the metrics of system identification, read them in code, and
+save the plots of what the model did.
 
 **Prerequisites:** :doc:`training`.
 
@@ -35,7 +35,7 @@ Step 1: train the model
    signals = {"u": u_data, "y_target": y_data}
    train_data = DataLoader(model, source={k: v[:1500] for k, v in signals.items()})
    val_data = DataLoader(model, source={k: v[1500:] for k, v in signals.items()})
-   history = model.train(train_data, epochs=40, batch_size=32, lr=1e-2, printer=None)
+   trained = model.train(train_data, epochs=40, batch_size=32, lr=1e-2, printer=None)
 
 Step 2: validate
 ----------------
@@ -49,106 +49,111 @@ on a dataset, as training evaluates it:
 - the same mask of padded steps.
 
 Its loss is the one :meth:`~nnodely.Modely.train` logs as
-``val_<objective>_loss`` for the same data. It prints a summary, and saves
-the figures to ``out_dir``:
+``val_loss_<objective>`` for the same data. ``out_dir`` saves the figures:
 
 .. code-block:: python
 
-   result = model.validate(val_data, out_dir="validation", history=history)
+   result = model.validate(val_data, out_dir="validation", history=trained)
 
-Next to the loss come the indicators a system-identification report is read
-for, with the error :math:`e = \hat y - y`:
+The result is read by its attributes, as the result of ``train``. ``print``
+shows a row per objective with its loss, and the total:
+
+.. code-block:: python
+
+   print(result.losses.keys())
+   print(result.signals.keys(), result.samples)
+
+.. code-block:: text
+   :class: output
+
+   ['loss', 'loss_response']
+   ['response'] 481
+
+Step 3: read the signals
+------------------------
+
+``result.signals`` holds a :class:`~nnodely.core.validation.Signal` per objective: the two
+signals it compared, whole, laid out as the stream,
+``(samples, *seq, tw, *dim)``, and the metrics a system-identification report
+is read for, with the error :math:`e = \hat y - y`:
 
 .. list-table::
    :header-rows: 1
    :widths: 30 70
 
-   * - Indicator
+   * - Metric
      - Meaning
-   * - Loss
-     - The loss the objective is trained with, masking included.
-   * - RMSE, MAE, Max error
+   * - ``rmse``, ``mae``, ``max_error``
      - Root mean square, mean and peak of :math:`\lvert e \rvert`, in the
        units of the signal.
-   * - Bias, Error std
+   * - ``bias``, ``std_error``
      - Mean and standard deviation of :math:`e`: the systematic and the
        random part of the error, :math:`\mathrm{RMSE}^2 = \mathrm{bias}^2 +
        \mathrm{std}^2`.
-   * - NRMSE
+   * - ``nrmse_pct``
      - RMSE as a percentage of the range of the target.
-   * - FIT
+   * - ``fit_pct``
      - :math:`100 \, (1 - \|e\| / \|y - \bar y\|)`, the percentage fit of
        system identification. 100 % is a perfect prediction, 0 % no better
        than the mean of the target.
-   * - R2
+   * - ``r2``
      - :math:`1 - \sum e^2 / \sum (y - \bar y)^2`, the coefficient of
        determination.
-   * - VAF
+   * - ``vaf_pct``
      - :math:`100 \, (1 - \operatorname{var}(e) / \operatorname{var}(y))`,
        the variance accounted for: R2 without the penalty of a constant
        offset.
-   * - Correlation
+   * - ``correlation``
      - The Pearson correlation of prediction and target; 0 for a prediction
        that never moves.
+   * - ``non_finite``
+     - The values of the prediction that are NaN or infinite.
 
-Step 3: read the scores
------------------------
-
-``validate`` returns a :class:`~nnodely.core.validation.ValidationResult`:
-a list of :class:`~nnodely.core.validation.SignalScore`, one per objective,
-picked by the name of the objective or by its position. Each score's
-``metrics`` is a dictionary of numbers, with the keys ``loss``, ``rmse``,
-``mae``, ``max_error``, ``bias``, ``std_error``, ``nrmse_pct``,
-``fit_pct``, ``r2``, ``vaf_pct``, ``correlation`` and ``non_finite``, the
-count of NaN or infinite errors:
+The metrics are functions. Without arguments they give a number, over the
+whole signal; ``seq=``, ``tw=`` and ``dim=`` keep those axes, and give a
+value per position along them:
 
 .. code-block:: python
 
-   score = result["response"]
-   print(sorted(score.metrics))
-   print(score.points, score.padded)        # points scored, padded points left out
+   signal = result.signals["response"]
+   print(signal)
+   print(signal.shape, signal.scored, signal.missing)
+   print(signal.rmse(tw=True).shape)   # a value per step of the window
 
 .. code-block:: text
    :class: output
 
-   ['bias', 'correlation', 'fit_pct', 'loss', 'mae', 'max_error', 'non_finite', 'nrmse_pct', 'r2', 'rmse', 'std_error', 'vaf_pct']
-   481 0
-
-Each score also holds the indicators of every channel, and, for a rollout,
-the error at every step:
-
-.. code-block:: python
-
-   fit = score.metrics["fit_pct"]                # the whole signal
-   per_channel = score.channel_metrics["fit_pct"]  # one value per channel
-   print(score.step_rmse)                        # (steps, channels) for a rollout
-   metrics = {s.name: s.metrics for s in result}  # every objective
-
-.. code-block:: text
-   :class: output
-
-   None
+   ┏━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━...┓
+   ┃ metric      ┃ meaning                              ┃ response ...┃
+   ┡━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━...┩
+   │ rmse        │ root mean square error               │ ...│
+   ...
+   │ non_finite  │ values of source not finite          │ 0 ...│
+   └─────────────┴──────────────────────────────────────┴──...┘
+   Shape(S=(), T=1, D=(1,)) 481 0
+   (1,)
 
 **Channels.** Each feature of the compared signal is a channel, scored on its
 own scale: a position in metres and a velocity in mm/s are each measured
-against their own spread. For the whole signal, the absolute indicators pool
-every channel, and the relative ones (NRMSE, FIT, R2, VAF, correlation) are
-the mean over the channels. A channel whose target never moves has no spread
-to measure against: its relative indicators are NaN, and left out of the
-mean. The summary gives each channel a column when a signal has up to three.
+against their own spread. Over the whole signal, the absolute metrics pool
+every channel, and the relative ones (``nrmse_pct``, ``fit_pct``, ``r2``,
+``vaf_pct``, ``correlation``) are the mean over the channels; ``dim=True``
+gives the value of each channel. A channel whose target never moves has no
+spread to measure against: its relative metrics are NaN, and left out of the
+mean.
 
-**Points.** A point is one sample at one time step: every step of a window and
-of a rollout is scored. A NaN or infinite error is counted in ``non_finite``,
-and makes the indicators of its channel, and of the whole signal, NaN rather
-than being hidden.
+**Points.** A point is one sample at one step of the sequence and of the
+window: every step is scored. A NaN or infinite prediction is counted by
+``non_finite()``, and makes the metrics it is in NaN rather than being
+hidden.
 
 **Padded rollouts.** Simulations of different lengths loaded with
-``seq_length="full"`` are padded to the longest. The indicators leave the
-padded steps out, so each simulation is scored on exactly its own steps. The
-loss stays the training one, in which a padded step adds zero but still
-counts in the mean. For a signal with a rollout, ``step_rmse`` is the RMSE of
-each channel at each step, over the simulations that reach it: how the error
-grows with the prediction horizon.
+``seq_length="full"`` are padded to the longest. A padded step has no target:
+it is NaN in both signals, counted in ``missing``, and left out of every
+metric, so each simulation is scored on exactly its own steps. The loss stays
+the training one, in which a padded step adds zero but still counts in the
+mean. ``rmse(seq=True)`` is the error at each step, over the simulations that
+reach it: how the error grows with the prediction horizon.
 
 Step 4: plots
 -------------
@@ -167,11 +172,11 @@ and, for an objective, after its index and its name:
 
 There is one figure per objective. It shows the prediction against the
 target and the error over the scored points, a parity plot, the distribution
-of the error, and, for a rollout, the RMSE along it. A second figure shows
-the loss curves when ``history``, the dictionary returned by
+of the error, and, for a signal with a sequence, the RMSE at each step. A
+second figure shows the loss curves when ``history``, the result of
 :meth:`~nnodely.Modely.train`, is given. ``show=True`` opens the figures in
-an interactive Matplotlib window. ``verbose=False`` validates without
-printing the summary.
+an interactive Matplotlib window. ``result.plot()`` draws them again, at any
+time.
 
 Common errors
 -------------
@@ -185,18 +190,18 @@ Common errors
      - Fix
    * - FIT, R2 or VAF are NaN for a channel
      - The target of that channel never moves.
-     - Read the absolute indicators (RMSE, MAE) for it.
-   * - Every indicator is NaN
-     - The prediction has NaN or infinite values: see ``non_finite``.
+     - Read the absolute metrics (``rmse``, ``mae``) for it.
+   * - Every metric is NaN
+     - The prediction has NaN or infinite values: see ``non_finite()``.
      - Check the model and the data for NaN.
    * - The loss differs from the RMSE squared
      - A rollout padded to the longest simulation: padded steps count in
-       the loss, not in the indicators.
-     - Read the indicators, which leave the padding out.
+       the loss, not in the metrics.
+     - Read the metrics, which leave the padding out.
 
 See also
 --------
 
 :meth:`Modely.validate <nnodely.Modely.validate>`,
-:class:`~nnodely.core.validation.ValidationResult`,
-:class:`~nnodely.core.validation.SignalScore`, :doc:`data`.
+:class:`~nnodely.core.results.ValidationResult`,
+:class:`~nnodely.core.validation.Signal`, :doc:`data`.

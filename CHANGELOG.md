@@ -4,6 +4,48 @@ All notable changes to nnodely are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+One rule to read everything nnodely returns: a row of a printed table has
+the fields of the printed object it stands for.
+
+### Changed
+
+- **Objects** print on one line, `Class(field=value, ...)`, the same with
+  `print`: the objects they refer to by name, their attributes giving the
+  objects. A declared stream (`Input`, `Output`, `Parameter`, `Constant`)
+  prints its class; a stream a call returns - of a layer, an operator, a
+  model, a Loop - prints `Stream(name=..., shape=...)`. A layer as an object
+  prints the Parameter of each weight (its initializer before the first
+  call) and the shape of its last call, `Fir(name=..., kernel=..., bias=...,
+  shape=...)`. `Minimizer`, `Modely`, `Loop`, `DataLoader`, `Integrate`,
+  `LocalModel`, `EquationLearner` and the printers print the same way;
+  `Modely` and `DataLoader` keep a table as their `print`.
+- **Tables** (`inputs`, `outputs`, `parameters`, `minimizers`, `models`):
+  `print` shows the table, with its `idx` column; `repr` the same items as
+  `Class(\n  [i] 'name': Object(...),\n)`. `keys()`, `values()` and
+  `items()` return lists, and `in` takes a name or an object. The table of
+  `parameters` of a model calling blocks with Parameters of their own has a
+  `model` column, the rows of each model between rules; a missing window
+  prints `-`. The weights a layer makes are a `Weight`, a `Parameter`
+  subclass. `print(model)` adds the number of Parameters, and `(built)`.
+- **`train()` returns a `TrainResult`**, read by its attributes: `model`,
+  `samples`, `epochs`, `minimizers` (a snapshot) and `losses`, an array per
+  epoch under the keys Keras logs, `loss`, `loss_<minimizer>` and their
+  `val_` versions - formerly `<minimizer>_loss`. `early_stopping` takes the
+  same names. The model does not keep the result.
+- **`validate()` returns a `ValidationResult`** of the same form: `losses`
+  (`loss`, `loss_<minimizer>`), `signals`, `minimizers`, `figures`, and
+  `plot()`. It prints its table only with `verbose=True`.
+- **`Signal`** replaces `SignalScore`: the source and target compared, whole,
+  laid out as the stream, and the metrics as functions - a number without
+  arguments, an array along the axes `seq=`, `tw=` or `dim=` keep.
+
+### Removed
+
+- The rule refusing two minimizers named `x` and `val_x`: their losses no
+  longer share a key.
+
 ## [2.0.0] - 2026-10-12
 
 nnodely 2.0 is a rewrite of the library on **Keras 3**. The same model runs on

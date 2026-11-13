@@ -7,7 +7,7 @@ import keras
 from typing import Any
 
 from nnodely.core.shape import Shape, align
-from nnodely.core.stream import Stream
+from nnodely.core.stream import Stream, object_repr
 from nnodely.core.dag import next_name
 
 
@@ -168,6 +168,8 @@ class Layer(Stream, metaclass=_LayerType):
         # object is an application of it, and they all share its weights;
         # layers created apart never do, whatever their names.
         self._source = self
+        # The shape of the stream its last call returned, None before one.
+        self._called_shape: Shape | None = None
 
         super().__init__(
             name=next_name(self.__class__.__name__) if name is None else name,
@@ -387,7 +389,32 @@ class Layer(Stream, metaclass=_LayerType):
             # a result is a value too.
             node._is_value = all(x._is_value for x in inputs)
             ret.append(node)
+        self._source._called_shape = ret[-1].shape
         return ret if len(ret) > 1 else ret[0]
+
+    def __repr__(self) -> str:
+        """A stream the layer returned prints as a Stream. The layer itself
+        prints its name, the Parameter of each weight - or, before the first
+        call makes it, its initializer - and the shape its last call
+        returned."""
+        if self._source is not self:
+            return super().__repr__()
+        weights = {label: self._weight_text(label) for label in self._weight_labels}
+        return object_repr(self, name=self.name, **weights, shape=self._called_shape)
+
+    def _weight_text(self, label: str) -> str | None:
+        """What the weight ``label`` prints as: the name of its Parameter, or
+        its initializer before the first call; None without the weight."""
+        if self._weight_params and label in self._weight_params:
+            return self._weight_params[label].name
+        setting = self._weight_settings.get(label, True)
+        if setting is False:
+            return None
+        if setting is True:
+            setting = self._weight_defaults[label]
+        if isinstance(setting, Stream):
+            return setting.name
+        return setting if isinstance(setting, str) else type(setting).__name__
 
     def get_config(self):
         # The arguments the layer was created with, which rebuild it; its shape
@@ -479,8 +506,8 @@ class Layer(Stream, metaclass=_LayerType):
 
     def _weight(self, label, setting, shape, draw):
         """The Parameter holding the weight ``label``: the one given, or one
-        made from the initializer given, named ``<layer>_<label>``."""
-        from nnodely.layers.parameter import Parameter
+        made from the initializer given, named ``<layer>_<label>``: a Weight."""
+        from nnodely.layers.parameter import Parameter, Weight
 
         if isinstance(setting, Parameter):
             return setting
@@ -488,9 +515,7 @@ class Layer(Stream, metaclass=_LayerType):
             setting = self._weight_defaults[label]
         if draw is None:
             draw = shape if len(shape) <= 2 else (math.prod(shape[:-1]), shape[-1])
-        return Parameter(
-            f"{self.name}_{label}", dim=shape, initializer=setting, draw=draw
-        )
+        return Weight(f"{self.name}_{label}", dim=shape, initializer=setting, draw=draw)
 
     def _weight_nodes(self) -> list:
         """The Parameters holding the weights, as this node reads them."""

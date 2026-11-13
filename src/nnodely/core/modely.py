@@ -26,7 +26,14 @@ from nnodely.core.minimizer import (
     _resolve_minimizer_terms,
     _validate_gain,
 )
-from nnodely.core.validation import ValidationResult
+from nnodely.core.results import (
+    Fields,
+    TrainResult,
+    ValidationResult,
+    loss_name,
+    minimizer_fields,
+    target_label,
+)
 from nnodely.utils.utils import (
     _resolve_early_stopping,
     _resolve_loss,
@@ -34,7 +41,7 @@ from nnodely.utils.utils import (
 )
 from nnodely.utils.printers import _resolve_printer, _table
 from nnodely.core.registry import ModelSerializer
-from nnodely.core.stream import Stream, Node
+from nnodely.core.stream import Stream, Node, object_repr
 from nnodely.layers.parameter import Constant, Parameter, Parameters, _Value
 from nnodely.core.dataloader import DataLoader
 
@@ -183,13 +190,14 @@ class Modely:
     The model prints as a table of its names:
 
     >>> print(double)
-    ┏━━━━━━━━━━━━┳━━━━━━━━┓
-    ┃ model      ┃ double ┃
-    ┡━━━━━━━━━━━━╇━━━━━━━━┩
-    │ inputs     │ x      │
-    │ outputs    │ y      │
-    │ minimizers │ -      │
-    └────────────┴────────┘
+    ┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┓
+    ┃ model      ┃ double (built) ┃
+    ┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━┩
+    │ inputs     │ x              │
+    │ outputs    │ y              │
+    │ parameters │ 0              │
+    │ minimizers │ -              │
+    └────────────┴────────────────┘
 
     Scope
     -----
@@ -337,18 +345,26 @@ class Modely:
 
     def __str__(self) -> str:
         """The model as a table: its name, then the names of every Input it
-        reads, as :attr:`inputs` lists them, of its outputs and of its
-        minimizers."""
+        reads, as :attr:`inputs` lists them, of its outputs, the number of its
+        Parameters and the names of its minimizers."""
         rows = [
-            ("inputs", ", ".join(node.name for node in self.inputs) or "-"),
+            ("inputs", ", ".join(self.inputs.keys()) or "-"),
             ("outputs", ", ".join(node.name for node in self._outputs) or "-"),
+            ("parameters", str(len(_parameters(self)))),
             ("minimizers", ", ".join(m["name"] for m in self._minimizers) or "-"),
         ]
-        return _table(("model", self.name), [("", rows)])
+        title = f"{self.name} (built)" if self.built else self.name
+        return _table(("model", title), [("", rows)])
 
     def __repr__(self) -> str:
-        return (
-            f"Modely({self.name!r}, inputs={self._inputs!r}, outputs={self._outputs!r})"
+        """One line, the fields of its row in :attr:`models`."""
+        return object_repr(
+            self,
+            name=self.name,
+            inputs=self.inputs.keys(),
+            outputs=[node.name for node in self._outputs],
+            parameters=len(_parameters(self)),
+            built=self.built,
         )
 
     def __call__(self, inputs) -> Any:
@@ -982,7 +998,7 @@ class Modely:
         ----------
         name : str
             The name of the objective. Training logs its loss as
-            ``"<name>_loss"``, and ``"val_<name>_loss"`` with validation data.
+            ``"loss_<name>"``, and ``"val_loss_<name>"`` with validation data.
         source : Output, Stream or str
             The prediction: an :class:`Output`, any stream of the model, or the
             name of one.
@@ -1017,9 +1033,7 @@ class Modely:
         ------
         ValueError
             If ``name`` is not a non-empty string ("A minimizer name is a
-            non-empty string"), or clashes with a validation loss name, such
-            as ``"fit"`` and ``"val_fit"`` ("cannot both be declared"). If
-            ``loss`` is unknown ("Unknown or invalid Keras loss"). If ``gain``
+            non-empty string"). If ``loss`` is unknown ("Unknown or invalid Keras loss"). If ``gain``
             is negative or not finite ("must be finite and not negative").
         KeyError
             If a name given for ``source`` or ``target`` is the name of no
@@ -1064,7 +1078,7 @@ class Modely:
         >>> y_meas = Input("y_meas", tw=1)
         >>> model = Modely("offset", inputs=[x], outputs=[y])
         >>> model = model.minimize("fit", y, y_meas)
-        >>> model.minimizers
+        >>> print(model.minimizers)
         ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━┓
         ┃ idx ┃ minimizer ┃ source ┃ target ┃ loss               ┃ gain ┃
         ┡━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━┩
@@ -1078,7 +1092,7 @@ class Modely:
 
         >>> model = model.minimize("level", "y", 2.0)
         >>> model = model.minimize("residual", y)
-        >>> model.minimizers
+        >>> print(model.minimizers)
         ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━┓
         ┃ idx ┃ minimizer ┃ source ┃ target ┃ loss               ┃ gain ┃
         ┡━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━┩
@@ -1105,14 +1119,6 @@ class Modely:
         ...     model = model.minimize("level", y, 3.0)
         >>> str(caught[0].message)
         "Minimizer 'level' already exists in model 'offset': it is replaced by the new one."
-
-        The validation loss of ``"fit"`` is logged as ``"val_fit_loss"``, so
-        no objective may be named ``"val_fit"``:
-
-        >>> model.minimize("val_fit", y, 0.0)
-        Traceback (most recent call last):
-            ...
-        ValueError: Minimizers 'val_fit' and 'fit' cannot both be declared...
 
         .. versionadded:: 2.0
         """
@@ -1235,22 +1241,6 @@ class Modely:
                 f"Model {self.name!r} has a minimizer named {name!r} already: "
                 "each minimizer has a name of its own, the key of its loss."
             )
-        # The validation loss of minimizer x is logged as val_x_loss, which is
-        # also the training loss of a minimizer named val_x.
-        clash = next(
-            (
-                other["name"]
-                for other in others
-                if other["name"] in (f"val_{name}", name.removeprefix("val_"))
-            ),
-            None,
-        )
-        if clash is not None:
-            raise ValueError(
-                f"Minimizers {name!r} and {clash!r} cannot both be declared: the "
-                "validation loss of one is logged under the training loss name "
-                "of the other."
-            )
 
     def _set_minimizer(self, minimizer: dict, key: str, value):
         """Set the name, loss or gain - ``key`` - of ``minimizer``, one of
@@ -1288,8 +1278,9 @@ class Modely:
 
         The table gives the name, ``seq``, ``tw`` and ``dim`` of each, its
         number of values, and whether training changes it. When the models it
-        calls have Parameters, each model has a section, under its name. A
-        Parameter is listed under the first model whose graph reaches it. The
+        calls have Parameters, a ``model`` column tells whose each is, and the
+        rows of each model stand together, between rules. A Parameter is
+        listed with the first model whose graph reaches it. The
         last row totals the values of all the Parameters and of the trainable
         ones.
 
@@ -1305,16 +1296,16 @@ class Modely:
         >>> x = Input("x", tw=2)
         >>> y = Fir(name="fir")(x) * Parameter("gain", value=[2.0])
         >>> model = Modely("filter", inputs=[x], outputs=[Output("y", y)])
-        >>> model.parameters
-        ┏━━━━━┳━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓
-        ┃ idx ┃ parameter  ┃ seq ┃ tw   ┃ dim    ┃ values ┃ trainable ┃
-        ┡━━━━━╇━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩
-        │ 0   │ fir_kernel │ ()  │ None │ (2, 1) │ 2      │ yes       │
-        │ 1   │ fir_bias   │ ()  │ None │ (1,)   │ 1      │ yes       │
-        │ 2   │ gain       │ ()  │ None │ (1,)   │ 1      │ yes       │
-        ├─────┼────────────┼─────┼──────┼────────┼────────┼───────────┤
-        │     │ total      │     │      │        │ 4      │ 4         │
-        └─────┴────────────┴─────┴──────┴────────┴────────┴───────────┘
+        >>> print(model.parameters)
+        ┏━━━━━┳━━━━━━━━━━━━┳━━━━━┳━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓
+        ┃ idx ┃ parameter  ┃ seq ┃ tw ┃ dim    ┃ values ┃ trainable ┃
+        ┡━━━━━╇━━━━━━━━━━━━╇━━━━━╇━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩
+        │ 0   │ fir_kernel │ ()  │ -  │ (2, 1) │ 2      │ yes       │
+        │ 1   │ fir_bias   │ ()  │ -  │ (1,)   │ 1      │ yes       │
+        │ 2   │ gain       │ ()  │ -  │ (1,)   │ 1      │ yes       │
+        ├─────┼────────────┼─────┼────┼────────┼────────┼───────────┤
+        │     │ total      │     │    │        │ 4      │ 4         │
+        └─────┴────────────┴─────┴────┴────────┴────────┴───────────┘
 
         Scope
         -----
@@ -1384,7 +1375,7 @@ class Modely:
         >>> offset = Modely("offset", inputs=[x], outputs=[y])
         >>> u = Input("u", tw=1)
         >>> outer = Modely("outer", inputs=[u], outputs=[Output("z", 2.0 * offset(u))])
-        >>> outer.models
+        >>> print(outer.models)
         ┏━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━┓
         ┃ idx ┃ model  ┃ inputs ┃ outputs ┃ parameters ┃ built ┃
         ┡━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━┩
@@ -1588,7 +1579,7 @@ class Modely:
         >>> doubled.name = "doubled"
         >>> y = Output("y", doubled)
         >>> model = Modely("double", inputs=[x], outputs=[y]).minimize("fit", y, 4.0)
-        >>> model.outputs
+        >>> print(model.outputs)
         ┏━━━━━┳━━━━━━━━┳━━━━━┳━━━━┳━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━┓
         ┃ idx ┃ output ┃ seq ┃ tw ┃ dim  ┃ stream  ┃ feeds back ┃ minimized by ┃
         ┡━━━━━╇━━━━━━━━╇━━━━━╇━━━━╇━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━┩
@@ -1679,7 +1670,7 @@ class Modely:
         >>> y = Output("y", 2.0 * x)
         >>> model = Modely("double", inputs=[x], outputs=[y])
         >>> model = model.minimize("fit", y, Input("y_meas", tw=1))
-        >>> model.minimizers
+        >>> print(model.minimizers)
         ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━┓
         ┃ idx ┃ minimizer ┃ source ┃ target ┃ loss               ┃ gain ┃
         ┡━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━┩
@@ -1701,7 +1692,7 @@ class Modely:
         >>> model.minimizers[0]["gain"] = 0.5
         >>> model.minimizers[0].loss = "mae"
         >>> fit.name = "track"
-        >>> model.minimizers
+        >>> print(model.minimizers)
         ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━┓
         ┃ idx ┃ minimizer ┃ source ┃ target ┃ loss                ┃ gain ┃
         ┡━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━┩
@@ -1968,18 +1959,15 @@ class Modely:
         val_data,
         out_dir: str | os.PathLike | None = None,
         show: bool = False,
-        history: dict[str, Any] | None = None,
-        verbose: bool = True,
+        history: TrainResult | dict[str, Any] | None = None,
+        verbose: bool = False,
     ) -> ValidationResult:
-        """Score every objective of the built model on a dataset, and return
-        the scores.
+        """Validate every minimizer of the built model on a dataset.
 
-        Each objective is evaluated as training evaluates it: the same
+        Each minimizer is evaluated as training evaluates it: the same
         forward pass, the same target, aligned with the prediction the same
         way, and the same padding mask. Its loss is the one :meth:`train`
-        logs as ``"val_<objective>_loss"`` for the same data. Next to it come
-        the indicators of a system-identification report: RMSE, MAE, peak
-        error, bias, error std, NRMSE, FIT, R2, VAF and correlation.
+        logs as ``"val_loss_<minimizer>"`` for the same data.
 
         Parameters
         ----------
@@ -1987,24 +1975,25 @@ class Modely:
             The data, made for this build of the model. It holds every Input
             of ``train_inputs``, the targets included.
         out_dir : str, os.PathLike or None, default None
-            The folder the figures are written to, as PNG files. ``None``
-            writes none. It is created when missing.
+            The folder :meth:`ValidationResult.plot` writes the figures to,
+            as PNG files. ``None`` writes none.
         show : bool, default False
             ``True`` opens the figures in an interactive Matplotlib window.
-        history : dict or None, default None
-            The dictionary :meth:`train` returns, drawn as loss curves in a
-            figure of its own.
-        verbose : bool, default True
-            ``True`` prints the summary of the scores. ``False`` prints
-            nothing.
+        history : TrainResult, dict or None, default None
+            The losses of a training, drawn as curves in a figure of their
+            own.
+        verbose : bool, default False
+            ``True`` prints the table of the result.
 
         Returns
         -------
-        ~nnodely.core.validation.ValidationResult
-            The scores, one per objective, in the order of
-            :attr:`minimizers`. Pick one by the name of its objective or by
-            its index. Each has ``metrics``, a dict of the loss and of every
-            indicator, and the indicators of every channel.
+        ~nnodely.core.results.ValidationResult
+            Read by its attributes: ``losses``, ``loss`` the total and
+            ``loss_<minimizer>`` the loss of each, the keys of :meth:`train`;
+            ``signals``, a :class:`~nnodely.core.validation.Signal` per
+            minimizer, the signals it compared and their metrics;
+            ``minimizers``, a snapshot of those validated; ``figures``, the
+            files written.
 
         Raises
         ------
@@ -2024,19 +2013,8 @@ class Modely:
         Notes
         -----
         The forward pass is the inference one: a :class:`BatchNorm` uses its
-        moving statistics. The gain of an objective does not weigh its
-        validated loss.
-
-        The indicators are computed for each channel, each feature of the
-        compared signal, on its own scale. For the whole signal, the
-        indicators in the units of the signal pool every channel. Those
-        relative to the target's spread are the mean of the channels' values.
-        A point is one sample at one step of the window or of the rollout.
-        The rollout steps padded onto shorter simulations are left out.
-
-        Drawing the figures needs Matplotlib. With ``out_dir``, the figure of
-        an objective is ``<model>_<index>_<objective>.png``, and the loss
-        curves are ``<model>_history.png``.
+        moving statistics. ``loss_<minimizer>`` is not weighted by the gain,
+        ``loss`` weights each by its own, as training does.
 
         Basic Examples
         --------------
@@ -2050,32 +2028,30 @@ class Modely:
         >>> model = model.minimize("fit", y, Input("y_meas", tw=1)).build()
         >>> data = DataLoader(model, source={"x": [0.0, 2.0, 4.0, 6.0],
         ...                                  "y_meas": [0.0, 2.0, 4.0, 6.0]})
-        >>> result = model.validate(data, verbose=False)
-        >>> metrics = result["fit"].metrics
-        >>> metrics["loss"], metrics["rmse"], metrics["bias"], metrics["r2"]
+        >>> result = model.validate(data)
+        >>> fit = result.signals["fit"]
+        >>> result.losses["loss_fit"], fit.rmse(), fit.bias(), fit.r2()
         (1.0, 1.0, 1.0, 0.8)
 
         Options
         -------
-        ``verbose=True``, the default, prints the summary:
+        ``print`` shows a row per minimizer, and the total:
 
-        >>> result = model.validate(data)
-        ============================== nnodely Validation ==============================
-        Model:                        offset
-        Samples:                      4
-        Minimizers:                   1
-        --------------------------------------------------------------------------------
-        fit   (y vs y_meas)
-          Loss (mean_squared_error)     1.0000e+00
-          Points scored                          4
-          RMSE                          1.0000e+00
-        ...
-        ================================================================================
+        >>> print(result)
+        ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━┓
+        ┃ idx ┃ minimizer ┃ source ┃ target ┃ loss               ┃ gain ┃ loss value ┃
+        ┡━━━━━┻━━━━━━━━━━━┻━━━━━━━━┻━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━┻━━━━━━┻━━━━━━━━━━━━┩
+        │ offset: 4 samples                                                          │
+        ├─────┬───────────┬────────┬────────┬────────────────────┬──────┬────────────┤
+        │ 0   │ fit       │ y      │ y_meas │ mean_squared_error │ 1.0  │ 1.0000e+00 │
+        ├─────┼───────────┼────────┼────────┼────────────────────┼──────┼────────────┤
+        │     │ total     │        │        │                    │      │ 1.0000e+00 │
+        └─────┴───────────┴────────┴────────┴────────────────────┴──────┴────────────┘
 
         ``out_dir`` writes the figures, and ``history`` adds the loss curves:
 
-        >>> history = model.train(data, epochs=1, batch_size=4, printer=None)
-        >>> result = model.validate(data, out_dir="figures", history=history, verbose=False)
+        >>> trained = model.train(data, epochs=1, batch_size=4, printer=None)
+        >>> result = model.validate(data, out_dir="figures", history=trained)
         >>> result.figures
         ['figures/offset_0_fit.png', 'figures/offset_history.png']
 
@@ -2137,8 +2113,8 @@ class Modely:
         printer: str | keras.callbacks.Callback | None = "legacy",
         jit_compile: str = "auto",
     ):
-        r"""Train the built model on its objectives, and return the history of
-        the losses.
+        r"""Train the built model on its objectives, and return the losses of
+        every epoch.
 
         Every epoch goes once through the samples of ``train_data``, in
         batches of ``batch_size``, and updates the trainable Parameters. Each
@@ -2171,7 +2147,8 @@ class Modely:
         early_stopping : str, dict, keras.callbacks.Callback or None, default None
             Ends training before ``epochs`` once it stops improving:
 
-            - the name of a quantity the history logs, made into a
+            - the name of a loss training logs, such as ``"val_loss_fit"``,
+              made into a
               ``keras.callbacks.EarlyStopping`` with ``early_stopping_kwargs``
               as its other arguments. It looks for a minimum;
             - a dict of the arguments of ``keras.callbacks.EarlyStopping``;
@@ -2207,17 +2184,19 @@ class Modely:
 
         Returns
         -------
-        dict of str to list of float
-            The losses of every epoch run, under the keys:
+        ~nnodely.core.results.TrainResult
+            Read by its attributes. ``losses`` holds an array, a value per
+            epoch, under the keys Keras logs:
 
             - ``"loss"``: the total, every objective weighted by its gain;
-            - ``"<objective>_loss"``: the loss of each objective, not
+            - ``"loss_<objective>"``: the loss of each objective, not
               weighted;
-            - ``"val_loss"`` and ``"val_<objective>_loss"``: the same on
+            - ``"val_loss"`` and ``"val_loss_<objective>"``: the same on
               ``val_data``, when it is given.
 
             Each value is the mean over the samples of the epoch. Early
-            stopping gives fewer values than ``epochs``.
+            stopping gives fewer values than ``epochs``: ``epochs`` is the
+            number run. The model does not keep the result.
 
         Raises
         ------
@@ -2229,7 +2208,7 @@ class Modely:
             lacks an Input the model reads ("which the data does not hold").
             If the optimizer name is unknown ("The supported optimizers
             are"), or ``optimizer_kwargs`` holds ``"learning_rate"``. If early
-            stopping monitors a quantity the history does not log ("which
+            stopping monitors a quantity training does not log ("which
             training does not log"). If ``printer`` is unknown.
         TypeError
             If ``train_data`` is not a :class:`DataLoader`, ``shuffle`` is not
@@ -2266,31 +2245,36 @@ class Modely:
         >>> model = model.minimize("fit", y, y_meas).build()
         >>> samples = np.arange(8.0)
         >>> data = DataLoader(model, source={"x": samples, "y_meas": samples})
-        >>> history = model.train(data, epochs=2, batch_size=4, printer=None)
-        >>> sorted(history), len(history["loss"])
-        (['fit_loss', 'loss'], 2)
+        >>> trained = model.train(data, epochs=2, batch_size=4, printer=None)
+        >>> trained.losses.keys(), trained.epochs
+        (['loss', 'loss_fit'], 2)
+        >>> trained
+        TrainResult(model='offset', epochs=2, samples=8, loss=...,
+          minimizers: ['fit'],
+          losses:     ['loss', 'loss_fit'],
+        )
 
         Options
         -------
         ``val_data`` adds the validation losses:
 
-        >>> history = model.train(data, val_data=data, epochs=1, batch_size=4, printer=None)
-        >>> sorted(history)
-        ['fit_loss', 'loss', 'val_fit_loss', 'val_loss']
+        >>> trained = model.train(data, val_data=data, epochs=1, batch_size=4, printer=None)
+        >>> trained.losses.keys()
+        ['loss', 'loss_fit', 'val_loss', 'val_loss_fit']
 
         ``optimizer`` by name, with ``lr`` and ``optimizer_kwargs``. An
         instance, such as ``keras.optimizers.SGD(learning_rate=1e-2)``, is
         passed the same way:
 
-        >>> history = model.train(data, epochs=1, batch_size=4, optimizer="adamw", lr=1e-2,
+        >>> trained = model.train(data, epochs=1, batch_size=4, optimizer="adamw", lr=1e-2,
         ...                       optimizer_kwargs={"weight_decay": 1e-4}, printer=None)
 
         ``early_stopping`` by the name of a logged loss:
 
-        >>> history = model.train(data, epochs=50, batch_size=4, printer=None,
-        ...                       early_stopping="fit_loss",
+        >>> trained = model.train(data, epochs=50, batch_size=4, printer=None,
+        ...                       early_stopping="loss_fit",
         ...                       early_stopping_kwargs={"patience": 1, "min_delta": 1e9})
-        >>> len(history["loss"])
+        >>> trained.epochs
         2
 
         ``shuffle=False`` keeps the order of the samples, and ``printer=None``
@@ -2304,10 +2288,19 @@ class Modely:
 
         >>> model = model.minimize("again", y, y_meas, loss="mae", gain=0.5)
         >>> model = model.build(keep_weights=False)
-        >>> history = model.train(data, epochs=1, batch_size=4, optimizer="sgd", lr=0.0,
+        >>> trained = model.train(data, epochs=1, batch_size=4, optimizer="sgd", lr=0.0,
         ...                       printer=None)
-        >>> history["fit_loss"], history["again_loss"], history["loss"]
-        ([1.0], [1.0], [1.5])
+        >>> print(trained)
+        ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━┓
+        ┃ idx ┃ minimizer ┃ loss                ┃ gain ┃ loss value ┃
+        ┡━━━━━┻━━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━┻━━━━━━┻━━━━━━━━━━━━┩
+        │ offset: 1 epochs, 8 samples                               │
+        ├─────┬───────────┬─────────────────────┬──────┬────────────┤
+        │ 0   │ fit       │ mean_squared_error  │ 1.0  │ 1.0000e+00 │
+        │ 1   │ again     │ mean_absolute_error │ 0.5  │ 1.0000e+00 │
+        ├─────┼───────────┼─────────────────────┼──────┼────────────┤
+        │     │ total     │                     │      │ 1.5000e+00 │
+        └─────┴───────────┴─────────────────────┴──────┴────────────┘
 
         Possible Issues
         ---------------
@@ -2355,7 +2348,7 @@ class Modely:
         resolved_optimizer = _resolve_optimizer(optimizer, lr, optimizer_kwargs)
         logged = [
             "loss",
-            *(f"{minimizer['name']}_loss" for minimizer in self._minimizers),
+            *(f"loss_{minimizer['name']}" for minimizer in self._minimizers),
         ]
         if val_data is not None:
             logged += [f"val_{name}" for name in logged]
@@ -2388,7 +2381,12 @@ class Modely:
             validation_data=validation_data,
         )
 
-        return history.history
+        return TrainResult(
+            model=self.name,
+            samples=n_samples,
+            minimizers=minimizer_fields(self._minimizers),
+            losses=Fields((key, np.asarray(history.history[key])) for key in logged),
+        )
 
     # -------------------------------------------------------------------------
     # Flatten API
@@ -3017,8 +3015,6 @@ class Models(Table):
         ]
         return _table(header, [("", rows)], indexed=True)
 
-    __repr__ = __str__
-
 
 class Minimizer(Mapping):
     """One minimizer, as :attr:`Modely.minimizers` lists it: its name, source,
@@ -3060,7 +3056,15 @@ class Minimizer(Mapping):
         return len(self._minimizer) + 1
 
     def __repr__(self):
-        return repr({**self._minimizer, "model": self._model})
+        return object_repr(
+            self,
+            name=self.name,
+            source=self.source,
+            target=target_label(self.target),
+            loss=loss_name(self.loss),
+            gain=self.gain,
+            model=self._model,
+        )
 
     def __setitem__(self, key, value):
         if key not in self._SETTABLE:
@@ -3085,25 +3089,17 @@ class Minimizers(Table):
         super().__init__(minimizers)
 
     def __str__(self):
-        def cells(row):
-            target = row["target"]
-            return (
-                row["name"],
-                row["source"].name,
-                # A Constant of one value - a number given as the target -
-                # prints as that value.
-                str(float(target.value.ravel()[0]))
-                if isinstance(target, Constant)
-                and target.value is not None
-                and target.value.size == 1
-                else target.name,
-                validation.loss_name(row["loss"]),
-                str(row["gain"]),
+        rows = [
+            (
+                m.name,
+                m.source.name,
+                str(target_label(m.target)),
+                loss_name(m.loss),
+                str(m.gain),
             )
-
-        return _table(self._HEADER, [("", [cells(row) for row in self])], indexed=True)
-
-    __repr__ = __str__
+            for m in self
+        ]
+        return _table(self._HEADER, [("", rows)], indexed=True)
 
 
 class InputNameClash(ValueError):

@@ -858,7 +858,7 @@ def test_train_through_a_derivative():
     after = float(to_numpy(model({"dtrain_x": values})["dx"]).ravel()[0])
     assert abs(after - 3.0) < abs(before - 3.0)
     np.testing.assert_allclose(after, 3.0, rtol=1e-2, atol=1e-2)
-    assert history["loss"][-1] < history["loss"][0]
+    assert history.losses["loss"][-1] < history.losses["loss"][0]
 
 
 def _build_pos_vel_integrators(name_suffix, dt, mass):
@@ -1579,7 +1579,7 @@ def test_train_a_rate_through_an_integrated_trajectory():
     index = np.arange(1, steps + 1)
     optimum = target_value * index.sum() / (dt * (index**2).sum())
 
-    assert history["loss"][-1] < history["loss"][0]
+    assert history.losses["loss"][-1] < history.losses["loss"][0]
     np.testing.assert_allclose(
         to_numpy(rate.kernel).ravel()[0], optimum, rtol=1e-2, atol=1e-2
     )

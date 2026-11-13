@@ -118,7 +118,7 @@ class _MinimizerTerm:
         self.masked = masked
         self.loss = MaskedLoss(loss) if masked else loss
         # Logged under the minimizer's name: two minimizers can share a source.
-        self.tracker = keras.metrics.Mean(name=f"{name}_loss")
+        self.tracker = keras.metrics.Mean(name=f"loss_{name}")
 
 
 def _rollout_mask(term, target, y):
