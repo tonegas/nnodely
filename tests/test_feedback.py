@@ -104,9 +104,9 @@ def _integrate_modelyloop(tag, seeded):
 
 
 def _feedback_modelyloop(tag, seeded):
-    # Among the inputs, y starts from its data.
+    # Among the inputs, y starts from its data; hidden, from its init, zero.
     u, y = Input(f"{tag}_u", tw=1), Input(f"{tag}_y", tw=1)
-    y_next = y.feedback(IntegrateStep(dt=1)(y, u))
+    y_next = y.feedback(IntegrateStep(dt=1)(y, u), hidden=not seeded)
     return ModelyLoop(
         tag,
         inputs=[u, y] if seeded else [u],
@@ -234,7 +234,7 @@ def test_a_loop_returns_the_outputs_of_the_step_not_the_ones_it_adds(tmp_path):
     # The update of y is no output: the body gains one for it, which the Loop
     # does not return, so it is the one output of the step, a stream.
     u, y = Input("fb_ret_u", tw=1), Input("fb_ret_y", tw=1)
-    y.feedback(y + u)
+    y.feedback(y + u, hidden=True)
     step = Modely("fb_ret_step", inputs=[u], outputs=[Output("fb_ret_twice", y * 2.0)])
     loop = Loop(f=step)
     assert [output.name for output in loop._model.outputs] == [
@@ -367,7 +367,7 @@ def test_a_loop_output_is_picked_by_its_name_in_the_step():
     # One output: the loop is that output. The one it adds for the update of
     # z is not returned, so not picked either.
     v, z = Input("fb_key_v", tw=1), Input("fb_key_z", tw=1)
-    z.feedback(z + v)
+    z.feedback(z + v, hidden=True)
     single = Modely("fb_key_single", inputs=[v], outputs=[Output("fb_key_3z", z * 3.0)])
     one = Loop(f=single)({v: Input("fb_key_v_seq", seq=-1, tw=1)})
     assert one["fb_key_3z"] is one
@@ -395,7 +395,7 @@ def test_a_state_starts_from_zero_along_a_dynamic_sequence(tmp_path):
             Output("fb_dyn_kk", Integrate(dt=1)(inner([k]))),
             Output("fb_dyn_from_two", Integrate(dt=1, init=2.0)(k)),
             Output("fb_dyn_buf", Buffer(tw=2)(k)),
-            Output("fb_dyn_sum", s.feedback(s + k)),
+            Output("fb_dyn_sum", s.feedback(s + k, hidden=True)),
         ],
     ).build()
 

@@ -993,10 +993,10 @@ def test_a_loop_tells_a_state_inside_a_block_by_object():
     # given as a call key, it is that state - once "not an input the body
     # model reads", since only the copies of the body's own were matched.
     s, u = Input("is_s", tw=1), Input("is_u", tw=1)
-    s.feedback(s + u)
-    block = Modely("is_block", inputs=[u], outputs=[Output("is_y", s * 1.0)]).build()
+    s.feedback(s + u, hidden=True)
+    block = Modely("is_block", inputs=[u], outputs=[Output("is_y", s + u)]).build()
     v = Input("is_v", tw=1)
     body = Modely("is_body", inputs=[v], outputs=[Output("is_o", block([v]))]).build()
     loop = Loop(f=body)
-    with pytest.raises(ValueError, match="'is_s' is fed back: give its initial value"):
+    with pytest.raises(ValueError, match="'is_s' is a hidden state, the model's own"):
         loop({s: Input("is_pushes", seq=3, tw=1)})

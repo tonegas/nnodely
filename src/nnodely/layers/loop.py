@@ -733,7 +733,8 @@ class _Step:
             inputs = dict(step_inputs)
             for seed in seeds:
                 inputs.setdefault(self.key(seed), seed)
-            self.body = Modely(
+            # Its states, hidden ones too, are inputs of the step.
+            self.body = Modely._of(
                 f.name, inputs=[*inputs.values(), *states], outputs=body_outputs
             )
             self.body.build()
@@ -806,9 +807,11 @@ class _Step:
             objects=Stream,
             missing=lambda key: (
                 f"Loop init key {getattr(key, 'name', key)!r} is "
-                f"not an input of {self.f.name!r}: a state kept inside a block, as "
-                "the one of Integrate or Derivative, starts from the init of the "
-                "block, Integrate(init=...)."
+                f"not an input of {self.f.name!r}: a state kept inside a block "
+                "starts from the stream its call gives it, and a hidden state - "
+                "fed back with hidden=True, or the one of Integrate or "
+                "Derivative - from its own init, x.feedback(stream, init=..., "
+                "hidden=True) or Integrate(init=...)."
             ),
         )
         name = declared.name
@@ -1576,6 +1579,12 @@ class Loop(Layer):
             ),
         )
         if any(key is state for state in states):
+            if key._hidden:
+                raise ValueError(
+                    f"Loop input {key.name!r} is a hidden state, the model's "
+                    "own: it starts from its init, x.feedback(stream, "
+                    "init=..., hidden=True), and is no input of the loop."
+                )
             raise ValueError(
                 f"Loop input {key.name!r} is fed back: give its initial value "
                 f"with init=, Loop(..., init={{{key.name!r}: stream}})."

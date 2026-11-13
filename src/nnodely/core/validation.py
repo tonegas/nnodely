@@ -251,7 +251,7 @@ class SignalScore:
     A rollout has the RMSE of every step:
 
     >>> rate, total = Input("rate", tw=1), Input("total", tw=1)
-    >>> total_out = Output("total", total.feedback(total + rate))
+    >>> total_out = Output("total", total.feedback(total + rate, hidden=True))
     >>> counter = ModelyLoop("counter", inputs=[rate], outputs=[total_out])
     >>> counter = counter.minimize("track", "total", Input("measured", tw=1)).build()
     >>> steps = DataLoader(counter, source={"rate": [1.0, 1.0, 1.0],

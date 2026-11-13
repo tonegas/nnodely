@@ -293,7 +293,7 @@ def test_a_model_that_reads_no_input_is_refused_at_build():
 def test_a_model_declares_every_input_it_reads():
     # An Input read without being declared was an input all the same, the
     # init of an Integrate too: a block read it from the data of its caller.
-    # Only a fed-back Input, or one only a minimizer reads, is left out.
+    # Only a hidden state, or an Input only a minimizer reads, is left out.
     from nnodely import Integrate
 
     x, y, x0 = Input("decl_x", tw=1), Input("decl_y", tw=1), Input("decl_x0", tw=1)
@@ -318,12 +318,18 @@ def test_a_model_declares_every_input_it_reads():
     result = caller({"decl_u": np.ones((1, 1, 1)), "decl_x0": np.full((1, 1, 1), 10.0)})
     np.testing.assert_allclose(to_numpy(result["decl_co"]).ravel(), [11.0])
 
+    # A fed-back Input too: it was read from the data with a warning.
     state, target = Input("decl_state", tw=1), Input("decl_target", tw=1)
     state.feedback(state + x)
-    model = Modely("decl_left_out", inputs=[x], outputs=[Output("decl_lo", state + x)])
+    with pytest.raises(
+        ValueError, match=r"'decl_left_out' reads the Inputs \['decl_state'\]"
+    ):
+        Modely("decl_left_out", inputs=[x], outputs=[Output("decl_lo", state + x)])
+    model = Modely(
+        "decl_left_in", inputs=[x, state], outputs=[Output("decl_lo", state + x)]
+    )
     model.minimize("decl_error", "decl_lo", target)
-    with pytest.warns(UserWarning, match="fed-back Inputs"):
-        model.build()
+    model.build()
     assert {node.name for node in model.train_inputs} == {
         "decl_x",
         "decl_state",

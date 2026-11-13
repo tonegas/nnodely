@@ -331,7 +331,9 @@ class ModelSerializer:
 
         inputs = [node_map[node_id] for node_id in data["inputs"]]
         outputs = [node_map[node_id] for node_id in data["outputs"]]
-        model = Modely(
+        # Checked when it was declared: the body of a Loop declares its
+        # hidden states too.
+        model = Modely._of(
             name=data["model"]["name"],
             inputs=inputs,
             outputs=outputs,

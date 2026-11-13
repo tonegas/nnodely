@@ -180,11 +180,13 @@ Step 5: the model
    vehicle.build()
 
 A model declares every Input it reads among its ``inputs``. That includes an
-Input it gives a model it calls, and an Input a layer starts from, as in
-``Integrate(init=x0)``. An Input read without being declared is refused when
-the model is declared. Two kinds of Input may be left out:
+Input it gives a model it calls, an Input a layer starts from, as in
+``Integrate(init=x0)``, and a fed-back Input. An Input read without being
+declared is refused when the model is declared. Two kinds of Input are left
+out:
 
-- a fed-back Input (see :doc:`recurrent`);
+- a hidden state, ``x.feedback(stream, hidden=True)``: the model's own
+  memory, which cannot be declared (see :doc:`recurrent`);
 - an Input read only by an objective, such as a target (see
   :doc:`training`).
 

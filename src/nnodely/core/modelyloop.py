@@ -19,7 +19,7 @@ def ModelyLoop(
 
         x, v = Input("x", tw=1), Input("v", tw=1)
         a = (F - k * x - c * v) / m
-        v_next = v.feedback(IntegrateStep(dt=dt)(v, a))
+        v_next = v.feedback(IntegrateStep(dt=dt)(v, a), hidden=True)
         x_next = x.feedback(IntegrateStep(dt=dt)(x, v_next))
         msd = ModelyLoop("msd", inputs=[F, x], outputs=[Output("x", x_next)])
 
@@ -30,14 +30,14 @@ def ModelyLoop(
     model is one Loop however many feedbacks it holds, and any fed-back Input
     may read any other.
 
-    Every Input the step reads and nothing feeds back is among ``inputs``. A
-    fed-back Input starts from the first window of its own data when it is
-    among ``inputs`` - zero where the data leaves it out - and from zero when
-    it is not, as ``v`` above. The state of an :class:`Integrate`, a
-    :class:`Derivative` or a :class:`Buffer` starts from the init of the
-    layer. A model the step calls as a block keeps the feedback of the
-    fed-back Inputs it declares: the stream the call gives one is its initial
-    value, read at the first step.
+    Every Input the step reads is among ``inputs``, but its hidden states. A
+    declared fed-back Input, as ``x`` above, starts from the first window of
+    its own data - zero where the data leaves it out. A hidden one, as ``v``,
+    is the model's own and starts from its init, zero without one; so does
+    the state of an :class:`Integrate`, a :class:`Derivative` or a
+    :class:`Buffer`, from the init of the layer. A model the step calls as a
+    block keeps the feedback of the fed-back Inputs it declares: the stream
+    the call gives one is its initial value, read at the first step.
 
     ``seq`` is the number of steps, and the outermost sequence axis the
     rollout adds to every Input and every output: with ``seq=n``, an Input of

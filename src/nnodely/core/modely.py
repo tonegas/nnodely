@@ -2,7 +2,7 @@ import os
 import warnings
 
 from collections.abc import Mapping
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from nnodely.core import export, validation
 from nnodely.core.dag import (
@@ -87,11 +87,12 @@ class Modely:
         write, and names the folder of a block saved inside a larger model.
     inputs : list of Input
         Every Input the model reads. The list form of the call follows its
-        order. It lists the Inputs the outputs read, those given to a block,
-        and the ``init`` of an :class:`Integrate`, a :class:`Derivative` or a
-        :class:`Buffer`. Two kinds may be left out:
+        order. It lists the Inputs the outputs read, the fed-back ones too,
+        those given to a block, and the ``init`` of an :class:`Integrate`, a
+        :class:`Derivative` or a :class:`Buffer`. Two kinds are left out:
 
-        - a fed-back Input, see :meth:`Input.feedback`;
+        - a hidden state, ``x.feedback(stream, hidden=True)``: the model's own
+          memory, which cannot be declared, see :meth:`Input.feedback`;
         - an Input only an objective reads, such as a measured target.
 
         The list is copied: changing it later leaves the model as it was.
@@ -127,7 +128,8 @@ class Modely:
     ------
     ValueError
         If the outputs read an Input that is not among ``inputs`` ("which are
-        not among its inputs: declare them there"). If the model is called on
+        not among its inputs: declare them there"), or if ``inputs`` holds a
+        hidden state ("declares the hidden states"). If the model is called on
         arrays before :meth:`build` ("Model is not built"), or without an
         input it reads ("which are missing from the data"). If a list holds
         one value too many or too few ("takes one value for each"). If a
@@ -300,6 +302,28 @@ class Modely:
     _order: list[Node]
 
     def __init__(self, name: str, inputs: list[Input], outputs: list[Output]) -> None:
+        self._declare(name, inputs, outputs)
+        hidden = [node.name for node in self._inputs if node._hidden]
+        if hidden:
+            raise ValueError(
+                f"Model {name!r} declares the hidden states {hidden} among its "
+                "inputs. A hidden state - fed back with hidden=True, or kept by "
+                "an Integrate, a Derivative or a Buffer - is the model's own "
+                "memory, which starts from its init, and none of its inputs: "
+                "leave it out of inputs, or feed it back without hidden=True "
+                "to read it from data."
+            )
+
+    @classmethod
+    def _of(cls, name: str, inputs: list[Input], outputs: list[Output]) -> "Modely":
+        """A model of a graph nnodely makes, which may declare hidden states:
+        the body of a Loop, which reads its states as inputs at every step,
+        or a model loaded back, checked when it was declared."""
+        model = cls.__new__(cls)
+        model._declare(name, inputs, outputs)
+        return model
+
+    def _declare(self, name: str, inputs: list[Input], outputs: list[Output]) -> None:
         self.name = name
         # Lists of its own: one the caller goes on changing - reused for
         # another model - leaves this one as it was declared.
@@ -308,16 +332,26 @@ class Modely:
         self._order = toposort(self._outputs)
         # Read as an output, or bound to a Loop, it passed no layer call.
         _refuse_uncalled(self._order)
-        undeclared = sorted(
-            {node.name for node in _undeclared_inputs(self._inputs, self._outputs)}
-        )
+        undeclared = _undeclared_inputs(self._inputs, self._outputs)
         if undeclared:
+            fed_back = sorted(
+                {node.name for node in undeclared if node.update is not None}
+            )
             raise ValueError(
-                f"Model {name!r} reads the Inputs {undeclared}, which are not "
+                f"Model {name!r} reads the Inputs "
+                f"{sorted({node.name for node in undeclared})}, which are not "
                 "among its inputs: declare them there. A model declares every "
                 "Input it reads, the init of an Integrate, a Derivative or a "
-                "Buffer too; only a fed-back Input, or one only a minimizer "
+                "Buffer too; only a hidden state, or an Input only a minimizer "
                 "reads, such as a target, may be left out."
+                + (
+                    f" The fed-back ones, {fed_back}, are states: each is "
+                    "declared, an input the data or the caller gives, or "
+                    "hidden, the model's own memory, x.feedback(stream, "
+                    "init=..., hidden=True)."
+                    if fed_back
+                    else ""
+                )
             )
         self.model = None  # Keras model build from this DAG
         self.train_inputs = []  # List of Input nodes that are required for training (derived from minimizers)
@@ -647,14 +681,10 @@ class Modely:
         ValueError
             If the graph reads no Input ("reads no Input"). If two different
             Inputs of the graph have one name ("reads two different Inputs
-            named"): the data is keyed by input name.
-
-        Warns
-        -----
-        UserWarning
-            If the model reads a fed-back Input it does not declare ("which
-            only a Loop or a ModelyLoop feeds back"). A Modely reads it from
-            data, one step at a time.
+            named"): the data is keyed by input name. If a hidden state the
+            user named, ``x.feedback(stream, hidden=True)``, has the name of
+            another Input of the graph ("has the name of"): the state of a
+            layer is renamed instead.
 
         See Also
         --------
@@ -781,27 +811,6 @@ class Modely:
                 twins=[originals.get(id(node), node) for node in twins],
                 names=set(named),
             )
-        # A fed-back Input the model declares among its inputs is fed from
-        # data on purpose; any other is a feedback a loop was meant to apply.
-        declared = {id(node) for node in self._inputs}
-        open_feedback = sorted(
-            {
-                node.name
-                for node in train_inputs
-                if node.update is not None
-                and id(originals.get(id(node), node)) not in declared
-            }
-        )
-        if open_feedback:
-            warnings.warn(
-                f"Model {self.name!r} reads the fed-back Inputs {open_feedback}, "
-                "which only a Loop or a ModelyLoop feeds back: built as a Modely, "
-                "they are read from data, one step at a time. Roll the model out "
-                "with Loop or ModelyLoop, or declare them among the inputs.",
-                UserWarning,
-                stacklevel=2,
-            )
-
         keras_inputs, keras_outputs = self._resolve_graph(
             flat_order, train_inputs, list(zip(output_keys, flat_outputs))
         )
@@ -1299,8 +1308,10 @@ class Modely:
 
         - the Inputs it declares;
         - the Inputs only an objective reads, such as targets;
-        - the fed-back Inputs;
-        - the Inputs fed back inside the step of a Loop it rolls out, as a
+        - its hidden states - ``x.feedback(stream, hidden=True)``, the
+          states of an Integrate, a Derivative or a Buffer - which it reads
+          the init of;
+        - the states fed back inside the step of a Loop it rolls out, as a
           :class:`ModelyLoop` does.
 
         The list holds the Input objects themselves. Pick one by its name,
@@ -1313,12 +1324,14 @@ class Modely:
 
         - declared: whether it is among the inputs of the model;
         - fed back with: the stream a loop feeds back into it at the next
-          step. A :class:`Modely` reads such an Input from data instead;
+          step. A :class:`Modely` reads such an Input from data instead, or
+          its init if it is hidden;
         - data: what the data holds of it. ``required``; ``optional``, read
           as zeros where the data leaves it out; ``target``, to train and
-          validate only; or ``-``, fed back only;
+          validate only; or ``-``, a hidden state, or one fed back only;
         - starts from: for an Input a loop feeds back, what its first step
-          reads.
+          reads; for a hidden state of the one-step model, its init, which it
+          reads at every step.
 
         See Also
         --------
@@ -1365,7 +1378,10 @@ class Modely:
         }
         originals: dict[int, Input] = {}
         copies: dict[int, Node] = {}
-        read = _read_nodes([*self._outputs, *sides], self._inputs, originals, copies)
+        hidden: list[Input] = []
+        read = _read_nodes(
+            [*self._outputs, *sides], self._inputs, originals, copies, hidden
+        )
         rows = []
         by_input: dict[int, dict] = {}
         for node in read:
@@ -1391,6 +1407,26 @@ class Modely:
                 "starts from": None,
             }
             rows.append(by_input[id(original)])
+
+        # The hidden states the one-step model reads the init of, at every
+        # step.
+        for state in hidden:
+            init = state.init
+            rows.append(
+                {
+                    "input": state,
+                    "seq": tuple(state.seq),
+                    "declared": False,
+                    "fed back with": cast(Stream, state.update).name,
+                    "update": state.update,
+                    "data": None,
+                    "starts from": "0"
+                    if init is None
+                    else init.name
+                    if isinstance(init, Stream)
+                    else str(init),
+                }
+            )
 
         # The states, inside the step: one that starts from an optional Input
         # - the Input of a ModelyLoop it starts from, by object, renamed or
@@ -3045,11 +3081,30 @@ def _rename_hidden_states(model: Modely) -> None:
     model reads: named after the layer and its signal, ``tank_rate``, it can
     be named like an Input of the user's, ``tank_rate`` too. The user never
     names or reads it, so it yields. The data is fed by input name, so the
-    model could not be built otherwise."""
+    model could not be built otherwise.
+
+    A hidden state the user named, ``x.feedback(stream, hidden=True)``, keeps
+    its name, as any Input of the user's: one named like another Input the
+    model reads is refused."""
     inputs = [node for node in _nodes_and_models(model)[0] if isinstance(node, Input)]
-    taken = {node.name: node for node in inputs if not node._hidden}
+    taken: dict[str, Input] = {}
     for node in inputs:
-        if node._hidden and taken.setdefault(node.name, node) is not node:
+        if node._hidden and not node._hidden_by_user:
+            continue
+        other = taken.setdefault(node.name, node)
+        if other is not node and (node._hidden_by_user or other._hidden_by_user):
+            raise ValueError(
+                f"Model {model.name!r} reads two Inputs named {node.name!r}, "
+                "and one is a hidden state, fed back with hidden=True. A hidden "
+                "state keeps the name it was given, and the Inputs of a model "
+                "are told apart by name: give the state a name of its own."
+            )
+    for node in inputs:
+        if (
+            node._hidden
+            and not node._hidden_by_user
+            and taken.setdefault(node.name, node) is not node
+        ):
             name, index = node.name, 1
             while f"{name}_{index}" in taken:
                 index += 1

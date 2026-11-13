@@ -64,7 +64,10 @@ call. To give a block the data of an Input of the larger model, declare that
 Input in the larger model and pass it in the call. A state that a block
 declares reads the stream given for it at every step. In a
 :class:`~nnodely.ModelyLoop` it keeps its feedback instead, and the stream is
-its initial value (see :doc:`recurrent`).
+its initial value (see :doc:`recurrent`). A hidden state of a block,
+``x.feedback(stream, hidden=True)``, is the block's own: the call does not
+give it, and it reads its ``init``, at every step or, in a ModelyLoop, before
+the first one of each call.
 
 Step 2: weights
 ---------------
@@ -176,7 +179,9 @@ stay unique within a model:
 
 The hidden state of an ``Integrate``, a ``Derivative`` or a ``Buffer`` is an
 Input named after the layer and its signal. Named like another Input of the
-model, it takes a free name.
+model, it takes a free name. A hidden state the user named,
+``x.feedback(stream, hidden=True)``, keeps its name: named like another Input
+of the model, it is refused when the model is built.
 
 Step 4: flattening
 ------------------

@@ -299,7 +299,7 @@ def _flatten_steps(node: Node, scope: Scope) -> Generator[tuple[Node, Scope], An
     from nnodely.core.modely import IntermediateOutput
     from nnodely.core.layer import Layer
     from nnodely.layers.parameter import _Value
-    from nnodely.layers.input import Input
+    from nnodely.layers.input import Input, _HiddenInit
 
     if node in scope.memo:
         return scope.memo[node]
@@ -310,7 +310,7 @@ def _flatten_steps(node: Node, scope: Scope) -> Generator[tuple[Node, Scope], An
         and node not in scope.declared
     ):
         init = Stream._coerce_operand(0.0 if node.init is None else node.init)
-        scope.memo[node] = yield (init, scope)
+        scope.memo[node] = yield (_HiddenInit(state=node.shape)([init]), scope)
         return scope.memo[node]
     shared = isinstance(node, _Value) or (
         isinstance(node, Input) and (node.update is None or not scope.loop)
@@ -438,29 +438,38 @@ def _flatten_graph(
 
 
 def _undeclared_inputs(inputs, outputs) -> list:
-    """Every Input the one-step model of ``outputs`` reads that is not among
-    ``inputs`` and nothing feeds back: through its streams and the arguments
-    of the models it calls, and as the init of a hidden fed-back Input it
-    does not declare - the state of an Integrate, a Derivative or a Buffer,
-    which a Modely starts from its init. The streams the fed-back Inputs are
-    fed back with are a loop's to read, not the one-step model's."""
+    """Every Input the model of ``outputs`` reads that is not among
+    ``inputs`` and is no hidden state - the model's own memory, which it
+    starts from its init:
+
+    - every one its one-step model reads, through its streams and the
+      arguments of the models it calls, and as the init of a hidden state;
+    - every fed-back one a rollout reads, through the streams the fed-back
+      Inputs are fed back with too: a state is declared or hidden. The
+      others read there are the loop's to check."""
     from nnodely.layers.input import Input
 
     declared = {id(node) for node in inputs}
     found: dict[int, Any] = {}
-    seen: set[int] = set()
-    stack = list(outputs)
-    while stack:
-        node = stack.pop()
-        if not isinstance(node, Node) or id(node) in seen:
-            continue
-        seen.add(id(node))
-        if isinstance(node, Input):
-            if node.update is None and id(node) not in declared:
-                found[id(node)] = node
-            elif node._hidden and id(node) not in declared:
-                stack.append(node.init)
-        stack.extend(node._preds)
+    for rollout in (False, True):
+        seen: set[int] = set()
+        stack = list(outputs)
+        while stack:
+            node = stack.pop()
+            if not isinstance(node, Node) or id(node) in seen:
+                continue
+            seen.add(id(node))
+            if isinstance(node, Input):
+                fed_back = node.update is not None
+                if rollout and fed_back:
+                    stack.append(node.update)
+                if id(node) in declared:
+                    pass
+                elif node._hidden and fed_back:
+                    stack.append(node.init)
+                elif fed_back or not rollout:
+                    found[id(node)] = node
+            stack.extend(node._preds)
     return list(found.values())
 
 
@@ -543,19 +552,29 @@ def _copies(scope: Scope) -> dict[int, Node]:
     return found
 
 
-def _read_nodes(roots, declared=None, originals=None, streams=None) -> list[Node]:
+def _read_nodes(
+    roots, declared=None, originals=None, streams=None, hidden=None
+) -> list[Node]:
     """Every node ``roots`` read, inside the models they call too, in the
     order the graph reaches them; with ``declared``, the inputs of a Modely,
     as it reads them (see Scope.declared). They are copies, made inlining
     the models called: ``originals``, if given, is filled with the node of
     the graph each Input copied stands for, by the id of the copy, and
-    ``streams`` with the node every node read stands for (:func:`_copies`)."""
+    ``streams`` with the node every node read stands for (:func:`_copies`).
+    ``hidden``, given with ``declared``, is filled with every hidden state
+    the Modely reads its init in place of."""
     from nnodely.layers.input import Input
 
     scope = Scope(declared=None if declared is None else set(declared))
     nodes = toposort([flatten_node(root, scope) for root in roots])
     if streams is not None:
         streams.update(_copies(scope))
+    if hidden is not None and scope.declared is not None:
+        hidden.extend(
+            node
+            for node in scope.merged_memo()
+            if isinstance(node, Input) and node._hidden and node not in scope.declared
+        )
     if originals is not None:
         # A hidden state left undeclared is inlined as its init, which can be
         # an Input of another name: only a copy of its own name is the node.
