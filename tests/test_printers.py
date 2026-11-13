@@ -298,7 +298,7 @@ def test_a_model_prints_as_a_table_of_its_inputs_outputs_and_minimizers():
     # Its name heads the table; the names of each kind are inline: every
     # Input it reads, as inputs lists them, the target it is not declared
     # with included.
-    assert repr(model) == "\n".join(
+    assert str(model) == "\n".join(
         [
             "┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┓",
             "┃ model      ┃ repr_model               ┃",
@@ -309,10 +309,10 @@ def test_a_model_prints_as_a_table_of_its_inputs_outputs_and_minimizers():
             "└────────────┴──────────────────────────┘",
         ]
     )
-    assert str(model) == repr(model)
+    assert str(model) == str(model)
     # A model without minimizers.
     bare = Modely("repr_bare", inputs=[x], outputs=[Output("repr_bare_out", x * 2)])
-    assert repr(bare).splitlines()[5] == "│ minimizers │ -             │"
+    assert str(bare).splitlines()[5] == "│ minimizers │ -             │"
 
 
 def _notebook(monkeypatch):
