@@ -105,12 +105,174 @@ class InterpolationImpl(keras.layers.Layer):
 
 
 class Interpolation(Layer):
-    """Interpolate input values using a one-dimensional lookup table.
+    r"""Lookup table applied to every value of a stream: the curve through
+    the points ``(x_points, y_points)``, read at each value.
 
-    Queries outside the point range are clamped to the closest endpoint.
-    ``mode="linear"`` performs piecewise-linear interpolation, while
-    ``mode="polynomial"`` uses the unique global polynomial passing through
-    all supplied points.
+    Syntax
+    ------
+    ``Interpolation(x_points, y_points)(x)``
+        Reads the piecewise-linear curve through the points at every value
+        of ``x``.
+    ``Interpolation(x_points, y_points, mode="polynomial")(x)``
+        Reads the polynomial through all the points instead.
+
+    The table is fixed: its points are numbers, not trained. A value
+    outside the points reads the curve at the nearest end point, so the
+    output is constant beyond either end.
+
+    Parameters
+    ----------
+    x_points : list of float
+        The abscissas of the points. They are finite and all different, at
+        least two. Their order does not matter: the points are sorted by
+        ``x_points``, each keeping its ``y_points`` value.
+    y_points : list of float
+        The values at ``x_points``, as many, finite.
+    mode : str, default "linear"
+        How the curve joins the points, in upper or lower case:
+
+        - ``"linear"``: a straight segment between each two neighboring
+          points.
+        - ``"polynomial"``: the one polynomial of degree ``n - 1`` through
+          the ``n`` points.
+    name : str, optional
+        The name of the layer. The default is ``Interpolation`` followed by
+        a number.
+
+    Call arguments
+    --------------
+    x : Stream
+        A stream of any shape, ``Shape(S, T, D)``, with or without a window.
+        The call takes it alone, ``Interpolation(...)(x)``, or in a list,
+        ``Interpolation(...)([x])``.
+
+    Returns
+    -------
+    Stream
+        A stream of the shape of ``x``: ``Shape(S, T, D)`` gives
+        ``Shape(S, T, D)``, for example ``Shape(S=(), T=2, D=(3,))`` for a
+        window of 2 samples of 3 features.
+
+    Raises
+    ------
+    ValueError
+        When the layer is configured: if ``x_points`` and ``y_points``
+        differ in length ("must have the same length"); if there are fewer
+        than two points ("requires at least two points"); if ``mode`` is
+        not one of the two ("mode must be one of"); if a point is not
+        finite ("must contain only finite values"); if two ``x_points``
+        are equal ("must contain unique values"); if the points are not
+        flat lists ("must be one-dimensional"). When the layer is called on
+        several streams ("automatic output shape inference failed").
+
+    See Also
+    --------
+    Fuzzify : Memberships of a signal to sets placed on centers.
+    Clamp : Values held between two bounds.
+    LocalModel : Local models blended by operating region.
+
+    Notes
+    -----
+    With the points sorted, :math:`x_0 < x_1 < \dots < x_{n-1}`, every
+    value is first held in the range of the points:
+
+    .. math:: \tilde x = \min(\max(x, x_0), x_{n-1})
+
+    With ``mode="linear"``, for :math:`x_i \le \tilde x \le x_{i+1}`:
+
+    .. math:: y = y_i + (y_{i+1} - y_i) \, \frac{\tilde x - x_i}{x_{i+1} - x_i}
+
+    With ``mode="polynomial"``, :math:`y = \sum_{k=0}^{n-1} c_k \tilde x^k`,
+    with the coefficients :math:`c_k` such that the polynomial passes
+    through every point.
+
+    The gradient with respect to ``x`` is the slope of the curve inside the
+    points, and 0 outside. A polynomial through many points can swing far
+    between them: use ``"linear"`` for more than a few points.
+
+    Basic Examples
+    --------------
+    A table of three points, read at values inside, at and beyond them:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Input, Interpolation, Modely, Output
+    >>> x = Input("x", dim=6)
+    >>> table = Interpolation(x_points=[0.0, 1.0, 2.0], y_points=[0.0, 2.0, 3.0])
+    >>> model = Modely("table", inputs=[x], outputs=[Output("y", table(x))]).build()
+    >>> data = {"x": np.array([[-1.0, 0.0, 0.5, 1.0, 1.5, 3.0]])}
+    >>> keras.ops.convert_to_numpy(model(data)["y"])
+    array([[0. , 0. , 1. , 2. , 2.5, 3. ]], dtype=float32)
+
+    Scope
+    -----
+    Every value is read in the table, whatever the shape:
+
+    >>> Interpolation([0.0, 1.0], [0.0, 2.0])(Input("v", dim=3, tw=2)).shape
+    Shape(S=(), T=2, D=(3,))
+    >>> Interpolation([0.0, 1.0], [0.0, 2.0])(Input("s", dim=3, seq=-1, tw=2)).shape
+    Shape(S=(dyn,), T=2, D=(3,))
+
+    Options
+    -------
+    ``x_points`` and ``y_points`` may come in any order of ``x_points``:
+    the table above, given in another order, is the same.
+
+    >>> shuffled = Interpolation(x_points=[2.0, 0.0, 1.0], y_points=[3.0, 0.0, 2.0])
+    >>> model = Modely("shuffled", inputs=[x], outputs=[Output("y", shuffled(x))]).build()
+    >>> keras.ops.convert_to_numpy(model(data)["y"])
+    array([[0. , 0. , 1. , 2. , 2.5, 3. ]], dtype=float32)
+
+    ``mode="polynomial"`` reads the polynomial through the points, here
+    :math:`y = x^2`, still held at the ends:
+
+    >>> square = Interpolation([0.0, 1.0, 2.0], [0.0, 1.0, 4.0], mode="polynomial")
+    >>> model = Modely("square", inputs=[x], outputs=[Output("y", square(x))]).build()
+    >>> keras.ops.convert_to_numpy(model(data)["y"])
+    array([[0.  , 0.  , 0.25, 1.  , 2.25, 4.  ]], dtype=float32)
+
+    ``name`` names the layer:
+
+    >>> Interpolation([0.0, 1.0], [0.0, 2.0], name="lookup")(x).name
+    'lookup'
+
+    Applications
+    ------------
+    The rolling resistance coefficient of a tyre, measured at three speeds
+    in m/s:
+
+    >>> velocity = Input("velocity", tw=1)
+    >>> rolling = Interpolation(x_points=[0.0, 10.0, 30.0], y_points=[0.010, 0.012, 0.020])
+    >>> resistance = 1500.0 * 9.81 * rolling(velocity)
+
+    Possible Issues
+    ---------------
+    The points are given with the layer, before it is called on its
+    stream:
+
+    >>> Interpolation(x)
+    Traceback (most recent call last):
+        ...
+    TypeError: ...missing 1 required positional argument: 'y_points'
+
+    Two equal abscissas leave the curve undefined:
+
+    >>> Interpolation([0.0, 1.0, 1.0], [0.0, 1.0, 2.0])
+    Traceback (most recent call last):
+        ...
+    ValueError: x_points must contain unique values.
+
+    The table reads one stream. Apply it to each stream:
+
+    >>> a, b = Input("a", tw=1), Input("b", tw=1)
+    >>> Interpolation([0.0, 1.0], [0.0, 2.0])([a, b])
+    Traceback (most recent call last):
+        ...
+    ValueError: ...automatic output shape inference failed...
+    >>> table = Interpolation([0.0, 1.0], [0.0, 2.0])
+    >>> ya, yb = table(a), table(b)
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, x_points, y_points, mode="linear", name=None):

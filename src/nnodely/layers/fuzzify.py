@@ -127,20 +127,170 @@ class _Bump(Layer):
 
 
 class Triangular(_Bump):
-    """
-    Triangular membership: 1 at 0, falling linearly to 0 at ``radius`` from
-    it, and 0 beyond. ``radius`` is a number, a ``(left, right)`` pair for a
-    triangle leaning to one side, or a :class:`Parameter` of dim ``(1,)`` or
-    ``(2,)``, which trains the width with the model. To center it, shift
-    the signal::
+    r"""Triangular membership of every value of a stream: 1 at 0, falling linearly to 0 at ``radius``.
 
-        Triangular(radius=0.5)([x - 0.5])          # 0 at 0 and at 1
-        Triangular(radius=(1.0, 2.0))([x - 1.0])   # from 0, up at 1, to 3
-        Triangular(radius=Parameter("r", value=[0.5]))([x])
+    Syntax
+    ------
+    ``Triangular(radius=r)(x)``
+        A triangle centered at 0, reaching 0 at ``-r`` and at ``r``.
+    ``Triangular(radius=(left, right))(x)``
+        A triangle leaning to one side, reaching 0 at ``-left`` and at
+        ``right``.
+    ``Triangular(radius=r)(x - c)``
+        The same triangle centered at ``c``: shift the stream to move it.
+    ``Triangular(radius=p)(x)``
+        A width held by the :class:`Parameter` ``p``, trained with the model.
+    ``Triangular(radius=r)([a, b])``
+        The membership of each stream of the list, as a list.
 
-    Given to :class:`Fuzzify` as a class, a triangle on each center reaches
-    the centers next to it, so between two centers the memberships add up to
-    one.
+    The function acts on every value alone, so the stream keeps its shape.
+    Given to :class:`Fuzzify` as a class, a triangle is placed on each center
+    and reaches the centers next to it. Given as an instance, the same
+    triangle is placed on every center.
+
+    Parameters
+    ----------
+    radius : float, (float, float) or Parameter, default 1.0
+        The half-widths of the triangle. It is one of:
+
+        - a number ``>= 0``, for both sides;
+        - a ``(left, right)`` pair of numbers ``>= 0``;
+        - a :class:`Parameter` of dim ``(1,)`` or ``(2,)`` without a window,
+          trained, frozen and saved with the model.
+    name : str, optional
+        The name of the layer. The default is ``Triangular`` followed by a
+        number.
+
+    Call arguments
+    --------------
+    x : Stream or list of Stream
+        A stream of any shape, or a list of streams.
+
+    Returns
+    -------
+    Stream or list of Stream
+        A stream of the shape of ``x``: ``Shape(S, T, D)`` gives
+        ``Shape(S, T, D)``. A list of streams gives a list, in its order.
+
+    Raises
+    ------
+    ValueError
+        If ``radius`` is negative ("radius must not be negative"), is a
+        sequence of other than two numbers ("radius is a number or a (left,
+        right) pair"), or is a stream other than a Parameter of dim ``(1,)``
+        or ``(2,)`` without a window ("a radius stream is a Parameter of dim
+        (1,) or (2,), without a window").
+    TypeError
+        If the layer is called before it is configured, ``Triangular(x)``.
+
+    See Also
+    --------
+    Rectangular : Rectangular membership.
+    Gaussian : Gaussian membership.
+    Fuzzify : Memberships to sets placed on centers.
+
+    Notes
+    -----
+    With the left and right half-widths :math:`l` and :math:`r`:
+
+    .. math:: y = \max\left(0, \min\left(1 + \frac{x}{l}, 1 - \frac{x}{r}\right)\right)
+
+    A half-width below :math:`10^{-7}` is held at :math:`10^{-7}`. A radius
+    of 0, or a Parameter trained to 0 or below, collapses the triangle to 0
+    everywhere, without NaN. The gradient with respect to ``x`` is
+    :math:`1/l` on the rising side, :math:`-1/r` on the falling side and 0
+    outside. A width Parameter receives a gradient too.
+
+    Basic Examples
+    --------------
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Fuzzify, Input, Modely, Output, Parameter, Triangular
+    >>> x = Input("x", tw=5)
+    >>> y = Triangular()(x)
+    >>> model = Modely("triangle", inputs=[x], outputs=[Output("y", y)]).build()
+    >>> samples = {"x": np.array([[[-1.0], [-0.5], [0.0], [0.5], [1.0]]])}
+    >>> keras.ops.convert_to_numpy(model(samples)["y"]).ravel()
+    array([0. , 0.5, 1. , 0.5, 0. ], dtype=float32)
+
+    Scope
+    -----
+    Every value is mapped alone, whatever the shape:
+
+    >>> Triangular()(Input("v", dim=3, seq=2, tw=4)).shape
+    Shape(S=(2,), T=4, D=(3,))
+
+    A list gives the membership of each stream:
+
+    >>> a, b = Input("a", tw=1), Input("b", tw=1)
+    >>> [stream.shape for stream in Triangular()([a, b])]
+    [Shape(S=(), T=1, D=(1,)), Shape(S=(), T=1, D=(1,))]
+
+    Options
+    -------
+    ``radius`` as a number, a pair, or a Parameter. A shifted stream moves the
+    center:
+
+    >>> outputs = [
+    ...     Output("half", Triangular(radius=0.5)(x)),
+    ...     Output("leaning", Triangular(radius=(1.0, 0.5))(x)),
+    ...     Output("shifted", Triangular(radius=0.5)(x - 0.5)),
+    ...     Output("trained", Triangular(radius=Parameter("r", value=[0.5]))(x)),
+    ... ]
+    >>> model = Modely("radii", inputs=[x], outputs=outputs).build()
+    >>> result = model(samples)
+    >>> for key in ["half", "leaning", "shifted", "trained"]:
+    ...     print(key, keras.ops.convert_to_numpy(result[key]).ravel())
+    half [0. 0. 1. 0. 0.]
+    leaning [0.  0.5 1.  0.  0. ]
+    shifted [0. 0. 0. 1. 0.]
+    trained [0. 0. 1. 0. 0.]
+    >>> [p.name for p in model.parameters]
+    ['r']
+
+    ``name`` names the layer, configured first:
+
+    >>> Triangular(name="tri")(x).name
+    'tri'
+
+    Applications
+    ------------
+    How comfortable a room is, fully at 21 degrees and not at all 3 degrees
+    away:
+
+    >>> temperature = Input("temperature", tw=1)
+    >>> comfort = Triangular(radius=3.0)(temperature - 21.0)
+
+    Properties & Relations
+    ----------------------
+    An instance given to :class:`Fuzzify` is the same triangle shifted to each
+    center:
+
+    >>> placed = Fuzzify([0.5], function=Triangular(radius=0.5))(x)
+    >>> shifted = Triangular(radius=0.5)(x - 0.5)
+    >>> model = Modely("same", inputs=[x], outputs=[Output("p", placed), Output("s", shifted)])
+    >>> result = model.build()(samples)
+    >>> np.array_equal(keras.ops.convert_to_numpy(result["p"]), keras.ops.convert_to_numpy(result["s"]))
+    True
+
+    Possible Issues
+    ---------------
+    The layer is configured first, then called on its stream:
+
+    >>> Triangular(x)
+    Traceback (most recent call last):
+        ...
+    TypeError: Triangular has settings, so it is configured first and then called on its streams: Triangular(...)(x), not Triangular(x).
+
+    A width Parameter has no window. Declare it without ``tw``:
+
+    >>> Triangular(radius=Parameter("w", tw=1, value=[[0.5]]))
+    Traceback (most recent call last):
+        ...
+    ValueError: Triangular: a radius stream is a Parameter of dim (1,) or (2,), without a window; ...
+    >>> y = Triangular(radius=Parameter("w", value=[0.5]))(x)
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, radius: float | tuple[float, float] | Stream = 1.0, name=None):
@@ -148,19 +298,142 @@ class Triangular(_Bump):
 
 
 class Rectangular(_Bump):
-    """
-    Rectangular membership: 1 on ``[-left, right)``, 0 elsewhere. ``radius``
-    is a number for both sides, a ``(left, right)`` pair, or a
-    :class:`Parameter` of dim ``(1,)`` or ``(2,)``::
+    r"""Rectangular membership of every value of a stream: 1 on ``[-left, right)``, 0 elsewhere.
 
-        Rectangular(radius=0.25)([x - 0.5])   # 1 on [0.25, 0.75)
+    Syntax
+    ------
+    ``Rectangular(radius=r)(x)``
+        1 on ``[-r, r)``, 0 elsewhere.
+    ``Rectangular(radius=(left, right))(x)``
+        1 on ``[-left, right)``, 0 elsewhere.
+    ``Rectangular(radius=r)(x - c)``
+        The same rectangle centered at ``c``: shift the stream to move it.
+    ``Rectangular(radius=p)(x)``
+        A width held by the :class:`Parameter` ``p``.
+    ``Rectangular(radius=r)([a, b])``
+        The membership of each stream of the list, as a list.
 
-    A step has no gradient: a Parameter read by rectangles alone does not
-    train, one used elsewhere too trains there, and the rectangles follow.
+    The function acts on every value alone, so the stream keeps its shape.
+    The interval is half-open: rectangles side by side hold their common edge
+    once. Given to :class:`Fuzzify` as a class, a rectangle is placed on each
+    center and reaches halfway to the centers next to it. Between the
+    centers, exactly one rectangle then holds every value.
 
-    Given to :class:`Fuzzify` as a class, a rectangle on each center reaches
-    halfway to the centers next to it, so between the centers exactly one
-    set holds every value.
+    Parameters
+    ----------
+    radius : float, (float, float) or Parameter, default 1.0
+        The half-widths of the rectangle. It is one of:
+
+        - a number ``>= 0``, for both sides;
+        - a ``(left, right)`` pair of numbers ``>= 0``;
+        - a :class:`Parameter` of dim ``(1,)`` or ``(2,)`` without a window.
+    name : str, optional
+        The name of the layer. The default is ``Rectangular`` followed by a
+        number.
+
+    Call arguments
+    --------------
+    x : Stream or list of Stream
+        A stream of any shape, or a list of streams.
+
+    Returns
+    -------
+    Stream or list of Stream
+        A stream of the shape of ``x``: ``Shape(S, T, D)`` gives
+        ``Shape(S, T, D)``. A list of streams gives a list, in its order.
+
+    Raises
+    ------
+    ValueError
+        If ``radius`` is negative ("radius must not be negative"), is a
+        sequence of other than two numbers ("radius is a number or a (left,
+        right) pair"), or is a stream other than a Parameter of dim ``(1,)``
+        or ``(2,)`` without a window ("a radius stream is a Parameter").
+    TypeError
+        If the layer is called before it is configured, ``Rectangular(x)``.
+
+    See Also
+    --------
+    Triangular : Triangular membership.
+    Gaussian : Gaussian membership.
+    Fuzzify : Memberships to sets placed on centers.
+
+    Notes
+    -----
+    With the left and right half-widths :math:`l` and :math:`r`:
+
+    .. math:: y = \begin{cases} 1 & -l \le x < r \\ 0 & \text{otherwise} \end{cases}
+
+    A half-width below :math:`10^{-7}` is held at :math:`10^{-7}`. A step has
+    no gradient, with respect to ``x`` or to the widths. A width Parameter
+    read by rectangles alone does not train. One read by another layer too
+    trains there, and the rectangles follow it.
+
+    Basic Examples
+    --------------
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Input, Modely, Output, Parameter, Rectangular
+    >>> x = Input("x", tw=5)
+    >>> y = Rectangular(radius=0.5)(x)
+    >>> model = Modely("box", inputs=[x], outputs=[Output("y", y)]).build()
+    >>> samples = {"x": np.array([[[-1.0], [-0.5], [0.0], [0.5], [1.0]]])}
+    >>> keras.ops.convert_to_numpy(model(samples)["y"]).ravel()  # 1 on [-0.5, 0.5)
+    array([0., 1., 1., 0., 0.], dtype=float32)
+
+    Scope
+    -----
+    Every value is mapped alone, whatever the shape:
+
+    >>> Rectangular()(Input("v", dim=3, seq=2, tw=4)).shape
+    Shape(S=(2,), T=4, D=(3,))
+
+    Options
+    -------
+    ``radius`` as a number, a pair, or a Parameter. A shifted stream moves the
+    center:
+
+    >>> outputs = [
+    ...     Output("unit", Rectangular()(x)),
+    ...     Output("leaning", Rectangular(radius=(1.0, 0.5))(x)),
+    ...     Output("shifted", Rectangular(radius=0.5)(x - 0.5)),
+    ...     Output("param", Rectangular(radius=Parameter("r", value=[0.5]))(x)),
+    ... ]
+    >>> model = Modely("radii", inputs=[x], outputs=outputs).build()
+    >>> result = model(samples)
+    >>> for key in ["unit", "leaning", "shifted", "param"]:
+    ...     print(key, keras.ops.convert_to_numpy(result[key]).ravel())
+    unit [1. 1. 1. 1. 0.]
+    leaning [1. 1. 1. 0. 0.]
+    shifted [0. 0. 1. 1. 0.]
+    param [0. 1. 1. 0. 0.]
+
+    ``name`` names the layer, configured first:
+
+    >>> Rectangular(name="box")(x).name
+    'box'
+
+    Applications
+    ------------
+    A switch that is on while a valve is between 20 % and 80 % open:
+
+    >>> opening = Input("opening", tw=1)
+    >>> on = Rectangular(radius=0.3)(opening - 0.5)
+
+    Possible Issues
+    ---------------
+    A width read by rectangles alone receives no gradient, and keeps its
+    value in training. Use :class:`Triangular` or :class:`Gaussian` for a
+    width that trains.
+
+    The layer is configured first, then called on its stream:
+
+    >>> Rectangular(x)
+    Traceback (most recent call last):
+        ...
+    TypeError: Rectangular has settings, so it is configured first and then called on its streams: Rectangular(...)(x), not Rectangular(x).
+
+    .. versionadded:: 2.0
     """
 
     _formula = "box"
@@ -170,14 +443,130 @@ class Rectangular(_Bump):
 
 
 class Gaussian(_Bump):
-    """
-    Gaussian membership: ``exp(-(x / sigma)^2 / 2)``, 1 at 0. ``sigma`` is a
-    positive number, or a :class:`Parameter` of dim ``(1,)``::
+    r"""Gaussian membership of every value of a stream: 1 at 0, of standard deviation ``sigma``.
 
-        Gaussian(sigma=0.1)([x - 0.5])
+    Syntax
+    ------
+    ``Gaussian(sigma=s)(x)``
+        A bell centered at 0, of standard deviation ``s``.
+    ``Gaussian(sigma=s)(x - c)``
+        The same bell centered at ``c``: shift the stream to move it.
+    ``Gaussian(sigma=p)(x)``
+        A width held by the :class:`Parameter` ``p``, trained with the model.
+    ``Gaussian(sigma=s)([a, b])``
+        The membership of each stream of the list, as a list.
 
-    Given to :class:`Fuzzify` as a class, ``sigma`` is a sixth of the span
-    between the centers next to it, so three sigmas reach each of them.
+    The function acts on every value alone, so the stream keeps its shape.
+    Given to :class:`Fuzzify` as a class, a bell is placed on each center.
+    Its ``sigma`` is then a sixth of the span between the centers next to it,
+    so three sigmas reach each of them.
+
+    Parameters
+    ----------
+    sigma : float or Parameter, default 1.0
+        The standard deviation of the bell. It is one of:
+
+        - a number ``> 0``;
+        - a :class:`Parameter` of dim ``(1,)`` without a window, trained,
+          frozen and saved with the model.
+    name : str, optional
+        The name of the layer. The default is ``Gaussian`` followed by a
+        number.
+
+    Call arguments
+    --------------
+    x : Stream or list of Stream
+        A stream of any shape, or a list of streams.
+
+    Returns
+    -------
+    Stream or list of Stream
+        A stream of the shape of ``x``: ``Shape(S, T, D)`` gives
+        ``Shape(S, T, D)``. A list of streams gives a list, in its order.
+
+    Raises
+    ------
+    ValueError
+        If ``sigma`` is 0 or negative ("sigma must be positive"), is not a
+        number ("sigma is a number or a Parameter"), or is a stream other than
+        a Parameter of dim ``(1,)`` without a window ("a sigma stream is a
+        Parameter of dim (1,), without a window").
+    TypeError
+        If the layer is called before it is configured, ``Gaussian(x)``.
+
+    See Also
+    --------
+    Triangular : Triangular membership.
+    Rectangular : Rectangular membership.
+    Fuzzify : Memberships to sets placed on centers.
+    Exp : Exponential.
+
+    Notes
+    -----
+    .. math:: y = \exp\left(-\frac{x^2}{2 \sigma^2}\right)
+
+    Values are in :math:`(0, 1]`. A ``sigma`` Parameter trained below
+    :math:`10^{-7}` is held at :math:`10^{-7}`: the bell collapses to 1 at 0
+    and 0 elsewhere, without NaN. The gradient with respect to ``x`` is
+    :math:`-x y / \sigma^2`.
+
+    Basic Examples
+    --------------
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Input, Modely, Output, Parameter, Gaussian
+    >>> x = Input("x", tw=5)
+    >>> y = Gaussian(sigma=0.5)(x)
+    >>> model = Modely("bell", inputs=[x], outputs=[Output("y", y)]).build()
+    >>> samples = {"x": np.array([[[-1.0], [-0.5], [0.0], [0.5], [1.0]]])}
+    >>> np.round(keras.ops.convert_to_numpy(model(samples)["y"]).ravel(), 4)
+    array([0.1353, 0.6065, 1.    , 0.6065, 0.1353], dtype=float32)
+
+    Scope
+    -----
+    Every value is mapped alone, whatever the shape:
+
+    >>> Gaussian()(Input("v", dim=3, seq=2, tw=4)).shape
+    Shape(S=(2,), T=4, D=(3,))
+
+    Options
+    -------
+    ``sigma`` as a Parameter, here with the value of the Basic Example, and a
+    shifted stream:
+
+    >>> outputs = [
+    ...     Output("trained", Gaussian(sigma=Parameter("s", value=[0.5]))(x)),
+    ...     Output("shifted", Gaussian(sigma=0.5)(x - 0.5)),
+    ... ]
+    >>> model = Modely("sigmas", inputs=[x], outputs=outputs).build()
+    >>> result = model(samples)
+    >>> for key in ["trained", "shifted"]:
+    ...     print(key, np.round(keras.ops.convert_to_numpy(result[key]).ravel(), 4))
+    trained [0.1353 0.6065 1.     0.6065 0.1353]
+    shifted [0.0111 0.1353 0.6065 1.     0.6065]
+
+    ``name`` names the layer, configured first:
+
+    >>> Gaussian(name="bell")(x).name
+    'bell'
+
+    Applications
+    ------------
+    The weight of a speed near the cruise speed of 30 m/s:
+
+    >>> speed = Input("speed", tw=1)
+    >>> near_cruise = Gaussian(sigma=5.0)(speed - 30.0)
+
+    Possible Issues
+    ---------------
+    A Gaussian has one width, not a pair:
+
+    >>> Gaussian(sigma=(1.0, 2.0))
+    Traceback (most recent call last):
+        ...
+    ValueError: Gaussian: sigma is a number or a Parameter, got (1.0, 2.0).
+
+    .. versionadded:: 2.0
     """
 
     _formula = "bell"
@@ -372,60 +761,332 @@ class FuzzifyImpl(keras.layers.Layer):
 
 
 class Fuzzify(Layer):
-    """
-    Membership degrees of a scalar signal to fuzzy sets placed on
-    ``centers``: one feature per center, in ascending order of the centers.
-    On a time window every step is evaluated alone, so a window of ``T``
-    samples gives ``T`` rows of ``len(centers)`` memberships. It is typically
-    the activation of a :class:`LocalModel`.
+    r"""Memberships of a scalar stream to sets placed on centers: one feature per center.
 
-    ``centers`` are fixed numbers, or move with the model: one stream of
-    shape ``(n,)`` - a :class:`Parameter` vector, which trains, or a stream
-    computed from the inputs, such as a :class:`Fir` with ``features=n``,
-    which gives every sample its own centers - or a list of scalar streams,
-    numbers among them for centers kept fixed. Centers that move are used in
-    the order given, which should be ascending.
+    Syntax
+    ------
+    ``Fuzzify(centers, function=Triangular)(x)``
+        The membership of ``x`` to a triangle on each center.
+    ``Fuzzify(centers, function=[f_0, f_1, ...])(x)``
+        A function of its own for each center.
+    ``Fuzzify(Parameter("c", value=[...]), function)(x)``
+        Centers trained with the model.
+    ``Fuzzify(centers, function, bounds=True)(x)``
+        ``x`` held between the lowest and the highest center first.
+    ``Fuzzify(centers, function, normalize=True)(x)``
+        Memberships divided by their sum, so they add up to one.
 
-    ``function`` is the function of every center, or a list of one per
-    center (paired with ``centers`` as given, before they are sorted). Each is
+    Each center gives one feature: the value of its function at ``x``. The
+    membership functions :class:`Triangular`, :class:`Rectangular` and
+    :class:`Gaussian` are placed on each center and sized by the centers next
+    to it. Any other layer is applied to ``x - center``.
 
-    - :class:`Triangular`, :class:`Rectangular` or :class:`Gaussian` as a
-      class, or its name: placed on the center and sized by the centers next
-      to it, as they are computed - centers that move take their sets with
-      them, widths included, and the gradient reaches them through both;
-    - any other nnodely layer class, made anew for each center, or a layer
-      instance, shared by all of them, ``Triangular(radius=...)`` among
-      them: applied to ``x - center``;
-    - a custom function, a Keras layer whose ``call`` reads one argument,
-      ``x - center``: likewise, a ``keras.layers.Layer`` subclass made anew
-      for each center or an instance shared by all, each wrapped in a
-      :class:`KerasFunction` so the model still saves and exports.
+    Every sample of the window is evaluated alone, and the sequence axes are
+    kept. The result is typically the activation of a :class:`LocalModel`.
 
-    ::
+    Parameters
+    ----------
+    centers : list of float, Stream, or list of float and Stream
+        Where the sets are placed. It is one of:
 
-        Fuzzify([0.0, 0.5, 1.0], function=Triangular)([x])
-        Fuzzify([0.0, 0.5, 1.0], function=Sin)([x])               # sin(x - c)
-        Fuzzify([0.0, 0.5, 1.0], function=Gaussian(sigma=0.1))([x])
-        Fuzzify([0.0, 0.5, 1.0], function=[Rectangular, Triangular, Gaussian])
-        Fuzzify([0.0, 0.5, 1.0], function=MyKerasLayer)([x])
-        Fuzzify(Parameter("c", value=[0.0, 0.5, 1.0]), function=Triangular)([x])
-        Fuzzify([0.0, Parameter("m", value=[0.5]), 1.0], function=Triangular)([x])
+        - a list of numbers: fixed centers, sorted in ascending order, each
+          with its function;
+        - a :class:`Parameter` of dim ``(n,)``: ``n`` centers trained with the
+          model;
+        - a stream of dim ``(n,)`` computed from the inputs, such as a
+          :class:`Linear` with ``features=n``: every sample has centers of
+          its own;
+        - a list of numbers and scalar streams, dim ``(1,)``: the numbers stay
+          fixed, the streams move.
 
-    ``bounds`` holds the signal within ``(left, right)`` before the functions
-    read it: below ``left`` it is read as ``left``, above ``right`` as
-    ``right``. ``True`` takes the lowest and the highest center (centers that
-    move as they are computed), so a signal beyond the centers belongs to the
-    outer set rather than to none; ``False``, the default, leaves it as it is.
+        A stream of centers holds one sample: no window, or a window of 1. It
+        has no sequence, or the sequence of ``x``. Centers that move are not
+        sorted: give them in ascending order.
+    function : type, str, Layer, keras.layers.Layer, or a list of them
+        The function of every center, or a list of one per center, paired
+        with ``centers`` as given, before they are sorted. Each is one of:
 
-    ``normalize=True`` divides the memberships by their sum, so that they add
-    up to one; memberships that are all zero stay zero. It is meant for
-    memberships that are not negative. ``False``, the default, keeps the
-    values of the functions.
+        - :class:`Triangular`, :class:`Rectangular` or :class:`Gaussian`, as
+          a class or by name, in any case (``"triangular"``): placed on the
+          center and sized by its neighbors, see Notes;
+        - another nnodely layer class, such as :class:`Sin`: made anew for
+          each center and applied to ``x - center``;
+        - an nnodely layer instance, such as ``Triangular(radius=0.2)``:
+          shared by every center and applied to ``x - center``;
+        - a ``keras.layers.Layer`` subclass or instance whose ``call`` reads
+          one argument, ``x - center``: likewise, wrapped in a
+          :class:`KerasFunction`, so the model still saves and exports.
+    bounds : bool or (float, float), default False
+        Holds ``x`` within limits before the functions read it:
 
-    A Fuzzify is one layer, computing every membership at once. The layers
-    it applies to ``x - center`` are computed inside it: the Parameters they
-    read are predecessors of the Fuzzify. Calling it again applies the same
-    layers.
+        - ``False``: ``x`` is read as it is;
+        - ``True``: ``x`` is held between the lowest and the highest center,
+          so a value beyond them belongs to the outer set;
+        - ``(left, right)``: ``x`` is held between two numbers,
+          ``left <= right``.
+    normalize : bool, default False
+        ``True`` divides the memberships of each sample by their sum, so they
+        add up to one. A sample with all memberships zero stays zero. Use it
+        for memberships that are not negative.
+    name : str, optional
+        The name of the layer. The default is ``Fuzzify`` followed by a
+        number.
+
+    Call arguments
+    --------------
+    x : Stream
+        A scalar stream, ``Shape(S, T, (1,))``, with or without a window and a
+        sequence. The call takes it alone, ``Fuzzify(...)(x)``, or in a list,
+        ``Fuzzify(...)([x])``.
+
+    Returns
+    -------
+    Stream
+        ``Shape(S, T, (n,))`` for ``n`` centers. A function that gives several
+        values per center, such as ``Linear(features=2)``, adds that many
+        features for its center. For example, ``Input("x", tw=4)`` and 3
+        centers give ``Shape(S=(), T=4, D=(3,))``.
+
+    Raises
+    ------
+    ValueError
+        If ``centers`` is empty ("requires at least one center"), or a stream
+        of centers is not a vector of one sample ("a stream of centers is a
+        vector of shape (n,), one sample"). If an item of a list is not a
+        number or a scalar stream ("in a list every center is a number or a
+        scalar stream"). If the functions are not one, or one per center
+        ("functions for ... centers"), or a name is unknown ("Unsupported
+        fuzzify function"). If ``bounds`` is not ``True``, ``False`` or an
+        ordered pair ("bounds is True, False or (left, right)"). At the call:
+        if ``x`` is not scalar ("Fuzzify reads a scalar signal"), or centers
+        have another sequence than ``x`` ("centers with a sequence have the
+        signal's").
+    TypeError
+        If a function is not a layer class, instance or name ("a function is
+        an nnodely or Keras layer class or instance"). If a Keras ``call``
+        needs more than one argument ("a custom function reads one
+        argument"), or a layer class cannot be made without arguments
+        ("cannot be made without arguments; pass an instance"). If the call
+        is given more than one stream ("Fuzzify reads one stream").
+
+    See Also
+    --------
+    LocalModel : Local models blended by these memberships.
+    Triangular : Triangular membership.
+    Rectangular : Rectangular membership.
+    Gaussian : Gaussian membership.
+    KerasFunction : A Keras layer as an nnodely layer.
+
+    Notes
+    -----
+    For the center :math:`c_k`, the gaps to the centers next to it are
+    :math:`l_k = c_k - c_{k-1}` and :math:`r_k = c_{k+1} - c_k`. The first and
+    the last center reuse the one gap they have. A lone center has gaps of 1.
+    The membership functions placed on :math:`c_k` are:
+
+    .. math::
+
+        \mu_k^{\triangle} = \max\left(0, \min\left(1 + \frac{x - c_k}{l_k},
+        1 - \frac{x - c_k}{r_k}\right)\right)
+
+        \mu_k^{\square} = 1 \text{ if } -\frac{l_k}{2} \le x - c_k <
+        \frac{r_k}{2}, \text{ else } 0
+
+        \mu_k^{G} = \exp\left(-\frac{(x - c_k)^2}{2 \sigma_k^2}\right),
+        \quad \sigma_k = \frac{l_k + r_k}{6}
+
+    Between two centers the triangles add up to one, and exactly one
+    rectangle is 1. A triangle on the outer center reaches 0 one gap beyond
+    it, a rectangle half a gap beyond it. A gap of 0 or below, centers that
+    meet or cross, is held at :math:`10^{-7}`.
+
+    Any other function :math:`f` gives :math:`\mu_k = f(x - c_k)`. With
+    ``bounds``, :math:`x` is first replaced by
+    :math:`\min(\max(x, \text{left}), \text{right})`. With ``normalize``,
+    :math:`\mu_k` is replaced by :math:`\mu_k / \sum_j \mu_j`.
+
+    Centers that move take their sets with them, widths included. The
+    gradient reaches them through both, except through rectangles, which
+    are steps. The Parameters of the function layers are listed by
+    :attr:`Modely.parameters`, and are trained, frozen and saved with the
+    model. Calling the same Fuzzify again applies the same function layers.
+    To load a model with a custom Keras function in another session, define
+    its class first, decorated with
+    ``@keras.saving.register_keras_serializable()``.
+
+    Basic Examples
+    --------------
+    Triangles on 0, 0.5 and 1. The value 0.25 is halfway between the first
+    two centers, and 0.5 is on the second:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import (
+    ...     Fir, Fuzzify, Gaussian, Input, Linear, LocalModel, Modely, Output,
+    ...     Parameter, Rectangular, Select, Sin, Triangular,
+    ... )
+    >>> x = Input("x", tw=2)
+    >>> mu = Fuzzify([0.0, 0.5, 1.0], function=Triangular)(x)
+    >>> model = Modely("fuzzy", inputs=[x], outputs=[Output("mu", mu)]).build()
+    >>> samples = {"x": np.array([[[0.25], [0.5]]])}
+    >>> keras.ops.convert_to_numpy(model(samples)["mu"])
+    array([[[0.5, 0.5, 0. ],
+            [0. , 1. , 0. ]]], dtype=float32)
+
+    Scope
+    -----
+    Every sample of a window is evaluated alone, and a sequence is kept:
+
+    >>> mu.shape
+    Shape(S=(), T=2, D=(3,))
+    >>> Fuzzify([0.0, 0.5, 1.0], function=Triangular)(Input("s", seq=5, tw=4)).shape
+    Shape(S=(5,), T=4, D=(3,))
+    >>> Fuzzify([0.0, 0.5, 1.0], function=Triangular)(Input("n")).shape
+    Shape(S=(), T=None, D=(3,))
+
+    Centers held by a Parameter vector, a list with a scalar Parameter, and a
+    stream computed from an input. Here all three are at 0, 0.5 and 1:
+
+    >>> trained = Parameter("centers", value=[0.0, 0.5, 1.0])
+    >>> middle = Parameter("middle", value=[0.5])
+    >>> u = Input("u", tw=1)
+    >>> computed = Linear(features=3, kernel=Parameter("k", value=[[0.0, 0.5, 1.0]]), bias=False)(u)
+    >>> outputs = [
+    ...     Output("vector", Fuzzify(trained, function=Triangular)(x)),
+    ...     Output("listed", Fuzzify([0.0, middle, 1.0], function=Triangular)(x)),
+    ...     Output("computed", Fuzzify(computed, function=Triangular)(x)),
+    ... ]
+    >>> model = Modely("centers", inputs=[x, u], outputs=outputs).build()
+    >>> result = model({"x": np.array([[[0.25], [0.5]]]), "u": np.array([[[1.0]]])})
+    >>> np.stack([keras.ops.convert_to_numpy(result[key])[0, 0] for key in ["vector", "listed", "computed"]])
+    array([[0.5, 0.5, 0. ],
+           [0.5, 0.5, 0. ],
+           [0.5, 0.5, 0. ]], dtype=float32)
+
+    Options
+    -------
+    ``function`` by name, in any case:
+
+    >>> Fuzzify([0.0, 1.0], function="gaussian")(x).shape
+    Shape(S=(), T=2, D=(2,))
+
+    A list gives one function per center, paired before the centers are
+    sorted. Here the triangle is on 0 and the rectangle on 1:
+
+    >>> paired = Fuzzify([1.0, 0.0], function=[Rectangular, Triangular])(x)
+
+    Another layer class is applied to ``x - center``: ``Sin`` gives
+    :math:`\sin(x - c)`. An instance is shared by every center: here a wider
+    triangle. A custom Keras layer works the same way:
+
+    >>> class Squared(keras.layers.Layer):
+    ...     def call(self, x):
+    ...         return x * x
+    >>> waves = Fuzzify([0.0, 0.5], function=Sin)(x)
+    >>> wide = Fuzzify([0.0, 0.5, 1.0], function=Triangular(radius=1.0))(x)
+    >>> squares = Fuzzify([0.0, 0.5, 1.0], function=Squared)(x)
+    >>> outputs = [Output(name, stream) for name, stream in
+    ...            [("paired", paired), ("waves", waves), ("wide", wide), ("squares", squares)]]
+    >>> model = Modely("functions", inputs=[x], outputs=outputs).build()
+    >>> result = model({"x": np.array([[[0.25], [0.75]]])})
+    >>> keras.ops.convert_to_numpy(result["paired"])
+    array([[[0.75, 0.  ],
+            [0.25, 1.  ]]], dtype=float32)
+    >>> np.round(keras.ops.convert_to_numpy(result["waves"]), 4)
+    array([[[ 0.2474, -0.2474],
+            [ 0.6816,  0.2474]]], dtype=float32)
+    >>> keras.ops.convert_to_numpy(result["wide"])
+    array([[[0.75, 0.75, 0.25],
+            [0.25, 0.75, 0.75]]], dtype=float32)
+    >>> keras.ops.convert_to_numpy(result["squares"])
+    array([[[0.0625, 0.0625, 0.5625],
+            [0.5625, 0.0625, 0.0625]]], dtype=float32)
+
+    A function giving several values adds them all, here 2 per center:
+
+    >>> Fuzzify([0.0, 0.5, 1.0], function=Linear(features=2))(x).shape
+    Shape(S=(), T=2, D=(6,))
+
+    ``bounds`` holds ``x`` before the functions read it. Beyond the outer
+    triangles, 1.5 and -1 belong to no set without it:
+
+    >>> outputs = [
+    ...     Output("free", Fuzzify([0.0, 0.5, 1.0], function=Triangular)(x)),
+    ...     Output("held", Fuzzify([0.0, 0.5, 1.0], function=Triangular, bounds=True)(x)),
+    ...     Output("pair", Fuzzify([0.0, 0.5, 1.0], function=Triangular, bounds=(0.0, 0.75))(x)),
+    ... ]
+    >>> model = Modely("bounds", inputs=[x], outputs=outputs).build()
+    >>> result = model({"x": np.array([[[1.5], [-1.0]]])})
+    >>> for key in ["free", "held", "pair"]:
+    ...     print(key, keras.ops.convert_to_numpy(result[key])[0].tolist())
+    free [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+    held [[0.0, 0.0, 1.0], [1.0, 0.0, 0.0]]
+    pair [[0.0, 0.5, 0.5], [1.0, 0.0, 0.0]]
+
+    ``normalize=True`` divides by the sum. Wide triangles on 0, 0.5 and 1 give
+    ``[0.5, 1, 0.5]`` at 0.5, which add up to 2:
+
+    >>> shares = Fuzzify([0.0, 0.5, 1.0], function=Triangular(radius=1.0), normalize=True)(x)
+    >>> model = Modely("normalized", inputs=[x], outputs=[Output("shares", shares)]).build()
+    >>> keras.ops.convert_to_numpy(model({"x": np.array([[[0.5], [0.5]]])})["shares"])[0, 0]
+    array([0.25, 0.5 , 0.25], dtype=float32)
+
+    ``name`` names the layer:
+
+    >>> Fuzzify([0.0, 1.0], function=Triangular, name="regimes")(x).name
+    'regimes'
+
+    Applications
+    ------------
+    A gain scheduled by the gear: one filter of the torque per gear, blended
+    by the gear's memberships:
+
+    >>> gear = Input("gear", tw=1)
+    >>> torque = Input("torque", tw=10)
+    >>> gears = Fuzzify([1.0, 2.0, 3.0, 4.0], function=Triangular, bounds=True)(gear)
+    >>> force = LocalModel(lambda cell: Fir())(torque, gears)
+    >>> force.shape
+    Shape(S=(), T=1, D=(1,))
+
+    Properties & Relations
+    ----------------------
+    Between the outer centers, the triangles add up to one:
+
+    >>> x5 = Input("x5", tw=5)
+    >>> mu5 = Fuzzify([0.0, 0.5, 1.0], function=Triangular)(x5)
+    >>> model = Modely("partition", inputs=[x5], outputs=[Output("mu5", mu5)]).build()
+    >>> values = np.array([[[0.0], [0.125], [0.375], [0.625], [1.0]]])
+    >>> keras.ops.convert_to_numpy(model({"x5": values})["mu5"]).sum(axis=-1)
+    array([[1., 1., 1., 1., 1.]], dtype=float32)
+
+    Possible Issues
+    ---------------
+    The stream is scalar. Select one feature of a vector:
+
+    >>> position = Input("position", dim=2, tw=1)
+    >>> Fuzzify([0.0, 1.0], function=Triangular)(position)
+    Traceback (most recent call last):
+        ...
+    ValueError: ...Fuzzify reads a scalar signal, got dim (2,).
+    >>> Fuzzify([0.0, 1.0], function=Triangular)(Select(idx=0)(position)).shape
+    Shape(S=(), T=1, D=(2,))
+
+    A list of functions has one per center:
+
+    >>> Fuzzify([0.0, 0.5, 1.0], function=[Triangular, Gaussian])
+    Traceback (most recent call last):
+        ...
+    ValueError: Fuzzify: 2 functions for 3 centers; give one function, or one per center.
+
+    A layer class with required settings cannot be made for each center. Pass
+    an instance, shared by every center:
+
+    >>> Fuzzify([0.0, 1.0], function=Select)(x)
+    Traceback (most recent call last):
+        ...
+    TypeError: Fuzzify: Select cannot be made without arguments; pass an instance, ...
+
+    .. versionadded:: 2.0
     """
 
     def __init__(
@@ -648,13 +1309,78 @@ class Fuzzify(Layer):
         return super().from_config(config, preds=[x])
 
     def plot(self, x_range: tuple[float, float] | None = None, points=401, ax=None):
-        """Draw the memberships with matplotlib, as the layer computes them
-        now: centers and widths that are Parameters at their current value,
-        the trained one after training. ``x_range`` is the span of the signal
-        drawn, by default the centers and the outer gap beyond each end, where
-        the outer sets placed on them end. Draws on ``ax``, or on a new
-        figure, and returns the axes. Centers computed from the inputs have
-        no value of their own to draw.
+        """Draw the memberships with matplotlib, and return the axes.
+
+        The memberships are drawn as the layer computes them now. Centers and
+        widths held by Parameters are drawn at their current values: the
+        initial ones before training, the trained ones after. Call it on the
+        Fuzzify, even before it is applied, or on the stream it returns.
+
+        Parameters
+        ----------
+        x_range : (float, float), optional
+            The span of the signal drawn. The default spans the centers and
+            one outer gap beyond each end, where the outer placed sets end.
+        points : int, default 401
+            The number of values of the signal drawn.
+        ax : matplotlib.axes.Axes, optional
+            The axes to draw on. The default draws on a new figure.
+
+        Returns
+        -------
+        matplotlib.axes.Axes
+            The axes drawn on. Each membership is a line in the color of its
+            center, labeled ``c = <center>``, and a dotted vertical line marks
+            each center. A function giving several values per center labels
+            its lines ``μ0``, ``μ1``, and so on. The title is the name of the
+            layer, the x label the name of the stream it reads.
+
+        Raises
+        ------
+        ValueError
+            If the centers are computed from the inputs ("is computed, with
+            no value of its own"). If a function layer has weights and its
+            model is not built yet ("has no value until its model is
+            built").
+
+        See Also
+        --------
+        Modely.build : Creates the weights a function layer reads.
+
+        Basic Examples
+        --------------
+        >>> import matplotlib.pyplot as plt
+        >>> from nnodely import Fuzzify, Input, Triangular
+        >>> regimes = Fuzzify([0.0, 0.5, 1.0], function=Triangular, name="regimes")
+        >>> ax = regimes.plot()
+        >>> ax.get_title(), [line.get_label() for line in ax.get_lines()[:3]]
+        ('regimes', ['c = 0', 'c = 0.5', 'c = 1'])
+
+        Options
+        -------
+        ``x_range`` and ``points`` choose the values drawn. On the stream, the
+        x label is the name of the signal:
+
+        >>> ax = regimes(Input("speed", tw=1)).plot(x_range=(0.0, 1.0), points=5)
+        >>> ax.get_xlabel(), ax.get_lines()[0].get_ydata()
+        ('speed', array([1. , 0.5, 0. , 0. , 0. ], dtype=float32))
+
+        ``ax`` draws on axes of your own:
+
+        >>> figure, axes = plt.subplots()
+        >>> regimes.plot(ax=axes) is axes
+        True
+        >>> plt.close("all")
+
+        Possible Issues
+        ---------------
+        Centers held by a Parameter declared with a window, ``tw=1``, are not
+        drawn: matplotlib raises ``ValueError`` ("x and y must have same first
+        dimension"). Declare the Parameter without a window,
+        ``Parameter("c", value=[0.0, 0.5, 1.0])``. It computes the same
+        memberships.
+
+        .. versionadded:: 2.0
         """
         import matplotlib.pyplot as plt
 

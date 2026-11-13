@@ -821,66 +821,335 @@ class _Step:
 
 
 class Loop(Layer):
-    """Roll out a Modely, feeding some of its outputs back onto its inputs.
+    r"""The trajectory of a one-step model rolled out over a sequence, some of
+    its outputs fed back into its inputs.
 
-    ::
+    Syntax
+    ------
+    ``Loop(f, feedback={x: x_next}, init={x: x0})(inputs)``
+        Rolls ``f`` out, its output ``x_next`` fed back into its input
+        ``x``, which starts from ``x0``.
+    ``Loop(f, init={x: x0})(inputs)``
+        The same, for a body ``f`` that feeds its states back itself.
+    ``Loop(f, ...)({u: u_seq})``
+        Binds the body input ``u``, or the Input of that name, to the stream
+        ``u_seq``.
+    ``Loop(f, ...)([u_seq, w_seq])``
+        One stream per input of the loop, in the order ``f`` declares them.
+    ``Loop(f, ...)(u_seq)``
+        The stream of a loop with one input.
+    ``Loop(f, ..., seq=n)()``
+        No stream: ``n`` steps, every body input held at its own value.
 
-        Loop(f=step, init={state: s0})({force: F_seq})
-        Loop(f=body, feedback={state: next_state}, init={state: s0})({force: F_seq})
+    The body ``f`` is a :class:`Modely` that computes one step. Its states
+    are the Inputs fed back from one step to the next. ``feedback`` gives
+    some of them, and the others are found in the graph of ``f``:
 
-    The states - the Inputs fed back - are found in the graph of ``f``: every
-    Input fed back with :meth:`Input.feedback`, inside the models it calls
-    too, and the state of an :class:`~nnodely.Integrate`, a
-    :class:`~nnodely.Derivative` or a :class:`~nnodely.Buffer`. ``feedback``
-    (body input: body output) adds to them, and is the only way to give the
-    feedback of a model that is already built or loaded, or to reuse one step
-    with different feedbacks. An update that is not an output of ``f`` is
-    added to the outputs of the body, which the loop does not return.
+    * every Input fed back with :meth:`Input.feedback`, inside the blocks
+      ``f`` calls too;
+    * the states of :class:`Integrate`, :class:`Derivative` and
+      :class:`Buffer`.
 
-    The loop is declared with its body and ``init`` (state: initial value),
-    and bound to the outer graph by calling it with ``inputs`` (body input:
-    outer stream) - only the inputs that are not fed back. As for a Modely,
-    they can be a list instead, one stream per input of the loop in the
-    order ``f`` declares them, or the stream alone when there is one::
+    The rollout runs along the outermost sequence axis of the streams that
+    drive it. Such a stream has one more sequence axis than the body input it
+    feeds, and each step reads one element of it. The loop returns the
+    outputs of ``f`` at every step, along a new outermost sequence axis. The
+    loop is configured with its body and its states, then called on the
+    streams that drive it.
 
-        Loop(f=step, init={state: s0})([F_seq, u_seq])  # f declares force, u
-        Loop(f=step, init={state: s0})(F_seq)            # f declares force
+    Parameters
+    ----------
+    f : Modely
+        The body, a model that computes one step. It is built if it is not
+        yet. Its own objectives are not used.
+    feedback : dict, optional
+        ``{body input: body output}``, each given by the object or by its
+        name. The output feeds the input at the next step. It adds to the
+        states found in the graph of ``f``. It is needed for a body that
+        feeds nothing back itself, such as a model already built or loaded,
+        or to reuse one body with other feedbacks. The output has the
+        features and the sequence of the input. It is one sample, ``T=1``,
+        when the input has a window, and has no window when the input has
+        none.
+    init : dict, optional
+        ``{state: initial value}``, the state given by the Input or by its
+        name. A state left out starts from the ``init`` of the layer that
+        keeps it, or from zero. The initial value can be:
 
-    A state starts from its ``init``, or from the init of the layer that
-    keeps it, or from zero without one; two are an error. A layer's init that
-    is an Input of ``f``, as in ``Integrate(init=x0)``, is an input of the
-    loop: its outer stream is the initial value. A body input missing from a
-    dict keeps its own value at every step.
+        * a stream with one more sequence axis than the state: step 0
+          reads its first step, and the others are not read;
+        * a stream of the shape of the state;
+        * a number.
+    name : str, optional
+        The name of the loop. With several outputs, each is named
+        ``<name>_<output>``. The default is ``Loop`` followed by a number.
+    seq : int, optional
+        The number of steps. Without it, the number of steps is the length
+        of the streams that drive the rollout. Give it when no stream drives
+        it, or when they declare different lengths.
+    collect : bool, default True
+        ``True`` returns the whole trajectory, one value per step. ``False``
+        returns the last step alone.
 
-    The rollout lives outside the body: every stream that carries it has one
-    more sequence axis than the body input it feeds, its outermost, which the
-    rollout consumes one step at a time. A state takes that stream through
-    ``init`` (step 0 seeds the state), an exogenous input through
-    ``inputs``.
+    Call arguments
+    --------------
+    inputs : dict, list, Stream or None, optional
+        The streams of the body inputs that are not states, one of:
 
-    ``seq`` pins the number of steps: the length of the outermost
-    sequence axis the rollout reads from the streams that carry it and,
-    collected, adds to every output. It is required only when no initial
-    value or input carries a rollout. A rollout declared dynamic
-    (an Input with ``seq=-1``) follows the length of the sequence it is actually
-    given, and without ``seq`` its streams are declared with
-    ``DYNAMIC_BUILD_LENGTH`` steps.
+        * a dict ``{body input: stream}``, keyed by the Input or its name;
+        * a list, one stream per input of the loop, in the order ``f``
+          declares them;
+        * a stream alone, for a loop with one input;
+        * nothing, ``Loop(...)()``.
 
-    ``collect`` returns the whole trajectory, the rollout the new outermost
-    sequence axis of every output; ``collect=False`` returns only the final
-    step.
+        A stream with one more sequence axis than its body input gives one
+        value per step. A stream with the shape of the body input is held at
+        every step. A body input left out is held at its own value, and is an
+        Input of the model that holds the loop. An Input of ``f`` that a
+        layer's ``init`` reads, as in ``Integrate(init=v0)``, is an input of
+        the loop too: its stream is the initial value. A state is not an
+        input: its initial value goes in ``init``.
 
-    The loop returns every output of ``f``, in its order. With one, the loop
-    is that output, a stream. With more, it is all of them: unpack them,
-    ``x, v = Loop(f=step)(inputs)``, or pick one, by position, ``loop[1]``,
-    or by the name it has in ``f``, ``loop["v"]``; used where one stream is
-    read - an Output, an operator, a layer - it raises.
+    Returns
+    -------
+    Stream or several streams
+        With one output in ``f``, the loop is that output, a stream. Collected,
+        a body output ``Shape(S, T, D)`` becomes ``Shape((H, *S), T, D)``,
+        with ``H`` steps. With ``collect=False`` it keeps ``Shape(S, T, D)``.
+        For example, a body output ``Shape(S=(), T=1, D=(2,))`` rolled out
+        over 20 steps gives ``Shape(S=(20,), T=1, D=(2,))``. A rollout driven
+        by a dynamic sequence, ``seq=-1``, gives ``S=(dyn,)``.
 
-    A state declared with a window (``tw=n``) is fed back by shifting: the
-    oldest step is dropped and the new output appended, so after ``n`` steps
-    the window is entirely self-predicted. A fed-back output is therefore a
-    single sample, and the window of its input reads no future samples. A
-    state without a window is replaced by an output without one.
+        With several outputs in ``f``, the loop is all of them, in the order
+        of ``f``. Unpack them, ``position, velocity = Loop(...)(inputs)``, or
+        pick one, by position, ``loop[1]``, or by its name in ``f``,
+        ``loop["velocity"]``. An output that the loop adds for a state of a
+        layer, such as the integral of :class:`Integrate`, is not returned.
+
+    Raises
+    ------
+    ValueError
+        If ``f`` has no state ("has no fed-back Input"), if an ``init`` key
+        is not a state ("is not fed back"), if a state is among the inputs
+        of the call ("is fed back: give its initial value with init="), if
+        the number of steps is unknown ("cannot determine the rollout
+        length"), if a list of the call has another length, if a feedback
+        output does not match its input, or if a loop with several outputs
+        is read as one stream ("is read as one stream").
+    TypeError
+        If ``f`` is not a Modely, if ``feedback`` or ``init`` is not a dict,
+        or if the call is given something other than a dict, a list or a
+        stream.
+
+    See Also
+    --------
+    ModelyLoop : A model declared one step at a time, a Loop over its step.
+    Input.feedback : Feeds an Input back with its next value.
+    Ode : One step of an ODE, a body to roll out.
+    Integrate : An integral that keeps its state in the body.
+    SeqSelect : One step of a trajectory.
+
+    Notes
+    -----
+    At step :math:`k`, the body reads the state :math:`x_k` and the inputs
+    :math:`u_k`. The output fed back is the next state, which the step
+    :math:`k + 1` reads:
+
+    .. math:: x_{k+1} = f(x_k, u_k)
+
+    Step 0 reads the first step of the initial value, :math:`x_0`. So the
+    trajectory of an output fed back is :math:`x_1, \dots, x_H`, one step
+    ahead of the states the steps read. For the body ``x_next = x + u`` of
+    the Basic Examples, from 10:
+
+    ====  ===========  ===========  =================
+    step  state ``x``  input ``u``  output ``x_next``
+    ====  ===========  ===========  =================
+    0     10           1            11
+    1     11           2            13
+    2     13           3            16
+    3     16           4            20
+    ====  ===========  ===========  =================
+
+    This is why the target of such an output is the data shifted one step:
+    with ``X`` the recorded states, the initial values are ``X[:-1]`` and the
+    targets ``X[1:]``. An output that is not fed back is computed from
+    :math:`x_k`, and aligns with the states the steps read.
+
+    A state with a window, ``tw=n``, is fed back by shifting: the oldest
+    sample is dropped and the new one appended. After ``n`` steps the window
+    holds only values the loop computed. Its window reads no future
+    samples.
+
+    A Loop can be the body of another Loop. Each rollout adds its own
+    outermost sequence axis.
+
+    Basic Examples
+    --------------
+    The state ``x`` accumulates the input ``u``, from 10:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Input, Integrate, Loop, Modely, ModelyLoop, Output, TimeSelect
+    >>> x, u = Input("x", tw=1), Input("u", tw=1)
+    >>> step = Modely("step", inputs=[x, u], outputs=[Output("x_next", x + u)])
+    >>> x0 = Input("x0", seq=4, tw=1)
+    >>> u_seq = Input("u_seq", seq=4, tw=1)
+    >>> trajectory = Loop(f=step, feedback={x: "x_next"}, init={x: x0})({u: u_seq})
+    >>> trajectory.shape
+    Shape(S=(4,), T=1, D=(1,))
+    >>> sim = Modely("sim", inputs=[x0, u_seq], outputs=[Output("x", trajectory)]).build()
+    >>> start = np.array([10.0, 0.0, 0.0, 0.0]).reshape(1, 4, 1, 1)
+    >>> pushes = np.array([1.0, 2.0, 3.0, 4.0]).reshape(1, 4, 1, 1)
+    >>> keras.ops.convert_to_numpy(sim({"x0": start, "u_seq": pushes})["x"]).ravel()
+    array([11., 13., 16., 20.], dtype=float32)
+
+    Step 0 reads the first step of ``x0``, 10, and no other.
+
+    Scope
+    -----
+    The call takes a list, one stream per input in the order of ``f``, or
+    the stream alone, or a dict keyed by names:
+
+    >>> rollout = Loop(f=step, feedback={x: "x_next"}, init={x: x0})
+    >>> rollout([u_seq]).shape, rollout(u_seq).shape, rollout({"u": u_seq}).shape
+    (Shape(S=(4,), T=1, D=(1,)), Shape(S=(4,), T=1, D=(1,)), Shape(S=(4,), T=1, D=(1,)))
+
+    Called with nothing, ``u`` is held at its own value. It is an Input of
+    the model that holds the loop:
+
+    >>> held = rollout()
+    >>> sim = Modely("held", inputs=[x0, u], outputs=[Output("x", held)]).build()
+    >>> result = sim({"x0": start, "u": np.array([[[1.0]]])})
+    >>> keras.ops.convert_to_numpy(result["x"]).ravel()
+    array([11., 12., 13., 14.], dtype=float32)
+
+    A dynamic sequence, ``seq=-1``, rolls out as many steps as the data has:
+
+    >>> u_any = Input("u_any", seq=-1, tw=1)
+    >>> Loop(f=step, feedback={x: "x_next"}, init={x: 10.0})(u_any).shape
+    Shape(S=(dyn,), T=1, D=(1,))
+
+    A state with a window is shifted. Here the body adds 1 to the newest
+    sample of a window of 3, which starts from ``[1, 2, 3]``:
+
+    >>> w = Input("w", tw=3)
+    >>> newest = TimeSelect(-1)(w)
+    >>> shift = Modely("shift", inputs=[w], outputs=[Output("w_next", newest + 1.0)])
+    >>> w0 = Input("w0", seq=4, tw=3)
+    >>> shifted = Loop(f=shift, feedback={w: "w_next"}, init={w: w0})()
+    >>> sim = Modely("windows", inputs=[w0], outputs=[Output("w", shifted)]).build()
+    >>> windows = np.tile(np.array([1.0, 2.0, 3.0]).reshape(1, 1, 3, 1), (1, 4, 1, 1))
+    >>> keras.ops.convert_to_numpy(sim({"w0": windows})["w"]).ravel()
+    array([4., 5., 6., 7.], dtype=float32)
+
+    A body with several outputs gives one stream each:
+
+    >>> p, v, force = Input("p", tw=1), Input("v", tw=1), Input("force", tw=1)
+    >>> v_next = v + 0.5 * force
+    >>> p_next = p + 0.5 * v_next
+    >>> motion = Modely(
+    ...     "motion", inputs=[p, v, force],
+    ...     outputs=[Output("position", p_next), Output("velocity", v_next)],
+    ... )
+    >>> forces = Input("forces", seq=3, tw=1)
+    >>> moved = Loop(f=motion, feedback={p: "position", v: "velocity"}, name="moved")(forces)
+    >>> position, velocity = moved
+    >>> position.name, velocity.name
+    ('moved_position', 'moved_velocity')
+    >>> moved[1].name, moved["velocity"].name
+    ('moved_velocity', 'moved_velocity')
+    >>> sim = Modely(
+    ...     "push", inputs=[forces],
+    ...     outputs=[Output("position", position), Output("velocity", velocity)],
+    ... ).build()
+    >>> result = sim({"forces": np.full((1, 3, 1, 1), 2.0)})
+    >>> keras.ops.convert_to_numpy(result["velocity"]).ravel()
+    array([1., 2., 3.], dtype=float32)
+    >>> keras.ops.convert_to_numpy(result["position"]).ravel()
+    array([0.5, 1.5, 3. ], dtype=float32)
+
+    Options
+    -------
+    ``feedback`` takes names too, and ``init`` takes a number. ``seq`` gives
+    the number of steps when no stream drives the rollout:
+
+    >>> counted = Loop(f=step, feedback={"x": "x_next"}, init={"x": 10.0}, seq=3)()
+    >>> sim = Modely("counted", inputs=[u], outputs=[Output("x", counted)]).build()
+    >>> keras.ops.convert_to_numpy(sim({"u": np.array([[[1.0]]])})["x"]).ravel()
+    array([11., 12., 13.], dtype=float32)
+
+    ``collect=False`` returns the last step alone, which is the last step of
+    the trajectory:
+
+    >>> last = Loop(f=step, feedback={x: "x_next"}, init={x: x0}, collect=False)(u_seq)
+    >>> last.shape
+    Shape(S=(), T=1, D=(1,))
+    >>> sim = Modely(
+    ...     "last", inputs=[x0, u_seq], outputs=[Output("x", trajectory), Output("last", last)]
+    ... ).build()
+    >>> result = sim({"x0": start, "u_seq": pushes})
+    >>> keras.ops.convert_to_numpy(result["last"]), keras.ops.convert_to_numpy(result["x"])[0, -1]
+    (array([[[20.]]], dtype=float32), array([[20.]], dtype=float32))
+
+    ``name`` names the loop:
+
+    >>> Loop(f=step, feedback={x: "x_next"}, init={x: x0}, name="sum")(u_seq).name
+    'sum'
+
+    Applications
+    ------------
+    A mass pushed by a force, integrated in its body by :class:`Integrate`.
+    The Loop finds the state of the layer, and binds the Input ``v0`` that
+    starts it to a stream of the outer model:
+
+    >>> f_k, v0 = Input("f_k", tw=1), Input("v0", tw=1)
+    >>> speed = Integrate(dt=0.5, init=v0, name="speed")(f_k / 2.0)
+    >>> mass = Modely("mass", inputs=[f_k, v0], outputs=[Output("speed", speed)])
+    >>> f_seq, v_start = Input("f_seq", seq=-1, tw=1), Input("v_start", tw=1)
+    >>> Loop(f=mass)({f_k: f_seq, v0: v_start}).shape
+    Shape(S=(dyn,), T=1, D=(1,))
+
+    Properties & Relations
+    ----------------------
+    A :class:`ModelyLoop` is a Loop over its step. Declared with
+    :meth:`Input.feedback`, the same step gives the same trajectory:
+
+    >>> xs, us = Input("xs", tw=1), Input("us", tw=1)
+    >>> xs_next = xs.feedback(xs + us)
+    >>> declared = ModelyLoop("declared", inputs=[us, xs], outputs=[Output("x", xs_next)])
+    >>> result = declared.build()({"us": pushes, "xs": start})
+    >>> keras.ops.convert_to_numpy(result["x"]).ravel()
+    array([11., 13., 16., 20.], dtype=float32)
+
+    Possible Issues
+    ---------------
+    Without a stream that drives the rollout, the number of steps is
+    unknown. Give ``seq``:
+
+    >>> Loop(f=step, feedback={x: "x_next"})()
+    Traceback (most recent call last):
+        ...
+    ValueError: Loop cannot determine the rollout length: no initial value or input carries a rollout, so pass seq= to Loop.
+
+    A state starts from ``init``, and is not an input of the call:
+
+    >>> Loop(f=step, feedback={x: "x_next"})({x: x0})
+    Traceback (most recent call last):
+        ...
+    ValueError: Loop input 'x' is fed back: give its initial value with init=, Loop(..., init={'x': stream}).
+
+    A loop with several outputs is not one stream. Unpack it, or pick one:
+
+    >>> try:
+    ...     Output("both", moved)
+    ... except ValueError as error:
+    ...     print(error)
+    Loop 'moved' returns the 2 outputs ['position', 'velocity'] of 'motion', and is read as one stream...
+    >>> Output("velocity", moved["velocity"]).name
+    'velocity'
+
+    .. versionadded:: 2.0
     """
 
     # Set by __call__ on the loop node it returns.

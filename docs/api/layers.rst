@@ -3,196 +3,258 @@ Layers
 
 .. currentmodule:: nnodely
 
-Layers are created with their configuration and called on a stream or a
-list of streams (see :doc:`../guide/concepts`). The arithmetic operators
-``+ - * / ** %`` between streams, and ``-x`` and ``abs(x)``, are covered in
-the same page.
+A layer is created with its settings and then called on a stream, or on a list
+of streams: ``Fir(features=2)(x)``. A layer that reads one stream takes it
+alone or in a list of one, so ``Fir()(x)`` is ``Fir()([x])``. A layer without
+settings, such as :class:`Sin`, can be applied as it is created: ``Sin(x)`` is
+``Sin()(x)``. See :doc:`../guide/concepts` for the shapes and the
+:doc:`../guide/models` guide for an overview.
+
+Operators
+---------
+
+The Python operators apply to streams, and to a stream and a number. A number
+becomes a :class:`Constant` without a window, which applies to every sample.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Operator
+     - Result
+   * - ``a + b``, ``a - b``, ``a * b``, ``a / b``
+     - Elementwise sum, difference, product and quotient.
+   * - ``a ** b``
+     - Elementwise power: ``x ** 2.0`` squares, ``2.0 ** x`` raises 2.
+   * - ``a % b``
+     - Elementwise remainder, with the sign of ``b``, as in Python:
+       ``x % 2.0`` is ``[1, 0, 1]`` for ``x = [1, 2, 3]``.
+   * - ``-x``
+     - The opposite, the same as :class:`Negative`.
+   * - ``abs(x)``
+     - The absolute value, the same as :class:`Abs`.
+
+Two streams combine when their shapes agree (see
+:ref:`the rules <combining-streams>`).
 
 Layers with weights
 -------------------
 
-.. autoclass:: Linear
+Their weights are :class:`Parameter` objects: they can be given, shared
+between layers, frozen, and read after training. :class:`PReLU`, an
+activation with a learned slope, is listed with the activations.
 
-.. autoclass:: Fir
+Tutorials: :doc:`../tutorial/08_fir_linear`,
+:doc:`../tutorial/09_fuzzify_localmodel`,
+:doc:`../tutorial/13_equation_learner`.
 
-.. autoclass:: LocalModel
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-.. autoclass:: EquationLearner
+   Linear
+   Fir
+   LocalModel
+   EquationLearner
+   BatchNorm
 
-.. autoclass:: BatchNorm
+Fuzzy sets and lookup tables
+----------------------------
 
-Fuzzy and lookup
-----------------
+Tutorial: :doc:`../tutorial/09_fuzzify_localmodel`.
 
-.. autoclass:: Fuzzify
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-.. autoclass:: Triangular
+   Fuzzify
+   Triangular
+   Rectangular
+   Gaussian
+   Interpolation
 
-.. autoclass:: Rectangular
+Custom layers
+-------------
 
-.. autoclass:: Gaussian
+Tutorial: :doc:`../tutorial/12_custom_layers`.
 
-.. autoclass:: Interpolation
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-Custom functions
-----------------
+   KerasFunction
 
-.. autoclass:: KerasFunction
+Selecting and joining
+---------------------
 
-Feature axis
-------------
+Each family acts on one kind of axis: the features (``D``), the window
+(``T``) or the sequence (``S``).
 
-.. autoclass:: Select
+Tutorial: :doc:`../tutorial/07_partitioning`.
 
-.. autoclass:: Range
+.. rubric:: Features
 
-.. autoclass:: Concatenate
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-.. autoclass:: Sum
+   Select
+   Range
+   Concatenate
 
-.. autoclass:: Mean
+.. rubric:: Window
 
-.. autoclass:: Max
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-.. autoclass:: Min
+   TimeSelect
+   TimeRange
+   TimeConcatenate
+   TimeReverse
 
-.. autoclass:: Norm
+.. rubric:: Sequence
 
-.. autoclass:: Cross
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-Window
-------
+   SeqSelect
+   SeqRange
+   SeqConcatenate
+   SeqStack
+   SeqReverse
 
-.. autoclass:: TimeSelect
+Reductions
+----------
 
-.. autoclass:: TimeRange
+They reduce the features of every sample.
 
-.. autoclass:: TimeConcatenate
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-.. autoclass:: TimeReverse
-
-Sequence
---------
-
-.. autoclass:: SeqSelect
-
-.. autoclass:: SeqRange
-
-.. autoclass:: SeqConcatenate
-
-.. autoclass:: SeqStack
-
-.. autoclass:: SeqReverse
+   Sum
+   Mean
+   Max
+   Min
+   Norm
+   Cross
 
 Calculus
 --------
 
-.. autoclass:: Gradient
+Derivatives with respect to an input or to time, integrators and ODE steps.
 
-.. autoclass:: DerivativeStep
+Guide: :doc:`../guide/physics`. Tutorial: :doc:`../tutorial/11_calculus`.
 
-.. autoclass:: Derivative
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-.. autoclass:: Integrate
-
-.. autoclass:: IntegrateStep
-
-.. autofunction:: Ode
+   Gradient
+   DerivativeStep
+   Derivative
+   IntegrateStep
+   Integrate
+   Ode
 
 Recurrence
 ----------
 
-.. autoclass:: Loop
+A :class:`Loop` rolls a model out over a sequence. :class:`ModelyLoop`, a
+model declared one step at a time, is with the :doc:`models <model>`.
 
-.. autoclass:: Buffer
+Guide: :doc:`../guide/recurrent`. Tutorial: :doc:`../tutorial/10_recurrent_loop`.
+
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   Loop
+   Buffer
 
 Activations
 -----------
 
-.. autoclass:: ReLU
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-.. autoclass:: LeakyReLU
+   ReLU
+   LeakyReLU
+   ELU
+   PReLU
+   Sigmoid
+   Tanh
+   Softmax
+   Swish
+   GELU
+   Softplus
 
-.. autoclass:: ELU
+Math functions
+--------------
 
-.. autoclass:: PReLU
+They apply to every value of a stream, and keep its shape. Each page gives
+the formula, the domain, and the gradient: :class:`Floor`, :class:`Ceil`,
+:class:`Round` and :class:`Sign` have a zero gradient, so a weight that only
+reaches the loss through them does not train.
 
-.. autoclass:: Sigmoid
+.. rubric:: Trigonometric and hyperbolic
 
-.. autoclass:: Tanh
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-.. autoclass:: Softmax
+   Sin
+   Cos
+   Tan
+   Asin
+   Acos
+   Atan
+   Atan2
+   Sinh
+   Cosh
+   Asinh
+   Acosh
+   Atanh
 
-.. autoclass:: Swish
+.. rubric:: Exponentials and logarithms
 
-.. autoclass:: GELU
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-.. autoclass:: Softplus
+   Exp
+   Expm1
+   Log
+   Log1p
+   Log10
+   Log2
 
-Trigonometric
--------------
+.. rubric:: Powers, signs and rounding
 
-.. autoclass:: Sin
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-.. autoclass:: Cos
+   Sqrt
+   Square
+   Abs
+   Sign
+   Negative
+   Floor
+   Ceil
+   Round
 
-.. autoclass:: Tan
+.. rubric:: Units and bounds
 
-.. autoclass:: Asin
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-.. autoclass:: Acos
-
-.. autoclass:: Atan
-
-.. autoclass:: Atan2
-
-.. autoclass:: Sinh
-
-.. autoclass:: Cosh
-
-.. autoclass:: Asinh
-
-.. autoclass:: Acosh
-
-.. autoclass:: Atanh
-
-Arithmetic
-----------
-
-.. autoclass:: Exp
-
-.. autoclass:: Expm1
-
-.. autoclass:: Log
-
-.. autoclass:: Log1p
-
-.. autoclass:: Log10
-
-.. autoclass:: Log2
-
-.. autoclass:: Sqrt
-
-.. autoclass:: Square
-
-.. autoclass:: Abs
-
-.. autoclass:: Sign
-
-.. autoclass:: Floor
-
-.. autoclass:: Ceil
-
-.. autoclass:: Round
-
-.. autoclass:: Deg2Rad
-
-.. autoclass:: Rad2Deg
-
-.. autoclass:: Negative
-
-.. autoclass:: Clamp
-
-.. autoclass:: Maximum
-
-.. autoclass:: Minimum
+   Deg2Rad
+   Rad2Deg
+   Clamp
+   Maximum
+   Minimum

@@ -60,6 +60,7 @@ parameters, *x[t+1] = A x[t−1] + B x[t]*, trained until the next value is the
 sum of the last two, then run closed loop to generate the series.
 
 ```python
+import keras
 import numpy as np
 from nnodely import *
 
@@ -70,21 +71,22 @@ prev, cur = TimeSelect(0)(x), TimeSelect(1)(x)
 out = Output("out", Parameter("A") * prev + Parameter("B") * cur)
 
 model = Modely("Fibonacci", inputs=[x], outputs=[out])
-model.minimize("target", out, prev + cur)  # Add loss
+model.minimize("target", out, prev + cur)  # the next value is the sum of the last two
 model.build()
 
 data = DataLoader(model, source={"x": np.random.uniform(-1.0, 1.0, 200)})
-model.train(data, epochs=50, batch_size=32, lr=0.05)  # Train the model
+model.train(data, epochs=50, batch_size=32, lr=0.05)  # learns A = B = 1
 
-# Run it closed loop: each prediction is fed back into x, for 10 steps
-loop = Loop(f=model, feedback={x: out}, init={x: x}, seq=10)()
-fib = Output("fib", loop)
-generator = Modely("FibonacciGenerator", inputs=[x], outputs=[fib]).build()
+# Run it closed loop for 10 steps: each prediction is fed back into the window
+# of x, which starts from the window of the input "start"
+start = Input("start", tw=2)
+loop = Loop(f=model, feedback={x: out}, init={x: start}, seq=10)()
+generator = Modely("FibonacciGenerator", inputs=[start], outputs=[Output("fib", loop)]).build()
 
-start = np.array([[[0.0], [1.0]]], dtype=np.float32)  # (batch, tw, dim)
-print(generator({"x": start}))  # Make inference
+result = generator({"start": np.array([[[0.0], [1.0]]])})  # (batch, tw, dim)
+print(keras.ops.convert_to_numpy(result["fib"]).ravel())  # 1, 2, 3, 5, 8, ..., 89
 
-generator.save("path/to/fibonacci_model")  # Save the nnodely model
+generator.save("fibonacci_model")  # save the nnodely model
 ```
 
 
@@ -99,8 +101,12 @@ generator.save("path/to/fibonacci_model")  # Save the nnodely model
 | **Data** | `DataLoader` from dicts, DataFrames or CSV folders, multiple simulations, sequences, masks |
 | **Workflow** | `train` with any Keras optimizer and loss · `validate` with system-identification metrics and plots · model composition · `save`/`load`, Keras and ONNX export, interactive HTML graphs |
 
-Every block is documented, with runnable examples, in the
-[User Guide](https://nnodely.readthedocs.io/en/stable/guide/index.html).
+Every block has a reference page with runnable examples in the
+[API Reference](https://nnodely.readthedocs.io/en/stable/api/index.html); the
+[User Guide](https://nnodely.readthedocs.io/en/stable/guide/index.html) explains
+each step of the workflow, and the
+[Tutorials](https://nnodely.readthedocs.io/en/stable/tutorial/index.html) teach
+them as Jupyter notebooks.
 
 <details>
 <summary><b>Structure of the repository</b></summary>

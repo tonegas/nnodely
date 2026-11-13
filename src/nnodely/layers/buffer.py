@@ -45,33 +45,195 @@ class BufferImpl(keras.layers.Layer):
 
 
 class Buffer(Layer):
-    """The last ``tw`` values of a signal computed one sample per step, the
-    current one included::
+    r"""The last ``tw`` values of a signal computed one sample per step, the
+    current one included.
 
-        u_window = Buffer(tw=3)(u)            # [u[k-2], u[k-1], u[k]]
-        u_window = Buffer(tw=3, init=0.5)(u)
+    Syntax
+    ------
+    ``Buffer(tw=n)(u)``
+        The window of the last ``n`` values of ``u``, zero before the first
+        step.
+    ``Buffer(tw=n, init=c)(u)``
+        The same, with the values before the first step given by ``c``.
 
-    Where a model reads a window of a signal that another computes one sample
-    per step - a controller's command fed to a plant that reads its last three
-    - the buffer holds the past ones. The newest sample is the signal at this
-    step, which reaches the model within the step, as if connected to it; the
-    window shifts after the step, when the newest becomes a past one. An
-    Input fed back with the signal is the other way round: its window ends at
-    the previous step.
+    At step :math:`k` of a :class:`ModelyLoop` or a :class:`Loop` body,
+    ``Buffer(tw=3)(u)`` holds :math:`[u_{k-2}, u_{k-1}, u_k]`. Its newest
+    sample is ``u`` at this step, as if the reader were connected to ``u``.
+    An Input fed back with ``u`` is different: its window ends at the
+    previous step.
 
-    The past ``tw - 1`` values are a hidden Input named after the block and
-    the signal, ``<name>_<signal>`` (``Buffer3_x`` for ``Buffer(tw=3)(x)``),
-    fed back with the signal, by the :class:`~nnodely.ModelyLoop` or
-    :class:`~nnodely.Loop` like any other. ``init`` holds them before the
-    first step, as the ``init`` of :class:`~nnodely.Derivative` holds the
-    samples its stencil reads, and is their only initial value: a number, a
-    Parameter or Constant, or an Input of the step - one sample, repeated, or
-    ``tw - 1`` of them, oldest first, its dim a scalar or the signal's and
-    its sequence none or the signal's; ``None`` for zeros. Built as a
-    :class:`~nnodely.Modely` instead, nothing feeds them back: the step reads
-    ``init`` as them, as the first step of a loop does, and no Input of its
-    own. The signal is one sample, ``tw=1``, or has no window; ``tw=1``
-    holds no past, and takes no ``init``.
+    Use it where a block reads a window of a signal that the step computes
+    one sample at a time. For example, a plant reads the last three commands
+    of a controller. The past ``tw - 1`` values are a state: an Input named
+    ``<name>_<u>``, which the ModelyLoop or the Loop feeds back with its
+    other states. Built as a plain :class:`Modely`, which has no steps, the
+    layer reads ``init`` as the past values.
+
+    Parameters
+    ----------
+    tw : int
+        The number of values in the window, a positive integer. It is
+        required. ``1`` holds the current value alone, with no past.
+    init : Stream or float, optional
+        The values before the first step. They are zero when left out. It can
+        be:
+
+        * a number, a :class:`Parameter` or a :class:`Constant`: one value,
+          repeated;
+        * an Input of the step, whose first step is read: one sample,
+          repeated, or ``tw - 1`` samples, oldest first.
+
+        Its features are a scalar or those of ``u``, and its sequence is none
+        or that of ``u``. It is the only initial value of the state: a Loop
+        cannot give it another. ``tw=1`` takes no ``init``.
+    name : str, optional
+        The name of the layer and of the window it returns. The state is
+        named ``<name>_<u>``. The default name is ``Buffer`` followed by a
+        number.
+
+    Call arguments
+    --------------
+    u : Stream
+        One sample per step, ``Shape(S, 1, D)``, or a stream without a
+        window, ``Shape(S, None, D)``. The call takes it alone or in a list of
+        one.
+
+    Returns
+    -------
+    Stream
+        ``Shape(S, tw, D)``: the window of the last ``tw`` values. For
+        example, ``Buffer(tw=3)`` on ``Input("u", tw=1)`` gives
+        ``Shape(S=(), T=3, D=(1,))``.
+
+    Raises
+    ------
+    ValueError
+        If ``tw`` is not a positive integer ("tw is a positive int"), if
+        ``init`` is given with ``tw=1`` ("nothing for init to start"), if
+        ``u`` has a window of more than one sample ("collects a signal
+        computed one sample per step"), or if ``init`` has another number of
+        samples, features or sequence ("init holds the samples before the
+        first").
+    TypeError
+        If the layer is called before it is configured, ``Buffer(u)``, if
+        ``u`` is not a stream, or if ``init`` is not a stream, a number or
+        None.
+
+    See Also
+    --------
+    ModelyLoop : A model declared one step at a time.
+    Loop : The rollout of a one-step model.
+    Derivative : A time derivative that keeps past samples the same way.
+    Input.feedback : A state that reads the previous step.
+
+    Notes
+    -----
+    At step :math:`k`, with :math:`n` = ``tw`` and the values
+    :math:`u_{-n+1}, \dots, u_{-1}` from ``init``:
+
+    .. math:: y_k = [u_{k-n+1}, \dots, u_{k-1}, u_k]
+
+    Basic Examples
+    --------------
+    The last three values of a signal, step by step:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Buffer, Fir, Input, Modely, ModelyLoop, Output
+    >>> u = Input("u", tw=1)
+    >>> window = Buffer(tw=3, name="last3")(u)
+    >>> model = ModelyLoop("history", inputs=[u], outputs=[Output("w", window)]).build()
+    >>> steps = np.array([1.0, 2.0, 3.0, 4.0]).reshape(1, 4, 1, 1)
+    >>> keras.ops.convert_to_numpy(model({"u": steps})["w"])[0, :, :, 0]
+    array([[0., 0., 1.],
+           [0., 1., 2.],
+           [1., 2., 3.],
+           [2., 3., 4.]], dtype=float32)
+
+    The state is an Input of the model, named after the layer and ``u``:
+
+    >>> model.inputs[1].name
+    'last3_u'
+
+    Scope
+    -----
+    A signal without a window is collected in the same way, and each
+    feature has a window of its own:
+
+    >>> Buffer(tw=3)(Input("level")).shape
+    Shape(S=(), T=3, D=(1,))
+    >>> Buffer(tw=4)(Input("v", dim=2, tw=1)).shape
+    Shape(S=(), T=4, D=(2,))
+
+    Options
+    -------
+    ``init`` is a number, repeated, or an Input of ``tw - 1`` samples, oldest
+    first, of which the first step is read:
+
+    >>> repeated = Buffer(tw=3, init=0.5)(u)
+    >>> past = Input("past", tw=2)
+    >>> given = Buffer(tw=3, init=past)(u)
+    >>> model = ModelyLoop(
+    ...     "starts", inputs=[u, past],
+    ...     outputs=[Output("repeated", repeated), Output("given", given)],
+    ... ).build()
+    >>> start = np.tile(np.array([-2.0, -1.0]).reshape(1, 1, 2, 1), (1, 4, 1, 1))
+    >>> result = model({"u": steps, "past": start})
+    >>> keras.ops.convert_to_numpy(result["repeated"])[0, :2, :, 0]
+    array([[0.5, 0.5, 1. ],
+           [0.5, 1. , 2. ]], dtype=float32)
+    >>> keras.ops.convert_to_numpy(result["given"])[0, :2, :, 0]
+    array([[-2., -1.,  1.],
+           [-1.,  1.,  2.]], dtype=float32)
+
+    ``tw=1`` holds the current value alone:
+
+    >>> Buffer(tw=1)(u).shape
+    Shape(S=(), T=1, D=(1,))
+
+    Applications
+    ------------
+    A proportional controller drives a tank whose level reads the last
+    three commands:
+
+    >>> forces = Input("forces", tw=3)
+    >>> level = Input("level", tw=1)
+    >>> level_next = level.feedback(0.9 * level + Fir(bias=False)(forces))
+    >>> tank = Modely("tank", inputs=[forces], outputs=[Output("level_next", level_next)])
+    >>> reference, measured = Input("reference", tw=1), Input("measured", tw=1)
+    >>> command = Output("command", 0.5 * (reference - measured))
+    >>> measured_next = measured.feedback(tank([Buffer(tw=3)(command)]))
+    >>> control = ModelyLoop(
+    ...     "control", inputs=[reference], outputs=[command, Output("level", measured)]
+    ... )
+
+    Properties & Relations
+    ----------------------
+    Built as a plain :class:`Modely`, the window reads ``init`` as the past
+    values:
+
+    >>> model = Modely("one_step", inputs=[u], outputs=[Output("w", repeated)]).build()
+    >>> keras.ops.convert_to_numpy(model({"u": np.array([[[7.0]]])})["w"]).ravel()
+    array([0.5, 0.5, 7. ], dtype=float32)
+
+    Possible Issues
+    ---------------
+    The signal is computed one sample per step. A stream that already has a
+    window needs no buffer:
+
+    >>> Buffer(tw=3)(Input("recorded", tw=3))
+    Traceback (most recent call last):
+        ...
+    ValueError: ...a Buffer collects a signal computed one sample per step, and 'recorded' carries a window of 3.
+
+    The layer is configured first, then called on the signal:
+
+    >>> Buffer(u)
+    Traceback (most recent call last):
+        ...
+    TypeError: Buffer is configured first and called on the signal, like every other layer: Buffer(tw=3)(u).
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, tw: int, init: Stream | float | None = None, name=None):

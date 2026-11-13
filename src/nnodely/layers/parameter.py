@@ -248,41 +248,262 @@ class _Value(Layer):
 
 
 class Parameter(_Value):
-    """
-    Trainable symbolic parameter.
+    r"""A trainable value of a fixed shape, the same for every sample of the
+    batch.
 
-    ``seq``, ``tw`` and ``dim`` declare its shape as for an
-    :class:`~nnodely.Input`: ``dim`` the feature axes, one feature by
-    default, each of at least one; ``tw`` the window, ``T``; ``seq`` the
-    sequence axes, outermost first, each of a fixed length, and only with a
-    window. Without ``tw`` it has no window, and applies to every sample of
-    any stream. Without ``value``, ``initializer``, any Keras initializer,
-    draws its initial value.
+    Syntax
+    ------
+    ``Parameter(name, value=v)``
+        Starts from the value ``v``. Every axis of ``v`` is a feature axis.
+    ``Parameter(name, dim=d, tw=t, seq=s)``
+        Has the shape the sizes declare. ``initializer`` draws its value.
+    ``Parameter(name, value=v, dim=d, tw=t, seq=s)``
+        Has the declared shape, filled with ``v``.
+    ``Parameter(name, ..., trainable=False)``
+        Starts frozen: training keeps its value.
 
-    ``value`` sets the initial value: a list of numbers holds as many as the
-    shape, in its order (row-major); an array of several axes has the sizes
-    of the shape, in any order - its axes are moved into place, those of one
-    size keeping their order. Anything else raises ``ValueError``. Given a
-    value and no ``dim``, ``seq`` and ``tw`` take the axes of the value of
-    their sizes, and the axes they leave are the dim, in their order - all of
-    them when neither is given, one feature when they leave none.
-    :attr:`value` and the variable hold it laid out ``(*seq, tw, *dim)``,
-    without the window when it has none::
+    A Parameter is a stream. Use it in arithmetic with other streams, or
+    pass it to a layer as one of its weights, as in ``Fir(kernel=p)``.
+    Training changes its value, unless it is frozen.
 
-        Parameter("p", value=np.ones((2, 3, 2)))                   # S=(), T=None, D=(2, 3, 2)
-        Parameter("p", value=np.ones((2, 4, 6)), tw=4)           # S=(), T=4, D=(2, 6)
-        Parameter("p", value=[1.0, 2.0, 3.0], tw=3)              # S=(), T=3, D=(1,)
-        Parameter("p", value=np.ones((3, 4, 2)), seq=2, tw=3, dim=4)  # S=(2,), T=3, D=(4,)
-        Parameter("p", dim=(3, 2), tw=4, initializer="ones")     # S=(), T=4, D=(3, 2)
+    ``dim``, ``tw`` and ``seq`` are sizes, declared as for an
+    :class:`Input`. Without a window, a Parameter applies to every sample
+    of the window of any stream it is combined with. The Notes say how a
+    ``value`` fills the shape.
 
-    ``trainable=False`` keeps the value as it is through training, as
-    :meth:`freeze` does, before or after the model is built; the flag is
-    saved with the model.
+    Parameters
+    ----------
+    name : str, optional
+        The name, under which :attr:`Modely.parameters` lists it. The
+        default is ``Parameter`` followed by a number.
+    value : float, list or numpy.ndarray, optional
+        The initial value. Without it, ``initializer`` draws the initial
+        value.
+    initializer : str or keras.initializers.Initializer, default "random_normal"
+        The Keras initializer, by name or object, that draws the initial
+        value when ``value`` is not given. It is ignored otherwise.
+    tw : int, optional
+        The length of the window, ``T``, at least 1. Unlike the ``tw`` of an
+        Input, it is one number, not a ``(past, future)`` pair. Without it
+        the Parameter has no window.
+    dim : int or tuple of int, optional
+        The size of each feature axis, ``D``, each at least 1. Without it:
 
-    Like every stream it is laid out with a batch axis first, the same value
-    for every sample::
+        - one feature, ``(1,)``, when there is no ``value``;
+        - the axes of ``value`` that ``tw`` and ``seq`` leave, otherwise.
+    seq : int or tuple of int, optional
+        The length of each sequence axis, ``S``, outermost first, each at
+        least 1. A sequence needs ``tw``. No length is dynamic: the value
+        holds every step.
+    trainable : bool, default True
+        ``False`` keeps the value as it is through training, as
+        :meth:`freeze` does.
 
-        (batch, *seq, [tw,] *dim)
+    Attributes
+    ----------
+    value
+        The initial value, a NumPy array laid out ``(*S, T, *D)``, without
+        ``T`` when there is no window. ``None`` without a ``value``.
+        Training does not change it.
+    value_numpy
+        The current value, a NumPy array laid out as ``value``. It holds a
+        value after :meth:`Modely.build`, and is
+        ``array(None, dtype=object)`` before.
+
+    Returns
+    -------
+    Parameter
+        A stream of ``Shape(S, T, D)``, as declared or read from ``value``.
+        For example, ``Parameter("w", value=[1.0, 2.0, 3.0], tw=3)`` is
+        ``Shape(S=(), T=3, D=(1,))``.
+
+    Raises
+    ------
+    ValueError
+        If a size is not allowed ("dim is the size of each feature axis",
+        "tw is the length of the window", "seq is the length of each
+        sequence axis"), if ``seq`` is given without ``tw`` ("a sequence
+        needs a window"), if ``value`` is empty ("value must not be empty"),
+        or if ``value`` does not fill the shape ("shape error").
+
+    See Also
+    --------
+    Constant : A value that training does not change.
+    Input : A signal read from data.
+    Modely.parameters : The Parameters of a model, as a table.
+    Modely.freeze : Freezes Parameters of a model by name.
+    Fir : A layer whose weights can be Parameters.
+
+    Notes
+    -----
+    Like every stream, a Parameter is laid out ``(batch, *S, T, *D)``,
+    without ``T`` when it has no window. Every sample of the batch holds the
+    same value, ``(*S, T, *D)``.
+
+    A ``value`` fills the shape by these rules:
+
+    - With ``dim``, the shape is the declared one. A list of numbers holds
+      exactly as many values as the shape, read in the order ``(*S, T, *D)``
+      (row-major). An array of several axes has the declared sizes in any
+      order: its axes are moved into place, and axes of one size keep their
+      order.
+    - Without ``dim``, ``tw`` and each length of ``seq`` take the first free
+      axis of ``value`` of that size. The axes left are the features, in
+      their order. A list whose length is no such axis fills ``(*S, T)``
+      with one feature.
+    - Without ``dim``, ``tw`` and ``seq``, every axis of ``value`` is a
+      feature axis, and there is no window.
+
+    ==================================================  ===========================
+    Declaration                                         Shape
+    ==================================================  ===========================
+    ``value=2.0``                                       ``S=(), T=None, D=(1,)``
+    ``value=[1.0, 2.0, 3.0]``                           ``S=(), T=None, D=(3,)``
+    ``value=[[1.0, 2.0, 3.0]]``                         ``S=(), T=None, D=(1, 3)``
+    ``value=[1.0, 2.0, 3.0], tw=3``                     ``S=(), T=3, D=(1,)``
+    ``value=[1.0, 2.0, 3.0], tw=1, dim=3``              ``S=(), T=1, D=(3,)``
+    ``value=np.ones((2, 4, 6)), tw=4``                  ``S=(), T=4, D=(2, 6)``
+    ``value=np.ones((3, 2)), tw=2, dim=3``              ``S=(), T=2, D=(3,)``
+    ``value=np.arange(6.0), seq=2, tw=3``               ``S=(2,), T=3, D=(1,)``
+    ``dim=(3, 2), tw=4``                                ``S=(), T=4, D=(3, 2)``
+    ==================================================  ===========================
+
+    ``value`` keeps the initial value. The variable the model trains is
+    :attr:`param`, and ``value_numpy`` reads it as a NumPy array.
+
+    Basic Examples
+    --------------
+    A gain that multiplies every sample of a window:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Constant, Input, Modely, Output, Parameter
+    >>> gain = Parameter("gain", value=2.0)
+    >>> gain.shape
+    Shape(S=(), T=None, D=(1,))
+    >>> x = Input("x", tw=2)
+    >>> model = Modely("gain_demo", inputs=[x], outputs=[Output("y", gain * x)]).build()
+    >>> result = model({"x": np.array([[[1.0], [3.0]]])})
+    >>> keras.ops.convert_to_numpy(result["y"])
+    array([[[2.],
+            [6.]]], dtype=float32)
+    >>> gain.value_numpy
+    array([2.], dtype=float32)
+
+    Scope
+    -----
+    Without ``dim``, ``tw`` and ``seq``, every axis of the value is a feature
+    axis:
+
+    >>> Parameter("row", value=[1.0, 2.0, 3.0]).shape
+    Shape(S=(), T=None, D=(3,))
+    >>> Parameter("matrix", value=[[1.0, 2.0, 3.0]]).shape
+    Shape(S=(), T=None, D=(1, 3))
+
+    ``tw`` takes the axis of its size as the window, and the axes left are
+    the features:
+
+    >>> Parameter("window", value=[1.0, 2.0, 3.0], tw=3).shape
+    Shape(S=(), T=3, D=(1,))
+    >>> Parameter("grid", value=np.ones((2, 4, 6)), tw=4).shape
+    Shape(S=(), T=4, D=(2, 6))
+
+    With ``dim``, a list fills the shape in row-major order, and an array has
+    its axes moved into place:
+
+    >>> Parameter("ramp", value=np.arange(6.0), tw=2, dim=3).value
+    array([[0., 1., 2.],
+           [3., 4., 5.]], dtype=float32)
+    >>> Parameter("moved", value=np.arange(6.0).reshape(3, 2), tw=2, dim=3).value
+    array([[0., 2., 4.],
+           [1., 3., 5.]], dtype=float32)
+
+    A sequence of windows, and a shape drawn by the initializer:
+
+    >>> Parameter("path", value=np.arange(6.0), seq=2, tw=3).shape
+    Shape(S=(2,), T=3, D=(1,))
+    >>> Parameter("drawn", dim=(3, 2), tw=4).shape
+    Shape(S=(), T=4, D=(3, 2))
+
+    Options
+    -------
+    ``name`` is the key of the Parameter in the table of the model:
+
+    >>> [p.name for p in model.parameters]
+    ['gain']
+
+    ``initializer`` draws the value when there is none:
+
+    >>> ones = Parameter("ones", dim=3, initializer="ones")
+    >>> v = Input("v", dim=3, tw=1)
+    >>> scaled = Modely("ones_demo", inputs=[v], outputs=[Output("s", v * ones)]).build()
+    >>> ones.value_numpy
+    array([1., 1., 1.], dtype=float32)
+
+    ``trainable=False`` creates the Parameter frozen, and :meth:`unfreeze`
+    releases it:
+
+    >>> fixed = Parameter("fixed", value=1.0, trainable=False)
+    >>> fixed.trainable
+    False
+    >>> fixed.unfreeze().trainable
+    True
+
+    ``tw`` and ``seq`` are described in Scope, ``dim`` and ``value`` above.
+
+    Applications
+    ------------
+    The acceleration of a mass-spring-damper, with a trained stiffness and
+    damping and a known mass:
+
+    >>> position = Input("position", tw=1)
+    >>> velocity = Input("velocity", tw=1)
+    >>> force = Input("force", tw=1)
+    >>> stiffness = Parameter("stiffness", value=1.0)
+    >>> damping = Parameter("damping", value=0.1)
+    >>> acceleration = (force - stiffness * position - damping * velocity) / 2.0
+    >>> acceleration.shape
+    Shape(S=(), T=1, D=(1,))
+
+    Properties & Relations
+    ----------------------
+    ``param`` is the variable the model trains, and ``value_numpy`` reads it:
+
+    >>> bool(np.all(keras.ops.convert_to_numpy(gain.param) == gain.value_numpy))
+    True
+
+    A :class:`Constant` of the same value has the same shape, but is not
+    listed among the Parameters of a model:
+
+    >>> Constant("same", value=2.0).shape
+    Shape(S=(), T=None, D=(1,))
+
+    Possible Issues
+    ---------------
+    A value of three numbers does not fill a window of one sample of one
+    feature. Declare the features:
+
+    >>> Parameter("bad", value=[1.0, 2.0, 3.0], tw=1)
+    Traceback (most recent call last):
+        ...
+    ValueError: ...shape error, 3 values given where the declared shape (*seq, tw, *dim) = (1, 1) holds 1.
+    >>> Parameter("good", value=[1.0, 2.0, 3.0], tw=1, dim=3).shape
+    Shape(S=(), T=1, D=(3,))
+
+    A sequence length cannot be dynamic, since the value holds every step:
+
+    >>> Parameter("steps", seq=-1, tw=1)
+    Traceback (most recent call last):
+        ...
+    ValueError: ...seq is the length of each sequence axis...
+
+    The variable exists only once the model is built: before,
+    :attr:`param` is ``None``.
+
+    >>> Parameter("unbuilt", value=1.0).param is None
+    True
+
+    .. versionadded:: 2.0
     """
 
     def __init__(
@@ -301,9 +522,17 @@ class Parameter(_Value):
 
     @property
     def trainable(self) -> bool:
-        """Whether training changes the value. Set before the model is built
-        or after: the next training follows it. A Parameter shared by several
-        models is one value, frozen or trained for all of them."""
+        """Whether training changes the value, ``True`` unless frozen.
+
+        Set it before the model is built or after: the next training follows
+        it. A Parameter shared by several models is one value, frozen or
+        trained for all of them. The flag is saved with the model.
+
+        See Also
+        --------
+        Parameter.freeze : Sets it to ``False``.
+        Parameter.unfreeze : Sets it to ``True``.
+        """
         return self._trainable
 
     @trainable.setter
@@ -313,13 +542,49 @@ class Parameter(_Value):
             self._layer.trainable = self._trainable
 
     def freeze(self):
-        """Keep the value as it is through training; :meth:`unfreeze` undoes
-        it. Returns the Parameter."""
+        """Keep the value as it is through training.
+
+        :meth:`unfreeze` undoes it. It sets :attr:`trainable` to ``False``,
+        before the model is built or after.
+
+        Returns
+        -------
+        Parameter
+            The Parameter itself, so the call can be chained.
+
+        See Also
+        --------
+        Parameter.unfreeze : Lets training change the value again.
+        Modely.freeze : Freezes Parameters of a model by name.
+
+        Examples
+        --------
+        >>> from nnodely import Parameter
+        >>> k = Parameter("k", value=1.0)
+        >>> k.freeze().trainable
+        False
+        >>> k.unfreeze().trainable
+        True
+        """
         self.trainable = False
         return self
 
     def unfreeze(self):
-        """Let training change the value again. Returns the Parameter."""
+        """Let training change the value again.
+
+        It sets :attr:`trainable` to ``True``, before the model is built or
+        after.
+
+        Returns
+        -------
+        Parameter
+            The Parameter itself, so the call can be chained.
+
+        See Also
+        --------
+        Parameter.freeze : Keeps the value through training.
+        Modely.unfreeze : Releases Parameters of a model by name.
+        """
         self.trainable = True
         return self
 
@@ -335,6 +600,30 @@ class Parameter(_Value):
 
     @property
     def param(self):
+        """The Keras variable that holds the current value, ``None`` before
+        :meth:`Modely.build`.
+
+        It is laid out as ``value``, ``(*S, T, *D)``, without ``T`` when there
+        is no window. Training changes it unless the Parameter is frozen.
+        Read it with ``keras.ops.convert_to_numpy``, or assign it a value of
+        its shape with ``param.assign``.
+
+        Examples
+        --------
+        >>> import keras
+        >>> import numpy as np
+        >>> from nnodely import Input, Modely, Output, Parameter
+        >>> k = Parameter("k", value=[1.0, 2.0])
+        >>> k.param is None
+        True
+        >>> v = Input("v", dim=2, tw=1)
+        >>> model = Modely("param_demo", inputs=[v], outputs=[Output("y", k * v)]).build()
+        >>> _ = k.param.assign(np.array([3.0, 4.0]))
+        >>> keras.ops.convert_to_numpy(k.param)
+        array([3., 4.], dtype=float32)
+        >>> k.value  # the initial value is kept
+        array([1., 2.], dtype=float32)
+        """
         return self._variable
 
     def _reinitialize(self) -> None:
@@ -343,11 +632,17 @@ class Parameter(_Value):
 
 
 class Parameters(Table):
-    """The Parameters of a model, as :attr:`Modely.parameters` lists them: a
-    list of the Parameter objects, printed as a table of their names, shapes,
-    numbers of values and whether training changes them - a section per model
-    when the models it calls have Parameters of their own - and a last row
-    totalling the values, all and trainable.
+    """The Parameters of a model, as :attr:`Modely.parameters` lists them.
+
+    It is a list of the Parameter objects. Pick one by its name,
+    ``parameters["k"]``, or by its index, ``parameters[0]``: the ``idx``
+    column of the table. A name that several Parameters carry raises
+    ``ValueError``.
+
+    Printed, it is a table of their names, shapes, numbers of values and
+    whether training changes them. There is a section per model when the
+    models it calls have Parameters of their own. The last row totals the
+    values, all and trainable.
 
     ``groups`` pairs the name of each model with its Parameters, the model
     itself first."""
@@ -393,24 +688,158 @@ class Parameters(Table):
 
 
 class Constant(_Value):
-    """
-    Non-trainable symbolic constant layer.
+    r"""A fixed value of a fixed shape, the same for every sample of the
+    batch, which training does not change.
 
-    A :class:`Parameter` that training does not change, and that requires a
-    ``value``: ``seq``, ``tw`` and ``dim`` declare its shape, and the value
-    fills it, as for a Parameter - without ``dim``, the axes ``seq`` and
-    ``tw`` leave are the dim::
+    Syntax
+    ------
+    ``Constant(name, value=v)``
+        Holds the value ``v``. Every axis of ``v`` is a feature axis.
+    ``Constant(name, value=v, dim=d, tw=t, seq=s)``
+        Has the shape the sizes declare, filled with ``v``.
+    ``x * 9.81``
+        A number in arithmetic with a stream becomes a Constant without a
+        window.
 
-        Constant("c", value=[1.0, 2.0, 3.0])                 # S=(), T=None, D=(3,)
-        Constant("c", value=[1.0, 2.0, 3.0], tw=3)         # S=(), T=3, D=(1,)
-        Constant("c", value=[[1.0, 2.0, 3.0]], tw=1, dim=3)  # S=(), T=1, D=(3,)
+    A Constant is a stream, not a layer: use it in arithmetic with other
+    streams, or pass it where a layer takes a value. It declares its shape
+    and is filled by its value as a :class:`Parameter` is. Unlike a
+    Parameter, it requires a ``value``, and :attr:`Modely.parameters` does
+    not list it.
 
-    Numbers used in arithmetic with a stream become constants automatically.
+    Parameters
+    ----------
+    name : str, optional
+        The name of the stream. The default is ``Constant`` followed by a
+        number.
+    value : float, list or numpy.ndarray
+        The value. It is required. It fills the shape by the rules of
+        :class:`Parameter`.
+    tw : int, optional
+        The length of the window, ``T``, at least 1. Without it the Constant
+        has no window, and applies to every sample of any stream.
+    dim : int or tuple of int, optional
+        The size of each feature axis, ``D``, each at least 1. Without it,
+        the axes of ``value`` that ``tw`` and ``seq`` leave.
+    seq : int or tuple of int, optional
+        The length of each sequence axis, ``S``, outermost first, each at
+        least 1. A sequence needs ``tw``.
 
-    Like every stream it is laid out with a batch axis first, the same value
-    for every sample::
+    Attributes
+    ----------
+    value
+        The value, a NumPy array laid out ``(*S, T, *D)``, without ``T``
+        when there is no window.
+    value_numpy
+        The value held by the built model, a NumPy array laid out as
+        ``value``. It is ``array(None, dtype=object)`` before
+        :meth:`Modely.build`.
 
-        (batch, *seq, [tw,] *dim)
+    Returns
+    -------
+    Constant
+        A stream of ``Shape(S, T, D)``, as declared or read from ``value``.
+        For example, ``Constant("c", value=[1.0, 2.0, 3.0])`` is
+        ``Shape(S=(), T=None, D=(3,))``.
+
+    Raises
+    ------
+    ValueError
+        If ``value`` is ``None`` ("Constant requires a value"), if a size is
+        not allowed, if ``seq`` is given without ``tw``, or if ``value``
+        does not fill the shape ("shape error").
+    TypeError
+        If ``value`` is not given.
+
+    See Also
+    --------
+    Parameter : A value that training changes.
+    Input : A signal read from data.
+
+    Notes
+    -----
+    Like every stream, a Constant is laid out ``(batch, *S, T, *D)``,
+    without ``T`` when it has no window. Every sample of the batch holds the
+    same value. The table of :class:`Parameter` lists how a value fills the
+    shape.
+
+    Basic Examples
+    --------------
+    An offset added to each feature of every sample:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Constant, Input, Modely, Output, Parameter
+    >>> offsets = Constant("offsets", value=[1.0, 2.0, 3.0])
+    >>> offsets.shape
+    Shape(S=(), T=None, D=(3,))
+    >>> v = Input("v", dim=3, tw=1)
+    >>> model = Modely("offset_demo", inputs=[v], outputs=[Output("y", v + offsets)]).build()
+    >>> keras.ops.convert_to_numpy(model({"v": np.zeros((1, 1, 3))})["y"])
+    array([[[1., 2., 3.]]], dtype=float32)
+
+    Scope
+    -----
+    ``tw`` takes the axis of its size as the window:
+
+    >>> Constant("weights", value=[1.0, 2.0, 3.0], tw=3).shape
+    Shape(S=(), T=3, D=(1,))
+
+    With ``dim``, the value fills the declared shape:
+
+    >>> Constant("frame", value=[1.0, 2.0, 3.0], tw=1, dim=3).shape
+    Shape(S=(), T=1, D=(3,))
+
+    A sequence of windows:
+
+    >>> Constant("steps", value=np.arange(6.0), seq=2, tw=3).shape
+    Shape(S=(2,), T=3, D=(1,))
+
+    Options
+    -------
+    ``name`` names the stream:
+
+    >>> Constant("gravity", value=9.81).name
+    'gravity'
+
+    Applications
+    ------------
+    The weight of a mass of 2 kg, with the gravity a known constant:
+
+    >>> gravity = Constant("g", value=9.81)
+    >>> mass = Parameter("mass", value=2.0)
+    >>> weight = mass * gravity
+    >>> weight.shape
+    Shape(S=(), T=None, D=(1,))
+
+    Properties & Relations
+    ----------------------
+    A Constant is not among the Parameters of a model, and freezing does not
+    concern it:
+
+    >>> [p.name for p in model.parameters]
+    []
+
+    A number in arithmetic with a stream is a Constant of that value:
+
+    >>> x = Input("x", tw=2)
+    >>> same = Modely(
+    ...     "same", inputs=[x], outputs=[Output("a", x * 3.0), Output("b", x * Constant("three", value=3.0))]
+    ... ).build()
+    >>> result = same({"x": np.array([[[1.0], [2.0]]])})
+    >>> bool(np.all(keras.ops.convert_to_numpy(result["a"]) == keras.ops.convert_to_numpy(result["b"])))
+    True
+
+    Possible Issues
+    ---------------
+    A Constant has no initializer, so it requires a value:
+
+    >>> Constant("empty", value=None)
+    Traceback (most recent call last):
+        ...
+    ValueError: Constant requires a value.
+
+    .. versionadded:: 2.0
     """
 
     _impl = ConstantImpl
@@ -423,6 +852,11 @@ class Constant(_Value):
 
     @property
     def constant(self):
+        """The Keras variable that holds the value, ``None`` before
+        :meth:`Modely.build`.
+
+        It is laid out as ``value``, and training does not change it.
+        """
         return self._variable
 
     def get_config(self):

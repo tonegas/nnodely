@@ -3,12 +3,18 @@ Inputs, Outputs and Parameters
 
 .. currentmodule:: nnodely
 
-.. autoclass:: Input
-   :members: feedback
+The streams a graph starts from and ends with. An :class:`Input` is a signal
+read from data, an :class:`Output` gives a stream a public name, a
+:class:`Parameter` is a trainable value and a :class:`Constant` a fixed one.
 
-.. autoclass:: Output
+Guides: :doc:`../guide/concepts`, :doc:`../guide/models`. Tutorials:
+:doc:`../tutorial/01_model_design`, :doc:`../tutorial/06_parameter_constant`.
 
-.. autoclass:: Parameter
-   :members: trainable, freeze, unfreeze
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-.. autoclass:: Constant
+   Input
+   Output
+   Parameter
+   Constant

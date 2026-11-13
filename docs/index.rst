@@ -58,20 +58,40 @@ Workflow
    :width: 50%
    :alt: nnodely development pipeline
 
-Working with *nnodely* follows the phases of the diagram:
+Working with *nnodely* follows the phases of the diagram. Each phase has a
+guide page, which explains it on one example, and a tutorial, a notebook to
+run and change:
 
-1. **Model definition**: describe the structure of the network with
-   :doc:`inputs, layers and outputs <guide/models>`.
-2. **Dataset creation**: turn recorded or simulated signals into training
-   samples that match the model's windows with a :doc:`DataLoader <guide/data>`.
-3. **Training**: declare what to :doc:`minimize <guide/training>` and train the
-   network with any Keras optimizer.
-4. **Validation**: score the trained model with system-identification
-   indicators and plots with :doc:`validate() <guide/validation>`.
-5. **Inference and export**: run the model, save it, or export it to Keras or
-   ONNX (see :doc:`guide/export`).
-6. **Composition**: reuse trained models as blocks of larger ones (see
-   :doc:`guide/composition`).
+.. list-table::
+   :header-rows: 1
+   :widths: 40 30 30
+
+   * - Phase
+     - Guide
+     - Tutorial
+   * - **Model definition**: the structure of the network, with inputs,
+       layers and outputs.
+     - :doc:`guide/models`
+     - :doc:`tutorial/01_model_design`
+   * - **Dataset creation**: recorded or simulated signals cut into the
+       windows the model reads.
+     - :doc:`guide/data`
+     - :doc:`tutorial/02_data_management`
+   * - **Training**: the objectives to minimize, and any Keras optimizer.
+     - :doc:`guide/training`
+     - :doc:`tutorial/03_model_training`
+   * - **Validation**: system-identification indicators and plots.
+     - :doc:`guide/validation`
+     - :doc:`tutorial/04_model_validation`
+   * - **Inference and export**: run, save, or export to Keras and ONNX.
+     - :doc:`guide/export`
+     - :doc:`tutorial/05_save_load_export`
+   * - **Composition**: trained models reused as blocks of larger ones.
+     - :doc:`guide/composition`
+     - :doc:`tutorial/01_model_design`
+
+Start with :doc:`getting_started`, which builds, trains and runs a first model
+in a few minutes.
 
 Contents
 --------
@@ -83,6 +103,7 @@ Contents
    guide/index
    tutorial/index
    api/index
+   glossary
 
 Indices and tables
 ------------------

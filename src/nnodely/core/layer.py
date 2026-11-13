@@ -103,6 +103,13 @@ class _LayerType(type):
             and first.name != "name"
         )
 
+    @property
+    def __signature__(cls) -> inspect.Signature:
+        # The constructor's, so that help() and the documentation show the
+        # settings of the layer rather than the (*args, **kwargs) of __call__.
+        signature = inspect.signature(cls.__init__)
+        return signature.replace(parameters=list(signature.parameters.values())[1:])
+
     def __call__(cls, *args, **kwargs):
         if cls._applied_on_creation and args and _are_streams(args[0]):
             return super().__call__(*args[1:], **kwargs)(args[0])

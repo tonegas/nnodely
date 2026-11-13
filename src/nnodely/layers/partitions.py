@@ -65,18 +65,144 @@ class SelectImpl(keras.layers.Layer):
 
 
 class Select(Layer):
-    """
-    Select one index along a chosen dim axis.
+    r"""One index of a dim axis of a stream, the axis dropped.
 
-    The selected dim axis is dropped, or with ``keep_dim=True`` kept with
-    length 1. A stream always has a dim, so selecting from a vector gives a
-    scalar ``(1,)`` either way.
+    Syntax
+    ------
+    ``Select(idx)(x)``
+        The feature ``idx`` of ``x``, along its first dim axis.
+    ``Select(idx, axis=k)(x)``
+        Index ``idx`` along dim axis ``k``.
+    ``Select(idx, keep_dim=True)(x)``
+        The same, the axis kept with length 1.
 
-    Examples
+    The selection is made at every sample of the window and every step of the
+    sequence: the window and the sequence are kept. The selected dim axis is
+    dropped. A stream always has a dim, so selecting from a vector gives a
+    scalar, ``D=(1,)``, with ``keep_dim`` or without.
+
+    Parameters
+    ----------
+    idx : int
+        The index along the axis, counted from 0. A negative one counts from
+        the end: ``-1`` is the last. It must lie in ``[-n, n)`` for an axis of
+        length ``n``.
+    axis : int, default 0
+        The dim axis, counted from 0. A negative one counts from the last.
+    keep_dim : bool, default False
+        ``True`` keeps the selected axis with length 1, so the result keeps
+        the number of dim axes of ``x``.
+    name : str, optional
+        The name of the layer. The default is ``Select`` followed by a number.
+
+    Call arguments
+    --------------
+    x : Stream
+        A stream of any shape, with dim axis ``axis``. The call takes it alone
+        or in a list of one.
+
+    Returns
+    -------
+    Stream
+        ``Shape(S, T, D)`` with dim axis ``axis`` dropped, or of length 1 with
+        ``keep_dim=True``. For example, ``D=(4, 3)`` gives ``D=(3,)``, and
+        ``D=(1, 3)`` with ``keep_dim=True``. ``D=(4,)`` gives ``D=(1,)``.
+
+    Raises
+    ------
+    ValueError
+        If ``idx`` is outside the axis ("idx 4 out of bounds for dim axis 0, of
+        size 4"), or if ``axis`` is not a dim axis of ``x`` ("axis 1 out of
+        bounds for dim rank 1").
+
+    See Also
     --------
-    dim=(4, 3), axis=0 -> dim=(3,)
-    dim=(4, 3), axis=1, keep_dim=True -> dim=(4, 1)
-    dim=(4,) -> dim=(1,)
+    Range : A part of a dim axis.
+    Concatenate : Streams joined along a dim axis.
+    TimeSelect : One sample of the window.
+    SeqSelect : One step of a sequence axis.
+
+    Notes
+    -----
+    For a vector :math:`x_0, \dots, x_{n-1}`:
+
+    .. math:: y = x_{\text{idx}}, \qquad x_{-k} = x_{n-k}
+
+    The gradient is 1 for the selected feature and 0 for the others.
+
+    Basic Examples
+    --------------
+    The second and the last feature of a vector:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Input, Modely, Output, Range, Select
+    >>> v = Input("v", dim=4)
+    >>> outputs = [Output("second", Select(1)(v)), Output("last", Select(-1)(v))]
+    >>> model = Modely("select", inputs=[v], outputs=outputs).build()
+    >>> result = model({"v": np.array([[1.0, 2.0, 3.0, 4.0]])})
+    >>> keras.ops.convert_to_numpy(result["second"]), keras.ops.convert_to_numpy(result["last"])
+    (array([[2.]], dtype=float32), array([[4.]], dtype=float32))
+
+    Scope
+    -----
+    The window and the sequence are kept:
+
+    >>> Select(0)(Input("w", dim=3, seq=2, tw=5)).shape
+    Shape(S=(2,), T=5, D=(1,))
+
+    From a matrix, ``Select`` takes a row, along dim axis 0:
+
+    >>> m = Input("m", dim=(2, 3))
+    >>> Select(1)(m).shape
+    Shape(S=(), T=None, D=(3,))
+
+    Options
+    -------
+    ``axis`` picks the dim axis. On the matrix ``[[1, 2, 3], [4, 5, 6]]``,
+    index 2 of axis 1 is the last column:
+
+    >>> model = Modely("column", inputs=[m], outputs=[Output("y", Select(2, axis=1)(m))]).build()
+    >>> keras.ops.convert_to_numpy(model({"m": np.array([[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]])})["y"])
+    array([[3., 6.]], dtype=float32)
+
+    ``keep_dim=True`` keeps the axis, with length 1:
+
+    >>> Select(2, axis=1, keep_dim=True)(m).shape
+    Shape(S=(), T=None, D=(2, 1))
+
+    ``name`` names the layer:
+
+    >>> Select(0, name="x_position")(v).name
+    'x_position'
+
+    Applications
+    ------------
+    The altitude of a vehicle, the third feature of its position:
+
+    >>> position = Input("position", dim=3, tw=1)
+    >>> altitude = Select(2)(position)
+
+    Properties & Relations
+    ----------------------
+    ``Select(i, keep_dim=True)`` has the shape of ``Range(i, i + 1)``:
+
+    >>> Select(1, keep_dim=True)(m).shape, Range(1, 2)(m).shape
+    (Shape(S=(), T=None, D=(1, 3)), Shape(S=(), T=None, D=(1, 3)))
+
+    Possible Issues
+    ---------------
+    The index must lie within the axis:
+
+    >>> Select(4)(v)
+    Traceback (most recent call last):
+        ...
+    ValueError: ...idx 4 out of bounds for dim axis 0, of size 4.
+
+    The layer is configured with the index first, then called on its stream:
+    ``Select(1)(v)``, not ``Select(v)``.
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, idx: int, axis: int = 0, keep_dim: bool = False, name=None):
@@ -146,15 +272,141 @@ class RangeImpl(keras.layers.Layer):
 
 
 class Range(Layer):
-    """
-    Select a contiguous range [start, end) along a chosen dim axis.
+    r"""A contiguous part ``[start, end)`` of a dim axis of a stream.
 
-    The selected dim axis is resized to end - start.
+    Syntax
+    ------
+    ``Range(start, end)(x)``
+        The features ``start`` to ``end - 1`` of ``x``, along its first dim
+        axis.
+    ``Range(start, end, axis=k)(x)``
+        The same part of dim axis ``k``.
 
-    Examples
+    The end is excluded. The axis is kept, with length ``end - start``, also
+    when that is 1. The part is taken at every sample of the window and every
+    step of the sequence: the window and the sequence are kept.
+
+    Parameters
+    ----------
+    start : int
+        The first index, counted from 0. A negative one counts from the end.
+    end : int
+        The index after the last one. A negative one counts from the end. To
+        reach the last feature, give the length of the axis: there is no open
+        bound, unlike :class:`TimeRange`.
+    axis : int, default 0
+        The dim axis, counted from 0. A negative one counts from the last.
+    name : str, optional
+        The name of the layer. The default is ``Range`` followed by a number.
+
+    Call arguments
+    --------------
+    x : Stream
+        A stream of any shape, with dim axis ``axis``. The call takes it alone
+        or in a list of one.
+
+    Returns
+    -------
+    Stream
+        ``Shape(S, T, D)`` with dim axis ``axis`` of length ``end - start``.
+        For example, ``D=(9, 3)`` gives ``D=(4, 3)`` with ``Range(0, 4)``, and
+        ``D=(9, 2)`` with ``Range(1, 3, axis=1)``.
+
+    Raises
+    ------
+    ValueError
+        If the range is empty, reversed or beyond the axis ("invalid range [2,
+        0) for dim size 4"), or if ``axis`` is not a dim axis of ``x``.
+    TypeError
+        If a bound is ``None`` ("int() argument must be ...").
+
+    See Also
     --------
-    dim=(9, 3), axis=0, start=0, end=4 -> dim=(4, 3)
-    dim=(9, 3), axis=1, start=1, end=3 -> dim=(9, 2)
+    Select : One index of a dim axis.
+    Concatenate : Streams joined along a dim axis.
+    TimeRange : A part of the window.
+    SeqRange : A part of a sequence axis.
+
+    Notes
+    -----
+    For a vector :math:`x_0, \dots, x_{n-1}`:
+
+    .. math:: y = (x_{\text{start}}, \dots, x_{\text{end} - 1})
+
+    Basic Examples
+    --------------
+    The second and third features of a vector:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Input, Modely, Output, Range, Select
+    >>> v = Input("v", dim=4)
+    >>> model = Modely("range", inputs=[v], outputs=[Output("y", Range(1, 3)(v))]).build()
+    >>> keras.ops.convert_to_numpy(model({"v": np.array([[1.0, 2.0, 3.0, 4.0]])})["y"])
+    array([[2., 3.]], dtype=float32)
+
+    Scope
+    -----
+    The window and the sequence are kept:
+
+    >>> Range(0, 2)(Input("w", dim=3, seq=2, tw=5)).shape
+    Shape(S=(2,), T=5, D=(2,))
+
+    A range one feature long keeps the axis:
+
+    >>> Range(2, 3)(v).shape
+    Shape(S=(), T=None, D=(1,))
+
+    Options
+    -------
+    Negative bounds count from the end: ``Range(-3, -1)`` of 4 features is
+    ``Range(1, 3)``.
+
+    >>> model = Modely("negative", inputs=[v], outputs=[Output("y", Range(-3, -1)(v))]).build()
+    >>> keras.ops.convert_to_numpy(model({"v": np.array([[1.0, 2.0, 3.0, 4.0]])})["y"])
+    array([[2., 3.]], dtype=float32)
+
+    ``axis`` picks the dim axis. On the matrix ``[[1, 2, 3], [4, 5, 6]]``,
+    the first two columns:
+
+    >>> m = Input("m", dim=(2, 3))
+    >>> model = Modely("columns", inputs=[m], outputs=[Output("y", Range(0, 2, axis=1)(m))]).build()
+    >>> keras.ops.convert_to_numpy(model({"m": np.array([[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]])})["y"])
+    array([[[1., 2.],
+            [4., 5.]]], dtype=float32)
+
+    ``name`` names the layer:
+
+    >>> Range(0, 2, name="planar")(v).name
+    'planar'
+
+    Applications
+    ------------
+    The horizontal part of a position vector, its first two features:
+
+    >>> position = Input("position", dim=3, tw=1)
+    >>> planar = Range(0, 2)(position)
+
+    Properties & Relations
+    ----------------------
+    ``Range(i, i + 1)`` has the shape of ``Select(i, keep_dim=True)``:
+
+    >>> Range(1, 2)(m).shape, Select(1, keep_dim=True)(m).shape
+    (Shape(S=(), T=None, D=(1, 3)), Shape(S=(), T=None, D=(1, 3)))
+
+    Possible Issues
+    ---------------
+    An end of 0 is the start of the axis, not its end. For the last features,
+    give the length of the axis as the end:
+
+    >>> Range(-2, 0)(v)
+    Traceback (most recent call last):
+        ...
+    ValueError: ...invalid range [-2, 0) for dim size 4.
+    >>> Range(-2, 4)(v).shape
+    Shape(S=(), T=None, D=(2,))
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, start: int, end: int, axis: int = 0, name=None):
@@ -192,21 +444,155 @@ class Range(Layer):
 
 
 class TimeSelect(Layer):
-    """
-    Select one sample of the window, ``T``, as :class:`Select` does along a
-    dim axis. A negative ``idx`` counts from the end, so -1 is the newest
-    sample.
+    r"""One sample of the window of a stream.
 
-    The window is kept, one sample long, ``T=1``, as a target, a sample fed
-    back or a layer acting on the window needs it. With ``keep_tw=False`` it
-    is dropped, so the sample applies to every sample of a window it is
-    combined with: ``w - TimeSelect(-1, keep_tw=False)(w)``.
+    Syntax
+    ------
+    ``TimeSelect(idx)(x)``
+        Sample ``idx`` of the window of ``x``, as a window one sample long,
+        ``T=1``.
+    ``TimeSelect(idx, keep_tw=False)(x)``
+        The same sample, without a window.
 
-    Examples
+    The window is ordered oldest first: ``0`` is the oldest sample and ``-1``
+    the newest. The selection is made at every step of the sequence, and the
+    features are kept.
+
+    By default the window is kept, one sample long. A target, a sample fed
+    back to a state, and a layer acting on the window need it so. A stream of
+    ``T=1`` combines only with streams of one sample or without a window. With
+    ``keep_tw=False`` the window is dropped, so the sample applies to every
+    sample of a window it is combined with: ``w - TimeSelect(-1,
+    keep_tw=False)(w)`` subtracts the newest sample from each.
+
+    Parameters
+    ----------
+    idx : int
+        The sample, counted from the oldest, 0. A negative one counts from the
+        newest, ``-1``. It must lie in ``[-T, T)``.
+    keep_tw : bool, default True
+        ``True`` keeps the window, one sample long. ``False`` drops it.
+    name : str, optional
+        The name of the layer. The default is ``TimeSelect`` followed by a
+        number.
+
+    Call arguments
+    --------------
+    x : Stream
+        A stream with a window, ``Shape(S, T, D)``. The call takes it alone or
+        in a list of one.
+
+    Returns
+    -------
+    Stream
+        ``Shape(S, 1, D)``, or ``Shape(S, None, D)`` with ``keep_tw=False``.
+        For example, ``Shape(S=(3,), T=5, D=(2,))`` gives
+        ``Shape(S=(3,), T=1, D=(2,))``.
+
+    Raises
+    ------
+    ValueError
+        If ``x`` has no window ("TimeSelect acts on the window of its stream,
+        and 'x' has none"), or if ``idx`` is outside it ("idx 4 out of bounds
+        for the window, of size 4").
+
+    See Also
     --------
-    T=5, idx=-1 -> T=1
-    T=5, idx=-1, keep_tw=False -> T=None
-    S=(3,), T=5, idx=0 -> S=(3,), T=1
+    TimeRange : A part of the window.
+    TimeConcatenate : Streams joined along the window.
+    Select : One index of a dim axis.
+    SeqSelect : One step of a sequence axis.
+
+    Notes
+    -----
+    For the window :math:`x_0, \dots, x_{T-1}`, from the oldest sample to the
+    newest:
+
+    .. math:: y = x_{\text{idx}}, \qquad x_{-k} = x_{T-k}
+
+    Basic Examples
+    --------------
+    The oldest and the newest sample of the window ``[1, 2, 3, 4]``:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Input, Modely, Output, TimeRange, TimeSelect
+    >>> x = Input("x", tw=4)
+    >>> outputs = [Output("oldest", TimeSelect(0)(x)), Output("newest", TimeSelect(-1)(x))]
+    >>> model = Modely("samples", inputs=[x], outputs=outputs).build()
+    >>> data = {"x": np.array([[[1.0], [2.0], [3.0], [4.0]]])}
+    >>> result = model(data)
+    >>> keras.ops.convert_to_numpy(result["oldest"]), keras.ops.convert_to_numpy(result["newest"])
+    (array([[[1.]]], dtype=float32), array([[[4.]]], dtype=float32))
+
+    Scope
+    -----
+    The features and the sequence are kept:
+
+    >>> TimeSelect(-1)(Input("v", dim=2, seq=3, tw=5)).shape
+    Shape(S=(3,), T=1, D=(2,))
+
+    Options
+    -------
+    ``keep_tw=False`` drops the window. The sample then applies to every
+    sample of the window:
+
+    >>> newest = TimeSelect(-1, keep_tw=False)(x)
+    >>> newest.shape
+    Shape(S=(), T=None, D=(1,))
+    >>> model = Modely("relative", inputs=[x], outputs=[Output("y", x - newest)]).build()
+    >>> keras.ops.convert_to_numpy(model(data)["y"])
+    array([[[-3.],
+            [-2.],
+            [-1.],
+            [ 0.]]], dtype=float32)
+
+    ``name`` names the layer:
+
+    >>> TimeSelect(-1, name="now")(x).name
+    'now'
+
+    Applications
+    ------------
+    A one-step-ahead model reads the past of a signal and is trained against
+    its next sample. Declare the union window, 4 past samples and 1 future
+    one, and take the parts:
+
+    >>> from nnodely import Fir
+    >>> y = Input("y", tw=(4, 1))
+    >>> prediction = Fir()(TimeRange(0, 4)(y))
+    >>> target = TimeSelect(-1)(y)
+    >>> prediction.shape, target.shape
+    (Shape(S=(), T=1, D=(1,)), Shape(S=(), T=1, D=(1,)))
+
+    Properties & Relations
+    ----------------------
+    ``TimeSelect(i)`` has the shape of ``TimeRange(i, i + 1)``:
+
+    >>> TimeSelect(1)(x).shape, TimeRange(1, 2)(x).shape
+    (Shape(S=(), T=1, D=(1,)), Shape(S=(), T=1, D=(1,)))
+
+    Possible Issues
+    ---------------
+    A sample with its window, ``T=1``, does not combine with a longer window.
+    Drop the window with ``keep_tw=False``:
+
+    >>> x - TimeSelect(-1)(x)
+    Traceback (most recent call last):
+        ...
+    ValueError: ...streams with windows of 1 and 4 cannot be combined...
+    >>> (x - TimeSelect(-1, keep_tw=False)(x)).shape
+    Shape(S=(), T=4, D=(1,))
+
+    A stream without a window has no sample to select. Declare the Input with
+    a window:
+
+    >>> TimeSelect(0)(Input("plain"))
+    Traceback (most recent call last):
+        ...
+    ValueError: ...TimeSelect acts on the window of its stream, and 'plain' has none...
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, idx: int, keep_tw: bool = True, name=None):
@@ -231,16 +617,138 @@ class TimeSelect(Layer):
 
 
 class TimeRange(Layer):
-    """
-    Select a contiguous range [start, end) of the window, ``T``, as
-    :class:`Range` does along a dim axis: the window is kept, resized.
-    ``None`` leaves a bound open, and negative bounds count from the end.
+    r"""A contiguous part ``[start, end)`` of the window of a stream.
 
-    Examples
+    Syntax
+    ------
+    ``TimeRange(start, end)(x)``
+        The samples ``start`` to ``end - 1`` of the window of ``x``.
+    ``TimeRange(-n, None)(x)``
+        The newest ``n`` samples.
+    ``TimeRange(None, n)(x)``
+        The oldest ``n`` samples.
+
+    The window is ordered oldest first, and the end is excluded. The window is
+    kept, with ``end - start`` samples, also when that is 1. ``None`` leaves a
+    bound open, and a negative bound counts from the newest sample. The part
+    is taken at every step of the sequence, and the features are kept.
+
+    Parameters
+    ----------
+    start : int or None
+        The first sample, counted from the oldest, 0. A negative one counts
+        from the end. ``None`` starts from the oldest.
+    end : int or None
+        The sample after the last one. A negative one counts from the end.
+        ``None`` reaches the newest.
+    name : str, optional
+        The name of the layer. The default is ``TimeRange`` followed by a
+        number.
+
+    Call arguments
+    --------------
+    x : Stream
+        A stream with a window, ``Shape(S, T, D)``. The call takes it alone or
+        in a list of one.
+
+    Returns
+    -------
+    Stream
+        ``Shape(S, end - start, D)``. For example, ``Shape(S=(), T=10,
+        D=(1,))`` gives ``T=3`` with ``TimeRange(2, 5)``.
+
+    Raises
+    ------
+    ValueError
+        If ``x`` has no window ("TimeRange acts on the window of its stream"),
+        or if the range is empty, reversed or beyond the window ("invalid range
+        [2, 2) for an axis of size 4").
+    TypeError
+        If ``end`` is missing ("missing 1 required positional argument:
+        'end'"): give ``None`` for an open end.
+
+    See Also
     --------
-    T=10, start=2, end=5 -> T=3
-    S=(4,), T=6, start=1, end=3 -> S=(4,), T=2
-    T=6, start=-2, end=None -> T=2
+    TimeSelect : One sample of the window.
+    TimeConcatenate : Streams joined along the window.
+    Range : A part of a dim axis.
+    SeqRange : A part of a sequence axis.
+    Fir : Weighted sum over the window.
+
+    Notes
+    -----
+    For the window :math:`x_0, \dots, x_{T-1}`, from the oldest sample to the
+    newest:
+
+    .. math:: y = (x_{\text{start}}, \dots, x_{\text{end} - 1})
+
+    Basic Examples
+    --------------
+    The two middle samples of the window ``[1, 2, 3, 4]``:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Fir, Input, Modely, Output, TimeRange, TimeSelect
+    >>> x = Input("x", tw=4)
+    >>> model = Modely("part", inputs=[x], outputs=[Output("y", TimeRange(1, 3)(x))]).build()
+    >>> data = {"x": np.array([[[1.0], [2.0], [3.0], [4.0]]])}
+    >>> keras.ops.convert_to_numpy(model(data)["y"])
+    array([[[2.],
+            [3.]]], dtype=float32)
+
+    Scope
+    -----
+    The features and the sequence are kept:
+
+    >>> TimeRange(0, 2)(Input("v", dim=3, seq=4, tw=6)).shape
+    Shape(S=(4,), T=2, D=(3,))
+
+    Options
+    -------
+    ``None`` leaves a bound open, and negative bounds count from the end:
+
+    >>> outputs = [
+    ...     Output("newest", TimeRange(-2, None)(x)),
+    ...     Output("oldest", TimeRange(None, 2)(x)),
+    ...     Output("but_last", TimeRange(0, -1)(x)),
+    ... ]
+    >>> result = Modely("bounds", inputs=[x], outputs=outputs).build()(data)
+    >>> [keras.ops.convert_to_numpy(result[k]).ravel() for k in ("newest", "oldest", "but_last")]
+    [array([3., 4.], dtype=float32), array([1., 2.], dtype=float32), array([1., 2., 3.], dtype=float32)]
+
+    ``name`` names the layer:
+
+    >>> TimeRange(0, 2, name="past")(x).name
+    'past'
+
+    Applications
+    ------------
+    A model of the next sample reads the past 4 samples of a signal, and is
+    trained against the sample after them:
+
+    >>> y = Input("y", tw=(4, 1))
+    >>> prediction = Fir()(TimeRange(0, 4)(y))
+    >>> target = TimeSelect(-1)(y)
+
+    Properties & Relations
+    ----------------------
+    ``TimeRange(i, i + 1)`` has the shape of ``TimeSelect(i)``:
+
+    >>> TimeRange(1, 2)(x).shape, TimeSelect(1)(x).shape
+    (Shape(S=(), T=1, D=(1,)), Shape(S=(), T=1, D=(1,)))
+
+    Possible Issues
+    ---------------
+    The end is excluded, so a range from a sample to itself is empty:
+
+    >>> TimeRange(2, 2)(x)
+    Traceback (most recent call last):
+        ...
+    ValueError: ...invalid range [2, 2) for an axis of size 4.
+    >>> TimeRange(2, 3)(x).shape
+    Shape(S=(), T=1, D=(1,))
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, start: int | None, end: int | None, name=None):
@@ -291,15 +799,123 @@ class TimeConcatenateImpl(keras.layers.Layer):
 
 
 class TimeConcatenate(Layer):
-    """
-    Concatenate two or more streams along the window, ``T``, as
-    :class:`Concatenate` does along a dim axis. All inputs must share the
-    sequence and the dim.
+    r"""Two or more streams joined along the window.
 
-    Examples
+    Syntax
+    ------
+    ``TimeConcatenate([a, b])``
+        The window of ``a`` followed by that of ``b``; the same as
+        ``TimeConcatenate()([a, b])``.
+    ``TimeConcatenate(name="w")([a, b, c])``
+        Three or more streams, with the layer named.
+
+    The samples of ``a`` come first, so they are the oldest of the result.
+    Every stream has a window, and the same sequence and features.
+
+    Parameters
+    ----------
+    name : str, optional
+        The name of the layer. The default is ``TimeConcatenate`` followed by
+        a number.
+
+    Call arguments
+    --------------
+    [a, b, ...] : list of Stream
+        Two or more streams with a window, in the order of the result.
+
+    Returns
+    -------
+    Stream
+        ``Shape(S, T, D)`` with ``T`` the sum of the windows. For example,
+        ``T=2`` and ``T=3`` give ``T=5``.
+
+    Raises
+    ------
+    ValueError
+        If the list holds fewer than two streams ("concatenate requires at
+        least two inputs"). If a stream has no window ("TimeConcatenate acts on
+        the window of its stream"). If the sequences or the features differ
+        ("all inputs must have the same sequence and dim").
+
+    See Also
     --------
-    T=2 + T=3 -> T=5
-    S=(4,), T=2 + S=(4,), T=3 -> S=(4,), T=5
+    TimeRange : A part of the window.
+    TimeSelect : One sample of the window.
+    Concatenate : Streams joined along a dim axis.
+    SeqConcatenate : Streams joined along a sequence axis.
+
+    Notes
+    -----
+    For the windows :math:`a_0, \dots, a_{n-1}` and :math:`b_0, \dots,
+    b_{m-1}`:
+
+    .. math:: y = (a_0, \dots, a_{n-1}, b_0, \dots, b_{m-1})
+
+    Basic Examples
+    --------------
+    The two oldest samples of the window ``[1, 2, 3, 4]``, then the newest:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Input, Modely, Output, TimeConcatenate, TimeRange, TimeSelect
+    >>> x = Input("x", tw=4)
+    >>> y = TimeConcatenate([TimeRange(0, 2)(x), TimeSelect(-1)(x)])
+    >>> model = Modely("join", inputs=[x], outputs=[Output("y", y)]).build()
+    >>> data = {"x": np.array([[[1.0], [2.0], [3.0], [4.0]]])}
+    >>> keras.ops.convert_to_numpy(model(data)["y"]).ravel()
+    array([1., 2., 4.], dtype=float32)
+
+    Scope
+    -----
+    Samples of one step join into a window, and a sequence is kept:
+
+    >>> TimeConcatenate([Input("p", tw=1), Input("q", tw=1), Input("r", tw=1)]).shape
+    Shape(S=(), T=3, D=(1,))
+    >>> s = Input("s", dim=2, seq=3, tw=2)
+    >>> TimeConcatenate([s, s]).shape
+    Shape(S=(3,), T=4, D=(2,))
+
+    Options
+    -------
+    ``name`` names the layer:
+
+    >>> TimeConcatenate(name="window")([x, x]).name
+    'window'
+
+    Applications
+    ------------
+    A window shifted by one sample: the oldest one dropped, a new one, such
+    as a prediction, appended:
+
+    >>> prediction = TimeSelect(-1)(x) * 2.0
+    >>> shifted = TimeConcatenate([TimeRange(1, 4)(x), prediction])
+    >>> shifted.shape
+    Shape(S=(), T=4, D=(1,))
+
+    Properties & Relations
+    ----------------------
+    Joining the two halves of a window gives the window back:
+
+    >>> halves = TimeConcatenate([TimeRange(0, 2)(x), TimeRange(2, 4)(x)])
+    >>> model = Modely("halves", inputs=[x], outputs=[Output("y", halves)]).build()
+    >>> keras.ops.convert_to_numpy(model(data)["y"]).ravel()
+    array([1., 2., 3., 4.], dtype=float32)
+
+    Possible Issues
+    ---------------
+    The streams have the same features. To join features, use
+    :class:`Concatenate`:
+
+    >>> v = Input("v", dim=2, tw=1)
+    >>> TimeConcatenate([x, v])
+    Traceback (most recent call last):
+        ...
+    ValueError: ...all inputs must have the same sequence and dim...
+
+    The streams go in one list: ``TimeConcatenate(a, b)`` reads ``b`` as the
+    name of the layer, and fails.
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, name=None):
@@ -330,12 +946,92 @@ class TimeConcatenate(Layer):
 
 
 class TimeReverse(Layer):
-    """
-    Reverse the order of the samples of the window, ``T``: newest first.
+    r"""The window of a stream in reverse order, newest sample first.
 
-    Examples
+    Syntax
+    ------
+    ``TimeReverse(x)``
+        The window of ``x``, newest sample first; the same as
+        ``TimeReverse()(x)``.
+    ``TimeReverse(name="r")(x)``
+        The same, with the layer named.
+
+    The shape is unchanged. The order is reversed at every step of the
+    sequence, and the features are kept.
+
+    Parameters
+    ----------
+    name : str, optional
+        The name of the layer. The default is ``TimeReverse`` followed by a
+        number.
+
+    Call arguments
+    --------------
+    x : Stream
+        A stream with a window, ``Shape(S, T, D)``.
+
+    Returns
+    -------
+    Stream
+        A stream of the shape of ``x``: ``Shape(S, T, D)`` gives
+        ``Shape(S, T, D)``.
+
+    Raises
+    ------
+    ValueError
+        If ``x`` has no window ("TimeReverse acts on the window of its
+        stream").
+
+    See Also
     --------
-    T=5 -> T=5, its samples newest first
+    TimeSelect : One sample of the window.
+    TimeRange : A part of the window.
+    SeqReverse : A sequence axis in reverse order.
+
+    Notes
+    -----
+    For the window :math:`x_0, \dots, x_{T-1}`, from the oldest sample to the
+    newest:
+
+    .. math:: y_i = x_{T-1-i}
+
+    Basic Examples
+    --------------
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Input, Modely, Output, TimeReverse, TimeSelect
+    >>> x = Input("x", tw=4)
+    >>> model = Modely("reverse", inputs=[x], outputs=[Output("y", TimeReverse(x))]).build()
+    >>> data = {"x": np.array([[[1.0], [2.0], [3.0], [4.0]]])}
+    >>> keras.ops.convert_to_numpy(model(data)["y"]).ravel()
+    array([4., 3., 2., 1.], dtype=float32)
+
+    Scope
+    -----
+    The features and the sequence are kept:
+
+    >>> TimeReverse(Input("v", dim=3, seq=2, tw=5)).shape
+    Shape(S=(2,), T=5, D=(3,))
+
+    Properties & Relations
+    ----------------------
+    The first sample of the reversed window is the newest one:
+
+    >>> outputs = [Output("a", TimeSelect(0)(TimeReverse(x))), Output("b", TimeSelect(-1)(x))]
+    >>> result = Modely("first", inputs=[x], outputs=outputs).build()(data)
+    >>> keras.ops.convert_to_numpy(result["a"]), keras.ops.convert_to_numpy(result["b"])
+    (array([[[4.]]], dtype=float32), array([[[4.]]], dtype=float32))
+
+    Possible Issues
+    ---------------
+    A stream without a window has nothing to reverse:
+
+    >>> TimeReverse(Input("plain"))
+    Traceback (most recent call last):
+        ...
+    ValueError: ...TimeReverse acts on the window of its stream, and 'plain' has none...
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, name=None):
@@ -351,18 +1047,140 @@ class TimeReverse(Layer):
 
 
 class SeqSelect(Layer):
-    """
-    Select one step of a sequence axis, which is removed. ``axis`` counts
-    the sequence axes outermost first: the default, 0, is the outermost one,
-    the rollout of the outermost Loop. A negative ``idx`` counts from the
-    end, also on a dynamic axis, so -1 is the last step of a rollout of any
-    length.
+    r"""One step of a sequence axis of a stream, the axis removed.
 
-    Examples
+    Syntax
+    ------
+    ``SeqSelect(idx)(x)``
+        Step ``idx`` of the outermost sequence axis of ``x``.
+    ``SeqSelect(idx, axis=k)(x)``
+        Step ``idx`` of sequence axis ``k``.
+
+    The sequence axes are counted outermost first: ``axis=0``, the default,
+    is the outermost one, the rollout of the outermost :class:`Loop`. The
+    selected axis is removed, while :class:`TimeSelect` keeps the window. The
+    window and the features are kept.
+
+    A negative ``idx`` counts from the end, also on a dynamic axis, whose
+    length is known only from the data: ``SeqSelect(-1)`` is the last step of
+    a rollout of any length.
+
+    Parameters
+    ----------
+    idx : int
+        The step, counted from 0. A negative one counts from the end: ``-1``
+        is the last. On an axis of known length ``n`` it must lie in
+        ``[-n, n)``.
+    axis : int, default 0
+        The sequence axis, counted from the outermost, 0. A negative one
+        counts from the innermost, ``-1``.
+    name : str, optional
+        The name of the layer. The default is ``SeqSelect`` followed by a
+        number.
+
+    Call arguments
+    --------------
+    x : Stream
+        A stream with a sequence, ``Shape(S, T, D)``. The call takes it alone
+        or in a list of one.
+
+    Returns
+    -------
+    Stream
+        ``Shape(S, T, D)`` without sequence axis ``axis``. For example,
+        ``S=(5,)`` gives ``S=()``, and ``S=(2, 3)`` gives ``S=(2,)`` with
+        ``axis=1``.
+
+    Raises
+    ------
+    ValueError
+        If ``idx`` is outside the axis ("idx 3 out of bounds for seq axis 0, of
+        size 3"), or if ``x`` has no sequence axis ``axis`` ("axis 0 out of
+        bounds for seq rank 0").
+
+    See Also
     --------
-    S=(5,), T=1, idx=-1 -> S=(), T=1
-    S=(dyn, 3), T=1, idx=-1 -> S=(3,), T=1
-    S=(3, 5), T=1, idx=0, axis=1 -> S=(3,), T=1
+    SeqRange : A part of a sequence axis.
+    SeqStack : Streams stacked into a new sequence axis.
+    TimeSelect : One sample of the window.
+    Loop : A rollout along a sequence axis.
+
+    Notes
+    -----
+    For the steps :math:`x_0, \dots, x_{n-1}` of the axis:
+
+    .. math:: y = x_{\text{idx}}, \qquad x_{-k} = x_{n-k}
+
+    Basic Examples
+    --------------
+    The first and the last step of a sequence ``[1, 2, 3]``:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Input, Modely, Output, SeqRange, SeqSelect
+    >>> s = Input("s", seq=3, tw=1)
+    >>> outputs = [Output("first", SeqSelect(0)(s)), Output("last", SeqSelect(-1)(s))]
+    >>> model = Modely("steps", inputs=[s], outputs=outputs).build()
+    >>> data = {"s": np.array([1.0, 2.0, 3.0]).reshape(1, 3, 1, 1)}
+    >>> result = model(data)
+    >>> keras.ops.convert_to_numpy(result["first"]), keras.ops.convert_to_numpy(result["last"])
+    (array([[[1.]]], dtype=float32), array([[[3.]]], dtype=float32))
+    >>> SeqSelect(-1)(s).shape
+    Shape(S=(), T=1, D=(1,))
+
+    Scope
+    -----
+    On a dynamic axis, ``-1`` is the last step, whatever the length of the
+    data:
+
+    >>> d = Input("d", seq=-1, tw=1)
+    >>> model = Modely("dynamic", inputs=[d], outputs=[Output("y", SeqSelect(-1)(d))]).build()
+    >>> keras.ops.convert_to_numpy(model({"d": np.arange(1.0, 6.0).reshape(1, 5, 1, 1)})["y"])
+    array([[[5.]]], dtype=float32)
+
+    Options
+    -------
+    ``axis`` picks the sequence axis, outermost first. On two sequences of 3
+    steps, ``[1, 2, 3]`` and ``[4, 5, 6]``, the first step of each:
+
+    >>> w = Input("w", seq=(2, 3), tw=1)
+    >>> model = Modely("inner", inputs=[w], outputs=[Output("y", SeqSelect(0, axis=1)(w))]).build()
+    >>> result = model({"w": np.arange(1.0, 7.0).reshape(1, 2, 3, 1, 1)})
+    >>> keras.ops.convert_to_numpy(result["y"]).ravel()
+    array([1., 4.], dtype=float32)
+    >>> SeqSelect(0, axis=1)(w).shape
+    Shape(S=(2,), T=1, D=(1,))
+
+    ``name`` names the layer:
+
+    >>> SeqSelect(-1, name="final")(s).name
+    'final'
+
+    Applications
+    ------------
+    A terminal objective reads the last step of a rollout, of any length:
+
+    >>> position = Input("position", seq=-1, tw=1)
+    >>> final_position = SeqSelect(-1)(position)
+
+    Properties & Relations
+    ----------------------
+    ``SeqSelect(i)`` has the shape of ``SeqRange(i, i + 1)``, which removes the
+    axis too:
+
+    >>> SeqSelect(1)(s).shape, SeqRange(1, 2)(s).shape
+    (Shape(S=(), T=1, D=(1,)), Shape(S=(), T=1, D=(1,)))
+
+    Possible Issues
+    ---------------
+    A stream without a sequence has no step to select:
+
+    >>> SeqSelect(0)(Input("plain", tw=1))
+    Traceback (most recent call last):
+        ...
+    ValueError: ...axis 0 out of bounds for seq rank 0.
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, idx: int, axis: int = 0, name=None):
@@ -389,19 +1207,134 @@ class SeqSelect(Layer):
 
 
 class SeqRange(Layer):
-    """
-    Select a contiguous range [start, end) of a sequence axis, counted
-    outermost first as in :class:`SeqSelect`. The axis is resized, and
-    removed when the range is one step long. ``None`` leaves a bound open,
-    and negative bounds count from the end. On a dynamic axis a negative
-    bound or an open end gives a dynamic axis.
+    r"""A contiguous part ``[start, end)`` of a sequence axis of a stream.
 
-    Examples
+    Syntax
+    ------
+    ``SeqRange(start, end)(x)``
+        The steps ``start`` to ``end - 1`` of the outermost sequence axis.
+    ``SeqRange(start, end, axis=k)(x)``
+        The same part of sequence axis ``k``.
+
+    The sequence axes are counted outermost first, as in :class:`SeqSelect`.
+    The end is excluded. ``None`` leaves a bound open, and a negative bound
+    counts from the end. The window and the features are kept.
+
+    The axis is kept, with ``end - start`` steps. A range of one step removes
+    it, as :class:`SeqSelect` does. On a dynamic axis, bounds of 0 or more
+    give an axis of known length, while a negative bound or an open end give
+    a dynamic axis.
+
+    Parameters
+    ----------
+    start : int or None
+        The first step, counted from 0. A negative one counts from the end.
+        ``None`` starts from the first step.
+    end : int or None
+        The step after the last one. A negative one counts from the end.
+        ``None`` reaches the last step.
+    axis : int, default 0
+        The sequence axis, counted from the outermost, 0. A negative one
+        counts from the innermost, ``-1``.
+    name : str, optional
+        The name of the layer. The default is ``SeqRange`` followed by a
+        number.
+
+    Call arguments
+    --------------
+    x : Stream
+        A stream with a sequence, ``Shape(S, T, D)``. The call takes it alone
+        or in a list of one.
+
+    Returns
+    -------
+    Stream
+        ``Shape(S, T, D)`` with sequence axis ``axis`` of ``end - start``
+        steps, or without it for one step. For example, ``S=(10,)`` gives
+        ``S=(3,)`` with ``SeqRange(2, 5)``, and ``S=(6, 4)`` gives ``S=(6,)``
+        with ``SeqRange(1, 2, axis=1)``.
+
+    Raises
+    ------
+    ValueError
+        If the range is empty, reversed or beyond the axis ("invalid range [2,
+        2) for an axis of size 3"), or if ``x`` has no sequence axis ``axis``
+        ("out of bounds for seq rank").
+
+    See Also
     --------
-    S=(10,), T=1, start=2, end=5 -> S=(3,), T=1
-    S=(dyn,), T=1, start=0, end=4 -> S=(4,), T=1
-    S=(dyn,), T=1, start=-3, end=None -> S=(dyn,), T=1
-    S=(6, 4), T=1, start=1, end=2, axis=1 -> S=(6,), T=1
+    SeqSelect : One step of a sequence axis.
+    SeqConcatenate : Streams joined along a sequence axis.
+    TimeRange : A part of the window.
+
+    Notes
+    -----
+    For the steps :math:`x_0, \dots, x_{n-1}` of the axis:
+
+    .. math:: y = (x_{\text{start}}, \dots, x_{\text{end} - 1})
+
+    Basic Examples
+    --------------
+    The first two steps of a sequence ``[1, 2, 3]``:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Input, Modely, Output, SeqRange, SeqSelect
+    >>> s = Input("s", seq=3, tw=1)
+    >>> model = Modely("part", inputs=[s], outputs=[Output("y", SeqRange(0, 2)(s))]).build()
+    >>> data = {"s": np.array([1.0, 2.0, 3.0]).reshape(1, 3, 1, 1)}
+    >>> keras.ops.convert_to_numpy(model(data)["y"]).ravel()
+    array([1., 2.], dtype=float32)
+    >>> SeqRange(0, 2)(s).shape
+    Shape(S=(2,), T=1, D=(1,))
+
+    Scope
+    -----
+    On a dynamic axis, bounds of 0 or more give a known length, and a
+    negative bound a dynamic one:
+
+    >>> d = Input("d", seq=-1, tw=1)
+    >>> SeqRange(0, 2)(d).shape, SeqRange(-2, None)(d).shape
+    (Shape(S=(2,), T=1, D=(1,)), Shape(S=(dyn,), T=1, D=(1,)))
+
+    Options
+    -------
+    ``None`` leaves a bound open, and negative bounds count from the end:
+
+    >>> model = Modely("last_two", inputs=[s], outputs=[Output("y", SeqRange(-2, None)(s))]).build()
+    >>> keras.ops.convert_to_numpy(model(data)["y"]).ravel()
+    array([2., 3.], dtype=float32)
+
+    ``axis`` picks the sequence axis, outermost first:
+
+    >>> SeqRange(0, 2, axis=1)(Input("w", seq=(2, 3), tw=1)).shape
+    Shape(S=(2, 2), T=1, D=(1,))
+
+    ``name`` names the layer:
+
+    >>> SeqRange(0, 2, name="start")(s).name
+    'start'
+
+    Properties & Relations
+    ----------------------
+    A range of one step removes the axis: ``SeqRange(i, i + 1)`` has the shape
+    of ``SeqSelect(i)``:
+
+    >>> SeqRange(1, 2)(s).shape, SeqSelect(1)(s).shape
+    (Shape(S=(), T=1, D=(1,)), Shape(S=(), T=1, D=(1,)))
+
+    Possible Issues
+    ---------------
+    The end is excluded, and cannot go beyond the axis:
+
+    >>> SeqRange(0, 4)(s)
+    Traceback (most recent call last):
+        ...
+    ValueError: ...invalid range [0, 4) for an axis of size 3.
+    >>> SeqRange(0, None)(s).shape
+    Shape(S=(3,), T=1, D=(1,))
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, start: int | None, end: int | None, axis: int = 0, name=None):
@@ -438,17 +1371,131 @@ class SeqRange(Layer):
 
 
 class SeqConcatenate(Layer):
-    """
-    Concatenate two or more streams along a sequence axis, counted
-    outermost first as in :class:`SeqSelect`. All inputs must share the dim,
-    the window and every other sequence axis. A dynamic input makes the
-    joined axis dynamic.
+    r"""Two or more streams joined along a sequence axis.
 
-    Examples
+    Syntax
+    ------
+    ``SeqConcatenate()([a, b])``
+        The steps of ``a`` followed by those of ``b``, along the outermost
+        sequence axis.
+    ``SeqConcatenate(axis=k)([a, b, c])``
+        Three or more streams, joined along sequence axis ``k``.
+
+    The sequence axes are counted outermost first, as in :class:`SeqSelect`.
+    The streams have the same features, the same window and the same other
+    sequence axes. When the joined axis is dynamic in one stream, it is
+    dynamic in the result.
+
+    Parameters
+    ----------
+    axis : int, default 0
+        The sequence axis to join along, counted from the outermost, 0. A
+        negative one counts from the innermost, ``-1``.
+    name : str, optional
+        The name of the layer. The default is ``SeqConcatenate`` followed by a
+        number.
+
+    Call arguments
+    --------------
+    [a, b, ...] : list of Stream
+        Two or more streams with a sequence, in the order of the result.
+
+    Returns
+    -------
+    Stream
+        ``Shape(S, T, D)`` with sequence axis ``axis`` as long as the sum of
+        the streams' lengths. For example, ``S=(2,)`` and ``S=(3,)`` give
+        ``S=(5,)``; ``S=(3,)`` and ``S=(dyn,)`` give ``S=(dyn,)``.
+
+    Raises
+    ------
+    ValueError
+        If the list holds fewer than two streams ("concatenate requires at
+        least two inputs"). If the streams differ elsewhere ("all inputs must
+        have the same dim, window and sequence axes but seq axis 0"). If a
+        stream has no sequence axis ``axis`` ("out of bounds for seq rank").
+    TypeError
+        If the layer is called before it is configured,
+        ``SeqConcatenate([a, b])``.
+
+    See Also
     --------
-    S=(2,), T=1 + S=(3,), T=1 -> S=(5,), T=1
-    S=(3, 4), T=2 + S=(3, 1), T=2, axis=1 -> S=(3, 5), T=2
-    S=(3,), T=1 + S=(dyn,), T=1 -> S=(dyn,), T=1
+    SeqStack : Streams stacked into a new sequence axis.
+    SeqRange : A part of a sequence axis.
+    TimeConcatenate : Streams joined along the window.
+    Concatenate : Streams joined along a dim axis.
+
+    Notes
+    -----
+    For the steps :math:`a_0, \dots, a_{n-1}` and :math:`b_0, \dots, b_{m-1}`:
+
+    .. math:: y = (a_0, \dots, a_{n-1}, b_0, \dots, b_{m-1})
+
+    Basic Examples
+    --------------
+    A sequence ``[1, 2]`` followed by ``[3, 4, 5]``:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Input, Modely, Output, SeqConcatenate
+    >>> a, b = Input("a", seq=2, tw=1), Input("b", seq=3, tw=1)
+    >>> y = SeqConcatenate()([a, b])
+    >>> model = Modely("join", inputs=[a, b], outputs=[Output("y", y)]).build()
+    >>> data = {"a": np.array([1.0, 2.0]).reshape(1, 2, 1, 1), "b": np.array([3.0, 4.0, 5.0]).reshape(1, 3, 1, 1)}
+    >>> keras.ops.convert_to_numpy(model(data)["y"]).ravel()
+    array([1., 2., 3., 4., 5.], dtype=float32)
+    >>> y.shape
+    Shape(S=(5,), T=1, D=(1,))
+
+    Scope
+    -----
+    A dynamic axis makes the joined axis dynamic:
+
+    >>> SeqConcatenate()([a, Input("d", seq=-1, tw=1)]).shape
+    Shape(S=(dyn,), T=1, D=(1,))
+
+    Options
+    -------
+    ``axis`` picks the sequence axis, outermost first:
+
+    >>> w = Input("w", seq=(2, 3), tw=1)
+    >>> SeqConcatenate(axis=1)([w, w]).shape
+    Shape(S=(2, 6), T=1, D=(1,))
+
+    ``name`` names the layer:
+
+    >>> SeqConcatenate(name="trajectory")([a, b]).name
+    'trajectory'
+
+    Applications
+    ------------
+    A trajectory made of a measured part and a predicted one, as one
+    sequence for an objective:
+
+    >>> measured, predicted = Input("measured", seq=4, tw=1), Input("predicted", seq=6, tw=1)
+    >>> SeqConcatenate()([measured, predicted]).shape
+    Shape(S=(10,), T=1, D=(1,))
+
+    Possible Issues
+    ---------------
+    The streams have the same window. Take the same part of each with
+    :class:`TimeRange` or :class:`TimeSelect` first:
+
+    >>> SeqConcatenate()([a, Input("c", seq=2, tw=2)])
+    Traceback (most recent call last):
+        ...
+    ValueError: ...all inputs must have the same dim, window and sequence axes but seq axis 0...
+
+    Streams without a sequence have no axis to join along. Stack them into a
+    new one with :class:`SeqStack`:
+
+    >>> p, q = Input("p", tw=1), Input("q", tw=1)
+    >>> SeqConcatenate()([p, q])
+    Traceback (most recent call last):
+        ...
+    ValueError: ...axis 0 out of bounds for seq rank 0.
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, axis: int = 0, name=None):
@@ -489,18 +1536,124 @@ class SeqConcatenate(Layer):
 
 
 class SeqStack(Layer):
-    """
-    Stack two or more streams of one shape into a new sequence axis.
+    r"""Two or more streams of one shape stacked into a new sequence axis.
 
-    ``axis`` is the position of the new axis among the sequence axes of the
-    result, counted outermost first: the default, 0, makes it the new
-    outermost one, as a Loop's rollout, and -1 the new innermost one.
+    Syntax
+    ------
+    ``SeqStack()([a, b])``
+        ``a`` and ``b`` as the two steps of a new outermost sequence axis.
+    ``SeqStack(axis=-1)([a, b, c])``
+        Three or more streams, stacked into a new innermost sequence axis.
 
-    Examples
+    The new axis has one step per stream, in the order of the list. ``axis``
+    is its position among the sequence axes of the result, counted outermost
+    first. The default, 0, makes it the new outermost axis, as a Loop's
+    rollout is; ``-1`` makes it the new innermost one. The streams have the
+    same shape, and the window and the features are kept.
+
+    Parameters
+    ----------
+    axis : int, default 0
+        The position of the new axis among the sequence axes of the result,
+        counted from the outermost, 0. A negative one counts from the
+        innermost, ``-1``.
+    name : str, optional
+        The name of the layer. The default is ``SeqStack`` followed by a
+        number.
+
+    Call arguments
+    --------------
+    [a, b, ...] : list of Stream
+        Two or more streams of the same shape, in the order of the steps.
+
+    Returns
+    -------
+    Stream
+        ``Shape(S, T, D)`` with a new sequence axis of as many steps as
+        streams. For example, 4 streams of ``S=()`` give ``S=(4,)``, and 2 of
+        ``S=(5,)`` give ``S=(2, 5)``, or ``S=(5, 2)`` with ``axis=-1``.
+
+    Raises
+    ------
+    ValueError
+        If the list holds fewer than two streams ("concatenate requires at
+        least two inputs"). If the shapes differ ("all inputs must have the
+        same shape when stacking"). If ``axis`` is beyond the sequence axes of
+        the result ("out of bounds for seq rank").
+    TypeError
+        If the layer is called before it is configured, ``SeqStack([a, b])``.
+
+    See Also
     --------
-    4 x S=(), T=1 -> S=(4,), T=1
-    2 x S=(5,), T=3 -> S=(2, 5), T=3
-    2 x S=(5,), T=3, axis=-1 -> S=(5, 2), T=3
+    SeqConcatenate : Streams joined along an existing sequence axis.
+    SeqSelect : One step of a sequence axis.
+    TimeConcatenate : Streams joined along the window.
+
+    Notes
+    -----
+    For the streams :math:`x^{(0)}, \dots, x^{(k-1)}`, step :math:`i` of the
+    new axis is :math:`x^{(i)}`.
+
+    Basic Examples
+    --------------
+    Three scalar samples as a sequence of 3 steps:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Input, Modely, Output, SeqSelect, SeqStack, TimeConcatenate
+    >>> a, b, c = Input("a", tw=1), Input("b", tw=1), Input("c", tw=1)
+    >>> y = SeqStack()([a, b, c])
+    >>> y.shape
+    Shape(S=(3,), T=1, D=(1,))
+    >>> model = Modely("stack", inputs=[a, b, c], outputs=[Output("y", y)]).build()
+    >>> data = {"a": np.array([[[1.0]]]), "b": np.array([[[2.0]]]), "c": np.array([[[3.0]]])}
+    >>> keras.ops.convert_to_numpy(model(data)["y"]).ravel()
+    array([1., 2., 3.], dtype=float32)
+
+    Scope
+    -----
+    Streams with a sequence get a new outermost axis:
+
+    >>> s = Input("s", seq=5, tw=3)
+    >>> SeqStack()([s, s]).shape
+    Shape(S=(2, 5), T=3, D=(1,))
+
+    Options
+    -------
+    ``axis=-1`` makes the new axis the innermost:
+
+    >>> SeqStack(axis=-1)([s, s]).shape
+    Shape(S=(5, 2), T=3, D=(1,))
+
+    ``name`` names the layer:
+
+    >>> SeqStack(name="steps")([a, b]).name
+    'steps'
+
+    Properties & Relations
+    ----------------------
+    Step ``i`` of the stack is stream ``i``:
+
+    >>> model = Modely("second", inputs=[a, b, c], outputs=[Output("y", SeqSelect(1)(y))]).build()
+    >>> keras.ops.convert_to_numpy(model(data)["y"])
+    array([[[2.]]], dtype=float32)
+
+    Possible Issues
+    ---------------
+    ``SeqStack`` makes a sequence of steps, not a window. To join samples
+    into a window, use :class:`TimeConcatenate`:
+
+    >>> TimeConcatenate([a, b, c]).shape
+    Shape(S=(), T=3, D=(1,))
+
+    The streams have the same shape:
+
+    >>> SeqStack()([a, Input("w", tw=2)])
+    Traceback (most recent call last):
+        ...
+    ValueError: ...all inputs must have the same shape when stacking.
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, axis: int = 0, name=None):
@@ -537,13 +1690,113 @@ class SeqStack(Layer):
 
 
 class SeqReverse(Layer):
-    """
-    Reverse the order of the steps of a sequence axis, counted outermost
-    first as in :class:`SeqSelect`.
+    r"""A sequence axis of a stream in reverse order, last step first.
 
-    Examples
+    Syntax
+    ------
+    ``SeqReverse()(x)``
+        The outermost sequence axis of ``x``, last step first.
+    ``SeqReverse(axis=k)(x)``
+        Sequence axis ``k``, last step first.
+
+    The sequence axes are counted outermost first, as in :class:`SeqSelect`.
+    The shape is unchanged, a dynamic axis included.
+
+    Parameters
+    ----------
+    axis : int, default 0
+        The sequence axis, counted from the outermost, 0. A negative one
+        counts from the innermost, ``-1``.
+    name : str, optional
+        The name of the layer. The default is ``SeqReverse`` followed by a
+        number.
+
+    Call arguments
+    --------------
+    x : Stream
+        A stream with a sequence, ``Shape(S, T, D)``. The call takes it alone
+        or in a list of one.
+
+    Returns
+    -------
+    Stream
+        A stream of the shape of ``x``: ``Shape(S, T, D)`` gives
+        ``Shape(S, T, D)``.
+
+    Raises
+    ------
+    ValueError
+        If ``x`` has no sequence axis ``axis`` ("axis 0 out of bounds for seq
+        rank 0").
+    TypeError
+        If the layer is called before it is configured, ``SeqReverse(x)``.
+
+    See Also
     --------
-    S=(dyn,), T=1 -> S=(dyn,), T=1, its steps last first
+    TimeReverse : The window in reverse order.
+    SeqSelect : One step of a sequence axis.
+    SeqRange : A part of a sequence axis.
+
+    Notes
+    -----
+    For the steps :math:`x_0, \dots, x_{n-1}` of the axis:
+
+    .. math:: y_i = x_{n-1-i}
+
+    Basic Examples
+    --------------
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Input, Modely, Output, SeqReverse, SeqSelect
+    >>> s = Input("s", seq=3, tw=1)
+    >>> model = Modely("reverse", inputs=[s], outputs=[Output("y", SeqReverse()(s))]).build()
+    >>> data = {"s": np.array([1.0, 2.0, 3.0]).reshape(1, 3, 1, 1)}
+    >>> keras.ops.convert_to_numpy(model(data)["y"]).ravel()
+    array([3., 2., 1.], dtype=float32)
+
+    Scope
+    -----
+    A dynamic axis is reversed whatever the length of the data:
+
+    >>> d = Input("d", seq=-1, tw=1)
+    >>> model = Modely("dynamic", inputs=[d], outputs=[Output("y", SeqReverse()(d))]).build()
+    >>> keras.ops.convert_to_numpy(model({"d": np.arange(1.0, 6.0).reshape(1, 5, 1, 1)})["y"]).ravel()
+    array([5., 4., 3., 2., 1.], dtype=float32)
+
+    Options
+    -------
+    ``axis`` picks the sequence axis, outermost first. On two sequences of 3
+    steps, ``[1, 2, 3]`` and ``[4, 5, 6]``, ``axis=1`` reverses each:
+
+    >>> w = Input("w", seq=(2, 3), tw=1)
+    >>> model = Modely("inner", inputs=[w], outputs=[Output("y", SeqReverse(axis=1)(w))]).build()
+    >>> keras.ops.convert_to_numpy(model({"w": np.arange(1.0, 7.0).reshape(1, 2, 3, 1, 1)})["y"]).ravel()
+    array([3., 2., 1., 6., 5., 4.], dtype=float32)
+
+    ``name`` names the layer:
+
+    >>> SeqReverse(name="backward")(s).name
+    'backward'
+
+    Properties & Relations
+    ----------------------
+    The first step of the reversed sequence is the last one:
+
+    >>> outputs = [Output("a", SeqSelect(0)(SeqReverse()(s))), Output("b", SeqSelect(-1)(s))]
+    >>> result = Modely("first", inputs=[s], outputs=outputs).build()(data)
+    >>> keras.ops.convert_to_numpy(result["a"]), keras.ops.convert_to_numpy(result["b"])
+    (array([[[3.]]], dtype=float32), array([[[3.]]], dtype=float32))
+
+    Possible Issues
+    ---------------
+    ``SeqReverse`` has a setting, so it is configured first:
+
+    >>> SeqReverse(s)
+    Traceback (most recent call last):
+        ...
+    TypeError: SeqReverse has settings, so it is configured first and then called on its streams: SeqReverse(...)(x), not SeqReverse(x).
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, axis: int = 0, name=None):
@@ -611,11 +1864,143 @@ class ConcatenateImpl(keras.layers.Layer):
 
 
 class Concatenate(Layer):
-    """Concatenate two or more streams along a selected dim axis.
+    r"""Two or more streams joined along a dim axis.
 
-    The streams must have the same sequence and window; a single sample,
-    ``T=1``, or a value without a window - a Parameter, a number - is
-    repeated along the others', as arithmetic broadcasts it.
+    Syntax
+    ------
+    ``Concatenate()([a, b])``
+        The features of ``a`` followed by those of ``b``, along the first dim
+        axis.
+    ``Concatenate(axis=k)([a, b, c])``
+        Three or more streams, joined along dim axis ``k``.
+
+    The streams have the same sequence and the same window. The exceptions:
+
+    - a single sample, ``T=1``, is repeated along the window of the others;
+    - a value without a window, a :class:`Parameter` or a
+      :class:`Constant`, is repeated along the window of the others.
+
+    An Input without a window does not join a stream with one. The dim axes
+    other than ``axis`` have the same length in every stream.
+
+    Parameters
+    ----------
+    axis : int, default 0
+        The dim axis to join along, counted from 0. A negative one counts from
+        the last.
+    name : str, optional
+        The name of the layer. The default is ``Concatenate`` followed by a
+        number.
+
+    Call arguments
+    --------------
+    [a, b, ...] : list of Stream
+        Two or more streams, in the order of the result.
+
+    Returns
+    -------
+    Stream
+        ``Shape(S, T, D)`` with dim axis ``axis`` as long as the sum of the
+        lengths in the streams. For example, ``D=(1,)`` and ``D=(2,)`` give
+        ``D=(3,)``; ``D=(2, 3)`` twice gives ``D=(4, 3)``, or ``D=(2, 6)``
+        with ``axis=1``.
+
+    Raises
+    ------
+    ValueError
+        If the list holds fewer than two streams ("concatenate requires at
+        least two inputs"). If the streams do not match ("all inputs must have
+        matching dimensions except dim axis 0, and the same sequence and window
+        or a single sample"). If ``axis`` is not a dim axis.
+    TypeError
+        If the layer is called before it is configured, ``Concatenate([a,
+        b])``, or on a number ("is called on streams, got float").
+
+    See Also
+    --------
+    Select : One index of a dim axis.
+    Range : A part of a dim axis.
+    TimeConcatenate : Streams joined along the window.
+    SeqConcatenate : Streams joined along a sequence axis.
+    SeqStack : Streams stacked into a new sequence axis.
+
+    Notes
+    -----
+    For two vectors :math:`a = (a_1, \dots, a_n)` and
+    :math:`b = (b_1, \dots, b_m)`:
+
+    .. math:: y = (a_1, \dots, a_n, b_1, \dots, b_m)
+
+    Basic Examples
+    --------------
+    A scalar and a vector of 2 features, over a window of 2 samples:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Concatenate, Input, Modely, Output, Parameter, TimeSelect
+    >>> a, b = Input("a", tw=2), Input("b", dim=2, tw=2)
+    >>> model = Modely("join", inputs=[a, b], outputs=[Output("y", Concatenate()([a, b]))]).build()
+    >>> data = {"a": np.array([[[1.0], [2.0]]]), "b": np.array([[[3.0, 4.0], [5.0, 6.0]]])}
+    >>> keras.ops.convert_to_numpy(model(data)["y"])
+    array([[[1., 3., 4.],
+            [2., 5., 6.]]], dtype=float32)
+
+    Scope
+    -----
+    A Parameter, without a window, is repeated at every sample:
+
+    >>> p = Parameter("p", value=[5.0])
+    >>> model = Modely("value", inputs=[a], outputs=[Output("y", Concatenate()([a, p]))]).build()
+    >>> keras.ops.convert_to_numpy(model({"a": data["a"]})["y"])
+    array([[[1., 5.],
+            [2., 5.]]], dtype=float32)
+
+    So is a single sample, ``T=1``:
+
+    >>> newest = TimeSelect(-1)(b)
+    >>> model = Modely("sample", inputs=[a, b], outputs=[Output("y", Concatenate()([a, newest]))]).build()
+    >>> keras.ops.convert_to_numpy(model(data)["y"])
+    array([[[1., 5., 6.],
+            [2., 5., 6.]]], dtype=float32)
+
+    Options
+    -------
+    ``axis`` picks the dim axis of matrices:
+
+    >>> m = Input("m", dim=(2, 3))
+    >>> Concatenate()([m, m]).shape, Concatenate(axis=1)([m, m]).shape
+    (Shape(S=(), T=None, D=(4, 3)), Shape(S=(), T=None, D=(2, 6)))
+
+    ``name`` names the layer:
+
+    >>> Concatenate(name="state")([a, b]).name
+    'state'
+
+    Applications
+    ------------
+    The state of a mass-spring-damper, its position and its velocity, as one
+    vector for a :class:`Linear` map:
+
+    >>> from nnodely import Linear
+    >>> position, velocity = Input("position", tw=1), Input("velocity", tw=1)
+    >>> acceleration = Linear()(Concatenate()([position, velocity]))
+
+    Possible Issues
+    ---------------
+    An Input without a window does not join one with a window. Declare it
+    with a window of one sample, which is repeated:
+
+    >>> Concatenate()([a, Input("u")])
+    Traceback (most recent call last):
+        ...
+    ValueError: ...all inputs must have matching dimensions except dim axis 0, and the same sequence and window or a single sample.
+    >>> Concatenate()([a, Input("u", tw=1)]).shape
+    Shape(S=(), T=2, D=(2,))
+
+    The layer is configured first, then called on the list:
+    ``Concatenate()([a, b])``, not ``Concatenate([a, b])``.
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, axis: int = 0, name=None):

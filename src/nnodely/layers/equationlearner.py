@@ -145,45 +145,234 @@ class _FunctionSpec:
 
 
 class EquationLearner:
-    """Build a symbolic function approximator from nnodely blocks.
+    r"""A learned equation: a projection of the inputs feeds a list of functions, whose values a second projection can combine.
 
-    The input projection produces one scalar argument for every function
-    argument. Each function is evaluated on its assigned arguments, the
-    resulting basis terms are concatenated, and an optional output projection
-    learns how to combine them.
+    Syntax
+    ------
+    ``EquationLearner(functions)(x)``
+        The value of each function, one feature each, on learned arguments.
+    ``EquationLearner(functions, linear_out=Linear(features=1))(x)``
+        A learned combination of those values.
+    ``EquationLearner(functions, threshold=t)(x)``
+        The same, with every coefficient smaller than ``t`` dropped.
+    ``EquationLearner(functions)([x, u])``
+        Several inputs, their features joined.
 
-    Functions may be supplied by name, as nnodely ``Layer`` classes or
-    instances, as Python callables, or as ``(function, arity)`` pairs. The
-    explicit pair form is useful for callables whose signature cannot be
-    inspected. The names are ``identity``, ``sin``, ``cos``, ``tan``,
-    ``asin``, ``acos``, ``atan``, ``exp``, ``log``, ``log10``, ``sqrt``,
-    ``abs``, ``sign``, ``floor``, ``ceil``, the activations ``relu``,
-    ``leaky_relu``, ``elu``, ``prelu``, ``sigmoid``, ``tanh``, ``swish``,
-    ``gelu``, ``softplus``, the bumps ``gaussian``, ``triangular``,
-    ``rectangular`` (1 at 0, of width 1), and the functions of two arguments
-    ``add``, ``subtract``, ``multiply``, ``divide``, ``power``, ``atan2``.
-    ``log`` and ``sqrt`` give NaN where their argument is negative.
+    The input projection, a :class:`Linear`, gives one scalar argument for
+    every argument of every function. Each function is evaluated on its
+    arguments, and the results, the basis, are joined along the features. An
+    output projection, if given, combines them. After training,
+    :meth:`EquationLearner.plot` writes the equation the model computes.
 
-    After training, :meth:`plot` draws the learned equation and returns it.
+    Each call declares the learner in a model of its own, called as a block on
+    the given streams. Calling the same learner again applies the same
+    projections, with the same weights.
 
-    ``threshold`` drops every coefficient of the two projections, weight or
-    bias, whose magnitude is below it, so that the learned equation has no
-    terms such as ``0.000001 * sin(x)``: they compute as zero, while their
-    Parameters keep their values. Training still updates them, with the
-    gradient they would have if kept, so a coefficient changing sign is not
-    stuck at zero, and one that grows past the threshold counts again. It
-    applies to the given projections too, which are left as they are: the
-    learner subtracts from each the part its dropped coefficients compute.
+    Parameters
+    ----------
+    functions : list
+        The functions of the basis, in order. Each item is one of:
 
-    ``learner.threshold`` can be changed at any time, after training too:
-    the model computes and trains with the new value from then on, without
-    being built again, and saves it. The recommended use is in two phases:
-    train without a threshold, then set it and fine-tune at a lower learning
-    rate, so that the coefficients left adjust to those dropped::
+        - a name, in any case. Of one argument: ``identity``, ``sin``,
+          ``cos``, ``tan``, ``asin``, ``acos``, ``atan``, ``sinh``, ``cosh``,
+          ``asinh``, ``acosh``, ``atanh``, ``exp``, ``expm1``, ``log``,
+          ``log1p``, ``log10``, ``log2``, ``sqrt``, ``square``, ``abs``,
+          ``sign``, ``floor``, ``ceil``, ``round``; the activations ``relu``,
+          ``leaky_relu``, ``elu``, ``prelu``, ``sigmoid``, ``tanh``,
+          ``swish``, ``gelu``, ``softplus``; the memberships ``gaussian``,
+          ``triangular``, ``rectangular``, 1 at 0, of width 1. Of two
+          arguments: ``add``, ``subtract``, ``multiply``, ``divide``,
+          ``power``, ``mod``, ``maximum``, ``minimum``, ``atan2``.
+        - an nnodely layer class, such as :class:`Sin`, made anew; or an
+          instance, such as ``Tanh()``. :class:`Maximum`, :class:`Minimum`
+          and :class:`Atan2` take two arguments, the others one.
+        - a Python function of streams, such as ``lambda a, b: a * b + a``.
+          Its arguments are its positional parameters, and it returns a
+          stream.
+        - a ``(function, arity)`` pair, for a function whose number of
+          arguments cannot be read from its signature, such as
+          ``lambda *a: a[0] * a[1]``.
+    linear_in : Linear, optional
+        The input projection. Its ``features`` must equal the total number of
+        arguments of the functions. The default is ``Linear`` with that many
+        features and a bias, named ``<name>_linear_in``.
+    linear_out : Linear, optional
+        The output projection of the basis. The default is none: the result
+        is the basis.
+    threshold : float, optional
+        A number ``>= 0``. Every coefficient of the two projections, weight or
+        bias, whose magnitude is below it computes as zero. The default,
+        ``None``, drops none. It is also the attribute :attr:`EquationLearner.threshold`,
+        settable at any time.
+    name : str, optional
+        The name of the block of the first call. Later calls name theirs
+        ``<name>_2``, and so on. The default is ``EquationLearner`` followed
+        by a number.
 
-        model.train(data, epochs=150, lr=0.02)
-        learner.threshold = 0.01
-        model.train(data, epochs=50, lr=0.002)
+    Call arguments
+    --------------
+    inputs : Stream or list of Stream
+        Streams of one dim axis, ``D=(d,)``, with any window and sequence.
+        Several are joined along the features.
+
+    Returns
+    -------
+    Stream
+        ``Shape(S, T, (n,))`` for ``n`` functions, the basis. With
+        ``linear_out``, ``Shape(S, T, (features,))``. For example,
+        ``Input("x", tw=1)`` with ``["sin", "multiply"]`` gives
+        ``Shape(S=(), T=1, D=(2,))``.
+
+    Raises
+    ------
+    ValueError
+        If ``functions`` is not a list of at least one function ("requires at
+        least one function"), or a name is unknown ("Unknown EquationLearner
+        function. Available names: ..."). If the number of arguments of a
+        function cannot be read ("Cannot infer variadic function arity; use
+        (function, arity)") or is 0 ("must accept at least one argument"). If
+        ``linear_in`` has another number of features ("linear_in.features
+        must equal the total number of function arguments"). If ``threshold``
+        is negative ("must be zero or positive"). If an input has more than
+        one dim axis ("supports one-dimensional dim shapes").
+    TypeError
+        If a pair is not ``(function, arity)`` ("Function pairs must have the
+        form (callable, arity)"), or a function is not callable ("must be
+        callable"). If a function returns something other than a stream
+        ("must return a Stream"), or an input is not a stream ("inputs must be
+        Stream objects").
+
+    See Also
+    --------
+    Linear : The projections.
+    LocalModel : Another block with learned structure.
+    Sin : One of the functions.
+
+    Notes
+    -----
+    With :math:`x` the joined inputs, the arguments are
+    :math:`a = W_{in} x + b_{in}`. Function :math:`\phi_j` of arity
+    :math:`m_j` reads the next :math:`m_j` arguments, and the result is
+
+    .. math:: f_j = \phi_j(a_{s_j}, \dots, a_{s_j + m_j - 1}), \quad
+        y = W_{out} f + b_{out}
+
+    With a threshold :math:`t`, every coefficient :math:`w` of
+    :math:`W_{in}, b_{in}, W_{out}, b_{out}` computes as
+
+    .. math:: \tilde w = \begin{cases} w & |w| \ge t \\ 0 & |w| < t \end{cases}
+
+    The Parameters keep their values. The gradient is straight-through: a
+    dropped coefficient still trains with the gradient it would have if kept.
+    A coefficient that changes sign is not stuck at zero, and one that grows
+    past the threshold counts again. Given projections are thresholded too,
+    and left as they are. The threshold is saved with the model.
+
+    A recommended use has two phases. Train without a threshold, then set it
+    and fine-tune at a lower learning rate, so that the coefficients left
+    adjust to those dropped. ``log`` and ``sqrt`` give NaN where their
+    argument is negative.
+
+    Basic Examples
+    --------------
+    The basis ``x`` and ``x * x``, combined with known coefficients:
+    :math:`y = 2x + 0.5x^2`, 6 at :math:`x = 2`:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import EquationLearner, Input, Linear, Modely, Output, Parameter, Sin, Tanh
+    >>> x = Input("x", tw=1)
+    >>> learner = EquationLearner(
+    ...     ["identity", "multiply"],
+    ...     linear_in=Linear(features=3, kernel=Parameter("w_in", value=[[1.0, 1.0, 1.0]]), bias=False),
+    ...     linear_out=Linear(kernel=Parameter("w_out", value=[[2.0], [0.5]]), bias=False),
+    ... )
+    >>> y = learner(x)
+    >>> model = Modely("law", inputs=[x], outputs=[Output("y", y)]).build()
+    >>> keras.ops.convert_to_numpy(model({"x": np.array([[[2.0]]])})["y"])
+    array([[[6.]]], dtype=float32)
+    >>> learner.plot()
+    Eq(y, 0.5*x**2 + 2*x)
+
+    Scope
+    -----
+    Without ``linear_out`` the result is the basis, one feature per function:
+
+    >>> EquationLearner(["sin", "multiply"])(x).shape
+    Shape(S=(), T=1, D=(2,))
+
+    Several inputs are joined, and the window and the sequence are kept:
+
+    >>> v, w = Input("v", dim=2, tw=3), Input("w", tw=3)
+    >>> EquationLearner(["sin"], linear_out=Linear(features=2))([v, w]).shape
+    Shape(S=(), T=3, D=(2,))
+    >>> EquationLearner(["sin", "exp"])(Input("q", seq=4, tw=2)).shape
+    Shape(S=(4,), T=2, D=(2,))
+
+    Options
+    -------
+    ``functions`` by name, class, instance, Python function and pair. The
+    default ``linear_in`` gives 1 + 1 + 1 + 2 + 3 = 8 arguments:
+
+    >>> mixed = EquationLearner(
+    ...     ["sin", Sin, Tanh(), lambda a, b: a * b + a, (lambda *a: a[0] * a[1] * a[2], 3)],
+    ...     name="mixed",
+    ... )
+    >>> basis = mixed(x)
+    >>> [(p.name, p.shape.dim) for p in Modely("m", inputs=[x], outputs=[Output("f", basis)]).parameters]
+    [('mixed_linear_in_kernel', (1, 8)), ('mixed_linear_in_bias', (8,))]
+
+    ``threshold`` drops the coefficients below it, here the 0.5 of
+    :math:`x^2`. It can be set on the built model, which computes with it from
+    then on:
+
+    >>> learner.threshold = 1.0
+    >>> keras.ops.convert_to_numpy(model({"x": np.array([[[2.0]]])})["y"])
+    array([[[4.]]], dtype=float32)
+    >>> learner.plot()
+    Eq(y, 2*x)
+    >>> learner.threshold = None
+
+    ``linear_in`` and ``linear_out`` are given in the Basic Example, and
+    ``name`` names the default projection above.
+
+    Applications
+    ------------
+    The friction force of a sliding mass as an unknown law of its velocity,
+    with viscous and Coulomb terms among the candidates:
+
+    >>> velocity = Input("velocity", tw=1)
+    >>> friction = EquationLearner(["identity", "sign", "square"], linear_out=Linear(features=1))(velocity)
+    >>> friction.shape
+    Shape(S=(), T=1, D=(1,))
+
+    Properties & Relations
+    ----------------------
+    The equation :meth:`EquationLearner.plot` returns computes what the model does:
+
+    >>> equation = learner.plot()
+    >>> float(equation.rhs.subs("x", 2.0))
+    6.0
+
+    Possible Issues
+    ---------------
+    ``linear_in`` gives one argument per argument of the functions: ``sin``
+    reads 1, ``multiply`` 2:
+
+    >>> EquationLearner(["sin", "multiply"], linear_in=Linear(features=2))
+    Traceback (most recent call last):
+        ...
+    ValueError: linear_in.features must equal the total number of function arguments (3), got 2.
+
+    A function with ``*args`` gives no number of arguments. Pass it in a pair:
+
+    >>> EquationLearner([lambda *a: a[0] * a[1]])
+    Traceback (most recent call last):
+        ...
+    ValueError: Cannot infer variadic function arity; use (function, arity).
+    >>> learner2 = EquationLearner([(lambda *a: a[0] * a[1], 2)])
+
+    .. versionadded:: 2.0
     """
 
     def __init__(
@@ -230,9 +419,34 @@ class EquationLearner:
 
     @property
     def threshold(self) -> float | None:
-        """The magnitude below which the coefficients of the projections are
-        dropped; None drops none. Set it at any time: a built model computes
-        and trains with the new value from then on."""
+        """The magnitude below which the coefficients of the projections are dropped.
+
+        A number ``>= 0``, or ``None`` to drop none. A coefficient whose
+        magnitude equals the threshold is kept. Set it at any time, after
+        training too: a built model computes and trains with the new value
+        from then on, without being built again, and saves it.
+
+        Raises
+        ------
+        ValueError
+            If it is set to a negative number ("must be zero or positive").
+
+        See Also
+        --------
+        EquationLearner.plot : The equation without the dropped coefficients.
+
+        Basic Examples
+        --------------
+        >>> from nnodely import EquationLearner
+        >>> learner = EquationLearner(["sin"], threshold=0.01)
+        >>> learner.threshold
+        0.01
+        >>> learner.threshold = None
+        >>> learner.threshold is None
+        True
+
+        .. versionadded:: 2.0
+        """
         return self._threshold
 
     @threshold.setter
@@ -355,22 +569,80 @@ class EquationLearner:
         return self._model(streams)
 
     def plot(self, precision: int = 4, ax=None) -> Any:
-        """Draw the learned equation with matplotlib, typeset as LaTeX, and
-        return it as a sympy ``Eq``: ``y = ...``, a list of ``y_k = ...`` with
-        several outputs, or of ``f_j = ...``, the basis, without
-        ``linear_out``.
+        """Draw the learned equation with matplotlib, and return it as a sympy ``Eq``.
 
-        It is the equation the model computes now, with the current
-        coefficients of the projections less those the threshold drops,
-        expanded, its numbers rounded to ``precision`` significant digits.
-        Its variables are named after the streams of the first call, with
-        ``_i`` for each feature of a vector. The functions are written in
-        mathematical notation where there is one, the other layers by name,
-        and a Python function as the expression it computes on symbols, when
-        it can. Draws on ``ax``, or on a new figure sized to the equation, a
-        long one on several lines, with matplotlib's TeX renderer, which needs
-        no LaTeX installation. ``sympy.latex(eq)`` gives the LaTeX source; a
-        notebook shows the returned equation typeset too.
+        It is the equation the model computes now: the current coefficients
+        of the projections, less those the threshold drops. The equation is
+        expanded, and its numbers are rounded to ``precision`` significant
+        digits. Its variables are named after the streams of the first call,
+        with ``_i`` for each feature of a vector: ``pos_0``, ``pos_1``.
+
+        The functions are written in mathematical notation where there is
+        one, the other layers by name. A Python function is written as the
+        expression it computes on symbols, when it can. The drawing uses
+        matplotlib's TeX renderer, which needs no LaTeX installation. A long
+        equation is drawn on several lines.
+
+        Parameters
+        ----------
+        precision : int, default 4
+            The significant digits of the numbers.
+        ax : matplotlib.axes.Axes, optional
+            The axes to draw on. The default draws on a new figure sized to
+            the equation.
+
+        Returns
+        -------
+        sympy.Eq or list of sympy.Eq
+            ``y = ...`` with ``linear_out`` of one feature. A list of
+            ``y_k = ...`` with several features, or of ``f_j = ...``, the
+            basis, without ``linear_out``. ``sympy.latex(eq)`` gives the
+            LaTeX source, and a notebook shows the equation typeset.
+
+        Raises
+        ------
+        RuntimeError
+            If the learner was not called, or its model was not built
+            ("plot() reads the coefficients of a built model").
+
+        See Also
+        --------
+        EquationLearner.threshold : Drops the small coefficients.
+        Modely.build : Creates the coefficients.
+
+        Basic Examples
+        --------------
+        The basis ``sin(x)`` and ``x * x``, without ``linear_out``:
+
+        >>> import matplotlib.pyplot as plt
+        >>> import sympy
+        >>> from nnodely import EquationLearner, Input, Linear, Modely, Output
+        >>> x = Input("x", tw=1)
+        >>> learner = EquationLearner(["sin", "multiply"], linear_in=Linear(features=3, kernel="ones", bias=False))
+        >>> model = Modely("basis", inputs=[x], outputs=[Output("f", learner(x))]).build()
+        >>> learner.plot()
+        [Eq(f_0, sin(x)), Eq(f_1, x**2)]
+        >>> sympy.latex(learner.plot()[1])
+        'f_{1} = x^{2}'
+
+        Options
+        -------
+        ``ax`` draws on axes of your own:
+
+        >>> figure, axes = plt.subplots()
+        >>> equations = learner.plot(ax=axes)
+        >>> plt.close("all")
+
+        Possible Issues
+        ---------------
+        The coefficients exist once the model is built:
+
+        >>> EquationLearner(["sin"]).plot()
+        Traceback (most recent call last):
+            ...
+        RuntimeError: ...plot() reads the coefficients of a built model: call the learner on its inputs and build the model first.
+
+        .. versionadded:: 2.0
         """
         import matplotlib.pyplot as plt
 
@@ -401,7 +673,7 @@ class EquationLearner:
         return equations[0] if len(equations) == 1 else equations
 
     def _equations(self, precision: int) -> list:
-        """The equations :meth:`plot` draws, as sympy ``Eq``."""
+        """The equations :meth:`EquationLearner.plot` draws, as sympy ``Eq``."""
         import sympy
 
         if self._linear_in is None or self._linear_in.kernel is None:

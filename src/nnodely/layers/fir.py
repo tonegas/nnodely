@@ -83,35 +83,187 @@ class FirImpl(keras.layers.Layer):
 
 
 class Fir(_ParameterWeights):
-    """
-    Filter over the window, ``T``, of every element: each element is
-    projected onto ``features`` channels, one time step long. Elements
-    are never mixed: each has a kernel of its own, or with
-    ``shared_kernel=True`` they all share one. The sequence axes are kept,
-    the filter applied at each of their steps::
+    r"""Learned weighted sum over the window of a stream: one sample per window.
 
-        input:  (batch, *seq, window, *dim)
-        output: (batch, *seq, 1, *dim, features)
+    Syntax
+    ------
+    ``Fir(features=1)(x)``
+        Filters every feature of ``x`` over its window, into one sample.
+    ``Fir(features=n)(x)``
+        Gives every feature ``n`` output channels, each with its own filter.
+    ``Fir(kernel=k, bias=False)(x)``
+        Filters with the coefficients the :class:`Parameter` ``k`` holds.
 
-    The channel axis, the last, is added only for ``features > 1``, and a
-    scalar dim ``(1,)`` gives way to it::
+    The window of ``x``, ``T`` samples, becomes one sample. Each feature is
+    filtered over its own window, and features are never mixed: use
+    :class:`Linear` to combine them. The sequence axes are kept, and the
+    filter is applied at every step.
 
-        Fir(features=1)  on D=(2, 3) -> D=(2, 3)
-        Fir(features=4)  on D=(2, 3) -> D=(2, 3, 4)
-        Fir(features=4)  on D=(1,)   -> D=(4,)
+    Parameters
+    ----------
+    features : int, default 1
+        The output channels of every feature. ``1`` keeps the features of
+        ``x``.
+    kernel : str, keras.initializers.Initializer or Parameter, default "glorot_uniform"
+        The coefficients. An initializer, by name or object, draws them; a
+        :class:`Parameter` of shape ``(*D, T, features)`` holds them. Row 0
+        multiplies the oldest sample of the window. A scalar ``x``, ``D=(1,)``,
+        or a shared kernel leaves out ``*D``.
+    bias : bool, str, keras.initializers.Initializer or Parameter, default True
+        The offset added to every channel. ``True`` starts it from zeros,
+        ``False`` leaves it out. An initializer, or a Parameter of shape
+        ``(*D, features)``, sets it.
+    shared_kernel : bool, default False
+        ``True`` filters every feature with the same kernel and bias.
+    name : str, optional
+        The name of the layer. Its weights are named ``<name>_kernel`` and
+        ``<name>_bias``. The default is ``Fir`` followed by a number.
 
-    ``kernel`` is ``[*dim, window, features]`` and ``bias``
-    ``[*dim, features]`` (without ``*dim`` for a scalar input or a shared
-    kernel). Both are Parameters, predecessors of the layer: assigning or
-    training them changes the filter. Each is given as a :class:`Parameter`,
-    of the shape of the weight (axes of size 1 aside), or as a Keras
-    initializer, by name or object, from which the layer makes one, named
-    ``"<name>_kernel"`` or ``"<name>_bias"``, drawing the filter and the bias
-    of each element alone, as if it were a scalar. ``bias=True`` makes a bias
-    of zeros, and ``bias=False`` leaves it out::
+    Call arguments
+    --------------
+    x : Stream
+        A stream with a window, ``Shape(S, T, D)``. The call takes it alone,
+        ``Fir()(x)``, or in a list, ``Fir()([x])``.
 
-        W = Parameter("W", dim=(3, 5, 4))   # (*dim, window, features)
-        Fir(features=4, kernel=W, bias=False)([x])  # x = Input("x", dim=3, tw=5)
+    Returns
+    -------
+    Stream
+        ``Shape(S, 1, D)`` with ``features=1``. With more channels,
+        ``Shape(S, 1, (*D, features))``, or ``Shape(S, 1, (features,))``
+        for a scalar ``x``. For example, a window of 5 samples of 3 features,
+        ``Shape(S=(), T=5, D=(3,))``, gives ``D=(3,)``, and ``D=(3, 2)``
+        with ``features=2``.
+
+    Raises
+    ------
+    ValueError
+        If ``x`` has no window ("Fir acts on the window of its stream, and
+        'x' has none"), or if a kernel or bias Parameter does not have the
+        shape of the weight ("kernel must have the shape ...").
+    TypeError
+        If the layer is called before it is configured, ``Fir(x)``.
+
+    See Also
+    --------
+    Linear : Affine map over the features of every sample.
+    TimeSelect : One sample of a window.
+    TimeRange : A part of a window.
+    LocalModel : Filters blended by operating region.
+
+    Notes
+    -----
+    For one feature and one channel, with the window :math:`x_0, \dots,
+    x_{T-1}` from the oldest sample to the newest:
+
+    .. math:: y = \sum_{i=0}^{T-1} k_i \, x_i + b
+
+    The kernel and the bias are :class:`Parameter` objects. They are listed
+    by :attr:`Modely.parameters`, and are trained, frozen and saved with the
+    model. After :meth:`Modely.build`, the stream the layer returns exposes
+    their Keras variables as ``kernel`` and ``bias``.
+
+    Basic Examples
+    --------------
+    A weighted sum of the last three samples, with known coefficients:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Fir, Input, Linear, Modely, Output, Parameter
+    >>> x = Input("x", tw=3)
+    >>> k = Parameter("k", value=[[0.25], [0.25], [0.5]])  # oldest sample first
+    >>> y = Fir(kernel=k, bias=False)(x)
+    >>> model = Modely("fir_demo", inputs=[x], outputs=[Output("y", y)]).build()
+    >>> result = model({"x": np.array([[[1.0], [2.0], [3.0]]])})
+    >>> keras.ops.convert_to_numpy(result["y"])  # 0.25*1 + 0.25*2 + 0.5*3
+    array([[[2.25]]], dtype=float32)
+
+    Scope
+    -----
+    A window of several features is filtered feature by feature:
+
+    >>> v = Input("v", dim=3, tw=4)
+    >>> Fir()(v).shape
+    Shape(S=(), T=1, D=(3,))
+
+    A sequence keeps its axes, the filter applied at every step:
+
+    >>> Fir()(Input("s", seq=5, tw=4)).shape
+    Shape(S=(5,), T=1, D=(1,))
+
+    Options
+    -------
+    ``features`` adds an axis of that many channels, which replaces the
+    feature of a scalar:
+
+    >>> Fir(features=2)(v).shape
+    Shape(S=(), T=1, D=(3, 2))
+    >>> Fir(features=2)(x).shape
+    Shape(S=(), T=1, D=(2,))
+
+    ``kernel`` and ``bias`` take an initializer by name:
+
+    >>> y = Fir(kernel="zeros", bias="ones")(x)
+
+    ``shared_kernel=True`` filters the 3 features of ``v`` with one kernel of
+    4 coefficients, instead of one kernel each:
+
+    >>> shared = Fir(shared_kernel=True, name="shared")(v)
+    >>> own = Fir(name="own")(v)
+    >>> model = Modely("kernels", inputs=[v], outputs=[Output("a", shared), Output("b", own)])
+    >>> [(p.name, p.shape.dim) for p in model.parameters]
+    [('shared_kernel', (4, 1)), ('shared_bias', (1,)), ('own_kernel', (3, 4, 1)), ('own_bias', (3, 1))]
+
+    ``name`` names the layer and its weights:
+
+    >>> y = Fir(name="filter")(x)
+    >>> model = Modely("named", inputs=[x], outputs=[Output("y", y)])
+    >>> [p.name for p in model.parameters]
+    ['filter_kernel', 'filter_bias']
+
+    Applications
+    ------------
+    The discretized mass-spring-damper predicts the next position from the
+    last positions and the current force. Its structure is two filters:
+
+    >>> position = Input("position", tw=4)
+    >>> force = Input("force", tw=1)
+    >>> next_position = Fir()(position) + Fir(bias=False)(force)
+    >>> next_position.shape
+    Shape(S=(), T=1, D=(1,))
+
+    Properties & Relations
+    ----------------------
+    On a window of one sample, a filter is the :class:`Linear` map of that
+    sample:
+
+    >>> w = Input("w", tw=1)
+    >>> fir = Fir(kernel=Parameter("k_fir", value=[[2.0]]), bias=False)(w)
+    >>> linear = Linear(kernel=Parameter("k_lin", value=[[2.0]]), bias=False)(w)
+    >>> model = Modely("same", inputs=[w], outputs=[Output("fir", fir), Output("lin", linear)])
+    >>> result = model.build()({"w": np.array([[[3.0]]])})
+    >>> keras.ops.convert_to_numpy(result["fir"]), keras.ops.convert_to_numpy(result["lin"])
+    (array([[[6.]]], dtype=float32), array([[[6.]]], dtype=float32))
+
+    Possible Issues
+    ---------------
+    A stream without a window cannot be filtered. Declare a window on the
+    Input:
+
+    >>> Fir()(Input("current"))
+    Traceback (most recent call last):
+        ...
+    ValueError: ...Fir acts on the window of its stream, and 'current' has none...
+    >>> Fir()(Input("current", tw=1)).shape
+    Shape(S=(), T=1, D=(1,))
+
+    The layer is configured first, then called on its stream:
+
+    >>> Fir(x)
+    Traceback (most recent call last):
+        ...
+    TypeError: Fir has settings, so it is configured first and then called on its streams: Fir(...)(x), not Fir(x).
+
+    .. versionadded:: 2.0
     """
 
     def __init__(

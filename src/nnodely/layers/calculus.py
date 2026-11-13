@@ -199,64 +199,236 @@ class IntegrateImpl(keras.layers.Layer):
 
 
 class IntegrateStep(Layer):
-    """
-    Time integration of a rate signal along its own tw axis::
+    r"""Running integral of a rate along its window: one value per sample.
 
-        IntegrateStep(method="euler"|"rectangular"|"trapezoidal", dt=0.01)(rate)
-        IntegrateStep(method="euler", dt=0.01)(init, rate)
-        IntegrateStep(method="trapezoidal", dt=0.01)(init, init_rate, rate)
+    Syntax
+    ------
+    ``IntegrateStep(dt=dt)(rate)``
+        The integral of ``rate`` at every sample of its window, from zero.
+    ``IntegrateStep(dt=dt)(init, rate)``
+        The same, from ``init``, the value of the integral before the window.
+    ``IntegrateStep(method="trapezoidal", dt=dt)(init, init_rate, rate)``
+        The trapezoidal rule, with ``init_rate`` the rate before the window.
 
-    The window's length is preserved: sample ``i`` of the rate is the rate of
-    the interval *ending* at ``i`` - the interval ``DerivativeStep``'s backward
-    difference produced it from - and integrates into the value at ``i``::
+    The window keeps its length: sample ``i`` of the result is the integral
+    at the end of the interval of sample ``i`` of the rate. On a window of
+    one sample, the layer is one integration step, the state update
+    ``IntegrateStep(dt=dt)(v, a)``, :math:`v + \Delta t \, a`. On a longer
+    window, it gives the whole integrated trajectory in one pass, with no
+    rollout.
 
-        y[i] = y[i-1] + dt * rate[i]                   # "euler"/"rectangular"
-        y[i] = y[i-1] + dt/2 * (rate[i-1] + rate[i])   # "trapezoidal"
+    For one rate sample per step of a :class:`ModelyLoop` or a :class:`Loop`
+    body, use :class:`Integrate`, which keeps the integral from one step to
+    the next.
 
-    with ``y[-1] = init`` and ``rate[-1] = init_rate``. Two things follow
-    from that convention:
+    Parameters
+    ----------
+    method : str, default "euler"
+        The integration rule:
 
-    * **A one-sample window is one integration step.** ``IntegrateStep(dt=dt)(
-      velocity, acceleration)`` is the state update
-      ``velocity + dt * acceleration``, so a recurrence needs no separate form
-      of this layer and no ``+`` written around it; with the trapezoidal rule,
-      ``(velocity, previous_acceleration, acceleration)`` is the trapezoid.
+        * ``"euler"``: the rectangle of each sample, its rate times ``dt``.
+        * ``"rectangular"``: the same rule as ``"euler"``.
+        * ``"trapezoidal"``: the trapezoid between each sample and the one
+          before it.
 
-    * **It inverts DerivativeStep exactly**, with the same initial condition and
-      no bookkeeping: ``IntegrateStep(dt=dt)(x0, DerivativeStep(dt=dt)(x0,
-      x))`` is ``x``, because the rectangular rule sums back exactly
-      the increments the backward difference took apart. (The trapezoidal rule
-      trades that exactness for second-order accuracy on a smooth rate.)
+        Only ``"euler"`` is also a method of :func:`Ode`, with the same rule.
+    dt : float
+        The time between two samples, a positive number. It is required:
+        nothing infers it from the data. The integral is in the unit of
+        ``rate`` times the unit of ``dt``.
+    name : str, optional
+        The name of the layer. The default is ``IntegrateStep`` followed by a
+        number.
 
-    The layer is called on the samples before the window, then the rate; a
-    sample left out is zero, a number is kept as a Constant:
+    Call arguments
+    --------------
+    init : Stream or float, optional
+        The value of the integral before the window. It is zero when left
+        out. It is one sample: a number, a :class:`Parameter` or a
+        :class:`Constant` without a window, or a stream with ``T=1``. Its
+        features are a scalar or those of ``rate``, and its sequence is none
+        or that of ``rate``.
+    init_rate : Stream or float, optional
+        The rate before the window, for ``"trapezoidal"`` only, of the same
+        forms as ``init``. It is zero when left out, a rate at rest before
+        the window.
+    rate : Stream
+        A stream with a window, ``Shape(S, T, D)``.
 
-    * ``init`` is the constant of integration - the value the signal had at
-      the sample *before* the window, the same instant ``DerivativeStep``
-      reads its own ``init`` at. Typically the state the window continues. It
-      is what turns a relative increment into the absolute quantity
-      mechanical models are written in::
+    Returns
+    -------
+    Stream
+        The shape of ``rate``: ``Shape(S, T, D)`` gives ``Shape(S, T, D)``.
+        For example, ``Input("a", tw=50)`` gives
+        ``Shape(S=(), T=50, D=(1,))``.
 
-          velocity = IntegrateStep(dt=dt)(v0, acceleration)  # Input(..., tw=n)
-          position = IntegrateStep(dt=dt)(x0, velocity)
+    Raises
+    ------
+    ValueError
+        If ``method`` is not one of the three ("method must be one of"), if
+        ``dt`` is missing or not positive ("dt is required", "dt must be
+        positive"), if ``rate`` has no window ("acts on the window of its
+        stream"), or if ``init`` or ``init_rate`` is not one sample of the
+        features and sequence of ``rate`` ("init holds the samples before
+        the first").
+    TypeError
+        If ``dt`` is not a number, if the layer is called before it is
+        configured, ``IntegrateStep(rate)``, or if it is called on more
+        streams than its method reads ("is called on the signal, or on
+        init, signal").
 
-    * ``init_rate``, for the trapezoidal rule only, is the rate at the sample
-      before the window, which the first trapezoid averages with the first
-      rate. Without it the rate before the window is zero, as when the signal
-      starts at rest - the history ``DerivativeStep`` assumes too.
+    See Also
+    --------
+    Integrate : The same integral, one step at a time.
+    DerivativeStep : The time derivative along a window, its inverse.
+    Ode : One step of an ODE, with Runge-Kutta methods.
 
-    Each is one sample: a window of one, or a value without a window, of a
-    scalar dim or the rate's, and no sequence or the rate's. Both integrals
-    above come out of one forward pass over the whole window, so a multi-step
-    loss on the trajectory needs no rollout to unroll it.
+    Notes
+    -----
+    With :math:`r_0, \dots, r_{T-1}` the rate from the oldest sample to the
+    newest, :math:`y_{-1}` = ``init`` and :math:`r_{-1}` = ``init_rate``,
+    sample :math:`i` of the result is, with ``"euler"`` and
+    ``"rectangular"``:
 
-    ``dt`` is the time step, in the unit the rate is expressed in, and is
-    always explicit: nothing is inferred from the inputs, so the same relation
-    cannot silently integrate at two different rates.
+    .. math:: y_i = y_{i-1} + \Delta t \, r_i
 
-    There is no ``"rk4"`` and no ``"heun"``: both name predictor-corrector
-    schemes that re-evaluate the dynamics at a *predicted* state, which no
-    quadrature over an observed rate performs; :func:`~nnodely.Ode` does.
+    and with ``"trapezoidal"``:
+
+    .. math:: y_i = y_{i-1} + \frac{\Delta t}{2} \left(r_{i-1} + r_i\right)
+
+    Sample :math:`r_i` is the rate of the interval that ends at sample
+    :math:`i`, the interval the backward difference of
+    :class:`DerivativeStep` computes it from. So the Euler rule inverts
+    ``DerivativeStep`` exactly, with the same ``init``. The trapezoidal rule
+    is second-order accurate on a smooth rate instead.
+
+    There is no ``"rk4"`` and no ``"heun"``. These methods evaluate the
+    dynamics again at a predicted state, which an integral of a given rate
+    cannot do: use :func:`Ode`. The integral is a linear map of the rate and
+    of the initial values, so gradients flow through it to all of them.
+
+    Basic Examples
+    --------------
+    The velocity of an acceleration sampled every 0.5 s, from rest:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import DerivativeStep, Input, IntegrateStep, Modely, Output
+    >>> a = Input("a", tw=4)
+    >>> v = IntegrateStep(dt=0.5)(a)
+    >>> model = Modely("velocity", inputs=[a], outputs=[Output("v", v)]).build()
+    >>> window = np.array([[[2.0], [4.0], [6.0], [8.0]]])
+    >>> keras.ops.convert_to_numpy(model({"a": window})["v"]).ravel()
+    array([ 1.,  3.,  6., 10.], dtype=float32)
+
+    Scope
+    -----
+    Every feature and every step of a sequence is integrated along its own
+    window:
+
+    >>> IntegrateStep(dt=0.5)(Input("w", dim=3, seq=5, tw=4)).shape
+    Shape(S=(5,), T=4, D=(3,))
+
+    On a window of one sample, the layer is one state update,
+    :math:`v + \Delta t \, a`:
+
+    >>> velocity = Input("velocity", tw=1)
+    >>> acceleration = Input("acceleration", tw=1)
+    >>> IntegrateStep(dt=0.5)(velocity, acceleration).shape
+    Shape(S=(), T=1, D=(1,))
+
+    Options
+    -------
+    ``init`` is the value before the window:
+
+    >>> model = Modely(
+    ...     "from_one", inputs=[a], outputs=[Output("v", IntegrateStep(dt=0.5)(1.0, a))]
+    ... ).build()
+    >>> keras.ops.convert_to_numpy(model({"a": window})["v"]).ravel()
+    array([ 2.,  4.,  7., 11.], dtype=float32)
+
+    ``method="trapezoidal"`` averages each rate with the one before it, zero
+    before the window unless ``init_rate`` gives it. The first values are
+    :math:`1 + 0.25 \cdot (0 + 2)` and :math:`1 + 0.25 \cdot (2 + 2)`:
+
+    >>> at_rest = IntegrateStep(method="trapezoidal", dt=0.5)(1.0, a)
+    >>> moving = IntegrateStep(method="trapezoidal", dt=0.5)(1.0, 2.0, a)
+    >>> model = Modely(
+    ...     "trapezoids", inputs=[a],
+    ...     outputs=[Output("at_rest", at_rest), Output("moving", moving)],
+    ... ).build()
+    >>> result = model({"a": window})
+    >>> keras.ops.convert_to_numpy(result["at_rest"]).ravel()
+    array([1.5, 3. , 5.5, 9. ], dtype=float32)
+    >>> keras.ops.convert_to_numpy(result["moving"]).ravel()
+    array([2. , 3.5, 6. , 9.5], dtype=float32)
+
+    ``name`` names the layer:
+
+    >>> IntegrateStep(dt=0.5, name="speed")(a).name
+    'speed'
+
+    Applications
+    ------------
+    The position of a body from a window of 50 accelerations, in one pass:
+
+    >>> acceleration_window = Input("acceleration_window", tw=50)
+    >>> v_window = IntegrateStep(dt=0.01)(acceleration_window)
+    >>> x_window = IntegrateStep(dt=0.01)(v_window)
+    >>> x_window.shape
+    Shape(S=(), T=50, D=(1,))
+
+    The state update of a model declared one step at a time, where
+    ``velocity`` holds the value at the previous step:
+
+    >>> v_next = velocity.feedback(IntegrateStep(dt=0.01)(velocity, acceleration))
+
+    Properties & Relations
+    ----------------------
+    The Euler rule inverts :class:`DerivativeStep` with the same ``init``:
+
+    >>> x = Input("x", tw=4)
+    >>> back = IntegrateStep(dt=0.5)(3.0, DerivativeStep(dt=0.5)(3.0, x))
+    >>> model = Modely("inverse", inputs=[x], outputs=[Output("x", back)]).build()
+    >>> samples = np.array([[[1.0], [2.0], [4.0], [7.0]]])
+    >>> keras.ops.convert_to_numpy(model({"x": samples})["x"]).ravel()
+    array([1., 2., 4., 7.], dtype=float32)
+
+    ``"rectangular"`` is ``"euler"``:
+
+    >>> model = Modely(
+    ...     "rectangles", inputs=[a],
+    ...     outputs=[Output("v", IntegrateStep(method="rectangular", dt=0.5)(a))],
+    ... ).build()
+    >>> keras.ops.convert_to_numpy(model({"a": window})["v"]).ravel()
+    array([ 1.,  3.,  6., 10.], dtype=float32)
+
+    Possible Issues
+    ---------------
+    The rate needs a window. Declare one on the Input:
+
+    >>> IntegrateStep(dt=0.5)(Input("thrust"))
+    Traceback (most recent call last):
+        ...
+    ValueError: ...acts on the window of its stream, and 'thrust' has none...
+    >>> IntegrateStep(dt=0.5)(Input("thrust", tw=1)).shape
+    Shape(S=(), T=1, D=(1,))
+
+    Only the trapezoidal rule reads the rate before the window:
+
+    >>> IntegrateStep(dt=0.5)(1.0, 2.0, a)
+    Traceback (most recent call last):
+        ...
+    TypeError: IntegrateStep is called on the signal, or on init, signal...got 3 arguments.
+
+    Runge-Kutta methods belong to :func:`Ode`:
+
+    >>> IntegrateStep(method="rk4", dt=0.5)
+    Traceback (most recent call last):
+        ...
+    ValueError: IntegrateStep: method must be one of ['euler', 'rectangular', 'trapezoidal'], got 'rk4'.
+
+    .. versionadded:: 2.0
     """
 
     def __init__(
@@ -319,42 +491,204 @@ class IntegrateStep(Layer):
 
 
 class Integrate:
-    """Integrate a rate one step at a time, in a :class:`~nnodely.ModelyLoop`
-    or a :class:`~nnodely.Loop`.
+    r"""Integral of a rate one step at a time, in a ModelyLoop or a Loop body.
 
-    ::
+    Syntax
+    ------
+    ``Integrate(dt)(rate)``
+        The integral of ``rate`` at the end of each step, from zero.
+    ``Integrate(dt, init=y0)(rate)``
+        The same, from ``y0``, the integral before the first step.
+    ``Integrate(dt, method="trapezoidal", init=y0, init_rate=r0)(rate)``
+        The trapezoidal rule, with ``r0`` the rate before the first step.
 
-        Integrate(method="euler"|"rectangular"|"trapezoidal", dt=0.01, init=x0)(rate)
-        Integrate(method="trapezoidal", dt=0.01, init=x0, init_rate=r0)(rate)
+    The rate is one sample per step, ``T=1``. The integral is a state: an
+    Input named ``<name>_<rate>``, fed back with the result. The
+    :class:`ModelyLoop`, or the :class:`Loop` whose body holds the layer,
+    feeds it back with its other states, in one rollout. The trapezoidal rule
+    also keeps the rate of the previous step, in the state
+    ``<name>_<rate>_rate``. These states are not your Inputs:
+    :attr:`Modely.inputs` lists them as not declared.
 
-    The high-level counterpart of :class:`IntegrateStep`: the rate is one
-    sample of a step, ``T=1``, and the integral is a hidden Input named after
-    the block and the rate, ``<name>_<rate>`` (``Integrate3_u`` for
-    ``Integrate(dt=dt)(u)``), fed back with the result, which the loop feeds
-    back with all its other fed-back Inputs, in its one rollout - no Loop of
-    its own. The trapezoidal rule also keeps the rate of the previous step in
-    a hidden Input, ``<name>_<rate>_rate``. The result, named after the
-    block, is the value at the end of the step::
+    The rules and the results are those of :class:`IntegrateStep` on a window
+    of the same samples. Built as a plain :class:`Modely`, which has no steps,
+    the layer reads ``init`` and ``init_rate`` in place of the states.
 
-        y[k] = y[k-1] + dt * rate[k]                      # "euler", "rectangular"
-        y[k] = y[k-1] + dt/2 * (rate[k-1] + rate[k])      # "trapezoidal"
+    ``dt`` comes first here, and ``method`` first in :class:`IntegrateStep`:
+    pass both by name to avoid mistakes.
 
-    These are the rules of ``IntegrateStep``, laid out step by step: along a
-    time window instead, the same samples integrate to the same values.
-    :class:`Derivative` with the same ``init`` is its inverse, as
-    ``DerivativeStep`` is ``IntegrateStep``'s along a window.
+    Parameters
+    ----------
+    dt : float
+        The time between two steps, a positive number. It is required.
+    method : str, default "euler"
+        The integration rule, as in :class:`IntegrateStep`:
 
-    ``init`` is the integral just before the first step, ``y[-1]``, and
-    ``init_rate``, for the trapezoidal rule only, the rate before it,
-    ``rate[-1]``: each the only initial value of its hidden Input, which
-    cannot be named, so no loop gives it another. A number, a Parameter or a
-    Constant, or an Input of one sample (a scalar, or the rate's dim and
-    sequence) - an input of the step, whose first step a ModelyLoop reads and
-    to which a Loop binds a stream of its outer graph; ``None`` for zero, a
-    rate at rest before the start. Built as a :class:`~nnodely.Modely`
-    instead, nothing feeds them back: the step reads ``init`` and
-    ``init_rate`` in their place, as the first step of a loop does, and no
-    Input of its own.
+        * ``"euler"`` or ``"rectangular"``: the rectangle of each step.
+        * ``"trapezoidal"``: the trapezoid between each step and the one
+          before it.
+    init : Stream or float, optional
+        The integral before the first step. It is zero when left out. It can
+        be a number, a :class:`Parameter`, a :class:`Constant`, or an Input of
+        one sample, whose first step is read. Its features are a scalar or
+        those of ``rate``, and its sequence is none or that of ``rate``. It
+        is the only initial value of the state: a Loop cannot give it
+        another.
+    init_rate : Stream or float, optional
+        The rate before the first step, for ``"trapezoidal"`` only, of the
+        same forms as ``init``. It is zero when left out, a rate at rest
+        before the start.
+    name : str, optional
+        The name of the stream the layer returns. The states are named after
+        it. A second call of the same object integrates with a state of its
+        own: its result is named ``<name>_2``. The default name is
+        ``Integrate`` followed by a number.
+
+    Call arguments
+    --------------
+    rate : Stream
+        One sample per step, ``Shape(S, 1, D)``. The call takes it alone or in
+        a list of one.
+
+    Returns
+    -------
+    Stream
+        The shape of ``rate``, ``Shape(S, 1, D)``: the integral at the end of
+        this step. For example, ``Input("a", tw=1)`` gives
+        ``Shape(S=(), T=1, D=(1,))``. As an output of a ModelyLoop it is a
+        trajectory, one value per step.
+
+    Raises
+    ------
+    ValueError
+        If ``dt`` is missing or not positive, if ``method`` is not one of the
+        three ("method must be one of"), if ``init_rate`` is given to another
+        method than ``"trapezoidal"``, if ``rate`` has no window ("acts on the
+        window of its stream") or more than one sample ("takes one rate sample
+        per step"), or if ``init`` or ``init_rate`` is not one sample of the
+        features and sequence of ``rate``.
+    TypeError
+        If ``dt`` is not a number, if ``init`` or ``init_rate`` is not a
+        stream, a number or None, or if ``rate`` is not a stream.
+
+    See Also
+    --------
+    IntegrateStep : The same integral along a window.
+    Derivative : The derivative one step at a time, its inverse.
+    ModelyLoop : A model declared one step at a time.
+    Loop : The rollout of a one-step model.
+    Ode : One step of an ODE, with Runge-Kutta methods.
+
+    Notes
+    -----
+    At step :math:`k`, with :math:`y_{-1}` = ``init`` and :math:`r_{-1}` =
+    ``init_rate``, the result is, with ``"euler"`` and ``"rectangular"``:
+
+    .. math:: y_k = y_{k-1} + \Delta t \, r_k
+
+    and with ``"trapezoidal"``:
+
+    .. math:: y_k = y_{k-1} + \frac{\Delta t}{2} \left(r_{k-1} + r_k\right)
+
+    Basic Examples
+    --------------
+    The velocity of an acceleration given one sample per step, every 0.5 s,
+    from rest:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Input, Integrate, IntegrateStep, Loop, Modely, ModelyLoop, Output
+    >>> a = Input("a", tw=1)
+    >>> v = Integrate(dt=0.5, name="v")(a)
+    >>> model = ModelyLoop("velocity", inputs=[a], outputs=[Output("v", v)]).build()
+    >>> steps = np.array([2.0, 4.0, 6.0, 8.0]).reshape(1, 4, 1, 1)
+    >>> keras.ops.convert_to_numpy(model({"a": steps})["v"]).ravel()
+    array([ 1.,  3.,  6., 10.], dtype=float32)
+
+    The state is an Input of the model, named after the layer and the rate:
+
+    >>> model.inputs[1].name
+    'v_a'
+
+    Options
+    -------
+    ``init`` can be an Input of the step: its first step is read, here 1.0.
+
+    >>> v0 = Input("v0", tw=1)
+    >>> v = Integrate(dt=0.5, init=v0)(a)
+    >>> model = ModelyLoop("from_v0", inputs=[a, v0], outputs=[Output("v", v)]).build()
+    >>> start = np.array([1.0, 9.0, 9.0, 9.0]).reshape(1, 4, 1, 1)
+    >>> keras.ops.convert_to_numpy(model({"a": steps, "v0": start})["v"]).ravel()
+    array([ 2.,  4.,  7., 11.], dtype=float32)
+
+    ``method="trapezoidal"`` averages each rate with the one before it, which
+    ``init_rate`` gives at the first step. The first value is
+    :math:`1 + 0.25 \cdot (2 + 2)`:
+
+    >>> v = Integrate(dt=0.5, method="trapezoidal", init=1.0, init_rate=2.0)(a)
+    >>> model = ModelyLoop("trapezoid", inputs=[a], outputs=[Output("v", v)]).build()
+    >>> keras.ops.convert_to_numpy(model({"a": steps})["v"]).ravel()
+    array([2. , 3.5, 6. , 9.5], dtype=float32)
+
+    ``name`` names the result:
+
+    >>> Integrate(dt=0.5, name="speed")(a).name
+    'speed'
+
+    Applications
+    ------------
+    A mass pushed by a force, in a one-step model rolled out by a
+    :class:`Loop`. The Loop finds the state of the layer in its body, and
+    needs no ``feedback``:
+
+    >>> force = Input("force", tw=1)
+    >>> speed = Integrate(dt=0.5, name="speed")(force / 2.0)
+    >>> body = Modely("mass", inputs=[force], outputs=[Output("speed", speed)])
+    >>> forces = Input("forces", seq=3, tw=1)
+    >>> rollout = Modely(
+    ...     "push", inputs=[forces], outputs=[Output("speed", Loop(f=body)(forces))]
+    ... ).build()
+    >>> pushes = np.array([4.0, 8.0, 12.0]).reshape(1, 3, 1, 1)
+    >>> keras.ops.convert_to_numpy(rollout({"forces": pushes})["speed"]).ravel()
+    array([1., 3., 6.], dtype=float32)
+
+    Properties & Relations
+    ----------------------
+    The same samples give the same values as :class:`IntegrateStep` on a
+    window:
+
+    >>> w = Input("w", tw=4)
+    >>> v_window = IntegrateStep(dt=0.5)(w)
+    >>> model = Modely("window", inputs=[w], outputs=[Output("v", v_window)]).build()
+    >>> keras.ops.convert_to_numpy(model({"w": steps.reshape(1, 4, 1)})["v"]).ravel()
+    array([ 1.,  3.,  6., 10.], dtype=float32)
+
+    Built as a plain :class:`Modely`, the step reads ``init`` as the integral
+    before it: :math:`1 + 0.5 \cdot 2`.
+
+    >>> v = Integrate(dt=0.5, init=1.0)(a)
+    >>> model = Modely("one_step", inputs=[a], outputs=[Output("v", v)]).build()
+    >>> keras.ops.convert_to_numpy(model({"a": np.array([[[2.0]]])})["v"])
+    array([[[2.]]], dtype=float32)
+
+    Possible Issues
+    ---------------
+    The layer reads one sample per step. Integrate a window with
+    :class:`IntegrateStep`:
+
+    >>> Integrate(dt=0.5)(Input("long", tw=4))
+    Traceback (most recent call last):
+        ...
+    ValueError: ...Integrate takes one rate sample per step, but the rate carries 4 time samples...
+
+    Only the trapezoidal rule reads ``init_rate``:
+
+    >>> Integrate(dt=0.5, init_rate=1.0)
+    Traceback (most recent call last):
+        ...
+    ValueError: Integrate: init_rate is the rate before the first step, which only the trapezoidal method reads, not 'euler'.
+
+    .. versionadded:: 2.0
     """
 
     def __init__(
@@ -640,36 +974,217 @@ class _FiniteDifference(Layer):
 
 
 class DerivativeStep(_FiniteDifference):
-    """Time derivative of a Stream, along its window::
+    r"""Time derivative of a stream along its window: one derivative per sample.
 
-        DerivativeStep(dt=0.1)(x)                          # dx/dt, from 0
-        DerivativeStep(dt=0.1)(x0, x)                      # dx/dt, from x0
-        DerivativeStep(dt=0.1)(DerivativeStep(dt=0.1)(x))  # d2x/dt2
+    Syntax
+    ------
+    ``DerivativeStep(dt)(x)``
+        The derivative of ``x`` at every sample of its window, with ``x``
+        zero before the window.
+    ``DerivativeStep(dt)(init, x)``
+        The same, with ``init`` the value of ``x`` before the window.
+    ``DerivativeStep(dt, poly_order=n)(x)``
+        A backward difference that reads the ``n`` samples before each one.
+    ``DerivativeStep(dt)(DerivativeStep(dt)(x))``
+        The second derivative.
 
-    The result has the window of ``x``: one derivative per sample, computed
-    from that sample and the ones before it.
+    Each sample of the result is a backward finite difference: it reads that
+    sample of ``x`` and the ones before it, never a later one. The window
+    keeps its length, so the result stays aligned with ``x``. The first
+    samples of the window read ``init`` in place of the samples before it.
 
-    ``dt``
-        The time between two samples.
-    ``poly_order``
-        How many samples before the current one each derivative reads, and
-        so the degree of the curves it is exact on:
+    For one sample per step of a :class:`ModelyLoop` or a :class:`Loop`
+    body, use :class:`Derivative`. For the derivative with respect to an
+    Input, use :class:`Gradient`.
 
-        * ``1`` (default) - ``(x[i] - x[i-1]) / dt``, exact on a line;
-        * ``2`` - ``(3 x[i] - 4 x[i-1] + x[i-2]) / (2 dt)``, exact on a parabola;
-        * ``3`` - ``(11 x[i] - 18 x[i-1] + 9 x[i-2] - 2 x[i-3]) / (6 dt)``,
-          exact on a cubic.
+    Parameters
+    ----------
+    dt : float
+        The time between two samples, a positive number. It is required:
+        nothing infers it from the data. The derivative is in the unit of
+        ``x`` per unit of ``dt``.
+    poly_order : int, default 1
+        The degree of the polynomial through the ``poly_order + 1`` newest
+        samples: each derivative is its slope at the newest one. Any positive
+        integer is accepted. The common ones are:
+
+        * ``1``: :math:`(x_i - x_{i-1}) / \Delta t`, exact on a line.
+        * ``2``: exact on a parabola.
+        * ``3``: exact on a cubic.
 
         A higher order is more accurate on smooth signals, but amplifies
-        noise more: keep ``1`` for measured signals.
-    ``init``, the first argument of the call
-        The value of ``x`` before the window, which the first derivatives
-        read: a number or a Stream, one sample (repeated as needed) or
-        ``poly_order`` samples, oldest first. Zero when left out.
+        noise more. Keep ``1`` for measured signals.
+    name : str, optional
+        The name of the layer. The default is ``DerivativeStep`` followed by
+        a number.
 
-    With ``poly_order=1``, :class:`IntegrateStep` with the same ``init``
-    gives ``x`` back. For one step at a time in a ModelyLoop, see
-    :class:`Derivative`; with respect to an Input, :class:`Gradient`.
+    Call arguments
+    --------------
+    init : Stream or float, optional
+        The value of ``x`` before the window. It is zero when left out. It
+        can be:
+
+        * a number, or a :class:`Parameter` or :class:`Constant` without a
+          window: one sample;
+        * a stream of one sample, ``T=1``, repeated for every sample the
+          stencil reads;
+        * a stream of ``poly_order`` samples, oldest first.
+
+        Its features are a scalar or those of ``x``, and its sequence is none
+        or that of ``x``. An Input needs a window, ``tw=1`` for one sample.
+    x : Stream
+        A stream with a window, ``Shape(S, T, D)``.
+
+    Returns
+    -------
+    Stream
+        The shape of ``x``: ``Shape(S, T, D)`` gives ``Shape(S, T, D)``. For
+        example, a window of 4 samples of 3 features in a sequence of 5,
+        ``Shape(S=(5,), T=4, D=(3,))``, gives the same shape.
+
+    Raises
+    ------
+    ValueError
+        If ``dt`` is missing or not positive ("dt is required", "dt must be
+        positive"), if ``poly_order`` is not a positive integer, if ``x`` has
+        no window ("acts on the window of its stream"), or if ``init`` has
+        another number of samples, features or sequence ("init holds the
+        samples before the first").
+    TypeError
+        If ``dt`` is not a number, if the layer is called before it is
+        configured, ``DerivativeStep(x)``, or if it is called on more than
+        two streams ("is called on the signal, or on init, signal").
+
+    See Also
+    --------
+    Derivative : The same derivative, one step at a time.
+    IntegrateStep : The running integral along a window, its inverse.
+    Gradient : The derivative with respect to an Input.
+
+    Notes
+    -----
+    With :math:`x_0, \dots, x_{T-1}` the window from the oldest sample to the
+    newest, and :math:`p` = ``poly_order``, the samples
+    :math:`x_{-p}, \dots, x_{-1}` come from ``init``. The three common
+    orders, :math:`p` = 1, 2, 3, are:
+
+    .. math::
+
+        \dot x_i = \frac{x_i - x_{i-1}}{\Delta t}
+
+        \dot x_i = \frac{3 x_i - 4 x_{i-1} + x_{i-2}}{2 \Delta t}
+
+        \dot x_i = \frac{11 x_i - 18 x_{i-1} + 9 x_{i-2} - 2 x_{i-3}}{6 \Delta t}
+
+    Order :math:`p` is the slope at :math:`x_i` of the polynomial of degree
+    :math:`p` through :math:`x_{i-p}, \dots, x_i`, so it is exact on such a
+    polynomial. White noise of standard deviation :math:`\sigma` on ``x``
+    becomes noise of about :math:`1.4\sigma/\Delta t`,
+    :math:`2.5\sigma/\Delta t` and :math:`3.8\sigma/\Delta t` on the
+    derivative, for :math:`p` = 1, 2, 3. No order smooths: filter a noisy
+    signal before differentiating it.
+
+    The derivative is a linear map of ``x`` and ``init``, so gradients flow
+    through it to both.
+
+    Basic Examples
+    --------------
+    The velocity of a position sampled every 0.5 s. The first sample reads
+    zero before the window:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import DerivativeStep, Input, IntegrateStep, Modely, Output
+    >>> x = Input("x", tw=4)
+    >>> v = DerivativeStep(dt=0.5)(x)
+    >>> model = Modely("velocity", inputs=[x], outputs=[Output("v", v)]).build()
+    >>> window = np.array([[[1.0], [2.0], [4.0], [7.0]]])
+    >>> keras.ops.convert_to_numpy(model({"x": window})["v"]).ravel()
+    array([2., 2., 4., 6.], dtype=float32)
+
+    Scope
+    -----
+    Every feature and every step of a sequence is differentiated along its
+    own window:
+
+    >>> DerivativeStep(dt=0.5)(Input("w", dim=3, seq=5, tw=4)).shape
+    Shape(S=(5,), T=4, D=(3,))
+
+    ``init`` is a number, a stream of one sample, or a stream of
+    ``poly_order`` samples, oldest first:
+
+    >>> x0 = Input("x0", tw=1)
+    >>> DerivativeStep(dt=0.5)(x0, x).shape
+    Shape(S=(), T=4, D=(1,))
+
+    Options
+    -------
+    ``init`` is the value before the window. From 1.0, the first derivative
+    is :math:`(1 - 1) / 0.5`:
+
+    >>> v = DerivativeStep(dt=0.5)(1.0, x)
+    >>> model = Modely("from_one", inputs=[x], outputs=[Output("v", v)]).build()
+    >>> keras.ops.convert_to_numpy(model({"x": window})["v"]).ravel()
+    array([0., 2., 4., 6.], dtype=float32)
+
+    ``poly_order=2`` reads two samples before each one. Here ``init`` holds
+    both, oldest first: 0.0, then 0.5. The first derivative is
+    :math:`(3 \cdot 1 - 4 \cdot 0.5 + 0) / 1`:
+
+    >>> past = Input("past", tw=2)
+    >>> v2 = DerivativeStep(dt=0.5, poly_order=2)(past, x)
+    >>> model = Modely("second", inputs=[x, past], outputs=[Output("v", v2)]).build()
+    >>> result = model({"x": window, "past": np.array([[[0.0], [0.5]]])})
+    >>> keras.ops.convert_to_numpy(result["v"]).ravel()
+    array([1. , 2.5, 5. , 7. ], dtype=float32)
+
+    ``name`` names the layer:
+
+    >>> DerivativeStep(dt=0.5, name="velocity")(x).name
+    'velocity'
+
+    Applications
+    ------------
+    The velocity and the acceleration of a measured position, over the same
+    window of 10 samples:
+
+    >>> position = Input("position", tw=10)
+    >>> velocity = DerivativeStep(dt=0.01)(position)
+    >>> acceleration = DerivativeStep(dt=0.01)(velocity)
+    >>> acceleration.shape
+    Shape(S=(), T=10, D=(1,))
+
+    Properties & Relations
+    ----------------------
+    :class:`IntegrateStep` with the same ``init`` gives ``x`` back, with
+    ``poly_order=1``:
+
+    >>> back = IntegrateStep(dt=0.5)(3.0, DerivativeStep(dt=0.5)(3.0, x))
+    >>> model = Modely("inverse", inputs=[x], outputs=[Output("x", back)]).build()
+    >>> keras.ops.convert_to_numpy(model({"x": window})["x"]).ravel()
+    array([1., 2., 4., 7.], dtype=float32)
+
+    Possible Issues
+    ---------------
+    A stream without a window cannot be differentiated in time. Declare a
+    window on the Input:
+
+    >>> DerivativeStep(dt=0.5)(Input("speed"))
+    Traceback (most recent call last):
+        ...
+    ValueError: ...acts on the window of its stream, and 'speed' has none...
+    >>> DerivativeStep(dt=0.5)(Input("speed", tw=5)).shape
+    Shape(S=(), T=5, D=(1,))
+
+    ``init`` holds one sample, or the ``poly_order`` samples the stencil
+    reads, and no other number:
+
+    >>> DerivativeStep(dt=0.5)(Input("three", tw=3), x)
+    Traceback (most recent call last):
+        ...
+    ValueError: ...init holds the samples before the first, a single sample; got 3.
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, dt: float | None = None, poly_order: int = 1, name=None):
@@ -710,28 +1225,193 @@ class DerivativeStep(_FiniteDifference):
 
 
 class Derivative(_FiniteDifference):
-    """Time derivative of a Stream, one step at a time, in a
-    :class:`~nnodely.ModelyLoop`::
+    r"""Time derivative of a stream one step at a time, in a ModelyLoop or a
+    Loop body.
 
-        Derivative(dt=0.1)(x)                        # dx/dt, from 0
-        Derivative(dt=0.1, init=x0)(x)               # dx/dt, from x0
-        Derivative(dt=0.1)(Derivative(dt=0.1)(x))    # d2x/dt2
+    Syntax
+    ------
+    ``Derivative(dt)(x)``
+        The derivative of ``x`` at each step, with ``x`` zero before the
+        first step.
+    ``Derivative(dt, init=x0)(x)``
+        The same, with ``x0`` the value of ``x`` before the first step.
+    ``Derivative(dt, poly_order=n)(x)``
+        A backward difference that reads ``x`` at the ``n`` previous steps.
+    ``Derivative(dt)(Derivative(dt)(x))``
+        The second derivative.
 
-    ``x`` is one sample per step, ``tw=1``. The layer remembers the last
-    ``poly_order`` samples of ``x`` from one step to the next, and gives the
-    same values as :class:`DerivativeStep` on a window of the same samples.
+    ``x`` is one sample per step, ``T=1``. The layer keeps the last
+    ``poly_order`` samples of ``x`` from one step to the next. They are a
+    state: an Input named ``<name>_<x>``, which the :class:`ModelyLoop` or
+    the :class:`Loop` feeds back with its other states. It is not one of
+    your Inputs: :attr:`Modely.inputs` lists it as not declared.
 
-    ``dt``, ``poly_order``
-        As in :class:`DerivativeStep`.
-    ``init``
-        The value of ``x`` before the first step: a number, a Parameter, a
-        Constant or an Input, one sample (repeated as needed) or
-        ``poly_order`` samples, oldest first. Zero when left out.
+    The rule and the results are those of :class:`DerivativeStep` on a window
+    of the same samples. Built as a plain :class:`Modely`, which has no steps,
+    the layer reads ``init`` as the previous samples.
 
-    The samples it remembers are a hidden Input, ``<name>_<x>``, that the
-    loop feeds back. In a plain :class:`~nnodely.Modely`, which has no steps,
-    they are always ``init``. With ``poly_order=1``, :class:`Integrate` with
-    the same ``init`` gives ``x`` back.
+    Parameters
+    ----------
+    dt : float
+        The time between two steps, a positive number. It is required.
+    poly_order : int, default 1
+        The degree of the backward difference, a positive integer, as in
+        :class:`DerivativeStep`: ``1`` reads the previous step, ``2`` the
+        two previous ones.
+    init : Stream or float, optional
+        The value of ``x`` before the first step. It is zero when left out,
+        a signal at rest before the start. It can be:
+
+        * a number, a :class:`Parameter` or a :class:`Constant`;
+        * an Input of the step, whose first step is read: one sample,
+          repeated, or ``poly_order`` samples, oldest first.
+
+        Its features are a scalar or those of ``x``, and its sequence is none
+        or that of ``x``. It is the only initial value of the state: a Loop
+        cannot give it another.
+    name : str, optional
+        The name of the layer and of the stream it returns. The state is
+        named ``<name>_<x>``. A second call of the same layer differentiates
+        with a state of its own: its result is named ``<name>_2``, and its
+        state ``<name>_2_<x>``. The default name is ``Derivative`` followed
+        by a number.
+
+    Call arguments
+    --------------
+    x : Stream
+        One sample per step, ``Shape(S, 1, D)``. The call takes it alone or
+        in a list of one.
+
+    Returns
+    -------
+    Stream
+        The shape of ``x``, ``Shape(S, 1, D)``: the derivative at this step.
+        For example, ``Input("x", tw=1)`` gives ``Shape(S=(), T=1, D=(1,))``.
+        As an output of a ModelyLoop it is a trajectory, one value per step.
+
+    Raises
+    ------
+    ValueError
+        If ``dt`` is missing or not positive, if ``poly_order`` is not a
+        positive integer, if ``x`` has no window ("acts on the window of its
+        stream") or more than one sample ("takes one sample per step"), or if
+        ``init`` has another number of samples, features or sequence ("init
+        holds the samples before the first").
+    TypeError
+        If ``dt`` is not a number, if ``init`` is not a stream, a number or
+        None, if ``x`` is not a stream, or if the layer is called before it
+        is configured, ``Derivative(x)``.
+
+    See Also
+    --------
+    DerivativeStep : The same derivative along a window.
+    Integrate : The integral one step at a time, its inverse.
+    ModelyLoop : A model declared one step at a time.
+    Loop : The rollout of a one-step model.
+
+    Notes
+    -----
+    At step :math:`k`, with :math:`p` = ``poly_order`` and
+    :math:`x_{-p}, \dots, x_{-1}` from ``init``:
+
+    .. math::
+
+        \dot x_k = \frac{x_k - x_{k-1}}{\Delta t}
+
+    for :math:`p = 1`. The higher orders are those of
+    :class:`DerivativeStep`, with the step :math:`k` in place of the sample
+    :math:`i`.
+
+    Basic Examples
+    --------------
+    The velocity of a position given one sample per step, every 0.5 s. The
+    first step reads zero before the start:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import (
+    ...     Derivative, DerivativeStep, Input, Integrate, Modely, ModelyLoop, Output,
+    ... )
+    >>> x = Input("x", tw=1)
+    >>> v = Derivative(dt=0.5, name="v")(x)
+    >>> model = ModelyLoop("velocity", inputs=[x], outputs=[Output("v", v)]).build()
+    >>> steps = np.array([1.0, 2.0, 4.0, 7.0]).reshape(1, 4, 1, 1)
+    >>> keras.ops.convert_to_numpy(model({"x": steps})["v"]).ravel()
+    array([2., 2., 4., 6.], dtype=float32)
+
+    The state is an Input of the model, named after the layer and ``x``:
+
+    >>> model.inputs[1].name
+    'v_x'
+
+    Options
+    -------
+    ``init`` is the value before the first step, and ``poly_order=2`` reads
+    two previous steps:
+
+    >>> from_one = Derivative(dt=0.5, init=1.0, name="from_one")(x)
+    >>> second = Derivative(dt=0.5, poly_order=2, name="second")(x)
+    >>> model = ModelyLoop(
+    ...     "options", inputs=[x],
+    ...     outputs=[Output("from_one", from_one), Output("second", second)],
+    ... ).build()
+    >>> result = model({"x": steps})
+    >>> keras.ops.convert_to_numpy(result["from_one"]).ravel()
+    array([0., 2., 4., 6.], dtype=float32)
+    >>> keras.ops.convert_to_numpy(result["second"]).ravel()
+    array([3., 2., 5., 7.], dtype=float32)
+
+    ``init`` can be an Input of the step: its first step is read.
+
+    >>> x0 = Input("x0", tw=1)
+    >>> Derivative(dt=0.5, init=x0)(x).shape
+    Shape(S=(), T=1, D=(1,))
+
+    Applications
+    ------------
+    A damper force, :math:`F = -c\,\dot x`, in a model declared one step at a
+    time:
+
+    >>> damping = -0.8 * Derivative(dt=0.01)(Input("position", tw=1))
+
+    Properties & Relations
+    ----------------------
+    The same samples give the same values as :class:`DerivativeStep` on a
+    window:
+
+    >>> w = Input("w", tw=4)
+    >>> v_window = DerivativeStep(dt=0.5)(w)
+    >>> model = Modely("window", inputs=[w], outputs=[Output("v", v_window)]).build()
+    >>> keras.ops.convert_to_numpy(model({"w": steps.reshape(1, 4, 1)})["v"]).ravel()
+    array([2., 2., 4., 6.], dtype=float32)
+
+    :class:`Integrate` with the same ``init`` gives ``x`` back:
+
+    >>> back = Integrate(dt=0.5, init=3.0)(Derivative(dt=0.5, init=3.0)(x))
+    >>> model = ModelyLoop("inverse", inputs=[x], outputs=[Output("x", back)]).build()
+    >>> keras.ops.convert_to_numpy(model({"x": steps})["x"]).ravel()
+    array([1., 2., 4., 7.], dtype=float32)
+
+    Built as a plain :class:`Modely`, the step reads ``init`` as the previous
+    sample: :math:`(3 - 1) / 0.5`.
+
+    >>> model = Modely("one_step", inputs=[x], outputs=[Output("v", from_one)]).build()
+    >>> keras.ops.convert_to_numpy(model({"x": np.array([[[3.0]]])})["v"])
+    array([[[4.]]], dtype=float32)
+
+    Possible Issues
+    ---------------
+    The layer reads one sample per step. Differentiate a window with
+    :class:`DerivativeStep`:
+
+    >>> Derivative(dt=0.5)(Input("long", tw=4))
+    Traceback (most recent call last):
+        ...
+    ValueError: ...Derivative takes one sample per step, but the signal carries 4 time samples...
+    >>> DerivativeStep(dt=0.5)(Input("long", tw=4)).shape
+    Shape(S=(), T=4, D=(1,))
+
+    .. versionadded:: 2.0
     """
 
     def __init__(

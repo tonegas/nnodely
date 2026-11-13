@@ -233,47 +233,264 @@ class CellSum(Layer):
 
 
 class LocalModel:
-    """
-    Local models blended by fuzzy membership degrees.
+    r"""Local models blended by membership degrees: the sum of every cell's model, weighted by its membership.
 
-    ::
+    Syntax
+    ------
+    ``LocalModel()(x, mu)``
+        ``x`` weighted by each membership of ``mu``, and summed.
+    ``LocalModel(input_function=f)(inputs, activations)``
+        A model of the inputs in every cell, weighted by the cell's
+        membership and summed.
+    ``LocalModel(output_function=g)(inputs, activations)``
+        ``g`` applied to every weighted cell before the sum.
+    ``LocalModel(f, vectorized=True)(inputs, activations)``
+        ``f`` computes all the cells at once.
 
-        LocalModel(input_function, output_function, vectorized=False)(inputs, activations)
+    The activations, typically :class:`Fuzzify` memberships, define the cells.
+    One activation of ``n`` memberships gives ``n`` cells. Several activations
+    are multiplied together: memberships over 4 gears and 5 speeds give 20
+    cells. Each cell has a local model, the input function, whose result is
+    weighted by the cell's membership. The output function is applied to each
+    weighted cell, and the cells are summed.
 
-    The activations ``a_k``, of a window ``T`` without sequence and dim
-    ``(n_k,)``, are
-    combined into ``N = n_1 * n_2 * ...`` joint memberships ``mu`` (their
-    outer product, flattened row-major: cell ``(i_1, i_2)`` is number
-    ``i_1 * n_2 + i_2``). Their window is the cells' one, or 1 to weigh
-    every sample alike. The result is::
+    Each call declares the cells in a model of their own, called as a block on
+    the given streams, which :meth:`Modely.export_html` shows on a page of its
+    own. The functions may read other streams of the graph too. Calling the
+    same LocalModel again applies the same cell layers, with the same weights.
 
-        sum_i output_function_i(mu_i * input_function_i(inputs))
+    Parameters
+    ----------
+    input_function : Layer or callable, optional
+        The local model of each cell, called with the list of inputs. It is
+        one of:
 
-    Either function is one of:
+        - ``None``, the default: the one input is weighted as it is;
+        - a weightless elementwise layer instance, such as ``Sin()``,
+          ``Tanh()``, ``ReLU()`` or ``Square()``: applied once, the same in
+          every cell;
+        - any other layer instance, such as ``Fir()`` or ``Linear()``: applied
+          in every cell, all the cells sharing its weights;
+        - a factory, a callable ``f(index) -> layer``: called once per cell
+          with the cell's index, a tuple ``(i,)`` for one activation and
+          ``(i, j, ...)`` for several. The layer it returns is applied in that
+          cell alone, with weights of its own.
+    output_function : Layer or callable, optional
+        A function of each weighted cell, called with a list of one stream.
+        Its forms are those of ``input_function``. ``None``, the default, sums
+        the weighted cells as they are. A weightless elementwise layer is
+        applied once, to all the weighted cells together.
+    vectorized : bool, default False
+        ``True`` calls a function once on all the cells, unless it is a
+        weightless elementwise layer. The input function is called on the
+        inputs, the output function on the weighted cells. It returns the
+        cells on a last dim axis of ``N`` entries: ``(*cell, N)``, or ``(N,)``
+        for scalar cells, as ``Fir(features=N)`` does.
+    name : str, optional
+        The name of the block of the first call. Later calls name theirs
+        ``<name>_2``, ``<name>_3``, and so on. The default is ``LocalModel``
+        followed by a number.
 
-    * ``None``: no function. Without an input function ``inputs`` is a single
-      stream, weighted as it is; without an output function the weighted
-      cells are only summed.
-    * A weightless elementwise layer (``Sin()``, ``Tanh()``, ``ReLU()``...):
-      applied once - to the inputs, or to all the weighted cells together.
-    * Any other layer (``Fir(features=1)``...): applied to every cell, which
-      all share its weights. For weights of its own in each cell, pass a
-      factory.
-    * A callable, which is a factory ``f((i_1, i_2, ...)) -> layer`` called once
-      per cell; what it returns is applied to that cell alone.
-    * With ``vectorized=True``, a callable or a layer (other than a weightless
-      elementwise one) is instead called once on all the cells: the input
-      function on ``inputs``, the output function on the weighted cells. It
-      returns all the cells at once, on a last dim axis of ``N`` entries:
-      ``(*cell, N)``, or ``(N,)`` for scalar cells - e.g. ``Fir(features=N)``.
+    Call arguments
+    --------------
+    inputs : Stream or list of Stream
+        The streams the input function reads. Without an input function, one
+        stream.
+    activations : Stream or list of Stream
+        The memberships. Each has dim ``(n_k,)`` and no sequence. Either the
+        activations and the cells all have a window, or none of them does.
+        Their windows are equal, or 1: a membership of one sample weighs every
+        sample of the cells' window.
 
-    Functions are called with a list of streams. Every cell must have the same
-    shape; the result has the shape of one output cell.
+    Returns
+    -------
+    Stream
+        The shape of one output cell. For example, a :class:`Fir` of a
+        torque window of 10 samples gives ``Shape(S=(), T=1, D=(1,))``.
+        Without functions, the result has the shape of the input.
 
-    Called, a LocalModel is a block: its cells are declared in a model of their
-    own, on Inputs of the shapes of ``inputs`` and ``activations``, which the
-    graph calls on them, and :meth:`Modely.export_html` shows on a page of its
-    own. The functions may read other streams of the graph too.
+    Raises
+    ------
+    TypeError
+        If a function is a class ("pass a layer instance, shared by every
+        cell, or a factory"), or is not callable ("must be a layer or a
+        callable"). If the inputs or the activations are not streams ("must be
+        Streams").
+    ValueError
+        If an activation has a sequence or more than one dim axis ("must have
+        no sequence, dim (cells,)"). Without an input function, if there is
+        more than one input ("there must be one"). With an elementwise input
+        function, if there is more than one input ("a cell is one stream").
+        If the windows do not match ("they must match, or be 1"; "all have a
+        window, or none of them"). If a vectorized function returns another
+        number of cells ("one entry per cell"), or the cells differ in shape
+        ("every cell must have the same shape").
+
+    See Also
+    --------
+    Fuzzify : Memberships to sets placed on centers.
+    Fir : A local model of a window.
+    Linear : A local model of the features.
+    EquationLearner : Another block with learned structure.
+
+    Notes
+    -----
+    For activations :math:`a_1, \dots, a_K` of :math:`n_1, \dots, n_K`
+    memberships, the cell of index :math:`(i_1, \dots, i_K)` has the
+    membership
+
+    .. math:: \mu_{i_1 \dots i_K} = \prod_{k=1}^{K} a_{k, i_k}
+
+    The cells are numbered row-major, the last index running fastest. With
+    two activations, cell :math:`(i, j)` is number :math:`i \, n_2 + j`. With
+    :math:`f_i` and :math:`g_i` the input and output functions of cell
+    :math:`i`, the result is
+
+    .. math:: y = \sum_{i=0}^{N-1} g_i\left(\mu_i \, f_i(\text{inputs})\right),
+        \quad N = \prod_{k=1}^{K} n_k
+
+    A missing function is the identity. The Parameters of the cells are listed
+    by :attr:`Modely.parameters`, and are trained, frozen and saved with the
+    model.
+
+    Basic Examples
+    --------------
+    Two cells with the gains 1 and 10, blended by triangles on 0 and 1. At
+    ``g = 0.25`` the memberships are 0.75 and 0.25:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import (
+    ...     Fir, Fuzzify, Input, Linear, LocalModel, Modely, Output, Parameter,
+    ...     Square, Triangular,
+    ... )
+    >>> x, g = Input("x", tw=1), Input("g", tw=1)
+    >>> mu = Fuzzify([0.0, 1.0], function=Triangular)(g)
+    >>> gains = [1.0, 10.0]
+    >>> def cell(index):
+    ...     value = [[gains[index[0]]]]
+    ...     return Linear(kernel=Parameter(f"gain{index[0]}", value=value), bias=False)
+    >>> y = LocalModel(input_function=cell)(x, mu)
+    >>> model = Modely("blend", inputs=[x, g], outputs=[Output("y", y)]).build()
+    >>> samples = {"x": np.array([[[2.0]]]), "g": np.array([[[0.25]]])}
+    >>> keras.ops.convert_to_numpy(model(samples)["y"])  # 0.75*1*2 + 0.25*10*2
+    array([[[6.5]]], dtype=float32)
+
+    Scope
+    -----
+    A window of inputs, weighted by a membership of one sample or of the same
+    window:
+
+    >>> u = Input("u", tw=3)
+    >>> LocalModel()(u, mu).shape
+    Shape(S=(), T=3, D=(1,))
+    >>> LocalModel()(u, Fuzzify([0.0, 1.0], function=Triangular)(Input("gw", tw=3))).shape
+    Shape(S=(), T=3, D=(1,))
+
+    Cells of several features:
+
+    >>> LocalModel(Linear(features=2))(x, mu).shape
+    Shape(S=(), T=1, D=(2,))
+
+    Several activations multiply into joint cells, numbered row-major. Here
+    2 by 3 cells, each with its number as its gain. At ``g = 1`` and
+    ``s = 2`` only cell ``(1, 2)``, number 5, is active:
+
+    >>> s = Input("s", tw=1)
+    >>> nu = Fuzzify([0.0, 1.0, 2.0], function=Triangular)(s)
+    >>> indices = []
+    >>> def numbered(index):
+    ...     indices.append(index)
+    ...     number = float(index[0] * 3 + index[1])
+    ...     return Linear(kernel=Parameter(f"c{index[0]}{index[1]}", value=[[number]]), bias=False)
+    >>> y2 = LocalModel(numbered)(x, [mu, nu])
+    >>> indices
+    [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
+    >>> model = Modely("grid", inputs=[x, g, s], outputs=[Output("y2", y2)]).build()
+    >>> grid = {"x": np.array([[[2.0]]]), "g": np.array([[[1.0]]]), "s": np.array([[[2.0]]])}
+    >>> keras.ops.convert_to_numpy(model(grid)["y2"])  # 5 * 2
+    array([[[10.]]], dtype=float32)
+
+    Options
+    -------
+    ``input_function`` as a layer instance is shared by every cell, while a
+    factory gives each cell weights of its own:
+
+    >>> shared = LocalModel(Linear(kernel=Parameter("shared", value=[[3.0]]), bias=False))(x, mu)
+    >>> [p.name for p in Modely("one", inputs=[x, g], outputs=[Output("y", shared)]).parameters]
+    ['shared']
+    >>> [p.name for p in Modely("two", inputs=[x, g], outputs=[Output("y", y)]).parameters]
+    ['gain0', 'gain1']
+
+    ``output_function``: a weightless layer applied to every weighted cell,
+    :math:`(0.75 \cdot 2)^2 + (0.25 \cdot 2)^2`, or a factory with the gains 1
+    and 3, :math:`1.5 + 3 \cdot 0.5`:
+
+    >>> squared = LocalModel(output_function=Square())(x, mu)
+    >>> scaled = LocalModel(output_function=lambda index: Linear(
+    ...     kernel=Parameter(f"out{index[0]}", value=[[1.0 + 2.0 * index[0]]]), bias=False))(x, mu)
+    >>> outputs = [Output("squared", squared), Output("scaled", scaled)]
+    >>> result = Modely("outputs", inputs=[x, g], outputs=outputs).build()(samples)
+    >>> keras.ops.convert_to_numpy(result["squared"]), keras.ops.convert_to_numpy(result["scaled"])
+    (array([[[2.5]]], dtype=float32), array([[[3.]]], dtype=float32))
+
+    ``vectorized=True`` computes both cells with one filter of 2 channels:
+    the sum of the window, 6, and 10 times its newest sample, 30:
+
+    >>> kernel = Parameter("both", value=[[1.0, 0.0], [1.0, 0.0], [1.0, 10.0]])
+    >>> z = LocalModel(Fir(features=2, kernel=kernel, bias=False), vectorized=True)(u, mu)
+    >>> model = Modely("vectorized", inputs=[u, g], outputs=[Output("z", z)]).build()
+    >>> window = {"u": np.array([[[1.0], [2.0], [3.0]]]), "g": np.array([[[0.25]]])}
+    >>> keras.ops.convert_to_numpy(model(window)["z"])  # 0.75*6 + 0.25*30
+    array([[[12.]]], dtype=float32)
+
+    ``name`` names the block of each call:
+
+    >>> engine = LocalModel(name="engine")
+    >>> calls = [Output("first", engine(x, mu)), Output("second", engine(x, mu))]
+    >>> [block.name for block in Modely("car", inputs=[x, g], outputs=calls).models]
+    ['engine', 'engine_2']
+
+    Applications
+    ------------
+    The engine force of a vehicle, one filter of the torque per gear:
+
+    >>> gear = Input("gear", tw=1)
+    >>> torque = Input("torque", tw=10)
+    >>> gears = Fuzzify([1.0, 2.0, 3.0, 4.0], function=Triangular, bounds=True)(gear)
+    >>> force = LocalModel(lambda index: Fir())(torque, gears)
+    >>> force.shape
+    Shape(S=(), T=1, D=(1,))
+
+    Properties & Relations
+    ----------------------
+    Without functions the result is the input times the sum of the
+    memberships. Triangles add up to one, so it is the input:
+
+    >>> plain = LocalModel()(x, mu)
+    >>> result = Modely("plain", inputs=[x, g], outputs=[Output("plain", plain)]).build()(samples)
+    >>> keras.ops.convert_to_numpy(result["plain"])
+    array([[[2.]]], dtype=float32)
+
+    Possible Issues
+    ---------------
+    A class is not a function. Pass an instance, shared by every cell, or a
+    factory, one layer per cell:
+
+    >>> LocalModel(Fir)
+    Traceback (most recent call last):
+        ...
+    TypeError: LocalModel: the input function is the class Fir; pass a layer instance, ...
+    >>> local = LocalModel(lambda index: Fir())
+
+    Without an input function, there is one input to weigh:
+
+    >>> LocalModel()([x, s], mu)
+    Traceback (most recent call last):
+        ...
+    ValueError: ...without an input function the input is weighted as it is, so there must be one, got 2.
+
+    .. versionadded:: 2.0
     """
 
     def __init__(

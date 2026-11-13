@@ -362,6 +362,15 @@ variable, and trains, validates and exports through Keras. Models saved with
   `Integrate`, `Derivative`, `Gradient`), custom functions and layers
   (`KerasFunction`, `Layer` subclasses) and the `EquationLearner`. Each guide
   page links its tutorials.
+- Documentation for the release: every public name has a reference page of
+  its own, in the numpydoc style, with its calling forms, every argument with
+  its default, the shape it returns, the errors it raises, and examples from
+  the basic use to the edge cases. The guide pages each follow one example
+  through numbered steps, with the output of every step and a table of the
+  common errors. A glossary defines the terms. A test runs every example of
+  the reference pages, every guide page and the README, and checks what they
+  print. The layers show their real signature in `help()` and in the
+  documentation, instead of `(*args, **kwargs)`.
 
 ### Changed
 

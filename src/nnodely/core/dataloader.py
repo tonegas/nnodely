@@ -38,84 +38,355 @@ InputFormat: TypeAlias = (
 
 
 class DataLoader:
-    """
-    Build a training dataset from simulation data.
+    r"""The samples a built model reads, cut from recorded signals.
 
-    A simulation is one contiguous recording. Every window is built inside a
-    single simulation, so no window ever spans two of them, and simulations may
-    have different lengths.
+    Syntax
+    ------
+    ``DataLoader(model, source={"x": array, ...})``
+        Cuts the signals of a dict of arrays, keyed by input name, into
+        samples.
+    ``DataLoader(model, source=frame, format={"x": "column"})``
+        Reads the columns of a DataFrame.
+    ``DataLoader(model, source="run.csv", format=...)``
+        Reads a CSV file.
+    ``DataLoader(model, source="runs", csv_glob="*.csv", format=...)``
+        Reads every CSV file of a folder that matches ``csv_glob``.
+    ``DataLoader(model, source=[sim_a, sim_b])``
+        Reads a list of dicts or DataFrames, one simulation each.
+    ``DataLoader(model, source=windows, windowed=True)``
+        Takes samples already laid out as the model reads them.
 
-    Sources::
+    A sample holds, for every Input the model reads, its window at one
+    current sample ``t``, targets included. Every Input of a sample has the
+    same ``t``. The model sets the windows and the sequences, so call
+    :meth:`Modely.build` before creating the loader.
 
-        dict / list[dict]            arrays keyed by Input or input name
-        DataFrame / list[DataFrame]  columns keyed by input name
-        path to a .csv file          one simulation
-        path to a folder             one simulation per file matching csv_glob
+    A simulation is one contiguous recording: a dict, a DataFrame or a CSV
+    file. No sample spans two simulations, and simulations may have
+    different lengths. A loader is passed to :meth:`Modely.train` and
+    :meth:`Modely.validate`. It is also indexed, iterated and converted to
+    arrays: see the Notes for the layout.
 
-    For DataFrame and CSV sources, ``format`` maps an Input, or its name, to
-    the column feeding it - a column name or a positional index - or to a list
-    of columns when the input carries more than one feature::
+    Parameters
+    ----------
+    model : Modely
+        The model the data is for, built. The loader reads the Inputs it
+        reads, with their windows and sequences.
+    source : dict, pandas.DataFrame, str, pathlib.Path or list
+        The recorded signals. It is one of:
 
-        format={"vel": "vel", trq: 1, "alt": ["alt1", ..., "alt21"]}
+        - a dict of arrays, keyed by Input or by input name, one row per
+          sample: ``(n,)`` for one feature, ``(n, *D)``, or ``(n, prod(D))``
+          with the features in row-major order;
+        - a DataFrame, with a column per feature;
+        - the path of a CSV file, read with ``pandas.read_csv``;
+        - the path of a folder, whose files matching ``csv_glob`` are read,
+          one simulation each, sorted by name;
+        - a list of dicts or DataFrames, one simulation each.
 
-    Every key - of a dict source, of ``format``, of :meth:`get_input` - is
-    resolved to its Input as calling the model resolves it: a name several
-    Inputs carry, or an Input the model does not read, raises. Columns, keys
-    and ``format`` entries that name no input of the model are ignored.
+        Keys and columns that feed no Input of the model are ignored.
+    format : dict, optional
+        For a DataFrame or a CSV file, the columns of each Input, keyed by
+        Input or by input name. Each is a column name, a column index, or a
+        list of them, one per feature. By default an Input reads the column
+        of its name.
+    csv_glob : str, optional
+        The pattern of the files read from a folder. The default,
+        ``"*.csv"``, reads every CSV file.
+    delimiter : str, default ","
+        The separator of the CSV files, the ``sep`` of ``pandas.read_csv``.
+    header : int, list of int, "infer" or None, default "infer"
+        The header row of the CSV files, the ``header`` of
+        ``pandas.read_csv``. ``None`` reads files without a header, whose
+        columns ``format`` names by index.
+    dtype : numpy dtype, default numpy.float32
+        The type of the arrays of the samples.
+    seq_length : int, "full" or None, default None
+        The length of a dynamic sequence, declared with ``seq=-1``. It is:
 
-    Windows:
+        - an int, a sequence of that many steps;
+        - ``"full"``, one sample per simulation, spanning all of it. The
+          dynamic length must be the outermost one;
+        - ``None``, when no Input has a dynamic sequence.
+    step : int, default 1
+        The samples between the current samples of two consecutive samples,
+        at least 1. ``step=10`` keeps one sample in ten.
+    on_short : {"error", "skip"}, default "error"
+        What happens to a simulation too short to give one sample:
 
-    - Temporal windows, ``T``, come from ``Input(..., tw=...)``. All
-      inputs are aligned so that every window ends on the same sample; an
-      Input without a window reads that sample, with no tw axis.
-    - Sequence windows, the sequence axes, come from ``Input(..., seq=...)``:
-      one sliding window per declared length, applied on top of the temporal
-      windows. Only one length may be dynamic (``-1``), and ``seq_length``
-      resolves it.
-    - ``step`` is the jump between one dataset sample and the next; every
-      sequence level itself advances one sample at a time.
-    - ``seq_length="full"`` resolves the dynamic length, which must be the
-      outermost sequence axis, to the whole simulation, so every simulation
-      yields exactly one sample. Simulations of different lengths are padded
-      on that axis and ``mask`` marks the real steps; ``step`` is meaningless
-      there and is rejected.
-    - ``on_short`` decides what happens to a simulation with too few samples to
-      fill the windows: raise, or leave it out.
+        - ``"error"`` raises ``ValueError``;
+        - ``"skip"`` leaves it out.
+    windowed : bool, default False
+        ``True`` takes a dict, or a list of dicts, of arrays already laid
+        out as the samples, ``(N, *S, T, *D)``, and uses them as they are.
+        The last axis may be left out for an Input of one feature. Dynamic
+        lengths are read from the shapes.
 
-    Final dataset format, laid out as the model's tensors::
+    Attributes
+    ----------
+    mask
+        A boolean array, or ``None`` when nothing is padded. It marks which
+        steps of the outermost sequence axis are real, ``True``, and which
+        are padding, ``False``: one row per sample, one column per step.
+        Training and validation leave the padded steps out.
 
-        {name: np.ndarray of shape (N, *seq, tw, *dim)}
+    Raises
+    ------
+    ValueError
+        If the model is not built ("is not built"), if ``step`` is below 1
+        or is given with ``seq_length="full"`` or ``windowed=True``, or if
+        ``seq_length`` is given with ``windowed=True``. When the data does
+        not fit the model: a required input is missing ("is missing
+        required"), the signals have different lengths ("not aligned in
+        length"), an Input has another number of features ("values per
+        timestep"), a simulation is too short ("has only n samples"), or a
+        dynamic sequence has no ``seq_length`` ("undefined sequence
+        length").
+    TypeError
+        If ``source`` holds something else than dicts, DataFrames or paths
+        ("Unsupported source"), if ``windowed=True`` is given a DataFrame,
+        or if ``windowed`` is not a bool.
+    FileNotFoundError
+        If the path does not exist, or no file of the folder matches
+        ``csv_glob``.
+    KeyError
+        If a key is an Input the model does not read ("does not read the
+        Input").
 
-    Windowed sources:
+    See Also
+    --------
+    Input : Declares the window and the sequence of a signal.
+    Modely.train : Trains a model on a loader.
+    Modely.validate : Measures a model on a loader.
+    ModelyLoop : A model whose Inputs carry a dynamic sequence.
 
-    - ``windowed=True`` takes a dict, or a list of dicts, whose arrays (or
-      nested lists) are already laid out that way, and uses them as they are:
-      no window is built, nothing is aligned or dropped, sample ``i`` of every
-      input is the ``i``-th row given. The last axis may be left out for an
-      input of a single feature.
-    - A dynamic sequence length is read from the shape, so an input may
-      declare several, and ``seq_length`` is not needed.
-    - The inputs whose outermost sequence axis is dynamic share one rollout.
-      Its length may differ from one simulation to another: shorter ones are
-      padded on that axis, and ``mask`` marks the real steps. Every other
-      dynamic length has to match between simulations.
-    - The flag is explicit because the shape alone cannot tell the two
-      readings apart: an ``(N, 1, 1)`` array is ``N`` samples of one value
-      either way, but a raw target ``tw=(0, 1)`` is shifted one sample ahead,
-      and an already windowed one is not.
+    Notes
+    -----
+    **Layout.** A sample is a dict ``{name: array}``. The array of an Input
+    of ``Shape(S, T, D)`` is ``(*S, T, *D)``, or ``(*S, *D)`` without a
+    window. :meth:`as_dict` stacks the samples, ``(N, *S, T, *D)`` for
+    ``N`` samples: the arrays a model call takes. ``loader[i]`` and
+    iterating give one sample, without the batch axis.
 
-    Example::
+    **Alignment.** An Input of ``tw=(p, f)`` reads, at the current sample
+    :math:`t`, the samples :math:`x[t-p+1], \dots, x[t+f]`. An Input of
+    ``tw=n`` is ``tw=(n, 0)``, and one without a window reads :math:`x[t]`.
+    Every Input of a sample has the same :math:`t`, so the first sample is
+    at :math:`t = P - 1` and the last at :math:`t = n - 1 - F`. Here
+    :math:`P` is the largest ``p`` and :math:`F` the largest ``f`` of the
+    Inputs, and :math:`n` the length of the simulation. For the signal
+    ``0, 1, ..., 9`` and ``tw=3``, the first sample is ``[0, 1, 2]`` and
+    the last ``[7, 8, 9]``.
 
-        x = Input("x", tw=5)
-        y = Output("y", Fir(features=1)([x]))
-        model = Modely("model", inputs=[x], outputs=[y]).build()
+    **Sequences.** An Input of ``seq=s`` holds the windows of ``s``
+    consecutive current samples, the last one at :math:`t`. A simulation of
+    :math:`n` samples gives
 
-        loader = DataLoader(model, source={"x": np.arange(10.0)})
-        loader[0]  # {"x": array([[0.], [1.], [2.], [3.], [4.]])}
+    .. math:: N = n - (P - 1) - F - L
 
-        windows = np.random.rand(100, 5, 1)  # (N, tw, dim)
-        loader = DataLoader(model, source={"x": windows}, windowed=True)
-        len(loader)  # 100
+    samples, where :math:`L` is the largest :math:`\sum_i (s_i - 1)` of the
+    sequences. ``step=k`` keeps :math:`\lceil N / k \rceil` of them.
+
+    **Padding.** With ``seq_length="full"``, or windowed data whose
+    rollouts differ in length, the shorter rollouts are padded to the
+    longest, repeating their last step, and ``mask`` marks the real
+    steps.
+
+    **Missing values.** A cell pandas reads as missing (empty, ``n/a``,
+    ``NaN``) stays a NaN, and the loader warns about it.
+
+    An Input that a :class:`ModelyLoop` feeds back and lists among its
+    inputs may be left out of the data: it then reads zeros.
+
+    Basic Examples
+    --------------
+    The windows of three samples of the signal 0, ..., 9:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from nnodely import DataLoader, Fir, Input, Linear, Modely, Output
+    >>> x = Input("x", tw=3)
+    >>> model = Modely("filter", inputs=[x], outputs=[Output("y", Fir()(x))]).build()
+    >>> loader = DataLoader(model, source={"x": np.arange(10.0)})
+    >>> len(loader)
+    8
+    >>> loader[0]["x"].ravel(), loader[7]["x"].ravel()
+    (array([0., 1., 2.], dtype=float32), array([7., 8., 9.], dtype=float32))
+    >>> print(loader)
+    ┏━━━━━━━┳━━━━━┳━━━━┳━━━━━━┳━━━━━━━━━━━┓
+    ┃ input ┃ seq ┃ tw ┃ dim  ┃ shape     ┃
+    ┡━━━━━━━┻━━━━━┻━━━━┻━━━━━━┻━━━━━━━━━━━┩
+    │ filter: 8 samples, in-memory dict   │
+    ├───────┬─────┬────┬──────┬───────────┤
+    │ x     │ ()  │ 3  │ (1,) │ (8, 3, 1) │
+    └───────┴─────┴────┴──────┴───────────┘
+
+    Scope
+    -----
+    A target one sample ahead, ``tw=(0, 1)``, is aligned on the same current
+    sample. The last window of ``x`` has no next sample, so there is one
+    sample less:
+
+    >>> predictor = Modely("predictor", inputs=[x], outputs=[Output("p", Fir()(x))])
+    >>> predictor = predictor.minimize("one_step", "p", Input("next", tw=(0, 1))).build()
+    >>> ahead = DataLoader(predictor, source={"x": np.arange(10.0), "next": np.arange(10.0)})
+    >>> len(ahead), ahead[0]["x"].ravel(), ahead[0]["next"].ravel()
+    (7, array([0., 1., 2.], dtype=float32), array([3.], dtype=float32))
+
+    An Input without a window gives its current sample, and one of several
+    features an array of them:
+
+    >>> u = Input("u", dim=2)
+    >>> mixed = Modely("mixed", inputs=[x, u], outputs=[Output("m", Fir()(x) + Linear()(u))]).build()
+    >>> both = DataLoader(mixed, source={"x": np.arange(10.0), "u": np.ones((10, 2))})
+    >>> {name: values.shape for name, values in both.as_dict().items()}
+    {'x': (8, 3, 1), 'u': (8, 2)}
+
+    A sequence holds the windows of consecutive current samples:
+
+    >>> s = Input("s", seq=2, tw=3)
+    >>> sequence = Modely("sequence", inputs=[s], outputs=[Output("o", s * 1.0)]).build()
+    >>> steps = DataLoader(sequence, source={"s": np.arange(10.0)})
+    >>> len(steps), steps[0]["s"][..., 0]
+    (7, array([[0., 1., 2.],
+           [1., 2., 3.]], dtype=float32))
+
+    A list holds several simulations. Each gives its own samples:
+
+    >>> runs = DataLoader(model, source=[{"x": np.arange(10.0)}, {"x": np.arange(5.0)}])
+    >>> len(runs), runs.get_samples(1, simulation=1)["x"].ravel()
+    (11, array([0., 1., 2.], dtype=float32))
+
+    Options
+    -------
+    ``format`` names the columns of a DataFrame, by name or by index:
+
+    >>> frame = pd.DataFrame({"time": np.arange(10.0) * 0.1, "pos": np.arange(10.0)})
+    >>> len(DataLoader(model, source=frame, format={"x": "pos"}))
+    8
+    >>> len(DataLoader(model, source=frame, format={"x": 1}))
+    8
+
+    A CSV file, and a folder of them picked by ``csv_glob``:
+
+    >>> import os
+    >>> os.makedirs("runs", exist_ok=True)
+    >>> frame.to_csv("runs/run_0.csv", index=False)
+    >>> frame.to_csv("runs/run_1.csv", index=False)
+    >>> len(DataLoader(model, source="runs/run_0.csv", format={"x": "pos"}))
+    8
+    >>> len(DataLoader(model, source="runs", format={"x": "pos"}, csv_glob="run_*.csv"))
+    16
+
+    ``delimiter`` and ``header`` read a file without a header, separated by
+    semicolons:
+
+    >>> frame.to_csv("raw.csv", sep=";", header=False, index=False)
+    >>> len(DataLoader(model, source="raw.csv", format={"x": 1}, delimiter=";", header=None))
+    8
+
+    ``dtype`` sets the type of the arrays:
+
+    >>> DataLoader(model, source={"x": np.arange(10.0)}, dtype=np.float64)[0]["x"].dtype
+    dtype('float64')
+
+    ``step`` keeps one current sample in ``step``:
+
+    >>> sparse = DataLoader(model, source={"x": np.arange(10.0)}, step=3)
+    >>> sparse.get_input("x")[:, -1, 0]
+    array([2., 5., 8.], dtype=float32)
+
+    ``on_short="skip"`` leaves out a simulation too short for a window:
+
+    >>> len(DataLoader(model, source=[{"x": np.arange(10.0)}, {"x": np.arange(2.0)}], on_short="skip"))
+    8
+
+    ``seq_length`` sets a dynamic sequence. ``"full"`` makes each simulation
+    one sample, padded to the longest, and ``mask`` marks the real
+    steps:
+
+    >>> d = Input("d", seq=-1, tw=1)
+    >>> dynamic = Modely("dynamic", inputs=[d], outputs=[Output("o", d * 1.0)]).build()
+    >>> DataLoader(dynamic, source={"d": np.arange(10.0)}, seq_length=4)[0]["d"].ravel()
+    array([0., 1., 2., 3.], dtype=float32)
+    >>> full = DataLoader(dynamic, source=[{"d": np.arange(6.0)}, {"d": np.arange(4.0)}], seq_length="full")
+    >>> full.as_dict()["d"][1].ravel()
+    array([0., 1., 2., 3., 3., 3.], dtype=float32)
+    >>> full.mask
+    array([[ True,  True,  True,  True,  True,  True],
+           [ True,  True,  True,  True, False, False]])
+
+    ``windowed=True`` takes the samples as they are. The last axis of an
+    Input of one feature may be left out:
+
+    >>> len(DataLoader(model, source={"x": np.zeros((4, 3))}, windowed=True))
+    4
+
+    Applications
+    ------------
+    Two recordings of a mass-spring-damper train the model, and a third
+    validates it. No window spans two recordings:
+
+    >>> position = Input("position", tw=4)
+    >>> msd = Modely("msd", inputs=[position], outputs=[Output("next_position", Fir()(position))])
+    >>> msd = msd.minimize("fit", "next_position", Input("measured", tw=(0, 1))).build()
+    >>> recordings = [{"position": np.sin(0.1 * np.arange(n)), "measured": np.sin(0.1 * np.arange(n))} for n in (50, 40, 30)]
+    >>> train = DataLoader(msd, source=recordings[:2])
+    >>> validation = DataLoader(msd, source=recordings[2])
+    >>> len(train), len(validation)
+    (82, 26)
+
+    Properties & Relations
+    ----------------------
+    ``loader[i]`` is row ``i`` of :meth:`as_dict`, and the length is the
+    number of rows:
+
+    >>> bool(np.all(loader[3]["x"] == loader.as_dict()["x"][3]))
+    True
+    >>> len(loader) == loader.as_dict()["x"].shape[0]
+    True
+
+    The arrays of :meth:`as_dict` are windowed data, which a loader takes
+    back unchanged:
+
+    >>> again = DataLoader(model, source=loader.as_dict(), windowed=True)
+    >>> bool(np.all(again.as_dict()["x"] == loader.as_dict()["x"]))
+    True
+
+    Possible Issues
+    ---------------
+    A sample has no batch axis, which a model call needs. Take samples with
+    :meth:`get_samples`, or add the axis with ``v[None]``:
+
+    >>> loader[0]["x"].shape, loader.get_samples(1)["x"].shape
+    ((3, 1), (1, 3, 1))
+    >>> keras.ops.convert_to_numpy(model(loader.get_samples(1))["y"]).shape
+    (1, 1, 1)
+
+    A simulation shorter than the windows raises. Pass ``on_short="skip"``
+    to leave it out:
+
+    >>> DataLoader(model, source={"x": np.arange(2.0)})
+    Traceback (most recent call last):
+        ...
+    ValueError: 'simulation 0' has only 2 samples, but the model requires at least 3. ...
+
+    A dynamic sequence needs a length:
+
+    >>> DataLoader(dynamic, source={"d": np.arange(10.0)})
+    Traceback (most recent call last):
+        ...
+    ValueError: Some inputs have undefined sequence length. ...
+
+    Windows already built are read as signals unless ``windowed=True``:
+
+    >>> DataLoader(model, source={"x": np.zeros((4, 3, 1))})
+    Traceback (most recent call last):
+        ...
+    ValueError: Input 'x' in 'simulation 0' provides 3 values per timestep, ... pass windowed=True if its windows are already built.
+
+    .. versionadded:: 2.0
     """
 
     def __init__(
@@ -211,7 +482,14 @@ class DataLoader:
 
     @property
     def inputs(self) -> List[str]:
-        """Names of the inputs the dataset holds."""
+        """The names of the Inputs the samples hold, in the order of the
+        model.
+
+        Returns
+        -------
+        list of str
+            The keys of every sample and of :meth:`as_dict`.
+        """
         return list(self._dataset.keys())
 
     def __repr__(self) -> str:
@@ -242,8 +520,41 @@ class DataLoader:
         return self._num_steps
 
     def get_input(self, key: Input | str) -> np.ndarray:
-        """All the samples of one input - the Input, or its name - shaped
-        ``(N, *tw, *dim)``."""
+        """Return the array of one Input, all its samples stacked.
+
+        Parameters
+        ----------
+        key : Input or str
+            The Input, or its name.
+
+        Returns
+        -------
+        numpy.ndarray
+            The samples of the Input, ``(N, *S, T, *D)``, or ``(N, *S, *D)``
+            for an Input without a window: ``as_dict()[name]``.
+
+        Raises
+        ------
+        KeyError
+            If the model reads no Input of that name ("has no Input named"),
+            or the samples hold none of it ("holds no data of the Input").
+
+        See Also
+        --------
+        DataLoader.as_dict : The arrays of every Input.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from nnodely import DataLoader, Fir, Input, Modely, Output
+        >>> x = Input("x", tw=3)
+        >>> model = Modely("filter", inputs=[x], outputs=[Output("y", Fir()(x))]).build()
+        >>> loader = DataLoader(model, source={"x": np.arange(5.0)})
+        >>> loader.get_input("x")[..., 0]
+        array([[0., 1., 2.],
+               [1., 2., 3.],
+               [2., 3., 4.]], dtype=float32)
+        """
         node = self._node_of(self._model._input_of(key))
         if node is None:
             raise KeyError(
@@ -254,7 +565,29 @@ class DataLoader:
         return self._dataset[node.name]
 
     def get_step(self, idx: int) -> Dict[str, Any]:
-        """Sample ``idx`` as ``{name: array}``; the same as ``loader[idx]``."""
+        """Return the sample ``idx``, the same as ``loader[idx]``.
+
+        Parameters
+        ----------
+        idx : int
+            The index of the sample, from 0 to ``len(loader) - 1``. Samples
+            are counted across the simulations, in reading order.
+
+        Returns
+        -------
+        dict of str to numpy.ndarray
+            ``{name: array}``, each array ``(*S, T, *D)``, without the batch
+            axis. Add it, ``v[None]``, before calling a model.
+
+        Raises
+        ------
+        IndexError
+            If ``idx`` is out of range ("idx out of range").
+
+        See Also
+        --------
+        DataLoader.get_samples : Samples with the batch axis.
+        """
         if idx < 0 or idx >= self._num_steps:
             raise IndexError(f"idx out of range: {idx} (len={self._num_steps})")
         return {k: v[idx] for k, v in self._dataset.items()}
@@ -269,23 +602,61 @@ class DataLoader:
     def get_samples(
         self, n: int, start: int = 0, simulation: int | str = 0
     ) -> Dict[str, np.ndarray]:
-        """``n`` consecutive samples of one simulation, laid out like as_dict().
+        """Return ``n`` consecutive samples of one simulation, with the batch
+        axis.
 
-        Consecutive samples are consecutive time steps (``step`` apart when the
-        loader was built with ``step > 1``), so running the model on them
-        returns a time series of ``n`` predictions. They never cross from one
-        simulation into the next, where two unrelated trajectories would join.
-        With ``windowed=True`` they are consecutive rows, in the order given.
+        Consecutive samples have consecutive current samples, ``step`` apart.
+        A model called on them returns a time series of ``n`` predictions.
+        They never cross from one simulation into the next. With
+        ``windowed=True`` they are consecutive rows, in the order given.
 
         Parameters
         ----------
-        n:
-            The number of samples.
-        start:
-            The first sample, counted within that simulation.
-        simulation:
-            The index of the simulation, in reading order, or its label - the
-            CSV file name, or ``"simulation <i>"`` for in-memory sources.
+        n : int
+            The number of samples, at least 1.
+        start : int, default 0
+            The first sample, counted within the simulation.
+        simulation : int or str, default 0
+            The simulation: its index, in reading order, or its label. The
+            label is the name of the CSV file, or ``"simulation <i>"`` for a
+            dict or a DataFrame.
+
+        Returns
+        -------
+        dict of str to numpy.ndarray
+            ``{name: array}``, each array ``(n, *S, T, *D)``: the arrays a
+            model call takes.
+
+        Raises
+        ------
+        ValueError
+            If ``n`` is not a positive int, if the simulation has fewer than
+            ``start + n`` samples ("are not available"), or if no simulation
+            has that label ("No simulation named").
+        TypeError
+            If ``start`` or ``simulation`` has another type.
+        IndexError
+            If the index of the simulation is out of range.
+
+        See Also
+        --------
+        DataLoader.as_dict : Every sample.
+        DataLoader.get_step : One sample, without the batch axis.
+
+        Examples
+        --------
+        >>> import keras
+        >>> import numpy as np
+        >>> from nnodely import DataLoader, Fir, Input, Modely, Output, Parameter
+        >>> x = Input("x", tw=2)
+        >>> mean = Fir(kernel=Parameter("half", value=[[0.5], [0.5]]), bias=False)(x)
+        >>> model = Modely("mean", inputs=[x], outputs=[Output("y", mean)]).build()
+        >>> loader = DataLoader(model, source=[{"x": np.arange(6.0)}, {"x": np.arange(10.0, 14.0)}])
+        >>> samples = loader.get_samples(2, start=1, simulation=1)
+        >>> samples["x"].shape
+        (2, 2, 1)
+        >>> keras.ops.convert_to_numpy(model(samples)["y"]).ravel()
+        array([11.5, 12.5], dtype=float32)
         """
         label, offset, count = self._simulation(simulation)
         if isinstance(n, bool) or not isinstance(n, (int, np.integer)) or n < 1:
@@ -327,7 +698,30 @@ class DataLoader:
         return self._simulations[simulation]
 
     def as_dict(self) -> Dict[str, np.ndarray]:
-        """The whole dataset as ``{name: array of shape (N, *tw, *dim)}``."""
+        """Return every sample, as one array per Input.
+
+        Returns
+        -------
+        dict of str to numpy.ndarray
+            ``{name: array}``, each array ``(N, *S, T, *D)`` for ``N``
+            samples, or ``(N, *S, *D)`` for an Input without a window. The
+            arrays are those of the loader, not copies.
+
+        See Also
+        --------
+        DataLoader.get_samples : Consecutive samples of one simulation.
+        DataLoader.get_input : The array of one Input.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from nnodely import DataLoader, Fir, Input, Modely, Output
+        >>> x = Input("x", dim=2, seq=3, tw=4)
+        >>> model = Modely("shapes", inputs=[x], outputs=[Output("y", Fir()(x))]).build()
+        >>> loader = DataLoader(model, source={"x": np.zeros((20, 2))})
+        >>> loader.as_dict()["x"].shape
+        (15, 3, 4, 2)
+        """
         return self._dataset
 
     # ------------------------------------------------------------------

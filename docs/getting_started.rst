@@ -1,11 +1,16 @@
 Getting Started
 ===============
 
+This page installs *nnodely* and builds a first model: it learns to predict
+the motion of a mass-spring-damper from data, then runs on new samples. It
+takes a few minutes, and assumes only Python 3.10 to 3.13 and NumPy.
+
 Installation
 ------------
 
-*nnodely* runs on `Keras 3 <https://keras.io>`_ and needs one Keras backend.
-Install it together with the backend you want to use:
+*nnodely* runs on `Keras 3 <https://keras.io>`_, which needs one backend:
+TensorFlow, PyTorch or JAX. Install *nnodely* together with the backend you
+want:
 
 .. code-block:: bash
 
@@ -13,7 +18,7 @@ Install it together with the backend you want to use:
    # or: pip install "nnodely[torch]"
    # or: pip install "nnodely[jax]"
 
-The ``onnx`` extra adds the packages needed to export and run ONNX models:
+The ``onnx`` extra adds what is needed to export and run ONNX models:
 
 .. code-block:: bash
 
@@ -32,8 +37,8 @@ Choosing the backend
 ~~~~~~~~~~~~~~~~~~~~
 
 Keras reads the backend from the ``KERAS_BACKEND`` environment variable when
-it is first imported, and uses TensorFlow if the variable is not set. Set it
-before importing *nnodely*, either in the shell:
+it is first imported. Without it, Keras uses TensorFlow. Set it before
+importing *nnodely*, in the shell:
 
 .. code-block:: bash
 
@@ -51,7 +56,8 @@ or at the very top of your script:
    import nnodely
 
 A model is written once and runs on all three backends. The few features that
-depend on the backend, mostly ONNX export, are listed in :doc:`guide/export`.
+depend on the backend, mostly the ONNX export, are listed in
+:doc:`guide/export`.
 
 A first model: mass-spring-damper
 ---------------------------------
@@ -65,11 +71,14 @@ A first model: mass-spring-damper
 
       m \ddot x = - k x - c \dot x + F
 
-The goal is to predict the next position of the mass from its recent positions
-and the force currently applied to it.
+The goal is to predict the next position of the mass from its recent
+positions and from the force applied now.
 
-**The data.** Here the system is simulated with a force that changes value
-every 50 samples. In a real application these arrays come from measurements.
+Step 1: the data
+~~~~~~~~~~~~~~~~
+
+The system is simulated here, with a force that changes every 50 samples. In
+a real application these arrays come from measurements.
 
 .. code-block:: python
 
@@ -86,11 +95,18 @@ every 50 samples. In a real application these arrays come from measurements.
        velocity[i + 1] = velocity[i] + dt * acceleration
        position[i + 1] = position[i] + dt * velocity[i + 1]
 
-**The model.** An :class:`~nnodely.Input` is a signal the model reads,
-declared with the window of samples it reads: ``tw=(5, 1)`` is the last five
-samples of ``x`` and the next one, and ``tw=1`` is the current sample of
-``F``. :class:`~nnodely.TimeRange` and :class:`~nnodely.TimeSelect` take
-parts of a window.
+Step 2: the model
+~~~~~~~~~~~~~~~~~
+
+An :class:`~nnodely.Input` is a signal the model reads. It is declared with
+the window of samples the model reads from it:
+
+- ``tw=(5, 1)`` is the last five samples of ``x`` and the next one;
+- ``tw=1`` is the current sample of ``F``.
+
+:class:`~nnodely.TimeRange` and :class:`~nnodely.TimeSelect` take a part of a
+window, and a :class:`~nnodely.Fir` filter is a learned weighted sum over a
+window.
 
 .. code-block:: python
 
@@ -101,57 +117,101 @@ parts of a window.
 
    x = Input("x", tw=(5, 1))
    F = Input("F", tw=1)
-   x_next = Fir(features=1)([TimeRange(0, 5)(x)]) + Fir(features=1)([F])
+   x_next = Fir()(TimeRange(0, 5)(x)) + Fir()(F)
    x_next_est = Output("x_next_est", x_next)
 
    model = Modely("mass_spring_damper", inputs=[x, F], outputs=[x_next_est])
+   print(x.shape, x_next.shape)
 
-A :class:`~nnodely.Fir` filter is a learnable weighted sum over the samples of
-its window. The estimator above therefore has the structure
+.. code-block:: text
+   :class: output
+
+   Shape(S=(), T=6, D=(1,)) Shape(S=(), T=1, D=(1,))
+
+A shape lists the sequence axes ``S``, the window ``T`` and the features ``D``
+of a stream (see :doc:`guide/concepts`). The estimator has the structure
 
 .. math::
 
    \hat x[t+1] = \sum_{i=0}^{4} h_{x,i} \, x[t-i] + h_F \, F[t] + b
 
-This is the structure of the discretized mass-spring-damper, where only the
+This is the structure of the discretized mass-spring-damper: only the
 coefficients are unknown. Choosing it is what makes this network
 *model-structured*.
 
-**The objective.** :meth:`~nnodely.Modely.minimize` declares what training
-has to reduce. Here it's the error between the estimate and
-``TimeSelect(-1)(x)``, the next sample of the position. After that,
-:meth:`~nnodely.Modely.build` turns the graph into a Keras model.
+Step 3: the objective
+~~~~~~~~~~~~~~~~~~~~~
+
+:meth:`~nnodely.Modely.minimize` declares what training reduces: here the
+error between the estimate and ``TimeSelect(-1)(x)``, the next sample of the
+position. Then :meth:`~nnodely.Modely.build` turns the graph into a Keras
+model and creates its weights.
 
 .. code-block:: python
 
    model.minimize("next_position", x_next_est, TimeSelect(-1)(x), loss="mse")
    model.build()
 
-**Training.** A :class:`~nnodely.DataLoader` cuts the signals into the windows
-the model asks for. The keys of the data dictionary are the input names.
+Step 4: training
+~~~~~~~~~~~~~~~~
+
+A :class:`~nnodely.DataLoader` cuts the signals into the windows the model
+reads. The keys of the data dictionary are the names of the inputs. Each
+sample needs 5 past positions and the next one, so 3000 samples give 2995
+windows.
 
 .. code-block:: python
 
    data = {"x": position, "F": force}
    train_data = DataLoader(model, source=data)
+   print(len(train_data))
+
+.. code-block:: text
+   :class: output
+
+   2995
+
+.. code-block:: python
 
    history = model.train(train_data, epochs=30, batch_size=64, lr=1e-2)
 
-**Validation and inference.** :meth:`~nnodely.Modely.validate` prints the
-losses together with RMSE, FIT, R² and other indicators. Calling the model on
-a dictionary of windows runs it.
+``train`` prints the loss of every epoch, and returns the losses in a
+dictionary.
+
+Step 5: validation and inference
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+:meth:`~nnodely.Modely.validate` prints the loss together with RMSE, FIT, R²
+and other indicators. Calling the model on a dictionary of arrays runs it.
+The arrays have a batch axis first, and the result maps every output name to
+a tensor of the backend: ``keras.ops.convert_to_numpy`` makes it a NumPy
+array.
 
 .. code-block:: python
 
    result = model.validate(train_data)
+
+.. code-block:: python
+
+   import keras
+
    prediction = model(train_data.get_samples(1))
-   print(prediction["x_next_est"])
+   estimate = keras.ops.convert_to_numpy(prediction["x_next_est"])
+   print(estimate.shape)   # (batch, T, D)
+
+.. code-block:: text
+   :class: output
+
+   (1, 1, 1)
 
 Where to go next
 ----------------
 
+- The :doc:`tutorials <tutorial/index>` teach each part of *nnodely* with
+  runnable notebooks: start from :doc:`tutorial/01_model_design`.
 - :doc:`guide/concepts` explains streams, shapes and windows.
-- :doc:`guide/models` lists the building blocks.
-- :doc:`guide/recurrent` and :doc:`guide/physics` cover multi-step prediction,
-  models declared one step at a time with ``ModelyLoop``, and physics-based
-  layers.
+- :doc:`guide/models` lists the building blocks, and the
+  :doc:`API reference <api/index>` describes each of them.
+- :doc:`guide/recurrent` and :doc:`guide/physics` cover multi-step
+  prediction, models declared one step at a time, and physics-based layers.
+- The :doc:`glossary` defines the terms these pages use.

@@ -1,17 +1,40 @@
-Model
-=====
+Models
+======
 
 .. currentmodule:: nnodely
 
-.. autoclass:: Modely
-   :members: build, built, minimize, remove_minimizer, parameters, inputs, outputs, minimizers,
-             freeze, unfreeze, train,
-             validate,
-             flatten, summary, export_html, save, load, export_keras,
-             import_keras, export_onnx, validate_onnx
+A :class:`Modely` is a model: a graph of streams from its inputs to its
+outputs, with the objectives that train it. A :class:`ModelyLoop` is a model
+declared one step at a time, whose states are fed back over a rollout.
 
-.. autoclass:: ModelyLoop
-   :members: minimize
+Guides: :doc:`../guide/models`, :doc:`../guide/training`,
+:doc:`../guide/recurrent`, :doc:`../guide/composition`,
+:doc:`../guide/export`. Tutorials: :doc:`../tutorial/01_model_design`,
+:doc:`../tutorial/03_model_training`, :doc:`../tutorial/05_save_load_export`,
+:doc:`../tutorial/10_recurrent_loop`.
 
-.. autoclass:: nnodely.core.validation.ValidationResult
-   :members: summary
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   Modely
+   ModelyLoop
+
+Returned objects
+----------------
+
+:meth:`Modely.validate` returns a :class:`~nnodely.core.validation.ValidationResult`,
+a list of :class:`~nnodely.core.validation.SignalScore`, one per objective.
+You read them, and never create them, so they are not exported by the
+top-level package.
+
+Guide: :doc:`../guide/validation`. Tutorial: :doc:`../tutorial/04_model_validation`.
+
+.. currentmodule:: nnodely.core.validation
+
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   ValidationResult
+   SignalScore

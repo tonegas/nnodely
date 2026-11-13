@@ -56,12 +56,74 @@ def _resolve_printer(
 
 
 class TinyPrinter(keras.callbacks.Callback):
-    """Repaint a single-screen summary of the current epoch.
+    """A training printer that shows a short summary of the latest epoch.
 
-    The terminal is cleared on every epoch, so only the latest numbers are on
-    screen and nothing scrolls; in a notebook the summary is one output of the
-    cell, replaced in place a few times a second. Use :class:`LegacyPrinter`
-    when the history of the run matters more than the current value.
+    Syntax
+    ------
+    ``model.train(data, printer="tiny")``
+        Shows the progress with a TinyPrinter.
+    ``model.train(data, printer=TinyPrinter())``
+        The same, with a printer you create.
+
+    The summary holds the epoch, the time since training started, and every
+    loss of the epoch, in alphabetical order: ``loss``, the total, and
+    ``<objective>_loss`` for each objective, each with a ``val_`` version
+    when there is validation data. Where it appears depends on the output:
+
+    - in a terminal, it is repainted in place at every epoch, so nothing
+      scrolls;
+    - in a notebook, it is one output of the cell, replaced in place at most
+      5 times a second;
+    - elsewhere, such as a log file, one summary is printed per epoch.
+
+    Use :class:`LegacyPrinter` to keep the losses of earlier epochs on
+    screen.
+
+    Parameters
+    ----------
+    epochs : int, optional
+        The number of epochs shown after the current one, ``Epoch 3/10``.
+        :meth:`Modely.train` gives it, so it is needed only when Keras does
+        not.
+
+    See Also
+    --------
+    LegacyPrinter : A table of the losses, one row per sampled epoch.
+    NNodelyPrinter : An animated console with a chart of the total loss.
+    Modely.train : Takes the printer as ``printer``.
+
+    Notes
+    -----
+    A printer is a ``keras.callbacks.Callback``: :meth:`Modely.train` passes
+    it to Keras, which calls it at every epoch. Any other Keras callback can
+    be given as ``printer`` too.
+
+    Basic Examples
+    --------------
+    >>> import numpy as np
+    >>> from nnodely import DataLoader, Fir, Input, Modely, Output, TinyPrinter
+    >>> x = Input("x", tw=2)
+    >>> model = Modely("demo", inputs=[x], outputs=[Output("y", Fir()(x))])
+    >>> model = model.minimize("err", "y", Input("target", tw=1)).build()
+    >>> data = DataLoader(model, source={"x": np.arange(10.0), "target": np.arange(10.0)})
+    >>> _ = model.train(data, epochs=1, printer="tiny")
+    ──────────────────────────────────────────────────────────────────────
+    Epoch 1/1   Elapsed: ...s
+    ──────────────────────────────────────────────────────────────────────
+    err_loss                             ...
+    loss                                 ...
+    ──────────────────────────────────────────────────────────────────────
+
+    Options
+    -------
+    A printer created by hand is passed as it is:
+
+    >>> _ = model.train(data, epochs=1, printer=TinyPrinter(epochs=1))
+    ──────────────────────────────────────────────────────────────────────
+    Epoch 1/1   Elapsed: ...s
+    ...
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, epochs: int | None = None):
@@ -74,11 +136,21 @@ class TinyPrinter(keras.callbacks.Callback):
         self._shown = 0.0
 
     def on_train_begin(self, logs=None):
+        """Called by Keras when training starts.
+
+        :meta private:
+        """
+
         self._start_time = time.time()
         self._view = _NotebookView() if _is_notebook(sys.stdout) else None
         self._text, self._shown = "", 0.0
 
     def on_epoch_end(self, epoch, logs=None):
+        """Called by Keras at the end of every epoch.
+
+        :meta private:
+        """
+
         logs = logs or {}
         elapsed = time.time() - self._start_time
 
@@ -109,46 +181,106 @@ class TinyPrinter(keras.callbacks.Callback):
         print(text)
 
     def on_train_end(self, logs=None):
+        """Called by Keras when training ends.
+
+        :meta private:
+        """
+
         # The last epoch, which the notebook may not have shown yet.
         if self._view is not None and self._text:
             self._view.show(self._text)
 
 
 class LegacyPrinter(keras.callbacks.Callback):
-    """Print the scrolling loss table of the training, drawn as the tables of
-    a model are.
+    r"""A training printer that shows the losses as a table, one row per
+    sampled epoch.
 
-    One row per sampled epoch, one column pair (train, val) per minimizer plus
-    a final pair for the total loss, and the time the training took once it
-    ends::
+    Syntax
+    ------
+    ``model.train(data)``
+        Shows the progress with a LegacyPrinter, the default printer.
+    ``model.train(data, printer="legacy")``
+        The same, selected by name.
+    ``model.train(data, printer=LegacyPrinter(epochs, minimizers, max_rows))``
+        The same, with a printer you create.
 
-        ┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
-        ┃ epoch      ┃       curv_error      ┃         total         ┃
-        ┃            ┣━━━━━━━━━━━┳━━━━━━━━━━━╋━━━━━━━━━━━┳━━━━━━━━━━━┫
-        ┃            ┃     train ┃       val ┃     train ┃       val ┃
-        ┡━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━┩
-        │ 60/6000    │ 2.099e-06 │ 1.226e-06 │ 2.099e-06 │ 1.226e-06 │
-        ├────────────┴───────────┴───────────┴───────────┴───────────┤
-        │ training time: 12.345 s                                    │
-        └────────────────────────────────────────────────────────────┘
+    The table has a row per sampled epoch. Each row holds the epoch, then a
+    train and a val column for each objective, and for the total loss. A
+    column shows ``-`` without validation data. The time the training took
+    closes the table.
 
-    In the nnodely colours where the tables of a model are - a terminal or a
-    notebook - plain otherwise.
-
-    Rows are sampled every ``epochs / max_rows`` epochs, so a 6000-epoch run
-    prints the same number of lines as a 60-epoch one instead of flooding the
-    terminal. The final epoch is always printed, whatever the stride, so the
-    table ends on the numbers the model actually stopped at.
+    The table is drawn in the nnodely colours in a terminal or a notebook,
+    and plain otherwise. Set the environment variable ``NO_COLOR`` to print
+    it plain, or ``FORCE_COLOR`` to colour it anyway.
 
     Parameters
     ----------
-    epochs:
-        Total number of epochs, used for the stride and the ``n/total`` label.
-    minimizers:
-        The minimizers' names, in column order: each logs its loss under
-        ``"<name>_loss"``.
-    max_rows:
-        Upper bound on the number of printed rows.
+    epochs : int
+        The number of epochs of the training. It sets which rows are printed,
+        and the label of each, ``20/100``.
+    minimizers : sequence of str, default ()
+        The names of the objectives, called minimizers in the method names,
+        one column pair each, in this order. Each logs its loss as
+        ``<name>_loss``. :meth:`Modely.train` gives the objectives of the
+        model.
+    max_rows : int, default 20
+        The largest number of rows, at least 1.
+
+    Raises
+    ------
+    ValueError
+        If ``max_rows`` is below 1 ("max_rows must be a positive integer").
+
+    See Also
+    --------
+    TinyPrinter : A short summary of the latest epoch.
+    NNodelyPrinter : An animated console with a chart of the total loss.
+    Modely.train : Takes the printer as ``printer``.
+
+    Notes
+    -----
+    A row is printed every :math:`\lceil \text{epochs} / \text{max\_rows}
+    \rceil` epochs. A run of 6000 epochs then prints as many rows as one of
+    60. The last epoch always has its row, also when early stopping ends the
+    training between two rows.
+
+    A printer is a ``keras.callbacks.Callback``: :meth:`Modely.train` passes
+    it to Keras, which calls it at every epoch.
+
+    Basic Examples
+    --------------
+    >>> import numpy as np
+    >>> from nnodely import DataLoader, Fir, Input, LegacyPrinter, Modely, Output
+    >>> x = Input("x", tw=2)
+    >>> model = Modely("demo", inputs=[x], outputs=[Output("y", Fir()(x))])
+    >>> model = model.minimize("err", "y", Input("target", tw=1)).build()
+    >>> data = DataLoader(model, source={"x": np.arange(10.0), "target": np.arange(10.0)})
+    >>> _ = model.train(data, epochs=2, printer="legacy")
+    ┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
+    ┃ epoch      ┃          err          ┃         total         ┃
+    ┃            ┣━━━━━━━━━━━┳━━━━━━━━━━━╋━━━━━━━━━━━┳━━━━━━━━━━━┫
+    ┃            ┃     train ┃       val ┃     train ┃       val ┃
+    ┡━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━┩
+    │ 1/2        │       ... │     -     │       ... │     -     │
+    │ 2/2        │       ... │     -     │       ... │     -     │
+    ├────────────┴───────────┴───────────┴───────────┴───────────┤
+    │ training time: ... s                                       │
+    └────────────────────────────────────────────────────────────┘
+
+    Options
+    -------
+    ``max_rows`` bounds the rows: 4 epochs in 2 rows print every second
+    epoch. ``epochs`` and ``minimizers`` match the training:
+
+    >>> printer = LegacyPrinter(epochs=4, minimizers=["err"], max_rows=2)
+    >>> _ = model.train(data, epochs=4, printer=printer)
+    ┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
+    ...
+    │ 2/4        │       ... │     -     │       ... │     -     │
+    │ 4/4        │       ... │     -     │       ... │     -     │
+    ...
+
+    .. versionadded:: 2.0
     """
 
     def __init__(
@@ -182,12 +314,22 @@ class LegacyPrinter(keras.callbacks.Callback):
     # ------------------------------------------------------------------
 
     def on_train_begin(self, logs=None):
+        """Called by Keras when training starts.
+
+        :meta private:
+        """
+
         self._start_time = time.time()
         self._colour = _shows_colour(sys.stdout)
         for line, style in self._header():
             print(self._paint(line, style), flush=True)
 
     def on_epoch_end(self, epoch, logs=None):
+        """Called by Keras at the end of every epoch.
+
+        :meta private:
+        """
+
         self._last_epoch = (epoch, dict(logs or {}))
         last = epoch + 1 >= self._epochs
         self._last_printed = last or not (epoch + 1) % self._stride
@@ -195,6 +337,11 @@ class LegacyPrinter(keras.callbacks.Callback):
             self._print_row(epoch, logs or {})
 
     def on_train_end(self, logs=None):
+        """Called by Keras when training ends.
+
+        :meta private:
+        """
+
         if self._last_epoch is not None and not self._last_printed:
             self._print_row(*self._last_epoch)
         elapsed = time.time() - self._start_time
@@ -629,20 +776,103 @@ class _Channel:
 
 
 class NNodelyPrinter(keras.callbacks.Callback):
-    """A machine room for your training run.
+    """A training printer that shows an animated console with a chart of
+    the total loss.
 
-    Renders the run as a live industrial console painted in the nnodely logo
-    gradient: the wordmark with a highlight sweeping across it, a chart of the
-    total loss along the epochs - on a log scale, its highest and lowest value
-    on the axis - beside the telemetry of the run, a gradient progress bar,
-    and a log-scale spark per minimizer.
+    Syntax
+    ------
+    ``model.train(data, printer="nnodely")``
+        Shows the progress with an NNodelyPrinter.
+    ``model.train(data, printer=NNodelyPrinter(epochs, minimizers, model_name))``
+        The same, with a printer you create.
 
-    Everything is repainted in place at a capped frame rate, so a fast run
-    animates smoothly without the terminal becoming the bottleneck. In a
-    notebook the console is one output of the cell, replaced in place a few
-    times a second. On a non-terminal (a log file, a CI job) or with
-    ``NO_COLOR`` set it falls back to one plain line per sampled epoch, so
-    nothing downstream sees escapes.
+    In a terminal or a notebook, the console shows:
+
+    - a chart of the total loss along the epochs, on a log scale;
+    - the model name, the epoch, the elapsed and remaining time, and the
+      epochs per second;
+    - a progress bar;
+    - for each objective and for the total, a line of its recent train
+      losses, its last train and val loss, and its change.
+
+    The console is repainted in place, at most ``fps`` times a second. In a
+    notebook it is one output of the cell, replaced at most 5 times a
+    second.
+
+    Elsewhere, such as a log file or with ``NO_COLOR`` set, it prints a
+    plain line for one epoch in every ``epochs // 40``, and the last. When
+    training ends it prints a summary: the model, the epochs, the time in
+    seconds, and the last loss of each objective and of the total.
+
+    Parameters
+    ----------
+    epochs : int
+        The number of epochs of the training, for the progress and the
+        remaining time.
+    minimizers : sequence of str, default ()
+        The names of the objectives, called minimizers in the method names,
+        one line each. Each logs its loss as ``<name>_loss``.
+        :meth:`Modely.train` gives the objectives of the model.
+    model_name : str, default "model"
+        The name shown in the console and in the summary.
+        :meth:`Modely.train` gives the name of the model.
+    width : int, optional
+        The width of the console in characters, kept between 72 and 110. The
+        default is the width of the terminal.
+    fps : float, default 24.0
+        The largest number of repaints per second, at least 1.
+    stream : file-like object, optional
+        Where the printer writes. The default is the standard output when
+        the printer is created.
+
+    See Also
+    --------
+    TinyPrinter : A short summary of the latest epoch.
+    LegacyPrinter : A table of the losses, one row per sampled epoch.
+    Modely.train : Takes the printer as ``printer``.
+
+    Notes
+    -----
+    A printer is a ``keras.callbacks.Callback``: :meth:`Modely.train` passes
+    it to Keras, which calls it at every epoch.
+
+    The summary prints the time of the training as the number of seconds,
+    unformatted: ``Total time of Training: 0.15306329727172852``.
+
+    Basic Examples
+    --------------
+    Outside a terminal, the plain lines and the summary:
+
+    >>> import io
+    >>> import numpy as np
+    >>> from nnodely import DataLoader, Fir, Input, Modely, NNodelyPrinter, Output
+    >>> x = Input("x", tw=2)
+    >>> model = Modely("demo", inputs=[x], outputs=[Output("y", Fir()(x))])
+    >>> model = model.minimize("err", "y", Input("target", tw=1)).build()
+    >>> data = DataLoader(model, source={"x": np.arange(10.0), "target": np.arange(10.0)})
+    >>> _ = model.train(data, epochs=2, printer="nnodely")
+    epoch 1/2  err=...  Total=...  [...]
+    epoch 2/2  err=...  Total=...  [...]
+    <BLANKLINE>
+    ========================== nnodely Training Complete ===========================
+    Model:                        demo
+    Epochs completed:             2 / 2
+    Total time of Training:       ...
+    Final err:                    ...
+    Final Total:                  ...
+    ================================================================================
+
+    Options
+    -------
+    ``stream`` writes the console elsewhere, here to a string:
+
+    >>> buffer = io.StringIO()
+    >>> printer = NNodelyPrinter(epochs=1, minimizers=["err"], model_name="demo", stream=buffer)
+    >>> _ = model.train(data, epochs=1, printer=printer)
+    >>> buffer.getvalue().splitlines()[0]
+    'epoch 1/1  err=...  Total=...  [...]'
+
+    .. versionadded:: 2.0
     """
 
     #: Columns of the loss chart, and how many character rows it is tall.
@@ -695,6 +925,11 @@ class NNodelyPrinter(keras.callbacks.Callback):
     # ------------------------------------------------------------------
 
     def on_train_begin(self, logs=None):
+        """Called by Keras when training starts.
+
+        :meta private:
+        """
+
         self._start_time = time.time()
         self._last_paint = 0.0
         if not self._colour:
@@ -713,6 +948,11 @@ class NNodelyPrinter(keras.callbacks.Callback):
         self._stream.flush()
 
     def on_epoch_end(self, epoch, logs=None):
+        """Called by Keras at the end of every epoch.
+
+        :meta private:
+        """
+
         logs = logs or {}
         self._epoch = epoch + 1
 
@@ -743,6 +983,11 @@ class NNodelyPrinter(keras.callbacks.Callback):
         self._paint(now - self._start_time)
 
     def on_train_end(self, logs=None):
+        """Called by Keras when training ends.
+
+        :meta private:
+        """
+
         elapsed = time.time() - self._start_time
         if self._colour:
             self._paint(elapsed, done=True)

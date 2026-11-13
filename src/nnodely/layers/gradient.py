@@ -178,35 +178,172 @@ class GradientImpl(keras.layers.Layer):
 # Symbolic layer
 # ----------------------------------------------------------------------
 class Gradient(Layer):
-    """
-    Gradient of a Stream with respect to an Input::
+    r"""Derivative of a stream with respect to an Input, by automatic
+    differentiation.
 
-        Gradient(order=1|2, wrt=x)(fun)     # d fun / d x
+    Syntax
+    ------
+    ``Gradient(wrt=x)(y)``
+        The derivative of ``y`` with respect to the Input ``x``.
+    ``Gradient(order=2, wrt=x)(y)``
+        The second derivative.
 
-    ``fun`` is differentiated with respect to the input as it is declared,
-    its whole window if it has one, by the backend's automatic
-    differentiation, so every relation between the two - including trainable
-    weights - is taken into account, and the result is itself differentiable
-    (it can be nested, and trained through). The output has the shape of the
-    input: for a window longer than one sample it is the derivative of the
-    summed relation with respect to each sample, which is the usual
-    reverse-mode (vector-Jacobian) reading. ``fun`` must actually depend on
-    the input. For a derivative over time, see
-    :class:`DerivativeStep` and :class:`Derivative`.
+    The derivative is exact: the backend differentiates every operation
+    between ``x`` and ``y``, trainable weights included. The result is a
+    stream like any other: it can be differentiated again, used in an
+    objective, and trained through. This is how a physical law becomes an
+    objective, as in physics-informed neural networks.
 
-    Two notes:
+    The result has the shape of ``x``. When ``y`` has several values, a
+    window or several features, the result is the derivative of their sum
+    with respect to each value of ``x``. For the derivative with respect to
+    time, use :class:`DerivativeStep` or :class:`Derivative`.
 
-    * It reads the input where it is declared. A model used as a reusable
-      block has its own inputs replaced by the streams it is called with, so
-      a Gradient inside such a block no longer has an input to read and says
-      so rather than guessing.
+    Parameters
+    ----------
+    order : int, default 1
+        The order of the derivative, ``1`` or ``2``.
+    wrt : Input
+        The Input to differentiate with respect to, as declared in the model
+        that holds the layer. It is required.
+    name : str, optional
+        The name of the layer. The default is ``Gradient`` followed by a
+        number.
 
-    * ONNX export records the backward pass in the exported graph. Its shape
-      arithmetic only converts with a fixed batch axis, so
-      ``Modely.export_onnx`` fixes it (see its ``batch_size`` argument); and
-      the Torch backend, whose exporter traces a forward pass only, refuses
-      such a model outright - export it under the TensorFlow backend (JAX
-      exports no ONNX at all).
+    Call arguments
+    --------------
+    y : Stream
+        A stream computed from ``wrt``, of any shape. The call takes it alone
+        or in a list of one.
+
+    Returns
+    -------
+    Stream
+        The shape of ``wrt``, whatever the shape of ``y``. For example,
+        ``Input("x")`` gives ``Shape(S=(), T=None, D=(1,))``, and
+        ``Input("x", tw=2)`` gives ``Shape(S=(), T=2, D=(1,))``.
+
+    Raises
+    ------
+    ValueError
+        If ``order`` is not 1 or 2 ("Gradient supports order in [1, 2]"),
+        or, when the model is built, if ``y`` does not depend on ``wrt``
+        ("does not depend on input").
+    TypeError
+        If ``wrt`` is not an Input ("wrt must be the Input to differentiate
+        against"). A number points to :class:`DerivativeStep`.
+
+    See Also
+    --------
+    DerivativeStep : The time derivative along a window.
+    Derivative : The time derivative one step at a time.
+    Modely.export_onnx : The export to ONNX, and its batch size.
+
+    Notes
+    -----
+    For an Input :math:`x` and a stream :math:`y` of values :math:`y_j`:
+
+    .. math:: g = \frac{\partial}{\partial x} \sum_j y_j
+
+    ``order=2`` differentiates :math:`g` in the same way. For a scalar
+    :math:`y` of a scalar :math:`x`, these are :math:`dy/dx` and
+    :math:`d^2y/dx^2`.
+
+    The layer reads ``wrt`` where it is declared. A model called as a block
+    inside another reads the streams of the call in place of its own Inputs:
+    a Gradient inside the block has no Input left to differentiate against,
+    and raises when the model is built. Differentiate in the model that
+    declares the Input.
+
+    ONNX export records the backward pass in the exported graph:
+
+    * TensorFlow exports it with the batch axis fixed, to 1 by default.
+    * PyTorch refuses to export it.
+    * JAX exports no model to ONNX.
+
+    Basic Examples
+    --------------
+    The derivative of :math:`x^3` is :math:`3x^2`:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import Fir, Gradient, Input, Modely, Output, Parameter
+    >>> x = Input("x")
+    >>> dy_dx = Gradient(wrt=x)(x * x * x)
+    >>> model = Modely("cube", inputs=[x], outputs=[Output("dy_dx", dy_dx)]).build()
+    >>> keras.ops.convert_to_numpy(model({"x": np.array([[1.0], [2.0]])})["dy_dx"])
+    array([[ 3.],
+           [12.]], dtype=float32)
+
+    Scope
+    -----
+    For an Input with a window, the result has one derivative per sample.
+    The derivative of a filter with respect to its window is its kernel:
+
+    >>> w = Input("w", tw=2)
+    >>> filtered = Fir(kernel=Parameter("k", value=[[3.0], [5.0]]), bias=False)(w)
+    >>> model = Modely("fir", inputs=[w], outputs=[Output("g", Gradient(wrt=w)(filtered))])
+    >>> keras.ops.convert_to_numpy(model.build()({"w": np.array([[[1.0], [2.0]]])})["g"])
+    array([[[3.],
+            [5.]]], dtype=float32)
+
+    Options
+    -------
+    ``order=2`` gives the second derivative, :math:`6x`:
+
+    >>> d2y_dx2 = Gradient(order=2, wrt=x)(x * x * x)
+    >>> model = Modely("second", inputs=[x], outputs=[Output("d2y", d2y_dx2)]).build()
+    >>> keras.ops.convert_to_numpy(model({"x": np.array([[1.0], [2.0]])})["d2y"])
+    array([[ 6.],
+           [12.]], dtype=float32)
+
+    ``name`` names the layer:
+
+    >>> Gradient(wrt=x, name="slope")(x * x).name
+    'slope'
+
+    Applications
+    ------------
+    A physical law as an objective, called a minimizer in the method names.
+    The model :math:`u = k t^2` must satisfy :math:`\dot u = 2t`. The
+    objective has no target: training drives the residual to zero, and so
+    ``k`` toward 1.
+
+    >>> t = Input("t")
+    >>> k = Parameter("k_law", value=3.0)
+    >>> u = k * t * t
+    >>> law = Modely("law", inputs=[t], outputs=[Output("u", u)])
+    >>> law = law.minimize("physics", Gradient(wrt=t)(u) - 2.0 * t).build()
+
+    Properties & Relations
+    ----------------------
+    ``order=2`` is the derivative of the derivative:
+
+    >>> twice = Gradient(wrt=x)(Gradient(wrt=x)(x * x * x))
+    >>> model = Modely("twice", inputs=[x], outputs=[Output("d2y", twice)]).build()
+    >>> keras.ops.convert_to_numpy(model({"x": np.array([[1.0], [2.0]])})["d2y"])
+    array([[ 6.],
+           [12.]], dtype=float32)
+
+    Possible Issues
+    ---------------
+    The derivative with respect to time is not a Gradient:
+
+    >>> Gradient(wrt=0.01)
+    Traceback (most recent call last):
+        ...
+    TypeError: Gradient: wrt must be the Input to differentiate against, got float. For a derivative over time, use DerivativeStep(dt=...) or Derivative(dt=...).
+
+    The stream must depend on ``wrt``. The error comes when the model is
+    built:
+
+    >>> z = Input("z")
+    >>> Modely("unrelated", inputs=[x, z], outputs=[Output("g", Gradient(wrt=z)(x * x))]).build()
+    Traceback (most recent call last):
+        ...
+    ValueError: ...the differentiated relation does not depend on input 'z' (it reads ['x'])...
+
+    .. versionadded:: 2.0
     """
 
     def __init__(self, order: int = 1, wrt: Input | None = None, name=None):

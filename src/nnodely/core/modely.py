@@ -48,17 +48,249 @@ import keras
 
 
 class Modely:
-    """A model-structured neural network.
+    r"""A model made of the streams that lead from its Inputs to its Outputs,
+    trained, run and saved as one network.
 
-    ``inputs`` and ``outputs`` delimit the graph of streams that makes up the
-    model. Objectives (:meth:`minimize`) are declared on it, then
-    :meth:`build` creates the Keras model and its weights.
+    Syntax
+    ------
+    ``Modely(name, inputs, outputs)``
+        Declares the model of the streams that lead from ``inputs`` to
+        ``outputs``.
+    ``model.minimize(name, source, target)``, then ``model.build()``
+        Registers an objective, then creates the Keras model and its weights.
+    ``model({"x": array})``
+        Runs the built model on arrays, keyed by input name or by Input.
+    ``model([array_1, array_2])``
+        The same, one array per input, in the order of ``inputs``.
+    ``model(array)``
+        The same, for a model with one input.
+    ``model({"x": stream})``, ``model([stream_1, stream_2])``, ``model(stream)``
+        Uses the model as a block of a larger graph: returns its outputs as
+        streams.
 
-    A model is called with a dict keyed by Input or input name, or with a
-    list holding one value per input in the order of ``inputs``. Called on
-    arrays, every one with its batch axis, a built model runs and returns
-    ``{output name: tensor}``; called on streams, it becomes a block of a
-    larger graph and returns its outputs as streams.
+    A model is declared once, on streams. Objectives, called minimizers in the
+    method names (:meth:`minimize`, :attr:`minimizers`,
+    :meth:`remove_minimizer`), are registered next. :meth:`build` then
+    creates the Keras model. A :class:`DataLoader` made for the built model
+    feeds :meth:`train` and :meth:`validate`.
+
+    Called on arrays, a built model runs: every array has its batch axis
+    first. Called on streams, the model is a block: its outputs become streams
+    of the graph that calls it, and its weights are shared with it.
+
+    Parameters
+    ----------
+    name : str
+        The name of the model. It heads the printed tables, names the files
+        :meth:`export_keras`, :meth:`export_onnx` and :meth:`export_html`
+        write, and names the folder of a block saved inside a larger model.
+    inputs : list of Input
+        Every Input the model reads. The list form of the call follows its
+        order. It lists the Inputs the outputs read, those given to a block,
+        and the ``init`` of an :class:`Integrate`, a :class:`Derivative` or a
+        :class:`Buffer`. Two kinds may be left out:
+
+        - a fed-back Input, see :meth:`Input.feedback`;
+        - an Input only an objective reads, such as a measured target.
+
+        The list is copied: changing it later leaves the model as it was.
+    outputs : list of Output
+        The streams the model exposes, each named by its :class:`Output`.
+
+    Attributes
+    ----------
+    model : keras.Model or None
+        The Keras model :meth:`train` runs, with the outputs and the inputs
+        the objectives add. ``None`` before :meth:`build`.
+    inference_model : keras.Model or None
+        The Keras model a call on arrays runs: the declared outputs, and only
+        the inputs they read. ``None`` before :meth:`build`.
+    inference_inputs : list of Input
+        The Inputs a call on arrays needs. Empty before :meth:`build`.
+    train_inputs : list of Input
+        The Inputs the training data holds, the targets included. Empty
+        before :meth:`build`.
+
+    Returns
+    -------
+    dict of str to tensor, Stream or list of Stream
+        Called on arrays: ``{output name: tensor}``, a tensor of the active
+        backend for every declared output. Its shape is ``(batch, *S, T,
+        *D)`` for an output of ``Shape(S, T, D)``: 4 samples of an output of
+        ``Shape(S=(), T=1, D=(1,))`` give ``(4, 1, 1)``. Convert it with
+        ``keras.ops.convert_to_numpy``. Called on streams: the output stream
+        of a model with one output, else the list of them, in the order of
+        ``outputs``.
+
+    Raises
+    ------
+    ValueError
+        If the outputs read an Input that is not among ``inputs`` ("which are
+        not among its inputs: declare them there"). If the model is called on
+        arrays before :meth:`build` ("Model is not built"), or without an
+        input it reads ("which are missing from the data"). If a list holds
+        one value too many or too few ("takes one value for each"). If a
+        block is given a stream of another shape ("takes a stream of that
+        shape").
+    TypeError
+        If the model is called on something else than a dict, a list, an
+        array or a stream ("is called with a dict keyed by Input or input
+        name"), or on streams and arrays together ("streams and arrays
+        together").
+
+    See Also
+    --------
+    ModelyLoop : A model declared one step at a time, rolled out.
+    DataLoader : The data of a model, laid out for training.
+    Input : A signal read from data.
+    Output : A stream the model exposes, with its name.
+    Loop : A rollout of a model inside a larger graph.
+
+    Notes
+    -----
+    The lifecycle is fixed: declare the streams, then the model, then the
+    objectives, then :meth:`build`. Make the :class:`DataLoader` after the
+    build. Train, validate, call and export the built model.
+
+    The array of an Input is laid out ``(batch, *S, T, *D)``, as the Input
+    is declared: its ``shape`` gives ``S``, ``T`` and ``D``. An Input without
+    a window has no ``T`` axis. Arrays need not be ``float32``.
+
+    A dict may hold more keys than the model reads. A key that names no Input
+    of the model, such as a target or another column, is ignored. So the
+    arrays of a :class:`DataLoader`, ``loader.as_dict()``, pass as they are.
+    Keyed by the Input objects, two Inputs of one name are told apart. A name
+    several Inputs of the model carry raises: key them by the Inputs.
+
+    ``print(model)``, or ``model`` as the last line of a notebook cell, shows
+    a table of the names of its inputs, outputs and objectives.
+
+    Basic Examples
+    --------------
+    A model that doubles its input, run on one sample of a window of 2:
+
+    >>> import keras
+    >>> import numpy as np
+    >>> from nnodely import DataLoader, Fir, Input, Modely, Output, Parameter
+    >>> x = Input("x", tw=2)
+    >>> double = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)])
+    >>> double = double.build()
+    >>> result = double({"x": np.array([[[1.0], [2.0]]])})  # (batch, T, D)
+    >>> keras.ops.convert_to_numpy(result["y"])
+    array([[[2.],
+            [4.]]], dtype=float32)
+
+    The model prints as a table of its names:
+
+    >>> double
+    ┏━━━━━━━━━━━━┳━━━━━━━━┓
+    ┃ model      ┃ double ┃
+    ┡━━━━━━━━━━━━╇━━━━━━━━┩
+    │ inputs     │ x      │
+    │ outputs    │ y      │
+    │ minimizers │ -      │
+    └────────────┴────────┘
+
+    Scope
+    -----
+    The same array, keyed by the Input, in a list, or alone:
+
+    >>> sample = np.array([[[1.0], [2.0]]])
+    >>> [keras.ops.convert_to_numpy(double(form)["y"]).ravel().tolist()
+    ...  for form in ({x: sample}, [sample], sample)]
+    [[2.0, 4.0], [2.0, 4.0], [2.0, 4.0]]
+
+    A batch of samples gives one result each:
+
+    >>> keras.ops.convert_to_numpy(double({"x": np.ones((3, 2, 1))})["y"]).shape
+    (3, 2, 1)
+
+    The arrays of a :class:`DataLoader` pass as they are, batch axis included:
+
+    >>> loader = DataLoader(double, source={"x": [1.0, 2.0, 3.0]})
+    >>> keras.ops.convert_to_numpy(double(loader.as_dict())["y"]).shape
+    (2, 2, 1)
+
+    Called on a stream, the model is a block, and returns a stream:
+
+    >>> a = Input("a", tw=2)
+    >>> double(a).shape
+    Shape(S=(), T=2, D=(1,))
+
+    Options
+    -------
+    ``inputs`` sets the order of the list form, here ``u`` then ``v``:
+
+    >>> u, v = Input("u", tw=1), Input("v", tw=1)
+    >>> diff = Modely("diff", inputs=[u, v], outputs=[Output("d", u - v)]).build()
+    >>> keras.ops.convert_to_numpy(diff([np.array([[[5.0]]]), np.array([[[2.0]]])])["d"])
+    array([[[3.]]], dtype=float32)
+
+    ``outputs`` names the keys of the result:
+
+    >>> sorted(diff({"u": np.ones((1, 1, 1)), "v": np.ones((1, 1, 1))}))
+    ['d']
+
+    Applications
+    ------------
+    The next position of a mass, from its last positions and the force, as a
+    block reused by a larger model:
+
+    >>> position = Input("position", tw=3)
+    >>> force = Input("force", tw=1)
+    >>> step = Modely("step", inputs=[position, force],
+    ...               outputs=[Output("next", Fir()(position) + Fir()(force))])
+    >>> p, f = Input("p", tw=3), Input("f", tw=1)
+    >>> plant = Modely("plant", inputs=[p, f], outputs=[Output("p_next", step([p, f]))])
+    >>> [model.name for model in plant.models]
+    ['step']
+
+    Properties & Relations
+    ----------------------
+    A block computes inside a larger model what it computes alone:
+
+    >>> k = Parameter("k", value=[[3.0]])
+    >>> gain = Modely("gain", inputs=[u], outputs=[Output("g", Fir(kernel=k, bias=False)(u))])
+    >>> w = Input("w", tw=1)
+    >>> outer = Modely("outer", inputs=[w], outputs=[Output("o", gain(w))]).build()
+    >>> one = np.array([[[2.0]]])
+    >>> keras.ops.convert_to_numpy(outer({"w": one})["o"])
+    array([[[6.]]], dtype=float32)
+    >>> keras.ops.convert_to_numpy(gain.build()({"u": one})["g"])
+    array([[[6.]]], dtype=float32)
+
+    Possible Issues
+    ---------------
+    The arrays need their batch axis. ``loader[0]`` is one sample without
+    it, so the window of 2 samples is read as a batch of 2. A model whose
+    layers accept that shape runs silently and gives a wrong result. Add the
+    batch axis:
+
+    >>> sample = loader[0]
+    >>> sample["x"].shape
+    (2, 1)
+    >>> keras.ops.convert_to_numpy(double(sample)["y"]).shape  # wrong: 2 samples
+    (2, 1, 1)
+    >>> batched = {key: value[None] for key, value in loader[0].items()}
+    >>> keras.ops.convert_to_numpy(double(batched)["y"])
+    array([[[2.],
+            [4.]]], dtype=float32)
+
+    A model runs on arrays only once built:
+
+    >>> Modely("late", inputs=[x], outputs=[Output("z", 3.0 * x)])(sample)
+    Traceback (most recent call last):
+        ...
+    ValueError: Model is not built. Call build() before calling it.
+
+    Every Input the outputs read is declared among ``inputs``:
+
+    >>> Modely("partial", inputs=[u], outputs=[Output("s", u + v)])
+    Traceback (most recent call last):
+        ...
+    ValueError: Model 'partial' reads the Inputs ['v'], which are not among its inputs: declare them there...
+
+    .. versionadded:: 2.0
     """
 
     name: str
@@ -358,19 +590,117 @@ class Modely:
 
     @property
     def built(self):
-        """True once :meth:`build` has been called."""
+        """Whether :meth:`build` has created the Keras model, ``True`` or
+        ``False``.
+
+        A model is called on arrays, trained, validated and exported only once
+        built. A model returned by :meth:`load` is built.
+
+        See Also
+        --------
+        Modely.build : Create the Keras model and its weights.
+
+        Basic Examples
+        --------------
+        >>> from nnodely import Input, Modely, Output
+        >>> x = Input("x", tw=1)
+        >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)])
+        >>> model.built
+        False
+        >>> model.build().built
+        True
+
+        .. versionadded:: 2.0
+        """
         return self.model is not None
 
     def build(self, keep_weights: bool = True):
-        """Create the Keras model of the graph, with its weights.
+        """Create the Keras model of the graph and its weights, and return the
+        model itself.
 
-        Objectives and feedback have to be declared before, because they add
-        to the graph that is built. The weights the graph already holds - of
-        a block built on its own, or of an earlier build of this model - are
-        kept; with ``keep_weights=False`` every weight the model computes
-        with, in the models it calls and the bodies of its Loops too, is
-        given its initial value again, frozen ones included. A build that
-        fails leaves the model as it was. Returns the model itself.
+        Call it after the objectives and the feedbacks are declared: they add
+        to the graph that is built. Build again after a new objective. A
+        :class:`DataLoader` is made for the built model.
+
+        Parameters
+        ----------
+        keep_weights : bool, default True
+            ``True`` keeps the weights the graph already holds: those of an
+            earlier build, and those of a block built on its own. ``False``
+            gives every weight its initial value again, in place: the
+            declared value of a :class:`Parameter`, or a new draw of its
+            initializer. Frozen weights, those of the blocks it calls and of
+            its Loop bodies are reset too, and every model that shares them
+            sees the new values.
+
+        Returns
+        -------
+        Modely
+            The model itself, so that ``Modely(...).build()`` chains.
+
+        Raises
+        ------
+        ValueError
+            If the graph reads no Input ("reads no Input"). If two different
+            Inputs of the graph have one name ("reads two different Inputs
+            named"): the data is keyed by input name.
+
+        Warns
+        -----
+        UserWarning
+            If the model reads a fed-back Input it does not declare ("which
+            only a Loop or a ModelyLoop feeds back"). A Modely reads it from
+            data, one step at a time.
+
+        See Also
+        --------
+        Modely.built : Whether the model is built.
+        Modely.minimize : Register an objective, before the build.
+        Modely.train : Train the built model.
+        DataLoader : The data of the built model.
+
+        Notes
+        -----
+        A build that raises leaves the model as it was. Building creates the
+        Keras variables of the weights: after it, a Parameter's ``param`` is
+        the variable the model computes with, and the attributes ``model``
+        and ``inference_model`` are set.
+
+        Basic Examples
+        --------------
+        >>> import keras
+        >>> from nnodely import Constant, Input, Modely, Output, Parameter
+        >>> x = Input("x", tw=1)
+        >>> p = Parameter("p", value=[3.0])
+        >>> model = Modely("scale", inputs=[x], outputs=[Output("y", p * x)]).build()
+        >>> model.built
+        True
+
+        Options
+        -------
+        A new build keeps the weights; ``keep_weights=False`` starts them
+        again from their declared value:
+
+        >>> _ = p.param.assign([7.0])
+        >>> model = model.build()
+        >>> keras.ops.convert_to_numpy(p.param)
+        array([7.], dtype=float32)
+        >>> model = model.build(keep_weights=False)
+        >>> keras.ops.convert_to_numpy(p.param)
+        array([3.], dtype=float32)
+
+        Possible Issues
+        ---------------
+        A graph of Parameters and Constants alone has no data to run on. Read
+        an Input:
+
+        >>> c = Constant("c", value=[1.0])
+        >>> Modely("no_input", inputs=[], outputs=[Output("o", 2.0 * c)]).build()
+        Traceback (most recent call last):
+            ...
+        ValueError: Model 'no_input' reads no Input...
+
+        .. versionadded:: 2.0
         """
         from nnodely.core.layer import Identity
 
@@ -611,30 +941,152 @@ class Modely:
         loss: str | dict[str, Any] | keras.losses.Loss | Callable = "mse",
         gain: float = 1.0,
     ):
-        """Register a Keras loss to minimize during training.
+        r"""Register an objective: a loss between two streams that
+        :meth:`train` minimizes. Return the model itself.
+
+        An objective is called a minimizer in the method names:
+        ``minimize``, :attr:`minimizers` and :meth:`remove_minimizer`. Register
+        the objectives before :meth:`build`, which adds their streams to the
+        training model. The name of an objective is its key: registering a
+        name again replaces that objective, in its place, with a warning.
 
         Parameters
         ----------
-        name:
-            Identifier for this loss, used as an output name in the training
-            model.
-        source:
-            Node or stream producing the predictions (e.g. an Output node), or
-            the name of a stream of the model.
-        target:
-            Node or stream providing the target values (usually derived from
-            an Input), the name of a stream of the model, a number, or None
-            for zero. A number becomes a Constant.
-        loss:
-            Keras loss name, serialized config, Loss instance, or callable.
-        gain:
-            Weight of this loss in the total training loss, 1 by default:
-            0.5 gives it half the importance, 2 twice. Its own logged and
-            validated loss stays unweighted, the way Keras logs a
-            ``loss_weight``.
+        name : str
+            The name of the objective. Training logs its loss as
+            ``"<name>_loss"``, and ``"val_<name>_loss"`` with validation data.
+        source : Output, Stream or str
+            The prediction: an :class:`Output`, any stream of the model, or the
+            name of one.
+        target : Output, Stream, str, float or None, default None
+            What the prediction is compared with:
 
-        A name identifies one minimizer: registering a name again replaces the
-        minimizer it names, in its place, and warns that it did.
+            - an Input, or a stream computed from Inputs, read from the data:
+              its shape is the shape of ``source``;
+            - the name of a stream of the model;
+            - a number, compared with every value of ``source``;
+            - ``None``, the same as ``0.0``: the objective drives ``source``
+              to zero, as a physical residual.
+
+            An Input only the target reads need not be among the inputs of
+            the model.
+        loss : str, dict, keras.losses.Loss or callable, default "mse"
+            The loss function: a Keras loss name (``"mse"``, ``"mae"``,
+            ``"huber"``, ``"log_cosh"``, ...), a serialized Keras loss, a
+            ``keras.losses.Loss`` instance, or a function
+            ``loss(y_true, y_pred)``.
+        gain : float, default 1.0
+            The weight of the objective in the total loss, a finite number not
+            below zero. ``0.5`` halves its importance, ``2.0`` doubles it. Its
+            own logged and validated loss is not weighted.
+
+        Returns
+        -------
+        Modely
+            The model itself.
+
+        Raises
+        ------
+        ValueError
+            If ``name`` is not a non-empty string ("A minimizer name is a
+            non-empty string"), or clashes with a validation loss name, such
+            as ``"fit"`` and ``"val_fit"`` ("cannot both be declared"). If
+            ``loss`` is unknown ("Unknown or invalid Keras loss"). If ``gain``
+            is negative or not finite ("must be finite and not negative").
+        KeyError
+            If a name given for ``source`` or ``target`` is the name of no
+            stream of the model ("is not the name of a stream"). The error is
+            also a ``ValueError``.
+        TypeError
+            If ``gain`` is not a number, or ``source`` is neither a stream nor
+            a name.
+
+        Warns
+        -----
+        UserWarning
+            If an objective of that name exists ("it is replaced by the new
+            one").
+
+        See Also
+        --------
+        Modely.minimizers : The objectives, as a table.
+        Modely.remove_minimizer : Remove an objective.
+        Modely.train : Minimize the objectives.
+        Modely.validate : Score every objective on a dataset.
+
+        Notes
+        -----
+        Training minimizes the total loss of the :math:`n` objectives, each
+        loss :math:`L_i` weighted by its gain :math:`g_i`:
+
+        .. math:: L = \sum_{i=1}^{n} g_i \, L_i
+
+        :math:`L_i` is the mean of the loss function over the samples. The
+        rollout steps padded onto shorter simulations add zero. Only the
+        objectives of this model are trained: those of the models it calls
+        are each trained by their own model.
+
+        Basic Examples
+        --------------
+        The output ``y`` is compared with a measured Input, ``y_meas``:
+
+        >>> from nnodely import Input, Modely, Output, Parameter
+        >>> x = Input("x", tw=1)
+        >>> y = Output("y", x + Parameter("b", value=[1.0]))
+        >>> y_meas = Input("y_meas", tw=1)
+        >>> model = Modely("offset", inputs=[x], outputs=[y])
+        >>> model = model.minimize("fit", y, y_meas)
+        >>> model.minimizers
+        ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━┓
+        ┃ idx ┃ minimizer ┃ source ┃ target ┃ loss               ┃ gain ┃
+        ┡━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━┩
+        │ 0   │ fit       │ y      │ y_meas │ mean_squared_error │ 1.0  │
+        └─────┴───────────┴────────┴────────┴────────────────────┴──────┘
+
+        Scope
+        -----
+        A stream given by its name, compared with a number, and a stream
+        driven to zero, ``target=None``:
+
+        >>> model = model.minimize("level", "y", 2.0)
+        >>> model = model.minimize("residual", y)
+        >>> model.minimizers
+        ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━┓
+        ┃ idx ┃ minimizer ┃ source ┃ target ┃ loss               ┃ gain ┃
+        ┡━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━┩
+        │ 0   │ fit       │ y      │ y_meas │ mean_squared_error │ 1.0  │
+        │ 1   │ level     │ y      │ 2.0    │ mean_squared_error │ 1.0  │
+        │ 2   │ residual  │ y      │ 0.0    │ mean_squared_error │ 1.0  │
+        └─────┴───────────┴────────┴────────┴────────────────────┴──────┘
+
+        Options
+        -------
+        ``loss`` and ``gain``:
+
+        >>> model = model.minimize("robust", y, y_meas, loss="mae", gain=0.5)
+        >>> model.minimizers["robust"].gain
+        0.5
+
+        Possible Issues
+        ---------------
+        A name registered again replaces its objective, with a warning:
+
+        >>> import warnings
+        >>> with warnings.catch_warnings(record=True) as caught:
+        ...     warnings.simplefilter("always")
+        ...     model = model.minimize("level", y, 3.0)
+        >>> str(caught[0].message)
+        "Minimizer 'level' already exists in model 'offset': it is replaced by the new one."
+
+        The validation loss of ``"fit"`` is logged as ``"val_fit_loss"``, so
+        no objective may be named ``"val_fit"``:
+
+        >>> model.minimize("val_fit", y, 0.0)
+        Traceback (most recent call last):
+            ...
+        ValueError: Minimizers 'val_fit' and 'fit' cannot both be declared...
+
+        .. versionadded:: 2.0
         """
         self._check_minimizer_name(
             name, [m for m in self._minimizers if m["name"] != name]
@@ -671,8 +1123,67 @@ class Modely:
         return self
 
     def remove_minimizer(self, name: str | int):
-        """Remove a registered minimizer by name, or by its index in
-        :attr:`minimizers`; an unknown name only warns."""
+        """Remove an objective, picked by its name or by its index in
+        :attr:`minimizers`.
+
+        The next :meth:`train` and :meth:`validate` leave it out. The model
+        needs no new build.
+
+        Parameters
+        ----------
+        name : str or int
+            The name of the objective, or its index, the ``idx`` column of
+            :attr:`minimizers`.
+
+        Raises
+        ------
+        ValueError
+            If the name is carried by several objectives.
+        IndexError
+            If the index is out of range.
+
+        Warns
+        -----
+        UserWarning
+            If no objective has that name ("nothing was removed"). The model
+            is left as it was.
+
+        See Also
+        --------
+        Modely.minimize : Register an objective.
+        Modely.minimizers : The objectives, as a table.
+
+        Basic Examples
+        --------------
+        >>> from nnodely import Input, Modely, Output
+        >>> x = Input("x", tw=1)
+        >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)])
+        >>> model = model.minimize("a", "y", 1.0).minimize("b", "y", 2.0)
+        >>> model.remove_minimizer("a")
+        >>> [m.name for m in model.minimizers]
+        ['b']
+
+        Options
+        -------
+        By index:
+
+        >>> model.remove_minimizer(0)
+        >>> len(model.minimizers)
+        0
+
+        Possible Issues
+        ---------------
+        A name no objective has only warns:
+
+        >>> import warnings
+        >>> with warnings.catch_warnings(record=True) as caught:
+        ...     warnings.simplefilter("always")
+        ...     model.remove_minimizer("c")
+        >>> str(caught[0].message)
+        "Model 'double' has no minimizer named 'c': nothing was removed."
+
+        .. versionadded:: 2.0
+        """
         try:
             picked = self.minimizers[name]
         except NameNotFound:
@@ -732,15 +1243,76 @@ class Modely:
 
     @property
     def parameters(self) -> Parameters:
-        """Every Parameter the model computes with: those of its relations and
-        the weights of its layers, of the models it calls and of the bodies of
-        its Loops, in the order the graph reaches them. A
-        list of the Parameter objects, printed as a table of their names,
-        shapes, numbers of values and whether training changes them: a
-        section per model, under its name, when the models it computes with
-        have Parameters, each Parameter under the first model whose graph
-        reaches it. The last row totals the values of all the Parameters and,
-        under trainable, those training changes."""
+        """The Parameters the model computes with, as a list printed as a table.
+
+        It holds every :class:`Parameter` of the graph, in the order the
+        graph reaches them:
+
+        - those the streams read;
+        - the weights of its layers, such as the kernel of a :class:`Fir`;
+        - those of the models it calls as blocks and of its Loop bodies.
+
+        The list holds the Parameter objects themselves. Pick one by its name,
+        ``parameters["k"]``, or by its index, the ``idx`` column of the table,
+        ``parameters[0]``. A name several Parameters carry raises
+        ``ValueError``, listing their indices. A name none carries raises
+        ``KeyError``.
+
+        The table gives the name, ``seq``, ``tw`` and ``dim`` of each, its
+        number of values, and whether training changes it. When the models it
+        calls have Parameters, each model has a section, under its name. A
+        Parameter is listed under the first model whose graph reaches it. The
+        last row totals the values of all the Parameters and of the trainable
+        ones.
+
+        See Also
+        --------
+        Parameter : A trainable value of the graph.
+        Modely.freeze : Keep Parameters as they are through training.
+        Modely.models : The models the model calls.
+
+        Basic Examples
+        --------------
+        >>> from nnodely import Fir, Input, Modely, Output, Parameter
+        >>> x = Input("x", tw=2)
+        >>> y = Fir(name="fir")(x) * Parameter("gain", value=[2.0])
+        >>> model = Modely("filter", inputs=[x], outputs=[Output("y", y)])
+        >>> model.parameters
+        ┏━━━━━┳━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┓
+        ┃ idx ┃ parameter  ┃ seq ┃ tw   ┃ dim    ┃ values ┃ trainable ┃
+        ┡━━━━━╇━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━┩
+        │ 0   │ fir_kernel │ ()  │ None │ (2, 1) │ 2      │ yes       │
+        │ 1   │ fir_bias   │ ()  │ None │ (1,)   │ 1      │ yes       │
+        │ 2   │ gain       │ ()  │ None │ (1,)   │ 1      │ yes       │
+        ├─────┼────────────┼─────┼──────┼────────┼────────┼───────────┤
+        │     │ total      │     │      │        │ 4      │ 4         │
+        └─────┴────────────┴─────┴──────┴────────┴────────┴───────────┘
+
+        Scope
+        -----
+        By name or by index:
+
+        >>> model.parameters["gain"] is model.parameters[2]
+        True
+
+        The Parameters of a block are listed under its name:
+
+        >>> u = Input("u", tw=2)
+        >>> outer = Modely("outer", inputs=[u], outputs=[Output("z", model(u) - 1.0)])
+        >>> [p.name for p in outer.parameters]
+        ['fir_kernel', 'fir_bias', 'gain']
+
+        Possible Issues
+        ---------------
+        A name nothing carries raises ``KeyError``:
+
+        >>> model.parameters["bias"]
+        Traceback (most recent call last):
+            ...
+        nnodely.core.dag.NameNotFound: ...
+
+        .. versionadded:: 2.0
+        """
         return Parameters(
             [
                 (model.name, [node for node in nodes if isinstance(node, Parameter)])
@@ -751,17 +1323,60 @@ class Modely:
 
     @property
     def models(self) -> "Models":
-        """Every model this one computes with, at every depth: the models it
-        calls as blocks, the bodies of its Loops, and theirs, in the order
-        the graph reaches them, each once however many times it is called. A
-        list of the Modely objects themselves, not copies: they share their
-        weights with this model, so training, freezing or building one again
-        changes this model too. Picked by name, or by position as in a list,
-        and printed as a table of their inputs, outputs and Parameters.
+        """The models this model computes with, as a list printed as a table.
 
-        Each is saved in a folder of its own, so a loaded model lists the same
-        ones. A name several of them carry is refused: pick one by its
-        index, the index column of the table, ``models[1]``."""
+        It holds the models it calls as blocks, the bodies of its Loops, and
+        theirs, at every depth. They come in the order the graph reaches
+        them, each once however many times it is called. A
+        :class:`LocalModel`, an :class:`EquationLearner` and a
+        :class:`ModelyLoop` call models of their own, listed too.
+
+        The list holds the Modely objects themselves, not copies. They share
+        their weights with this model: training, freezing or building one
+        again changes this model too. Pick one by its name,
+        ``models["block"]``, or by its index, the ``idx`` column of the
+        table. A name several models carry raises ``ValueError``: pick one by
+        its index.
+
+        The table gives the name of each, its inputs, its outputs, its number
+        of Parameters, and whether it is built. :meth:`save` writes each in a
+        folder of its own, so a loaded model lists the same models.
+
+        See Also
+        --------
+        Modely.parameters : The Parameters, those of these models included.
+        Modely.freeze : Freeze the Parameters of a model by its name.
+        Loop : A rollout of a model inside a larger graph.
+
+        Basic Examples
+        --------------
+        >>> from nnodely import Input, Modely, Output, Parameter
+        >>> x = Input("x", tw=1)
+        >>> y = Output("y", x + Parameter("b", value=[1.0]))
+        >>> offset = Modely("offset", inputs=[x], outputs=[y])
+        >>> u = Input("u", tw=1)
+        >>> outer = Modely("outer", inputs=[u], outputs=[Output("z", 2.0 * offset(u))])
+        >>> outer.models
+        ┏━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━┓
+        ┃ idx ┃ model  ┃ inputs ┃ outputs ┃ parameters ┃ built ┃
+        ┡━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━┩
+        │ 0   │ offset │ x      │ y       │ 1          │ no    │
+        └─────┴────────┴────────┴─────────┴────────────┴───────┘
+
+        Scope
+        -----
+        By name or by index, the block itself:
+
+        >>> outer.models["offset"] is offset, outer.models[0] is offset
+        (True, True)
+
+        A model that calls none has an empty list:
+
+        >>> len(offset.models)
+        0
+
+        .. versionadded:: 2.0
+        """
         holders: dict[int, Modely] = {}
         models = [model for model, _ in _nodes_by_model(self, holders)][1:]
         return Models(
@@ -772,19 +1387,53 @@ class Modely:
 
     @property
     def inputs(self) -> Inputs:
-        """Every Input the model reads - those it declares, those only a
-        minimizer reads, and the fed-back ones, inside the models it calls
-        too - and every Input fed back inside the step of a Loop it rolls out,
-        as a ModelyLoop does. A list of the Input objects, printed as a table
-        of their shapes and of how each is fed:
+        """The Inputs the model reads, as a list printed as a table.
 
-        - declared: whether the model is declared with it;
-        - fed back with: the stream a loop feeds back into the Input at the
-          next step; a Modely reads the Input from data instead;
-        - data: what the data must hold of it - ``required``, ``optional``
-          (zeros where left out), ``target`` (to train and validate) or
-          ``-`` (fed back only);
-        - starts from: fed back by a Loop, what its first step reads."""
+        It holds, inside the models it calls too:
+
+        - the Inputs it declares;
+        - the Inputs only an objective reads, such as targets;
+        - the fed-back Inputs;
+        - the Inputs fed back inside the step of a Loop it rolls out, as a
+          :class:`ModelyLoop` does.
+
+        The list holds the Input objects themselves. Pick one by its name,
+        ``inputs["x"]``, or by its index, the ``idx`` column of the table.
+        Renaming one, ``inputs[0].name = "speed"``, renames it in the model;
+        build again to train with the new name.
+
+        The table gives the name, ``seq``, ``tw`` and ``dim`` of each Input,
+        and how it is fed:
+
+        - declared: whether it is among the inputs of the model;
+        - fed back with: the stream a loop feeds back into it at the next
+          step. A :class:`Modely` reads such an Input from data instead;
+        - data: what the data holds of it. ``required``; ``optional``, read
+          as zeros where the data leaves it out; ``target``, to train and
+          validate only; or ``-``, fed back only;
+        - starts from: for an Input a loop feeds back, what its first step
+          reads.
+
+        See Also
+        --------
+        Input : A signal read from data.
+        Modely.outputs : The outputs, as a table.
+        DataLoader : The data of the Inputs.
+
+        Basic Examples
+        --------------
+        >>> from nnodely import Input, Modely, Output
+        >>> x = Input("x", tw=1)
+        >>> y = Output("y", 2.0 * x)
+        >>> model = Modely("double", inputs=[x], outputs=[y])
+        >>> model = model.minimize("fit", y, Input("y_meas", tw=1))
+        >>> [(node.name, node.tw) for node in model.inputs]
+        [('x', 1), ('y_meas', 1)]
+        >>> model.inputs["x"] is x
+        True
+
+        .. versionadded:: 2.0
+        """
         return Inputs(self._input_rows())
 
     def _input_rows(self) -> list[dict]:
@@ -880,15 +1529,48 @@ class Modely:
 
     @property
     def outputs(self) -> Outputs:
-        """The outputs the model was declared with, in that order. A list of
-        the Output objects, printed as a table of their shapes and of:
+        """The outputs the model was declared with, as a list printed as a
+        table.
 
-        - stream: the stream the output names; in a ModelyLoop, the stream of
-          the step, collected over the steps;
+        The list holds the Output objects, in the order of ``outputs``. Pick
+        one by its name, ``outputs["y"]``, or by its index, the ``idx``
+        column of the table.
+
+        The table gives the name, ``seq``, ``tw`` and ``dim`` of each output,
+        and:
+
+        - stream: the stream the output names. In a :class:`ModelyLoop`, the
+          stream of the step, collected over the steps;
         - feeds back: the Inputs a loop feeds that stream back into at the
           next step;
-        - minimized by: the minimizers that read it, as ``name (source)`` or
-          ``name (target)``."""
+        - minimized by: the objectives that read it, as ``name (source)`` or
+          ``name (target)``.
+
+        See Also
+        --------
+        Output : A stream the model exposes.
+        Modely.inputs : The Inputs, as a table.
+        Modely.minimizers : The objectives, as a table.
+
+        Basic Examples
+        --------------
+        >>> from nnodely import Input, Modely, Output
+        >>> x = Input("x", tw=1)
+        >>> doubled = 2.0 * x
+        >>> doubled.name = "doubled"
+        >>> y = Output("y", doubled)
+        >>> model = Modely("double", inputs=[x], outputs=[y]).minimize("fit", y, 4.0)
+        >>> model.outputs
+        ┏━━━━━┳━━━━━━━━┳━━━━━┳━━━━┳━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━┓
+        ┃ idx ┃ output ┃ seq ┃ tw ┃ dim  ┃ stream  ┃ feeds back ┃ minimized by ┃
+        ┡━━━━━╇━━━━━━━━╇━━━━━╇━━━━╇━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━┩
+        │ 0   │ y      │ ()  │ 1  │ (1,) │ doubled │ -          │ fit (source) │
+        └─────┴────────┴─────┴────┴──────┴─────────┴────────────┴──────────────┘
+        >>> model.outputs["y"] is y
+        True
+
+        .. versionadded:: 2.0
+        """
         return Outputs(self._output_rows())
 
     def _output_rows(self) -> list[dict]:
@@ -929,39 +1611,258 @@ class Modely:
 
     @property
     def minimizers(self) -> "Minimizers":
-        """The minimizers of the model, those its :meth:`train` minimizes. A
-        list of :class:`Minimizer`, one per minimizer - its name, source,
-        target, loss and gain, and the model - printed as a table. Setting
-        the loss or gain of one changes it in the model:
-        ``model.minimizers[0]["gain"] = 0.1``.
+        """The objectives :meth:`train` minimizes, as a list printed as a table.
 
-        The minimizers of the models it calls, blocks or Loop bodies, are not
-        listed and not trained on: each is minimized by the :meth:`train` of
-        its own model."""
+        An objective is called a minimizer in the method names. The list holds
+        one entry per objective, in the order they were registered. Pick one
+        by its name, ``minimizers["fit"]``, or by its index, the ``idx``
+        column of the table. A name none carries raises ``KeyError``.
+
+        Each entry reads as a dict and as an object, ``m["gain"]`` or
+        ``m.gain``. Its keys are:
+
+        - ``name``: the name of the objective;
+        - ``source`` and ``target``: the streams it compares. A number given
+          as the target is a :class:`Constant`;
+        - ``loss``: the loss function;
+        - ``gain``: its weight in the total loss;
+        - ``model``: the model it belongs to.
+
+        Setting ``name``, ``loss`` or ``gain`` of an entry changes the
+        objective in the model, checked as :meth:`minimize` checks it. The
+        next :meth:`train` uses it, without a new build. Setting anything
+        else raises ``TypeError``: register the objective again with
+        :meth:`minimize` to change what it compares.
+
+        The table gives the name, source, target, loss and gain of each. The
+        objectives of the models it calls are not listed and not trained:
+        each is minimized by the :meth:`train` of its own model.
+
+        See Also
+        --------
+        Modely.minimize : Register an objective.
+        Modely.remove_minimizer : Remove an objective.
+        Modely.train : Minimize the objectives.
+
+        Basic Examples
+        --------------
+        >>> from nnodely import Input, Modely, Output
+        >>> x = Input("x", tw=1)
+        >>> y = Output("y", 2.0 * x)
+        >>> model = Modely("double", inputs=[x], outputs=[y])
+        >>> model = model.minimize("fit", y, Input("y_meas", tw=1))
+        >>> model.minimizers
+        ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━┓
+        ┃ idx ┃ minimizer ┃ source ┃ target ┃ loss               ┃ gain ┃
+        ┡━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━┩
+        │ 0   │ fit       │ y      │ y_meas │ mean_squared_error │ 1.0  │
+        └─────┴───────────┴────────┴────────┴────────────────────┴──────┘
+
+        Scope
+        -----
+        Every key of an entry, read as a key or as an attribute:
+
+        >>> fit = model.minimizers["fit"]
+        >>> fit["source"] is y, fit.target.name, fit.gain, fit.model is model
+        (True, 'y_meas', 1.0, True)
+
+        Options
+        -------
+        Setting the gain, the loss or the name changes the objective:
+
+        >>> model.minimizers[0]["gain"] = 0.5
+        >>> model.minimizers[0].loss = "mae"
+        >>> fit.name = "track"
+        >>> model.minimizers
+        ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━┓
+        ┃ idx ┃ minimizer ┃ source ┃ target ┃ loss                ┃ gain ┃
+        ┡━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━┩
+        │ 0   │ track     │ y      │ y_meas │ mean_absolute_error │ 0.5  │
+        └─────┴───────────┴────────┴────────┴─────────────────────┴──────┘
+
+        Possible Issues
+        ---------------
+        What an objective compares is set by :meth:`minimize` only:
+
+        >>> fit.source = y
+        Traceback (most recent call last):
+            ...
+        TypeError: Minimizer 'track': its name, loss and gain can be set, not its 'source'; ...
+
+        .. versionadded:: 2.0
+        """
         return Minimizers(
             [Minimizer(minimizer, self) for minimizer in self._minimizers]
         )
 
     def freeze(self, names: str | list[str] | None = None):
-        """Keep Parameters of the model as they are through training.
+        """Keep Parameters of the model as they are through training, and
+        return the model itself.
 
-        Without ``names``, every one: those of its relations and of the
-        weights of its layers, of the models it calls and of the bodies of
-        its Loops. ``names``, a name or a list of them, picks some: the name
-        of a Parameter, as :attr:`parameters` lists it, freezes that one; the
-        name of a model the graph reaches - a block it calls, the body of a
-        Loop, the model of a LocalModel - every Parameter of that model.
-        :meth:`unfreeze` undoes it; one :meth:`Parameter.freeze` freezes a
-        single one. A Parameter shared with another model is frozen for that
-        model too. Returns the model."""
+        Without ``names``, every Parameter :attr:`parameters` lists is frozen:
+        those of its streams, the weights of its layers, and those of the
+        models it calls and of its Loop bodies. :meth:`unfreeze` undoes it.
+        It works before and after :meth:`build`, and the next :meth:`train`
+        follows it.
+
+        Parameters
+        ----------
+        names : str, list of str or None, default None
+            What to freeze. ``None`` freezes every Parameter. A name, or a
+            list of names, picks:
+
+            - a Parameter, by its name as :attr:`parameters` lists it;
+            - a model the graph reaches, by its name, as :attr:`models` lists
+              it: every Parameter of that model. It is a block the model
+              calls, the body of a Loop, or the model of a
+              :class:`LocalModel`.
+
+        Returns
+        -------
+        Modely
+            The model itself.
+
+        Raises
+        ------
+        KeyError
+            If a name is the name of no Parameter and no model ("reaches no
+            Parameter and no model named"). The error is also a
+            ``ValueError``.
+        ValueError
+            If a name is carried by several Parameters or models ("is
+            ambiguous"). The message lists them with their index: freeze one
+            by itself, ``model.parameters[i].freeze()``.
+        TypeError
+            If a name is not a string.
+
+        See Also
+        --------
+        Modely.unfreeze : Let training change Parameters again.
+        Modely.parameters : The Parameters, with whether each is trainable.
+        Parameter : A trainable value, frozen alone with its ``freeze()``.
+
+        Notes
+        -----
+        Every name is checked before any Parameter changes: a wrong name
+        changes nothing. A Parameter is one object wherever it is read, so a
+        Parameter shared with another model is frozen there too. Two kinds of
+        weights are not Parameters, and are not frozen:
+
+        - the Keras weights of a :class:`KerasFunction`: set ``trainable`` on
+          its Keras layer;
+        - the moving statistics of a :class:`BatchNorm`, which training keeps
+          updating.
+
+        Basic Examples
+        --------------
+        >>> from nnodely import Input, Modely, Output, Parameter
+        >>> x = Input("x", tw=1)
+        >>> y = Parameter("a", value=[1.0]) * x + Parameter("b", value=[0.0])
+        >>> model = Modely("line", inputs=[x], outputs=[Output("y", y)])
+        >>> trainable = lambda: [(p.name, p.trainable) for p in model.parameters]
+        >>> model = model.freeze()
+        >>> trainable()
+        [('a', False), ('b', False)]
+        >>> model = model.unfreeze()
+
+        Options
+        -------
+        A name, or a list of names:
+
+        >>> model = model.freeze("b")
+        >>> trainable()
+        [('a', True), ('b', False)]
+        >>> model = model.unfreeze("b")
+
+        The name of a block freezes all its Parameters:
+
+        >>> u = Input("u", tw=1)
+        >>> outer = Modely("outer", inputs=[u], outputs=[Output("z", 2.0 * model(u))])
+        >>> outer = outer.freeze("line")
+        >>> trainable()
+        [('a', False), ('b', False)]
+        >>> outer = outer.unfreeze()
+
+        Possible Issues
+        ---------------
+        A name several Parameters carry is refused. Freeze one by its index:
+
+        >>> p, q = Parameter("w", value=[1.0]), Parameter("w", value=[2.0])
+        >>> twins = Modely("twins", inputs=[x], outputs=[Output("o", p * x + q)])
+        >>> twins.freeze("w")
+        Traceback (most recent call last):
+            ...
+        ValueError: Model 'twins': the name 'w' is ambiguous, 2 Parameters and models carry it: w (parameters[0]) in 'twins'; w (parameters[1]) in 'twins'...
+        >>> _ = twins.parameters[1].freeze()
+        >>> [p.trainable for p in twins.parameters]
+        [True, False]
+        >>> _ = twins.parameters[1].unfreeze()
+
+        .. versionadded:: 2.0
+        """
         for parameter in self._parameters_named(names):
             parameter.freeze()
         return self
 
     def unfreeze(self, names: str | list[str] | None = None):
-        """Let training change Parameters of the model again: every one, or
-        those ``names`` picks, as :meth:`freeze` finds them. Returns the
-        model."""
+        """Let training change Parameters of the model again, and return the
+        model itself.
+
+        It undoes :meth:`freeze`, and picks the Parameters as it does.
+
+        Parameters
+        ----------
+        names : str, list of str or None, default None
+            What to unfreeze. ``None`` unfreezes every Parameter. A name, or a
+            list of names, picks a Parameter by its name, or a model the graph
+            reaches by its name, for every Parameter of that model.
+
+        Returns
+        -------
+        Modely
+            The model itself.
+
+        Raises
+        ------
+        KeyError
+            If a name is the name of no Parameter and no model. The error is
+            also a ``ValueError``.
+        ValueError
+            If a name is carried by several Parameters or models ("is
+            ambiguous"): unfreeze one by itself,
+            ``model.parameters[i].unfreeze()``.
+        TypeError
+            If a name is not a string.
+
+        See Also
+        --------
+        Modely.freeze : Keep Parameters as they are through training.
+        Modely.parameters : The Parameters, with whether each is trainable.
+
+        Basic Examples
+        --------------
+        >>> from nnodely import Input, Modely, Output, Parameter
+        >>> x = Input("x", tw=1)
+        >>> y = Parameter("a", value=[1.0]) * x + Parameter("b", value=[0.0])
+        >>> model = Modely("line", inputs=[x], outputs=[Output("y", y)]).freeze()
+        >>> model = model.unfreeze("a")
+        >>> [(p.name, p.trainable) for p in model.parameters]
+        [('a', True), ('b', False)]
+        >>> model = model.unfreeze()
+        >>> [p.trainable for p in model.parameters]
+        [True, True]
+
+        Possible Issues
+        ---------------
+        A name nothing carries raises, and nothing changes:
+
+        >>> model.unfreeze(["a", "c"])
+        Traceback (most recent call last):
+            ...
+        nnodely.core.dag.NameNotFound: Model 'line' reaches no Parameter and no model named 'c'...
+
+        .. versionadded:: 2.0
+        """
         for parameter in self._parameters_named(names):
             parameter.unfreeze()
         return self
@@ -1042,34 +1943,125 @@ class Modely:
         history: dict[str, Any] | None = None,
         verbose: bool = True,
     ) -> ValidationResult:
-        """Score the built model on ``val_data`` and draw what it did.
+        """Score every objective of the built model on a dataset, and return
+        the scores.
 
-        Every minimizer is evaluated as training evaluates it: the same
-        forward pass, the same target and padding mask, and its loss as
-        :meth:`train` logs it for ``val_data``. It is reported with that loss
-        plus the indicators a mechanical system-identification report is
-        read for: RMSE, MAE, peak error, bias, error std, NRMSE, FIT, R2, VAF
-        and correlation. They are computed for each channel of the signal on
-        its own scale, and over the real points only: the rollout steps padded
-        onto shorter simulations are left out.
+        Each objective is evaluated as training evaluates it: the same
+        forward pass, the same target, aligned with the prediction the same
+        way, and the same padding mask. Its loss is the one :meth:`train`
+        logs as ``"val_<objective>_loss"`` for the same data. Next to it come
+        the indicators of a system-identification report: RMSE, MAE, peak
+        error, bias, error std, NRMSE, FIT, R2, VAF and correlation.
 
         Parameters
         ----------
-        val_data:
-            A :class:`DataLoader`, or anything exposing ``as_dict()`` and
-            ``__len__``.
-        out_dir:
-            Folder the figures are written to as PNG. ``None`` saves nothing.
-        show:
-            Open the figures in an interactive window - zoom, pan and edit the
-            curves with the usual Matplotlib toolbar.
-        history:
-            The dictionary returned by :meth:`train`, drawn as loss curves.
-        verbose:
-            Print the summary; False keeps the validation silent.
+        val_data : DataLoader
+            The data, made for this build of the model. It holds every Input
+            of ``train_inputs``, the targets included.
+        out_dir : str, os.PathLike or None, default None
+            The folder the figures are written to, as PNG files. ``None``
+            writes none. It is created when missing.
+        show : bool, default False
+            ``True`` opens the figures in an interactive Matplotlib window.
+        history : dict or None, default None
+            The dictionary :meth:`train` returns, drawn as loss curves in a
+            figure of its own.
+        verbose : bool, default True
+            ``True`` prints the summary of the scores. ``False`` prints
+            nothing.
 
-        The whole result is returned, so the numbers can be asserted on or
-        logged as well as read.
+        Returns
+        -------
+        ~nnodely.core.validation.ValidationResult
+            The scores, one per objective, in the order of
+            :attr:`minimizers`. Pick one by the name of its objective or by
+            its index. Each has ``metrics``, a dict of the loss and of every
+            indicator, and the indicators of every channel.
+
+        Raises
+        ------
+        ValueError
+            If the model is not built ("Call build() before validate()"),
+            has no objective ("No minimizers defined"), or the data is empty
+            ("Validation dataset is empty"). If the data lacks an Input the
+            model reads ("which the data does not hold"). If an Input or an
+            output was renamed after the build ("build it again").
+
+        See Also
+        --------
+        Modely.train : Train the model, with ``val_data`` too.
+        Modely.minimize : Register an objective.
+        DataLoader : The data of a model.
+
+        Notes
+        -----
+        The forward pass is the inference one: a :class:`BatchNorm` uses its
+        moving statistics. The gain of an objective does not weigh its
+        validated loss.
+
+        The indicators are computed for each channel, each feature of the
+        compared signal, on its own scale. For the whole signal, the
+        indicators in the units of the signal pool every channel. Those
+        relative to the target's spread are the mean of the channels' values.
+        A point is one sample at one step of the window or of the rollout.
+        The rollout steps padded onto shorter simulations are left out.
+
+        Drawing the figures needs Matplotlib. With ``out_dir``, the figure of
+        an objective is ``<model>_<index>_<objective>.png``, and the loss
+        curves are ``<model>_history.png``.
+
+        Basic Examples
+        --------------
+        A model that adds 1 to the target it should copy errs by 1 at every
+        point:
+
+        >>> from nnodely import DataLoader, Input, Modely, Output, Parameter
+        >>> x = Input("x", tw=1)
+        >>> y = Output("y", x + Parameter("b", value=[1.0]))
+        >>> model = Modely("offset", inputs=[x], outputs=[y])
+        >>> model = model.minimize("fit", y, Input("y_meas", tw=1)).build()
+        >>> data = DataLoader(model, source={"x": [0.0, 2.0, 4.0, 6.0],
+        ...                                  "y_meas": [0.0, 2.0, 4.0, 6.0]})
+        >>> result = model.validate(data, verbose=False)
+        >>> metrics = result["fit"].metrics
+        >>> metrics["loss"], metrics["rmse"], metrics["bias"], metrics["r2"]
+        (1.0, 1.0, 1.0, 0.8)
+
+        Options
+        -------
+        ``verbose=True``, the default, prints the summary:
+
+        >>> result = model.validate(data)
+        ============================== nnodely Validation ==============================
+        Model:                        offset
+        Samples:                      4
+        Minimizers:                   1
+        --------------------------------------------------------------------------------
+        fit   (y vs y_meas)
+          Loss (mean_squared_error)     1.0000e+00
+          Points scored                          4
+          RMSE                          1.0000e+00
+        ...
+        ================================================================================
+
+        ``out_dir`` writes the figures, and ``history`` adds the loss curves:
+
+        >>> history = model.train(data, epochs=1, batch_size=4, printer=None)
+        >>> result = model.validate(data, out_dir="figures", history=history, verbose=False)
+        >>> result.figures
+        ['figures/offset_0_fit.png', 'figures/offset_history.png']
+
+        Possible Issues
+        ---------------
+        A model is validated on its objectives: declare one first.
+
+        >>> plain = Modely("plain", inputs=[x], outputs=[Output("z", 2.0 * x)]).build()
+        >>> plain.validate(data)
+        Traceback (most recent call last):
+            ...
+        ValueError: No minimizers defined. Cannot infer validation targets.
+
+        .. versionadded:: 2.0
         """
         if self.model is not None:
             self._check_names_built()
@@ -1117,38 +2109,196 @@ class Modely:
         printer: str | keras.callbacks.Callback | None = "legacy",
         jit_compile: str = "auto",
     ):
-        """Train the model with any Keras optimizer.
+        r"""Train the built model on its objectives, and return the history of
+        the losses.
 
-        ``optimizer`` may be a Keras optimizer name, a serialized Keras
-        optimizer configuration, or an optimizer instance. When a name (or
-        ``None``) is provided, ``lr`` and ``optimizer_kwargs`` are used to
-        construct it. Optimizer instances and serialized configurations retain
-        their own learning-rate configuration.
+        Every epoch goes once through the samples of ``train_data``, in
+        batches of ``batch_size``, and updates the trainable Parameters. Each
+        call continues from the current weights. The defaults train 10 epochs
+        with a batch of 1 sample: one update per sample, slow on any real
+        dataset. Pass ``epochs`` and ``batch_size``.
 
-        ``val_data`` is evaluated at the end of every epoch and its losses are
-        returned alongside the training ones under ``val_`` keys. Only the two
-        curves together say whether a falling training loss is the model
-        learning the system or memorizing the training set, so pass it whenever
-        a held-out set exists - :meth:`validate` draws them on one axis.
+        Parameters
+        ----------
+        train_data : DataLoader
+            The training data, made for this build of the model.
+        val_data : DataLoader or None, default None
+            The validation data, scored at the end of every epoch. Its losses
+            come under ``val_`` keys. Pass it whenever a held-out set exists:
+            the two curves together tell learning from memorizing.
+        epochs : int, default 10
+            The number of passes through ``train_data``, at least 1.
+        batch_size : int, default 1
+            The samples of one update, at least 1.
+        optimizer : str, dict, keras.optimizers.Optimizer or None, default None
+            The optimizer:
 
-        ``early_stopping`` ends training before ``epochs`` once it stops
-        improving. Like ``optimizer``, it may be the name of the quantity to
-        monitor, completed by ``early_stopping_kwargs`` into a
-        ``keras.callbacks.EarlyStopping``; that callback's configuration, as a
-        dict of its arguments; or a callback instance - a configured
-        ``keras.callbacks.EarlyStopping``, or a callback of your own that sets
-        ``self.model.stop_training = True``. The quantities are ``"loss"``, the
-        total, and ``"<minimizer name>_loss"``, each with a ``val_`` version
-        when ``val_data`` is given; monitoring one that is not logged raises.
-        For example ``early_stopping="val_loss",
-        early_stopping_kwargs={"patience": 10, "restore_best_weights": True}``.
+            - a name, in any case: ``"adadelta"``, ``"adafactor"``,
+              ``"adagrad"``, ``"adam"``, ``"adamax"``, ``"adamw"``,
+              ``"ftrl"``, ``"lion"``, ``"nadam"``, ``"rmsprop"`` or
+              ``"sgd"``. It is made with ``lr`` and ``optimizer_kwargs``;
+            - ``None``, the same as ``"adam"``;
+            - a serialized Keras optimizer, or an optimizer instance. It keeps
+              its own learning rate.
+        early_stopping : str, dict, keras.callbacks.Callback or None, default None
+            Ends training before ``epochs`` once it stops improving:
 
-        ``printer`` selects how progress is rendered: ``"tiny"`` prints a compact
-        summary of the training progress, ``"legacy"`` prints the scrolling
-        per-minimizer loss table, drawn as the tables of a model are,
-        ``"nnodely"`` drives the animated machine-room console with a chart of
-        the total loss, ``None`` prints nothing, and any Keras callback is used
-        as given.
+            - the name of a quantity the history logs, made into a
+              ``keras.callbacks.EarlyStopping`` with ``early_stopping_kwargs``
+              as its other arguments. It looks for a minimum;
+            - a dict of the arguments of ``keras.callbacks.EarlyStopping``;
+            - a callback: a configured ``keras.callbacks.EarlyStopping``, or
+              one of your own that sets ``self.model.stop_training = True``;
+            - ``None``, training runs every epoch.
+        lr : float, default 1e-3
+            The learning rate of a named optimizer, at least 0.
+        shuffle : bool, default True
+            ``True`` shuffles the samples at every epoch.
+        optimizer_kwargs : dict or None, default None
+            More arguments of a named optimizer, such as
+            ``{"weight_decay": 1e-4, "global_clipnorm": 1.0}``. It cannot
+            hold ``"learning_rate"``: that is ``lr``.
+        early_stopping_kwargs : dict or None, default None
+            More arguments of the ``EarlyStopping`` that a name given as
+            ``early_stopping`` makes, such as
+            ``{"patience": 10, "restore_best_weights": True}``.
+        printer : str, keras.callbacks.Callback or None, default "legacy"
+            How progress is shown:
+
+            - ``"legacy"``: a table of the losses of every objective, a row
+              per epoch, drawn as the tables of a model are;
+            - ``"tiny"``: one compact block, redrawn at every epoch;
+            - ``"nnodely"``: an animated console with a chart of the total
+              loss;
+            - ``None``: nothing;
+            - a Keras callback, used as given, such as a
+              :class:`LegacyPrinter`.
+        jit_compile : str or bool, default "auto"
+            Whether Keras compiles the training step: ``"auto"``, ``True`` or
+            ``False``, as ``keras.Model.compile`` takes it.
+
+        Returns
+        -------
+        dict of str to list of float
+            The losses of every epoch run, under the keys:
+
+            - ``"loss"``: the total, every objective weighted by its gain;
+            - ``"<objective>_loss"``: the loss of each objective, not
+              weighted;
+            - ``"val_loss"`` and ``"val_<objective>_loss"``: the same on
+              ``val_data``, when it is given.
+
+            Each value is the mean over the samples of the epoch. Early
+            stopping gives fewer values than ``epochs``.
+
+        Raises
+        ------
+        ValueError
+            If the model has no objective ("No minimizers defined. Call
+            minimize() before train()"), or is not built ("Call build()
+            before training"). If ``epochs`` or ``batch_size`` is not a
+            positive integer, or ``lr`` is negative. If the data is empty, or
+            lacks an Input the model reads ("which the data does not hold").
+            If the optimizer name is unknown ("The supported optimizers
+            are"), or ``optimizer_kwargs`` holds ``"learning_rate"``. If early
+            stopping monitors a quantity the history does not log ("which
+            training does not log"). If ``printer`` is unknown.
+        TypeError
+            If ``train_data`` is not a :class:`DataLoader`, ``shuffle`` is not
+            a bool, or ``early_stopping`` has another type.
+
+        See Also
+        --------
+        Modely.minimize : Register an objective.
+        Modely.validate : Score the trained model.
+        Modely.freeze : Keep Parameters as they are through training.
+        DataLoader : The data of a model.
+        set_seed : Make the initial weights reproducible.
+
+        Notes
+        -----
+        Training minimizes the total loss of the objectives, each loss
+        :math:`L_i` weighted by its gain :math:`g_i`:
+
+        .. math:: L = \sum_i g_i \, L_i
+
+        Frozen Parameters keep their values. The objectives of the models it
+        calls are not trained: each is minimized by the ``train()`` of its own
+        model. The rollout steps padded onto shorter simulations add zero to
+        every loss.
+
+        Basic Examples
+        --------------
+        >>> import numpy as np
+        >>> from nnodely import DataLoader, Input, Modely, Output, Parameter
+        >>> x = Input("x", tw=1)
+        >>> y = Output("y", x + Parameter("b", value=[1.0]))
+        >>> y_meas = Input("y_meas", tw=1)
+        >>> model = Modely("offset", inputs=[x], outputs=[y])
+        >>> model = model.minimize("fit", y, y_meas).build()
+        >>> samples = np.arange(8.0)
+        >>> data = DataLoader(model, source={"x": samples, "y_meas": samples})
+        >>> history = model.train(data, epochs=2, batch_size=4, printer=None)
+        >>> sorted(history), len(history["loss"])
+        (['fit_loss', 'loss'], 2)
+
+        Options
+        -------
+        ``val_data`` adds the validation losses:
+
+        >>> history = model.train(data, val_data=data, epochs=1, batch_size=4, printer=None)
+        >>> sorted(history)
+        ['fit_loss', 'loss', 'val_fit_loss', 'val_loss']
+
+        ``optimizer`` by name, with ``lr`` and ``optimizer_kwargs``. An
+        instance, such as ``keras.optimizers.SGD(learning_rate=1e-2)``, is
+        passed the same way:
+
+        >>> history = model.train(data, epochs=1, batch_size=4, optimizer="adamw", lr=1e-2,
+        ...                       optimizer_kwargs={"weight_decay": 1e-4}, printer=None)
+
+        ``early_stopping`` by the name of a logged loss:
+
+        >>> history = model.train(data, epochs=50, batch_size=4, printer=None,
+        ...                       early_stopping="fit_loss",
+        ...                       early_stopping_kwargs={"patience": 1, "min_delta": 1e9})
+        >>> len(history["loss"])
+        2
+
+        ``shuffle=False`` keeps the order of the samples, and ``printer=None``
+        prints nothing.
+
+        Properties & Relations
+        ----------------------
+        With ``lr=0`` the weights do not change, and the total loss is the sum
+        of the losses weighted by their gains, here :math:`1 \cdot 1 + 0.5
+        \cdot 1`:
+
+        >>> model = model.minimize("again", y, y_meas, loss="mae", gain=0.5)
+        >>> model = model.build(keep_weights=False)
+        >>> history = model.train(data, epochs=1, batch_size=4, optimizer="sgd", lr=0.0,
+        ...                       printer=None)
+        >>> history["fit_loss"], history["again_loss"], history["loss"]
+        ([1.0], [1.0], [1.5])
+
+        Possible Issues
+        ---------------
+        A validation loss is logged only with ``val_data``:
+
+        >>> model.train(data, epochs=5, batch_size=4, early_stopping="val_loss", printer=None)
+        Traceback (most recent call last):
+            ...
+        ValueError: Early stopping monitors 'val_loss', which training does not log: ...Pass val_data to monitor a validation loss.
+
+        A model trains only on its objectives:
+
+        >>> plain = Modely("plain", inputs=[x], outputs=[Output("z", 2.0 * x)]).build()
+        >>> plain.train(data)
+        Traceback (most recent call last):
+            ...
+        ValueError: No minimizers defined. Call minimize() before train().
+
+        .. versionadded:: 2.0
         """
         if not self._minimizers:
             raise ValueError("No minimizers defined. Call minimize() before train().")
@@ -1217,7 +2367,70 @@ class Modely:
     # -------------------------------------------------------------------------
 
     def flatten(self) -> "Modely":
-        """Return an equivalent model with every sub-model inlined."""
+        """Return an equivalent model with every block inlined.
+
+        The new model, named ``<name>_flat``, computes the same outputs from
+        the same inputs. Every model this one calls as a block is replaced by
+        its streams, at every depth. Its Loop bodies are not inlined: a
+        :class:`Loop` and a :class:`ModelyLoop` keep their body.
+
+        Returns
+        -------
+        Modely
+            A new, unbuilt model named ``<name>_flat``.
+
+        See Also
+        --------
+        Modely.models : The models a model calls.
+        Modely.export_html : Draws the graph, flattened on a page of its own.
+
+        Notes
+        -----
+        - The objectives are not carried over: the new model has none.
+        - A declared Input the outputs do not read is dropped from its inputs.
+        - The new model reads copies of the Inputs and of the Parameters, of
+          the same names.
+        - Flattened after :meth:`build`, it shares the weights of this model:
+          training one changes the other.
+        - Flattened before :meth:`build`, its layers draw weights of their
+          own when it is built.
+
+        Basic Examples
+        --------------
+        >>> import keras
+        >>> import numpy as np
+        >>> from nnodely import Input, Modely, Output, Parameter
+        >>> x = Input("x", tw=1)
+        >>> b = Parameter("b", value=[1.0])
+        >>> offset = Modely("offset", inputs=[x], outputs=[Output("y", x + b)])
+        >>> u = Input("u", tw=1)
+        >>> outer = Modely("outer", inputs=[u], outputs=[Output("z", 2.0 * offset(u))])
+        >>> flat = outer.flatten()
+        >>> flat.name, len(outer.models), len(flat.models)
+        ('outer_flat', 1, 0)
+
+        Properties & Relations
+        ----------------------
+        Flattened after the build, it computes with the same weights:
+
+        >>> outer = outer.build()
+        >>> flat = outer.flatten().build()
+        >>> sample = {"u": np.array([[[3.0]]])}
+        >>> _ = outer.parameters["b"].param.assign([5.0])
+        >>> keras.ops.convert_to_numpy(outer(sample)["z"]), keras.ops.convert_to_numpy(flat(sample)["z"])
+        (array([[[16.]]], dtype=float32), array([[[16.]]], dtype=float32))
+
+        Possible Issues
+        ---------------
+        The objectives stay with the model. Register them on the flattened
+        model again:
+
+        >>> outer = outer.minimize("fit", "z", 0.0)
+        >>> len(outer.flatten().minimizers)
+        0
+
+        .. versionadded:: 2.0
+        """
         return flatten(model=self)
 
     # -------------------------------------------------------------------------
@@ -1232,17 +2445,64 @@ class Modely:
         open_subgraph_in_new_tab: bool = False,
         physics: bool = True,
     ) -> None:
-        """
-        Export this Modely DAG to interactive HTML using vis-network.
+        """Write the graph of the model as interactive HTML pages, to open in a
+        browser.
 
-        ``out_dir`` is the folder the pages are written to; a path ending in
-        ``.html`` names the root page instead and its parent becomes the folder.
-        The root page is ``filename``, the model name by default, with the
-        ``.html`` suffix added when missing.
+        Every stream is a card, colored by its role: Inputs, fed-back Inputs,
+        outputs, Parameters, Constants, blocks and objectives. Clicking a card
+        shows its shape and what it reads and feeds. A block, or a Loop body,
+        has a page of its own, opened with a double click. The model need not
+        be built.
 
-        Every block that wraps a model (``ModelCall``, ``Loop``) is
-        exported recursively as its own page, linked from the block node and
-        annotated with the ports that bind the body to the graph above it.
+        Parameters
+        ----------
+        out_dir : str or os.PathLike
+            The folder the pages are written to, created when missing. A path
+            ending in ``.html`` names the main page instead, in its folder.
+        filename : str or None, default None
+            The name of the main page. ``None`` names it after the model. The
+            suffix ``.html`` is added when missing.
+        open_subgraph_in_new_tab : bool, default False
+            ``True`` opens the page of a block in a new browser tab.
+        physics : bool, default True
+            The pages open on a left-to-right layout, and switch to a force
+            layout with a button. ``True`` lets the force layout place the
+            cards by a simulation; ``False`` turns the simulation off.
+
+        See Also
+        --------
+        Modely.flatten : The model with every block inlined.
+        Modely.models : The models a model calls.
+
+        Notes
+        -----
+        Next to the main page, ``<name>.html``, the folder holds:
+
+        - ``<name>__flattened.html``, every block spliced in;
+        - a page per call of a block, such as ``<name>__<block>_call.html``;
+        - the folder ``imgs``, of the images the pages show.
+
+        Basic Examples
+        --------------
+        >>> import os
+        >>> from nnodely import Input, Modely, Output
+        >>> x = Input("x", tw=1)
+        >>> offset = Modely("offset", inputs=[x], outputs=[Output("y", x + 1.0)])
+        >>> u = Input("u", tw=1)
+        >>> outer = Modely("outer", inputs=[u], outputs=[Output("z", 2.0 * offset(u))])
+        >>> outer.export_html("graph")
+        >>> sorted(os.listdir("graph"))
+        ['imgs', 'outer.html', 'outer__flattened.html', 'outer__offset_call.html']
+
+        Options
+        -------
+        ``filename`` names the main page:
+
+        >>> outer.export_html("graph", "main")
+        >>> os.path.exists("graph/main.html")
+        True
+
+        .. versionadded:: 2.0
         """
         from nnodely.utils.html_export import export_html
 
@@ -1255,7 +2515,28 @@ class Modely:
         )
 
     def summary(self):
-        """Print the Keras summary of the built model."""
+        """Print the Keras summary of the built model: its layers, their output
+        shapes and their numbers of weights.
+
+        The summary is the one of the attribute ``model``, the Keras model
+        training runs, named ``<name>_train``. A model not built prints nothing.
+
+        See Also
+        --------
+        Modely.parameters : The Parameters, as a table.
+        Modely.build : Create the Keras model.
+
+        Basic Examples
+        --------------
+        >>> from nnodely import Input, Modely, Output
+        >>> x = Input("x", tw=2)
+        >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)]).build()
+        >>> model.summary()
+        Model: "double_train"
+        ...
+
+        .. versionadded:: 2.0
+        """
         if self.model is not None:
             self.model.summary()
 
@@ -1264,45 +2545,252 @@ class Modely:
     # -------------------------------------------------------------------------
 
     def save(self, path, weights: bool = True):
-        """Save the model - its graph, and its weights unless ``weights`` is
-        False - to the folder ``path``.
+        """Save the model, its graph and its weights, to a folder.
 
-        Every model it calls as a block, or rolls out in a Loop, is saved the
-        same way in a folder of its own inside ``path``, named after it, and
-        theirs inside theirs: the loaded model calls them again, and each
-        folder is a model that loads on its own. Without weights only the
-        architecture is saved, to be trained later or elsewhere: loading it
-        initializes the weights as ``build()`` does.
+        :meth:`load` makes the model again from the folder. The objectives are
+        not saved: register them again on the loaded model, then build it.
+
+        Parameters
+        ----------
+        path : str or os.PathLike
+            The folder, created when missing. A name such as
+            ``"model.nnodely"`` is a folder too.
+        weights : bool, default True
+            ``True`` saves the weights. ``False`` saves the graph alone, to
+            be trained later or elsewhere.
+
+        See Also
+        --------
+        Modely.load : Load a saved model.
+        Modely.export_keras : Save the model as a Keras file.
+        Modely.export_onnx : Save the model as an ONNX file.
+
+        Notes
+        -----
+        The folder holds:
+
+        - ``model.json``, the graph;
+        - ``model.weights.h5``, the weights, unless ``weights=False``;
+        - a folder for every model it calls as a block or rolls out in a
+          Loop, named after that model, laid out the same way. Each loads on
+          its own.
+
+        A model not built is saved too.
+
+        Basic Examples
+        --------------
+        >>> import os
+        >>> from nnodely import Input, Modely, Output, Parameter
+        >>> x = Input("x", tw=1)
+        >>> y = Output("y", x + Parameter("b", value=[1.0]))
+        >>> offset = Modely("offset", inputs=[x], outputs=[y])
+        >>> u = Input("u", tw=1)
+        >>> outer = Modely("outer", inputs=[u], outputs=[Output("z", 2.0 * offset(u))]).build()
+        >>> outer.save("outer_model")
+        >>> sorted(os.listdir("outer_model")), sorted(os.listdir("outer_model/offset"))
+        (['model.json', 'model.weights.h5', 'offset'], ['model.json', 'model.weights.h5'])
+
+        Options
+        -------
+        ``weights=False`` saves the graph alone:
+
+        >>> outer.save("outer_graph", weights=False)
+        >>> sorted(os.listdir("outer_graph"))
+        ['model.json', 'offset']
+
+        .. versionadded:: 2.0
         """
         ModelSerializer.serialize(self, path, weights=weights)
 
     @classmethod
     def load(cls, path, weights: bool = True):
-        """Load a model saved with :meth:`save`, with its weights unless
-        ``weights`` is False or it was saved without them.
+        """Load a model saved with :meth:`save`, and return it built.
 
-        A model loaded without weights is initialized as ``build()`` does. The
-        models it calls are loaded from their folders, each once however many
-        times it is called, and so is every Parameter, Constant or Input they
-        share. The loaded layers are layers of their own: one added to the
-        model, or another model loaded from the same file, never shares their
-        weights.
+        The models it calls are loaded from their folders, each once however
+        many times it is called. So is every Parameter, Constant or Input they
+        share. The loaded model has no objectives: register them again, then
+        build it, before training.
+
+        Parameters
+        ----------
+        path : str or os.PathLike
+            The folder :meth:`save` wrote. The folder of a block inside it
+            loads that block alone.
+        weights : bool, default True
+            ``True`` loads the saved weights. ``False``, or a folder saved
+            without them, initializes the weights as :meth:`build` does: a
+            Parameter takes its declared value, or a new draw.
+
+        Returns
+        -------
+        Modely
+            The model, built. A saved :class:`ModelyLoop` loads as a
+            :class:`Modely` that rolls out the same step: it computes the
+            same outputs, and has no ``body`` attribute.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the folder holds no ``model.json`` ("Could not find nnodely
+            model configuration").
+
+        See Also
+        --------
+        Modely.save : Save a model.
+        Modely.import_keras : Load a Keras file.
+
+        Notes
+        -----
+        The loaded layers are layers of their own. A layer added to the
+        loaded model, the model it was saved from, or another model loaded
+        from the same folder never shares their weights. A model loaded and
+        used as a block keeps its weights when the larger model is built.
+
+        A custom Keras layer, such as one given to a :class:`KerasFunction`,
+        loads only when its class is defined and registered with
+        ``@keras.saving.register_keras_serializable()``.
+
+        Basic Examples
+        --------------
+        >>> import keras
+        >>> import numpy as np
+        >>> from nnodely import Input, Modely, Output, Parameter
+        >>> x = Input("x", tw=1)
+        >>> b = Parameter("b", value=[1.0])
+        >>> model = Modely("offset", inputs=[x], outputs=[Output("y", x + b)]).build()
+        >>> _ = b.param.assign([5.0])
+        >>> model.save("offset_model")
+        >>> loaded = Modely.load("offset_model")
+        >>> loaded.built
+        True
+        >>> keras.ops.convert_to_numpy(loaded({"x": np.array([[[1.0]]])})["y"])
+        array([[[6.]]], dtype=float32)
+
+        Options
+        -------
+        ``weights=False`` starts from the declared values:
+
+        >>> fresh = Modely.load("offset_model", weights=False)
+        >>> keras.ops.convert_to_numpy(fresh({"x": np.array([[[1.0]]])})["y"])
+        array([[[2.]]], dtype=float32)
+
+        Possible Issues
+        ---------------
+        The objectives are not saved:
+
+        >>> model = model.minimize("fit", "y", 0.0)
+        >>> model.save("offset_model")
+        >>> len(Modely.load("offset_model").minimizers)
+        0
+
+        .. versionadded:: 2.0
         """
         return ModelSerializer.load(path, weights=weights)
 
     def export_keras(
         self, path: str | os.PathLike, filename: str | None = None
     ) -> None:
-        """Export the model as declared, without its minimizers, like save().
+        """Write the built model as a ``.keras`` file, a stand-alone Keras
+        model for inference.
 
-        The file is written to the folder ``path`` as ``filename``, the model
-        name by default, with the ``.keras`` suffix added when missing.
+        The file holds the model as declared: its outputs, and only the
+        inputs they read. The objectives are left out. :meth:`import_keras`
+        reads it back as a ``keras.Model``, on any Keras backend.
+
+        Parameters
+        ----------
+        path : str or os.PathLike
+            The folder the file is written to, created when missing.
+        filename : str or None, default None
+            The name of the file. ``None`` names it after the model. The
+            suffix ``.keras`` is added when missing.
+
+        Raises
+        ------
+        ValueError
+            If the model is not built ("Call build() before export_keras()").
+
+        See Also
+        --------
+        Modely.import_keras : Read the file back.
+        Modely.save : Save the model to keep working on it with nnodely.
+        Modely.export_onnx : Write the model as an ONNX file.
+
+        Notes
+        -----
+        A weight read from several places, such as a body rolled out by two
+        Loops, or a Parameter read inside a Loop body and outside it, is
+        written as a copy for each place. The copies hold the same value, so
+        the file gives the same outputs. Trained further as a Keras model,
+        they would drift apart: to keep training, use :meth:`save` and
+        :meth:`load`.
+
+        Basic Examples
+        --------------
+        >>> import os
+        >>> from nnodely import Input, Modely, Output
+        >>> x = Input("x", tw=2)
+        >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)]).build()
+        >>> model.export_keras("exports")
+        >>> sorted(os.listdir("exports"))
+        ['double.keras']
+
+        Options
+        -------
+        ``filename`` names the file:
+
+        >>> model.export_keras("exports", "copy")
+        >>> sorted(os.listdir("exports"))
+        ['copy.keras', 'double.keras']
+
+        .. versionadded:: 2.0
         """
         export.export_keras(self, path, filename)
 
     @staticmethod
     def import_keras(filename: str, safe_mode: bool = True):
-        """Load a ``.keras`` file written by :meth:`export_keras` as a ``keras.Model``."""
+        """Read a ``.keras`` file written by :meth:`export_keras`, and return
+        it as a ``keras.Model``.
+
+        The Keras model takes a dict ``{input name: array}``, every array with
+        its batch axis, and returns ``{output name: tensor}``, as the model
+        did.
+
+        Parameters
+        ----------
+        filename : str
+            The path of the ``.keras`` file.
+        safe_mode : bool, default True
+            Keras' safe mode, which refuses to load code stored in the file,
+            such as a Python lambda. Pass ``False`` only for a file you
+            trust.
+
+        Returns
+        -------
+        keras.Model
+            The model, ready for inference on the active backend.
+
+        See Also
+        --------
+        Modely.export_keras : Write the file.
+        Modely.load : Load a model saved with :meth:`save`.
+
+        Basic Examples
+        --------------
+        >>> import keras
+        >>> import numpy as np
+        >>> from nnodely import Input, Modely, Output
+        >>> x = Input("x", tw=2)
+        >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)]).build()
+        >>> model.export_keras("exports")
+        >>> imported = Modely.import_keras("exports/double.keras")
+        >>> result = imported({"x": np.array([[[1.0], [2.0]]], dtype="float32")})
+        >>> keras.ops.convert_to_numpy(result["y"])
+        array([[[2.],
+                [4.]]], dtype=float32)
+
+        .. versionadded:: 2.0
+        """
         return export.import_keras(filename, safe_mode=safe_mode)
 
     def export_onnx(
@@ -1315,24 +2803,64 @@ class Modely:
         opset_version: int | None = None,
         verbose: bool = False,
     ) -> None:
-        """Export the built inference graph to ONNX.
+        """Write the built model as an ``.onnx`` file, to run it with any ONNX
+        runtime.
 
-        The model is exported as declared, without its minimizers: only its
-        outputs, and only the inputs they read. The file is written to the
-        folder ``path`` as ``filename``, the model name by default, with the
-        ``.onnx`` suffix added when missing.
+        The file holds the model as declared: its outputs, and only the
+        inputs they read, under their names. The objectives are left out.
+        The export needs the ``onnx`` extra, ``pip install "nnodely[onnx]"``,
+        and the TensorFlow or PyTorch backend.
 
-        ONNX export traces the built Keras graph; it does not deserialize
-        nnodely layer configurations. An explicit ``input_signature`` is
-        recommended when dynamic dimensions must remain fixed at export time.
-        ``batch_size`` is the shorthand for the common case: it exports with
-        the batch axis fixed to that many samples instead of left dynamic.
+        Parameters
+        ----------
+        path : str or os.PathLike
+            The folder the file is written to, created when missing.
+        filename : str or None, default None
+            The name of the file. ``None`` names it after the model. The
+            suffix ``.onnx`` is added when missing.
+        input_signature : list or None, default None
+            The shapes the exported graph takes, as Keras'
+            ``Model.export`` takes them, to fix axes left dynamic. ``None``
+            keeps the shapes of the model, the batch axis dynamic.
+        batch_size : int or None, default None
+            Fixes the batch axis to that many samples. ``None`` leaves it
+            dynamic. ``input_signature`` overrides it.
+        opset_version : int or None, default None
+            The ONNX opset. ``None`` takes the exporter's default.
+        verbose : bool, default False
+            ``True`` prints the messages of the exporter.
 
-        A layer that differentiates a sub-graph - a ``Gradient`` with respect
-        to an Input - records the backward pass in the traced graph, and the
-        shape arithmetic it introduces has no ONNX equivalent while the batch
-        axis is dynamic. Such a model is therefore exported with a batch of
-        one unless a signature or ``batch_size`` says otherwise.
+        Raises
+        ------
+        ValueError
+            If the model is not built ("Call build() before export_onnx()").
+        NotImplementedError
+            On the JAX backend ("not available on the jax backend"). On the
+            PyTorch backend, for a model with a :class:`Gradient` with respect
+            to an Input.
+
+        See Also
+        --------
+        Modely.validate_onnx : Run the exported file.
+        Modely.export_keras : Write the model as a Keras file.
+        Modely.save : Save the model to keep working on it with nnodely.
+
+        Notes
+        -----
+        A :class:`Gradient` with respect to an Input records the backward
+        pass in the exported graph. Its shape arithmetic converts only with a
+        fixed batch axis: such a model is exported with a batch of 1, unless
+        ``batch_size`` or ``input_signature`` says otherwise.
+
+        Basic Examples
+        --------------
+        A built model named ``double``, on the TensorFlow or the PyTorch
+        backend::
+
+            model.export_onnx("exports")                 # exports/double.onnx
+            model.export_onnx("exports", "fixed", batch_size=4)
+
+        .. versionadded:: 2.0
         """
         export.export_onnx(
             self,
@@ -1352,7 +2880,59 @@ class Modely:
         return_dict: bool = False,
         providers: list[str] | None = None,
     ):
-        """Run an exported ONNX model and return its outputs."""
+        """Run an ``.onnx`` file written by :meth:`export_onnx` with ONNX
+        Runtime, and return its outputs.
+
+        Compare them with the outputs of the model to check the export.
+
+        Parameters
+        ----------
+        filename : str or os.PathLike
+            The path of the file. A path without the ``.onnx`` suffix gets
+            it, in place of the suffix it has.
+        inputs : dict
+            ``{input name: array}``, every array with its batch axis. The
+            arrays are cast to ``float32``. Keys that name no input of the
+            file are ignored.
+        return_dict : bool, default False
+            ``False`` returns the outputs as a list of arrays, in the order
+            of the file. ``True`` returns ``{output name: array}``.
+        providers : list of str or None, default None
+            The ONNX Runtime execution providers, such as
+            ``["CPUExecutionProvider"]``. ``None`` takes the default ones.
+
+        Returns
+        -------
+        list of numpy.ndarray or dict of str to numpy.ndarray
+            The outputs, as ``return_dict`` selects.
+
+        Raises
+        ------
+        ImportError
+            If ``onnxruntime`` is not installed.
+        FileNotFoundError
+            If the file does not exist ("ONNX model not found").
+        ValueError
+            If an input of the file is missing from ``inputs`` ("Missing ONNX
+            inputs").
+
+        See Also
+        --------
+        Modely.export_onnx : Write the file.
+
+        Basic Examples
+        --------------
+        With a model ``double`` that doubles its input ``x``, exported with
+        the TensorFlow or the PyTorch backend::
+
+            sample = {"x": np.array([[[1.0], [2.0]]])}
+            Modely.validate_onnx("exports/double.onnx", sample)
+            # [array([[[2.], [4.]]], dtype=float32)]
+            Modely.validate_onnx("exports/double.onnx", sample, return_dict=True)
+            # {'y': array([[[2.], [4.]]], dtype=float32)}
+
+        .. versionadded:: 2.0
+        """
         return export.validate_onnx(
             filename, inputs, return_dict=return_dict, providers=providers
         )
