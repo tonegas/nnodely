@@ -210,3 +210,8 @@ __all__ = [
     "Norm",
     "Cross",
 ]
+
+# The splash, in a terminal or a notebook: NNODELY_SPLASH=0 turns it off.
+from nnodely.utils.splash import show_splash  # noqa: E402
+
+show_splash()

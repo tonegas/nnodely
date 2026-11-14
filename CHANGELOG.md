@@ -9,6 +9,14 @@ All notable changes to nnodely are recorded here. The format follows
 One rule to read everything nnodely returns: a row of a printed table has
 the fields of the printed object it stands for.
 
+### Added
+
+- A splash at import, one band of 80 columns by 6 lines: a neural network
+  of 3, 5 and 2 neurons feeds the nn of the wordmark, which drives a mass on
+  a spring and a damper, in psychedelic colours, with the versions of nnodely
+  and Keras and the backend under the wordmark. It shows only in a terminal
+  or a notebook; `NNODELY_SPLASH=0` turns it off.
+
 ### Changed
 
 - **Objects** print on one line, `Class(field=value, ...)`, the same with
