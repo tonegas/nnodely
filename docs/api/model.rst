@@ -20,6 +20,20 @@ Guides: :doc:`../guide/models`, :doc:`../guide/training`,
    Modely
    ModelyLoop
 
+An objective registered with :meth:`Modely.minimize` is a
+:class:`~nnodely.core.modely.Minimizer`, a row of :attr:`Modely.minimizers`:
+it is read, set and removed there, and never created directly.
+
+.. currentmodule:: nnodely.core.modely
+
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   Minimizer
+
+.. currentmodule:: nnodely
+
 Returned objects
 ----------------
 

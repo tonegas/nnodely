@@ -78,7 +78,7 @@ class Modely:
 
     A model is declared once, on streams. Objectives, called minimizers in the
     method names (:meth:`minimize`, :attr:`minimizers`,
-    :meth:`remove_minimizer`), are registered next. :meth:`build` then
+    :meth:`minimizers[name].remove() <nnodely.core.modely.Minimizer.remove>`), are registered next. :meth:`build` then
     creates the Keras model. A :class:`DataLoader` made for the built model
     feeds :meth:`train` and :meth:`validate`.
 
@@ -977,7 +977,8 @@ class Modely:
         :meth:`train` minimizes. Return the model itself.
 
         An objective is called a minimizer in the method names:
-        ``minimize``, :attr:`minimizers` and :meth:`remove_minimizer`. Register
+        ``minimize``, :attr:`minimizers` and
+        :meth:`minimizers[name].remove() <nnodely.core.modely.Minimizer.remove>`. Register
         the objectives before :meth:`build`, which adds their streams to the
         training model. The name of an objective is its key: registering a
         name again replaces that objective, in its place, with a warning.
@@ -1040,7 +1041,6 @@ class Modely:
         See Also
         --------
         Modely.minimizers : The objectives, as a table.
-        Modely.remove_minimizer : Remove an objective.
         Modely.train : Minimize the objectives.
         Modely.validate : Score every objective on a dataset.
 
@@ -1570,7 +1570,8 @@ class Modely:
         objective in the model, checked as :meth:`minimize` checks it. The
         next :meth:`train` uses it, without a new build. Setting anything
         else raises ``TypeError``: register the objective again with
-        :meth:`minimize` to change what it compares.
+        :meth:`minimize` to change what it compares. :meth:`minimizers[name].remove() <nnodely.core.modely.Minimizer.remove>`
+        removes the objective from the model.
 
         The table gives the name, source, target, loss and gain of each. The
         objectives of the models it calls are not listed and not trained:
@@ -1579,7 +1580,6 @@ class Modely:
         See Also
         --------
         Modely.minimize : Register an objective.
-        Modely.remove_minimizer : Remove an objective.
         Modely.train : Minimize the objectives.
 
         Basic Examples
@@ -2970,16 +2970,60 @@ class Models(Table):
 
 
 class Minimizer(Mapping):
-    """One minimizer, as :attr:`Modely.minimizers` lists it: its name, source,
-    target, loss and gain, and ``model``, the model it is of.
+    """One objective of a model, as :attr:`~nnodely.Modely.minimizers` lists
+    it.
 
-    Each is read as a key or an attribute, ``m["name"]`` or ``m.name``.
-    Setting its name, loss or gain - ``m.name = "fit_y"``, as any object is
-    renamed, or ``m["name"] = "fit_y"`` - changes the minimizer in its model,
-    checked as :meth:`Modely.minimize` checks them, from the next
-    :meth:`Modely.train`. What it compares is set by :meth:`Modely.minimize`;
-    anything else set raises rather than being lost. :meth:`remove` removes
-    it from its model, ``model.minimizers["fit"].remove()``."""
+    You do not create one yourself: :meth:`~nnodely.Modely.minimize`
+    registers the objective, and ``model.minimizers["fit"]`` or
+    ``model.minimizers[0]`` picks its row.
+
+    Attributes
+    ----------
+    name : str
+        The name of the objective, the key of its loss, ``loss_<name>``.
+    source : Stream
+        The prediction it compares.
+    target : Stream
+        The reference it compares the prediction with. A number given as the
+        target is a :class:`~nnodely.Constant`.
+    loss : keras.losses.Loss or callable
+        The loss function.
+    gain : float
+        The weight of its loss in the total loss.
+    model : Modely
+        The model it belongs to.
+
+    Each is read as an attribute or as a key, ``m.gain`` or ``m["gain"]``.
+    Setting ``name``, ``loss`` or ``gain`` changes the objective in its
+    model, checked as :meth:`~nnodely.Modely.minimize` checks it, from the
+    next :meth:`~nnodely.Modely.train`. Setting anything else raises
+    ``TypeError``: register the objective again to change what it compares.
+    :meth:`remove` removes it from its model.
+
+    Basic Examples
+    --------------
+    >>> from nnodely import Input, Modely, Output
+    >>> x = Input("x", tw=1)
+    >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)])
+    >>> model = model.minimize("fit", "y", Input("y_meas", tw=1))
+    >>> fit = model.minimizers["fit"]
+    >>> fit.name, fit.source.name, fit.target.name, fit.gain
+    ('fit', 'y', 'y_meas', 1.0)
+    >>> fit.gain = 2.0
+    >>> model.minimizers[0]["gain"]
+    2.0
+
+    Possible Issues
+    ---------------
+    What it compares is set by :meth:`~nnodely.Modely.minimize`:
+
+    >>> fit.source = x
+    Traceback (most recent call last):
+        ...
+    TypeError: Minimizer 'fit': its name, loss and gain can be set, not its 'source'; ...
+
+    .. versionadded:: 2.0
+    """
 
     _SETTABLE = ("name", "loss", "gain")
     # No attribute of its own to set: one set by mistake would be lost.
@@ -3021,8 +3065,65 @@ class Minimizer(Mapping):
         )
 
     def remove(self) -> None:
-        """Remove this minimizer from its model: :meth:`Modely.train` no
-        longer minimizes it."""
+        """Remove this objective from its model.
+
+        Pick it first, by its name or by its index in
+        :attr:`~nnodely.Modely.minimizers`. The next
+        :meth:`~nnodely.Modely.train` and :meth:`~nnodely.Modely.validate`
+        leave it out. The model needs no new build. The row stays readable,
+        but no longer belongs to the model: setting it raises.
+
+        Raises
+        ------
+        KeyError
+            When it is picked, if no objective has that name. Nothing is
+            removed.
+        IndexError
+            When it is picked, if the index is out of range.
+
+        See Also
+        --------
+        nnodely.Modely.minimize : Register an objective.
+        nnodely.Modely.minimizers : The objectives, as a table.
+
+        Basic Examples
+        --------------
+        >>> from nnodely import Input, Modely, Output
+        >>> x = Input("x", tw=1)
+        >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)])
+        >>> model = model.minimize("a", "y", 1.0).minimize("b", "y", 2.0)
+        >>> model.minimizers["a"].remove()
+        >>> [m.name for m in model.minimizers]
+        ['b']
+
+        Options
+        -------
+        By index:
+
+        >>> model.minimizers[0].remove()
+        >>> len(model.minimizers)
+        0
+
+        Possible Issues
+        ---------------
+        A name no objective has raises, as in every table:
+
+        >>> model.minimizers["c"].remove()
+        Traceback (most recent call last):
+            ...
+        nnodely.core.dag.NameNotFound: ...no minimizer named 'c'...
+
+        A row removed is no longer the model's:
+
+        >>> fit = model.minimize("fit", "y", 1.0).minimizers["fit"]
+        >>> fit.remove()
+        >>> fit.gain = 2.0
+        Traceback (most recent call last):
+            ...
+        ValueError: Minimizer 'fit' was removed from model 'double': declare it again with minimize().
+
+        .. versionadded:: 2.0
+        """
         model = self._model
         model._minimizers = [m for m in model._minimizers if m is not self._minimizer]
 

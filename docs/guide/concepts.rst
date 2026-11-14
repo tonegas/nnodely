@@ -234,9 +234,9 @@ names must be unique within a model.
 
 The layer object decides the weights, not its name. Two layers created apart
 never share weights, even with the same name: a model and its reloaded copy,
-for instance. When two such layers meet in one model, Keras adds a suffix to
-the name of the second (``Fir1_1``). :doc:`composition` explains what happens
-when names clash.
+for instance. When two such layers meet in one model, the Keras layer of the
+second takes a suffix (``Fir1_2``), since Keras names the layers of a model
+uniquely. :doc:`composition` explains what happens when names clash.
 
 Common errors
 -------------

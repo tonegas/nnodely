@@ -249,11 +249,18 @@ class Gradient(Layer):
     :math:`y` of a scalar :math:`x`, these are :math:`dy/dx` and
     :math:`d^2y/dx^2`.
 
-    The layer reads ``wrt`` where it is declared. A model called as a block
-    inside another reads the streams of the call in place of its own Inputs:
-    a Gradient inside the block has no Input left to differentiate against,
-    and raises when the model is built. Differentiate in the model that
-    declares the Input.
+    The layer reads ``wrt`` where it is declared. Inside a model called as
+    a block, two cases differ:
+
+    * ``wrt`` is a state of the block, a fed-back Input. Each call of the
+      block has its own copy of the state, one per call in a :class:`Loop`
+      or a :class:`ModelyLoop`, and the Gradient of each call differentiates
+      against the copy of that call. The Parameters stay one, shared by the
+      calls.
+    * ``wrt`` is an input of the block. A call replaces it with the stream
+      it is called on, even an Input (``block([z, w])``): the Gradient has
+      no Input left to differentiate against, and raises when the model is
+      built. Differentiate in the model that declares the Input.
 
     ONNX export records the backward pass in the exported graph:
 

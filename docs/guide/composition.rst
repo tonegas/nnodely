@@ -75,6 +75,10 @@ model starts from the trained weights. Building the larger model initializes
 only its new layers; ``build(keep_weights=False)`` initializes all of them,
 the block's too.
 
+Saving the larger model keeps its blocks: each is saved in a folder of its
+own, and the loaded model calls them again with the weights they were
+trained with, which the file of the larger model holds (see :doc:`export`).
+
 Training the larger model trains the block too. To keep a block fixed, freeze
 it:
 

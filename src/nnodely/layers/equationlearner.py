@@ -578,7 +578,11 @@ class EquationLearner:
         of the projections, less those the threshold drops. The equation is
         expanded, and its numbers are rounded to ``precision`` significant
         digits. Its variables are named after the streams of the first call,
-        with ``_i`` for each feature of a vector: ``pos_0``, ``pos_1``.
+        as they are named now, with ``_i`` for each feature of a vector:
+        ``pos_0``, ``pos_1``. Each stream is one variable, even when given
+        twice. A name already taken, by another variable or by a left side
+        such as ``y``, takes ``_2``: two streams named ``p`` are ``p`` and
+        ``p_2``.
 
         The functions are written in mathematical notation where there is
         one, the other layers by name. A Python function is written as the

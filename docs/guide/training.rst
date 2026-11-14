@@ -45,7 +45,7 @@ Step 2: objectives
 :meth:`~nnodely.Modely.minimize` registers an **objective**: a loss between a
 *source* and a *target*, which training reduces. The method names call it a
 *minimizer*: :attr:`~nnodely.Modely.minimizers` lists them, and
-:meth:`~nnodely.Modely.remove_minimizer` removes one. Every objective has a
+:meth:`minimizers[name].remove() <nnodely.core.modely.Minimizer.remove>` removes one. Every objective has a
 name, which labels its loss during training and validation. Declare the
 objectives before :meth:`~nnodely.Modely.build`:
 
@@ -175,8 +175,11 @@ improving. It takes one of:
   your own that sets ``self.model.stop_training = True``.
 
 The names are the keys of ``losses``: ``"loss"``, ``"loss_<objective>"``,
-and their ``val_`` versions when ``val_data`` is given. Watching a loss that is
-not logged raises an error, rather than training to the end.
+and their ``val_`` versions when ``val_data`` is given. The prefix keeps the
+keys of every objective its own, whatever its name: an objective named
+``val`` or ``loss`` logs ``loss_val`` or ``loss_loss``, apart from the totals.
+Watching a loss that is not logged raises an error, rather than training to
+the end.
 
 .. code-block:: python
 

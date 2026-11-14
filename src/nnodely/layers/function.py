@@ -115,6 +115,13 @@ class KerasFunction(Layer):
     ``@keras.saving.register_keras_serializable()``. A class with arguments
     needs a ``get_config`` that returns them.
 
+    The class is known by its name, as Keras knows it. Defined again, as a
+    notebook cell run anew, the model loads with the class as it is now.
+    Two classes of one name in one session load as the last defined:
+    register each with a package of its own,
+    ``@keras.saving.register_keras_serializable(package="...")``, to keep
+    them apart.
+
     Basic Examples
     --------------
     A function of two streams, :math:`a^2 + b`:

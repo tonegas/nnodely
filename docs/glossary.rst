@@ -50,7 +50,7 @@ error messages. Where a method name uses another word, as ``minimize`` and
       :meth:`~nnodely.Modely.minimize` between a *source* stream and a
       *target*. Its name labels its loss in the training history. The method
       names call it a *minimizer*: :attr:`~nnodely.Modely.minimizers`,
-      :meth:`~nnodely.Modely.remove_minimizer`.
+      :meth:`minimizers[name].remove() <nnodely.core.modely.Minimizer.remove>`.
 
    target
       What an objective compares its source with: an Input read from the
