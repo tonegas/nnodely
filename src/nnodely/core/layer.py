@@ -6,9 +6,9 @@ from abc import abstractmethod
 import keras
 from typing import Any
 
-from nnodely.core.shape import Shape, align
+from nnodely.core.shape import Shape
 from nnodely.core.stream import Stream, object_repr
-from nnodely.core.dag import next_name
+from nnodely.core.dag import free_name, next_name
 
 
 def _claim_keras_name(layer, taken: dict[str, Any]) -> None:
@@ -20,10 +20,7 @@ def _claim_keras_name(layer, taken: dict[str, Any]) -> None:
     layer applied several times keeps the one name it has.
     """
     if layer.name in taken and taken[layer.name] is not layer:
-        index = 1
-        while f"{layer.name}_{index}" in taken:
-            index += 1
-        layer.name = f"{layer.name}_{index}"
+        layer.name = free_name(layer.name, taken)
     taken[layer.name] = layer
 
 
@@ -333,6 +330,11 @@ class Layer(Stream, metaclass=_LayerType):
             # it always was.
             return None
 
+    def _copied(self, memo: dict) -> None:
+        """Called on a copy of this layer made for one call of the model
+        holding it, ``memo`` the copies that call made: a layer holding a
+        node of the graph besides its streams takes the copy it means."""
+
     def _reinitialize(self) -> None:
         """Give the weights this layer holds their initial values again, as
         :meth:`Modely.build` does with ``keep_weights=False``. A layer
@@ -532,134 +534,6 @@ class Layer(Stream, metaclass=_LayerType):
         ]
         weight = dict(zip(present, self._weight_nodes())).get(label)
         return None if weight is None else weight.param
-
-
-_BINARY_OPERATIONS = {
-    "add": keras.ops.add,
-    "subtract": keras.ops.subtract,
-    "multiply": keras.ops.multiply,
-    "divide": keras.ops.divide,
-    "power": keras.ops.power,
-    "mod": keras.ops.mod,
-    "maximum": keras.ops.maximum,
-    "minimum": keras.ops.minimum,
-    "arctan2": keras.ops.arctan2,
-}
-
-
-@keras.saving.register_keras_serializable(package="nnodely")
-class BinaryOpImpl(keras.layers.Layer):
-    """An elementwise operation between streams of ``seq_ranks`` sequence
-    axes, a window or not (``windows``), and ``dim_ranks`` dim axes.
-
-    An operand without a sequence, without a window, or with fewer dim axes,
-    gets the axes it misses where :func:`align` puts them, so it broadcasts
-    along those, as :meth:`Shape.broadcast` declares. Aligned from the end
-    instead, as broadcasting does by default, a dim axis could line up with
-    the window.
-    """
-
-    def __init__(
-        self, operation: str, seq_ranks=(), dim_ranks=(), windows=(), **kwargs
-    ):
-        super().__init__(**kwargs)
-        self.operation = operation
-        self.seq_ranks = tuple(int(rank) for rank in seq_ranks)
-        self.dim_ranks = tuple(int(rank) for rank in dim_ranks)
-        self.windows = tuple(bool(window) for window in windows) or (True,) * len(
-            self.seq_ranks
-        )
-
-    def call(self, xs):
-        values = self.aligned(xs)
-        operation = _BINARY_OPERATIONS[self.operation]
-        result = values[0]
-        for value in values[1:]:
-            result = operation(result, value)
-        return result
-
-    def aligned(self, xs):
-        """``xs`` given the axes they miss to broadcast against each other."""
-        seq_rank, dim_rank = max(self.seq_ranks), max(self.dim_ranks)
-        to_window = any(self.windows)
-        return [
-            align(
-                value,
-                value_seq_rank,
-                value_dim_rank,
-                seq_rank,
-                dim_rank,
-                window=window,
-                to_window=to_window,
-            )
-            for value, value_seq_rank, value_dim_rank, window in zip(
-                xs, self.seq_ranks, self.dim_ranks, self.windows
-            )
-        ]
-
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "operation": self.operation,
-                "seq_ranks": self.seq_ranks,
-                "dim_ranks": self.dim_ranks,
-                "windows": self.windows,
-            }
-        )
-        return config
-
-
-class BinaryOp(Layer):
-    _operation = None
-
-    def build_layer(self) -> keras.layers.Layer:
-        if self._operation is None:
-            raise NotImplementedError(
-                "Subclasses must define an _operation class attribute."
-            )
-        return BinaryOpImpl(
-            operation=self._operation, **self._alignment(), name=self.name
-        )
-
-    def _alignment(self) -> dict:
-        """The axes of each operand, which BinaryOpImpl aligns them by."""
-        shapes = [input_node.shape for input_node in self._preds]  # type: ignore[union-attr]
-        return {
-            "seq_ranks": tuple(shape.seq_rank for shape in shapes),
-            "dim_ranks": tuple(shape.dim_rank for shape in shapes),
-            "windows": tuple(shape.tw is not None for shape in shapes),
-        }
-
-    def output_shape(self, *inputs):  # type: ignore
-        # Declared rather than probed: a dynamic sequence axis cannot be given to
-        # a dummy tensor, and which operands may broadcast is a rule of the
-        # streams, not of their tensors.
-        return Shape.broadcast([input_node.shape for input_node in inputs], self.name)
-
-
-class Add(BinaryOp):
-    _operation = "add"
-
-
-class Subtract(BinaryOp):
-    _operation = "subtract"
-
-
-class Multiply(BinaryOp):
-    _operation = "multiply"
-
-
-class Divide(BinaryOp):
-    _operation = "divide"
-
-
-class Power(BinaryOp):
-    _operation = "power"
-
-
-class Mod(BinaryOp):
-    _operation = "mod"
 
 
 class Identity(Layer):

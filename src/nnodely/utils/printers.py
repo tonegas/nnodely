@@ -412,8 +412,9 @@ class LegacyPrinter(keras.callbacks.Callback):
         keys = [f"loss_{name}" for name in self._minimizers] + ["loss"]
         cells = [f"{epoch + 1}/{self._epochs}"]
         for key in keys:
-            cells.append(_format(logs.get(key, logs.get("loss"))))
-            cells.append(_format(logs.get(f"val_{key}", logs.get("val_loss"))))
+            # A loss training does not log is left blank, never filled in.
+            cells.append(_format(logs.get(key)))
+            cells.append(_format(logs.get(f"val_{key}")))
         return _box_row(cells, self._widths, "│")
 
 
@@ -982,8 +983,8 @@ class NNodelyPrinter(keras.callbacks.Callback):
         total = logs.get("loss")
         for channel in self._channels:
             channel.push(
-                logs.get(channel.key, logs.get("loss")),
-                logs.get(f"val_{channel.key}", logs.get("val_loss")),
+                logs.get(channel.key),
+                logs.get(f"val_{channel.key}"),
             )
 
         # The machine works harder the faster the loss is falling: one epoch's
@@ -1175,7 +1176,9 @@ class NNodelyPrinter(keras.callbacks.Callback):
 
             line = _Line().add("  ")
             line.add(
-                f"{channel.name[:14]:<14}", _BRAND[1], bold=channel.name == "Total"
+                f"{channel.name[:14]:<14}",
+                _BRAND[1],
+                bold=channel is self._channels[-1],
             )
             line.raw(channel.sparkline(self._spark), self._spark)
             line.add("  train ", _STEEL).add(f"{_format(train).strip():>10}", _BONE)

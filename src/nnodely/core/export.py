@@ -101,6 +101,7 @@ def export_keras(model, path: str | os.PathLike, filename: str | None = None) ->
     """The implementation of :meth:`Modely.export_keras`."""
     if model.inference_model is None:
         raise ValueError("Model is not built. Call build() before export_keras().")
+    model._check_names_built()
 
     if not isinstance(model.inference_model, keras.Model):
         raise TypeError(f"Expected keras.Model, got {type(model.inference_model)}.")
@@ -159,6 +160,7 @@ def export_onnx(
     """The implementation of :meth:`Modely.export_onnx`."""
     if model.inference_model is None:
         raise ValueError("Model is not built. Call build() before export_onnx().")
+    model._check_names_built()
 
     if keras.backend.backend() == "jax":
         # Keras reaches ONNX from jax through jax2tf, and jax 0.4.36 removed
@@ -238,8 +240,6 @@ def _set_onnx_io_names(model, path: Path) -> None:
     except ImportError:
         return
 
-    if model.inference_model is None or not model.built:
-        raise ValueError("Model is not built. Call build() before export_onnx().")
     onnx_model = onnx.load(str(path))
     graph = onnx_model.graph
     expected_inputs = [

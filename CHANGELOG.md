@@ -254,22 +254,27 @@ variable, and trains, validates and exports through Keras. Models saved with
   save and load; renaming one, `obj.name = "new_name"`, gives each its own. Inside nnodely the
   objects are used, not their names, so anything can be renamed and is still
   found: a renamed Input is read by its new name, a renamed output returned
-  under it, a Loop body keeps rolling out, a `Gradient` follows its input;
+  under it, a Loop body keeps rolling out, a `Gradient` follows its input -
+  in a block, the copy of its state each call makes (one per call in a Loop
+  or ModelyLoop);
   `model.minimizers["fit"].name = "track"` renames a minimizer, as any
-  object is renamed; `remove_minimizer` and a `validate` result take a name
-  or an index. Training
+  object is renamed, and removed by its row, `.remove()`; a `validate`
+  result takes a name or an index. Training
   and validation ask for a new `build()` after an Input or output is
   renamed. Two calls of one block, or a stream named like an output, are
   minimized apart; HTML graphs draw every node and
-  every call apart (`blk_call`, `blk_call~2`). `inputs` gives the Inputs of
+  every call apart, each under its own name. `inputs` gives the Inputs of
   the graph, one row per object - two renamed alike are listed apart - so a
   model can read one a loaded block reads; `outputs` tells the stream an
   Input is fed back with by its object, and a ModelyLoop's state shares the
   row of the Input it starts from, renamed or not. Input and output
   names stay one per model, the keys of the data: two Inputs of one name are
   refused at build, and renamed alike after it, when the model is run on
-  data. Saved so, they load as the two Inputs they are, which a rename lets
-  run; a block whose inputs share a name is called with a list, by position,
+  data, and when the model is saved: loaded, it is built. A model built
+  before an Input or an output was renamed is built again before it trains,
+  validates or is exported (Keras, ONNX): its Keras model keeps the names of
+  its build. A block whose
+  inputs share a name is called with a list, by position,
   or with a dict keyed by the Inputs themselves. A model or a block called
   with a dict resolves every key to its Input at once, as `inputs[...]`
   does: a name several Inputs carry raises listing them, a name none carries
@@ -291,8 +296,9 @@ variable, and trains, validates and exports through Keras. Models saved with
   rollout steps padded onto shorter simulations. A rollout also reports its
   RMSE at each step. Figures show prediction, error, parity, error
   distribution and the error along the rollout, one file per objective,
-  `<model>_<index>_<objective>.png`. The result is the list of the scores,
-  picked by objective name or index as the other tables are.
+  `<model>_<index>_<objective>.png`, drawn by `validate` or later by
+  `result.plot()` without validating again. The result is the list of the
+  scores, picked by objective name or index as the other tables are.
 - Calculus blocks `Gradient` (with respect to an input), `DerivativeStep`
   (with respect to time, over a window), `Derivative` (the same stencil one
   step at a time, in a `ModelyLoop`), `IntegrateStep`, `Integrate` (its rules
@@ -391,7 +397,12 @@ variable, and trains, validates and exports through Keras. Models saved with
   way in a folder of its own, nested as the models are. The loaded model
   calls the same models - `models` lists them, `freeze` reaches them by
   name, one called several times is one model again - keeps the feedback of
-  the fed-back Inputs they declare, and each folder loads on its own. Keras
+  the fed-back Inputs they declare. The weights are in the file of the model
+  saved: a block not built on its own is saved as its graph, and saved
+  itself, `block.save(path)`, it is built, with the weights it was trained
+  with; `save(path, weights="all")` saves every block with its own weights
+  too, each folder then a trained model, and refuses a block whose Inputs
+  share a name. `save` builds a model not built yet to write its weights. Keras
   and ONNX export, and interactive HTML graphs. The HTML graph colours every node
   by its role, with a legend that highlights a role,
   a panel that explains the node selected - its shape axis by axis, what it
@@ -496,8 +507,10 @@ variable, and trains, validates and exports through Keras. Models saved with
 - A layer is identified by the Python object it comes from: applying one layer
   object several times shares its weights, and layers created apart never
   share them, whatever their names.
-- Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
-  history, each batch weighing as many samples as it holds, as Keras weighs
+- Each minimizer logs its loss as `"loss_<minimizer name>"` in the training
+  history - `"val_loss_<minimizer name>"` on the validation data - so no
+  name clashes with Keras's totals `"loss"` and `"val_loss"` or with another
+  minimizer's keys, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
 - The `.nnodely` save format is version 15: a model is saved with every
   model it calls in a folder of its own, a fed-back Input with the stream it
@@ -529,8 +542,10 @@ variable, and trains, validates and exports through Keras. Models saved with
   `DataLoader.dataset` and the settings a layer keeps, such as `Loop.f` or
   `Linear.features`. `Modely.minimizers` is the table of the minimizers (see
   Added): in 2.0.0 it was the list the model trains on. Its rows set the
-  gain and loss of a minimizer; `minimize` declares one and
-  `remove_minimizer` removes one.
+  gain and loss of a minimizer; `minimize` declares one and its row
+  removes it, `model.minimizers["fit"].remove()` (`remove_minimizer` is
+  gone: an unknown name now raises, as in every table, where it only
+  warned).
 - The package installs no backend: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
 - A model's graph is sorted and inlined without recursion, in the same
@@ -560,7 +575,7 @@ variable, and trains, validates and exports through Keras. Models saved with
 | `model = nnodely()` and `model.addModel("name", outputs)` | `model = Modely("name", inputs=[...], outputs=[...])` |
 | `model.neuralizeModel(sample_time)` | `model.build()`; blocks that need a time step take it (`dt=`) |
 | `model.addMinimize(name, a, b, loss_function=...)` | `model.minimize(name, source, target, loss=...)`: the prediction first |
-| `model.removeMinimize(name)` | `model.remove_minimizer(name)` |
+| `model.removeMinimize(name)` | `model.minimizers[name].remove()` |
 | `model.loadData(name, source)` | `data = DataLoader(model, source=...)` |
 | `model.trainModel(...)` | `model.train(data, val_data=..., epochs=..., batch_size=..., lr=...)` |
 | `model.analyzeModel(...)`, performance reports | `model.validate(data)` |

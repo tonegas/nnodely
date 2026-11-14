@@ -2,38 +2,11 @@
 
 from __future__ import annotations
 
-import keras
 
-from nnodely.core.layer import BinaryOp, Layer
-
-
-@keras.saving.register_keras_serializable(package="nnodely")
-class TrigonometricImpl(keras.layers.Layer):
-    def __init__(self, operation: str, name=None, **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.operation = operation
-
-    def call(self, inputs):
-        return getattr(keras.ops, self.operation)(inputs)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({"operation": self.operation})
-        return config
+from nnodely.layers.arithmetic import BinaryOp, UnaryOp
 
 
-class Trigonometric(Layer):
-    _operation = ""
-    _one_stream = True
-
-    def __init__(self, name=None):
-        super().__init__(name=name)
-
-    def build_layer(self):
-        return TrigonometricImpl(operation=self._operation, name=self.name)
-
-
-class Sin(Trigonometric):
+class Sin(UnaryOp):
     r"""Sine of every value of a stream, in radians.
 
     Syntax
@@ -126,7 +99,7 @@ class Sin(Trigonometric):
     _operation = "sin"
 
 
-class Cos(Trigonometric):
+class Cos(UnaryOp):
     r"""Cosine of every value of a stream, in radians.
 
     Syntax
@@ -201,7 +174,7 @@ class Cos(Trigonometric):
     _operation = "cos"
 
 
-class Tan(Trigonometric):
+class Tan(UnaryOp):
     r"""Tangent of every value of a stream, in radians.
 
     Syntax
@@ -269,7 +242,7 @@ class Tan(Trigonometric):
     _operation = "tan"
 
 
-class Asin(Trigonometric):
+class Asin(UnaryOp):
     r"""Inverse sine of every value of a stream, in radians.
 
     Syntax
@@ -341,7 +314,7 @@ class Asin(Trigonometric):
     _operation = "arcsin"
 
 
-class Acos(Trigonometric):
+class Acos(UnaryOp):
     r"""Inverse cosine of every value of a stream, in radians.
 
     Syntax
@@ -409,7 +382,7 @@ class Acos(Trigonometric):
     _operation = "arccos"
 
 
-class Atan(Trigonometric):
+class Atan(UnaryOp):
     r"""Inverse tangent of every value of a stream, in radians.
 
     Syntax
@@ -479,7 +452,7 @@ class Atan(Trigonometric):
     _operation = "arctan"
 
 
-class Sinh(Trigonometric):
+class Sinh(UnaryOp):
     r"""Hyperbolic sine of every value of a stream.
 
     Syntax
@@ -537,7 +510,7 @@ class Sinh(Trigonometric):
     _operation = "sinh"
 
 
-class Cosh(Trigonometric):
+class Cosh(UnaryOp):
     r"""Hyperbolic cosine of every value of a stream.
 
     Syntax
@@ -595,7 +568,7 @@ class Cosh(Trigonometric):
     _operation = "cosh"
 
 
-class Asinh(Trigonometric):
+class Asinh(UnaryOp):
     r"""Inverse hyperbolic sine of every value of a stream.
 
     Syntax
@@ -651,7 +624,7 @@ class Asinh(Trigonometric):
     _operation = "arcsinh"
 
 
-class Acosh(Trigonometric):
+class Acosh(UnaryOp):
     r"""Inverse hyperbolic cosine of every value of a stream.
 
     Syntax
@@ -718,7 +691,7 @@ class Acosh(Trigonometric):
     _operation = "arccosh"
 
 
-class Atanh(Trigonometric):
+class Atanh(UnaryOp):
     r"""Inverse hyperbolic tangent of every value of a stream.
 
     Syntax

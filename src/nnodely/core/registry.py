@@ -1,6 +1,7 @@
 import json
 import warnings
 from pathlib import Path
+from nnodely.core.dag import free_name
 from nnodely.core.stream import Node, class_path, registered_class
 
 
@@ -97,19 +98,14 @@ class ModelSerializer:
     VERSION = 15
 
     @staticmethod
-    def serialize(model, path, *, weights=True, saving=None):
+    def serialize(model, path, *, weights: bool | str = True, saving=None):
         """Write ``model`` to the folder ``path``: its own graph in
         ``model.json``, its weights in ``model.weights.h5``, and every model
         it calls as a block, or rolls out in a Loop, in a folder of its own,
         written the same way - so the models nest as their folders do, and
         each folder is a model that loads on its own."""
         from nnodely.core.layer import Layer
-        from nnodely.core.modely import (
-            IntermediateOutput,
-            ModelCall,
-            Modely,
-            _build_apart,
-        )
+        from nnodely.core.modely import IntermediateOutput, ModelCall, Modely
         from nnodely.layers.input import Input
         from nnodely.layers.parameter import Constant
 
@@ -120,7 +116,7 @@ class ModelSerializer:
         order = _saved_order(model)
         node_ids = {node: f"node_{i}" for i, node in enumerate(order)}
 
-        if weights and model.inference_model is not None:
+        if weights:
             saved = {id(variable) for variable in model.inference_model.weights}
             # A called model, or a body, saves its weights in its own folder,
             # and a Constant is its value, saved in its config.
@@ -199,19 +195,17 @@ class ModelSerializer:
                 folder = folders.get(id(held))
                 if folder is None:
                     base = held.name if isinstance(node, ModelCall) else node.name
-                    folder, index = base, 1
-                    while folder in folders.values():
-                        folder, index = f"{base}_{index}", index + 1
+                    folder = free_name(base, set(folders.values()))
                     folders[id(held)] = folder
-                    if weights and not held.built:
-                        # Built for the weights it computes with here - the
-                        # ones this model shares with it - not to run on its
-                        # own: what that would warn about does not apply.
-                        with warnings.catch_warnings():
-                            warnings.simplefilter("ignore", UserWarning)
-                            _build_apart(held)
+                    # Its weights are in this model's file, the ones it
+                    # computes with here. Built - a Loop body always is, a
+                    # block trained alone - or with weights="all", it saves
+                    # its own too, and is built again once loaded.
                     ModelSerializer.serialize(
-                        held, path / folder, weights=weights, saving=saving
+                        held,
+                        path / folder,
+                        weights="all" if weights == "all" else weights and held.built,
+                        saving=saving,
                     )
                 node_data["model"] = folder
                 node_data["model_id"] = saving.id_of(saving.models, held)
@@ -242,7 +236,7 @@ class ModelSerializer:
         # without weights, the model is its architecture only: a weights file
         # left by an earlier save would otherwise be loaded with it.
         weights_path = path / "model.weights.h5"
-        if weights and model.inference_model is not None:
+        if weights:
             model.inference_model.save_weights(weights_path)
         else:
             weights_path.unlink(missing_ok=True)
@@ -286,8 +280,8 @@ class ModelSerializer:
 
             preds = [node_map[pred_id] for pred_id in node_data["preds"]]
             if cls is ModelCall:
-                # The called model is loaded, built and given its weights from
-                # its folder, then called on the streams it was called on.
+                # The called model is loaded from its folder, then called on
+                # the streams it was called on.
                 returned = loading.model(node_data, path)(preds)
                 calls[node_data["id"]] = (
                     returned if isinstance(returned, list) else [returned]
@@ -301,8 +295,8 @@ class ModelSerializer:
                 continue
             config = node_data["config"]
             if "model" in node_data:
-                # The body is loaded, built and given its weights first, then
-                # handed to the block as the `f` it was built with.
+                # The body is loaded first, then handed to the block as the
+                # `f` it was built with.
                 config = {**config, "f": loading.model(node_data, path)}
             node = cls.from_config(
                 config,
@@ -343,8 +337,6 @@ class ModelSerializer:
 
     @staticmethod
     def load(path, *, weights=True, loading=None):
-        from nnodely.core.modely import _build_apart
-
         path = Path(path)
 
         config_path = path / "model.json"
@@ -355,7 +347,8 @@ class ModelSerializer:
                 f"Could not find nnodely model configuration: {config_path}"
             )
 
-        loading = _Loading(weights) if loading is None else loading
+        loaded = loading is None
+        loading = _Loading(weights) if loaded else loading
         with open(config_path, "r", encoding="utf-8") as f:
             try:
                 data = json.load(f)
@@ -374,14 +367,15 @@ class ModelSerializer:
             )
 
         model = ModelSerializer.deserialize(data, path, loading=loading)
-        # Saved with Inputs of one name, it loads with them: two Inputs, built
-        # apart, which a rename lets run.
-        _build_apart(model)
-
-        # A model loaded without its weights - saved without them, or loaded
-        # with weights=False - keeps the ones build() just gave it, as a model
-        # declared from scratch would.
-        if loading.weights and weights_path.exists():
+        # The model loaded is built; a model it calls only to load weights of
+        # its own, saved when it was built - its others are in the file of the
+        # model calling it. A model loaded without its weights - saved
+        # without them, or loaded with weights=False - keeps the ones build()
+        # just gave it, as a model declared from scratch would.
+        own_weights = loading.weights and weights_path.exists()
+        if loaded or own_weights:
+            model.build()
+        if own_weights:
             assert model.inference_model is not None
             model.inference_model.load_weights(weights_path)
 

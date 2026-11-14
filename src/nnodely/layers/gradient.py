@@ -366,6 +366,14 @@ class Gradient(Layer):
         self._wrt = wrt
         super().__init__(name=name, order=self._order, wrt=self._wrt)
 
+    def _copied(self, memo: dict) -> None:
+        # The copy of the Input this call made - a state of a block, one per
+        # call in a Loop - shares its Keras input until renamed; a stream the
+        # call binds the Input to is another relation, not differentiated.
+        copy = memo.get(self._wrt)
+        if isinstance(copy, Input) and copy._input is self._wrt._input:
+            self._wrt = copy
+
     # ------------------------------------------------------------------
     # Shape logic
     # ------------------------------------------------------------------

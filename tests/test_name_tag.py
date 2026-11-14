@@ -71,12 +71,12 @@ def _two_ks():
     ).build()
 
 
-def _html_ids(model, folder):
+def _html_nodes(model, folder):
     model.export_html(folder)
     page = (folder / f"{model.name}.html").read_text()
     nodes = re.search(r"const nodes = new vis\.DataSet\((\[.*?\])\);\n", page, re.S)
     assert nodes is not None
-    return [node["id"] for node in json.loads(nodes.group(1))]
+    return json.loads(nodes.group(1))
 
 
 # ---------------------------------------------------------------------------
@@ -427,12 +427,14 @@ def test_html_draws_one_block_called_twice_as_two_calls(tmp_path):
     model, _, _ = _twice()
     model.build()
 
-    ids = _html_ids(model, tmp_path)
-    assert ids.count("tag_twice_block_call") == 1
-    assert "tag_twice_block_call~2" in ids
-    assert {"y", "y~2"} <= set(ids)
-    assert (tmp_path / "tag_twice__tag_twice_block_call.html").exists()
-    assert (tmp_path / "tag_twice__tag_twice_block_call-2.html").exists()
+    # Two nodes each, under their own names: told apart by id, not renamed.
+    nodes = _html_nodes(model, tmp_path)
+    labels = [node["label"] for node in nodes]
+    assert labels.count("tag_twice_block") == 2
+    assert labels.count("y") == 2
+    assert len({node["id"] for node in nodes}) == len(nodes)
+    assert (tmp_path / "tag_twice__tag_twice_block.html").exists()
+    assert (tmp_path / "tag_twice__tag_twice_block_2.html").exists()
 
 
 def test_html_draws_two_layers_of_one_name_apart(tmp_path):
@@ -442,8 +444,9 @@ def test_html_draws_two_layers_of_one_name_apart(tmp_path):
         "tag_html", inputs=[x], outputs=[Output("tag_html_y", first([x]) + second([x]))]
     ).build()
 
-    ids = _html_ids(model, tmp_path)
-    assert {"tag_f", "tag_f~2", "tag_f_kernel", "tag_f_kernel~2"} <= set(ids)
+    labels = [node["label"] for node in _html_nodes(model, tmp_path)]
+    assert labels.count("tag_f") == 2
+    assert labels.count("tag_f_kernel") == 2
 
 
 # ---------------------------------------------------------------------------
@@ -559,9 +562,12 @@ def test_a_minimizer_is_renamed_through_minimizers():
     assert model.minimizers["rn_track"]["source"] is y
     with pytest.raises(KeyError, match="no minimizer named 'rn_fit'"):
         model.minimizers["rn_fit"]
-    # Each name its own.
+    # Each name its own; a name like another's validation key is no clash,
+    # its loss is logged as loss_val_rn_other, that one's as val_loss_rn_other.
     with pytest.raises(ValueError, match="has a minimizer named 'rn_other' already"):
         model.minimizers["rn_track"]["name"] = "rn_other"
+    model.minimizers["rn_track"]["name"] = "val_rn_other"
+    model.minimizers["val_rn_other"]["name"] = "rn_track"
     # The loss is logged under the new name from the next train.
     data = DataLoader(model, {"rn_x": np.arange(8.0), "rn_t": np.arange(8.0)})
     trained = model.train(data, epochs=1, printer=None)
@@ -752,9 +758,9 @@ def test_a_minimizer_is_renamed_as_any_object():
     with pytest.raises(AttributeError):
         model.minimizers[0].colour  # type: ignore[attr-defined]
     # Removed by name or by index.
-    model.remove_minimizer(1)
+    model.minimizers[1].remove()
     assert [row.name for row in model.minimizers] == ["all_track"]
-    model.remove_minimizer("all_track")
+    model.minimizers["all_track"].remove()
     assert list(model.minimizers) == []
 
 
@@ -806,29 +812,26 @@ def test_inputs_renamed_into_a_clash_after_the_build_are_refused_when_run():
     np.testing.assert_allclose(to_numpy(result), [[[21.0]]])
 
 
-def test_a_model_whose_inputs_clash_is_saved_and_loaded_as_two_inputs(tmp_path):
+def test_a_model_whose_inputs_clash_is_refused_at_save(tmp_path):
+    # Loaded, a model is built, and its Keras inputs need names of their own:
+    # it is refused when saved, not when loaded.
     xa, xb = Input("cs_x", tw=1), Input("cs_x", tw=1)
     model = Modely(
         "cs_twins", inputs=[xa, xb], outputs=[Output("cs_y", xa + 10.0 * xb)]
     )
-    # Not built, it cannot be: once saved, and then refused at load.
+    for weights in (True, False):
+        with pytest.raises(ValueError, match=r"several Inputs named \['cs_x'\]"):
+            model.save(tmp_path / "twins", weights=weights)
+    assert not (tmp_path / "twins").exists()
+    # Renamed, it saves, and loads as the two Inputs it has.
+    xb.name = "cs_x2"
     model.save(tmp_path / "twins")
     loaded = Modely.load(tmp_path / "twins")
-
-    first, second = loaded.inputs[0], loaded.inputs[1]
-    assert first is not second and first.name == second.name == "cs_x"
-    with pytest.raises(ValueError, match=r"'cs_x' is ambiguous, 2 Inputs carry it"):
-        loaded({"cs_x": _ONE})
-    # Each is still the Input it was saved as: renamed, it is read apart.
-    second.name = "cs_x2"
-    result = loaded({"cs_x": _ONE, "cs_x2": 2.0 * _ONE})["cs_y"]
-    np.testing.assert_allclose(to_numpy(result), [[[21.0]]])
-    loaded.build()
     result = loaded({"cs_x": _ONE, "cs_x2": 2.0 * _ONE})["cs_y"]
     np.testing.assert_allclose(to_numpy(result), [[[21.0]]])
 
 
-def test_a_model_renamed_into_a_clash_is_loaded_with_its_weights(tmp_path):
+def test_a_model_renamed_into_a_clash_is_refused_at_save(tmp_path):
     a, b = Input("cw_a", tw=3), Input("cw_b", tw=1)
     fir = Fir(features=1, name="cw_fir")([a])  # a kernel drawn at random
     model = Modely(
@@ -836,13 +839,32 @@ def test_a_model_renamed_into_a_clash_is_loaded_with_its_weights(tmp_path):
     ).build()
     before = to_numpy(model({"cw_a": _WINDOW, "cw_b": _ONE})["cw_y"])
     b.name = "cw_a"
+    with pytest.raises(ValueError, match=r"several Inputs named \['cw_a'\]"):
+        model.save(tmp_path / "clash")
+    # Renamed back, it saves with its weights.
+    b.name = "cw_b"
     model.save(tmp_path / "clash")
     loaded = Modely.load(tmp_path / "clash")
-
-    # The Input of one sample is b: renamed back, the weights are the saved ones.
-    next(node for node in loaded.inputs if node.tw == 1).name = "cw_b"
     after = to_numpy(loaded({"cw_a": _WINDOW, "cw_b": _ONE})["cw_y"])
     np.testing.assert_allclose(after, before, rtol=1e-6)
+
+
+def test_a_model_renamed_since_its_build_is_built_again_to_be_exported(tmp_path):
+    # The Keras model keeps the names of its build: exported, two outputs of
+    # one shape could swap their values, as ONNX names were paired by shape.
+    x = Input("ex_x", tw=1)
+    a, b = Output("ex_a", x * 2.0), Output("ex_b", x * 3.0)
+    model = Modely("ex_model", inputs=[x], outputs=[a, b]).build()
+    a.name, x.name = "ex_z", "ex_u"
+    for export in (model.export_keras, model.export_onnx):
+        with pytest.raises(ValueError, match="'ex_a' is now 'ex_z'.*build it again"):
+            export(tmp_path)
+    assert not any(tmp_path.iterdir())
+    model.build().export_keras(tmp_path)
+    exported = keras.saving.load_model(tmp_path / "ex_model.keras")
+    assert isinstance(exported, keras.Model)
+    assert set(exported.output) == {"ex_z", "ex_b"}
+    assert [tensor.name for tensor in exported.inputs] == ["ex_u"]
 
 
 def test_a_block_whose_inputs_share_a_name_is_called_by_position(tmp_path):
@@ -865,6 +887,77 @@ def test_a_block_whose_inputs_share_a_name_is_called_by_position(tmp_path):
     # By name they are ambiguous.
     with pytest.raises(ValueError, match=r"'cp_x' is ambiguous, 2 Inputs carry it"):
         block({"cp_x": a})
+
+
+def test_a_block_is_saved_with_the_model_calling_it_and_on_its_own(tmp_path):
+    x = Input("bs_x", tw=2)
+    block = Modely(
+        "bs_block",
+        inputs=[x],
+        outputs=[Output("bs_y", Fir(features=1, bias=False, name="bs_fir")(x))],
+    )
+    a = Input("bs_a", tw=2)
+    outer = Modely("bs_outer", inputs=[a], outputs=[Output("bs_o", block([a]))])
+    outer.build()
+    assert outer.inference_model is not None
+    for weight in outer.inference_model.weights:  # as trained
+        weight.assign(np.full(weight.shape, 3.0, np.float32))
+    data = np.ones((1, 2, 1), np.float32)
+
+    # The block is not built to be saved: the weights it computes with are in
+    # the file of the model calling it, its folder holds its graph.
+    outer.save(tmp_path / "outer")
+    assert not block.built
+    assert not (tmp_path / "outer" / "bs_block" / "model.weights.h5").exists()
+    loaded = Modely.load(tmp_path / "outer")
+    np.testing.assert_allclose(to_numpy(loaded({"bs_a": data})["bs_o"]), [[[6.0]]])
+    # Saved itself, it is built, keeping the weights it was trained with.
+    block.save(tmp_path / "block")
+    loaded = Modely.load(tmp_path / "block")
+    np.testing.assert_allclose(to_numpy(loaded({"bs_x": data})["bs_y"]), [[[6.0]]])
+
+
+def test_weights_all_saves_every_block_with_its_own_weights(tmp_path):
+    x = Input("ba_x", tw=2)
+    block = Modely(
+        "ba_block",
+        inputs=[x],
+        outputs=[Output("ba_y", Fir(features=1, bias=False, name="ba_fir")(x))],
+    )
+    a = Input("ba_a", tw=2)
+    outer = Modely("ba_outer", inputs=[a], outputs=[Output("ba_o", block([a]))])
+    outer.build()
+    assert outer.inference_model is not None
+    for weight in outer.inference_model.weights:  # as trained
+        weight.assign(np.full(weight.shape, 3.0, np.float32))
+    data = np.ones((1, 2, 1), np.float32)
+
+    # Each folder is then a trained model.
+    outer.save(tmp_path / "outer", weights="all")
+    assert block.built
+    alone = Modely.load(tmp_path / "outer" / "ba_block")
+    np.testing.assert_allclose(to_numpy(alone({"ba_x": data})["ba_y"]), [[[6.0]]])
+    loaded = Modely.load(tmp_path / "outer")
+    np.testing.assert_allclose(to_numpy(loaded({"ba_a": data})["ba_o"]), [[[6.0]]])
+    with pytest.raises(ValueError, match="True, False or 'all', got 'yes'"):
+        outer.save(tmp_path / "other", weights="yes")  # type: ignore[arg-type]
+
+
+def test_weights_all_refuses_a_block_whose_inputs_share_a_name(tmp_path):
+    # Called by position the block runs, and saves with weights=True; its
+    # own weights need a Keras model of its own, which needs names apart.
+    xa, xb = Input("bt_x", tw=1), Input("bt_x", tw=1)
+    block = Modely(
+        "bt_block", inputs=[xa, xb], outputs=[Output("bt_y", xa + 10.0 * xb)]
+    )
+    a, b = Input("bt_a", tw=1), Input("bt_b", tw=1)
+    outer = Modely(
+        "bt_outer", inputs=[a, b], outputs=[Output("bt_o", block([a, b]))]
+    ).build()
+    with pytest.raises(ValueError, match=r"'bt_block' reads several Inputs named"):
+        outer.save(tmp_path / "outer", weights="all")
+    assert not (tmp_path / "outer").exists()
+    outer.save(tmp_path / "outer")
 
 
 def test_a_call_resolves_its_keys_to_the_inputs_at_once():
@@ -1002,3 +1095,11 @@ def test_a_loop_tells_a_state_inside_a_block_by_object():
     loop = Loop(f=body)
     with pytest.raises(ValueError, match="'is_s' is fed back: give its initial value"):
         loop({s: Input("is_pushes", seq=3, tw=1)})
+
+
+def test_two_undeclared_inputs_of_one_name_are_both_listed():
+    # The check is by object; the message once listed a set of names, so two
+    # Inputs of one name read as one.
+    first, second = Input("und_x", tw=1), Input("und_x", tw=1)
+    with pytest.raises(ValueError, match=r"reads the Inputs \['und_x', 'und_x'\]"):
+        Modely("und_model", inputs=[], outputs=[Output("und_y", first + second)])

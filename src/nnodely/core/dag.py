@@ -11,7 +11,7 @@ from copy import copy
 import keras
 
 from nnodely.core.stream import NODE_NAMES, Node, Stream, reserve_name
-from typing import TYPE_CHECKING, Any, Callable, Generator, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Container, Generator, Sequence
 
 if TYPE_CHECKING:
     from nnodely.core.modely import Modely
@@ -37,6 +37,17 @@ def next_name(prefix: str) -> str:
     # its name from here without being a node, and derives its layers' names.
     reserve_name(name)
     return name
+
+
+def free_name(name: str, taken: Container[str]) -> str:
+    """``name``, or the first of ``name_2``, ``name_3``, ... not in
+    ``taken`` - a set of names, or a dict keyed by them: how a name nnodely
+    generates, or shows, keeps apart from those already used. The caller
+    records the name it takes."""
+    free, index = name, 2
+    while free in taken:
+        free, index = f"{name}_{index}", index + 1
+    return free
 
 
 # ------------------------------------------------------------------
@@ -397,10 +408,10 @@ def _flatten_steps(node: Node, scope: Scope) -> Generator[tuple[Node, Scope], An
         new_preds.append((yield (pred, scope)))
     new_node = copy(node)
     new_node._preds = new_preds
-    if isinstance(new_node, Layer) and not bool(
-        getattr(new_node._layer, "weights", None)
-    ):
-        new_node._layer = None
+    if isinstance(new_node, Layer):
+        new_node._copied(scope.memo)
+        if not getattr(new_node._layer, "weights", None):
+            new_node._layer = None
     scope.memo[node] = new_node
     if shared:
         scope.values[node] = new_node

@@ -2,10 +2,11 @@ import os
 import warnings
 
 from collections.abc import Mapping
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from nnodely.core import export, validation
 from nnodely.core.dag import (
+    free_name,
     toposort,
     flatten,
     _flatten_graph,
@@ -315,8 +316,9 @@ class Modely:
         self._order = toposort(self._outputs)
         # Read as an output, or bound to a Loop, it passed no layer call.
         _refuse_uncalled(self._order)
+        # One entry per Input: two of one name are listed twice.
         undeclared = sorted(
-            {node.name for node in _undeclared_inputs(self._inputs, self._outputs)}
+            node.name for node in _undeclared_inputs(self._inputs, self._outputs)
         )
         if undeclared:
             raise ValueError(
@@ -488,7 +490,7 @@ class Modely:
         are returned as streams."""
         for node, stream in zip(self._inputs, arguments):
             self._check_block_input(node, stream)
-        mc = ModelCall(f"{self.name}_call", self)
+        mc = ModelCall(self.name, self)
         mc._preds = arguments
         mc._inputs_map = {old: new for old, new in zip(self._inputs, arguments)}
         outputs = [IntermediateOutput(output, mc) for output in self._outputs]
@@ -547,11 +549,6 @@ class Modely:
         for: ``node`` itself if it is none."""
         return self._originals.get(id(node), node)
 
-    def _key(self, node: Node) -> str:
-        """The key ``node`` - an Input it reads, or one of its outputs - has
-        in the Keras models of the last :meth:`build`: its name then."""
-        return self._keys.get(id(node)) or node.name
-
     def _check_inputs_apart(self, nodes) -> None:
         """Refuse to read data for the Inputs ``nodes``, those a build read,
         while several carry one name: the data is keyed by input name, so
@@ -568,23 +565,22 @@ class Modely:
             )
 
     def _check_names_built(self) -> None:
-        """Refuse to train or validate on data while an Input or an output
+        """Refuse to train, validate or export while an Input or an output
         has another name than the one it was built with: the data and the
-        training model are keyed by those names."""
+        Keras models are keyed by those names."""
         self._check_inputs_apart(self.train_inputs)
         renamed = [
             f"{key!r} is now {node.name!r}"
             for node, key in [
                 *((self._original(node), node.name) for node in self.train_inputs),
-                *((node, self._key(node)) for node in self._outputs),
+                *((node, self._keys[id(node)]) for node in self._outputs),
             ]
             if node.name != key
         ]
         if renamed:
             raise ValueError(
                 f"Model {self.name!r} was built before some of its names "
-                f"changed - {', '.join(renamed)}: build it again to train or "
-                "validate with them."
+                f"changed - {', '.join(renamed)}: build it again to use them."
             )
 
     def _check_block_input(self, node: Input, stream) -> None:
@@ -746,9 +742,7 @@ class Modely:
                 if exposed in self._outputs:
                     minimizer_outputs[node] = exposed.name
                     continue
-                key, index = exposed.name, 1
-                while key in keys:
-                    key, index = f"{exposed.name}_{index}", index + 1
+                key = free_name(exposed.name, keys)
                 keys.add(key)
                 extra_outputs.append(exposed)
                 extra_keys.append(key)
@@ -783,19 +777,13 @@ class Modely:
         }
         # The data is keyed by input name: two Inputs of one name would read
         # the same array, whatever their shapes.
-        named: dict[str, Input] = {}
-        twins = [
-            node
-            for node in train_inputs
-            if named.setdefault(node.name, node) is not node
-        ]
+        names = [node.name for node in train_inputs]
+        twins = [name for name in names if names.count(name) > 1]
         if twins:
-            raise InputNameClash(
+            raise ValueError(
                 f"Model {self.name!r} reads two different Inputs named "
-                f"{twins[0].name!r}. The data is fed by input name, so every "
-                "Input of a model needs a name of its own.",
-                twins=[originals.get(id(node), node) for node in twins],
-                names=set(named),
+                f"{twins[0]!r}. The data is fed by input name, so every "
+                "Input of a model needs a name of its own."
             )
         # A fed-back Input the model declares among its inputs is fed from
         # data on purpose; any other is a feedback a loop was meant to apply.
@@ -1156,86 +1144,12 @@ class Modely:
         self._minimizers.append(minimizer)
         return self
 
-    def remove_minimizer(self, name: str | int):
-        """Remove an objective, picked by its name or by its index in
-        :attr:`minimizers`.
-
-        The next :meth:`train` and :meth:`validate` leave it out. The model
-        needs no new build.
-
-        Parameters
-        ----------
-        name : str or int
-            The name of the objective, or its index, the ``idx`` column of
-            :attr:`minimizers`.
-
-        Raises
-        ------
-        ValueError
-            If the name is carried by several objectives.
-        IndexError
-            If the index is out of range.
-
-        Warns
-        -----
-        UserWarning
-            If no objective has that name ("nothing was removed"). The model
-            is left as it was.
-
-        See Also
-        --------
-        Modely.minimize : Register an objective.
-        Modely.minimizers : The objectives, as a table.
-
-        Basic Examples
-        --------------
-        >>> from nnodely import Input, Modely, Output
-        >>> x = Input("x", tw=1)
-        >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)])
-        >>> model = model.minimize("a", "y", 1.0).minimize("b", "y", 2.0)
-        >>> model.remove_minimizer("a")
-        >>> [m.name for m in model.minimizers]
-        ['b']
-
-        Options
-        -------
-        By index:
-
-        >>> model.remove_minimizer(0)
-        >>> len(model.minimizers)
-        0
-
-        Possible Issues
-        ---------------
-        A name no objective has only warns:
-
-        >>> import warnings
-        >>> with warnings.catch_warnings(record=True) as caught:
-        ...     warnings.simplefilter("always")
-        ...     model.remove_minimizer("c")
-        >>> str(caught[0].message)
-        "Model 'double' has no minimizer named 'c': nothing was removed."
-
-        .. versionadded:: 2.0
-        """
-        try:
-            picked = self.minimizers[name]
-        except NameNotFound:
-            warnings.warn(
-                f"Model {self.name!r} has no minimizer named {name!r}: nothing "
-                "was removed.",
-                UserWarning,
-                stacklevel=2,
-            )
-            return
-        rows = picked if isinstance(picked, list) else [picked]
-        removed = {id(row._minimizer) for row in rows}
-        self._minimizers = [m for m in self._minimizers if id(m) not in removed]
-
     def _check_minimizer_name(self, name, others: list[dict]) -> None:
         """Refuse ``name`` for a minimizer beside the minimizers ``others``."""
         if not isinstance(name, str) or not name:
             raise ValueError(f"A minimizer name is a non-empty string, got {name!r}.")
+        # Its loss is logged under a key of its name, loss_<name>, which no
+        # other name and no total of Keras can have: only the name is checked.
         if any(other["name"] == name for other in others):
             raise ValueError(
                 f"Model {self.name!r} has a minimizer named {name!r} already: "
@@ -1245,6 +1159,11 @@ class Modely:
     def _set_minimizer(self, minimizer: dict, key: str, value):
         """Set the name, loss or gain - ``key`` - of ``minimizer``, one of
         the model's, checked as :meth:`minimize` checks it."""
+        if not any(m is minimizer for m in self._minimizers):
+            raise ValueError(
+                f"Minimizer {minimizer['name']!r} was removed from model "
+                f"{self.name!r}: declare it again with minimize()."
+            )
         if key == "name":
             self._check_minimizer_name(
                 value, [m for m in self._minimizers if m is not minimizer]
@@ -2505,7 +2424,8 @@ class Modely:
         Next to the main page, ``<name>.html``, the folder holds:
 
         - ``<name>__flattened.html``, every block spliced in;
-        - a page per call of a block, such as ``<name>__<block>_call.html``;
+        - a page per call of a block, such as ``<name>__<block>.html``, and
+          ``<name>__<block>_2.html`` for a second call;
         - the folder ``imgs``, of the images the pages show.
 
         Basic Examples
@@ -2518,7 +2438,7 @@ class Modely:
         >>> outer = Modely("outer", inputs=[u], outputs=[Output("z", 2.0 * offset(u))])
         >>> outer.export_html("graph")
         >>> sorted(os.listdir("graph"))
-        ['imgs', 'outer.html', 'outer__flattened.html', 'outer__offset_call.html']
+        ['imgs', 'outer.html', 'outer__flattened.html', 'outer__offset.html']
 
         Options
         -------
@@ -2570,7 +2490,7 @@ class Modely:
     # Save and load
     # -------------------------------------------------------------------------
 
-    def save(self, path, weights: bool = True):
+    def save(self, path, weights: bool | Literal["all"] = True):
         """Save the model, its graph and its weights, to a folder.
 
         :meth:`load` makes the model again from the folder. The objectives are
@@ -2581,9 +2501,17 @@ class Modely:
         path : str or os.PathLike
             The folder, created when missing. A name such as
             ``"model.nnodely"`` is a folder too.
-        weights : bool, default True
+        weights : bool or "all", default True
             ``True`` saves the weights. ``False`` saves the graph alone, to
-            be trained later or elsewhere.
+            be trained later or elsewhere. ``"all"`` also saves every block
+            with weights of its own, so that each folder is a trained model.
+
+        Raises
+        ------
+        ValueError
+            If ``weights`` is not ``True``, ``False`` or ``"all"``. If Inputs
+            of the model, or of a block that saves weights of its own, share
+            a name: a model is built once loaded.
 
         See Also
         --------
@@ -2596,12 +2524,16 @@ class Modely:
         The folder holds:
 
         - ``model.json``, the graph;
-        - ``model.weights.h5``, the weights, unless ``weights=False``;
+        - ``model.weights.h5``, the weights, unless ``weights=False``. They
+          include the weights of the blocks it calls;
         - a folder for every model it calls as a block or rolls out in a
           Loop, named after that model, laid out the same way. Each loads on
-          its own.
+          its own. Its folder holds weights of its own only if the block was
+          built on its own, as a Loop body always is, or with
+          ``weights="all"``; otherwise it loads with initial weights.
 
-        A model not built is saved too.
+        A model not built is built to save its weights. Without weights it is
+        saved as it is.
 
         Basic Examples
         --------------
@@ -2614,7 +2546,7 @@ class Modely:
         >>> outer = Modely("outer", inputs=[u], outputs=[Output("z", 2.0 * offset(u))]).build()
         >>> outer.save("outer_model")
         >>> sorted(os.listdir("outer_model")), sorted(os.listdir("outer_model/offset"))
-        (['model.json', 'model.weights.h5', 'offset'], ['model.json', 'model.weights.h5'])
+        (['model.json', 'model.weights.h5', 'offset'], ['model.json'])
 
         Options
         -------
@@ -2624,8 +2556,29 @@ class Modely:
         >>> sorted(os.listdir("outer_graph"))
         ['model.json', 'offset']
 
+        ``weights="all"`` saves the weights of every block too, so the block
+        is a trained model of its own:
+
+        >>> outer.save("outer_all", weights="all")
+        >>> sorted(os.listdir("outer_all/offset"))
+        ['model.json', 'model.weights.h5']
+
         .. versionadded:: 2.0
         """
+        if weights not in (True, False, "all"):
+            raise ValueError(f"weights is True, False or 'all', got {weights!r}.")
+        # Loaded, a model with weights of its own is built: its Inputs need
+        # names of their own, and its weights a Keras model to write them
+        # from - built to write them, not to run: what that would warn about
+        # is said once it is built to run.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            for model in _nodes_and_models(self)[1]:
+                # The model, and every block saving weights of its own.
+                if model is self or weights == "all" or (weights and model.built):
+                    model._check_inputs_apart(model._inputs)
+                    if weights and not model.built:
+                        model.build()
         ModelSerializer.serialize(self, path, weights=weights)
 
     @classmethod
@@ -3025,7 +2978,8 @@ class Minimizer(Mapping):
     renamed, or ``m["name"] = "fit_y"`` - changes the minimizer in its model,
     checked as :meth:`Modely.minimize` checks them, from the next
     :meth:`Modely.train`. What it compares is set by :meth:`Modely.minimize`;
-    anything else set raises rather than being lost."""
+    anything else set raises rather than being lost. :meth:`remove` removes
+    it from its model, ``model.minimizers["fit"].remove()``."""
 
     _SETTABLE = ("name", "loss", "gain")
     # No attribute of its own to set: one set by mistake would be lost.
@@ -3066,6 +3020,12 @@ class Minimizer(Mapping):
             model=self._model,
         )
 
+    def remove(self) -> None:
+        """Remove this minimizer from its model: :meth:`Modely.train` no
+        longer minimizes it."""
+        model = self._model
+        model._minimizers = [m for m in model._minimizers if m is not self._minimizer]
+
     def __setitem__(self, key, value):
         if key not in self._SETTABLE:
             raise TypeError(
@@ -3102,39 +3062,6 @@ class Minimizers(Table):
         return _table(self._HEADER, [("", rows)], indexed=True)
 
 
-class InputNameClash(ValueError):
-    """Raised by :meth:`Modely.build` for two different Inputs of one name
-    in the graph: ``twins`` are the Inputs after the first of each name,
-    ``names`` the names every Input of the graph carries."""
-
-    def __init__(self, message: str, twins: list[Input], names: set[str]):
-        super().__init__(message)
-        self.twins = twins
-        self.names = names
-
-
-def _build_apart(model: Modely) -> None:
-    """Build ``model`` even if Inputs of its graph share a name, as one saved
-    so is loaded: each is built under a name of its own, then given its name
-    back. They stay two Inputs, and the model runs once one is renamed."""
-    try:
-        model.build()
-    except InputNameClash as clash:
-        renamed = {node: node.name for node in clash.twins}
-        taken = set(clash.names)
-        try:
-            for node in renamed:
-                key, index = node.name, 1
-                while key in taken:
-                    key, index = f"{node.name}_{index}", index + 1
-                taken.add(key)
-                node.name = key
-            model.build()
-        finally:
-            for node, name in renamed.items():
-                node.name = name
-
-
 def _refresh_keras_inputs(model: Modely) -> None:
     """Give every Input the model reads a Keras input of its name now: an
     Input renamed since it was declared - ``x.name = "speed"`` - keeps the
@@ -3155,10 +3082,7 @@ def _rename_hidden_states(model: Modely) -> None:
     taken = {node.name: node for node in inputs if not node._hidden}
     for node in inputs:
         if node._hidden and taken.setdefault(node.name, node) is not node:
-            name, index = node.name, 1
-            while f"{name}_{index}" in taken:
-                index += 1
-            node.name = f"{name}_{index}"
+            node.name = free_name(node.name, taken)
             node._input = keras.Input(shape=node.shape.tuple, name=node.name)
             taken[node.name] = node
 
