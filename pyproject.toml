@@ -90,6 +90,7 @@ wheel-exclude = ["**/.DS_Store"]
 [tool.pyright]
 pythonVersion = "3.10"
 typeCheckingMode = "standard"
+exclude = ["experimental", "docs/_build", "**/.venv", "**/__pycache__", "**/node_modules", "**/.*"]
 
 [tool.ruff]
 target-version = "py310"
