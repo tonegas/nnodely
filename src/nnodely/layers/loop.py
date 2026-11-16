@@ -588,6 +588,10 @@ class _Step:
         # every node, for what reads the graph by its objects.
         self._sources = _inlined_inputs(scope)
         self._copies = _copies(scope)
+        # The maps above are keyed by id: the scope keeps the copies alive,
+        # or a new object could get the id of a freed copy and be taken for
+        # the Input that copy stands for.
+        self._scope = scope
 
         # The states feedback= gives first, in its order. One the graph feeds
         # back too is fed back with the same stream, or with none.
@@ -752,6 +756,7 @@ class _Step:
         step._originals = {}
         step._sources = {}
         step._copies = {}
+        step._scope = None
         return step
 
     @property
