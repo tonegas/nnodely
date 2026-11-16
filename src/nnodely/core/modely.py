@@ -1959,7 +1959,8 @@ class Modely:
 
         >>> trained = model.train(data, epochs=1, batch_size=4, printer=None)
         >>> result = model.validate(data, out_dir="figures", history=trained)
-        >>> result.figures
+        >>> from pathlib import Path
+        >>> [Path(path).as_posix() for path in result.figures]
         ['figures/offset_0_fit.png', 'figures/offset_history.png']
 
         Possible Issues
