@@ -29,7 +29,9 @@ def _ramp(steps, batch=1):
 
 
 def _loops(model):
-    return sum(isinstance(layer, LoopImpl) for layer in model.inference_model.layers)
+    return sum(
+        isinstance(layer, LoopImpl) for layer in model._keras_inference_model.layers
+    )
 
 
 def test_chained_fed_back_inputs_are_one_loop_as_chained_integrates():
@@ -266,7 +268,7 @@ def test_a_modely_starts_integrate_derivative_and_buffer_from_their_init(tmp_pat
             ],
         ).build()
     names = ["oc_one_past0", "oc_one_rate", "oc_one_v0"]
-    assert sorted(node.name for node in model.inference_inputs) == names
+    assert sorted(node.name for node in model._inference_inputs) == names
     assert sorted(node.name for node in model.inputs) == names
 
     data = {

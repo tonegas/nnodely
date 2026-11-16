@@ -228,8 +228,8 @@ Other forms of the call:
   ``get_samples(n)``, as they are. Keys that name no input, such as
   targets, are ignored.
 
-The call needs every input the outputs read.
-``vehicle.inference_inputs`` lists them.
+The call needs every input the outputs read: ``print(vehicle.inputs)``
+marks them ``required`` in its ``data`` column.
 
 .. warning::
 
@@ -239,11 +239,11 @@ The call needs every input the outputs read.
    batch axis: call the model on ``loader.get_samples(1)``, or add the axis,
    ``{k: v[None] for k, v in loader[0].items()}``.
 
-Step 7: weights and the Keras model
------------------------------------
+Step 7: weights
+---------------
 
 After ``build()``, the stream returned by a layer with weights exposes them
-as Keras variables, and ``vehicle.model`` is the Keras model:
+as Keras variables:
 
 .. code-block:: python
 

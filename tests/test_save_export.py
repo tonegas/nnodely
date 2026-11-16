@@ -672,11 +672,11 @@ def test_save_load_batchnorm_model(tmp_path):
         inputs=[x],
         outputs=[Output("batchnorm_save_output", normalized)],
     ).build()
-    assert model.model is not None
+    assert model._keras_model is not None
     # Move the moving statistics away from their initial values, so a wrong
     # weight roundtrip changes the prediction.
     values = np.random.rand(4, 3, 2).astype(np.float32) * 10.0
-    model.model({"batchnorm_save_input": values}, training=True)
+    model._keras_model({"batchnorm_save_input": values}, training=True)
 
     pred = model({"batchnorm_save_input": values})
     model.save(tmp_path / "batchnorm_save")
@@ -709,9 +709,9 @@ def _randomize_trainable_weights(model):
     A weight that is not restored then changes the prediction whatever its
     initializer, so a reload that only rebuilds the graph cannot pass.
     """
-    assert model.model is not None
+    assert model._keras_model is not None
     rng = np.random.default_rng(0)
-    for weight in model.model.trainable_weights:
+    for weight in model._keras_model.trainable_weights:
         weight.assign(rng.uniform(-1.0, 1.0, size=weight.shape).astype(np.float32))
     return model
 
@@ -722,7 +722,7 @@ def _random_inputs(model):
         node.name: rng.uniform(0.1, 1.0, size=(_BATCH, *node.shape.tuple)).astype(
             np.float32
         )
-        for node in model.train_inputs
+        for node in model._train_inputs
     }
 
 
@@ -747,8 +747,10 @@ def _assert_round_trip(model, inputs, path):
     _assert_same_outputs(restored(dict(inputs)), expected)
     assert graph_signature(restored) == graph_signature(model)
     # A layer shared by several parts of the model is still one layer.
-    assert restored.inference_model is not None
-    assert len(restored.inference_model.weights) == len(model.inference_model.weights)
+    assert restored._keras_inference_model is not None
+    assert len(restored._keras_inference_model.weights) == len(
+        model._keras_inference_model.weights
+    )
 
     restored.save(path / "resaved")
     _assert_same_outputs(Modely.load(path / "resaved")(dict(inputs)), expected)
@@ -1338,9 +1340,9 @@ def test_loaded_model_rebuilt_with_new_minimizers_keeps_its_weights(
     model.save(tmp_path / "pretrained")
 
     loaded = Modely.load(tmp_path / "pretrained")
-    assert loaded.inference_model is not None
+    assert loaded._keras_inference_model is not None
     expected = {name: to_numpy(value) for name, value in loaded(dict(inputs)).items()}
-    weight_count = len(loaded.inference_model.weights)
+    weight_count = len(loaded._keras_inference_model.weights)
 
     # The user's own minimizers bring new inputs and new graph nodes, so the
     # model is built again - around the blocks it loaded, not fresh ones.
@@ -1348,8 +1350,8 @@ def test_loaded_model_rebuilt_with_new_minimizers_keeps_its_weights(
         loaded.minimize(f"{output.name}_fit", source=output, target=_target_for(output))
     loaded.build()
 
-    assert loaded.inference_model is not None
-    assert len(loaded.inference_model.weights) == weight_count
+    assert loaded._keras_inference_model is not None
+    assert len(loaded._keras_inference_model.weights) == weight_count
     _assert_same_outputs(loaded(dict(inputs)), expected)
 
 
@@ -1402,8 +1404,8 @@ def test_fine_tune_a_loaded_model_with_its_own_minimizers(tmp_path):
     )
     tuned = to_numpy(loaded(inputs)["fine_tune_out"])
     assert not np.allclose(tuned, pretrained)
-    assert loaded.model is not None
-    trained = loaded.model(
+    assert loaded._keras_model is not None
+    trained = loaded._keras_model(
         {**inputs, "fine_tune_target": np.zeros((_BATCH, 1, 1), dtype=np.float32)},
         training=False,
     )
@@ -1435,7 +1437,7 @@ def test_save_load_leaves_minimizers_out(tmp_path):
 
     restored = Modely.load(tmp_path / "saved")
     assert restored._minimizers == []
-    assert [node.name for node in restored.train_inputs] == ["minimized_x"]
+    assert [node.name for node in restored._train_inputs] == ["minimized_x"]
     saved = json.loads((tmp_path / "saved" / "model.json").read_text(encoding="utf-8"))
     saved_names = {node["config"]["name"] for node in saved["nodes"]}
     # The target is one of the inputs the model is declared with, so it is
@@ -1446,8 +1448,8 @@ def test_save_load_leaves_minimizers_out(tmp_path):
     ]
     assert "minimized_auxiliary" not in saved_names
     # The auxiliary layer trains with the model, but is not part of it.
-    assert model.model is not None and model.inference_model is not None
-    assert len(model.model.weights) > len(model.inference_model.weights)
+    assert model._keras_model is not None and model._keras_inference_model is not None
+    assert len(model._keras_model.weights) > len(model._keras_inference_model.weights)
 
 
 def test_export_keras_leaves_minimizers_out(tmp_path):
@@ -1522,10 +1524,10 @@ def test_a_loaded_layer_keeps_its_name_and_its_own_weights(tmp_path):
     both = Modely(
         "apart_both", inputs=[x], outputs=[Output("apart_sum", ours + loaded([x]))]
     ).build()
-    assert both.inference_model is not None
-    assert len(both.inference_model.weights) == 2
+    assert both._keras_inference_model is not None
+    assert len(both._keras_inference_model.weights) == 2
     # Keras names the layers of one model uniquely, so one of them is suffixed.
-    keras_names = [layer.name for layer in both.inference_model.layers]
+    keras_names = [layer.name for layer in both._keras_inference_model.layers]
     assert len(keras_names) == len(set(keras_names))
     result = both({"apart_x": _WINDOW_OF_ONES})["apart_sum"]
     # Ours sums the window of ones, the loaded Fir keeps its 3.0 per sample.
@@ -1841,7 +1843,7 @@ def test_an_input_a_model_reads_and_gives_its_block_is_one_input_once_loaded(tmp
     inputs = {"cu_x": _window(), "cu_z": _window(1)[:, :1]}
     _assert_round_trip(model, inputs, tmp_path)
     loaded = Modely.load(tmp_path / "saved")
-    assert [node.name for node in loaded.train_inputs] == ["cu_x", "cu_z"]
+    assert [node.name for node in loaded._train_inputs] == ["cu_x", "cu_z"]
 
 
 def test_parameters_of_one_name_keep_their_order_once_loaded(tmp_path):
@@ -2288,7 +2290,7 @@ def test_a_loaded_model_reads_the_window_the_saved_one_read(tmp_path):
 
     model.save(tmp_path / "saved_window")
     restored = Modely.load(tmp_path / "saved_window")
-    assert restored.train_inputs[0].past == 5
+    assert restored._train_inputs[0].past == 5
     np.testing.assert_allclose(
         to_numpy(restored(data)["saved_window_out"]),
         to_numpy(model(data)["saved_window_out"]),
@@ -2486,8 +2488,8 @@ def test_keras_export_of_weights_reached_from_several_graphs(make, tmp_path):
     # Values unlike any initializer - moving statistics included - so a
     # weight left at its initial value after the import would show. Constants
     # are left alone: a number's Constant is shared by every model.
-    assert model.inference_model is not None
-    for weight in model.inference_model.weights:
+    assert model._keras_inference_model is not None
+    for weight in model._keras_inference_model.weights:
         if weight.trainable or "moving" in weight.name:
             weight.assign(rng.uniform(0.5, 1.5, size=weight.shape).astype("float32"))
     data = {

@@ -339,7 +339,7 @@ def _evaluate(model, terms, x_data: dict, mask, n_samples: int) -> list:
     samples, so weighing it by their number gives the loss of the dataset.
     """
     # Every input is there: Modely._training_arrays checked it.
-    input_names = [node.name for node in model.train_inputs]
+    input_names = [node.name for node in model._train_inputs]
 
     losses = [0.0] * len(terms)
     parts: list[tuple[list, list, list]] = [([], [], []) for _ in terms]
@@ -347,7 +347,7 @@ def _evaluate(model, terms, x_data: dict, mask, n_samples: int) -> list:
         stop = min(start + _INFERENCE_CHUNK, n_samples)
         batch = {name: x_data[name][start:stop, ...] for name in input_names}
         y = None if mask is None else mask[start:stop]
-        outputs = model.model(batch, training=False)
+        outputs = model._keras_model(batch, training=False)
         for index, term in enumerate(terms):
             source = outputs[term.source]
             target = MinimizerModel._align_target(term, outputs[term.target], source)
@@ -383,7 +383,7 @@ def validate(
     verbose: bool = False,
 ) -> ValidationResult:
     """The implementation of :meth:`Modely.validate`."""
-    if model.model is None:
+    if model._keras_model is None:
         raise ValueError("Model is not built. Call build() before validate().")
     if not model._minimizers:
         raise ValueError("No minimizers defined. Cannot infer validation targets.")

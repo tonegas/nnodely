@@ -438,7 +438,7 @@ class DataLoader:
         self._on_short = on_short
         self._windowed = windowed
 
-        if model.model is None:
+        if model._keras_model is None:
             raise ValueError(
                 f"Model {model.name} is not built. Make sure to call {model.name}.build() first."
             )
@@ -447,7 +447,7 @@ class DataLoader:
 
         # The Inputs the data feeds, as the build made them: the dataset is
         # keyed by their names, the keys of the Keras model.
-        self._nodes = list(model.train_inputs)
+        self._nodes = list(model._train_inputs)
         if not self._nodes:
             raise ValueError("Could not infer any inputs from model.inputs")
         self._format = self._by_node(format or {})

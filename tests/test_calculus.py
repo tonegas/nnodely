@@ -885,8 +885,8 @@ def test_derivative_wrt_time_needs_no_fixed_batch_to_export():
         outputs=[Output("dx", Gradient(order=1, wrt=x)(fun))],
     ).build()
 
-    assert not _traces_backward_pass(time_model.model)
-    assert _traces_backward_pass(gradient_model.model)
+    assert not _traces_backward_pass(time_model._keras_model)
+    assert _traces_backward_pass(gradient_model._keras_model)
 
     with tempfile.TemporaryDirectory() as folder:
         time_model.export_onnx(folder, "derivative_time")

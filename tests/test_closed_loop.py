@@ -291,11 +291,11 @@ def test_simple_model_loop(tmp_path):
         train_data=data_train, epochs=100, batch_size=64, lr=5e-3, **CONVERGED
     )
 
-    if model_in.model is None:
+    if model_in._keras_model is None:
         raise ValueError(
             "Model weights are not available. call model_in.build() before training."
         )
-    assert model_in.model.get_weights()[0] == pytest.approx(4.0, rel=1e-2)
+    assert model_in._keras_model.get_weights()[0] == pytest.approx(4.0, rel=1e-2)
 
 
 @pytest.mark.slow
@@ -354,11 +354,11 @@ def test_simple_model2(tmp_path):
     }
     data_train = DataLoader(model_in, source=dataset)
 
-    if model_in.model is None:
+    if model_in._keras_model is None:
         raise ValueError(
             "Model weights are not available. call model_in.build() before training."
         )
-    print("Weights of simple model:", model_in.model.get_weights())
+    print("Weights of simple model:", model_in._keras_model.get_weights())
     model_in.train(
         train_data=data_train, epochs=100, batch_size=64, lr=5e-3, **CONVERGED
     )
@@ -373,9 +373,9 @@ def test_simple_model2(tmp_path):
     )
     print("Result of simple model:", res["out1"], res["out2"])
 
-    print("Weights of simple model:", model_in.model.get_weights())
-    assert model_in.model.get_weights()[0] == pytest.approx(4.0, rel=1e-2)
-    assert model_in.model.get_weights()[1] == pytest.approx(2.0, rel=1e-2)
+    print("Weights of simple model:", model_in._keras_model.get_weights())
+    assert model_in._keras_model.get_weights()[0] == pytest.approx(4.0, rel=1e-2)
+    assert model_in._keras_model.get_weights()[1] == pytest.approx(2.0, rel=1e-2)
 
 
 def test_loop_bound_inputs(tmp_path):
@@ -676,11 +676,11 @@ def test_loop_constant_initial_batched():
     values = np.tile(
         np.array([1.0, 2.0, 3.0], dtype=np.float32).reshape(1, 3, 1, 1), (2, 1, 1, 1)
     )
-    if model.model is None:
+    if model._keras_model is None:
         raise ValueError(
             "Model weights are not available. call model.build() before inference."
         )
-    result = model.model({"cst_u_seq": values})
+    result = model._keras_model({"cst_u_seq": values})
     # x starts at the default 0.0: 0*2 + 1 = 1 -> 2*1 + 2 = 4 -> 2*4 + 3 = 11
     np.testing.assert_allclose(
         to_numpy(result["cst_out"]),
@@ -798,7 +798,10 @@ def test_a_parameter_is_one_weight_for_a_loop_body_and_the_outer_model():
         outputs=[Output("shared_loop", loop), Output("shared_outer", outer)],
     ).build()
 
-    assert model.model is not None and len(model.model.trainable_weights) == 1
+    assert (
+        model._keras_model is not None
+        and len(model._keras_model.trainable_weights) == 1
+    )
     seed_values = np.zeros((1, 3, 1, 1), dtype=np.float32)
     seed_values[:, 0] = 1.0
     # From 1, the loop doubles at every step; outside, g scales the seed.
@@ -955,7 +958,7 @@ def test_loop_feeds_its_body_only_the_inputs_it_reads(tmp_path, target_name):
     model = Modely(
         "unread_model", inputs=[drive], outputs=[Output("unread_out", loop)]
     ).build()
-    assert [node.name for node in model.inference_inputs] == ["unread_drive"]
+    assert [node.name for node in model._inference_inputs] == ["unread_drive"]
 
     data = {"unread_drive": np.ones((1, 3, 1, 1), dtype=np.float32)}
     expected = [1.5, 1.75, 1.875]

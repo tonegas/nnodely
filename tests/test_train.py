@@ -718,8 +718,8 @@ def test_train_with_custom_optimizer():
         optimizer=optimizer,
     )
 
-    assert model.model is not None
-    assert model.model.optimizer is optimizer
+    assert model._keras_model is not None
+    assert model._keras_model.optimizer is optimizer
     assert linear.kernel is not None
     assert linear.bias is not None
     # Initial prediction is 1 * 1 + 1 = 2. MSE gives a gradient of -2 for
@@ -1113,8 +1113,8 @@ def test_train_with_loop_under_xla(monkeypatch):
     data = DataLoader(model, source={"x": values, "target": 2.0 * values})
     history = model.train(train_data=data, epochs=5, batch_size=4, lr=0.01)
 
-    assert model.model is not None
-    assert model.model.jit_compile
+    assert model._keras_model is not None
+    assert model._keras_model.jit_compile
     assert np.all(np.isfinite(history.losses["loss"]))
     assert history.losses["loss"][-1] < history.losses["loss"][0]
 

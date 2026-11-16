@@ -25,6 +25,12 @@ the fields of the printed object it stands for.
 
 ### Changed
 
+- **The Keras models a build makes, and the Inputs they read, are
+  private**: `Modely.model`, `inference_model`, `train_inputs` and
+  `inference_inputs` are now `_keras_model`, `_keras_inference_model`,
+  `_train_inputs` and `_inference_inputs`. `print(model.inputs)` tells which
+  Inputs a call reads (`required`) and which only training reads
+  (`target`).
 - **Names the user types are resolved to their objects where they are
   given**, and a name several objects carry is refused there; inside the
   library only objects are used. **Names reach Keras unique**: a clash of

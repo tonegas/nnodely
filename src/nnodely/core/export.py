@@ -99,14 +99,16 @@ def _export_file(path, filename: str | None, model_name: str, suffix: str) -> Pa
 
 def export_keras(model, path: str | os.PathLike, filename: str | None = None) -> None:
     """The implementation of :meth:`Modely.export_keras`."""
-    if model.inference_model is None:
+    if model._keras_inference_model is None:
         raise ValueError("Model is not built. Call build() before export_keras().")
     model._check_names_built()
 
-    if not isinstance(model.inference_model, keras.Model):
-        raise TypeError(f"Expected keras.Model, got {type(model.inference_model)}.")
+    if not isinstance(model._keras_inference_model, keras.Model):
+        raise TypeError(
+            f"Expected keras.Model, got {type(model._keras_inference_model)}."
+        )
 
-    _standalone_copy(model.inference_model).save(
+    _standalone_copy(model._keras_inference_model).save(
         _export_file(path, filename, model.name, ".keras")
     )
 
@@ -158,7 +160,7 @@ def export_onnx(
     verbose: bool = False,
 ) -> None:
     """The implementation of :meth:`Modely.export_onnx`."""
-    if model.inference_model is None:
+    if model._keras_inference_model is None:
         raise ValueError("Model is not built. Call build() before export_onnx().")
     model._check_names_built()
 
@@ -175,7 +177,7 @@ def export_onnx(
 
     file = _export_file(path, filename, model.name, ".onnx")
 
-    inference_model = model.inference_model
+    inference_model = model._keras_inference_model
     export_model = inference_model
     if keras.backend.backend() == "torch" and isinstance(inference_model.input, dict):
         # Keras' Torch ONNX exporter does not currently accept dictionary
@@ -244,7 +246,7 @@ def _set_onnx_io_names(model, path: Path) -> None:
     graph = onnx_model.graph
     expected_inputs = [
         (tensor.name, tuple(int(axis) for axis in tensor.shape[1:] if axis))
-        for tensor in model.inference_model.inputs
+        for tensor in model._keras_inference_model.inputs
     ]
     expected_outputs = [(node.name, tuple(node.shape.tuple)) for node in model._outputs]
     rename = {}

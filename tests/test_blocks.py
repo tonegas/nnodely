@@ -945,7 +945,10 @@ def test_fuzzify_shares_a_keras_layer_instance_between_its_centers():
     ).build()
 
     # One gain for every center: (x - c) times the same weight.
-    assert model.model is not None and len(model.model.trainable_weights) == 1
+    assert (
+        model._keras_model is not None
+        and len(model._keras_model.trainable_weights) == 1
+    )
     scaled.gain.assign(3.0)
     result = model({"keras_instance_x": np.full((1, 1, 1), 2.0, dtype=np.float32)})
     np.testing.assert_allclose(
@@ -1555,8 +1558,8 @@ def test_local_model_repeated_call_shares_weights():
         ],
     ).build()
 
-    assert model.model is not None
-    assert sum(isinstance(layer, FirImpl) for layer in model.model.layers) == 2
+    assert model._keras_model is not None
+    assert sum(isinstance(layer, FirImpl) for layer in model._keras_model.layers) == 2
     result = model(
         {
             "shared_local_x": np.random.rand(4, 3, 1).astype(np.float32),
@@ -1588,14 +1591,14 @@ def test_local_model_is_a_block(tmp_path):
         inputs=[x, g, k],
         outputs=[Output("first", first), Output("second", second)],
     ).build()
-    assert {node.name for node in model.inference_inputs} == {
+    assert {node.name for node in model._inference_inputs} == {
         "block_local_x",
         "block_local_g",
         "block_local_k",
     }
     # The Fir the cells read is computed once, not once per block.
-    assert model.model is not None
-    assert sum(isinstance(layer, FirImpl) for layer in model.model.layers) == 1
+    assert model._keras_model is not None
+    assert sum(isinstance(layer, FirImpl) for layer in model._keras_model.layers) == 1
 
     model.export_html(out_dir=tmp_path)
     assert (tmp_path / "block_local_model__block_local.html").exists()

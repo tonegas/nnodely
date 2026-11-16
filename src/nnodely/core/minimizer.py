@@ -299,7 +299,7 @@ def _where(stream: Stream) -> str:
 
 def _resolve_minimizer_terms(model) -> list[_MinimizerTerm]:
     """Resolve every minimizer of ``model`` to the graph outputs of its build."""
-    assert model.model is not None
+    assert model._keras_model is not None
 
     def output_name(minimizer, side):
         # The key the forward pass returns the side under, given by build().
