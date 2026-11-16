@@ -383,7 +383,7 @@ def test_a_file_that_is_not_an_nnodely_2_model_is_refused(tmp_path):
         "file_check", inputs=[x], outputs=[Output("file_check_out", x * 2.0)]
     ).build().save(tmp_path / "model")
     config = tmp_path / "model" / "model.json"
-    saved = json.loads(config.read_text())
+    saved = json.loads(config.read_text(encoding="utf-8"))
 
     for edit, message in (
         ({"version": 99}, "format version 99"),

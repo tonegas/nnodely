@@ -405,7 +405,7 @@ def test_a_class_saved_by_its_name_alone_loads_when_one_class_has_it(tmp_path):
     model = _sin_model()
     model.save(tmp_path / "bare")
     config = tmp_path / "bare" / "model.json"
-    saved = json.loads(config.read_text())
+    saved = json.loads(config.read_text(encoding="utf-8"))
     for node in saved["nodes"]:
         node["class_name"] = node["class_name"].rsplit(".", 1)[-1]
     config.write_text(json.dumps(saved))

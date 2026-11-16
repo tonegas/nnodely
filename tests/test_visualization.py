@@ -174,7 +174,7 @@ def test_export_html_shows_the_outputs_of_a_loop_of_several(tmp_path):
     ).build()
     model.export_html(tmp_path)
 
-    page = (tmp_path / "show_model.html").read_text()
+    page = (tmp_path / "show_model.html").read_text(encoding="utf-8")
     nodes, _ = _graph(page)
     details = json.loads(
         re.search(r"const nodeDetails = (\{.*?\});\n", page, re.S).group(1)  # type: ignore
