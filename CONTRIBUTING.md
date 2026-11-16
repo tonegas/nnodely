@@ -4,6 +4,14 @@ Thanks for your interest in **nnodely**! 🎉
 We welcome contributions of all kinds — bug reports, documentation fixes,
 examples, and new features.
 
+## Contributing with an AI assistant
+
+If you use an AI coding assistant (Claude Code, Cursor, Copilot, Codex, ...),
+point it to [`AGENTS.md`](AGENTS.md) and the [`.agents/`](.agents/) folder.
+They hold the rules an agent must follow to write features, tests and
+documentation for nnodely. To *use* the library rather than change it, see
+[`NNODELY_AI_GUIDE.md`](NNODELY_AI_GUIDE.md).
+
 ## Setup
 
 All you need to do is:
@@ -40,14 +48,15 @@ nvim .` in the project root.
 ## Tests
 
 ```bash
-uv run pytest tests -m "not slow"                  # the fast suite, about 30 s
+uv run pytest tests -m "not slow"                  # the fast suite, under a minute
 uv run pytest tests                                # everything
 KERAS_BACKEND=torch uv run pytest tests -m "not slow"
 scripts/test_all_backends.sh                       # every backend in turn
 ```
 
 - A test that takes 1 s or more is marked `@pytest.mark.slow`.
-- Every change comes with a test; a bug fix with one that fails without it.
+- Every behaviour change comes with a test; a bug fix with one that fails
+  without it. Changes to documentation, comments or tooling alone need none.
 - A test for one backend only is marked so it is skipped on the others (see
   `requires_onnx_export` in `tests/conftest.py`).
 
@@ -82,24 +91,30 @@ In short: **let the tools do the work**.
 ## Python Version
 
 We support Python 3.10 and later (`requires-python` in `pyproject.toml` has no
-upper bound), and CI tests 3.10 to 3.13. Tests will catch most of the version
-specific behaviour, but please keep it in mind.
+upper bound). Pull requests to `main` are tested on 3.10 to 3.13 with the full
+suite; pull requests to `develop` only on 3.13, with the fast suite (the full
+suite runs only for coverage, on Ubuntu). Tests will
+catch most of the version specific behaviour, but please keep it in mind.
 
 ---
 
-## Linting and Formatting
+## Linting, Formatting and Type Checking
 
-This project uses `ruff` for both linting and formatting.
+This project uses `ruff` for both linting and formatting, and `pyright` for
+type checking.
 
-- All code **must** pass `ruff` checks.
+- All code **must** pass `ruff` and `pyright` checks.
 - Formatting is enforced via `ruff format`.
 - Do **not** manually fight the formatter.
 
-A `pre-commit` hook will take care of this, but you can also run it manually with:
+The `pre-commit` hooks take care of this (they also run the whole test suite,
+slow tests included, on every commit that touches Python files), but you can
+run the same checks the CI runs manually with:
 
 ```bash
 uv run ruff check --fix
 uv run ruff format
+uv run pyright
 ```
 
 ### Ignoring Rules and Formatting
@@ -107,7 +122,7 @@ uv run ruff format
 Disabling rules or formatting should be rare and justified:
 
 ```python
-value = legacy_call()  # noqa: PLW0603  # required by external API
+from .layers import Fir  # noqa: F401  # re-exported as part of the public API
 
 # fmt: off
 table = [
@@ -184,8 +199,10 @@ reference.
 We suggest **not** writing docstrings by hand, but using one of the many
 editor plugins. Here are the ones we use for each editor.
 
-> We do not put types in the docstrings! You **have** to put type hints
-> whenever you can.
+> Types go in the type hints, which pyright checks. The reference pages do
+> not show the hints (`autodoc_typehints = "none"` in `docs/conf.py`), so
+> every entry of `Parameters` also states its type and default as plain
+> text, `features : int, default 1`, saying the same as the hint.
 
 ### VSCode
 
@@ -219,10 +236,9 @@ require("neogen").setup({
 
 ## Comments
 
-Please refrain from writing useless comments. As a rule of thumb, you should
-always be able to understand code without needing comments. As such, write
-comments only when absolutely necessary, like to explain a particular exclusion
-of a static checker rule.
+A comment explains why, never what: the code itself says what it does. Write
+one only when the code alone cannot tell the reason, such as a Keras quirk, a
+backend limit, a design choice, or the exclusion of a static checker rule.
 
 ---
 
@@ -238,10 +254,12 @@ of a static checker rule.
   - Put all development not quite stable yet.
   - Protected (no direct commits).
 - All work happens on branches created from `develop`.
+- A release is prepared on a `release/x.y.z` branch, merged into `main` and
+  tagged `vx.y.z`; the tag publishes the package.
 
 ### Branch Naming
 
-We follow [this](https://conventional-branch.github.io).
+We follow [this](https://conventionalbranch.org).
 
 ---
 
@@ -257,4 +275,6 @@ Testing GitHub Actions is a pain, but it becomes easier if you test at least
 some of their functionality with [act](https://github.com/nektos/act).
 
 For example, to test the `codecov.yml` action just setup `act` and run: `act
---workflows .github/workflows/codecov.yml`.
+pull_request --workflows .github/workflows/codecov.yml` (the event is needed,
+since `act` simulates a `push` by default and the workflow runs on pull
+requests only).

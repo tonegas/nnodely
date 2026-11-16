@@ -555,6 +555,7 @@ def test_inputs_of_a_loop_are_those_of_its_modelyloop():
     assert rows(manual)[-1] == ("oc_same_x", (), False, x_next.name, None, "oc_same_x0")
 
 
+@pytest.mark.slow
 def test_training_identifies_a_spring_from_a_measured_trajectory(tmp_path):
     dt, k_true, steps = 0.05, 4.0, 300
     rng = np.random.default_rng(0)
