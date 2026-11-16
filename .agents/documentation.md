@@ -190,9 +190,13 @@ If you cannot run it, say so in the change.
 
 ## 6. Changelog
 
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/): entries go under
-`## [Unreleased]`, in `### Added`, `### Changed`, `### Fixed` or
-`### Removed`. Each entry starts with its subject in bold (the API name, or a
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries go in the
+topmost version section, the release being prepared (all the work of a
+release branch is released together, so there is no `[Unreleased]`), under
+`### Added`, `### Changed`, `### Fixed` or `### Removed`. An entry describes
+the change from the previous release as the user sees it: a fix to something
+new in the same release is no entry, its entry simply describes the right
+behaviour. Each entry starts with its subject in bold (the API name, or a
 short headline), then says what changed for the user and what to do about
 it. A change to the save format says "The save
 format is version N".

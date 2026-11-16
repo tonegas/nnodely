@@ -72,8 +72,8 @@ A change is finished when all of these hold:
 4. A public class or method changed or added has its docstring updated, and
    its examples run as doctests (`tests/test_docs.py`, a slow test: run it
    with `uv run pytest tests/test_docs.py`).
-5. A user-visible change has an entry under `## [Unreleased]` in
-   [`CHANGELOG.md`](CHANGELOG.md).
+5. A user-visible change has an entry in the topmost version section of
+   [`CHANGELOG.md`](CHANGELOG.md), the release being prepared.
 
 ## Hard rules
 
