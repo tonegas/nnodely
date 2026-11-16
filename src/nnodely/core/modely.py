@@ -917,6 +917,9 @@ class Modely:
                 _claim_keras_name(node._layer, keras_names)
             else:  ## Output or other non-Layer node
                 tensor = tensor_map[node._preds[0]]
+                if isinstance(node, Output) and node._loop_index is not None:
+                    # One output of a Loop of several, among those it returns.
+                    tensor = tensor[node._loop_index]
                 if isinstance(node._preds[0], Input):
                     # A Keras model exposes what its layers compute, never one
                     # of its own inputs: an Input read out is passed through.

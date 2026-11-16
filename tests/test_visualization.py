@@ -156,6 +156,43 @@ def test_export_html_describes_the_loop_boundary(tmp_path):
     assert (target.name, "err") in edges
 
 
+def test_export_html_shows_the_outputs_of_a_loop_of_several(tmp_path):
+    # Each output a loop of several returns is an Output of the loop: drawn
+    # inside the graph, described as one output of the loop, with its index.
+    x, v = Input("show_x", tw=1), Input("show_v", tw=1)
+    x_next = Output("show_x_next", x + v)
+    v_next = Output("show_v_next", v + 1.0)
+    body = Modely("show_body", inputs=[x, v], outputs=[x_next, v_next]).build()
+    x0, v0 = Input("show_x0", seq=3, tw=1), Input("show_v0", seq=3, tw=1)
+    position, velocity = Loop(
+        f=body, feedback={x: x_next, v: v_next}, init={x: x0, v: v0}, name="show"
+    )()
+    model = Modely(
+        "show_model",
+        inputs=[x0, v0],
+        outputs=[Output("show_p", position), Output("show_s", velocity)],
+    ).build()
+    model.export_html(tmp_path)
+
+    page = (tmp_path / "show_model.html").read_text()
+    nodes, _ = _graph(page)
+    details = json.loads(
+        re.search(r"const nodeDetails = (\{.*?\});\n", page, re.S).group(1)  # type: ignore
+    )
+    cards = {node["label"]: node for node in nodes}
+    for index, label in enumerate(["show_show_x_next", "show_show_v_next"]):
+        card = cards[label]
+        assert (card["kind"], card["role"]) == ("Output", "inner_output")
+        detail = details[card["id"]]
+        assert (
+            detail["about"]
+            == "One output of a Loop of several, taken from its rollout."
+        )
+        assert detail["properties"] == {"loop index": index}
+    # The declared outputs stay the model's own.
+    assert cards["show_p"]["role"] == "output"
+
+
 def test_export_html_layout_survives_feedback_cycles(tmp_path):
     seed_input = Input("in1", tw=1)
     # Without weights: their Parameters would branch off the chain.

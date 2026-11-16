@@ -25,6 +25,11 @@ the fields of the printed object it stands for.
 
 ### Changed
 
+- **The outputs of a `Loop` of several are `Output`s of the loop**, named
+  `<loop name>_<output name>`, which take their tensors from its rollout
+  without a Keras layer of their own: `LoopOutput` and `LoopOutputImpl` are
+  gone. The results are the same; the Keras graph holds the loop alone, and
+  the HTML graph draws them as before. The save format is version 17.
 - **The Keras models a build makes, and the Inputs they read, are
   private**: `Modely.model`, `inference_model`, `train_inputs` and
   `inference_inputs` are now `_keras_model`, `_keras_inference_model`,
@@ -558,13 +563,13 @@ variable, and trains, validates and exports through Keras. Models saved with
 - Each minimizer logs its loss as `"<minimizer name>_loss"` in the training
   history, each batch weighing as many samples as it holds, as Keras weighs
   `"loss"`: a short last batch no longer counts as a full one.
-- The `.nnodely` save format is version 15: a model is saved with every
+- The `.nnodely` save format is version 17: a model is saved with every
   model it calls in a folder of its own, a fed-back Input with the stream it
   is fed back with and the `init` of the layer that keeps it, and a `Loop`
   with the outputs it returns. Saves and `.keras` exports made
   with the 2.0 pre-releases, in which windows were taken from an Input,
   streams had several tw axes or were laid out `(batch, *dim, tw,
-  *seq)`, or fed-back Inputs were saved open, or the window was saved as `time` and `sw`, or a `Fuzzify` was a graph of one layer per center, or a `PReLU` or `BatchNorm` held its weights in its Keras layer, or blocks were inlined, or a `Parameter` or `Constant` was saved with the axes of its value in place of their sizes, or a `Loop`, a `Gradient` or the optional inputs were saved by name, or the weights a layer made were saved as a `Weight`, do not load;
+  *seq)`, or fed-back Inputs were saved open, or the window was saved as `time` and `sw`, or a `Fuzzify` was a graph of one layer per center, or a `PReLU` or `BatchNorm` held its weights in its Keras layer, or blocks were inlined, or a `Parameter` or `Constant` was saved with the axes of its value in place of their sizes, or a `Loop`, a `Gradient` or the optional inputs were saved by name, or the weights a layer made were saved as a `Weight`, or the outputs of a `Loop` as `LoopOutput`, do not load;
   nor do saves of an earlier format version.
 - The stream fed back into an Input is named `feedback` everywhere:
   `Input.feedback(stream)` and `Loop(feedback=)` (was `callback=`). The old

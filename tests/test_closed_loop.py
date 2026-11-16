@@ -941,6 +941,38 @@ def test_a_loop_with_several_outputs_is_unpacked():
     )
 
 
+def test_the_outputs_of_a_loop_are_taken_without_a_keras_layer_of_their_own():
+    # The loop computes every output in one rollout; each output stream takes
+    # its tensor from them, and the Keras graph holds the loop alone.
+    x, v = Input("select_x", tw=1), Input("select_v", tw=1)
+    x_next = Output("select_x_next", x + v)
+    v_next = Output("select_v_next", v + 1.0)
+    body = Modely("select_body", inputs=[x, v], outputs=[x_next, v_next]).build()
+    x0, v0 = Input("select_x0", seq=3, tw=1), Input("select_v0", seq=3, tw=1)
+    position, velocity = Loop(
+        f=body, feedback={x: x_next, v: v_next}, init={x: x0, v: v0}, name="sel"
+    )()
+    # Each is an Output of the loop, with its own shape, picking its tensor.
+    assert type(position) is Output and type(velocity) is Output
+    assert (position._loop_index, velocity._loop_index) == (0, 1)
+    assert (position.name, velocity.name) == ("sel_select_x_next", "sel_select_v_next")
+    assert position.shape.dimensions == ((3,), 1, (1,))
+    model = Modely(
+        "select_model",
+        inputs=[x0, v0],
+        outputs=[Output("select_p", position), Output("select_s", velocity)],
+    ).build()
+    assert model._keras_inference_model is not None
+    kinds = {type(layer).__name__ for layer in model._keras_inference_model.layers}
+    assert kinds == {"InputLayer", "LoopImpl"}
+
+    start = np.zeros((1, 3, 1, 1), dtype=np.float32)
+    result = model({"select_x0": start, "select_v0": start})
+    # v: 1, 2, 3; x: the v before each step added, 0 + 0, 0 + 1, 1 + 2
+    np.testing.assert_allclose(to_numpy(result["select_s"]).ravel(), [1.0, 2.0, 3.0])
+    np.testing.assert_allclose(to_numpy(result["select_p"]).ravel(), [0.0, 1.0, 3.0])
+
+
 @pytest.mark.parametrize("target_name", ["aa_unread_target", "zz_unread_target"])
 def test_loop_feeds_its_body_only_the_inputs_it_reads(tmp_path, target_name):
     # A body declaring an Input its outputs never read - here the target it is

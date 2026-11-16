@@ -96,6 +96,10 @@ class Output(Stream):
     .. versionadded:: 2.0
     """
 
+    # One output of a Loop of several: the position of its tensor among those
+    # the Loop returns from its rollout. None for every other Output.
+    _loop_index: int | None = None
+
     def __init__(self, name: str, stream: Stream) -> None:
         super().__init__(
             name=name,
@@ -106,11 +110,38 @@ class Output(Stream):
         )
 
     @classmethod
+    def _of_loop(cls, loop, index: int, output, shape) -> "Output":
+        """The output ``output`` of the body of ``loop``, a Loop of several
+        outputs, which has no one shape to read: named after the loop and
+        the output, of the shape ``shape`` the rollout gives it."""
+        node = cls.__new__(cls)
+        Stream.__init__(
+            node,
+            name=f"{loop.name}_{output.name}",
+            preds=[loop],
+            dim=output.dim,
+            tw=shape.tw,
+            seq=shape.seq,
+        )
+        node._loop_index = int(index)
+        return node
+
+    def get_config(self):
+        config = super().get_config()
+        if self._loop_index is not None:
+            config["loop_index"] = self._loop_index
+        return config
+
+    @classmethod
     def from_config(cls, config: dict, preds=None) -> "Output":
         if preds is None or len(preds) != 1:
             raise ValueError(
                 f"Output '{config['name']}' requires exactly one predecessor."
             )
+        if config.get("loop_index") is not None:
+            # The outputs of a loop belong to the loop just rebuilt, which
+            # returns them all.
+            return preds[0]._loop_outputs[config["loop_index"]]
         return super().from_config({**config, "stream": preds[0]})
 
 

@@ -42,45 +42,6 @@ class _SeveralOutputs(ValueError, AttributeError):
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
-class LoopOutputImpl(keras.layers.Layer):
-    """Select one tensor from a multi-output Loop."""
-
-    def __init__(self, index: int, **kwargs):
-        super().__init__(**kwargs)
-        self.index = int(index)
-
-    def call(self, inputs):
-        return inputs[self.index]
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({"index": self.index})
-        return config
-
-
-class LoopOutput(Layer):
-    def __init__(self, loop, index: int, output_node, result_shape):
-        self._index = int(index)
-        super().__init__(
-            name=f"{loop.name}_{output_node.name}",
-            preds=[loop],
-            dim=output_node.dim,
-            tw=result_shape.tw,
-            seq=result_shape.seq,
-            index=self._index,
-        )
-
-    def build_layer(self):
-        return LoopOutputImpl(index=self._index, name=self.name)
-
-    @classmethod
-    def from_config(cls, config: dict, preds=None):
-        # The outputs belong to the loop that was just rebuilt, which returns
-        # them all.
-        return preds[0]._loop_outputs[config["index"]]  # type: ignore[index]
-
-
-@keras.saving.register_keras_serializable(package="nnodely")
 class LoopImpl(keras.layers.Layer):
     """Apply a Keras model recurrently with one or more feedback states.
 
@@ -915,8 +876,10 @@ class Loop(Layer):
         With several outputs in ``f``, the loop is all of them, in the order
         of ``f``. Unpack them, ``position, velocity = Loop(...)(inputs)``, or
         pick one, by position, ``loop[1]``, or by its name in ``f``,
-        ``loop["velocity"]``. An output that the loop adds for a state of a
-        layer, such as the integral of :class:`Integrate`, is not returned.
+        ``loop["velocity"]``. Each is an :class:`Output` of the loop, named
+        ``<loop name>_<output name>``, and all come from one rollout. An
+        output that the loop adds for a state of a layer, such as the
+        integral of :class:`Integrate`, is not returned.
 
     Raises
     ------
@@ -1145,7 +1108,7 @@ class Loop(Layer):
     """
 
     # Set by __call__ on the loop node it returns.
-    _loop_outputs: list[LoopOutput]
+    _loop_outputs: list[Output]
 
     def __init__(
         self,
@@ -1272,7 +1235,7 @@ class Loop(Layer):
         result_shapes = [node._result_shape(output) for output in self._model._outputs]
         node.shape = result_shapes[self._model._outputs.index(self._returns[0])]
         node._loop_outputs = [
-            LoopOutput(node, index, output, result_shapes[index])
+            Output._of_loop(node, index, output, result_shapes[index])
             for index, output in enumerate(self._model._outputs)
             if output in self._returns
         ]

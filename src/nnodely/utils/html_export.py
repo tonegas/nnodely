@@ -170,6 +170,8 @@ def _safe_attrs(node) -> dict:
             attrs["properties"] = dict(getattr(node, "_properties"))
         except Exception:
             pass
+    if getattr(node, "_loop_index", None) is not None:
+        attrs["properties"] = {"loop index": node._loop_index}
 
     # The axes one by one, so the page can say what each of them is.
     try:
@@ -190,6 +192,8 @@ def _safe_attrs(node) -> dict:
 
 def _about(node) -> str | None:
     """The first sentence of what the node's class says it is."""
+    if getattr(node, "_loop_index", None) is not None:
+        return "One output of a Loop of several, taken from its rollout."
     doc = type(node).__doc__
     if not doc:
         return None
@@ -379,7 +383,6 @@ def _steps_text(node) -> str:
 def _node_role(node, region: str | None, states: set, own_outputs: set, nid: str):
     """What a node is, for the reader: the role the page colours it by."""
     from nnodely.core.modely import IntermediateOutput
-    from nnodely.layers.loop import LoopOutput
     from nnodely.layers.output import Output
     from nnodely.layers.parameter import Constant, Parameter
 
@@ -390,7 +393,10 @@ def _node_role(node, region: str | None, states: set, own_outputs: set, nid: str
         if nid in states or getattr(node, "_hidden", False):
             return "state"
         return "inner_input" if region else "input"
-    if type(node) is IntermediateOutput or isinstance(node, LoopOutput):
+    if (
+        type(node) is IntermediateOutput
+        or getattr(node, "_loop_index", None) is not None
+    ):
         return "inner_output"
     if isinstance(node, Output):
         return "output" if not region and id(node) in own_outputs else "inner_output"

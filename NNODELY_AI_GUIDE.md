@@ -790,7 +790,7 @@ src/nnodely/
                          resolve: the one place a user's key - name, index or object - becomes an object, NameNotFound
                          for none; Table: the base list of every model table)
   core/dataloader.py     DataLoader (read → per-simulation arrays → sliding windows → alignment, mask)
-  core/registry.py       ModelSerializer (format 15): the model's own graph, not flattened, in model.json (+ model.weights.h5) via
+  core/registry.py       ModelSerializer (format 17): the model's own graph, not flattened, in model.json (+ model.weights.h5) via
                          get_config/from_config; a ModelCall saves its model, and a Loop its body, in a sub-folder (one per model
                          object), loaded and called again; an IntermediateOutput its output index; _Saving/_Loading share ids for
                          layers, Inputs and models over the whole tree; each fed-back Input with its update and init ("feedback")
@@ -814,7 +814,9 @@ src/nnodely/
   layers/buffer.py       Buffer (the past samples a hidden Input fed back with the signal, the current one appended)
   layers/ode.py          Ode (Butcher tableaux inline)
   layers/loop.py         Loop (_Step: the states found in the body's graph, the body rebuilt when it does not declare them),
-                         LoopImpl (tf.while_loop on TensorFlow, keras.ops.scan elsewhere), LoopOutput
+                         LoopImpl (tf.while_loop on TensorFlow, keras.ops.scan elsewhere); the outputs of a Loop of
+                         several are Outputs (Output._of_loop) with a _loop_index: the builder takes their tensor
+                         from the list the rollout returns, with no Keras layer of their own
   utils/                 printers, html_export (+ templates/graph.html, logo.png), validation_plot,
                          random (set_seed), utils (loss/optimizer resolution, MaskedLoss)
 tests/                   pytest; fast suite `-m "not slow"`; all backends with scripts/test_all_backends.sh; KERAS_BACKEND defaults to tensorflow
