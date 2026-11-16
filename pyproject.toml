@@ -38,13 +38,14 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "graphviz>=0.21",
   # From 3.14 the torch backend exports ONNX wrongly: a Loop fails to convert
   # and outputs can come back under each other's names. Lift once fixed.
   "keras>=3.12.1,<3.14",
   "matplotlib>=3.10.8",
   "numpy>=1.26.4",
   "pandas>=2.3.3",
+  # EquationLearner.plot() writes the learned equation with it.
+  "sympy>=1.13.3",
 ]
 
 [project.optional-dependencies]
@@ -89,6 +90,7 @@ wheel-exclude = ["**/.DS_Store"]
 [tool.pyright]
 pythonVersion = "3.10"
 typeCheckingMode = "standard"
+exclude = ["experimental", "docs/_build", "**/.venv", "**/__pycache__", "**/node_modules", "**/.*"]
 
 [tool.ruff]
 target-version = "py310"

@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 from nnodely import (
     Input,
@@ -11,7 +12,6 @@ from nnodely import (
     EquationLearner,
     Linear,
     Loop,
-    Roll,
 )
 
 import pytest
@@ -19,6 +19,7 @@ import numpy as np
 import keras
 from conftest import CONVERGED, to_numpy
 from nnodely.utils.utils import MaskedLoss, _resolve_loss, _resolve_optimizer
+from nnodely import TimeRange, TimeSelect
 
 
 @keras.saving.register_keras_serializable(package="nnodely_test")
@@ -44,23 +45,23 @@ def custom_quartic_loss(y_true, y_pred):
 @pytest.mark.slow
 def test_train_basic():
     # ------- Model definition and training -------
-    x = Input("x", dim=1)
-    y = Input("y", dim=1)
-    x_fir = Fir(out_features=1)([x.sw(5)])
-    y_fir = Fir(out_features=1)([y.sw(5)])
+    x = Input("x", dim=1, tw=5)
+    y = Input("y", dim=1, tw=5)
+    x_fir = Fir(features=1)([x])
+    y_fir = Fir(features=1)([y])
 
     x_out = Output("fir_pred", x_fir + y_fir)
     model1 = Modely("linear_fit", inputs=[x, y], outputs=[x_out])
 
     # ------- Define loss and minimizer -------
     model1.minimize(
-        "error", source=x_out, target=Input("x_target", dim=1).sw(1), loss="mse"
+        "error", source=x_out, target=Input("x_target", dim=1, tw=1), loss="mse"
     )
     model1.build()
 
     dummy = {
-        "x": np.ones((1, 1, 5), dtype=np.float32),
-        "y": np.ones((1, 1, 5), dtype=np.float32),
+        "x": np.ones((1, 5, 1), dtype=np.float32),
+        "y": np.ones((1, 5, 1), dtype=np.float32),
         "x_target": np.ones((1, 1, 1), dtype=np.float32),
     }
     result = model1(dummy)
@@ -79,8 +80,8 @@ def test_train_basic():
     model1.validate(data_train)
 
     dummy = {
-        "x": np.ones((1, 1, 5), dtype=np.float32),
-        "y": np.ones((1, 1, 5), dtype=np.float32),
+        "x": np.ones((1, 5, 1), dtype=np.float32),
+        "y": np.ones((1, 5, 1), dtype=np.float32),
         "x_target": np.ones((1, 1, 1), dtype=np.float32),
     }
     result_trained = model1(dummy)
@@ -94,22 +95,22 @@ def test_train_basic():
     )  # Check if the model output has changed after training, indicating that training had an effect
 
     # ------ Remove minimizer and retrain with multi loss -------
-    model1.remove_minimizer("error")
+    model1.minimizers["error"].remove()
     model1.minimize(
         "error_fir_x",
         source=x_fir,
-        target=Input("x_target", dim=1).sw(1),
+        target=Input("x_target", dim=1, tw=1),
         loss="mse",
     )
     model1.minimize(
         "error_fir_y", source=y_fir, target=None, loss="mse"
     )  ## with target=None, the loss will be minimized to zero
 
-    model1.build()  # Rebuild the model after removing the minimizer otherwise the training Roll will still try to compute the loss and update the model based on it, even if it's not used for training anymore
+    model1.build()  # Rebuild the model after removing the minimizer otherwise the training model will still try to compute the loss and update the model based on it, even if it's not used for training anymore
     model1.train(train_data=data_train, epochs=60, batch_size=4, **CONVERGED)
 
     # ------ Remove one minimizer and retrain with a constant value -------
-    model1.remove_minimizer("error_fir_y")
+    model1.minimizers["error_fir_y"].remove()
     model1.minimize(
         "error_fir_y", source=y_fir, target=3.0, loss="mse"
     )  ## this will minimize the difference between y_fir and the constant value 3.0, effectively training the model to make y_fir close to 3.0
@@ -120,14 +121,14 @@ def test_train_basic():
 @pytest.mark.slow
 def test_train_with_parameters():
     # ------- Model definition with Parameters and Constants -------
-    x = Input("x", dim=1)
+    x = Input("x", dim=1, tw=1)
     param = Parameter("param1", value=[1.0])
     const = Constant("const1", value=[1.0])
-    x_param = x.sw(1) * param + const
+    x_param = x * param + const
     x_out = Output("x_out", x_param)
     model = Modely("model", inputs=[x], outputs=[x_out])
     model.minimize(
-        "error", source=x_out, target=Input("x_target", dim=1).sw(1), loss="mse"
+        "error", source=x_out, target=Input("x_target", dim=1, tw=1), loss="mse"
     )
     model.build()
 
@@ -165,13 +166,12 @@ def test_train_with_parameters():
 
 
 def test_training_values_fir_linear():
-    input1 = Input("in1")
-    target = Input("target1").last()
+    input1 = Input("in1", tw=1)
+    target = Input("target1", tw=1)
 
-    fir_out = Fir(out_features=1, use_bias=False)(input1.last())
-    linear_out = Linear(out_features=1, initializer="ones", bias_initializer="ones")(
-        fir_out
-    )
+    fir_kernel = Parameter("fir_kernel", value=[1.0])
+    fir_out = Fir(features=1, kernel=fir_kernel, bias=False)(input1)
+    linear_out = Linear(features=1, kernel="ones", bias="ones")(fir_out)
 
     output1 = Output("out1", fir_out)
     output2 = Output("out2", linear_out)
@@ -180,12 +180,13 @@ def test_training_values_fir_linear():
     model.minimize("error", source=output2, target=target, loss="mse")
     model.build()
 
-    assert fir_out.kernel is not None
+    fir_weight = fir_kernel.param
+    assert fir_weight is not None
     assert linear_out.kernel is not None
     assert linear_out.bias is not None
 
     def reset_weights():
-        fir_out.kernel.assign([[1.0]])
+        fir_weight.assign([1.0])
         linear_out.kernel.assign([[1.0]])
         linear_out.bias.assign([1.0])
 
@@ -218,39 +219,38 @@ def test_training_values_fir_linear():
     dataset = {"in1": [1], "target1": [3]}
     data_train = DataLoader(model, source=dataset)
 
-    assert_weights([[1.0]], [[1.0]], [1.0])
+    assert_weights([1.0], [[1.0]], [1.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[3.0]], [[3.0]], [3.0])
+    assert_weights([3.0], [[3.0]], [3.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[-51.0]], [[-51.0]], [-15.0])
+    assert_weights([-51.0], [[-51.0]], [-15.0])
 
     # ------- Same result training both epochs in a single call -------
     reset_weights()
     model.train(train_data=data_train, epochs=2, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[-51.0]], [[-51.0]], [-15.0])
+    assert_weights([-51.0], [[-51.0]], [-15.0])
 
     # ------- Two identical samples in one batch: the mean error gives the same step -------
     data_train2 = DataLoader(model, source={"in1": [1, 1], "target1": [3, 3]})
 
     reset_weights()
     model.train(train_data=data_train2, epochs=1, batch_size=2, optimizer="sgd", lr=1.0)
-    assert_weights([[3.0]], [[3.0]], [3.0])
+    assert_weights([3.0], [[3.0]], [3.0])
 
     reset_weights()
     model.train(train_data=data_train2, epochs=2, batch_size=2, optimizer="sgd", lr=1.0)
-    assert_weights([[-51.0]], [[-51.0]], [-15.0])
+    assert_weights([-51.0], [[-51.0]], [-15.0])
 
 
 def test_training_values_fir_linear_only_model():
     ## The old test trained one sub-model at a time (`trainModel(models=...)`);
     ## the new API has a single model, so the other block is frozen instead
-    input1 = Input("in1")
-    target = Input("target1").last()
+    input1 = Input("in1", tw=1)
+    target = Input("target1", tw=1)
 
-    fir_out = Fir(out_features=1, use_bias=False)(input1.last())
-    linear_out = Linear(out_features=1, initializer="ones", bias_initializer="ones")(
-        fir_out
-    )
+    fir_kernel = Parameter("fir_kernel", value=[1.0])
+    fir_out = Fir(features=1, kernel=fir_kernel, bias=False)(input1)
+    linear_out = Linear(features=1, kernel="ones", bias="ones")(fir_out)
 
     output1 = Output("out1", fir_out)
     output2 = Output("out2", linear_out)
@@ -259,12 +259,13 @@ def test_training_values_fir_linear_only_model():
     model.minimize("error", source=output2, target=target, loss="mse")
     model.build()
 
-    assert fir_out.kernel is not None
+    fir_weight = fir_kernel.param
+    assert fir_weight is not None
     assert linear_out.kernel is not None
     assert linear_out.bias is not None
 
     def reset_weights():
-        fir_out.kernel.assign([[1.0]])
+        fir_weight.assign([1.0])
         linear_out.kernel.assign([[1.0]])
         linear_out.bias.assign([1.0])
 
@@ -298,36 +299,41 @@ def test_training_values_fir_linear_only_model():
 
     # ------- Both blocks trainable -------
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[3.0]], [[3.0]], [3.0])
+    assert_weights([3.0], [[3.0]], [3.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[-51.0]], [[-51.0]], [-15.0])
+    assert_weights([-51.0], [[-51.0]], [-15.0])
+
+    def set_trainable(layer, trainable):
+        # A layer's weights are the Parameters among its predecessors.
+        for weight in layer._preds[1:]:
+            assert isinstance(weight, Parameter) and weight._layer is not None
+            weight._layer.trainable = trainable
 
     # ------- Only the Fir block trainable -------
     reset_weights()
-    linear_out._layer.trainable = False
+    set_trainable(linear_out, False)
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[3.0]], [[1.0]], [1.0])
+    assert_weights([3.0], [[1.0]], [1.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[1.0]], [[1.0]], [1.0])
+    assert_weights([1.0], [[1.0]], [1.0])
 
     # ------- Only the Linear block trainable -------
     reset_weights()
-    linear_out._layer.trainable = True
-    fir_out._layer.trainable = False
+    set_trainable(linear_out, True)
+    set_trainable(fir_out, False)
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[1.0]], [[3.0]], [3.0])
+    assert_weights([1.0], [[3.0]], [3.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[1.0]], [[-3.0]], [-3.0])
+    assert_weights([1.0], [[-3.0]], [-3.0])
 
 
 def test_training_values_fir_linear_more_samples():
-    input1 = Input("in1")
-    target = Input("out1").last()
+    input1 = Input("in1", tw=1)
+    target = Input("out1", tw=1)
 
-    fir_out = Fir(out_features=1, use_bias=False)(input1.last())
-    linear_out = Linear(out_features=1, initializer="ones", bias_initializer="ones")(
-        fir_out
-    )
+    fir_kernel = Parameter("fir_kernel", value=[1.0])
+    fir_out = Fir(features=1, kernel=fir_kernel, bias=False)(input1)
+    linear_out = Linear(features=1, kernel="ones", bias="ones")(fir_out)
 
     output1 = Output("out1-net", fir_out)
     output2 = Output("out2-net", linear_out)
@@ -336,12 +342,13 @@ def test_training_values_fir_linear_more_samples():
     model.minimize("error", source=output2, target=target, loss="mse")
     model.build()
 
-    assert fir_out.kernel is not None
+    fir_weight = fir_kernel.param
+    assert fir_weight is not None
     assert linear_out.kernel is not None
     assert linear_out.bias is not None
 
     def reset_weights():
-        fir_out.kernel.assign([[1.0]])
+        fir_weight.assign([1.0])
         linear_out.kernel.assign([[1.0]])
         linear_out.bias.assign([1.0])
 
@@ -376,7 +383,7 @@ def test_training_values_fir_linear_more_samples():
     assert len(data_train) == 4
 
     model.train(train_data=data_train, epochs=1, batch_size=4, optimizer="sgd", lr=1.0)
-    assert_weights([[-9.0]], [[-9.0]], [0.5])
+    assert_weights([-9.0], [[-9.0]], [0.5])
 
     # ------- The old prediction_samples=3 grouped four consecutive samples into a
     # block, and train_batch_size=2 put two overlapping blocks in the same batch -------
@@ -398,15 +405,16 @@ def test_training_values_fir_linear_more_samples():
         lr=1.0,
         shuffle=False,
     )
-    assert_weights([[-162.75]], [[-162.75]], [-15.75])
+    assert_weights([-162.75], [[-162.75]], [-15.75])
 
 
 def test_training_values_linear_fir_window():
-    input1 = Input("in1", dim=2)
-    target = Input("target").last()
+    input1 = Input("in1", dim=2, tw=2)
+    target = Input("target", tw=1)
 
-    lin_out = Linear(out_features=1)(input1.sw(2))
-    fir_out = Fir(out_features=1, use_bias=False)(lin_out)
+    lin_out = Linear(features=1)(input1)
+    fir_kernel = Parameter("fir_kernel", value=[4.0, 5.0])
+    fir_out = Fir(features=1, kernel=fir_kernel, bias=False)(lin_out)
 
     output1 = Output("out1", lin_out)
     output2 = Output("out2", fir_out)
@@ -417,12 +425,13 @@ def test_training_values_linear_fir_window():
 
     assert lin_out.kernel is not None
     assert lin_out.bias is not None
-    assert fir_out.kernel is not None
+    fir_weight = fir_kernel.param
+    assert fir_weight is not None
 
     def reset_weights():
         lin_out.kernel.assign([[-1.0], [-5.0]])
         lin_out.bias.assign([1.0])
-        fir_out.kernel.assign([[4.0], [5.0]])
+        fir_weight.assign([4.0, 5.0])
 
     def assert_weights(kernel, bias, fir_kernel):
         np.testing.assert_allclose(
@@ -442,7 +451,7 @@ def test_training_values_linear_fir_window():
     assert len(data) == 4
     result = model(data.as_dict())
     np.testing.assert_allclose(
-        to_numpy(result["out1"])[:, 0],
+        to_numpy(result["out1"])[:, :, 0],
         [[-4.0, -16.0], [-16.0, -26.0], [-26.0, -15.0], [-15.0, -13.0]],
         rtol=1e-5,
         atol=1e-5,
@@ -459,9 +468,9 @@ def test_training_values_linear_fir_window():
     data_train = DataLoader(model, source={"in1": [[1, 3], [4, 2]], "target": [1, 3]})
     assert len(data_train) == 1
 
-    assert_weights([[-1.0], [-5.0]], [1.0], [[4.0], [5.0]])
+    assert_weights([[-1.0], [-5.0]], [1.0], [4.0, 5.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[6143.0], [5627.0]], [2305.0], [[-3836.0], [-3323.0]])
+    assert_weights([[6143.0], [5627.0]], [2305.0], [-3836.0, -3323.0])
 
     # ------- Four samples in a single batch -------
     dataset2 = {
@@ -473,19 +482,19 @@ def test_training_values_linear_fir_window():
 
     reset_weights()
     model.train(train_data=data_train2, epochs=1, batch_size=4, optimizer="sgd", lr=1.0)
-    assert_weights([[12779.0], [11678.5]], [3142.0], [[-7682.0], [-7457.5]])
+    assert_weights([[12779.0], [11678.5]], [3142.0], [-7682.0, -7457.5])
 
 
+@pytest.mark.slow
 def test_training_values_fir_and_linear_closed_loop():
-    input1 = Input("in1")
-    input2 = Input("in2")
-    target1 = Input("target1").last()
-    target2 = Input("target2").last()
+    input1 = Input("in1", tw=1)
+    input2 = Input("in2", tw=1)
+    target1 = Input("target1", tw=1)
+    target2 = Input("target2", tw=1)
 
-    fir_out = Fir(out_features=1, use_bias=False)(input1.last())
-    lin_out = Linear(out_features=1, initializer="ones", bias_initializer="ones")(
-        input2.last()
-    )
+    fir_kernel = Parameter("fir_kernel", value=[1.0])
+    fir_out = Fir(features=1, kernel=fir_kernel, bias=False)(input1)
+    lin_out = Linear(features=1, kernel="ones", bias="ones")(input2)
     output1 = Output("out1", fir_out)
     output2 = Output("out2", lin_out)
 
@@ -493,12 +502,13 @@ def test_training_values_fir_and_linear_closed_loop():
     body1 = Modely("body1", inputs=[input1], outputs=[output1]).build()
     body2 = Modely("body2", inputs=[input2], outputs=[output2]).build()
 
-    assert fir_out.kernel is not None
+    fir_weight = fir_kernel.param
+    assert fir_weight is not None
     assert lin_out.kernel is not None
     assert lin_out.bias is not None
 
     def reset_weights():
-        fir_out.kernel.assign([[1.0]])
+        fir_weight.assign([1.0])
         lin_out.kernel.assign([[1.0]])
         lin_out.bias.assign([1.0])
 
@@ -514,21 +524,27 @@ def test_training_values_fir_and_linear_closed_loop():
     reset_weights()
 
     # ------- Six closed loop steps from a zero state -------
-    seed1 = Input("seed1", seq=6)
-    seed2 = Input("seed2", seq=6)
+    seed1 = Input("seed1", seq=6, tw=1)
+    seed2 = Input("seed2", seq=6, tw=1)
     loop1 = Loop(
-        f=body1, callback={input1: output1}, initial={input1: seed1}, name="loop1"
-    )
+        f=body1,
+        feedback={input1: output1},
+        name="loop1",
+        init={input1: seed1},
+    )()
     loop2 = Loop(
-        f=body2, callback={input2: output2}, initial={input2: seed2}, name="loop2"
-    )
+        f=body2,
+        feedback={input2: output2},
+        name="loop2",
+        init={input2: seed2},
+    )()
     rollout = Modely(
         "rollout",
         inputs=[seed1, seed2],
         outputs=[Output("rollout1", loop1), Output("rollout2", loop2)],
     ).build()
 
-    zeros = np.zeros((1, 1, 1, 6), dtype=np.float32)
+    zeros = np.zeros((1, 6, 1, 1), dtype=np.float32)
     result = rollout({"seed1": zeros, "seed2": zeros})
     np.testing.assert_allclose(
         to_numpy(result["rollout1"]).reshape(-1), [0.0] * 6, rtol=1e-5, atol=1e-5
@@ -559,15 +575,15 @@ def test_training_values_fir_and_linear_closed_loop():
     dataset = {"in1": [1], "in2": [1.0], "target1": [3], "target2": [3]}
     data_train = DataLoader(model, source=dataset)
 
-    assert_weights([[1.0]], [[1.0]], [1.0])
+    assert_weights([1.0], [[1.0]], [1.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[5.0]], [[3.0]], [3.0])
+    assert_weights([5.0], [[3.0]], [3.0])
     model.train(train_data=data_train, epochs=1, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[1.0]], [[-3.0]], [-3.0])
+    assert_weights([1.0], [[-3.0]], [-3.0])
 
     reset_weights()
     model.train(train_data=data_train, epochs=2, batch_size=1, optimizer="sgd", lr=1.0)
-    assert_weights([[1.0]], [[-3.0]], [-3.0])
+    assert_weights([1.0], [[-3.0]], [-3.0])
 
     # ------- Two identical samples in one batch -------
     dataset2 = {
@@ -580,17 +596,17 @@ def test_training_values_fir_and_linear_closed_loop():
 
     reset_weights()
     model.train(train_data=data_train2, epochs=1, batch_size=2, optimizer="sgd", lr=1.0)
-    assert_weights([[5.0]], [[3.0]], [3.0])
+    assert_weights([5.0], [[3.0]], [3.0])
 
     reset_weights()
     model.train(train_data=data_train2, epochs=2, batch_size=2, optimizer="sgd", lr=1.0)
-    assert_weights([[1.0]], [[-3.0]], [-3.0])
+    assert_weights([1.0], [[-3.0]], [-3.0])
 
 
 def test_training_values_linear():
-    input1 = Input("in1")
-    target = Input("out1").last()
-    linear_out = Linear(initializer="ones", bias_initializer="ones")(input1.last())
+    input1 = Input("in1", tw=1)
+    target = Input("out1", tw=1)
+    linear_out = Linear(kernel="ones", bias="ones")(input1)
     output1 = Output("out", linear_out)
 
     model = Modely("test_model", inputs=[input1], outputs=[output1])
@@ -678,9 +694,9 @@ def test_resolve_optimizer_instance_and_config():
 
 
 def test_train_with_custom_optimizer():
-    input_node = Input("custom_optimizer_input")
-    target = Input("custom_optimizer_target").last()
-    linear = Linear(initializer="ones", bias_initializer="ones")(input_node.last())
+    input_node = Input("custom_optimizer_input", tw=1)
+    target = Input("custom_optimizer_target", tw=1)
+    linear = Linear(kernel="ones", bias="ones")(input_node)
 
     model = Modely(
         "custom_optimizer_model",
@@ -702,8 +718,8 @@ def test_train_with_custom_optimizer():
         optimizer=optimizer,
     )
 
-    assert model.model is not None
-    assert model.model.optimizer is optimizer
+    assert model._keras_model is not None
+    assert model._keras_model.optimizer is optimizer
     assert linear.kernel is not None
     assert linear.bias is not None
     # Initial prediction is 1 * 1 + 1 = 2. MSE gives a gradient of -2 for
@@ -713,23 +729,15 @@ def test_train_with_custom_optimizer():
 
 
 def test_train_equation_learner_updates_symbolic_coefficients():
-    input_node = Input("equation_train_input")
-    target = Input("equation_train_target").last()
+    input_node = Input("equation_train_input", tw=1)
+    target = Input("equation_train_target", tw=1)
     equation = EquationLearner(
         functions=["identity"],
-        linear_in=Linear(
-            out_features=1,
-            use_bias=False,
-            initializer="ones",
-        ),
-        linear_out=Linear(
-            out_features=1,
-            use_bias=False,
-            initializer="ones",
-        ),
+        linear_in=Linear(features=1, kernel="ones", bias=False),
+        linear_out=Linear(features=1, kernel="ones", bias=False),
         name="train_equation",
     )
-    prediction = equation(input_node.last())
+    prediction = equation(input_node)
     output = Output("equation_train_output", prediction)
     model = Modely("equation_train_model", inputs=[input_node], outputs=[output])
     model.minimize("error", source=output, target=target, loss="mse")
@@ -747,16 +755,112 @@ def test_train_equation_learner_updates_symbolic_coefficients():
         lr=0.1,
     )
 
-    assert equation.linear_in is not None
-    assert equation.linear_out is not None
-    assert equation.linear_in.kernel is not None
-    assert equation.linear_out.kernel is not None
-    assert np.isfinite(history["loss"][-1])
+    assert equation._linear_in is not None
+    assert equation._linear_out is not None
+    assert equation._linear_in.kernel is not None
+    assert equation._linear_out.kernel is not None
+    assert np.isfinite(history.losses["loss"][-1])
     np.testing.assert_allclose(
-        to_numpy(equation.linear_in.kernel), [[1.4]], rtol=1e-5, atol=1e-5
+        to_numpy(equation._linear_in.kernel), [[1.4]], rtol=1e-5, atol=1e-5
     )
     np.testing.assert_allclose(
-        to_numpy(equation.linear_out.kernel), [[1.4]], rtol=1e-5, atol=1e-5
+        to_numpy(equation._linear_out.kernel), [[1.4]], rtol=1e-5, atol=1e-5
+    )
+
+
+def test_train_equation_learner_trains_coefficients_below_the_threshold():
+    # A dropped coefficient computes as zero, but trains with the gradient it
+    # would have if kept: it is not stuck at zero, and counts again once it
+    # grows past the threshold.
+    input_node = Input("dropped_train_input", tw=1)
+    target = Input("dropped_train_target", tw=1)
+    equation = EquationLearner(
+        functions=["identity"],
+        linear_in=Linear(features=1, kernel="ones", bias=False),
+        linear_out=Linear(
+            features=1,
+            kernel=Parameter("dropped_train_out", value=[[0.005]]),
+            bias=False,
+        ),
+        threshold=0.01,
+    )
+    output = Output("dropped_train_output", equation(input_node))
+    model = Modely("dropped_train_model", inputs=[input_node], outputs=[output])
+    model.minimize("error", source=output, target=target, loss="mse")
+    model.build()
+
+    one = {"dropped_train_input": np.ones((1, 1, 1), dtype=np.float32)}
+    np.testing.assert_allclose(to_numpy(model(one)["dropped_train_output"]), 0.0)
+
+    data = DataLoader(
+        model,
+        source={"dropped_train_input": [1.0], "dropped_train_target": [3.0]},
+    )
+    model.train(
+        train_data=data, epochs=1, batch_size=1, optimizer="sgd", lr=0.1, printer=None
+    )
+
+    # The prediction 0 against 3 gives a gradient of -6 to the output
+    # coefficient, which moves to 0.005 + 0.1 * 6. The input one is reached
+    # through the dropped coefficient, as zero, and keeps its value.
+    assert equation._linear_in is not None and equation._linear_out is not None
+    np.testing.assert_allclose(
+        to_numpy(equation._linear_out.kernel), [[0.605]], rtol=1e-5, atol=1e-5
+    )
+    np.testing.assert_allclose(
+        to_numpy(equation._linear_in.kernel), [[1.0]], rtol=1e-5, atol=1e-5
+    )
+    np.testing.assert_allclose(
+        to_numpy(model(one)["dropped_train_output"]).ravel(), [0.605], rtol=1e-5
+    )
+
+
+@pytest.mark.slow
+def test_train_equation_learner_fine_tunes_with_a_threshold():
+    # The use the EquationLearner recommends: train without a threshold, then
+    # set one and fine-tune at a lower learning rate, without a rebuild.
+    import sympy
+
+    input_node = Input("law_input", tw=1)
+    target = Input("law_target", tw=1)
+    # Started from fixed projections, every argument x and every coefficient
+    # zero, the fit is alike on every backend: from random ones it can stall
+    # in a local minimum.
+    learner = EquationLearner(
+        ["identity", "sin", "cos"],
+        linear_in=Linear(features=3, kernel="ones", bias="zeros"),
+        linear_out=Linear(features=1, kernel="zeros", bias="zeros"),
+        name="law",
+    )
+    output = Output("law_output", learner(input_node))
+    model = Modely("law_model", inputs=[input_node], outputs=[output])
+    model.minimize("error", source=output, target=target, loss="mse")
+    model.build()
+
+    xs = np.linspace(-2.0, 2.0, 100)
+    data = DataLoader(
+        model,
+        source={"law_input": xs, "law_target": 2.0 * np.sin(xs) + 0.5 * xs},
+    )
+    history = model.train(
+        train_data=data, epochs=60, batch_size=10, lr=0.02, printer=None
+    )
+    assert history.losses["loss"][-1] < 1e-2
+
+    learner.threshold = 0.05
+    history = model.train(
+        train_data=data, epochs=20, batch_size=10, lr=0.002, printer=None
+    )
+    assert history.losses["loss"][-1] < 1e-2
+
+    # The equation plot() returns is the one the model computes, less the
+    # coefficients below the threshold.
+    equation = learner.plot(precision=8)
+    assert equation.free_symbols == {sympy.Symbol("law_input"), sympy.Symbol("y")}
+    written = sympy.lambdify(sympy.Symbol("law_input"), equation.rhs, "numpy")
+    predicted = model({"law_input": xs.reshape(-1, 1, 1).astype(np.float32)})
+    np.testing.assert_allclose(
+        to_numpy(predicted["law_output"]).ravel(), written(xs), atol=1e-4
     )
 
 
@@ -812,9 +916,9 @@ def test_resolve_loss_instance_and_config():
 
 @pytest.mark.parametrize("loss_name", ["mse", "mae", "huber", "log_cosh"])
 def test_train_with_named_loss(loss_name):
-    input_node = Input(f"{loss_name}_input")
-    target = Input(f"{loss_name}_target").last()
-    linear = Linear(initializer="ones", bias_initializer="zeros")(input_node.last())
+    input_node = Input(f"{loss_name}_input", tw=1)
+    target = Input(f"{loss_name}_target", tw=1)
+    linear = Linear(kernel="ones", bias="zeros")(input_node)
     output = Output(f"{loss_name}_output", linear)
     model = Modely(f"{loss_name}_model", inputs=[input_node], outputs=[output])
     model.minimize(f"{loss_name}_error", output, target, loss=loss_name)
@@ -832,17 +936,17 @@ def test_train_with_named_loss(loss_name):
         lr=0.1,
     )
 
-    assert np.isfinite(history["loss"][-1])
+    assert np.isfinite(history.losses["loss"][-1])
     assert linear.kernel is not None
     assert not np.allclose(to_numpy(linear.kernel), [[1.0]])
 
 
 def test_train_with_multiple_minimizer_losses():
-    input_node = Input("multi_loss_input")
-    mse_target = Input("mse_target").last()
-    mae_target = Input("mae_target").last()
-    mse_linear = Linear(initializer="ones", bias_initializer="zeros")(input_node.last())
-    mae_linear = Linear(initializer="ones", bias_initializer="zeros")(input_node.last())
+    input_node = Input("multi_loss_input", tw=1)
+    mse_target = Input("mse_target", tw=1)
+    mae_target = Input("mae_target", tw=1)
+    mse_linear = Linear(kernel="ones", bias="zeros")(input_node)
+    mae_linear = Linear(kernel="ones", bias="zeros")(input_node)
     mse_output = Output("mse_output", mse_linear)
     mae_output = Output("mae_output", mae_linear)
 
@@ -867,7 +971,7 @@ def test_train_with_multiple_minimizer_losses():
         lr=0.1,
     )
 
-    assert np.isfinite(history["loss"][-1])
+    assert np.isfinite(history.losses["loss"][-1])
     assert mse_linear.kernel is not None
     assert mae_linear.kernel is not None
     assert not np.allclose(to_numpy(mse_linear.kernel), [[1.0]])
@@ -875,9 +979,9 @@ def test_train_with_multiple_minimizer_losses():
 
 
 def test_train_with_custom_loss_function():
-    input_node = Input("custom_loss_input")
-    target = Input("custom_loss_target").last()
-    linear = Linear(initializer="ones", bias_initializer="ones")(input_node.last())
+    input_node = Input("custom_loss_input", tw=1)
+    target = Input("custom_loss_target", tw=1)
+    linear = Linear(kernel="ones", bias="ones")(input_node)
     output = Output("custom_loss_output", linear)
     model = Modely("custom_loss_model", inputs=[input_node], outputs=[output])
     model.minimize("custom_error", output, target, loss=custom_quartic_loss)
@@ -904,29 +1008,24 @@ def test_train_with_custom_loss_function():
 
 
 def test_train_with_loop():
-    state = Input("state")
-    x = Input("x", seq=5)
-    target = Input("target")
-    relation = Linear(
-        out_features=1,
-        use_bias=True,
-        initializer="ones",
-        bias_initializer="zeros",
-    )(state.last())
+    state = Input("state", tw=1)
+    x = Input("x", seq=5, tw=1)
+    target = Input("target", tw=1)
+    relation = Linear(features=1, kernel="ones", bias="zeros")(state)
     output = Output("out", relation)
     body = Modely("body", inputs=[state], outputs=[output])
     body.build()
     # x carries the five rollout steps and seeds the state with x[0]
     loop = Loop(
         f=body,
-        callback={state: output},
-        initial={state: x},
+        feedback={state: output},
         name="loop",
         collect=False,
-    )
+        init={state: x},
+    )()
     out_loop = Output("out_loop", loop)
     model = Modely("model", inputs=[x], outputs=[out_loop])
-    model.minimize("error", source=out_loop, target=target.last(), loss="mse")
+    model.minimize("error", source=out_loop, target=target, loss="mse")
     model.build()
 
     dataset = {
@@ -956,15 +1055,15 @@ def test_train_with_loop():
     }
     data = DataLoader(model, source=dataset)
 
-    assert data.dataset["x"].shape == (16, 1, 1, 5)
-    assert data.dataset["target"].shape == (16, 1, 1)
-    np.testing.assert_array_equal(data.dataset["x"][0, 0, 0], [1, 2, 3, 4, 5])
-    np.testing.assert_array_equal(data.dataset["x"][-1, 0, 0], [16, 17, 18, 19, 20])
-    np.testing.assert_array_equal(data.dataset["target"][:, 0, 0], np.arange(25, 41))
+    assert data._dataset["x"].shape == (16, 5, 1, 1)
+    assert data._dataset["target"].shape == (16, 1, 1)
+    np.testing.assert_array_equal(data._dataset["x"][0, :, 0, 0], [1, 2, 3, 4, 5])
+    np.testing.assert_array_equal(data._dataset["x"][-1, :, 0, 0], [16, 17, 18, 19, 20])
+    np.testing.assert_array_equal(data._dataset["target"][:, 0, 0], np.arange(25, 41))
 
     initial_prediction = model(data.as_dict())
     initial_error = np.mean(
-        np.square(to_numpy(initial_prediction["out_loop"]) - data.dataset["target"])
+        np.square(to_numpy(initial_prediction["out_loop"]) - data._dataset["target"])
     )
     history = model.train(
         train_data=data,
@@ -975,12 +1074,12 @@ def test_train_with_loop():
     )
     final_prediction = model(data.as_dict())
     final_error = np.mean(
-        np.square(to_numpy(final_prediction["out_loop"]) - data.dataset["target"])
+        np.square(to_numpy(final_prediction["out_loop"]) - data._dataset["target"])
     )
 
     assert np.isfinite(final_error)
     assert final_error < initial_error
-    assert history["loss"][-1] < history["loss"][0]
+    assert history.losses["loss"][-1] < history.losses["loss"][0]
 
 
 @pytest.mark.skipif(
@@ -998,137 +1097,26 @@ def test_train_with_loop_under_xla(monkeypatch):
             self, *args, **{**kwargs, "jit_compile": True}
         ),
     )
-    state = Input("state")
-    x = Input("x", seq=5)
-    target = Input("target", seq=5)
-    relation = Linear(out_features=1, initializer="ones")(state.last())
+    state = Input("state", tw=1)
+    x = Input("x", seq=5, tw=1)
+    target = Input("target", seq=5, tw=1)
+    relation = Linear(features=1, kernel="ones")(state)
     output = Output("out", relation)
     body = Modely("body", inputs=[state], outputs=[output]).build()
-    loop = Loop(f=body, callback={state: output}, initial={state: x}, name="loop")
+    loop = Loop(f=body, feedback={state: output}, name="loop", init={state: x})()
     out_loop = Output("out_loop", loop)
     model = Modely("model", inputs=[x, target], outputs=[out_loop])
-    model.minimize("error", source=out_loop, target=target.last(), loss="mse")
+    model.minimize("error", source=out_loop, target=target, loss="mse")
     model.build()
 
     values = np.linspace(0.0, 1.0, 20)
     data = DataLoader(model, source={"x": values, "target": 2.0 * values})
     history = model.train(train_data=data, epochs=5, batch_size=4, lr=0.01)
 
-    assert model.model is not None
-    assert model.model.jit_compile
-    assert np.all(np.isfinite(history["loss"]))
-    assert history["loss"][-1] < history["loss"][0]
-
-
-def test_train_with_roll():
-    x = Input("x")
-    target = Input("target")
-    relation = Linear(
-        out_features=1,
-        use_bias=True,
-        initializer="ones",
-        bias_initializer="zeros",
-    )(x.last())
-    output = Output("out", relation)
-    body = Modely("body", inputs=[x], outputs=[output])
-    body.build()
-    roll = Roll(f=body, callback={x: output}, steps=3, name="roll")
-    out_scan = Output("out_scan", roll)
-    model = Modely("model", inputs=[x], outputs=[out_scan])
-    model.minimize("error", source=out_scan, target=target.last(), loss="mse")
-    model.build()
-
-    dataset = {
-        "x": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
-        "target": [
-            21,
-            22,
-            23,
-            24,
-            25,
-            26,
-            27,
-            28,
-            29,
-            30,
-            31,
-            32,
-            33,
-            34,
-            35,
-            36,
-            37,
-            38,
-            39,
-            40,
-        ],
-    }
-    data = DataLoader(model, source=dataset)
-
-    assert data.dataset["x"].shape == (20, 1, 1)
-    assert data.dataset["target"].shape == (20, 1, 1)
-    np.testing.assert_array_equal(data.dataset["x"][:, 0, 0], np.arange(1, 21))
-    np.testing.assert_array_equal(data.dataset["target"][:, 0, 0], np.arange(21, 41))
-
-    initial_prediction = model(data.as_dict())
-    initial_error = np.mean(
-        np.square(to_numpy(initial_prediction["out_scan"]) - data.dataset["target"])
-    )
-    history = model.train(
-        train_data=data,
-        epochs=10,
-        batch_size=4,
-        optimizer="adam",
-        lr=0.01,
-    )
-    final_prediction = model(data.as_dict())
-    final_error = np.mean(
-        np.square(to_numpy(final_prediction["out_scan"]) - data.dataset["target"])
-    )
-
-    assert np.isfinite(final_error)
-    assert final_error < initial_error
-    assert history["loss"][-1] < history["loss"][0]
-
-
-def test_train_with_model_rollback_uses_final_value_only():
-    x = Input("closed_train_x")
-    target = Input("closed_train_target")
-    relation = Linear(
-        out_features=1,
-        use_bias=False,
-        initializer="ones",
-        name="closed_train_linear",
-    )(x.last())
-    output = Output("closed_train_output", relation)
-    model = Modely("closed_train_model", inputs=[x], outputs=[output])
-    model.rollback({x: output}, steps=3)
-    model.minimize("closed_train_error", output, target.last(), loss="mse")
-    model.build()
-
-    data = DataLoader(
-        model,
-        source={"closed_train_x": [2.0], "closed_train_target": [4.0]},
-    )
-    optimizer = keras.optimizers.SGD(learning_rate=0.01)
-
-    before = model(data.as_dict())
-    assert before["closed_train_output"].shape == (1, 1, 1)
-    np.testing.assert_allclose(to_numpy(before["closed_train_output"]), [[[2.0]]])
-
-    history = model.train(
-        train_data=data,
-        epochs=1,
-        batch_size=1,
-        optimizer=optimizer,
-    )
-
-    # The final rollout value is x * w**3. At w=1, MSE(2, 4)=4 and
-    # d(loss)/dw=-24, therefore one SGD update gives w=1.24.
-    assert relation.kernel is not None
-    np.testing.assert_allclose(history["loss"], [4.0], atol=1e-5)
-    np.testing.assert_allclose(to_numpy(relation.kernel), [[1.24]], atol=1e-5)
-    assert int(to_numpy(optimizer.iterations)) == 1
+    assert model._keras_model is not None
+    assert model._keras_model.jit_compile
+    assert np.all(np.isfinite(history.losses["loss"]))
+    assert history.losses["loss"][-1] < history.losses["loss"][0]
 
 
 def test_masked_loss_ignores_padded_target_steps():
@@ -1151,27 +1139,26 @@ def test_masked_loss_ignores_padded_target_steps():
 def test_train_on_simulations_of_different_lengths(tmp_path):
     ## x[t + 1] = w * x[t], rolled out over the whole simulation
     ratio = 0.8
-    body_x = Input("pad_body_x", dim=1)
-    relation = Linear(
-        out_features=1,
-        use_bias=False,
-        initializer="ones",
-        name="pad_body_linear",
-    )(body_x.last())
+    body_x = Input("pad_body_x", dim=1, tw=1)
+    relation = Linear(features=1, kernel="ones", bias=False, name="pad_body_linear")(
+        body_x
+    )
     body_out = Output("pad_body_out", relation)
     body = Modely("pad_body", inputs=[body_x], outputs=[body_out]).build()
 
-    seed = Input("pad_x", dim=1, seq=-1)
+    seed = Input("pad_x", dim=1, seq=-1, tw=1)
     loop = Loop(
         f=body,
-        callback={body_x: body_out},
-        initial={body_x: seed},
-        length=6,
+        feedback={body_x: body_out},
+        seq=6,
         name="pad_loop",
-    )
+        init={body_x: seed},
+    )()
     output = Output("pad_out", loop)
     model = Modely("pad_loop_model", inputs=[seed], outputs=[output])
-    model.minimize("pad_error", output, Input("pad_target", dim=1, seq=-1), loss="mse")
+    model.minimize(
+        "pad_error", output, Input("pad_target", dim=1, seq=-1, tw=1), loss="mse"
+    )
     model.build()
 
     ## Three simulations of different lengths, the longest fixing the rollout
@@ -1185,7 +1172,7 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
         seq_length="full",
     )
 
-    assert data.dataset["pad_x"].shape == (3, 1, 1, 6)
+    assert data._dataset["pad_x"].shape == (3, 6, 1, 1)
     assert data.mask is not None
     np.testing.assert_array_equal(data.mask.sum(axis=1), [6, 3, 5])
 
@@ -1198,8 +1185,8 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
         **CONVERGED,
     )
 
-    assert np.isfinite(history["loss"][-1])
-    assert history["loss"][-1] < history["loss"][0]
+    assert np.isfinite(history.losses["loss"][-1])
+    assert history.losses["loss"][-1] < history.losses["loss"][0]
     assert relation.kernel is not None
     np.testing.assert_allclose(to_numpy(relation.kernel), [[ratio]], atol=1e-2)
 
@@ -1230,13 +1217,11 @@ def test_masked_loss_survives_a_diverging_padded_rollout():
 
 
 def test_train_with_val_data_reports_validation_loss():
-    x = Input("val_data_x")
-    relation = Linear(
-        out_features=1, use_bias=False, initializer="ones", name="val_data_linear"
-    )(x.last())
+    x = Input("val_data_x", tw=1)
+    relation = Linear(features=1, kernel="ones", bias=False, name="val_data_linear")(x)
     output = Output("val_data_output", relation)
     model = Modely("val_data_model", inputs=[x], outputs=[output])
-    model.minimize("val_data_error", output, Input("val_data_target").last())
+    model.minimize("val_data_error", output, Input("val_data_target", tw=1))
     model.build()
 
     train = DataLoader(
@@ -1256,21 +1241,22 @@ def test_train_with_val_data_reports_validation_loss():
         printer=None,
     )
 
-    np.testing.assert_allclose(history["val_loss"], [2.5, 2.5], rtol=1e-6)
-    np.testing.assert_allclose(history["loss"], [0.0, 0.0], atol=1e-6)
+    np.testing.assert_allclose(history.losses["val_loss"], [2.5, 2.5], rtol=1e-6)
+    np.testing.assert_allclose(history.losses["loss"], [0.0, 0.0], atol=1e-6)
 
 
 def test_train_target_window_of_an_input_with_a_wider_window():
     # x feeds the model through sw(3) and is its own target through next(), so
     # the data column of x is four samples wide while the target is the last.
-    x = Input("wide_target_x")
-    fir = Fir(out_features=1, use_bias=False, name="wide_target_fir")([x.sw(3)])
+    x = Input("wide_target_x", tw=(3, 1))
+    taps = Parameter("wide_target_taps", value=np.ones(3))
+    fir = Fir(features=1, kernel=taps, bias=False, name="wide_target_fir")(
+        [TimeRange(0, 3)(x)]
+    )
     output = Output("wide_target_output", fir)
     model = Modely("wide_target_model", inputs=[x], outputs=[output])
-    model.minimize("wide_target_error", output, x.next())
+    model.minimize("wide_target_error", output, TimeSelect(-1)(x))
     model.build()
-    assert fir.kernel is not None
-    fir.kernel.assign(np.ones((3, 1), dtype=np.float32))
 
     data = DataLoader(model, source={"wide_target_x": np.arange(6.0)})
     # Windows end at t = 2, 3, 4: sums 3, 6, 9 against x[t+1] = 3, 4, 5, so the
@@ -1283,8 +1269,42 @@ def test_train_target_window_of_an_input_with_a_wider_window():
         printer=None,
     )
 
-    np.testing.assert_allclose(history["loss"], [20.0 / 3.0], rtol=1e-5)
+    np.testing.assert_allclose(history.losses["loss"], [20.0 / 3.0], rtol=1e-5)
     result = model.validate(data)
     np.testing.assert_allclose(
-        result["wide_target_error"].metrics["loss"], 20.0 / 3.0, rtol=1e-5
+        result.losses["loss_wide_target_error"], 20.0 / 3.0, rtol=1e-5
     )
+
+
+def test_train_refuses_arguments_it_cannot_use():
+    x, y = Input("args_x", tw=1), Input("args_y", tw=1)
+    out = Output("args_out", Linear(features=1)(x))
+    model = Modely("args_model", inputs=[x], outputs=[out])
+    model.minimize("args_fit", out, y)
+    model.build()
+    data = DataLoader(
+        model,
+        source={
+            "args_x": np.ones((4, 1), np.float32),
+            "args_y": np.ones((4, 1), np.float32),
+        },
+    )
+
+    cases: list[tuple[dict[str, Any], type[Exception], str]] = [
+        ({"epochs": 0}, ValueError, "epochs is a positive integer"),
+        ({"batch_size": 0}, ValueError, "batch_size is a positive integer"),
+        ({"lr": -1.0}, ValueError, "lr is a non-negative number"),
+        ({"shuffle": "no"}, TypeError, "shuffle is True or False"),
+        ({"optimizer_kwargs": {"learning_rate": 0.5}}, ValueError, "lr argument"),
+    ]
+    for kwargs, error, message in cases:
+        with pytest.raises(error, match=message):
+            model.train(data, printer=None, **kwargs)
+    with pytest.raises(TypeError, match="train_data is a DataLoader"):
+        model.train({"args_x": np.ones((4, 1, 1))}, printer=None)  # type: ignore[arg-type]
+
+    # The validation loss of args_fit is logged as val_loss_args_fit, and the
+    # training loss of a minimizer named val_args_fit as loss_val_args_fit:
+    # the two names live together.
+    model.minimize("val_args_fit", out, y)
+    assert [m["name"] for m in model.minimizers][-1] == "val_args_fit"

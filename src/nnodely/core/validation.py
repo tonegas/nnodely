@@ -1,241 +1,324 @@
 """A validation run: the built model evaluated on a dataset, and every
-minimizer scored on what it predicted.
+minimizer scored on what it compared.
 
-One minimizer produces one :class:`SignalScore`: the loss
-it was trained on, plus the handful of indicators a mechanical
-system-identification report is actually read for.
+Validation sees what training sees. The forward pass is the one training runs
+on its validation data, each target is aligned with its source as training
+aligns it, the padding mask of simulations of different lengths is the same,
+and the loss is computed by the code that trains the minimizer.
+
+One minimizer gives one :class:`Signal`: the two signals it compared, whole,
+and the metrics a system-identification report is read for, as functions of
+the axes to keep.
 """
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
-from typing import Any
 
 import keras
 import numpy as np
 
-from nnodely.core.minimizer import _reads_input, _seq_weights_for
+from nnodely.core.minimizer import (
+    MinimizerModel,
+    _resolve_minimizer_terms,
+    _rollout_mask,
+)
+from nnodely.core.results import Fields, ValidationResult, minimizer_fields
+from nnodely.core.shape import Shape
+from nnodely.core.stream import object_repr
+from nnodely.utils.printers import _table
 
 #: Samples evaluated per forward pass during validation. Validation is defined
 #: one sample at a time - nothing about the result depends on this number - so
 #: it is a memory bound rather than a parameter worth exposing.
 _INFERENCE_CHUNK = 256
 
+#: Every metric: what it measures, as the table of a Signal prints it, and
+#: the format of its value.
+_METRICS = {
+    "rmse": ("root mean square error", "{:.4e}"),
+    "mae": ("mean absolute error", "{:.4e}"),
+    "max_error": ("largest absolute error", "{:.4e}"),
+    "bias": ("mean error, source - target", "{:.4e}"),
+    "std_error": ("standard deviation of the error", "{:.4e}"),
+    "nrmse_pct": ("RMSE, % of the target's range", "{:.3f} %"),
+    "fit_pct": ("FIT, 100 (1 - |e| / |target - mean|)", "{:.3f} %"),
+    "r2": ("R2, 1 - SSE / SST", "{:.6f}"),
+    "vaf_pct": ("variance accounted for, %", "{:.3f} %"),
+    "correlation": ("Pearson correlation", "{:.6f}"),
+}
+#: The metrics relative to the spread of the target: measured in each
+#: channel, on its own scale, then averaged over the channels.
+_RELATIVE = ("nrmse_pct", "fit_pct", "r2", "vaf_pct", "correlation")
 
-def as_channels(values: np.ndarray) -> np.ndarray:
-    """View a signal as ``(samples, channels)``.
 
-    Everything past the sample axis - dimensions, sample windows, rollout
-    steps - is one channel, because for scoring purposes each is just another
-    number that had to come out right.
+def _range(values: np.ndarray, real: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The range of ``values`` along the last axis, at the ``real`` points,
+    and where they do not move, up to float32 rounding."""
+    highest = np.where(real, values, -np.inf).max(axis=-1)
+    lowest = np.where(real, values, np.inf).min(axis=-1)
+    span = highest - lowest
+    still = span <= np.finfo(np.float32).eps * np.maximum(abs(highest), abs(lowest))
+    return span, still
+
+
+def _indicators(true: np.ndarray, pred: np.ndarray) -> dict[str, np.ndarray]:
+    """Every metric along the last axis of ``true`` and ``pred``, over the
+    points where the target is not NaN: an array of the other axes each, and
+    under ``"constant"`` where the target does not move.
+
+    With ``e = pred - true``: RMSE, MAE and max error are the root mean
+    square, mean and peak of ``|e|``; bias and error std are the mean and
+    standard deviation of ``e``, so ``RMSE^2 = bias^2 + std^2``. Against the
+    spread of the target: NRMSE is RMSE as a percentage of its range, FIT is
+    ``100 (1 - ||e|| / ||true - mean(true)||)``, R2 is
+    ``1 - sum(e^2) / sum((true - mean(true))^2)``, VAF is
+    ``100 (1 - var(e) / var(true))`` - R2 that forgives a constant offset -
+    and correlation is Pearson's, 0 for a prediction that never moves. A
+    target that never moves has no spread: its relative metrics are NaN.
+    A non-finite prediction makes every metric it is in NaN.
     """
-    values = np.asarray(values, dtype=np.float64)
-    if values.ndim == 0:
-        raise ValueError("A signal must have at least a sample axis.")
-    return values.reshape(len(values), -1)
+    real = ~np.isnan(true)
+    with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
+        n = real.sum(axis=-1)
+        error = np.where(real, pred - true, 0.0)
+        bias = error.sum(axis=-1) / n
+        mean_true = np.where(real, true, 0.0).sum(axis=-1) / n
+        mean_pred = np.where(real, pred, 0.0).sum(axis=-1) / n
+        spread_error = np.where(real, error - bias[..., None], 0.0)
+        spread_true = np.where(real, true - mean_true[..., None], 0.0)
+        spread_pred = np.where(real, pred - mean_pred[..., None], 0.0)
+        sse = (error**2).sum(axis=-1)
+        sst = (spread_true**2).sum(axis=-1)
+        ssp = (spread_pred**2).sum(axis=-1)
+        span, constant = _range(true, real)
+        _, still = _range(pred, real)
+        rmse = np.sqrt(sse / n)
+        values = {
+            "rmse": rmse,
+            "mae": np.abs(error).sum(axis=-1) / n,
+            "max_error": np.where(n > 0, np.abs(error).max(axis=-1), np.nan),
+            "bias": bias,
+            "std_error": np.sqrt((spread_error**2).sum(axis=-1) / n),
+            "nrmse_pct": 100.0 * rmse / span,
+            "fit_pct": 100.0 * (1.0 - np.sqrt(sse / sst)),
+            "r2": 1.0 - sse / sst,
+            "vaf_pct": 100.0 * (1.0 - (spread_error**2).sum(axis=-1) / sst),
+            "correlation": np.where(
+                still,
+                0.0,
+                (spread_true * spread_pred).sum(axis=-1) / np.sqrt(sst * ssp),
+            ),
+        }
+    for key in _RELATIVE:
+        values[key] = np.where(constant, np.nan, values[key])
+    values["constant"] = constant
+    return values
 
 
-def loss_name(loss_fn: Any) -> str:
-    for attribute in ("name", "__name__"):
-        name = getattr(loss_fn, attribute, None)
-        if isinstance(name, str) and name:
-            return name
-    return type(loss_fn).__name__ if loss_fn is not None else "mse"
+def _along(array: np.ndarray, axes: list[int]) -> np.ndarray:
+    """``array`` with ``axes`` first, in their order, and every other axis
+    flattened into the last."""
+    moved = np.moveaxis(array, axes, range(len(axes)))
+    return moved.reshape(*moved.shape[: len(axes)], -1)
 
 
-def evaluate_loss(
-    loss_fn: Any,
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    seq_weights: np.ndarray | None = None,
-) -> float:
-    """The minimizer's own loss, so validation is scored the way it was trained.
+class Signal:
+    r"""What one minimizer compared over a dataset: its source and its
+    target, whole, and their metrics.
 
-    With ``seq_weights`` the signals keep their layout, whose last axis is the
-    one the weights are laid along.
+    :meth:`~nnodely.Modely.validate` makes one per minimizer, in
+    ``result.signals``. You do not create one yourself.
+
+    Attributes
+    ----------
+    name : str
+        The name of the minimizer.
+    source, target : numpy.ndarray
+        The two signals compared, laid out as the stream,
+        ``(samples, *seq, tw, *dim)``. A point without a target is NaN in
+        both.
+    valid : numpy.ndarray of bool
+        The points that have a target, ``(samples, *seq, tw)``.
+    shape : Shape
+        The shape of one sample.
+    samples, scored, missing : int
+        The samples, the points scored, and those without a target - the
+        steps padded onto shorter rollouts, NaN in the data. A point is one
+        sample at one step of the sequence and of the window.
+
+    The metrics are functions: ``rmse``, ``mae``, ``max_error``, ``bias``,
+    ``std_error``, ``nrmse_pct``, ``fit_pct``, ``r2``, ``vaf_pct`` and
+    ``correlation``, and ``non_finite``. Without arguments they give a
+    number, over the whole signal. ``seq=``, ``tw=`` and ``dim=`` keep those
+    axes, and give an array, a value per position along them: ``True`` keeps
+    every axis of the group, a tuple of indices keeps those positions along
+    its first axis. The samples are always pooled.
+
+    The metrics in the units of the signal pool every point kept together.
+    Those relative to the spread of the target, ``nrmse_pct`` to
+    ``correlation``, are measured in each channel, on its own scale, and
+    averaged over the channels not kept.
+
+    ``print`` shows the table of every metric over the whole signal.
+
+    Notes
+    -----
+    With the error :math:`e = \hat y - y` and :math:`\bar y` the mean of the
+    target:
+
+    .. math::
+
+        \mathrm{RMSE} = \sqrt{\tfrac{1}{N} \textstyle\sum e^2}, \quad
+        \mathrm{FIT} = 100 \left(1 - \frac{\lVert e \rVert}
+        {\lVert y - \bar y \rVert}\right), \quad
+        R^2 = 1 - \frac{\sum e^2}{\sum (y - \bar y)^2}
+
+    so ``rmse() ** 2`` is the mean squared error, the loss of a minimizer
+    with ``loss="mse"``.
+
+    Basic Examples
+    --------------
+    >>> from nnodely import DataLoader, Input, Modely, Output, Parameter
+    >>> v = Input("v", dim=2, tw=1)
+    >>> w = Output("w", v + Parameter("c", value=[1.0, 0.5]))
+    >>> pair = Modely("pair", inputs=[v], outputs=[w])
+    >>> pair = pair.minimize("fit", w, Input("w_meas", dim=2, tw=1)).build()
+    >>> values = [[0.0, 0.0], [2.0, 4.0], [4.0, 8.0]]
+    >>> data = DataLoader(pair, source={"v": values, "w_meas": values})
+    >>> signal = pair.validate(data, verbose=False).signals["fit"]
+    >>> signal
+    Signal(name='fit', samples=3, shape=Shape(S=(), T=1, D=(2,)), scored=3, missing=0)
+    >>> signal.bias(), signal.bias(dim=True)
+    (0.75, array([1. , 0.5]))
+
+    .. versionadded:: 2.0
     """
-    if loss_fn is None:
-        return float(np.mean((y_true - y_pred) ** 2))
-    try:
-        import keras
 
-        y_true = keras.ops.convert_to_tensor(np.asarray(y_true, dtype=np.float32))  # type: ignore
-        y_pred = keras.ops.convert_to_tensor(np.asarray(y_pred, dtype=np.float32))  # type: ignore
-        if seq_weights is not None:
-            from nnodely.utils.utils import _weighted_sequence_loss
-
-            value = _weighted_sequence_loss(loss_fn, y_true, y_pred, seq_weights)
-        else:
-            value = loss_fn(y_true, y_pred)
-        return float(np.mean(keras.ops.convert_to_numpy(value)))  # type: ignore
-    except Exception:
-        # A loss that cannot be replayed outside training should not cost the
-        # caller the rest of the report.
-        return float("nan")
-
-
-@dataclass
-class SignalScore:
-    """What one minimizer scored, and the two signals it scored it from."""
-
-    name: str
-    source: str
-    target: str
-    loss: str
-    metrics: dict[str, float]
-    y_true: np.ndarray
-    y_pred: np.ndarray
+    def __init__(self, name: str, source, target, valid, shape: Shape):
+        source = np.asarray(source, dtype=np.float64)
+        target = np.asarray(target, dtype=np.float64)
+        dims = shape.dim_axes
+        # A point has a target when every channel of it has one.
+        real = np.isfinite(target).all(axis=dims)
+        if valid is not None:
+            real &= np.broadcast_to(np.asarray(valid, bool), target.shape).all(
+                axis=dims
+            )
+        hidden = ~real.reshape(*real.shape, *(1,) * len(dims))
+        self.name = name
+        self.shape = shape
+        self.valid = real
+        self.source = np.where(hidden, np.nan, source)
+        self.target = np.where(hidden, np.nan, target)
 
     @property
-    def channels(self) -> int:
-        return self.y_true.shape[1]
+    def samples(self) -> int:
+        return self.source.shape[0]
 
-    def channel_rmse(self) -> np.ndarray:
-        return np.sqrt(np.mean((self.y_true - self.y_pred) ** 2, axis=0))
+    @property
+    def scored(self) -> int:
+        return int(self.valid.sum())
 
-
-def score_signal(
-    *,
-    name: str,
-    source: str,
-    target: str,
-    loss_fn: Any,
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    seq_weights: np.ndarray | None = None,
-) -> SignalScore:
-    """Score one minimizer's prediction against its reference."""
-    true_channels = as_channels(y_true)
-    pred_channels = as_channels(y_pred)
-    if true_channels.shape != pred_channels.shape:
-        raise ValueError(
-            f"Minimizer {name!r} compares {source!r} of shape {y_pred.shape} with "
-            f"{target!r} of shape {y_true.shape}. They must match."
-        )
-
-    error = pred_channels - true_channels
-    finite = np.isfinite(error)
-    spread = float(np.std(true_channels))
-
-    # A target that never moves has no scale to normalize against, so the
-    # relative indicators are undefined rather than perfect or zero - saying
-    # 100% fit on a constant signal would be a lie.
-    if spread <= np.finfo(np.float32).eps or not finite.all():
-        fit = r2 = correlation = nrmse = float("nan")
-    else:
-        residual = float(np.linalg.norm(error))
-        reference = float(np.linalg.norm(true_channels - np.mean(true_channels)))
-        fit = 100.0 * (1.0 - residual / reference)
-        r2 = 1.0 - residual**2 / reference**2
-        correlation = float(
-            np.corrcoef(true_channels.ravel(), pred_channels.ravel())[0, 1]
-        )
-        span = float(np.ptp(true_channels))
-        nrmse = (
-            100.0 * float(np.sqrt(np.mean(error**2))) / span if span else float("nan")
-        )
-
-    metrics = {
-        "loss": (
-            evaluate_loss(loss_fn, true_channels, pred_channels)
-            if seq_weights is None
-            else evaluate_loss(loss_fn, y_true, y_pred, seq_weights)
-        ),
-        "rmse": float(np.sqrt(np.mean(error**2))),
-        "mae": float(np.mean(np.abs(error))),
-        "max_error": float(np.max(np.abs(error))) if error.size else float("nan"),
-        "bias": float(np.mean(error)),
-        "std_error": float(np.std(error)),
-        "nrmse_pct": nrmse,
-        "fit_pct": fit,
-        "r2": r2,
-        "correlation": correlation,
-        "non_finite": int(error.size - int(finite.sum())),
-    }
-    return SignalScore(
-        name=name,
-        source=source,
-        target=target,
-        loss=loss_name(loss_fn),
-        metrics=metrics,
-        y_true=true_channels,
-        y_pred=pred_channels,
-    )
-
-
-#: Label, metric key and format for every reported row, in reading order.
-_ROWS: tuple[tuple[str, str, str], ...] = (
-    ("RMSE", "rmse", "{:.6e}"),
-    ("MAE", "mae", "{:.6e}"),
-    ("Max error", "max_error", "{:.6e}"),
-    ("Bias (mean error)", "bias", "{:+.6e}"),
-    ("Error std", "std_error", "{:.6e}"),
-    ("NRMSE (% of range)", "nrmse_pct", "{:.3f} %"),
-    ("FIT (% variance)", "fit_pct", "{:.3f} %"),
-    ("R2", "r2", "{:.6f}"),
-    ("Correlation", "correlation", "{:.6f}"),
-)
-
-
-def _cell(value: float, spec: str) -> str:
-    return "n/a" if value != value else spec.format(value)
-
-
-@dataclass
-class ValidationResult:
-    """Everything one call to :meth:`Modely.validate` produced."""
-
-    model: str
-    samples: int
-    signals: dict[str, SignalScore]
-    figures: list[str]
-    history: dict[str, Any] | None = None
-
-    def __getitem__(self, name: str) -> SignalScore:
-        return self.signals[name]
-
-    def __iter__(self):
-        return iter(self.signals)
-
-    def __len__(self) -> int:
-        return len(self.signals)
-
-    def metrics(self) -> dict[str, dict[str, float]]:
-        """Every score as plain numbers, for asserting on or logging."""
-        return {name: dict(s.metrics) for name, s in self.signals.items()}
-
-    def summary(self) -> str:
-        width = 80
-        label = 30
-        lines = [" nnodely Validation ".center(width, "=")]
-        lines.append(f"{'Model:':<{label}}{self.model}")
-        lines.append(f"{'Samples:':<{label}}{self.samples}")
-        lines.append(f"{'Minimizers:':<{label}}{len(self.signals)}")
-
-        for score in self.signals.values():
-            lines.append("-" * width)
-            lines.append(f"{score.name}   ({score.source} vs {score.target})")
-            lines.append(
-                f"{'  Loss (' + score.loss + ')':<{label}}"
-                f"{_cell(score.metrics['loss'], '{:.6e}')}"
-            )
-            for text, key, spec in _ROWS:
-                lines.append(f"{'  ' + text:<{label}}{_cell(score.metrics[key], spec)}")
-            if score.metrics["non_finite"]:
-                lines.append(
-                    f"{'  Non-finite values':<{label}}{score.metrics['non_finite']}"
-                )
-
-        if self.figures:
-            lines.append("-" * width)
-            for path in self.figures:
-                lines.append(f"{'  Figure:':<{label}}{path}")
-        lines.append("=" * width)
-        return "\n".join(lines)
+    @property
+    def missing(self) -> int:
+        return int(self.valid.size - self.valid.sum())
 
     def __repr__(self) -> str:
-        return self.summary()
+        return object_repr(
+            self,
+            name=self.name,
+            samples=self.samples,
+            shape=self.shape,
+            scored=self.scored,
+            missing=self.missing,
+        )
+
+    def __str__(self) -> str:
+        rows = []
+        for key, (meaning, spec) in _METRICS.items():
+            value = getattr(self, key)()
+            rows.append((key, meaning, "n/a" if value != value else spec.format(value)))
+        rows.append(
+            ("non_finite", "values of source not finite", str(self.non_finite()))
+        )
+        return _table(("metric", "meaning", self.name), [("", rows)])
+
+    def _metric(self, key: str, seq, tw, dim) -> float | np.ndarray:
+        """The metric ``key`` over the axes not kept: a number, or an array
+        of the axes ``seq``, ``tw`` and ``dim`` keep."""
+        tw_axes = () if self.shape.tw_axis is None else (self.shape.tw_axis,)
+        groups = ((seq, self.shape.seq_axes), (tw, tw_axes), (dim, self.shape.dim_axes))
+        true, pred, keep = self.target, self.source, []
+        for choice, axes in groups:
+            if choice is None or choice is False or not axes:
+                continue
+            keep += axes
+            if choice is not True:
+                positions = list(np.atleast_1d(choice))
+                true = np.take(true, positions, axis=axes[0])
+                pred = np.take(pred, positions, axis=axes[0])
+        relative = key in _RELATIVE
+        # A relative metric is measured in each channel first.
+        by = sorted({*keep, *self.shape.dim_axes}) if relative else keep
+        indicators = _indicators(_along(true, by), _along(pred, by))
+        values = indicators[key]
+        pooled = tuple(i for i, axis in enumerate(by) if axis not in keep)
+        if relative and pooled:
+            # The mean of the channels; one whose target does not move has no
+            # value and is left out, one that diverged spoils the mean.
+            constant = indicators["constant"]
+            with np.errstate(invalid="ignore", divide="ignore"):
+                values = np.where(constant, 0.0, values).sum(axis=pooled) / (
+                    ~constant
+                ).sum(axis=pooled)
+        return float(values) if np.ndim(values) == 0 else values
+
+    def rmse(self, seq=None, tw=None, dim=None):
+        """The root mean square error."""
+        return self._metric("rmse", seq, tw, dim)
+
+    def mae(self, seq=None, tw=None, dim=None):
+        """The mean absolute error."""
+        return self._metric("mae", seq, tw, dim)
+
+    def max_error(self, seq=None, tw=None, dim=None):
+        """The largest absolute error."""
+        return self._metric("max_error", seq, tw, dim)
+
+    def bias(self, seq=None, tw=None, dim=None):
+        """The mean error, source - target."""
+        return self._metric("bias", seq, tw, dim)
+
+    def std_error(self, seq=None, tw=None, dim=None):
+        """The standard deviation of the error."""
+        return self._metric("std_error", seq, tw, dim)
+
+    def nrmse_pct(self, seq=None, tw=None, dim=None):
+        """The RMSE, in percent of the range of the target."""
+        return self._metric("nrmse_pct", seq, tw, dim)
+
+    def fit_pct(self, seq=None, tw=None, dim=None):
+        """The FIT of system identification, in percent."""
+        return self._metric("fit_pct", seq, tw, dim)
+
+    def r2(self, seq=None, tw=None, dim=None):
+        """The coefficient of determination."""
+        return self._metric("r2", seq, tw, dim)
+
+    def vaf_pct(self, seq=None, tw=None, dim=None):
+        """The variance accounted for, in percent."""
+        return self._metric("vaf_pct", seq, tw, dim)
+
+    def correlation(self, seq=None, tw=None, dim=None):
+        """Pearson's correlation of source and target."""
+        return self._metric("correlation", seq, tw, dim)
+
+    def non_finite(self) -> int:
+        """The values of the source that are NaN or infinite where there is
+        a target: a prediction that diverged."""
+        scored = self.valid.reshape(*self.valid.shape, *(1,) * self.shape.dim_rank)
+        return int((scored & ~np.isfinite(self.source)).sum())
 
 
 # ----------------------------------------------------------------------
@@ -243,92 +326,52 @@ class ValidationResult:
 # ----------------------------------------------------------------------
 
 
-def _predict(model, x_data: dict, n_samples: int) -> dict[str, np.ndarray]:
-    """Run the graph over the whole dataset with the training path disabled.
+def _evaluate(model, terms, x_data: dict, mask, n_samples: int) -> list:
+    """What each minimizer compares over the dataset, as training sees it.
+
+    Returns, for each term in the order of ``terms``, its loss over the whole dataset, its source, its
+    target aligned with it, and the mask of their real points - None when no
+    point was padded.
 
     ``training=False`` is the backend-independent switch: it is what tells
     every Keras layer to take its inference branch, so no per-backend module
-    mode has to be toggled here.
+    mode has to be toggled here. The loss of a chunk is a mean over its
+    samples, so weighing it by their number gives the loss of the dataset.
     """
-    if model.model is None:
-        raise ValueError("Model is not built. Call build() before validate().")
-    input_names = [node.name for node in model.train_inputs]
-    missing = [name for name in input_names if name not in x_data]
-    if missing:
-        raise ValueError(f"Validation data is missing model inputs: {missing}.")
+    # Every input is there: Modely._training_arrays checked it.
+    input_names = [node.name for node in model._train_inputs]
 
-    chunks: dict[str, list[np.ndarray]] = {}
+    losses = [0.0] * len(terms)
+    parts: list[tuple[list, list, list]] = [([], [], []) for _ in terms]
     for start in range(0, n_samples, _INFERENCE_CHUNK):
         stop = min(start + _INFERENCE_CHUNK, n_samples)
         batch = {name: x_data[name][start:stop, ...] for name in input_names}
-        for name, value in model.model(batch, training=False).items():
-            value = keras.ops.convert_to_numpy(value)
-            chunks.setdefault(name, []).append(value)  # type: ignore
+        y = None if mask is None else mask[start:stop]
+        outputs = model._keras_model(batch, training=False)
+        for index, term in enumerate(terms):
+            source = outputs[term.source]
+            target = MinimizerModel._align_target(term, outputs[term.target], source)
+            value = keras.ops.convert_to_numpy(
+                MinimizerModel._term_loss(term, source, target, y)
+            )
+            losses[index] += float(value) * (stop - start)  # type: ignore[arg-type]
 
-    return {name: np.concatenate(values, axis=0) for name, values in chunks.items()}
+            sources, targets, valids = parts[index]
+            sources.append(keras.ops.convert_to_numpy(source))
+            targets.append(keras.ops.convert_to_numpy(target))
+            valid = _rollout_mask(term, target, y)
+            if valid is not None:
+                valids.append(keras.ops.convert_to_numpy(valid))
 
-
-def _minimizer_key(model, node) -> str | None:
-    """Name under which the forward pass returns a minimizer's side."""
-    return model._minimizer_outputs.get(node, node.name)
-
-
-def _broadcast_constant(values, source_values: np.ndarray) -> np.ndarray:
-    """A target built from constants, laid out like its source's predictions.
-
-    The numpy twin of what training does: append the axes the target
-    omits, then broadcast - so a dim-2 Constant lines up with the dim
-    axis, not the time axis.
-    """
-    values = np.asarray(values, dtype=np.float32)
-    while values.ndim < source_values.ndim:
-        values = values[..., np.newaxis]
-    return np.broadcast_to(values, source_values.shape)
-
-
-def _dataset_name(node, x_data: dict) -> str | None:
-    """Name of the dataset column a node ultimately reads, if any."""
-    if node.name in x_data:
-        return node.name
-    preds = getattr(node, "preds", [])
-    if len(preds) == 1:
-        return _dataset_name(preds[0], x_data)
-    return None
-
-
-def _validation_target(
-    model, minimizer: dict, x_data: dict, predictions: dict, n_samples: int
-) -> tuple[np.ndarray, str]:
-    """Resolve the reference signal a minimizer is scored against.
-
-    The evaluated target stream wins over the dataset column it reads: a
-    target declared as ``y.sw(2)`` on an input that carries a wider window
-    elsewhere in the graph is two steps long, not as wide as the column.
-    The column still names the signal, which is what a reader recognizes.
-    """
-    source_values = predictions[_minimizer_key(model, minimizer["source"])]
-    target = minimizer["target"]
-    label = _dataset_name(target, x_data) or target.name
-
-    key = _minimizer_key(model, target)
-    if key in predictions:
-        values = np.asarray(predictions[key][:n_samples])
-        if not _reads_input(target):
-            return _broadcast_constant(values, source_values), label
-        return values, label
-
-    if label in x_data:
-        return np.asarray(x_data[label][:n_samples]), label
-
-    value = getattr(target, "value_numpy", None)
-    if value is None:
-        raise ValueError(
-            f"Validation target {target.name!r} of minimizer "
-            f"{minimizer['name']!r} is neither in the dataset nor a constant."
+    return [
+        (
+            loss / n_samples,
+            np.concatenate(sources),
+            np.concatenate(targets),
+            np.concatenate(valids) if valids else None,
         )
-    # The value itself, without the batch axis of the streams.
-    values = np.asarray(value)[np.newaxis, ...]
-    return _broadcast_constant(values, source_values), target.name
+        for loss, (sources, targets, valids) in zip(losses, parts)
+    ]
 
 
 def validate(
@@ -336,65 +379,46 @@ def validate(
     val_data,
     out_dir: str | os.PathLike | None = None,
     show: bool = False,
-    history: dict[str, Any] | None = None,
-    verbose: bool = True,
+    history=None,
+    verbose: bool = False,
 ) -> ValidationResult:
     """The implementation of :meth:`Modely.validate`."""
-    if model.model is None:
+    if model._keras_model is None:
         raise ValueError("Model is not built. Call build() before validate().")
-    if not model.minimizers:
+    if not model._minimizers:
         raise ValueError("No minimizers defined. Cannot infer validation targets.")
-
-    if out_dir is not None:
-        os.makedirs(out_dir, exist_ok=True)
 
     n_samples = len(val_data)
     if n_samples == 0:
         raise ValueError("Validation dataset is empty.")
 
-    x_data = {name: np.asarray(values) for name, values in val_data.as_dict().items()}
-    predictions = _predict(model, x_data, n_samples)
+    terms = _resolve_minimizer_terms(model)
+    x_data, mask = model._training_arrays(val_data)
+    compared = _evaluate(model, terms, x_data, mask, n_samples)
 
-    signals = {}
-    for minimizer in model.minimizers:
-        name = minimizer["name"]
-        source = minimizer["source"]
-        source_key = _minimizer_key(model, source)
-        if source_key not in predictions:
-            raise ValueError(
-                f"Minimizer {name!r} sources {source.name!r}, which the built "
-                "model does not expose as an output."
-            )
-        y_true, target_name = _validation_target(
-            model, minimizer, x_data, predictions, n_samples
+    # The total first, as Keras logs it: every loss weighted by its gain.
+    losses = Fields(loss=0.0)
+    signals = Fields()
+    for minimizer, term, (loss, source, target, valid) in zip(
+        model._minimizers, terms, compared
+    ):
+        stream = minimizer["source"].shape
+        shape = Shape.from_tensor_shape(
+            source.shape[1:], seq_rank=stream.seq_rank, tw=stream.tw is not None
         )
-        signals[name] = score_signal(
-            name=name,
-            source=source.name,
-            target=target_name,
-            loss_fn=minimizer["loss"],
-            seq_weights=(
-                None
-                if minimizer.get("seq_weights") is None
-                else _seq_weights_for(minimizer["seq_weights"], y_true.shape[-1], name)
-            ),
-            y_true=y_true,
-            y_pred=np.asarray(predictions[source_key][:n_samples]),
-        )
+        losses["loss"] += term.gain * loss
+        losses[f"loss_{term.name}"] = loss
+        signals[term.name] = Signal(term.name, source, target, valid, shape)
 
     result = ValidationResult(
         model=model.name,
         samples=n_samples,
+        minimizers=minimizer_fields(model._minimizers),
+        losses=losses,
         signals=signals,
-        figures=[],
-        history=history,
     )
     if out_dir is not None or show:
-        # Drawing needs matplotlib, and draws a ValidationResult: imported here,
-        # where it is used.
-        from nnodely.utils import validation_plot
-
-        result.figures = validation_plot.render(result, out_dir=out_dir, show=show)
+        result.plot(out_dir=out_dir, show=show, history=history)
     if verbose:
-        print(result.summary())
+        print(result)
     return result

@@ -1,11 +1,14 @@
 from __future__ import annotations
+import inspect
+import math
 from abc import abstractmethod
 
 import keras
 from typing import Any
 
-from nnodely.core.stream import Stream, Shape
-from nnodely.core.dag import next_name
+from nnodely.core.shape import Shape
+from nnodely.core.stream import Stream, object_repr
+from nnodely.core.dag import free_name, next_name
 
 
 def _claim_keras_name(layer, taken: dict[str, Any]) -> None:
@@ -17,47 +20,171 @@ def _claim_keras_name(layer, taken: dict[str, Any]) -> None:
     layer applied several times keeps the one name it has.
     """
     if layer.name in taken and taken[layer.name] is not layer:
-        index = 1
-        while f"{layer.name}_{index}" in taken:
-            index += 1
-        layer.name = f"{layer.name}_{index}"
+        layer.name = free_name(layer.name, taken)
     taken[layer.name] = layer
 
 
-class Layer(Stream):
+def _refuse_uncalled(streams) -> None:
+    """Refuse a layer among ``streams`` that was never called on a stream:
+    it reads nothing, and a model ran it on an arbitrary input of its own.
+    Parameters and Constants read no stream by design."""
+    from nnodely.layers.parameter import _Value
+
+    for node in streams:
+        if isinstance(node, Layer) and not node._preds and not isinstance(node, _Value):
+            # A layer bound some other way, as a Loop, says how itself.
+            _ = node.shape
+            kind = type(node).__name__
+            raise ValueError(
+                f"The {kind} {node.name!r} was never called on a stream, so it "
+                f"has nothing to compute on: call it on the streams it reads, "
+                f"as in {kind}()(x), and use what that returns rather than the "
+                "layer itself."
+            )
+
+
+def _refuse_non_streams(layer, inputs) -> None:
+    """Refuse anything but streams among ``inputs``: a layer is applied to
+    the streams of a graph, never to numbers or arrays."""
+    given = [type(value).__name__ for value in inputs if not isinstance(value, Stream)]
+    if given:
+        raise TypeError(
+            f"{layer.name}: {type(layer).__name__} is called on streams, got "
+            f"{', '.join(given)}. A number or an array enters the graph as a "
+            "Constant."
+        )
+
+
+def _without_ones(shape):
+    """``shape`` without its axes of size 1."""
+    return tuple(axis for axis in shape if axis != 1)
+
+
+def _are_streams(value) -> bool:
+    """A Stream, or a non-empty list or tuple of Streams."""
+    if isinstance(value, Stream):
+        return True
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) > 0
+        and all(isinstance(item, Stream) for item in value)
+    )
+
+
+class _LayerType(type):
+    """Lets a layer that takes no configuration be applied as it is created.
+
+    A layer whose constructor takes nothing but ``name`` - ``Sin``, ``Exp``,
+    ``Sigmoid`` - has nothing to configure, so ``Sin(x)`` is ``Sin()(x)`` and
+    ``Sin(x, name="s")`` is ``Sin(name="s")(x)``. Every other layer is
+    configured first and then called on its streams.
+    """
+
+    def __init__(cls, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        parameters = [
+            parameter.name
+            for parameter in inspect.signature(cls.__init__).parameters.values()
+            if parameter.name != "self"
+            and parameter.kind
+            not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+        ]
+        cls._applied_on_creation = parameters == ["name"]
+        # Whether the first setting has a default: then a stream given in its
+        # place is a layer called before it was configured, ReLU(x).
+        first = next(
+            (
+                parameter
+                for parameter in inspect.signature(cls.__init__).parameters.values()
+                if parameter.name != "self"
+            ),
+            None,
+        )
+        cls._configured_first = (
+            first is not None
+            and first.default is not inspect.Parameter.empty
+            and first.name != "name"
+        )
+
+    @property
+    def __signature__(cls) -> inspect.Signature:
+        # The constructor's, so that help() and the documentation show the
+        # settings of the layer rather than the (*args, **kwargs) of __call__.
+        signature = inspect.signature(cls.__init__)
+        return signature.replace(parameters=list(signature.parameters.values())[1:])
+
+    def __call__(cls, *args, **kwargs):
+        if cls._applied_on_creation and args and _are_streams(args[0]):
+            return super().__call__(*args[1:], **kwargs)(args[0])
+        if cls._configured_first and args and _are_streams(args[0]):
+            raise TypeError(
+                f"{cls.__name__} has settings, so it is configured first and then "
+                f"called on its streams: {cls.__name__}(...)(x), not "
+                f"{cls.__name__}(x)."
+            )
+        return super().__call__(*args, **kwargs)
+
+
+class Layer(Stream, metaclass=_LayerType):
     """
     Symbolic DAG node that can lazily build its concrete Keras layer.
 
-    - If called with Stream(s): returns a new symbolic node
-    - If called with tensor(s): applies the built Keras layer
+    Called on a stream, or a list of streams, it returns a new node of the
+    graph; :meth:`call` applies the concrete Keras layer to tensors when the
+    model is built.
     """
 
-    def __init__(self, name=None, preds=None, seq=None, time=None, dim=None, **kwargs):
+    # A layer that reads one stream, such as an activation, called on several
+    # is applied to each of them, and returns one result per stream.
+    _one_stream = False
+
+    # The weights the layer computes with, as Keras layers declare theirs with
+    # add_weight: Parameters, which follow its one input among its
+    # predecessors, in the order of these labels, as its Keras layer reads
+    # them, [x, *weights]. The constructor sets each with ``weights``: a
+    # Parameter, used as it is; an initializer, by name or object, from which
+    # the layer makes a Parameter of the shape its input asks for, the first
+    # time it is called, shared by every later call; True for the default
+    # initializer of _weight_defaults; False for none. A layer with weights
+    # gives their shapes for an input with _weight_shapes, and may give the
+    # shapes their initializers draw with _draw_shapes.
+    _weight_labels: tuple[str, ...] = ()
+    _weight_defaults: dict[str, Any] = {}
+
+    def __init__(
+        self, name=None, preds=None, tw=None, dim=None, seq=None, weights=None, **kwargs
+    ):
         self._properties = dict(kwargs)
-        self.inputs = None
-        self._layer = None
+        self._weight_settings = dict(weights or {})
+        # The Parameters holding the weights, made or taken on the first call.
+        self._weight_params: dict | None = None
+        self._inputs = None
+        self._layer: Any = None
         self._layer_signature = None
         # The layer this node applies. Every node made by calling one layer
         # object is an application of it, and they all share its weights;
         # layers created apart never do, whatever their names.
         self._source = self
+        # The shape of the stream its last call returned, None before one.
+        self._called_shape: Shape | None = None
 
         super().__init__(
             name=next_name(self.__class__.__name__) if name is None else name,
             dim=dim,
-            time=time,
-            seq=seq,
+            tw=tw,
             preds=preds,
+            seq=seq,
         )
 
     # ------------------------------------------------------------------
     # Shape logic
     # ------------------------------------------------------------------
     def output_shape(self, *inputs):
-        """Infer the output shape by executing the concrete layer on dummy inputs.
+        """Infer the output Shape by executing the concrete layer on dummy inputs.
 
-        Layers with value-dependent output shapes or layers that change the semantic
-        sequence rank can override this method.
+        Layers with value-dependent output shapes or layers that change the
+        number of sequence axes override this method, and return a Shape, or
+        a list of them for several outputs.
         """
         if not inputs:
             raise ValueError(
@@ -65,14 +192,19 @@ class Layer(Stream):
                 "Layers without inputs must implement output_shape()."
             )
 
+        # A dynamic sequence axis (None) is probed with one step, then
+        # declared dynamic again in the shape inferred from it.
         dummy_inputs = [
-            keras.ops.zeros((1, *input_node.shape.tuple)) for input_node in inputs
+            keras.ops.zeros(
+                (1, *(1 if axis is None else axis for axis in input_node.shape.tuple))
+            )
+            for input_node in inputs
         ]
 
         # Some build_layer() implementations need the symbolic input context to
         # choose axes or configure the concrete Keras layer.
-        self.inputs = list(inputs)
-        self.preds = list(inputs)
+        self._inputs = list(inputs)
+        self._preds = list(inputs)
         self.shape = inputs[0].shape
 
         # Shape probing must not become the executable graph layer. Graph context
@@ -93,25 +225,62 @@ class Layer(Stream):
 
         multiple_outputs = isinstance(outputs, (list, tuple))
         output_values = list(outputs) if multiple_outputs else [outputs]
+        # The dummies hold one sample: more come out of a layer that reads one
+        # stream and was given several, stacked on the batch axis.
+        if any(output.shape[0] != 1 for output in output_values):
+            raise ValueError(
+                f"{self.name}: {type(self).__name__} reads one stream, got "
+                f"{len(inputs)}."
+            )
+        # The result has a window if a stream it is computed from has one.
+        window = any(input_node.shape.tw is not None for input_node in inputs)
         inferred = [
-            self._shape_from_tensor(
-                output, max(input_node.shape.seq_rank for input_node in inputs)
+            self._restore_dynamic_axes(
+                self._shape_from_tensor(
+                    output,
+                    max(input_node.shape.seq_rank for input_node in inputs),
+                    window,
+                ),
+                inputs,
             )
             for output in output_values
         ]
         return inferred if multiple_outputs else inferred[0]
 
-    def _shape_from_tensor(self, tensor, seq_rank: int):
+    @staticmethod
+    def _restore_dynamic_axes(shape, inputs):
+        """Declare dynamic again the sequence axes probed with one step.
+
+        A sequence axis of the result is dynamic where an input with as many
+        sequence axes has a dynamic one - the same rule a product of streams
+        follows. A layer that adds or removes sequence axes is left as probed.
+        """
+        dynamic = {
+            index
+            for input_node in inputs
+            if input_node.shape.seq_rank == shape.seq_rank
+            for index, axis in enumerate(input_node.shape.seq)
+            if axis is None
+        }
+        if not dynamic:
+            return shape
+        return shape.replace(
+            seq=tuple(
+                None if index in dynamic else axis
+                for index, axis in enumerate(shape.seq)
+            )
+        )
+
+    def _shape_from_tensor(self, tensor, seq_rank: int, window: bool = True):
         shape = tuple(tensor.shape)[1:]
         # A layer may consume sequence axes (for example a recurrent body
-        # relation reduced to one step), so preserve only those still present.
-        seq_rank = min(seq_rank, max(0, len(shape) - 2))
-        minimum_rank = seq_rank + 2  # At least one dim axis and one time axis.
-        if len(shape) < minimum_rank:
+        # relation reduced to one step), so preserve only those still
+        # present, the window if any and at least one dim axis.
+        seq_rank = min(seq_rank, max(0, len(shape) - 1 - int(window)))
+        if len(shape) < 1 + int(window):
             raise ValueError(
-                f"{self.name}: inferred tensor shape {shape} cannot be represented "
-                f"with {seq_rank} sequence dimensions. Implement output_shape() "
-                "to describe this layer's semantic axes."
+                f"{self.name}: inferred tensor shape {shape} has no dim axis. "
+                "Implement output_shape() to describe this layer's axes."
             )
         if any(axis is None for axis in shape):
             raise ValueError(
@@ -119,11 +288,18 @@ class Layer(Stream):
                 "Implement output_shape() explicitly for dynamic output shapes."
             )
 
-        time_index = len(shape) - seq_rank - 1
-        dim = tuple(int(axis) for axis in shape[:time_index])
-        time = int(shape[time_index])
-        seq = tuple(int(axis) for axis in shape[time_index + 1 :])
-        return dim, time, seq
+        return Shape.from_tensor_shape(
+            tuple(int(axis) for axis in shape), seq_rank=seq_rank, tw=window
+        )
+
+    def _needs_window(self, stream) -> None:
+        """Refuse ``stream`` if it has no window, the axis this layer acts on."""
+        if stream.shape.tw is None:
+            raise ValueError(
+                f"{self.name}: {type(self).__name__} acts on the window of its "
+                f"stream, and {stream.name!r} has none, {stream.shape}. Declare "
+                "the Input with a window, tw=n for its last n samples."
+            )
 
     # ------------------------------------------------------------------
     # Keras layer logic
@@ -135,7 +311,7 @@ class Layer(Stream):
         """
         raise NotImplementedError
 
-    def input_signature(self, xs):
+    def input_signature(self, xs) -> tuple | None:
         """The input shapes a concrete layer was built for.
 
         Weights belong to the shape they were made for, so a layer carried
@@ -144,7 +320,7 @@ class Layer(Stream):
         read no input at all (Parameters, Constants) are shape-independent and
         keep a constant signature.
         """
-        if not self.preds:
+        if not self._preds:
             return ()
         try:
             return tuple(tuple(x.shape[1:]) for x in xs)
@@ -153,6 +329,17 @@ class Layer(Stream):
             # takes structures - cannot be checked this way, and is reused as
             # it always was.
             return None
+
+    def _copied(self, memo: dict) -> None:
+        """Called on a copy of this layer made for one call of the model
+        holding it, ``memo`` the copies that call made: a layer holding a
+        node of the graph besides its streams takes the copy it means."""
+
+    def _reinitialize(self) -> None:
+        """Give the weights this layer holds their initial values again, as
+        :meth:`Modely.build` does with ``keep_weights=False``. A layer
+        computing with Parameters holds none: they are initialized as nodes
+        of their own."""
 
     def call(self, xs):
         signature = self.input_signature(xs)
@@ -168,128 +355,192 @@ class Layer(Stream):
     # Symbolic graph logic
     # ------------------------------------------------------------------
 
-    def __call__(self, inputs) -> Any:
+    def __call__(self, inputs: Any) -> Any:
         if not isinstance(inputs, (list, tuple)):
             inputs = [inputs]
 
-        # Symbolic mode: Layer(Stream, ...) -> new Stream node
-        ret = []
-        if all(isinstance(x, Stream) for x in inputs):
-            out_shapes = self.output_shape(*inputs)
-            if not isinstance(out_shapes, list):
-                out_shapes = [out_shapes]
-            for idx, (out_dim, out_time, out_seq) in enumerate(out_shapes):
-                node = self.__class__(name=self.name, **self._properties)
-                node._source = self._source
-                node.inputs = inputs
-                node.shape = Shape(dim=out_dim, time=out_time, seq=out_seq)
-                node.preds = inputs  # type: ignore
-                ret.append(node)
-            return ret if len(ret) > 1 else ret[0]
+        _refuse_non_streams(self, inputs)
+        if self._weight_labels:
+            return self._call_with_weights(inputs)
+        _refuse_uncalled(inputs)
+        if self._one_stream and len(inputs) > 1:
+            # A layer that reads one stream, such as an activation, is
+            # applied to each of several: one result per stream, in order.
+            return [self([x]) for x in inputs]
+        return self._apply(inputs)
 
-        # Tensor mode: Layer(tensor, ...) -> KerasTensor / Tensor
-        ret = self.call(*inputs)
+    def _apply(self, inputs) -> Any:
+        """The nodes of the layer applied to ``inputs``, checked streams: one
+        per output shape."""
+        out_shapes = self.output_shape(*inputs)
+        if not isinstance(out_shapes, list):
+            out_shapes = [out_shapes]
+        ret = []
+        for out_shape in out_shapes:
+            if not isinstance(out_shape, Shape):
+                raise TypeError(
+                    f"{self.name}: {type(self).__name__}.output_shape() must "
+                    f"return a Shape, got {out_shape!r}."
+                )
+            node = self.__class__(name=self.name, **self._properties)
+            node._source = self._source
+            node._inputs = inputs
+            node.shape = out_shape
+            node._preds = inputs  # type: ignore
+            # Computed from values alone - numbers, Parameters, Constants -
+            # a result is a value too.
+            node._is_value = all(x._is_value for x in inputs)
+            ret.append(node)
+        self._source._called_shape = ret[-1].shape
         return ret if len(ret) > 1 else ret[0]
+
+    def __repr__(self) -> str:
+        """A stream the layer returned prints as a Stream. The layer itself
+        prints its name, the Parameter of each weight - or, before the first
+        call makes it, its initializer - and the shape its last call
+        returned."""
+        if self._source is not self:
+            return super().__repr__()
+        weights = {label: self._weight_text(label) for label in self._weight_labels}
+        return object_repr(self, name=self.name, **weights, shape=self._called_shape)
+
+    def _weight_text(self, label: str) -> str | None:
+        """What the weight ``label`` prints as: the name of its Parameter, or
+        its initializer before the first call; None without the weight."""
+        if self._weight_params and label in self._weight_params:
+            return self._weight_params[label].name
+        setting = self._weight_settings.get(label, True)
+        if setting is False:
+            return None
+        if setting is True:
+            setting = self._weight_defaults[label]
+        if isinstance(setting, Stream):
+            return setting.name
+        return setting if isinstance(setting, str) else type(setting).__name__
 
     def get_config(self):
         # The arguments the layer was created with, which rebuild it; its shape
-        # follows from the streams it is called on again.
-        return {"name": self.name, **self._properties}
-
-    @classmethod
-    def from_config(
-        cls,
-        config: dict,
-        preds=None,
-    ):
-        layer = cls(**config)
-
-        if preds is None or len(preds) == 0:
-            return layer
-
-        return layer(preds)
-
-
-class BinaryOp(Layer):
-    operation = None
-
-    def build_layer(self) -> keras.layers.Layer:
-        if self.operation is None:
-            raise NotImplementedError(
-                "Subclasses must define an operation class attribute."
-            )
-        return BinaryOpImpl(operation=self.operation, name=self.name)
-
-
-_BINARY_OPERATIONS = {
-    "add": keras.ops.add,
-    "subtract": keras.ops.subtract,
-    "multiply": keras.ops.multiply,
-    "divide": keras.ops.divide,
-    "power": keras.ops.power,
-}
-
-
-@keras.saving.register_keras_serializable(package="nnodely")
-class BinaryOpImpl(keras.layers.Layer):
-    """An elementwise operation between streams laid out
-    ``(batch, *dim, time, *seq)``.
-
-    An operand with fewer axes - a number carries no sequence axis - gets its
-    missing axes at the end, so it broadcasts along those. Aligned from the
-    end instead, as broadcasting does by default, its batch axis would line
-    up with the other operand's first dim axis.
-    """
-
-    def __init__(self, operation: str, **kwargs):
-        super().__init__(**kwargs)
-        self.operation = operation
-
-    def call(self, xs):
-        rank = max(len(value.shape) for value in xs)
-        values = []
-        for value in xs:
-            while len(value.shape) < rank:
-                value = keras.ops.expand_dims(value, axis=-1)
-            values.append(value)
-
-        operation = _BINARY_OPERATIONS[self.operation]
-        result = values[0]
-        for value in values[1:]:
-            result = operation(result, value)
-        return result
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({"operation": self.operation})
+        # follows from the streams it is called on again. Its weights are saved
+        # with the graph, as the predecessors they are: an argument that sets
+        # one only says whether it is there.
+        config = {**super().get_config(), **self._properties}
+        for label in self._weight_labels:
+            if label in config:
+                config[label] = config[label] is not False
         return config
 
+    @classmethod
+    def from_config(cls, config: dict, preds=None):
+        layer = super().from_config(config)
+        if not preds:
+            return layer
+        if cls._weight_labels:
+            # The weights it has come back as its predecessors after its
+            # input, in the order of their labels.
+            weights = iter(preds[1:])
+            for label in cls._weight_labels:
+                if layer._weight_settings[label] is not False:
+                    layer._weight_settings[label] = next(weights)
+            return layer(preds[:1])
+        return layer(preds)
 
-class Add(BinaryOp):
-    operation = "add"
+    # ------------------------------------------------------------------
+    # Weights
+    # ------------------------------------------------------------------
 
+    def _weight_shapes(self, x) -> tuple[tuple[int, ...], ...]:
+        """The shapes of the weights for the input ``x``, one for each label."""
+        raise NotImplementedError
 
-class Subtract(BinaryOp):
-    operation = "subtract"
+    def _draw_shapes(self, shapes: tuple) -> tuple:
+        """The shapes the initializers of weights of ``shapes`` draw, one for
+        each; None for the default, the whole weight read as a matrix of its
+        last axis by all the others, as a dense layer reads its kernel."""
+        return (None,) * len(shapes)
 
+    def _call_with_weights(self, inputs) -> Any:
+        if self._one_stream and len(inputs) > 1:
+            # Applied to each stream, with the same weights.
+            return [self([x]) for x in inputs]
+        # The weights are predecessors like the input, but configured on the
+        # layer, so they are appended here and reconnected when reloading.
+        # They take the place of any further stream, which would otherwise be
+        # dropped without a word.
+        if len(inputs) > 1:
+            raise ValueError(
+                f"{self.name}: {type(self).__name__} reads one stream, got "
+                f"{len(inputs)}. Apply one to each, or join them first, "
+                "with Concatenate or TimeConcatenate."
+            )
+        # Before the weights are sized on it.
+        _refuse_uncalled(inputs)
+        if not inputs:
+            raise ValueError(
+                f"{self.name}: {type(self).__name__} reads one stream, got "
+                "none. Apply it to a stream first."
+            )
+        return self._apply([inputs[0], *self._parameters(inputs[0])])
 
-class Multiply(BinaryOp):
-    operation = "multiply"
+    def _parameters(self, x) -> list:
+        """The Parameters holding the weights for the input ``x``, made on
+        the first call. Each must have the shape the input asks for, axes of
+        size 1 aside: they leave the layout of the values as it is."""
+        shapes = dict(zip(self._weight_labels, self._weight_shapes(x)))
+        if self._weight_params is None:
+            draws = dict(
+                zip(self._weight_labels, self._draw_shapes(tuple(shapes.values())))
+            )
+            self._weight_params = {
+                label: self._weight(
+                    label, self._weight_settings[label], shapes[label], draws[label]
+                )
+                for label in self._weight_labels
+                if self._weight_settings[label] is not False
+            }
+        for label, weight in self._weight_params.items():
+            if _without_ones(weight.shape.tuple) != _without_ones(shapes[label]):
+                raise ValueError(
+                    f"{self.name}: {label} must have the shape "
+                    f"{tuple(shapes[label])}, axes of size 1 aside, got "
+                    f"{weight.shape.tuple}."
+                )
+        return list(self._weight_params.values())
 
+    def _weight(self, label, setting, shape, draw):
+        """The Parameter holding the weight ``label``: the one given, or one
+        made from the initializer given, named ``<layer>_<label>``: a Weight."""
+        from nnodely.layers.parameter import Parameter, Weight
 
-class Divide(BinaryOp):
-    operation = "divide"
+        if isinstance(setting, Parameter):
+            return setting
+        if setting is True:
+            setting = self._weight_defaults[label]
+        if draw is None:
+            draw = shape if len(shape) <= 2 else (math.prod(shape[:-1]), shape[-1])
+        return Weight(f"{self.name}_{label}", dim=shape, initializer=setting, draw=draw)
 
+    def _weight_nodes(self) -> list:
+        """The Parameters holding the weights, as this node reads them."""
+        return list(self._preds[1:]) if self._weight_labels and self._preds else []
 
-class Power(BinaryOp):
-    operation = "power"
+    def _weight_value(self, label: str):
+        """The variable of the Parameter holding the weight ``label``, in
+        that Parameter's shape; None without it or before the model is
+        built."""
+        present = [
+            name
+            for name in self._weight_labels
+            if self._weight_settings[name] is not False
+        ]
+        weight = dict(zip(present, self._weight_nodes())).get(label)
+        return None if weight is None else weight.param
 
 
 class Identity(Layer):
     def output_shape(self, *inputs):
         # Every axis is preserved, including a dynamic sequence axis that cannot
         # be probed with a dummy tensor.
-        return inputs[0].shape.dimensions
+        return inputs[0].shape
 
     def build_layer(self):
         return keras.layers.Identity(name=self.name)

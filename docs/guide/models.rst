@@ -1,153 +1,176 @@
-Building Models
-===============
+Building a Model
+================
 
-This page lists the blocks a model is made of. Their full signatures are in the
-:doc:`API reference <../api/index>`.
+At the end of this page you will be able to declare a model from inputs,
+parameters and layers, build it, run it on arrays, and inspect it.
 
-Inputs and outputs
-------------------
+**Prerequisites:** :doc:`concepts`.
 
-:class:`~nnodely.Input` declares a signal read from data, and
-:class:`~nnodely.Output` names a stream the model exposes:
+**Tutorials:** :doc:`../tutorial/01_model_design`,
+:doc:`../tutorial/06_parameter_constant`, :doc:`../tutorial/08_fir_linear`,
+:doc:`../tutorial/09_fuzzify_localmodel`, :doc:`../tutorial/12_custom_layers`,
+:doc:`../tutorial/13_equation_learner`.
+
+**The example.** The longitudinal dynamics of a vehicle. Its acceleration is
+the sum of an air drag, which grows with the square of the speed, an engine
+force that depends on the gear, a rolling resistance read from a table, and a
+slope force:
+
+.. math::
+
+   a = -c_d \, v^2 + F_{engine}(\tau, gear) + F_{roll}(v) + F_{slope}(h)
+
+Step 1: inputs
+--------------
+
+:class:`~nnodely.Input` declares a signal read from data, with the window of
+samples the model reads (``tw``, see :doc:`concepts`):
 
 .. code-block:: python
 
    import numpy as np
    from nnodely import Input, Modely, Output
 
-   velocity = Input("velocity")
-   altitude = Input("altitude", dim=3)      # three features per sample
-   gear = Input("gear")
+   velocity = Input("velocity", tw=1)          # the current sample
+   torque = Input("torque", tw=10)             # the last 10 samples
+   gear = Input("gear", tw=1)
+   altitude = Input("altitude", dim=3, tw=1)   # three features per sample
+   print(velocity.shape, torque.shape)
 
-Parameters and constants
-------------------------
+.. code-block:: text
+   :class: output
 
-A :class:`~nnodely.Parameter` is a trainable tensor used directly in the graph,
-and a :class:`~nnodely.Constant` is a fixed one. A ``value`` sets the shape: a
-number or a vector is one time step of its ``dim``, a matrix is ``(dim, time)``
-and further axes are ``seq`` axes. A constant always takes its shape from its
-``value``; a parameter can be given ``dim``, ``time`` and ``seq`` instead, and
-start from a random value. Like every stream they are laid out
-``(batch, *dim, time, *seq)``, the same value for every sample:
+   Shape(S=(), T=1, D=(1,)) Shape(S=(), T=10, D=(1,))
+
+Step 2: parameters and constants
+--------------------------------
+
+A :class:`~nnodely.Parameter` is a value that training changes, and a
+:class:`~nnodely.Constant` one it does not. Both are streams, and declare
+their shape as an Input does:
+
+- ``dim``: the features, one by default;
+- ``tw``: the samples of a window. Without it the value has no window, and
+  applies to every sample of the streams it is combined with;
+- ``seq``: the sequence axes, outermost first, which need a window.
+
+A Constant needs a ``value``. A Parameter without one starts from a draw of
+its ``initializer``. Without ``dim``, ``tw`` and ``seq``, a value gives its
+own shape: all its axes are features, without a window. The reference page
+of :class:`~nnodely.Parameter` lists every way a value fills a declared
+shape.
 
 .. code-block:: python
 
    from nnodely import Constant, Parameter
 
-   drag = Parameter("drag", value=0.1)                     # trainable scalar
-   weights = Parameter("weights", dim=3)                   # random initial value
+   drag = Parameter("drag", value=0.1)                    # trainable scalar
+   weights = Parameter("weights", dim=3)                  # random initial value
    gravity = Constant("gravity", value=9.81)
+   offsets = Constant("offsets", value=[1.0, 2.0, 3.0])   # three features
+   print(drag.shape, offsets.shape)
 
-   air_drag = -1.0 * drag * velocity.last() * velocity.last()
+   air_drag = -drag * velocity * velocity
 
-Layers
-------
+.. code-block:: text
+   :class: output
 
-Every layer is created with its configuration and then called on streams. The
-tables group the available layers.
+   Shape(S=(), T=None, D=(1,)) Shape(S=(), T=None, D=(3,))
 
-.. list-table:: Layers with weights
-   :header-rows: 1
-   :widths: 25 75
+Step 3: layers
+--------------
 
-   * - Layer
-     - What it does
-   * - :class:`~nnodely.Linear`
-     - Affine map ``W x + b`` over the feature axis, applied to every sample.
-   * - :class:`~nnodely.Fir`
-     - Finite impulse response filter: a learned weighted sum over the time
-       window, returning one sample.
-   * - :class:`~nnodely.LocalModel`
-     - Local models blended by membership degrees (for example the output of
-       :class:`~nnodely.Fuzzify`).
-   * - :class:`~nnodely.EquationLearner`
-     - Symbolic-regression block: a projection feeds a list of elementary
-       functions whose results are combined.
-   * - :class:`~nnodely.BatchNorm`
-     - Batch normalization per feature.
+Every layer is created with its settings, then called on streams (see
+:doc:`concepts`). The layers are grouped in the :doc:`API reference
+<../api/layers>`:
 
-.. list-table:: Layers without weights
-   :header-rows: 1
-   :widths: 25 75
+- **with weights**: :class:`~nnodely.Linear`, :class:`~nnodely.Fir`,
+  :class:`~nnodely.LocalModel`, :class:`~nnodely.EquationLearner`,
+  :class:`~nnodely.BatchNorm`;
+- **fuzzy sets and lookup tables**: :class:`~nnodely.Fuzzify`,
+  :class:`~nnodely.Triangular`, :class:`~nnodely.Rectangular`,
+  :class:`~nnodely.Gaussian`, :class:`~nnodely.Interpolation`;
+- **custom layers**: :class:`~nnodely.KerasFunction`;
+- **selecting and joining** the features, the window or the sequence, such
+  as :class:`~nnodely.Select`, :class:`~nnodely.TimeSelect`,
+  :class:`~nnodely.SeqSelect`;
+- **reductions**, such as :class:`~nnodely.Sum` and :class:`~nnodely.Norm`;
+- **calculus** and **recurrence** (see :doc:`physics` and
+  :doc:`recurrent`);
+- **activations**, such as :class:`~nnodely.ReLU` and
+  :class:`~nnodely.PReLU`, the only one with weights;
+- **math functions**, such as :class:`~nnodely.Sin` and
+  :class:`~nnodely.Exp`.
 
-   * - Layer
-     - What it does
-   * - :class:`~nnodely.Fuzzify`
-     - Membership functions (triangular, rectangular or Gaussian) on given centers.
-   * - :class:`~nnodely.Interpolation`
-     - One-dimensional lookup table, linear or polynomial.
-   * - Activations
-     - :class:`~nnodely.ReLU`, :class:`~nnodely.LeakyReLU`, :class:`~nnodely.ELU`,
-       :class:`~nnodely.PReLU`, :class:`~nnodely.Sigmoid`, :class:`~nnodely.Tanh`,
-       :class:`~nnodely.Softmax`, :class:`~nnodely.Swish`, :class:`~nnodely.GELU`,
-       :class:`~nnodely.Softplus`.
-   * - Math
-     - :class:`~nnodely.Sin`, :class:`~nnodely.Cos`, :class:`~nnodely.Tan`,
-       :class:`~nnodely.Asin`, :class:`~nnodely.Acos`, :class:`~nnodely.Atan`,
-       :class:`~nnodely.Exp`, :class:`~nnodely.Log`, :class:`~nnodely.Log10`,
-       :class:`~nnodely.Sqrt`, :class:`~nnodely.Abs`, :class:`~nnodely.Sign`,
-       :class:`~nnodely.Floor`, :class:`~nnodely.Ceil`, :class:`~nnodely.Deg2Rad`,
-       :class:`~nnodely.Negative`, :class:`~nnodely.Clamp`, :class:`~nnodely.Sum`.
-   * - Feature axis
-     - :class:`~nnodely.Select` (one index), :class:`~nnodely.Range` (a slice),
-       :class:`~nnodely.Concatenate`.
-   * - Time axis
-     - :class:`~nnodely.TimeSelect`, :class:`~nnodely.TimeRange`,
-       :class:`~nnodely.TimeConcatenate`.
-   * - Calculus
-     - :class:`~nnodely.Derivative`, :class:`~nnodely.Integrate`,
-       :func:`~nnodely.Ode`, :class:`~nnodely.OdeNet` (see :doc:`physics`).
-   * - Recurrence
-     - :class:`~nnodely.Loop`, :class:`~nnodely.Roll` (see :doc:`recurrent`).
-
-Some examples:
+The engine force is scheduled by the gear: one FIR filter of the torque per
+gear, blended by the membership of the gear to each of them. The rolling
+resistance is a lookup table, and the slope force a linear map of the three
+altitude features:
 
 .. code-block:: python
 
-   from nnodely import (
-       EquationLearner, Fir, Fuzzify, Interpolation, Linear, LocalModel, ReLU,
-       Select, TimeSelect,
-   )
+   from nnodely import Fir, Fuzzify, Interpolation, Linear, LocalModel, Triangular
 
-   # a gain scheduled by the gear: one FIR filter per gear, blended
-   torque = Input("torque")
-   gear_membership = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function="Triangular")([gear.last()])
-   engine_force = LocalModel(Fir(out_features=1))([torque.sw(10)], [gear_membership])
+   gear_membership = Fuzzify(centers=[1.0, 2.0, 3.0, 4.0], function=Triangular)(gear)
+   engine_force = LocalModel(lambda cell: Fir())(torque, gear_membership)
+   rolling = Interpolation(x_points=[0.0, 10.0, 30.0], y_points=[0.0, 0.2, 0.3])(velocity)
+   slope = Linear(features=1)(altitude)
+   print(gear_membership.shape, engine_force.shape)
 
-   # a lookup table
-   rolling = Interpolation(x_points=[0.0, 10.0, 30.0], y_points=[0.0, 0.2, 0.3])([velocity.last()])
+.. code-block:: text
+   :class: output
 
-   # slope force from the three altitude features
-   slope = Linear(out_features=1)([altitude.last()])
-   first_altitude = Select(idx=0)([altitude.last()])
+   Shape(S=(), T=1, D=(4,)) Shape(S=(), T=1, D=(1,))
 
-   # symbolic regression over velocity: sin(a), a * b, relu(c)
-   learner = EquationLearner(["sin", "multiply", "relu"], linear_out=Linear(out_features=1))
-   learned = learner([velocity.last()])
+:class:`~nnodely.Fuzzify` gives one membership per center: a triangle on
+each center that reaches its neighbors. :class:`~nnodely.LocalModel` gives
+each membership its own model, here a :class:`~nnodely.Fir` created by the
+function for every cell, and sums them weighted by the memberships.
 
-   # the oldest sample of a window
-   oldest = TimeSelect(idx=0)([velocity.sw(5)])
+Step 4: custom layers
+---------------------
 
-``LocalModel`` takes the inputs and a list of activations. Several activations
-are multiplied together, so memberships over 4 gears and 5 speeds give 20 local
-models, cell ``(i, j)`` being number ``i * 5 + j``. Its ``input_function`` and
-``output_function`` are a callable, instantiated anew for every cell, or a list
-of one callable per cell; with ``pass_index=True`` a function receives the cell
-index ``(i, j)`` and returns the callable of that cell. A ``Fir`` instance as
-input function and a weightless elementwise layer such as ``ReLU()`` as output
-function are evaluated for all the cells at once. Functions passed to ``EquationLearner`` can be names,
-*nnodely* layer classes, or Python callables that take streams, such as
-``lambda a, b: a * b``.
-
-The model
----------
-
-:class:`~nnodely.Modely` collects inputs and outputs into a model.
-:meth:`~nnodely.Modely.build` creates the Keras model and its weights:
+:class:`~nnodely.KerasFunction` makes any Keras layer a layer of the graph.
+Its streams are passed to ``call`` as separate arguments, and its output
+shape is read from the result:
 
 .. code-block:: python
 
-   acceleration = Output("acceleration", air_drag + engine_force + slope + rolling)
+   import keras
+   from nnodely import KerasFunction
+
+   class VectorLength(keras.layers.Layer):
+       def call(self, x):
+           return keras.ops.sqrt(keras.ops.sum(x * x, axis=-1, keepdims=True))
+
+   class SquarePlus(keras.layers.Layer):
+       def call(self, x, y):
+           return x * x + y
+
+   length = KerasFunction(VectorLength)(altitude)                 # a class
+   combined = KerasFunction(SquarePlus())([velocity, gear])       # an instance
+   print(length.shape)
+
+.. code-block:: text
+   :class: output
+
+   Shape(S=(), T=1, D=(1,))
+
+The weights of such a layer are Keras weights, trained with the model, but
+they are not :class:`~nnodely.Parameter` objects: freeze them with the
+``trainable`` attribute of the Keras layer. To load a model that uses such a
+class in another session, define the class first, decorated with
+``@keras.saving.register_keras_serializable()``.
+
+Step 5: the model
+-----------------
+
+:class:`~nnodely.Modely` collects inputs and outputs into a model, and
+:meth:`~nnodely.Modely.build` creates its Keras model and its weights:
+
+.. code-block:: python
+
+   acceleration = Output("acceleration", air_drag + engine_force + rolling + slope)
 
    vehicle = Modely(
        "vehicle",
@@ -156,62 +179,178 @@ The model
    )
    vehicle.build()
 
-Objectives (see :doc:`training`) and feedback (see :doc:`recurrent`) are
-declared **before** ``build()``, because they add to the graph that gets built.
+A model declares every Input it reads among its ``inputs``. That includes an
+Input it gives a model it calls, and an Input a layer starts from, as in
+``Integrate(init=x0)``. An Input read without being declared is refused when
+the model is declared. Two kinds of Input may be left out:
 
-Inference
----------
+- a fed-back Input (see :doc:`recurrent`);
+- an Input read only by an objective, such as a target (see
+  :doc:`training`).
 
-A built model is called with a dictionary that maps input names to arrays of
-shape ``(batch, *dim, time, *seq)``, batch axis included. Inputs only the
-minimizers read, such as targets, are ignored, so the arrays of a
-:class:`~nnodely.DataLoader` - ``as_dict()`` or ``get_samples(n)`` - can be
-passed as they are. The result maps output names to tensors of the active
-backend.
+Declare objectives and feedback **before** ``build()``, because they add to
+the graph. Building again keeps the weights the model holds, for example
+after a new objective. ``build(keep_weights=False)`` gives every weight its
+initial value again. A build that fails leaves the model as it was.
 
-The ``time`` axis of an input's array must cover the union of all its windows,
-which the input's ``shape`` reports. Here ``velocity`` is read through
-``sw(5)``, so it needs five samples:
+Step 6: running the model
+-------------------------
+
+Call a built model with a dictionary that maps each input, by name or by the
+Input itself, to an array of shape ``(batch, *seq, tw, *dim)``. The array of
+an input has the shape its ``shape`` reports, **with a batch axis first**:
 
 .. code-block:: python
 
-   print(velocity.shape, torque.shape)   # (1, 5) (1, 10)
-
    sample = {
-       "velocity": np.full((1, 1, 5), 15.0),
-       "torque": np.ones((1, 1, 10)),
+       "velocity": np.full((1, 1, 1), 15.0),
+       "torque": np.ones((1, 10, 1)),
        "gear": np.full((1, 1, 1), 2.0),
-       "altitude": np.zeros((1, 3, 1)),
+       "altitude": np.zeros((1, 1, 3)),
    }
    result = vehicle(sample)
-   print(result["acceleration"].shape)   # (1, 1, 1)
+   values = keras.ops.convert_to_numpy(result["acceleration"])
+   print(values.shape)
 
-The model has to be called with every input of the built graph. When
-objectives are declared, that includes the inputs used only as targets.
+.. code-block:: text
+   :class: output
 
-Weights and the Keras model
----------------------------
+   (1, 1, 1)
 
-After ``build()``, layers with weights expose them as Keras variables, and
-``Modely.model`` is the underlying ``keras.Model``:
+The result maps every output name to a tensor of the active backend.
+``keras.ops.convert_to_numpy`` makes it a NumPy array.
+
+Other forms of the call:
+
+- a **list**, one array per declared input, in the order of ``inputs``;
+- a **single array**, for a model with one input;
+- the dictionaries of a :class:`~nnodely.DataLoader`, ``as_dict()`` or
+  ``get_samples(n)``, as they are. Keys that name no input, such as
+  targets, are ignored.
+
+The call needs every input the outputs read: ``print(vehicle.inputs)``
+marks them ``required`` in its ``data`` column.
+
+.. warning::
+
+   An array without the batch axis is not refused when its shape can be
+   read as a batch: a window of 10 samples, ``(10, 1)``, is read as 10
+   samples of one value. The sample ``loader[0]`` of a DataLoader has no
+   batch axis: call the model on ``loader.get_samples(1)``, or add the axis,
+   ``{k: v[None] for k, v in loader[0].items()}``.
+
+Step 7: weights
+---------------
+
+After ``build()``, the stream returned by a layer with weights exposes them
+as Keras variables:
 
 .. code-block:: python
 
    print(slope.kernel.shape, slope.bias.shape)
    slope.kernel.assign(np.zeros((3, 1), dtype="float32"))
-   print(len(vehicle.model.trainable_variables))
+   print(len(vehicle.parameters))
 
-Inspecting a model
-------------------
+.. code-block:: text
+   :class: output
+
+   (3, 1) (1,)
+   11
+
+The weights are :class:`~nnodely.Parameter` objects:
+:attr:`~nnodely.Modely.parameters` lists them, and :doc:`training` shows how
+to freeze them.
+
+Step 8: inspecting a model
+--------------------------
+
+Printing a model shows its name, its inputs, its outputs and its objectives.
+:attr:`~nnodely.Modely.inputs`, :attr:`~nnodely.Modely.outputs` and
+:attr:`~nnodely.Modely.parameters` print as tables, with more detail:
 
 .. code-block:: python
 
-   print(vehicle)            # the nodes of the graph, in evaluation order
-   vehicle.summary()         # the Keras summary of the built model
+   print(vehicle)
 
-   vehicle.export_html("model_html")   # interactive graph, one page per sub-model
-   vehicle.plot("model.png")           # static graph, requires Graphviz
+.. code-block:: text
+   :class: output
 
-:meth:`~nnodely.Modely.export_html` writes an interactive page you can open in
-a browser. :meth:`~nnodely.Modely.plot` needs the Graphviz executables
-installed on the system.
+   ┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+   ┃ model      ┃ vehicle (built)                  ┃
+   ┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+   │ inputs     │ velocity, torque, gear, altitude │
+   │ outputs    │ acceleration                     │
+   │ parameters │ 11                               │
+   │ minimizers │ -                                │
+   └────────────┴──────────────────────────────────┘
+
+.. code-block:: python
+
+   vehicle.summary()                    # the Keras summary of the built model
+   vehicle.export_html("model_html")    # an interactive graph
+
+:meth:`~nnodely.Modely.export_html` writes an interactive page to open in a
+browser. Every node is a card with its name and its kind, colored by its
+role: inputs green, states teal, outputs rose, parameters amber, constants
+slate, blocks indigo, losses violet. Clicking a node shows its shape and
+highlights what it depends on and what it feeds. A block opens on a page of
+its own with a double-click.
+
+Step 9: learning an equation
+----------------------------
+
+An :class:`~nnodely.EquationLearner` learns a formula from a list of
+elementary functions. A ``threshold`` set after a first training drops the
+small coefficients, so that the equation keeps only its main terms, and
+``plot()`` draws the equation and returns it as a SymPy ``Eq``. Here it
+recovers :math:`f = \sin z + 0.5 z^2`:
+
+.. code-block:: python
+
+   from nnodely import DataLoader, EquationLearner, set_seed
+
+   set_seed(0)
+   z = Input("z", tw=1)
+   learner = EquationLearner(["sin", "multiply"], linear_out=Linear(features=1))
+   equation_model = Modely("equation", inputs=[z], outputs=[Output("f", learner(z))])
+   equation_model.minimize("fit", "f", Input("f_measured", tw=1))
+   equation_model.build()
+
+   zs = np.linspace(-2.0, 2.0, 400)
+   data = DataLoader(equation_model, source={"z": zs, "f_measured": np.sin(zs) + 0.5 * zs**2})
+   equation_model.train(data, epochs=100, batch_size=32, lr=0.02, printer=None)
+   learner.threshold = 0.01   # drop the coefficients smaller than 0.01 in magnitude
+   equation_model.train(data, epochs=30, batch_size=32, lr=0.002, printer=None)
+   equation = learner.plot()
+
+Common errors
+-------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 30 35
+
+   * - Error
+     - Cause
+     - Fix
+   * - ``Model 'm' reads the Inputs ['x'], which are not among its inputs``
+     - An Input the outputs read is not declared.
+     - Add it to ``inputs=[...]``.
+   * - ``expected shape=(None, 1, 1), found shape=(1, 3)``
+     - An array without the shape the input declares.
+     - Give every array the shape ``(batch, *seq, tw, *dim)`` of its input.
+   * - A result with a wrong batch size, and no error
+     - An array without the batch axis, such as ``loader[0]``.
+     - Use ``loader.get_samples(1)``, or add the axis with ``v[None]``.
+   * - ``Model m is not built``
+     - A DataLoader or a call before ``build()``.
+     - Call ``model.build()`` first.
+
+See also
+--------
+
+:class:`~nnodely.Modely`, :class:`~nnodely.Input`, :class:`~nnodely.Output`,
+:class:`~nnodely.Parameter`, :class:`~nnodely.Constant`,
+:class:`~nnodely.Fuzzify`, :class:`~nnodely.LocalModel`,
+:class:`~nnodely.Interpolation`, :class:`~nnodely.KerasFunction`,
+:class:`~nnodely.EquationLearner`, :doc:`../api/layers`.

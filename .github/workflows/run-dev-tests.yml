@@ -1,0 +1,32 @@
+name: Run Devs Tests
+
+on:
+  pull_request:
+    branches: ["develop"]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.13"]
+        keras-backend: [tensorflow, torch, jax]
+    env:
+      KERAS_BACKEND: ${{ matrix.keras-backend }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv and set the Python version
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install the project
+        run: uv sync --locked --all-extras --dev
+
+      - name: Run tests
+        run: uv run pytest tests -m "not slow"

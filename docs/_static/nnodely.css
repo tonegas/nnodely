@@ -1,0 +1,5 @@
+/* What a code block prints, shown under it. */
+div.output div.highlight {
+    background: #f6f6f6;
+    border-left: 3px solid #3981bc;
+}

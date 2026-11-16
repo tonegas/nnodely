@@ -17,7 +17,7 @@ def _traces_backward_pass(model) -> bool:
 
     Layers declare this themselves, so the export path does not have to know
     which ones they are. The walk is recursive because such a layer can sit
-    inside a nested model - a recurrent body, or the sub-graph a Derivative
+    inside a nested model - a recurrent body, or the sub-graph a Gradient
     differentiates.
     """
     seen: set[int] = set()
@@ -33,13 +33,15 @@ def _traces_backward_pass(model) -> bool:
     return False
 
 
-def _pair_onnx_names(values, expected):
+def _pair_onnx_names(values, expected, by_name: bool = False):
     """Map each exported tensor to the Modely name it stands for.
 
     An exporter that renames the graph also reorders it, so position alone is
     not evidence of identity. A tensor whose shape matches exactly one expected
     name is that one whatever its position; only tensors left ambiguous - two
-    outputs of the same shape - fall back to pairing in order.
+    outputs of the same shape - fall back to pairing in order: the order of
+    the names with ``by_name``, as Keras flattens a dict of outputs, else the
+    order given.
     """
 
     def graph_shape(value):
@@ -62,6 +64,8 @@ def _pair_onnx_names(values, expected):
             pairs[index] = matches[0]
             pending_graph.remove(index)
             pending_expected.remove(matches[0])
+    if by_name:
+        pending_expected.sort(key=lambda other: expected[other][0])
     for index, other in zip(pending_graph, pending_expected):
         pairs[index] = other
 
@@ -95,13 +99,43 @@ def _export_file(path, filename: str | None, model_name: str, suffix: str) -> Pa
 
 def export_keras(model, path: str | os.PathLike, filename: str | None = None) -> None:
     """The implementation of :meth:`Modely.export_keras`."""
-    if model.inference_model is None:
+    if model._keras_inference_model is None:
         raise ValueError("Model is not built. Call build() before export_keras().")
+    model._check_names_built()
 
-    if not isinstance(model.inference_model, keras.Model):
-        raise TypeError(f"Expected keras.Model, got {type(model.inference_model)}.")
+    if not isinstance(model._keras_inference_model, keras.Model):
+        raise TypeError(
+            f"Expected keras.Model, got {type(model._keras_inference_model)}."
+        )
 
-    model.inference_model.save(_export_file(path, filename, model.name, ".keras"))
+    _standalone_copy(model._keras_inference_model).save(
+        _export_file(path, filename, model.name, ".keras")
+    )
+
+
+def _standalone_copy(keras_model: keras.Model) -> keras.Model:
+    """A copy of ``keras_model`` that a ``.keras`` file can hold and give back.
+
+    nnodely shares layers between Keras graphs: a body rolled out by two
+    Loops, a Parameter read inside a Loop body and outside it, the sub-graphs
+    a Gradient evaluates again. Keras saves such a layer once, but
+    cannot rebuild a layer called by two graphs - it replays the calls of
+    each graph by their position. Serialized outside a sharing scope, every
+    nested model and layer is written in full wherever it is used, so the
+    copy calls each layer from one graph only; the values of the model are
+    then copied in, layer by layer.
+    """
+    config = keras.saving.serialize_keras_object(keras_model)
+    copy = keras.saving.deserialize_keras_object(config)
+    for source, target in zip(keras_model.layers, copy.layers):
+        if len(source.weights) != len(target.weights):
+            raise RuntimeError(
+                f"The Keras copy of layer {source.name!r} has "
+                f"{len(target.weights)} weights where it has {len(source.weights)}."
+            )
+        for value, variable in zip(source.weights, target.weights):
+            variable.assign(value)
+    return copy
 
 
 def import_keras(filename: str, safe_mode: bool = True):
@@ -126,8 +160,9 @@ def export_onnx(
     verbose: bool = False,
 ) -> None:
     """The implementation of :meth:`Modely.export_onnx`."""
-    if model.inference_model is None:
+    if model._keras_inference_model is None:
         raise ValueError("Model is not built. Call build() before export_onnx().")
+    model._check_names_built()
 
     if keras.backend.backend() == "jax":
         # Keras reaches ONNX from jax through jax2tf, and jax 0.4.36 removed
@@ -142,7 +177,7 @@ def export_onnx(
 
     file = _export_file(path, filename, model.name, ".onnx")
 
-    inference_model = model.inference_model
+    inference_model = model._keras_inference_model
     export_model = inference_model
     if keras.backend.backend() == "torch" and isinstance(inference_model.input, dict):
         # Keras' Torch ONNX exporter does not currently accept dictionary
@@ -177,7 +212,7 @@ def export_onnx(
     if _traces_backward_pass(export_model) and keras.backend.backend() == "torch":
         raise NotImplementedError(
             "ONNX export of a model that differentiates a sub-graph - a "
-            "Derivative with respect to an Input - is not supported on the "
+            "Gradient with respect to an Input - is not supported on the "
             "'torch' backend: its exporter traces a forward pass only and "
             "cannot record the backward pass such a layer evaluates. The "
             "'tensorflow' and 'jax' backends export it, because there the "
@@ -207,32 +242,28 @@ def _set_onnx_io_names(model, path: Path) -> None:
     except ImportError:
         return
 
-    if model.inference_model is None or not model.built:
-        raise ValueError("Model is not built. Call build() before export_onnx().")
     onnx_model = onnx.load(str(path))
     graph = onnx_model.graph
     expected_inputs = [
         (tensor.name, tuple(int(axis) for axis in tensor.shape[1:] if axis))
-        for tensor in model.inference_model.inputs
+        for tensor in model._keras_inference_model.inputs
     ]
-    expected_outputs = [(node.name, tuple(node.shape.tuple)) for node in model.outputs]
+    expected_outputs = [(node.name, tuple(node.shape.tuple)) for node in model._outputs]
     rename = {}
 
     # Only an exporter that dropped the names has to be corrected. One that
     # kept them may still have reordered them - both tf2onnx and the Torch
     # exporter sort their outputs - and pairing those off by position would
     # rename each tensor after a different one, silently swapping two
-    # outputs' values.
-    for values, expected in (
-        (graph.input, expected_inputs),
-        (graph.output, expected_outputs),
+    # outputs' values. The order is restored below, by name.
+    for values, expected, by_name in (
+        (graph.input, expected_inputs, False),
+        (graph.output, expected_outputs, True),
     ):
         names = [value.name for value in values]
         if len(names) != len(expected) or set(names) == {name for name, _ in expected}:
             continue
-        rename.update(_pair_onnx_names(values, expected))
-    if not rename:
-        return
+        rename.update(_pair_onnx_names(values, expected, by_name=by_name))
 
     for collection in (
         graph.input,
@@ -247,6 +278,23 @@ def _set_onnx_io_names(model, path: Path) -> None:
             node.input[idx] = rename.get(name, name)
         for idx, name in enumerate(node.output):
             node.output[idx] = rename.get(name, name)
+
+    # The exporters sort the outputs: listed again as model.outputs lists
+    # them, a positional reading of the results follows the model.
+    order = [name for name, _ in expected_outputs]
+    listed = [value.name for value in graph.output]
+    reorder = listed != order and sorted(listed) == sorted(order)
+    if reorder:
+        by_name = {value.name: value for value in graph.output}
+        outputs = []
+        for name in order:
+            value = onnx.ValueInfoProto()
+            value.CopyFrom(by_name[name])
+            outputs.append(value)
+        del graph.output[:]
+        graph.output.extend(outputs)
+    if not rename and not reorder:
+        return
 
     onnx.checker.check_model(onnx_model)
     onnx.save(onnx_model, str(path))

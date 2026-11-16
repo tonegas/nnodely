@@ -1,32 +1,33 @@
 from nnodely import Input, Output, Modely, DataLoader, Loop
-from conftest import to_numpy
+from conftest import CONVERGED, to_numpy
 import os
 import warnings
 import numpy as np
 import pytest
+from nnodely import TimeRange, TimeSelect
 
 
 def test_dataset_creation_and_iteration():
-    x = Input("x", dim=1)
-    y = Input("y", dim=1)
-    z = Input("z", dim=1)
+    x = Input("x", dim=1, tw=5)
+    y = Input("y", dim=1, tw=(2, 3))
+    z = Input("z", dim=1, tw=(4, 3))
 
-    x_stream1 = x.sw(3)  ## 3 samples of x in the past
-    y_stream1 = y.sw([0, 3])  ## 3 samples of y in the future
-    z_stream1 = z.sw(
-        [4, 2]
+    x_stream1 = TimeRange(2, 5)(x)  ## 3 samples of x in the past
+    y_stream1 = TimeRange(2, 5)(y)  ## 3 samples of y in the future
+    z_stream1 = TimeRange(0, 6)(
+        z
     )  ## 4 samples of z in the past and 2 samples of z in the future
 
-    x_stream2 = x.last()  ## 1 sample of x in the past
-    y_stream2 = y.next()  ## 1 sample of y in the future
-    z_stream2 = z.sw(3)  ## 3 samples of z in the past
+    x_stream2 = TimeSelect(-1)(x)  ## 1 sample of x in the past
+    y_stream2 = TimeSelect(-3)(y)  ## 1 sample of y in the future
+    z_stream2 = TimeRange(1, 4)(z)  ## 3 samples of z in the past
 
-    x_stream3 = x.sw(5)  ## 5 samples of x in the past
-    y_stream3 = y.sw(
-        [2, 2]
+    x_stream3 = x  ## 5 samples of x in the past
+    y_stream3 = TimeRange(0, 4)(
+        y
     )  ## 2 samples of y in the past and 2 samples of y in the future
-    z_stream3 = z.sw(
-        [1, 3]
+    z_stream3 = TimeRange(3, 7)(
+        z
     )  ## 1 sample of z in the past and 3 samples of z in the future
 
     add1 = x_stream1 + y_stream1 + z_stream2
@@ -75,21 +76,21 @@ def test_dataset_creation_and_iteration():
     ## ------ Iterate through the dataset -------
     for batch in data_train:
         assert "x" in batch and "y" in batch and "z" in batch
-        assert batch["x"].shape[0] == 1  # Check if x has the correct dimension
-        assert batch["y"].shape[0] == 1  # Check if y has the correct dimension
-        assert batch["z"].shape[0] == 1  # Check if z has the correct dimension
-        assert batch["x"].shape[1] == 5  # Check if x has the correct dimension
-        assert batch["y"].shape[1] == 5  # Check if y has the correct dimension
-        assert batch["z"].shape[1] == 7  # Check if z has the correct dimension
+        assert batch["x"].shape[1] == 1  # Check if x has the correct dimension
+        assert batch["y"].shape[1] == 1  # Check if y has the correct dimension
+        assert batch["z"].shape[1] == 1  # Check if z has the correct dimension
+        assert batch["x"].shape[0] == 5  # Check if x has the correct dimension
+        assert batch["y"].shape[0] == 5  # Check if y has the correct dimension
+        assert batch["z"].shape[0] == 7  # Check if z has the correct dimension
 
 
 def test_sequence_windows_are_created_on_temporal_windows():
-    x = Input("x", dim=1, seq=3)
-    target = Input("target", dim=1)
-    x_window = x.sw(5)
+    x = Input("x", dim=1, seq=3, tw=5)
+    target = Input("target", dim=1, tw=1)
+    x_window = x
     output = Output("out", x_window)
     model = Modely("sequence_dataset", inputs=[x], outputs=[output])
-    model.minimize("error", source=output, target=target.last(), loss="mse")
+    model.minimize("error", source=output, target=target, loss="mse")
     model.build()
 
     loader = DataLoader(
@@ -100,10 +101,10 @@ def test_sequence_windows_are_created_on_temporal_windows():
         },
     )
 
-    assert loader.dataset["x"].shape == (3, 1, 5, 3)
-    assert loader.dataset["target"].shape == (3, 1, 1)
+    assert loader._dataset["x"].shape == (3, 3, 5, 1)
+    assert loader._dataset["target"].shape == (3, 1, 1)
     np.testing.assert_array_equal(
-        loader.dataset["x"][0, 0],
+        loader._dataset["x"][0, :, :, 0].T,
         np.array(
             [
                 [0, 1, 2],
@@ -116,104 +117,17 @@ def test_sequence_windows_are_created_on_temporal_windows():
         ),
     )
     np.testing.assert_array_equal(
-        loader.dataset["target"][:, 0, 0],
+        loader._dataset["target"][:, 0, 0],
         np.array([6, 7, 8], dtype=np.float32),
     )
 
 
-def test_explicit_dataloader_normalization_and_denormalization():
-    x = Input("normalization_x", dim=2)
-    target = Input("normalization_target")
-    relation = x.sw(2)
-    output = Output("normalization_output", relation)
-    model = Modely("normalization_model", inputs=[x], outputs=[output])
-    model.minimize("error", output, target.last(), loss="mse")
-    model.build()
-
-    loader = DataLoader(
-        model,
-        source={
-            "normalization_x": np.array(
-                [[0.0, 100.0], [2.0, 200.0], [4.0, 300.0], [6.0, 400.0]],
-                dtype=np.float32,
-            ),
-            "normalization_target": np.array(
-                [10.0, 20.0, 30.0, 40.0], dtype=np.float32
-            ),
-        },
-    )
-    original = {
-        name: np.array(values, copy=True) for name, values in loader.as_dict().items()
-    }
-
-    loader.normalize(method="minmax")
-
-    normalized_x = loader.dataset["normalization_x"]
-    np.testing.assert_array_equal(np.min(normalized_x, axis=(0, 2)), [-1.0, -1.0])
-    np.testing.assert_array_equal(np.max(normalized_x, axis=(0, 2)), [1.0, 1.0])
-    assert np.min(loader.dataset["normalization_target"]) == -1.0
-    assert np.max(loader.dataset["normalization_target"]) == 1.0
-
-    restored = loader.denormalize(loader.as_dict())
-    for name in original:
-        if isinstance(restored, dict):
-            np.testing.assert_allclose(
-                to_numpy(restored[name]), to_numpy(original[name]), atol=1e-6
-            )
-        else:
-            np.testing.assert_allclose(
-                to_numpy(restored), to_numpy(original[name]), atol=1e-6
-            )
-
-    normalized_prediction = loader.dataset["normalization_target"][:1]
-    restored_prediction = loader.denormalize(
-        {"normalization_output": normalized_prediction}
-    )
-    if isinstance(restored_prediction, dict):
-        np.testing.assert_allclose(
-            to_numpy(restored_prediction["normalization_output"]),
-            to_numpy(original["normalization_target"][:1]),
-            atol=1e-6,
-        )
-    else:
-        np.testing.assert_allclose(
-            to_numpy(restored_prediction),
-            to_numpy(original["normalization_target"][:1]),
-            atol=1e-6,
-        )
-
-    loader.denormalize()
-    for name in original:
-        np.testing.assert_array_equal(loader.dataset[name], original[name])
-
-
-def test_standard_normalization_handles_constant_inputs():
-    x = Input("constant_normalization_x")
-    model = Modely(
-        "constant_normalization_model",
-        inputs=[x],
-        outputs=[Output("constant_normalization_output", x.last())],
-    ).build()
-    loader = DataLoader(
-        model,
-        source={"constant_normalization_x": np.full(4, 5.0, dtype=np.float32)},
-    )
-
-    loader.normalize(method="standard")
-    np.testing.assert_array_equal(loader.dataset["constant_normalization_x"], 0.0)
-    restored = loader.denormalize(
-        loader.dataset["constant_normalization_x"],
-        name="constant_normalization_x",
-    )
-    np.testing.assert_array_equal(restored, 5.0)
-
-
 def test_step_subsamples_sample_windows():
-    x = Input("step_x", dim=1)
+    x = Input("step_x", dim=1, tw=3)
     model = Modely(
         "step_windows_model",
         inputs=[x],
-        outputs=[Output("step_out", x.sw(3))],
+        outputs=[Output("step_out", x)],
     ).build()
 
     loader = DataLoader(
@@ -222,21 +136,26 @@ def test_step_subsamples_sample_windows():
         step=2,
     )
 
-    ## [1, 2, 3, 4, 5] with sw=3 and step=2 -> [[1, 2, 3], [3, 4, 5]]
-    assert loader.dataset["step_x"].shape == (2, 1, 3)
+    ## [1, 2, 3, 4, 5] with tw=3 and step=2 -> [[1, 2, 3], [3, 4, 5]]
+    assert loader._dataset["step_x"].shape == (2, 3, 1)
     np.testing.assert_array_equal(
-        loader.dataset["step_x"][:, 0],
+        loader._dataset["step_x"][:, :, 0],
         np.array([[1, 2, 3], [3, 4, 5]], dtype=np.float32),
     )
 
 
 def test_step_keeps_multiple_inputs_aligned():
-    x = Input("step_align_x", dim=1)
-    y = Input("step_align_y", dim=1)
+    x = Input("step_align_x", dim=1, tw=3)
+    y = Input("step_align_y", dim=1, tw=1)
     model = Modely(
         "step_align_model",
         inputs=[x, y],
-        outputs=[Output("step_align_out", x.sw(3) + y.last())],
+        # One output per window: a window of three and one of one sample have
+        # different times, which are never added together.
+        outputs=[
+            Output("step_align_out", x),
+            Output("step_align_y_out", y),
+        ],
     ).build()
 
     loader = DataLoader(
@@ -249,22 +168,22 @@ def test_step_keeps_multiple_inputs_aligned():
     )
 
     np.testing.assert_array_equal(
-        loader.dataset["step_align_x"][:, 0],
+        loader._dataset["step_align_x"][:, :, 0],
         np.array([[1, 2, 3], [3, 4, 5]], dtype=np.float32),
     )
     ## Every window is aligned to its last temporal sample
     np.testing.assert_array_equal(
-        loader.dataset["step_align_y"][:, 0],
+        loader._dataset["step_align_y"][:, :, 0],
         np.array([[3], [5]], dtype=np.float32),
     )
 
 
 def test_step_subsamples_sequences():
-    x = Input("step_seq_x", dim=1, seq=3)
+    x = Input("step_seq_x", dim=1, seq=3, tw=2)
     model = Modely(
         "step_sequence_model",
         inputs=[x],
-        outputs=[Output("step_seq_out", x.sw(2))],
+        outputs=[Output("step_seq_out", x)],
     ).build()
 
     loader = DataLoader(
@@ -273,25 +192,25 @@ def test_step_subsamples_sequences():
         step=2,
     )
 
-    ## [1, ..., 6] with sw=2, seq=3 and step=2 ->
+    ## [1, ..., 6] with tw=2, seq=3 and step=2 ->
     ## [[[1, 2], [2, 3], [3, 4]], [[3, 4], [4, 5], [5, 6]]]
-    assert loader.dataset["step_seq_x"].shape == (2, 1, 2, 3)
+    assert loader._dataset["step_seq_x"].shape == (2, 3, 2, 1)
     np.testing.assert_array_equal(
-        loader.dataset["step_seq_x"][0, 0].T,
+        loader._dataset["step_seq_x"][0, :, :, 0],
         np.array([[1, 2], [2, 3], [3, 4]], dtype=np.float32),
     )
     np.testing.assert_array_equal(
-        loader.dataset["step_seq_x"][1, 0].T,
+        loader._dataset["step_seq_x"][1, :, :, 0],
         np.array([[3, 4], [4, 5], [5, 6]], dtype=np.float32),
     )
 
 
 def test_step_subsamples_sequences_with_seq_length():
-    x = Input("step_seq_length_x", dim=1, seq=-1)
+    x = Input("step_seq_length_x", dim=1, seq=-1, tw=2)
     model = Modely(
         "step_seq_length_model",
         inputs=[x],
-        outputs=[Output("step_seq_length_out", x.sw(2))],
+        outputs=[Output("step_seq_length_out", x)],
     ).build()
 
     loader = DataLoader(
@@ -301,23 +220,23 @@ def test_step_subsamples_sequences_with_seq_length():
         step=2,
     )
 
-    assert loader.dataset["step_seq_length_x"].shape == (2, 1, 2, 3)
+    assert loader._dataset["step_seq_length_x"].shape == (2, 3, 2, 1)
     np.testing.assert_array_equal(
-        loader.dataset["step_seq_length_x"][0, 0].T,
+        loader._dataset["step_seq_length_x"][0, :, :, 0],
         np.array([[1, 2], [2, 3], [3, 4]], dtype=np.float32),
     )
     np.testing.assert_array_equal(
-        loader.dataset["step_seq_length_x"][1, 0].T,
+        loader._dataset["step_seq_length_x"][1, :, :, 0],
         np.array([[3, 4], [4, 5], [5, 6]], dtype=np.float32),
     )
 
 
 def test_step_does_not_mix_csv_files():
-    x = Input("step_csv_x", dim=1)
+    x = Input("step_csv_x", dim=1, tw=2)
     model = Modely(
         "step_csv_model",
         inputs=[x],
-        outputs=[Output("step_csv_out", x.sw(2))],
+        outputs=[Output("step_csv_out", x)],
     ).build()
 
     stepped = DataLoader(
@@ -336,19 +255,19 @@ def test_step_does_not_mix_csv_files():
                 source=os.path.join(os.path.dirname(__file__), "datasets"),
                 csv_glob=csv_name,
                 step=3,
-            ).dataset["step_csv_x"]
+            )._dataset["step_csv_x"]
             for csv_name in ("test.csv", "test2.csv")
         ]
     )
-    np.testing.assert_array_equal(stepped.dataset["step_csv_x"], expected)
+    np.testing.assert_array_equal(stepped._dataset["step_csv_x"], expected)
 
 
 def test_invalid_step_raises():
-    x = Input("step_invalid_x", dim=1)
+    x = Input("step_invalid_x", dim=1, tw=1)
     model = Modely(
         "step_invalid_model",
         inputs=[x],
-        outputs=[Output("step_invalid_out", x.last())],
+        outputs=[Output("step_invalid_out", x)],
     ).build()
 
     with np.testing.assert_raises(ValueError):
@@ -358,11 +277,11 @@ def test_invalid_step_raises():
 
 
 def test_format_maps_multiple_columns_to_one_input():
-    x = Input("multi_column_x", dim=3)
+    x = Input("multi_column_x", dim=3, tw=2)
     model = Modely(
         "multi_column_model",
         inputs=[x],
-        outputs=[Output("multi_column_out", x.sw(2))],
+        outputs=[Output("multi_column_out", x)],
     ).build()
 
     loader = DataLoader(
@@ -372,9 +291,9 @@ def test_format_maps_multiple_columns_to_one_input():
     )
 
     ## One window per pair of consecutive rows, features in the declared order
-    assert loader.dataset["multi_column_x"].shape == (9, 3, 2)
+    assert loader._dataset["multi_column_x"].shape == (9, 2, 3)
     np.testing.assert_array_equal(
-        loader.dataset["multi_column_x"][0],
+        loader._dataset["multi_column_x"][0].T,
         np.array([[2, 6], [3, 7], [4, 8]], dtype=np.float32),
     )
 
@@ -385,16 +304,16 @@ def test_format_maps_multiple_columns_to_one_input():
         source=os.path.join(os.path.dirname(__file__), "datasets", "test.csv"),
     )
     np.testing.assert_array_equal(
-        by_index.dataset["multi_column_x"], loader.dataset["multi_column_x"]
+        by_index._dataset["multi_column_x"], loader._dataset["multi_column_x"]
     )
 
 
 def test_format_rejects_a_column_count_that_does_not_match_dim():
-    x = Input("wrong_width_x", dim=3)
+    x = Input("wrong_width_x", dim=3, tw=2)
     model = Modely(
         "wrong_width_model",
         inputs=[x],
-        outputs=[Output("wrong_width_out", x.sw(2))],
+        outputs=[Output("wrong_width_out", x)],
     ).build()
 
     with np.testing.assert_raises(ValueError):
@@ -405,12 +324,29 @@ def test_format_rejects_a_column_count_that_does_not_match_dim():
         )
 
 
+def test_a_matrix_input_reads_its_data_as_dim_or_flat_never_reordered():
+    # Only the number of values was checked before reshaping: (N, 3, 2) fed to
+    # dim=(2, 3) was taken, every matrix scrambled.
+    x = Input("matrix_x", dim=(2, 3), tw=1)
+    model = Modely(
+        "matrix_model", inputs=[x], outputs=[Output("matrix_out", x)]
+    ).build()
+    matrices = np.arange(24, dtype=np.float32).reshape(4, 2, 3)
+    for given in (matrices, matrices.reshape(4, 6), matrices.reshape(4, 1, 2, 3)):
+        loader = DataLoader(model, source={"matrix_x": given})
+        np.testing.assert_array_equal(loader.get_input("matrix_x")[:, 0], matrices)
+    with pytest.raises(
+        ValueError, match=r"laid out \(3, 2\) per timestep, but its dim=\(2, 3\)"
+    ):
+        DataLoader(model, source={"matrix_x": matrices.reshape(4, 3, 2)})
+
+
 def test_on_short_skips_simulations_that_are_too_short():
-    x = Input("short_x", dim=1)
+    x = Input("short_x", dim=1, tw=4)
     model = Modely(
         "short_model",
         inputs=[x],
-        outputs=[Output("short_out", x.sw(4))],
+        outputs=[Output("short_out", x)],
     ).build()
 
     simulations = [
@@ -422,9 +358,9 @@ def test_on_short_skips_simulations_that_are_too_short():
         DataLoader(model, source=simulations)
 
     loader = DataLoader(model, source=simulations, on_short="skip")
-    assert loader.dataset["short_x"].shape == (2, 1, 4)
+    assert loader._dataset["short_x"].shape == (2, 4, 1)
     np.testing.assert_array_equal(
-        loader.dataset["short_x"][:, 0],
+        loader._dataset["short_x"][:, :, 0],
         np.array([[1, 2, 3, 4], [2, 3, 4, 5]], dtype=np.float32),
     )
 
@@ -434,11 +370,11 @@ def test_on_short_skips_simulations_that_are_too_short():
 
 
 def test_simulations_are_windowed_independently():
-    x = Input("independent_x", dim=1)
+    x = Input("independent_x", dim=1, tw=2)
     model = Modely(
         "independent_model",
         inputs=[x],
-        outputs=[Output("independent_out", x.sw(2))],
+        outputs=[Output("independent_out", x)],
     ).build()
 
     loader = DataLoader(
@@ -451,17 +387,17 @@ def test_simulations_are_windowed_independently():
 
     ## No window spans two simulations
     np.testing.assert_array_equal(
-        loader.dataset["independent_x"][:, 0],
+        loader._dataset["independent_x"][:, :, 0],
         np.array([[1, 2], [2, 3], [10, 11]], dtype=np.float32),
     )
 
 
 def test_multiple_dynamic_sequence_lengths_are_rejected():
-    x = Input("two_dynamic_x", dim=1, seq=(-1, -1))
+    x = Input("two_dynamic_x", dim=1, seq=(-1, -1), tw=2)
     model = Modely(
         "two_dynamic_model",
         inputs=[x],
-        outputs=[Output("two_dynamic_out", x.sw(2))],
+        outputs=[Output("two_dynamic_out", x)],
     ).build()
 
     with np.testing.assert_raises(ValueError):
@@ -473,11 +409,11 @@ def test_multiple_dynamic_sequence_lengths_are_rejected():
 
 
 def test_full_sequence_spans_each_simulation_and_pads():
-    x = Input("full_x", dim=1, seq=-1)
+    x = Input("full_x", dim=1, seq=-1, tw=1)
     model = Modely(
         "full_model",
         inputs=[x],
-        outputs=[Output("full_out", x.sw(1))],
+        outputs=[Output("full_out", x)],
     ).build()
 
     loader = DataLoader(
@@ -491,14 +427,13 @@ def test_full_sequence_spans_each_simulation_and_pads():
 
     ## One sample per simulation, padded on the rollout axis to the longest one
     assert len(loader) == 2
-    assert loader.dataset["full_x"].shape == (2, 1, 1, 5)
+    assert loader._dataset["full_x"].shape == (2, 5, 1, 1)
     np.testing.assert_array_equal(
-        loader.dataset["full_x"][:, 0, 0],
+        loader._dataset["full_x"][:, :, 0, 0],
         np.array([[1, 2, 3, 4, 5], [10, 11, 12, 12, 12]], dtype=np.float32),
     )
 
     ## The mask marks the real steps of every simulation
-    assert loader.padded_inputs == {"full_x"}
     np.testing.assert_array_equal(
         loader.mask,
         np.array([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=bool),
@@ -506,11 +441,11 @@ def test_full_sequence_spans_each_simulation_and_pads():
 
 
 def test_full_sequence_leaves_the_inner_levels_alone():
-    x = Input("full_nested_x", dim=1, seq=(2, -1))
+    x = Input("full_nested_x", dim=1, seq=(-1, 2), tw=1)
     model = Modely(
         "full_nested_model",
         inputs=[x],
-        outputs=[Output("full_nested_out", x.sw(1))],
+        outputs=[Output("full_nested_out", x)],
     ).build()
 
     loader = DataLoader(
@@ -523,7 +458,7 @@ def test_full_sequence_leaves_the_inner_levels_alone():
     )
 
     ## The inner level still spans 2, so the outermost one covers what is left
-    assert loader.dataset["full_nested_x"].shape == (2, 1, 1, 2, 5)
+    assert loader._dataset["full_nested_x"].shape == (2, 5, 2, 1, 1)
     np.testing.assert_array_equal(
         loader.mask,
         np.array([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=bool),
@@ -531,11 +466,11 @@ def test_full_sequence_leaves_the_inner_levels_alone():
 
 
 def test_full_sequence_of_equal_simulations_needs_no_mask():
-    x = Input("uniform_x", dim=1, seq=-1)
+    x = Input("uniform_x", dim=1, seq=-1, tw=1)
     model = Modely(
         "uniform_model",
         inputs=[x],
-        outputs=[Output("uniform_out", x.sw(1))],
+        outputs=[Output("uniform_out", x)],
     ).build()
 
     loader = DataLoader(
@@ -547,17 +482,16 @@ def test_full_sequence_of_equal_simulations_needs_no_mask():
         seq_length="full",
     )
 
-    assert loader.dataset["uniform_x"].shape == (2, 1, 1, 4)
+    assert loader._dataset["uniform_x"].shape == (2, 4, 1, 1)
     assert loader.mask is None
-    assert loader.padded_inputs == set()
 
 
 def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
-    x = Input("full_step_x", dim=1, seq=-1)
+    x = Input("full_step_x", dim=1, seq=-1, tw=1)
     model = Modely(
         "full_step_model",
         inputs=[x],
-        outputs=[Output("full_step_out", x.sw(1))],
+        outputs=[Output("full_step_out", x)],
     ).build()
 
     ## The sequence already spans the simulation, so there is nothing to step over
@@ -569,11 +503,11 @@ def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
             step=2,
         )
 
-    inner = Input("full_inner_x", dim=1, seq=(-1, 2))
+    inner = Input("full_inner_x", dim=1, seq=(2, -1), tw=1)
     inner_model = Modely(
         "full_inner_model",
         inputs=[inner],
-        outputs=[Output("full_inner_out", inner.sw(1))],
+        outputs=[Output("full_inner_out", inner)],
     ).build()
 
     ## 'full' resolves the outermost sequence only
@@ -585,48 +519,20 @@ def test_full_sequence_rejects_step_and_inner_dynamic_sequences():
         )
 
 
-def test_normalization_ignores_padded_steps():
-    x = Input("padded_norm_x", dim=1, seq=-1)
-    model = Modely(
-        "padded_norm_model",
-        inputs=[x],
-        outputs=[Output("padded_norm_out", x.sw(1))],
-    ).build()
-
-    loader = DataLoader(
-        model,
-        source=[
-            {"padded_norm_x": np.arange(1, 6, dtype=np.float32)},
-            {"padded_norm_x": np.array([10, 11], dtype=np.float32)},
-        ],
-        seq_length="full",
-    )
-    loader.normalize(method="standard")
-
-    ## The three repeated steps of the short simulation must not move the mean
-    observed = np.array([1, 2, 3, 4, 5, 10, 11], dtype=np.float64)
-    assert loader.normalization_stats["padded_norm_x"]["offset"].ravel()[
-        0
-    ] == pytest.approx(observed.mean())
-    assert loader.normalization_stats["padded_norm_x"]["scale"].ravel()[
-        0
-    ] == pytest.approx(observed.std())
-
-
 def test_uncollected_loop_warns_on_simulations_of_different_lengths():
-    body_x = Input("warn_body_x", dim=1)
-    body_out = Output("warn_body_out", body_x.last())
+    body_x = Input("warn_body_x", dim=1, tw=1)
+    body_out = Output("warn_body_out", body_x)
     body = Modely("warn_body", inputs=[body_x], outputs=[body_out]).build()
 
-    seed = Input("warn_x", dim=1, seq=-1)
+    seed = Input("warn_x", dim=1, seq=-1, tw=1)
     loop = Loop(
         f=body,
-        callback={body_x: body_out},
-        initial={body_x: seed},
-        length=4,
+        feedback={body_x: body_out},
+        seq=4,
         collect=False,
         name="warn_loop",
-    )
+        init={body_x: seed},
+    )()
     model = Modely(
         "warn_model", inputs=[seed], outputs=[Output("warn_out", loop)]
     ).build()
@@ -667,14 +573,14 @@ def _samples_model():
     """pred = 2 * x[t] from a 3-sample window of x, against y[t + 1]."""
     from nnodely import Parameter
 
-    x = Input("samples_x")
-    y = Input("samples_y")
-    window = x.sw(3)
-    pred = Output("samples_pred", x.last() * Parameter(value=[2.0]))
+    x = Input("samples_x", tw=3)
+    y = Input("samples_y", tw=(0, 1))
+    window = x
+    pred = Output("samples_pred", TimeSelect(-1)(x) * Parameter(value=[2.0]))
     model = Modely(
         "samples_model", inputs=[x, y], outputs=[pred, Output("samples_window", window)]
     )
-    model.minimize("error", pred, y.next())
+    model.minimize("error", pred, y)
     return model.build()
 
 
@@ -691,7 +597,7 @@ def test_get_samples_returns_consecutive_windows_of_one_simulation():
     samples = data.get_samples(4, start=2, simulation="test2.csv")
 
     assert set(samples) == set(data.as_dict())
-    assert samples["samples_x"].shape == (4, 1, 3)
+    assert samples["samples_x"].shape == (4, 3, 1)
     assert samples["samples_y"].shape == (4, 1, 1)
     for i in range(4):
         ## sample i ends on row start + i + 2; its next() is the row after
@@ -751,7 +657,7 @@ def test_get_samples_follows_the_loader_step():
 
     ## step=2 keeps every other window: they end on rows 2, 4 and 6
     np.testing.assert_array_equal(
-        samples["samples_x"][:, 0, -1], raw["data_1"][[2, 4, 6]]
+        samples["samples_x"][:, -1, 0], raw["data_1"][[2, 4, 6]]
     )
 
 
@@ -775,10 +681,10 @@ def test_inference_on_get_samples_is_a_time_series():
 
 
 def _csv_model():
-    x = Input("csv_x")
-    y = Input("csv_y")
+    x = Input("csv_x", tw=1)
+    y = Input("csv_y", tw=1)
     return Modely(
-        "csv_model", inputs=[x, y], outputs=[Output("csv_out", x.last() + y.last())]
+        "csv_model", inputs=[x, y], outputs=[Output("csv_out", x + y)]
     ).build()
 
 
@@ -836,3 +742,264 @@ def test_na_cells_are_kept_as_nan_with_a_warning(tmp_path):
     assert "'holes.csv': input 'csv_y' has 1 n/a values, kept as NaN." in messages
     assert np.isnan(_column_values(data, "csv_x")[1])
     assert np.isnan(_column_values(data, "csv_y")[2])
+
+
+# ------------------------------------------------------------------
+# windowed=True: data already laid out as the model's tensors
+# ------------------------------------------------------------------
+
+
+def _window_model():
+    x = Input("win_x", tw=10)
+    return Modely("win_model", inputs=[x], outputs=[Output("win_out", x)]).build()
+
+
+def test_windowed_data_is_used_as_given():
+    windows = np.random.rand(100, 10, 1).astype(np.float32)  # (B, T, D)
+
+    loader = DataLoader(_window_model(), source={"win_x": windows}, windowed=True)
+
+    ## No window is built and no sample is dropped
+    assert len(loader) == 100
+    np.testing.assert_array_equal(loader.as_dict()["win_x"], windows)
+
+    ## A single feature may leave its axis out, and nested lists are arrays
+    for given in (windows[..., 0], windows.tolist()):
+        same = DataLoader(_window_model(), source={"win_x": given}, windowed=True)
+        np.testing.assert_array_equal(same.as_dict()["win_x"], windows)
+
+    ## The dataset is a copy: the caller's array changing later does not reach it
+    windows[0] = -1.0
+    assert (loader.as_dict()["win_x"][0] != -1.0).all()
+
+
+def test_windowed_data_round_trips_what_the_loader_builds():
+    x = Input("trip_x", dim=2, tw=5)
+    y = Input("trip_y", tw=(2, 3))
+    s = Input("trip_s", seq=3, tw=2)
+    model = Modely(
+        "trip_model",
+        inputs=[x, y, s],
+        outputs=[Output("trip_out", TimeSelect(-1)(x) + TimeSelect(-1)(y))],
+    )
+    model.minimize("trip", TimeSelect(-1)(s), TimeSelect(-1)(y))
+    model.build()
+    signals = {
+        "trip_x": np.random.rand(40, 2),
+        "trip_y": np.random.rand(40),
+        "trip_s": np.random.rand(40),
+    }
+
+    built = DataLoader(model, source=signals).as_dict()
+    given = DataLoader(model, source=built, windowed=True).as_dict()
+
+    assert given.keys() == built.keys()
+    for name in built:
+        np.testing.assert_array_equal(given[name], built[name])
+
+
+def test_windowed_target_is_not_shifted_again():
+    x = Input("next_x", tw=1)
+    y = Input("next_y", tw=(0, 1))  # the next sample
+    model = Modely("next_model", inputs=[x], outputs=[Output("next_out", x)])
+    model.minimize("next", "next_out", y)
+    model.build()
+
+    ## The pairs are already made: y[i] is the sample after x[i]
+    xs = np.arange(5, dtype=np.float32).reshape(5, 1, 1)
+    ys = xs + 1
+
+    ## Raw data is aligned by the loader, which reads y one sample ahead...
+    raw = DataLoader(model, source={"next_x": xs, "next_y": ys})
+    np.testing.assert_array_equal(raw.as_dict()["next_y"] - raw.as_dict()["next_x"], 2)
+
+    ## ...windowed data keeps the pairs it is given
+    windowed = DataLoader(
+        model, source={"next_x": xs, "next_y": ys}, windowed=True
+    ).as_dict()
+    np.testing.assert_array_equal(windowed["next_y"] - windowed["next_x"], 1)
+
+
+def test_windowed_data_reads_several_dynamic_lengths_from_its_shape():
+    from nnodely import Parameter
+
+    x = Input("dyn2_x", seq=(-1, -1), tw=1)
+    y = Input("dyn2_y", seq=(-1, -1), tw=1)
+    gain = Parameter("dyn2_gain", value=1.0)
+    model = Modely("dyn2_model", inputs=[x], outputs=[Output("dyn2_out", x * gain)])
+    model.minimize("dyn2", "dyn2_out", y)
+    model.build()
+
+    xs = np.random.rand(16, 4, 6, 1, 1).astype(np.float32)
+
+    ## Building the windows resolves a single dynamic length
+    with pytest.raises(ValueError, match="windowed=True"):
+        DataLoader(model, source={"dyn2_x": xs[:, 0, 0, 0], "dyn2_y": xs[:, 0, 0, 0]})
+
+    loader = DataLoader(model, source={"dyn2_x": xs, "dyn2_y": 3 * xs}, windowed=True)
+    assert loader.as_dict()["dyn2_x"].shape == (16, 4, 6, 1, 1)
+    assert loader.mask is None
+
+    model.train(loader, epochs=200, batch_size=16, lr=5e-2, printer=None, **CONVERGED)
+    np.testing.assert_allclose(np.ravel(gain.value_numpy), [3.0], atol=1e-2)  # type: ignore
+
+
+def test_windowed_rollouts_of_different_lengths_are_padded_and_masked():
+    x = Input("roll_x", seq=-1, tw=1)
+    model = Modely("roll_model", inputs=[x], outputs=[Output("roll_out", x)]).build()
+    long = np.arange(15, dtype=np.float32).reshape(3, 5, 1, 1)
+    short = np.arange(100, 106, dtype=np.float32).reshape(2, 3, 1, 1)
+
+    loader = DataLoader(
+        model, source=[{"roll_x": long}, {"roll_x": short}], windowed=True
+    )
+
+    ## The shorter rollout repeats its last step up to the longest one
+    assert loader.as_dict()["roll_x"].shape == (5, 5, 1, 1)
+    np.testing.assert_array_equal(
+        loader.as_dict()["roll_x"][3:, :, 0, 0],
+        [[100, 101, 102, 102, 102], [103, 104, 105, 105, 105]],
+    )
+
+    ## One mask row per sample, each with the rollout of its simulation
+    np.testing.assert_array_equal(
+        loader.mask,
+        [[1, 1, 1, 1, 1]] * 3 + [[1, 1, 1, 0, 0]] * 2,
+    )
+
+    ## The simulations are kept apart
+    np.testing.assert_array_equal(
+        loader.get_samples(2, simulation=1)["roll_x"][:, :3, 0, 0],
+        short[:, :, 0, 0],
+    )
+
+
+def test_windowed_lengths_that_cannot_be_padded_are_rejected():
+    x = Input("pad_x", seq=(-1, -1), tw=1)
+    u = Input("pad_u", seq=-1, tw=1)
+    model = Modely(
+        "pad_model",
+        inputs=[x, u],
+        outputs=[Output("pad_out", x), Output("pad_u_out", u)],
+    ).build()
+
+    def simulation(rollout, inner, rollout_u=None):
+        return {
+            "pad_x": np.zeros((2, rollout, inner, 1, 1)),
+            "pad_u": np.zeros((2, rollout if rollout_u is None else rollout_u, 1, 1)),
+        }
+
+    ## Only the rollout is padded, so an inner dynamic length must match
+    with pytest.raises(ValueError, match="only the outermost dynamic"):
+        DataLoader(model, source=[simulation(5, 2), simulation(3, 4)], windowed=True)
+
+    ## Every input whose outermost axis is dynamic shares one rollout
+    with pytest.raises(ValueError, match="share one rollout"):
+        DataLoader(model, source=simulation(5, 2, rollout_u=4), windowed=True)
+
+    ## The rollout itself may differ
+    loader = DataLoader(
+        model, source=[simulation(5, 2), simulation(3, 2)], windowed=True
+    )
+    assert loader.as_dict()["pad_x"].shape == (4, 5, 2, 1, 1)
+    assert loader.mask is not None and loader.mask.shape == (4, 5)
+
+
+def test_windowed_modelyloop_matches_the_windows_it_would_build():
+    from nnodely import IntegrateStep, ModelyLoop, Parameter
+
+    force, x, v = Input("wl_F", tw=1), Input("wl_x", tw=1), Input("wl_v", tw=1)
+    k = Parameter("wl_k", value=1.0)
+    v_next = v.feedback(IntegrateStep(dt=0.1)(v, force - k * x))
+    x_next = x.feedback(IntegrateStep(dt=0.1)(x, v_next))
+    model = ModelyLoop(
+        "wl_loop", inputs=[force, x, v], outputs=[Output("wl_x_next", x_next)]
+    )
+    model.minimize("wl", "wl_x_next", Input("wl_x_meas", tw=1))
+    model.build()
+    signals = {
+        name: np.random.rand(60) for name in ("wl_F", "wl_x", "wl_v", "wl_x_meas")
+    }
+
+    built = DataLoader(model, source=signals, seq_length=8, step=4).as_dict()
+    given = DataLoader(model, source=built, windowed=True).as_dict()
+    for name in built:
+        np.testing.assert_array_equal(given[name], built[name])
+
+    ## An optional input left out reads zeros over the shared rollout
+    without_v = {name: values for name, values in built.items() if name != "wl_v"}
+    given = DataLoader(model, source=without_v, windowed=True).as_dict()
+    assert given["wl_v"].shape == built["wl_v"].shape
+    assert not given["wl_v"].any()
+
+
+def test_windowed_rejects_a_wrong_layout_and_options_it_does_not_use():
+    model = _window_model()
+    windows = np.random.rand(100, 10, 1)
+
+    with pytest.raises(ValueError, match=r"laid out as its tensor, \(N, 10, 1\)"):
+        DataLoader(model, source={"win_x": windows[:, :9]}, windowed=True)
+    with pytest.raises(ValueError, match="cannot be read as one array"):
+        DataLoader(model, source={"win_x": [[1.0] * 10, [1.0] * 9]}, windowed=True)
+    with pytest.raises(TypeError, match="windowed=True reads a dict"):
+        DataLoader(model, source=_SAMPLES_DIR, windowed=True)
+    with pytest.raises(ValueError, match="seq_length"):
+        DataLoader(model, source={"win_x": windows}, windowed=True, seq_length=3)
+    with pytest.raises(ValueError, match="step"):
+        DataLoader(model, source={"win_x": windows}, windowed=True, step=2)
+    with pytest.raises(TypeError, match="windowed is True or False"):
+        DataLoader(model, source={"win_x": windows}, windowed="yes")  # type: ignore[arg-type]
+
+
+def test_windowed_inputs_hold_the_same_number_of_samples():
+    a, b = Input("count_a", tw=2), Input("count_b", tw=2)
+    model = Modely("count_model", inputs=[a, b], outputs=[Output("count_out", a + b)])
+    model.build()
+
+    with pytest.raises(ValueError, match="different numbers of samples"):
+        DataLoader(
+            model,
+            source={"count_a": np.zeros((10, 2, 1)), "count_b": np.zeros((9, 2, 1))},
+            windowed=True,
+        )
+
+
+def test_raw_data_laid_out_as_windows_points_to_windowed():
+    with pytest.raises(ValueError, match="pass windowed=True"):
+        DataLoader(_window_model(), source={"win_x": np.random.rand(100, 10, 1)})
+
+
+def test_a_loader_prints_as_a_table_of_its_inputs():
+    """A row per input, its sequence as the loader resolved it, under the
+    model's name, the number of samples and the source."""
+    from nnodely import Fir
+
+    u = Input("print_u", seq=-1, tw=(2, 1))
+    x = Input("print_x", dim=2, tw=3)
+    outputs = [
+        Output("print_y", Fir(features=1)(u)),
+        Output("print_z", Fir(features=1)(x)),
+    ]
+    model = Modely("print_model", inputs=[u, x], outputs=outputs).build()
+    loader = DataLoader(
+        model,
+        source={"print_u": np.arange(20.0), "print_x": np.ones((20, 2))},
+        seq_length=4,
+    )
+
+    assert repr(loader) == (
+        "DataLoader(model='print_model', samples=14, source='in-memory dict', "
+        "inputs=['print_u', 'print_x'])"
+    )
+    assert str(loader) == "\n".join(
+        [
+            "┏━━━━━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━┓",
+            "┃ input   ┃ seq  ┃ tw     ┃ dim  ┃ shape         ┃",
+            "┡━━━━━━━━━┻━━━━━━┻━━━━━━━━┻━━━━━━┻━━━━━━━━━━━━━━━┩",
+            "│ print_model: 14 samples, in-memory dict        │",
+            "├─────────┬──────┬────────┬──────┬───────────────┤",
+            "│ print_u │ (4,) │ (2, 1) │ (1,) │ (14, 4, 3, 1) │",
+            "│ print_x │ ()   │ 3      │ (2,) │ (14, 3, 2)    │",
+            "└─────────┴──────┴────────┴──────┴───────────────┘",
+        ]
+    )

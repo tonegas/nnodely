@@ -1,8 +1,9 @@
-from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
+from importlib.metadata import version as _version
 
 try:
-    __version__ = version("nnodely")
-except PackageNotFoundError:  # a source tree used without being installed
+    __version__ = _version("nnodely")
+except _PackageNotFoundError:  # a source tree used without being installed
     __version__ = "unknown"
 
 # Keras imports its backend on import, and names only the missing module when
@@ -27,6 +28,7 @@ from nnodely.utils.random import get_seed, set_seed  # noqa: E402
 
 # Core
 from nnodely.core.modely import Modely
+from nnodely.core.modelyloop import ModelyLoop
 from nnodely.core.dataloader import DataLoader
 from nnodely.utils.printers import TinyPrinter, LegacyPrinter, NNodelyPrinter
 
@@ -35,26 +37,32 @@ from nnodely.layers.input import Input
 from nnodely.layers.output import Output
 from nnodely.layers.fir import Fir
 from nnodely.layers.linear import Linear
-from nnodely.layers.parameter import Parameter
-from nnodely.layers.constant import Constant
-from nnodely.layers.roll import Roll
+from nnodely.layers.parameter import Constant, Parameter
 from nnodely.layers.loop import Loop
+from nnodely.layers.buffer import Buffer
 from nnodely.layers.localmodel import LocalModel
-from nnodely.layers.fuzzify import Fuzzify
+from nnodely.layers.function import KerasFunction
+from nnodely.layers.fuzzify import Fuzzify, Gaussian, Rectangular, Triangular
 from nnodely.layers.interpolation import Interpolation
 from nnodely.layers.equationlearner import EquationLearner
-from nnodely.layers.derivative import Derivative
-from nnodely.layers.integrate import Integrate
-from nnodely.layers.time_ops import (
+from nnodely.layers.calculus import Derivative, DerivativeStep, Integrate, IntegrateStep
+from nnodely.layers.gradient import Gradient
+from nnodely.layers.partitions import (
     Concatenate,
     Range,
     Select,
+    SeqConcatenate,
+    SeqRange,
+    SeqReverse,
+    SeqSelect,
+    SeqStack,
     TimeConcatenate,
     TimeRange,
+    TimeReverse,
     TimeSelect,
 )
 from nnodely.layers.batchnorm import BatchNorm
-from nnodely.layers.ode import Ode, OdeNet
+from nnodely.layers.ode import Ode
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -67,18 +75,44 @@ from nnodely.layers.activations import (
     Swish,
     Tanh,
 )
-from nnodely.layers.trigonometric import Acos, Asin, Atan, Cos, Sin, Tan
+from nnodely.layers.trigonometric import (
+    Acos,
+    Acosh,
+    Asin,
+    Asinh,
+    Atan,
+    Atan2,
+    Atanh,
+    Cos,
+    Cosh,
+    Sin,
+    Sinh,
+    Tan,
+)
 from nnodely.layers.arithmetic import (
     Abs,
     Ceil,
     Clamp,
+    Cross,
     Deg2Rad,
     Exp,
+    Expm1,
     Floor,
     Log,
+    Log1p,
     Log10,
+    Log2,
+    Max,
+    Maximum,
+    Mean,
+    Min,
+    Minimum,
+    Norm,
+    Rad2Deg,
+    Round,
     Sign,
     Sqrt,
+    Square,
     Sum,
     Negative,
 )
@@ -88,6 +122,7 @@ __all__ = [
     "set_seed",
     "get_seed",
     "Modely",
+    "ModelyLoop",
     "DataLoader",
     "TinyPrinter",
     "NNodelyPrinter",
@@ -98,23 +133,35 @@ __all__ = [
     "Linear",
     "Parameter",
     "Constant",
-    "Roll",
     "Loop",
+    "Buffer",
     "LocalModel",
     "Fuzzify",
+    "KerasFunction",
+    "Triangular",
+    "Rectangular",
+    "Gaussian",
     "Interpolation",
     "EquationLearner",
     "Derivative",
+    "DerivativeStep",
+    "Gradient",
     "Integrate",
+    "IntegrateStep",
     "Concatenate",
     "TimeConcatenate",
     "TimeSelect",
     "Select",
     "TimeRange",
+    "TimeReverse",
+    "SeqSelect",
+    "SeqRange",
+    "SeqConcatenate",
+    "SeqStack",
+    "SeqReverse",
     "Range",
     "BatchNorm",
     "Ode",
-    "OdeNet",
     "ReLU",
     "LeakyReLU",
     "ELU",
@@ -131,16 +178,40 @@ __all__ = [
     "Asin",
     "Acos",
     "Atan",
+    "Atan2",
+    "Sinh",
+    "Cosh",
+    "Asinh",
+    "Acosh",
+    "Atanh",
     "Exp",
+    "Expm1",
     "Log",
+    "Log1p",
     "Log10",
+    "Log2",
     "Floor",
+    "Round",
     "Deg2Rad",
+    "Rad2Deg",
     "Negative",
     "Abs",
     "Ceil",
     "Clamp",
+    "Maximum",
+    "Minimum",
     "Sign",
     "Sqrt",
+    "Square",
     "Sum",
+    "Mean",
+    "Max",
+    "Min",
+    "Norm",
+    "Cross",
 ]
+
+# The splash, in a terminal or a notebook: NNODELY_SPLASH=0 turns it off.
+from nnodely.utils.splash import show_splash  # noqa: E402
+
+show_splash()

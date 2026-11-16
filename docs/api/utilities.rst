@@ -6,19 +6,26 @@ Utilities
 Random seed
 -----------
 
-.. autofunction:: set_seed
+:func:`set_seed` makes the initial weights, the shuffling of the data and the
+random draws of a script reproducible.
 
-.. autofunction:: get_seed
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   set_seed
+   get_seed
 
 Training printers
 -----------------
 
-These Keras callbacks render the training progress. They are selected by name
-with the ``printer`` argument of :meth:`Modely.train`, and can also be created
-and passed directly.
+These Keras callbacks show the progress of a training. Select one by name with
+the ``printer`` argument of :meth:`Modely.train`, or create one and pass it.
 
-.. autoclass:: TinyPrinter
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
 
-.. autoclass:: LegacyPrinter
-
-.. autoclass:: NNodelyPrinter
+   TinyPrinter
+   LegacyPrinter
+   NNodelyPrinter
