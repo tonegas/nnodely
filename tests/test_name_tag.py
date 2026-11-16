@@ -73,7 +73,7 @@ def _two_ks():
 
 def _html_nodes(model, folder):
     model.export_html(folder)
-    page = (folder / f"{model.name}.html").read_text()
+    page = (folder / f"{model.name}.html").read_text(encoding="utf-8")
     nodes = re.search(r"const nodes = new vis\.DataSet\((\[.*?\])\);\n", page, re.S)
     assert nodes is not None
     return json.loads(nodes.group(1))

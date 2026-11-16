@@ -1261,7 +1261,7 @@ class _NotebookView:
         self._handle = None
 
     def show(self, text: str) -> None:
-        from IPython.display import display
+        from IPython.display import display  # pyright: ignore[reportMissingImports]
 
         bundle = {"text/plain": text}
         if self._handle is None:

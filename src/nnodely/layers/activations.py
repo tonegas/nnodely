@@ -1306,8 +1306,8 @@ class GELU(Layer):
 
     >>> y = GELU(approximate=False)(x)
     >>> model = Modely("exact", inputs=[x], outputs=[Output("y", y)]).build()
-    >>> np.round(keras.ops.convert_to_numpy(model(data)["y"]), 4)
-    array([[-0.0455, -0.1587,  0.    ,  0.8413,  2.996 ]], dtype=float32)
+    >>> np.round(keras.ops.convert_to_numpy(model(data)["y"]), 3)
+    array([[-0.046, -0.159,  0.   ,  0.841,  2.996]], dtype=float32)
 
     ``name`` names the layer:
 

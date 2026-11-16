@@ -55,7 +55,7 @@ _DIRECTIVE = re.compile(r"^(\s*)\.\. code-block:: (\w+)\s*$")
 
 def _blocks(page: Path):
     """Every code block of a page: its language, options, code and line."""
-    lines = page.read_text().splitlines()
+    lines = page.read_text(encoding="utf-8").splitlines()
     i = 0
     while i < len(lines):
         match = _DIRECTIVE.match(lines[i])
@@ -118,7 +118,7 @@ def test_every_page_of_the_guide_runs_and_prints_what_it_shows(
 @pytest.mark.slow
 def test_the_hello_world_of_the_readme_runs(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    readme = (ROOT / "README.md").read_text()
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
     blocks = re.findall(r"```python\n(.*?)```", readme, flags=re.DOTALL)
     assert blocks
     for code in blocks:
