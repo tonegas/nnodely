@@ -110,10 +110,13 @@ A change is finished when all of these hold:
 
 ## Git
 
-- Branch from `develop` (protected, PR only); names follow
+- Branch from `develop` (protected, PR only), or from `main` for a
+  `hotfix/`; names follow
   [Conventional Branch](https://conventionalbranch.org): `feat/`, `fix/`,
   `hotfix/`, `chore/`, then lowercase words joined by `-`
-  (`feat/seq-reverse`). `main` receives only releases from `release/x.y.z`.
+  (`feat/seq-reverse`). `main` receives only `release/x.y.z` and
+  `hotfix/x.y.z` branches. The full model, with the merge method of each
+  branch, is under "Branching" in `CONTRIBUTING.md`.
 - Commit messages follow
   [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/):
   `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`.

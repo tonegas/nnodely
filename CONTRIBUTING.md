@@ -246,20 +246,143 @@ backend limit, a design choice, or the exclusion of a static checker rule.
 
 ### Branching Model
 
-- `main` is the default branch
-  - Always stable.
-  - Always releasable.
-  - Protected (no direct commits).
-- `develop` is the rolling branch
-  - Put all development not quite stable yet.
-  - Protected (no direct commits).
-- All work happens on branches created from `develop`.
-- A release is prepared on a `release/x.y.z` branch, merged into `main` and
-  tagged `vx.y.z`; the tag publishes the package.
+We use a Git Flow model with two long-lived branches and three kinds of
+short-lived ones:
+
+```
+feat/*, fix/*, chore/* ──squash──► develop ──branch──► release/x.y.z
+                                      ▲                     │
+                                      └─────── merge ───────┤
+                                                            ▼
+                      hotfix/x.y.z ◄──branch── main ◄─merge─┘  + tag vx.y.z
+                           │                    ▲
+                           ├────── merge ───────┘
+                           └────── merge ──────► develop
+```
+
+Two rules hold the model together:
+
+- **Squash the work branches, merge the release branches.** A `feat/`, `fix/`
+  or `chore/` branch lands on `develop` as one squashed commit. A `release/`
+  or `hotfix/` branch lands on `main` and on `develop` with a merge commit, so
+  that both branches share the same commits and the next release opens a
+  clean pull request.
+- **`main` only receives.** Nothing is ever merged from `main` into another
+  branch; the fixes of a release reach `develop` from the release branch
+  itself. A hotfix is the only branch created from `main`.
+
+`git log --first-parent main` shows one commit per release.
+
+### The Branches
+
+- `main` holds released code only.
+  - It receives pull requests from `release/*` and `hotfix/*` only, merged
+    with a merge commit.
+  - Every merge is tagged `vx.y.z`, and the tag publishes the package.
+- `develop` integrates the ongoing work.
+  - Every work branch starts from it.
+  - It receives work branches squashed, and `release/*` and `hotfix/*` with a
+    merge commit.
+- Work branches (`feat/`, `fix/`, `chore/`) carry one change each.
+  - They start from `develop` and return to it with a squashed pull request.
+  - Their commits are free (work in progress included): the squash replaces
+    them with the title of the pull request.
+- `release/x.y.z` stabilizes a release.
+  - It starts from `develop` when the content of the release is decided. New
+    features keep going to `develop` and wait for the next release.
+  - It takes fixes, documentation, the changelog and the version bump, never a
+    new feature. Push to it directly, or squash a `fix/` branch into it.
+- `hotfix/x.y.z` fixes a released version.
+  - It starts from `main` and takes the fix and the version bump only.
+
+### Making a Release
+
+1. Create the branch: `git switch develop && git switch -c release/x.y.z`.
+2. Stabilize it: fixes, `CHANGELOG.md`, version in `pyproject.toml`.
+3. Open a pull request `release/x.y.z → main` titled
+   `chore(release): vx.y.z`. When the full test matrix passes, merge it with
+   a merge commit.
+4. Tag the merge commit:
+   `git tag -s vx.y.z origin/main && git push origin vx.y.z`. The tag starts
+   the `Publish` workflow, which waits for a maintainer to approve the `pypi`
+   deployment (Actions → the run → Review deployments) and then publishes the
+   package to TestPyPI and PyPI.
+5. Open a pull request `release/x.y.z → develop` titled
+   `chore(release): merge vx.y.z into develop` and merge it with a merge
+   commit.
+6. Delete `release/x.y.z`.
+
+A hotfix follows steps 3 to 6, starting from a `hotfix/x.y.z` branch created
+from `main`.
 
 ### Branch Naming
 
-We follow [this](https://conventionalbranch.org).
+We follow [Conventional Branch](https://conventionalbranch.org) 1.1.0:
+`<type>/<description>`, where the description uses lowercase letters, digits,
+hyphens between words and dots in version numbers.
+
+| Type | Use |
+| --- | --- |
+| `feat/` | a new feature (`feat/seq-reverse`) |
+| `fix/` | a bug fix (`fix/onnx-export-shape`) |
+| `chore/` | anything else: documentation, refactoring, tests, dependencies, CI |
+| `release/` | a release being stabilized (`release/2.1.0`) |
+| `hotfix/` | a fix to a released version (`hotfix/2.0.1`) |
+
+The specification has no `docs/`, `refactor/` or `test/` types: use `chore/`
+and state the kind in the commit message (`docs: ...`, `refactor: ...`). The
+trunk branches `main` and `develop` take no prefix. Branches opened by an AI
+assistant may also use the specification's agent types (`claude/`, `ai/`).
+
+### Commits on Each Branch
+
+| Branch | Its commits |
+| --- | --- |
+| `main` | merge commits only, `chore(release): vx.y.z` |
+| `develop` | one squashed commit per pull request (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`), and the merge commits of releases and hotfixes |
+| `release/x.y.z`, `hotfix/x.y.z` | `fix:`, `docs:`, `chore(release): bump version to x.y.z`; never `feat:` |
+| work branches | anything; only the pull request title matters |
+
+The title of a pull request becomes the commit message on the target branch,
+so it must be a valid Conventional Commit (see below). A squashed pull request
+also keeps its description as the commit body: write it for the history, and
+put a `BREAKING CHANGE:` footer there when one applies.
+
+### Repository Settings
+
+These settings on GitHub enforce the model.
+
+- **Merge methods** (Settings → General → Pull Requests): merge commits and
+  squash enabled, rebase merging disabled. The default message of a merge
+  commit is the pull request title; the default message of a squash is the
+  pull request title and description. Automatic branch deletion stays off,
+  because a release branch must survive its merge into `main` for the second
+  pull request.
+- **Ruleset `main`** (default branch): a pull request required, merge method
+  **merge** only, one approval. Repository admins may bypass it for pull
+  requests only, so a maintainer can merge their own release without a
+  second reviewer but can never push to `main` directly.
+- **Ruleset `main-protection`** (default branch, no bypass): deletion and
+  force pushes blocked; required checks `lint`, every
+  `test (os, python, backend)` job of `run-tests.yml` (three systems, Python
+  3.10 to 3.13, three backends), `Compute coverage (backend)` and
+  `codecov/patch`. It is separate from `main` so that bypassing the review
+  never bypasses the tests.
+- **Ruleset `develop`** (`develop`, no bypass): deletion and force pushes
+  blocked; a pull request required, merge methods **merge** and **squash**;
+  required checks `lint`, every `test (os, 3.13, backend)` job of
+  `run-dev-tests.yml` and `codecov/patch`.
+- **Ruleset `release`** (`release/**`, `hotfix/**`, no bypass): force pushes
+  blocked, so nobody rewrites commits that others may have pushed. Direct
+  pushes and deletion stay allowed; no check is required, because the pull
+  requests into `main` and `develop` run the tests.
+- **Ruleset `deploy`** (tags `v*`): creation restricted to repository
+  admins, since a tag publishes the package; deletion and updates blocked, so
+  a published tag never moves; the tagged commit must be signed (merge
+  commits made by GitHub are).
+- **Environment `pypi`** (Settings → Environments): deployments allowed from
+  `v*` tags only, and approved by a maintainer before the package is
+  uploaded.
 
 ---
 
