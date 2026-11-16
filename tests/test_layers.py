@@ -618,19 +618,19 @@ def test_batchnorm_inference_and_training():
         inputs=[x],
         outputs=[Output("out_batchnorm", normalized)],
     ).build()
-    assert model.model is not None
+    assert model._keras_model is not None
     values = np.random.rand(4, 3, 2).astype(np.float32) * 10.0
 
     # Untrained moving statistics (mean 0, variance 1) leave the input untouched.
     inference = to_numpy(
-        model.model({"batchnorm_input": values}, training=False)["out_batchnorm"]
+        model._keras_model({"batchnorm_input": values}, training=False)["out_batchnorm"]
     )
     assert inference.shape == (4, 3, 2)
     np.testing.assert_allclose(inference, values, rtol=1e-3, atol=1e-3)
 
     # In training mode each feature is normalized over the batch and tw axes.
     training = to_numpy(
-        model.model({"batchnorm_input": values}, training=True)["out_batchnorm"]
+        model._keras_model({"batchnorm_input": values}, training=True)["out_batchnorm"]
     )
     np.testing.assert_allclose(training.mean(axis=(0, 1)), np.zeros(2), atol=1e-5)
     np.testing.assert_allclose(training.std(axis=(0, 1)), np.ones(2), atol=1e-3)
@@ -644,10 +644,10 @@ def test_batchnorm_axis_and_moving_statistics():
         inputs=[x],
         outputs=[Output("out_batchnorm_axis", normalized)],
     ).build()
-    assert model.model is not None
+    assert model._keras_model is not None
     values = np.random.rand(4, 3, 2).astype(np.float32) * 10.0
     result = to_numpy(
-        model.model({"batchnorm_axis_input": values}, training=True)[
+        model._keras_model({"batchnorm_axis_input": values}, training=True)[
             "out_batchnorm_axis"
         ]
     )
@@ -684,8 +684,8 @@ def test_a_frozen_linear_stays_frozen_through_a_keras_file(tmp_path):
         inputs=[x],
         outputs=[Output("frozen_out", Linear(features=3, name="frozen_linear")(x))],
     ).build()
-    assert model.inference_model is not None
-    model.inference_model.get_layer("frozen_linear").trainable = False
+    assert model._keras_inference_model is not None
+    model._keras_inference_model.get_layer("frozen_linear").trainable = False
 
     model.export_keras(tmp_path, "frozen")
     restored = Modely.import_keras(tmp_path / "frozen.keras")
@@ -732,8 +732,8 @@ def test_linear_takes_its_kernel_and_bias_from_parameters():
     assert linear._preds[1] is w and linear._preds[2] is b
     assert linear.kernel is w.param and linear.bias is b.param
     assert unbiased.bias is None
-    assert model.model is not None
-    assert {id(weight) for weight in model.model.trainable_weights} == {
+    assert model._keras_model is not None
+    assert {id(weight) for weight in model._keras_model.trainable_weights} == {
         id(w.param),
         id(b.param),
     }
@@ -1240,8 +1240,8 @@ def test_fir_takes_its_kernel_and_bias_from_parameters(
     # The Parameters are predecessors of the Fir, and the only weights.
     assert fir._preds[1] is w and fir._preds[2] is b
     assert fir.kernel is w.param and fir.bias is b.param
-    assert model.model is not None
-    assert {id(weight) for weight in model.model.trainable_weights} == {
+    assert model._keras_model is not None
+    assert {id(weight) for weight in model._keras_model.trainable_weights} == {
         id(w.param),
         id(b.param),
     }
@@ -1294,7 +1294,10 @@ def test_firs_given_one_parameter_share_its_weight(tmp_path):
 
     # One variable, held by the Parameter, behind both Firs.
     assert first.kernel is w.param and second.kernel is w.param
-    assert model.model is not None and len(model.model.trainable_weights) == 1
+    assert (
+        model._keras_model is not None
+        and len(model._keras_model.trainable_weights) == 1
+    )
 
     # Changed through one Fir, the kernel changes for the other as well.
     first.kernel.assign(np.array([0.0, 0.0, 2.0], dtype=np.float32))
@@ -1305,8 +1308,8 @@ def test_firs_given_one_parameter_share_its_weight(tmp_path):
     # Still one weight once saved and loaded.
     model.save(tmp_path / "fir_twin")
     restored = Modely.load(tmp_path / "fir_twin")
-    assert restored.model is not None
-    assert len(restored.model.trainable_weights) == 1
+    assert restored._keras_model is not None
+    assert len(restored._keras_model.trainable_weights) == 1
     restored_result = restored(data)
     for name in ("fir_twin_first", "fir_twin_second"):
         np.testing.assert_allclose(
@@ -1490,7 +1493,10 @@ def test_a_layer_that_reads_one_stream_is_applied_to_every_stream():
             for index, node in enumerate(pair)
         ],
     ).build()
-    assert model.model is not None and len(model.model.trainable_weights) == 1
+    assert (
+        model._keras_model is not None
+        and len(model._keras_model.trainable_weights) == 1
+    )
 
     av = np.array([[[0.3]]], dtype=np.float32)
     bv = np.array([[[-1.0, 2.0, 0.5], [0.4, 0.75, -0.2]]], dtype=np.float32)
@@ -1539,8 +1545,8 @@ def test_prelu_learns_one_slope_per_feature():
     x = Input("prelu_slope_x", dim=2, seq=-1, tw=3)
     out = Output("prelu_slope_out", PReLU()([x]))
     model = Modely("prelu_slope", inputs=[x], outputs=[out]).build()
-    assert model.model is not None
-    assert [tuple(w.shape) for w in model.model.trainable_weights] == [(1, 1, 2)]
+    assert model._keras_model is not None
+    assert [tuple(w.shape) for w in model._keras_model.trainable_weights] == [(1, 1, 2)]
 
     for steps in (2, 5):
         values = np.random.default_rng(steps).normal(size=(1, steps, 3, 2))
@@ -1591,7 +1597,7 @@ def test_prelu_and_batchnorm_compute_with_parameters():
     )
 
     model.freeze()
-    assert model.model is not None and model.model.trainable_weights == []
+    assert model._keras_model is not None and model._keras_model.trainable_weights == []
 
 
 def test_small_layer_messages_and_windows():

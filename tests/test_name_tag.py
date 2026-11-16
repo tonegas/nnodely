@@ -466,9 +466,11 @@ def test_an_input_renamed_before_the_build_is_read_by_its_new_name():
     x.name = "rn_speed"
     model.build()
 
-    assert [node.name for node in model.inference_inputs] == ["rn_speed"]
-    assert model.inference_model is not None
-    assert [tensor.name for tensor in model.inference_model.inputs] == ["rn_speed"]
+    assert [node.name for node in model._inference_inputs] == ["rn_speed"]
+    assert model._keras_inference_model is not None
+    assert [tensor.name for tensor in model._keras_inference_model.inputs] == [
+        "rn_speed"
+    ]
     np.testing.assert_allclose(
         to_numpy(model({"rn_speed": _WINDOW})["rn_y"]), [[[12.0]]]
     )
@@ -899,8 +901,8 @@ def test_a_block_is_saved_with_the_model_calling_it_and_on_its_own(tmp_path):
     a = Input("bs_a", tw=2)
     outer = Modely("bs_outer", inputs=[a], outputs=[Output("bs_o", block([a]))])
     outer.build()
-    assert outer.inference_model is not None
-    for weight in outer.inference_model.weights:  # as trained
+    assert outer._keras_inference_model is not None
+    for weight in outer._keras_inference_model.weights:  # as trained
         weight.assign(np.full(weight.shape, 3.0, np.float32))
     data = np.ones((1, 2, 1), np.float32)
 
@@ -927,8 +929,8 @@ def test_weights_all_saves_every_block_with_its_own_weights(tmp_path):
     a = Input("ba_a", tw=2)
     outer = Modely("ba_outer", inputs=[a], outputs=[Output("ba_o", block([a]))])
     outer.build()
-    assert outer.inference_model is not None
-    for weight in outer.inference_model.weights:  # as trained
+    assert outer._keras_inference_model is not None
+    for weight in outer._keras_inference_model.weights:  # as trained
         weight.assign(np.full(weight.shape, 3.0, np.float32))
     data = np.ones((1, 2, 1), np.float32)
 

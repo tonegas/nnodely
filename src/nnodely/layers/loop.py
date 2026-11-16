@@ -1192,7 +1192,7 @@ class Loop(Layer):
         self._init = self._resolve_init(init, step)
         # A body input its outputs never read, such as a target, is no input
         # of the loop.
-        read = {id(model._original(node)) for node in self._model.inference_inputs}
+        read = {id(model._original(node)) for node in self._model._inference_inputs}
         self._static_inputs = [
             node
             for node in model._inputs
@@ -1687,7 +1687,7 @@ class Loop(Layer):
     def build_layer(self):
         model = self._model
         return LoopImpl(
-            model=model.inference_model,
+            model=model._keras_inference_model,
             # The keys the body was built with: renamed since, its Inputs and
             # outputs keep them in its Keras model.
             feedback_input_names=tuple(

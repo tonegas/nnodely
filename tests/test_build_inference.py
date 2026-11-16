@@ -122,15 +122,15 @@ def test_inference_does_not_need_inputs_only_minimizers_read():
     x = _windows()
     target = np.ones((4, 1, 1), dtype=np.float32)
 
-    assert {node.name for node in model.train_inputs} == {
+    assert {node.name for node in model._train_inputs} == {
         "skip_target_x",
         "skip_target_target",
     }
-    assert [node.name for node in model.inference_inputs] == ["skip_target_x"]
+    assert [node.name for node in model._inference_inputs] == ["skip_target_x"]
 
     result = model({"skip_target_x": x})
-    assert model.model is not None
-    trained = model.model(
+    assert model._keras_model is not None
+    trained = model._keras_model(
         {"skip_target_x": x, "skip_target_target": target}, training=False
     )
     np.testing.assert_allclose(
@@ -153,8 +153,8 @@ def test_inference_returns_only_declared_outputs():
     target = np.ones((4, 1, 1), dtype=np.float32)
 
     # Training exposes both sides of every minimizer...
-    assert model.model is not None
-    trained = model.model(
+    assert model._keras_model is not None
+    trained = model._keras_model(
         {"declared_only_x": x, "declared_only_target": target}, training=False
     )
     assert set(trained) > {"declared_only_pred"}
@@ -170,7 +170,7 @@ def test_inference_keeps_an_input_that_outputs_and_minimizers_both_read():
     model.minimize("reconstruct_fit", source=rebuilt, target=x)
     model.build()
 
-    assert [node.name for node in model.inference_inputs] == ["reconstruct_x"]
+    assert [node.name for node in model._inference_inputs] == ["reconstruct_x"]
     result = model({"reconstruct_x": np.ones((2, 1, 1), dtype=np.float32)})
     assert set(result) == {"reconstruct_out"}
 
@@ -187,8 +187,8 @@ def test_inference_runs_with_the_trained_weights():
     model.train(train_data=data, epochs=3, batch_size=8, lr=1e-2, printer=None)
 
     after = to_numpy(model({"trained_x": x})["trained_pred"])
-    assert model.model is not None
-    trained = model.model(
+    assert model._keras_model is not None
+    trained = model._keras_model(
         {"trained_x": x, "trained_target": np.zeros((4, 1, 1), dtype=np.float32)},
         training=False,
     )
@@ -324,7 +324,7 @@ def test_a_model_declares_every_input_it_reads():
     model.minimize("decl_error", "decl_lo", target)
     with pytest.warns(UserWarning, match="fed-back Inputs"):
         model.build()
-    assert {node.name for node in model.train_inputs} == {
+    assert {node.name for node in model._train_inputs} == {
         "decl_x",
         "decl_state",
         "decl_target",
@@ -353,10 +353,10 @@ def test_a_build_that_fails_leaves_the_model_as_it_was():
 
     def state():
         return [
-            id(model.model),
-            id(model.inference_model),
-            *map(id, model.train_inputs),
-            *map(id, model.inference_inputs),
+            id(model._keras_model),
+            id(model._keras_inference_model),
+            *map(id, model._train_inputs),
+            *map(id, model._inference_inputs),
             *map(id, model._train_outputs),
             *model._minimizer_outputs.values(),
         ]
@@ -417,7 +417,7 @@ def test_a_model_keeps_its_own_lists_of_inputs_and_outputs():
     m1.build()
     assert [node.name for node in m1.outputs] == ["ls_ya"]
     assert [node.name for node in m1.inputs] == ["ls_a"]
-    assert [node.name for node in m1.inference_inputs] == ["ls_a"]
+    assert [node.name for node in m1._inference_inputs] == ["ls_a"]
     window = np.ones((1, 3, 1), np.float32)
     assert set(m1({"ls_a": window})) == {"ls_ya"}
 

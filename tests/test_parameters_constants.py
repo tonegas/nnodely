@@ -487,9 +487,9 @@ def test_only_a_parameter_is_trained():
         outputs=[Output("trained_out", x * parameter * constant)],
     ).build()
 
-    assert model.model is not None
-    trainable = model.model.trainable_weights
-    fixed = model.model.non_trainable_weights
+    assert model._keras_model is not None
+    trainable = model._keras_model.trainable_weights
+    fixed = model._keras_model.non_trainable_weights
     assert any(weight is parameter.param for weight in trainable)
     assert not any(weight is constant.constant for weight in trainable)
     assert any(weight is constant.constant for weight in fixed)
@@ -551,8 +551,8 @@ def test_values_given_their_sizes_round_trip_through_save(tmp_path):
 
 
 def _trainable_ids(model):
-    assert model.model is not None
-    return {id(weight) for weight in model.model.trainable_weights}
+    assert model._keras_model is not None
+    return {id(weight) for weight in model._keras_model.trainable_weights}
 
 
 def test_freeze_and_unfreeze_a_parameter_or_a_whole_model():

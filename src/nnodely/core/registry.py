@@ -117,7 +117,7 @@ class ModelSerializer:
         node_ids = {node: f"node_{i}" for i, node in enumerate(order)}
 
         if weights:
-            saved = {id(variable) for variable in model.inference_model.weights}
+            saved = {id(variable) for variable in model._keras_inference_model.weights}
             # A called model, or a body, saves its weights in its own folder,
             # and a Constant is its value, saved in its config.
             unsaved = sorted(
@@ -237,7 +237,7 @@ class ModelSerializer:
         # left by an earlier save would otherwise be loaded with it.
         weights_path = path / "model.weights.h5"
         if weights:
-            model.inference_model.save_weights(weights_path)
+            model._keras_inference_model.save_weights(weights_path)
         else:
             weights_path.unlink(missing_ok=True)
 
@@ -376,8 +376,8 @@ class ModelSerializer:
         if loaded or own_weights:
             model.build()
         if own_weights:
-            assert model.inference_model is not None
-            model.inference_model.load_weights(weights_path)
+            assert model._keras_inference_model is not None
+            model._keras_inference_model.load_weights(weights_path)
 
         loading.keep_built(model)
         return model

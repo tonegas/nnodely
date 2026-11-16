@@ -62,10 +62,10 @@ def test_layer_reuse_shares_weights():
     model = Modely(
         "reuse", inputs=[x], outputs=[Output("reuse_out", first + second)]
     ).build()
-    assert model.model is not None
+    assert model._keras_model is not None
     kernels = [
         variable
-        for variable in model.model.trainable_variables
+        for variable in model._keras_model.trainable_variables
         if "Linear" in variable.path
     ]
     assert len(kernels) == 1
@@ -114,11 +114,11 @@ def test_model_called_twice_shares_weights():
     model = Modely(
         "shared_caller", inputs=[x], outputs=[Output("shared_out", first + second)]
     ).build()
-    assert model.model is not None
+    assert model._keras_model is not None
 
     kernels = [
         variable
-        for variable in model.model.trainable_variables
+        for variable in model._keras_model.trainable_variables
         if "Linear" in variable.path
     ]
     assert len(kernels) == 1
@@ -155,8 +155,8 @@ def test_nested_model_called_twice():
     model = Modely(
         "nested_caller", inputs=[x], outputs=[Output("nested_out", first + second)]
     ).build()
-    assert model.model is not None
-    assert len(model.model.trainable_variables) == 1
+    assert model._keras_model is not None
+    assert len(model._keras_model.trainable_variables) == 1
 
     result = to_numpy(
         model({"nested_x": np.ones((1, 1, 1), dtype=np.float32)})["nested_out"]
@@ -272,10 +272,13 @@ def test_composition_shares_the_body_weights():
 
     # Not a copy of the values - the same variable, so the two graphs cannot
     # drift apart.
-    assert body.model is not None and composed.model is not None
-    assert body.model.trainable_variables[0] is composed.model.trainable_variables[0]
+    assert body._keras_model is not None and composed._keras_model is not None
+    assert (
+        body._keras_model.trainable_variables[0]
+        is composed._keras_model.trainable_variables[0]
+    )
     # And the block's own node still reaches it, so it stays inspectable.
-    assert body_fir.kernel is composed.model.trainable_variables[0]
+    assert body_fir.kernel is composed._keras_model.trainable_variables[0]
 
 
 def test_training_a_composed_model_trains_the_block():
@@ -401,8 +404,10 @@ def test_building_without_keeping_the_weights_initializes_every_one():
     for parameter in model.parameters:
         parameter.param.assign(np.full(parameter.param.shape, 3.0, np.float32))
     # Training mode moves the statistics.
-    assert model.model is not None
-    model.model({"reinit_u": np.random.rand(4, 3, 2).astype(np.float32)}, training=True)
+    assert model._keras_model is not None
+    model._keras_model(
+        {"reinit_u": np.random.rand(4, 3, 2).astype(np.float32)}, training=True
+    )
     assert np.any(to_numpy(normalized._layer.moving_mean) != 0.0)
 
     model.build(keep_weights=False)
@@ -489,8 +494,10 @@ def test_a_block_on_a_dynamic_sequence_keeps_its_weights_on_a_fixed_one(layer):
         f"{name}_model", inputs=[r], outputs=[Output(f"{name}_y", block([r]))]
     ).build()
 
-    assert model.model is not None and block.model is not None
-    assert {id(w) for w in model.model.weights} == {id(w) for w in block.model.weights}
+    assert model._keras_model is not None and block._keras_model is not None
+    assert {id(w) for w in model._keras_model.weights} == {
+        id(w) for w in block._keras_model.weights
+    }
     values = -np.ones((1, 5, 1, 1), np.float32)
     np.testing.assert_allclose(
         to_numpy(model({f"{name}_r": values})[f"{name}_y"]),
@@ -553,7 +560,7 @@ def test_a_model_used_as_a_block_takes_one_stream_per_input():
             "block_y": np.full((1, 1, 1), 2.0, dtype=np.float32),
         }
     )
-    assert [node.name for node in outer.inference_inputs] == ["block_x", "block_y"]
+    assert [node.name for node in outer._inference_inputs] == ["block_x", "block_y"]
     np.testing.assert_allclose(to_numpy(result["outer_sum"]), [[[21.0]]])
 
 
@@ -640,12 +647,12 @@ def test_layers_created_apart_have_their_own_weights_whatever_their_names(tmp_pa
     first.kernel.assign(np.full((2, 1), 1.0, dtype=np.float32))
     second.kernel.assign(np.full((2, 1), 3.0, dtype=np.float32))
 
-    assert model.inference_model is not None
-    keras_names = [layer.name for layer in model.inference_model.layers]
+    assert model._keras_inference_model is not None
+    keras_names = [layer.name for layer in model._keras_inference_model.layers]
     assert {"twin", "twin_2"} <= set(keras_names)
     assert len(keras_names) == len(set(keras_names))
     # Three layers: the two twins, and the one applied twice.
-    assert len(model.inference_model.weights) == 3
+    assert len(model._keras_inference_model.weights) == 3
     data = {"twins_x": np.ones((1, 2, 1), dtype=np.float32)}
     result = model(data)
     np.testing.assert_allclose(to_numpy(result["twins_first"]), [[[2.0]]])

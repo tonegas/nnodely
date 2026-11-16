@@ -104,7 +104,10 @@ def test_keras_function_shares_an_instance_and_makes_a_class_anew():
     ).build()
 
     # One gain for the instance, used twice; one for each made class.
-    assert model.model is not None and len(model.model.trainable_weights) == 3
+    assert (
+        model._keras_model is not None
+        and len(model._keras_model.trainable_weights) == 3
+    )
     gain.gain.assign(4.0)
     result = model({"kf_share_x": np.ones((1, 1, 1), dtype=np.float32)})
     for name, expected in (
@@ -244,6 +247,9 @@ def test_one_keras_layer_wrapped_twice_saves_and_loads_as_one(tmp_path):
 
     model.save(tmp_path / "kf_twice")
     restored = Modely.load(tmp_path / "kf_twice")
-    assert restored.model is not None and len(restored.model.trainable_weights) == 1
+    assert (
+        restored._keras_model is not None
+        and len(restored._keras_model.trainable_weights) == 1
+    )
     for name in ("kf_twice_a", "kf_twice_b"):
         np.testing.assert_allclose(to_numpy(restored(data)[name]).ravel(), [6.0])

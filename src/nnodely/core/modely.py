@@ -105,20 +105,6 @@ class Modely:
     outputs : list of Output
         The streams the model exposes, each named by its :class:`Output`.
 
-    Attributes
-    ----------
-    model : keras.Model or None
-        The Keras model :meth:`train` runs, with the outputs and the inputs
-        the objectives add. ``None`` before :meth:`build`.
-    inference_model : keras.Model or None
-        The Keras model a call on arrays runs: the declared outputs, and only
-        the inputs they read. ``None`` before :meth:`build`.
-    inference_inputs : list of Input
-        The Inputs a call on arrays needs. Empty before :meth:`build`.
-    train_inputs : list of Input
-        The Inputs the training data holds, the targets included. Empty
-        before :meth:`build`.
-
     Returns
     -------
     dict of str to tensor, Stream or list of Stream
@@ -328,13 +314,13 @@ class Modely:
                 "Buffer too; only a fed-back Input, or one only a minimizer "
                 "reads, such as a target, may be left out."
             )
-        self.model = None  # Keras model build from this DAG
-        self.train_inputs = []  # List of Input nodes that are required for training (derived from minimizers)
+        self._keras_model = None  # Keras model build from this DAG
+        self._train_inputs = []  # List of Input nodes that are required for training (derived from minimizers)
         self._train_outputs = []  # List of Output nodes that are required for training (derived from minimizers)
-        self.inference_model = (
+        self._keras_inference_model = (
             None  # Keras model of the declared outputs only, without minimizers
         )
-        self.inference_inputs = []  # List of Input nodes the declared outputs read (no minimizer-only input)
+        self._inference_inputs = []  # List of Input nodes the declared outputs read (no minimizer-only input)
         # Inputs the data may leave out: they read zeros.
         self._optional_inputs: set[Input] = set()
         # Set by build(): the key every Input and output has in the Keras
@@ -507,9 +493,9 @@ class Modely:
         are still two."""
         # The arrays come batched, as a DataLoader lays them out; an input only
         # a minimizer reads, such as a target, is neither needed nor passed on.
-        if self.inference_model is None:
+        if self._keras_inference_model is None:
             raise ValueError("Model is not built. Call build() before calling it.")
-        read = [(self._original(node), node.name) for node in self.inference_inputs]
+        read = [(self._original(node), node.name) for node in self._inference_inputs]
         given = [(node, key) for node, key in read if node in inputs]
         left_out = [(node, key) for node, key in read if node not in inputs]
         missing = [
@@ -531,7 +517,7 @@ class Modely:
                 (batch, *(1 if size is None else size for size in node.shape.tuple)),
                 np.float32,
             )
-        results = self.inference_model(arrays)
+        results = self._keras_inference_model(arrays)
         names = [output.name for output in self._outputs]
         twins = sorted({name for name in names if names.count(name) > 1})
         if twins:
@@ -568,11 +554,11 @@ class Modely:
         """Refuse to train, validate or export while an Input or an output
         has another name than the one it was built with: the data and the
         Keras models are keyed by those names."""
-        self._check_inputs_apart(self.train_inputs)
+        self._check_inputs_apart(self._train_inputs)
         renamed = [
             f"{key!r} is now {node.name!r}"
             for node, key in [
-                *((self._original(node), node.name) for node in self.train_inputs),
+                *((self._original(node), node.name) for node in self._train_inputs),
                 *((node, self._keys[id(node)]) for node in self._outputs),
             ]
             if node.name != key
@@ -629,7 +615,7 @@ class Modely:
 
         .. versionadded:: 2.0
         """
-        return self.model is not None
+        return self._keras_model is not None
 
     def build(self, keep_weights: bool = True):
         """Create the Keras model of the graph and its weights, and return the
@@ -680,8 +666,7 @@ class Modely:
         -----
         A build that raises leaves the model as it was. Building creates the
         Keras variables of the weights: after it, a Parameter's ``param`` is
-        the variable the model computes with, and the attributes ``model``
-        and ``inference_model`` are set.
+        the variable the model computes with.
 
         Basic Examples
         --------------
@@ -852,10 +837,10 @@ class Modely:
             **{id(originals.get(id(node), node)): node.name for node in train_inputs},
             **{id(node): node.name for node in self._outputs},
         }
-        self.train_inputs = train_inputs
-        self.model = model
-        self.inference_inputs = inference_inputs
-        self.inference_model = inference_model
+        self._train_inputs = train_inputs
+        self._keras_model = model
+        self._inference_inputs = inference_inputs
+        self._keras_inference_model = inference_model
 
         if not keep_weights:
             # In place, so every model computing with them - a block built on
@@ -1892,7 +1877,7 @@ class Modely:
         ----------
         val_data : DataLoader
             The data, made for this build of the model. It holds every Input
-            of ``train_inputs``, the targets included.
+            training reads, the targets included.
         out_dir : str, os.PathLike or None, default None
             The folder :meth:`ValidationResult.plot` writes the figures to,
             as PNG files. ``None`` writes none.
@@ -1986,7 +1971,7 @@ class Modely:
 
         .. versionadded:: 2.0
         """
-        if self.model is not None:
+        if self._keras_model is not None:
             self._check_names_built()
         return validation.validate(
             self,
@@ -2006,7 +1991,7 @@ class Modely:
         x_data = {name: np.asarray(values) for name, values in data.as_dict().items()}
         # The data is keyed by the names of the build it was made for: a
         # DataLoader made before the model was built again holds others.
-        missing = [node.name for node in self.train_inputs if node.name not in x_data]
+        missing = [node.name for node in self._train_inputs if node.name not in x_data]
         if missing:
             raise ValueError(
                 f"Model {self.name!r} reads the inputs {missing}, which the data "
@@ -2260,7 +2245,7 @@ class Modely:
             raise ValueError("train_data is empty.")
 
         # Ensure model is built
-        if not self.model:
+        if not self._keras_model:
             raise ValueError("Model is not built. Call build() before training.")
         self._check_names_built()
 
@@ -2272,8 +2257,8 @@ class Modely:
         if val_data is not None:
             logged += [f"val_{name}" for name in logged]
         stopper = _resolve_early_stopping(early_stopping, early_stopping_kwargs, logged)
-        self.model.set_minimizers(_resolve_minimizer_terms(self))
-        _check_minimizers_train_weights(self, self.model)
+        self._keras_model.set_minimizers(_resolve_minimizer_terms(self))
+        _check_minimizers_train_weights(self, self._keras_model)
 
         x_data, mask = self._training_arrays(train_data)
 
@@ -2285,8 +2270,8 @@ class Modely:
             val_x, val_mask = self._training_arrays(val_data)
             validation_data = val_x if val_mask is None else (val_x, val_mask)
 
-        self.model.compile(optimizer=resolved_optimizer, jit_compile=jit_compile)
-        history = self.model.fit(
+        self._keras_model.compile(optimizer=resolved_optimizer, jit_compile=jit_compile)
+        history = self._keras_model.fit(
             x=x_data,
             y=mask,
             epochs=epochs,
@@ -2464,8 +2449,8 @@ class Modely:
         """Print the Keras summary of the built model: its layers, their output
         shapes and their numbers of weights.
 
-        The summary is the one of the attribute ``model``, the Keras model
-        training runs, named ``<name>_train``. A model not built prints nothing.
+        The summary is the one of the Keras model training runs, named
+        ``<name>_train``. A model not built prints nothing.
 
         See Also
         --------
@@ -2483,8 +2468,8 @@ class Modely:
 
         .. versionadded:: 2.0
         """
-        if self.model is not None:
-            self.model.summary()
+        if self._keras_model is not None:
+            self._keras_model.summary()
 
     # -------------------------------------------------------------------------
     # Save and load

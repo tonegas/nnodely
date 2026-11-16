@@ -86,7 +86,7 @@ def test_a_keras_early_stopping_instance_restores_the_best_weights():
     weights_per_epoch = []
     recorder = keras.callbacks.LambdaCallback(
         on_epoch_end=lambda epoch, logs: weights_per_epoch.append(
-            [to_numpy(w) for w in model.model.get_weights()]  # type: ignore[union-attr]
+            [to_numpy(w) for w in model._keras_model.get_weights()]  # type: ignore[union-attr]
         )
     )
     stopper = keras.callbacks.EarlyStopping(
@@ -102,7 +102,7 @@ def test_a_keras_early_stopping_instance_restores_the_best_weights():
 
     # Only the first epoch counted as an improvement: its weights come back.
     assert len(history.losses["loss"]) == 2
-    restored = [to_numpy(w) for w in model.model.get_weights()]  # type: ignore[union-attr]
+    restored = [to_numpy(w) for w in model._keras_model.get_weights()]  # type: ignore[union-attr]
     for weight, best, last in zip(restored, *weights_per_epoch):
         np.testing.assert_allclose(weight, best)
         assert not np.allclose(best, last)
