@@ -130,23 +130,6 @@ class Signal:
     :meth:`~nnodely.Modely.validate` makes one per minimizer, in
     ``result.signals``. You do not create one yourself.
 
-    Attributes
-    ----------
-    name : str
-        The name of the minimizer.
-    source, target : numpy.ndarray
-        The two signals compared, laid out as the stream,
-        ``(samples, *seq, tw, *dim)``. A point without a target is NaN in
-        both.
-    valid : numpy.ndarray of bool
-        The points that have a target, ``(samples, *seq, tw)``.
-    shape : Shape
-        The shape of one sample.
-    samples, scored, missing : int
-        The samples, the points scored, and those without a target: the
-        steps padded onto shorter rollouts, NaN in the data. A point is one
-        sample at one step of the sequence and of the window.
-
     The metrics are functions: ``rmse``, ``mae``, ``max_error``, ``bias``,
     ``std_error``, ``nrmse_pct``, ``fit_pct``, ``r2``, ``vaf_pct`` and
     ``correlation``, and ``non_finite``. Without arguments they give a
@@ -161,6 +144,29 @@ class Signal:
     averaged over the channels not kept.
 
     ``print`` shows the table of every metric over the whole signal.
+
+    Attributes
+    ----------
+    name : str
+        The name of the minimizer.
+    source : numpy.ndarray
+        The prediction compared, laid out as the stream,
+        ``(samples, *seq, tw, *dim)``. A point without a target is NaN.
+    target : numpy.ndarray
+        The reference it is compared with, laid out as ``source``. A point
+        without a target is NaN.
+    valid : numpy.ndarray of bool
+        The points that have a target, ``(samples, *seq, tw)``.
+    shape : Shape
+        The shape of one sample.
+    samples : int
+        The samples compared.
+    scored : int
+        The points scored. A point is one sample at one step of the sequence
+        and of the window.
+    missing : int
+        The points without a target: the steps padded onto shorter rollouts,
+        NaN in the data.
 
     Notes
     -----

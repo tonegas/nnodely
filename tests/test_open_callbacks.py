@@ -368,7 +368,7 @@ def test_a_call_gives_a_declared_fed_back_input_its_data():
         [[1.5, 1.75, 1.875, 1.9375], [0.0, 1.0, 1.5, 1.75]],
     )
     row = next(row for row in loop.inputs._rows if row["input"].name == "oc_decl_level")
-    assert row["starts from"] == "oc_decl_start, first step"
+    assert row["update"].endswith("oc_decl_level₀ = #['oc_decl_start']")
 
     # In a Modely it reads the stream at every step, as it would its data.
     plain = Modely(
@@ -458,10 +458,13 @@ def test_inputs_tells_how_each_input_is_fed():
     assert [node.name for node in tank.inputs] == list(rows)
     assert rows.keys() == {"oc_tab_level", "oc_tab_rate", "oc_tab_target"}
     assert rows["oc_tab_level"]["declared"] is True
-    assert rows["oc_tab_level"]["fed back with"] == level_next.name
+    assert rows["oc_tab_level"]["update"] == (
+        f"<- {level_next.name}, oc_tab_level₀ = #['oc_tab_level']"
+    )
     assert rows["oc_tab_level"]["data"] == "required"  # a Modely reads it from data
     assert (
-        rows["oc_tab_rate"]["declared"] and rows["oc_tab_rate"]["fed back with"] is None
+        rows["oc_tab_rate"]["declared"]
+        and rows["oc_tab_rate"]["update"] == "<- #['oc_tab_rate']"
     )
     assert rows["oc_tab_target"]["data"] == "target"
 
@@ -473,7 +476,7 @@ def test_inputs_tells_how_each_input_is_fed():
     )
     row = plain.inputs._rows[-1]
     assert row["input"] is memory and not row["declared"] and row["data"] is None
-    assert row["fed back with"] == memory_next.name and row["starts from"] == "2.0"
+    assert row["update"] == f"<- {memory_next.name}, {memory.name}₀ = 2.0"
 
     # In a model.loop() rollout: declared, the level starts from its data; the state of
     # an Integrate starts from its init, read at the first step.
@@ -490,10 +493,13 @@ def test_inputs_tells_how_each_input_is_fed():
     assert (
         rows["oc_tab_level"]["declared"] and rows["oc_tab_level"]["data"] == "optional"
     )
-    assert rows["oc_tab_level"]["starts from"] == "its data, first step, else 0"
+    assert rows["oc_tab_level"]["update"] == (
+        f"<- {level_next.name}, oc_tab_level₀ = #['oc_tab_level'] or 0"
+    )
     assert rows["oc_tab_rate"]["data"] == "required"
     (state,) = [row for name, row in rows.items() if name.endswith("_oc_tab_rate")]
-    assert state["data"] is None and state["starts from"] == "oc_tab_x0, first step"
+    assert state["data"] is None
+    assert state["update"].endswith("₀ = #['oc_tab_x0']")
     # The table alone: the header, named after what it lists, and a row per
     # Input.
     lines = str(loop.inputs).splitlines()
@@ -522,15 +528,17 @@ def test_outputs_tells_what_each_output_is():
     assert tank.outputs[1] is doubled
     rows = {row["output"].name: row for row in tank.outputs._rows}
     assert rows["oc_outs_level_next"]["stream"] == level_next.name
-    assert rows["oc_outs_level_next"]["feeds back"] == ["oc_outs_level"]
+    assert rows["oc_outs_level_next"]["update"] == ["oc_outs_level"]
     assert rows["oc_outs_level_next"]["minimized by"] == ["fit (source)"]
     # Minimized through the stream it names.
-    assert rows["oc_outs_doubled"]["feeds back"] == []
+    assert rows["oc_outs_doubled"]["update"] == []
     assert rows["oc_outs_doubled"]["minimized by"] == ["reg (source)"]
     text = str(tank.outputs)
     lines = text.splitlines()
     assert lines[0].startswith("┏") and lines[1].startswith("┃ idx ┃ output ")
     assert len(lines) == 3 + 2 + 1 and lines[-1].startswith("└")
+    # The Inputs its stream is fed back into.
+    assert "-> oc_outs_level" in text
     assert (
         repr(tank.outputs)
         .splitlines()[1]
@@ -546,7 +554,7 @@ def test_outputs_tells_what_each_output_is():
     ).loop(seq=4)
     (row,) = loop.outputs._rows
     assert row["stream"] == level_next.name
-    assert row["feeds back"] == ["oc_outs_level"]
+    assert row["update"] == ["oc_outs_level"]
     assert row["output"].seq == (4,)
     assert "(4,)" in str(loop.outputs)
 
@@ -560,9 +568,9 @@ def test_inputs_of_a_loop_are_those_of_its_model_loop():
                 row["input"].name,
                 row["seq"],
                 row["declared"],
-                row["fed back with"],
+                row["update"],
                 row["data"],
-                row["starts from"],
+                row["flags"],
             )
             for row in model.inputs._rows
         ]
@@ -592,11 +600,24 @@ def test_inputs_of_a_loop_are_those_of_its_model_loop():
         inputs=[u_seq, y0_seq],
         outputs=[Output("oc_same_traj", traj)],
     )
-    state = ("oc_same_int_oc_same_u", (), False, "oc_same_int", None)
     assert rows(shortcut) == [
-        ("oc_same_y0", (None,), True, None, "required", None),
-        ("oc_same_u", (None,), True, None, "required", None),
-        (*state, "oc_same_y0, first step"),
+        (
+            "oc_same_y0",
+            (None,),
+            True,
+            "oc_same_y0₀ = #['oc_same_y0']",
+            "required",
+            None,
+        ),
+        ("oc_same_u", (None,), True, "<- #['oc_same_u']", "required", None),
+        (
+            "oc_same_int_oc_same_u",
+            (),
+            False,
+            "<- oc_same_int, oc_same_int_oc_same_u₀ = #['oc_same_y0']",
+            None,
+            "hidden",
+        ),
     ]
     assert rows(manual) == rows(shortcut)
 
@@ -610,9 +631,9 @@ def test_inputs_of_a_loop_are_those_of_its_model_loop():
         "oc_same_x",
         (None,),
         True,
-        x_next.name,
+        f"<- {x_next.name}, oc_same_x₀ = #['oc_same_x'] or 0",
         "optional",
-        "its data, first step, else 0",
+        "optional",
     )
     step = Modely(
         "oc_same_x_step", inputs=[u, x], outputs=[Output("oc_same_x_next", x_next)]
@@ -623,7 +644,14 @@ def test_inputs_of_a_loop_are_those_of_its_model_loop():
         inputs=[u_seq, x0],
         outputs=[Output("oc_same_x_traj", Loop(f=step, init={x: x0})({u: u_seq}))],
     )
-    assert rows(manual)[-1] == ("oc_same_x", (), False, x_next.name, None, "oc_same_x0")
+    assert rows(manual)[-1] == (
+        "oc_same_x",
+        (),
+        False,
+        f"<- {x_next.name}, oc_same_x₀ = #['oc_same_x0']",
+        None,
+        None,
+    )
 
 
 @pytest.mark.slow

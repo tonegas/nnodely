@@ -167,16 +167,16 @@ a row of a printed table has the fields of the object it stands for.
 - **`Modely.inputs`**: every Input a model reads (those it declares, those
   only an objective reads, its hidden states, inside the models it calls
   too) and every state of the Loops it rolls out. It prints as a table of
-  their shapes and how each is fed: declared, the stream it is fed back
-  with, what the data must hold of it (`required` for a call, `target` for
-  training only) and what it starts from. A rollout of `model.loop()`
+  their shapes, their flags (`target` for training only, `optional`,
+  `hidden`) and how each is fed: `<- v`, what it reads at every step, and
+  `x₀ = v`, what it starts from, with `#['name']` for the data of an Input.
+  A state shows both, the stream it is fed back with and its initial
+  value. A rollout of `model.loop()`
   prints the rows of the Loop it is a shortcut for, its Inputs with the
   horizon.
 - **`Modely.outputs`**: the outputs a model is declared with, in that order,
-  printed as a table of their shapes, the stream each names (in a rollout
-  of `model.loop()`, the stream of the step it collects), the Inputs a loop
-  feeds
-  that stream back into, and the objectives that read it.
+  printed as a table of their shapes, `-> s`, the Inputs a loop feeds the
+  stream of each back into, and the objectives that read it.
 - **Tables** (`inputs`, `outputs`, `parameters`, `minimizers`, `models`)
   pick an item by its name or by its index, never both, from the `idx`
   column they print; `model.parameters[2]` picks the same row after save

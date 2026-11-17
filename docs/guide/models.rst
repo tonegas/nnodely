@@ -231,7 +231,7 @@ Other forms of the call:
   targets, are ignored.
 
 The call needs every input the outputs read: ``print(vehicle.inputs)``
-marks them ``required`` in its ``data`` column.
+lists them, all but those its ``flags`` column marks ``target``.
 
 .. warning::
 
