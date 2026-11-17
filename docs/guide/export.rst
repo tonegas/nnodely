@@ -168,7 +168,7 @@ read. ``batch_size`` fixes the batch axis of the exported graph, and
      - yes
      - yes
      - no
-   * - With a :class:`~nnodely.Loop`, or a :class:`~nnodely.ModelyLoop`
+   * - With a :class:`~nnodely.Loop`, or a rollout of :meth:`~nnodely.Modely.loop`
      - yes; a dynamic rollout follows the length of the data
      - yes, with the batch and the rollout of the data it was exported
        with

@@ -15,7 +15,6 @@ from nnodely import (
     Derivative,
     DerivativeStep,
     Loop,
-    ModelyLoop,
     DataLoader,
     Parameter,
 )
@@ -2169,12 +2168,14 @@ def test_integrate():
     by_hand = to_numpy(model_loop({"x_seq": dummy, "x0_loop": start})["x_hat_loop"])
     np.testing.assert_allclose(by_hand, [[[[0.1]], [[0.3]], [[0.6]]]], rtol=1e-6)
 
-    # The block, in a ModelyLoop, closes the same feedback: one rate per step.
+    # The block, in a model.loop() rollout, closes the same feedback: one rate per step.
     y = Input("y", tw=1)
     y0 = Input("y0", tw=1)
     new_integrate = Integrate(method="euler", dt=0.1, init=y0)(y)
     out_int = Output("y_hat", new_integrate)
-    new_model = ModelyLoop("new_integrator", inputs=[y, y0], outputs=[out_int]).build()
+    new_model = (
+        Modely("new_integrator", inputs=[y, y0], outputs=[out_int]).loop().build()
+    )
 
     result = to_numpy(new_model({"y": dummy, "y0": _over_steps(start, 3)})["y_hat"])
     assert result.shape == (1, 3, 1, 1)
@@ -2182,20 +2183,20 @@ def test_integrate():
 
 
 # ---------------------------------------------------------------------------
-# Integrate: IntegrateStep across the steps of a ModelyLoop
+# Integrate: IntegrateStep across the steps of a model.loop() rollout
 # ---------------------------------------------------------------------------
 
 
 def _over_steps(value, steps):
     """A value per sample of the batch, laid out over the steps of a rollout:
-    a ModelyLoop reads an initial value at its first step."""
+    a model.loop() rollout reads an initial value at its first step."""
     return np.repeat(np.asarray(value, dtype=np.float32)[:, None], steps, axis=1)
 
 
 def _integrate_model(name, seq=None, dim=1, **kwargs):
     rate = Input(f"{name}_rate", dim=dim, tw=1)
     out = Output(f"{name}_out", Integrate(**kwargs)(rate))
-    return ModelyLoop(name, inputs=[rate], outputs=[out], seq=seq).build()
+    return Modely(name, inputs=[rate], outputs=[out]).loop(seq=seq).build()
 
 
 @pytest.mark.parametrize("solver", ["euler", "rectangular", "trapezoidal"])
@@ -2250,11 +2251,15 @@ def test_integrate_starts_from_none_a_number_or_a_stream():
     zero = _integrate_model("from_zero", dt=0.1)
     number = _integrate_model("from_number", dt=0.1, init=5.0)
     r, r0 = Input("from_stream_rate", tw=1), Input("from_stream_init", tw=1)
-    stream = ModelyLoop(
-        "from_stream",
-        inputs=[r, r0],
-        outputs=[Output("from_stream_out", Integrate(dt=0.1, init=r0)(r))],
-    ).build()
+    stream = (
+        Modely(
+            "from_stream",
+            inputs=[r, r0],
+            outputs=[Output("from_stream_out", Integrate(dt=0.1, init=r0)(r))],
+        )
+        .loop()
+        .build()
+    )
 
     np.testing.assert_allclose(
         to_numpy(zero({"from_zero_rate": rate})["from_zero_out"]).ravel(),
@@ -2288,17 +2293,21 @@ def test_integrate_each_feature_of_a_vector_rate():
     )
     scalar_start = Input("vector_scalar_init", tw=1)
     steps = rate
-    model = ModelyLoop(
-        "vector",
-        inputs=[rate, start, scalar_start],
-        outputs=[
-            Output("vector_out", Integrate(dt=1.0, init=start)(steps)),
-            Output(
-                "vector_scalar_out",
-                Integrate(dt=1.0, init=scalar_start)(steps),
-            ),
-        ],
-    ).build()
+    model = (
+        Modely(
+            "vector",
+            inputs=[rate, start, scalar_start],
+            outputs=[
+                Output("vector_out", Integrate(dt=1.0, init=start)(steps)),
+                Output(
+                    "vector_scalar_out",
+                    Integrate(dt=1.0, init=scalar_start)(steps),
+                ),
+            ],
+        )
+        .loop()
+        .build()
+    )
     values = np.array([[1.0, 1.0, 1.0], [10.0, 20.0, 30.0]], dtype=np.float32)
 
     result = model(
@@ -2327,11 +2336,15 @@ def test_integrate_twice_from_acceleration_to_position():
     pos = Integrate(method="trapezoidal", dt=dt, init=x0, init_rate=v0)(vel)
     # Without the rate before the first step, it was zero: at rest.
     rest = Integrate(method="trapezoidal", dt=dt, init=v0)(acc)
-    model = ModelyLoop(
-        "kinematics",
-        inputs=[acc],
-        outputs=[Output("vel", vel), Output("pos", pos), Output("rest", rest)],
-    ).build()
+    model = (
+        Modely(
+            "kinematics",
+            inputs=[acc],
+            outputs=[Output("vel", vel), Output("pos", pos), Output("rest", rest)],
+        )
+        .loop()
+        .build()
+    )
 
     result = model({"acc": np.full((1, steps, 1, 1), a, dtype=np.float32)})
     t = dt * np.arange(1, steps + 1)
@@ -2352,8 +2365,8 @@ def test_integrate_is_trained_through():
     u = Input("trained_u", tw=1)
     k = Parameter("trained_k", value=0.5)
     x = Output("trained_x", Integrate(dt=0.1)(u * k))
-    model = ModelyLoop("trained", inputs=[u], outputs=[x], seq=steps)
-    model.minimize("fit", x, Input("trained_target", tw=1))
+    model = Modely("trained", inputs=[u], outputs=[x]).loop(seq=steps)
+    model.minimize("fit", "trained_x", Input("trained_target", seq=steps, tw=1))
     model.build()
     rng = np.random.default_rng(0)
     rates = rng.uniform(-1.0, 1.0, (64, steps)).astype(np.float32)
@@ -2376,16 +2389,20 @@ def test_integrate_round_trips_through_save_and_the_keras_file(tmp_path):
     import keras
 
     rate, start = Input("saved_rate", tw=1), Input("saved_init", tw=1)
-    model = ModelyLoop(
-        "saved_integrator",
-        inputs=[rate, start],
-        outputs=[
-            Output(
-                "saved_out",
-                Integrate(method="trapezoidal", dt=0.2, init=start)(rate),
-            )
-        ],
-    ).build()
+    model = (
+        Modely(
+            "saved_integrator",
+            inputs=[rate, start],
+            outputs=[
+                Output(
+                    "saved_out",
+                    Integrate(method="trapezoidal", dt=0.2, init=start)(rate),
+                )
+            ],
+        )
+        .loop()
+        .build()
+    )
     data = {
         "saved_rate": np.array([1.0, 3.0, 2.0, 5.0], dtype=np.float32).reshape(
             1, 4, 1, 1
@@ -2419,12 +2436,15 @@ def test_integrate_a_rate_from_a_layer_with_parameter_weights(layer):
     gain = Parameter(f"{name}_gain", value=[2.0])
     offset = Parameter(f"{name}_offset", value=[1.0])
     rate = layer(features=1, kernel=gain, bias=offset)(u)
-    model = ModelyLoop(
-        name,
-        inputs=[u],
-        outputs=[Output(f"{name}_out", Integrate(method="euler", dt=1.0)(rate))],
-        seq=4,
-    ).build()
+    model = (
+        Modely(
+            name,
+            inputs=[u],
+            outputs=[Output(f"{name}_out", Integrate(method="euler", dt=1.0)(rate))],
+        )
+        .loop(seq=4)
+        .build()
+    )
 
     values = np.array([1.0, 2.0, 3.0, 4.0]).reshape(1, 4, 1, 1)
     result = to_numpy(model({f"{name}_u": values})[f"{name}_out"])
@@ -2437,11 +2457,17 @@ def test_integrate_feeds_further_relations():
     acc = Input("further_acc", tw=1)
     vel = Integrate(dt=0.1)(acc)
     gain = Parameter("further_gain", value=3.0)
-    model = ModelyLoop(
-        "further",
-        inputs=[acc],
-        outputs=[Output("further_out", Sin()([vel]) * gain + Integrate(dt=0.1)(vel))],
-    ).build()
+    model = (
+        Modely(
+            "further",
+            inputs=[acc],
+            outputs=[
+                Output("further_out", Sin()([vel]) * gain + Integrate(dt=0.1)(vel))
+            ],
+        )
+        .loop()
+        .build()
+    )
 
     result = to_numpy(
         model({"further_acc": np.ones((1, 5, 1, 1), dtype=np.float32)})["further_out"]
@@ -2459,8 +2485,10 @@ def test_a_dynamic_integrate_trains_on_simulations_of_different_lengths():
     u = Input("dynamic_trained_u", tw=1)
     k = Parameter("dynamic_trained_k", value=0.5)
     x = Output("dynamic_trained_x", Integrate(dt=0.1)(u * k))
-    model = ModelyLoop("dynamic_trained", inputs=[u], outputs=[x])
-    model.minimize("fit", x, Input("dynamic_trained_target", tw=1))
+    model = Modely("dynamic_trained", inputs=[u], outputs=[x]).loop()
+    model.minimize(
+        "fit", "dynamic_trained_x", Input("dynamic_trained_target", seq=-1, tw=1)
+    )
     model.build()
     rng = np.random.default_rng(1)
     simulations = []
@@ -2481,7 +2509,7 @@ def test_a_dynamic_integrate_trains_on_simulations_of_different_lengths():
 
 
 def test_integrate_rejects_what_it_cannot_integrate():
-    # The rate is one sample of a step of a ModelyLoop.
+    # The rate is one sample of a step of a model.loop() rollout.
     with pytest.raises(ValueError, match="has none"):
         Integrate(dt=0.1)(Input("no_window"))
     with pytest.raises(ValueError, match="one rate sample per step"):
@@ -2539,14 +2567,18 @@ def test_derivative():
     )
     np.testing.assert_allclose(by_hand.ravel(), [5.0, 20.0, 30.0], rtol=1e-5)
 
-    # The layer, in a ModelyLoop, gives the same derivatives step by step.
+    # The layer, in a model.loop() rollout, gives the same derivatives step by step.
     y = Input("dstep_y", tw=1)
     y0 = Input("dstep_y0", tw=1)
-    new_model = ModelyLoop(
-        "new_differentiator",
-        inputs=[y, y0],
-        outputs=[Output("dstep_y_hat", Derivative(dt=0.1, init=y0)(y))],
-    ).build()
+    new_model = (
+        Modely(
+            "new_differentiator",
+            inputs=[y, y0],
+            outputs=[Output("dstep_y_hat", Derivative(dt=0.1, init=y0)(y))],
+        )
+        .loop()
+        .build()
+    )
 
     result = to_numpy(
         new_model({"dstep_y": dummy, "dstep_y0": _over_steps(start, 3)})["dstep_y_hat"]
@@ -2556,14 +2588,14 @@ def test_derivative():
 
 
 # ---------------------------------------------------------------------------
-# Derivative: DerivativeStep's stencil across the steps of a ModelyLoop
+# Derivative: DerivativeStep's stencil across the steps of a model.loop() rollout
 # ---------------------------------------------------------------------------
 
 
 def _derivative_model(name, seq=None, dim=1, **kwargs):
     signal = Input(f"{name}_signal", dim=dim, tw=1)
     out = Output(f"{name}_out", Derivative(**kwargs)(signal))
-    return ModelyLoop(name, inputs=[signal], outputs=[out], seq=seq).build()
+    return Modely(name, inputs=[signal], outputs=[out]).loop(seq=seq).build()
 
 
 @pytest.mark.parametrize(
@@ -2607,9 +2639,11 @@ def test_a_derivative_of_a_derivative_is_the_second_step_by_step():
     samples = np.array([1.0, -2.0, 4.0, 0.5, 3.0, 2.0], dtype=np.float32)
     signal = Input("dtwice_signal", tw=1)
     twice = Derivative(dt=0.1)(Derivative(dt=0.1, init=0.7)(signal))
-    along = ModelyLoop(
-        "dtwice", inputs=[signal], outputs=[Output("dtwice_out", twice)]
-    ).build()
+    along = (
+        Modely("dtwice", inputs=[signal], outputs=[Output("dtwice_out", twice)])
+        .loop()
+        .build()
+    )
     w = Input("dtwice_window", tw=6)
     over = Modely(
         "dtwice_window_model",
@@ -2659,11 +2693,15 @@ def test_derivative_starts_from_none_a_number_or_a_stream():
     zero = _derivative_model("dfrom_zero", dt=0.1)
     number = _derivative_model("dfrom_number", dt=0.1, init=1.0)
     x, x0 = Input("dfrom_stream_signal", tw=1), Input("dfrom_stream_init", tw=1)
-    stream = ModelyLoop(
-        "dfrom_stream",
-        inputs=[x, x0],
-        outputs=[Output("dfrom_stream_out", Derivative(dt=0.1, init=x0)(x))],
-    ).build()
+    stream = (
+        Modely(
+            "dfrom_stream",
+            inputs=[x, x0],
+            outputs=[Output("dfrom_stream_out", Derivative(dt=0.1, init=x0)(x))],
+        )
+        .loop()
+        .build()
+    )
 
     np.testing.assert_allclose(
         to_numpy(zero({"dfrom_zero_signal": signal})["dfrom_zero_out"]).ravel(),
@@ -2696,14 +2734,22 @@ def test_derivative_reads_the_history_a_longer_stencil_needs():
     # with the true history 0, 1 it is exact, 2k.
     x = Input("dhistory_x", tw=1)
     one, two = Input("dhistory_one", tw=1), Input("dhistory_two", tw=2)
-    model = ModelyLoop(
-        "dhistory",
-        inputs=[x, one, two],
-        outputs=[
-            Output("dhistory_one_out", Derivative(dt=1.0, poly_order=2, init=one)(x)),
-            Output("dhistory_two_out", Derivative(dt=1.0, poly_order=2, init=two)(x)),
-        ],
-    ).build()
+    model = (
+        Modely(
+            "dhistory",
+            inputs=[x, one, two],
+            outputs=[
+                Output(
+                    "dhistory_one_out", Derivative(dt=1.0, poly_order=2, init=one)(x)
+                ),
+                Output(
+                    "dhistory_two_out", Derivative(dt=1.0, poly_order=2, init=two)(x)
+                ),
+            ],
+        )
+        .loop()
+        .build()
+    )
 
     result = model(
         {
@@ -2728,14 +2774,18 @@ def test_derivative_each_feature_of_a_vector_signal():
         Input("dvector_init", dim=2, tw=1),
     )
     scalar_start = Input("dvector_scalar_init", tw=1)
-    model = ModelyLoop(
-        "dvector",
-        inputs=[x, start, scalar_start],
-        outputs=[
-            Output("dvector_out", Derivative(dt=1.0, init=start)(x)),
-            Output("dvector_scalar_out", Derivative(dt=1.0, init=scalar_start)(x)),
-        ],
-    ).build()
+    model = (
+        Modely(
+            "dvector",
+            inputs=[x, start, scalar_start],
+            outputs=[
+                Output("dvector_out", Derivative(dt=1.0, init=start)(x)),
+                Output("dvector_scalar_out", Derivative(dt=1.0, init=scalar_start)(x)),
+            ],
+        )
+        .loop()
+        .build()
+    )
     values = np.array([[1.0, 2.0, 4.0], [10.0, 30.0, 60.0]], dtype=np.float32)
 
     result = model(
@@ -2758,20 +2808,24 @@ def test_derivative_each_feature_of_a_vector_signal():
 def test_integrate_and_derivative_invert_each_other_step_by_step():
     dt = 0.1
     x, x0 = Input("dinverse_x", tw=1), Input("dinverse_init", tw=1)
-    model = ModelyLoop(
-        "dinverse",
-        inputs=[x, x0],
-        outputs=[
-            Output(
-                "dinverse_integral_of_derivative",
-                Integrate(dt=dt, init=x0)(Derivative(dt=dt, init=x0)(x)),
-            ),
-            Output(
-                "dinverse_derivative_of_integral",
-                Derivative(dt=dt, init=x0)(Integrate(dt=dt, init=x0)(x)),
-            ),
-        ],
-    ).build()
+    model = (
+        Modely(
+            "dinverse",
+            inputs=[x, x0],
+            outputs=[
+                Output(
+                    "dinverse_integral_of_derivative",
+                    Integrate(dt=dt, init=x0)(Derivative(dt=dt, init=x0)(x)),
+                ),
+                Output(
+                    "dinverse_derivative_of_integral",
+                    Derivative(dt=dt, init=x0)(Integrate(dt=dt, init=x0)(x)),
+                ),
+            ],
+        )
+        .loop()
+        .build()
+    )
     values = np.random.default_rng(0).normal(size=(2, 7, 1, 1)).astype(np.float32)
 
     result = model(
@@ -2792,16 +2846,20 @@ def test_derivative_undoes_integrate_step_by_step():
     acc = Input("dloop_acc", tw=1)
     pos = Integrate(dt=dt, init=x0)(Integrate(dt=dt, init=v0)(acc))
     vel = Derivative(dt=dt, init=x0)(pos)
-    model = ModelyLoop(
-        "dloop",
-        inputs=[acc],
-        outputs=[
-            Output("dloop_vel", vel),
-            Output("dloop_acc_back", Derivative(dt=dt, init=v0)(vel)),
-            Output("dloop_window", DerivativeStep(dt=dt)(x0, pos)),
-            Output("dloop_pos", pos),
-        ],
-    ).build()
+    model = (
+        Modely(
+            "dloop",
+            inputs=[acc],
+            outputs=[
+                Output("dloop_vel", vel),
+                Output("dloop_acc_back", Derivative(dt=dt, init=v0)(vel)),
+                Output("dloop_window", DerivativeStep(dt=dt)(x0, pos)),
+                Output("dloop_pos", pos),
+            ],
+        )
+        .loop()
+        .build()
+    )
     a = np.array([2.0, -1.0, 0.5, 3.0, 0.0], dtype=np.float32).reshape(1, 5, 1, 1)
 
     result = model({"dloop_acc": a})
@@ -2825,12 +2883,15 @@ def test_derivative_of_a_signal_from_a_layer_with_parameter_weights(layer):
     gain = Parameter(f"{name}_gain", value=[2.0])
     offset = Parameter(f"{name}_offset", value=[1.0])
     signal = layer(features=1, kernel=gain, bias=offset)(u)
-    model = ModelyLoop(
-        name,
-        inputs=[u],
-        outputs=[Output(f"{name}_out", Derivative(dt=1.0)(signal))],
-        seq=4,
-    ).build()
+    model = (
+        Modely(
+            name,
+            inputs=[u],
+            outputs=[Output(f"{name}_out", Derivative(dt=1.0)(signal))],
+        )
+        .loop(seq=4)
+        .build()
+    )
 
     values = np.array([1.0, 2.0, 4.0, 7.0]).reshape(1, 4, 1, 1)
     result = to_numpy(model({f"{name}_u": values})[f"{name}_out"])
@@ -2842,16 +2903,20 @@ def test_a_derivative_feeds_any_relation():
     x = Input("ddynamic_further_x", tw=1)
     d = Derivative(dt=0.5)(x)
     gain = Parameter("ddynamic_further_gain", value=3.0)
-    model = ModelyLoop(
-        "ddynamic_further",
-        inputs=[x],
-        outputs=[
-            Output(
-                "ddynamic_further_out",
-                Sin()([d]) * gain + d * 2.0 + Integrate(dt=0.5)(d),
-            )
-        ],
-    ).build()
+    model = (
+        Modely(
+            "ddynamic_further",
+            inputs=[x],
+            outputs=[
+                Output(
+                    "ddynamic_further_out",
+                    Sin()([d]) * gain + d * 2.0 + Integrate(dt=0.5)(d),
+                )
+            ],
+        )
+        .loop()
+        .build()
+    )
 
     for steps in (3, 7):
         result = to_numpy(
@@ -2879,8 +2944,8 @@ def test_derivative_is_trained_through():
     x = Input("dtrained_x", tw=1)
     k = Parameter("dtrained_k", value=0.5)
     v = Output("dtrained_v", Derivative(dt=1.0)(x * k))
-    model = ModelyLoop("dtrained", inputs=[x], outputs=[v], seq=steps)
-    model.minimize("fit", v, Input("dtrained_target", tw=1))
+    model = Modely("dtrained", inputs=[x], outputs=[v]).loop(seq=steps)
+    model.minimize("fit", "dtrained_v", Input("dtrained_target", seq=steps, tw=1))
     model.build()
     rng = np.random.default_rng(0)
     positions = np.cumsum(rng.uniform(-1.0, 1.0, (64, steps)), axis=1).astype(
@@ -2906,12 +2971,15 @@ def _saved_derivative_model(name, seq):
     # layers save.
     x, history = Input(f"{name}_x", tw=1), Input(f"{name}_history", tw=2)
     out = Derivative(dt=0.5, poly_order=2, init=history)(x)
-    return ModelyLoop(
-        name,
-        inputs=[x, history],
-        outputs=[Output(f"{name}_out", out)],
-        seq=seq,
-    ).build()
+    return (
+        Modely(
+            name,
+            inputs=[x, history],
+            outputs=[Output(f"{name}_out", out)],
+        )
+        .loop(seq=seq)
+        .build()
+    )
 
 
 def _saved_derivative_data(name, steps):
@@ -2980,7 +3048,7 @@ def test_derivative_exports_to_onnx_following_the_horizon(tmp_path):
 
 
 def test_derivative_rejects_what_it_cannot_differentiate():
-    # The signal is one sample of a step of a ModelyLoop.
+    # The signal is one sample of a step of a model.loop() rollout.
     with pytest.raises(ValueError, match="has none"):
         Derivative(dt=0.1)(Input("dno_window"))
     with pytest.raises(ValueError, match="one sample per step"):

@@ -686,7 +686,8 @@ class _Step:
             inputs = dict(step_inputs)
             for seed in seeds:
                 inputs.setdefault(self.key(seed), seed)
-            self.body = Modely(
+            # Its states, hidden ones too, are inputs of the step.
+            self.body = Modely._of(
                 f.name, inputs=[*inputs.values(), *states], outputs=body_outputs
             )
             self.body.build()
@@ -760,9 +761,11 @@ class _Step:
             objects=Stream,
             missing=lambda key: (
                 f"Loop init key {getattr(key, 'name', key)!r} is "
-                f"not an input of {self.f.name!r}: a state kept inside a block, as "
-                "the one of Integrate or Derivative, starts from the init of the "
-                "block, Integrate(init=...)."
+                f"not an input of {self.f.name!r}: a state kept inside a block "
+                "starts from the stream its call gives it, and a hidden state "
+                "(fed back with hidden=True, or the one of Integrate or "
+                "Derivative) from its own init, x.feedback(stream, init=..., "
+                "hidden=True) or Integrate(init=...)."
             ),
         )
         name = declared.name
@@ -903,7 +906,7 @@ class Loop(Layer):
 
     See Also
     --------
-    ModelyLoop : A model declared one step at a time, a Loop over its step.
+    Modely.loop : The rollout of a model declared one step at a time.
     Input.feedback : Feeds an Input back with its next value.
     Ode : One step of an ODE, a body to roll out.
     Integrate : An integral that keeps its state in the body.
@@ -950,7 +953,7 @@ class Loop(Layer):
 
     >>> import keras
     >>> import numpy as np
-    >>> from nnodely import Input, Integrate, Loop, Modely, ModelyLoop, Output, TimeSelect
+    >>> from nnodely import Input, Integrate, Loop, Modely, Output, TimeSelect
     >>> x, u = Input("x", tw=1), Input("u", tw=1)
     >>> step = Modely("step", inputs=[x, u], outputs=[Output("x_next", x + u)])
     >>> x0 = Input("x0", seq=4, tw=1)
@@ -1072,12 +1075,12 @@ class Loop(Layer):
 
     Properties & Relations
     ----------------------
-    A :class:`ModelyLoop` is a Loop over its step. Declared with
+    The rollout of :meth:`Modely.loop` is a Loop over its step. Declared with
     :meth:`Input.feedback`, the same step gives the same trajectory:
 
     >>> xs, us = Input("xs", tw=1), Input("us", tw=1)
     >>> xs_next = xs.feedback(xs + us)
-    >>> declared = ModelyLoop("declared", inputs=[us, xs], outputs=[Output("x", xs_next)])
+    >>> declared = Modely("declared", inputs=[us, xs], outputs=[Output("x", xs_next)]).loop()
     >>> result = declared.build()({"us": pushes, "xs": start})
     >>> keras.ops.convert_to_numpy(result["x"]).ravel()
     array([11., 13., 16., 20.], dtype=float32)
@@ -1532,6 +1535,12 @@ class Loop(Layer):
             ),
         )
         if any(key is state for state in states):
+            if key._hidden:
+                raise ValueError(
+                    f"Loop input {key.name!r} is a hidden state, the model's "
+                    "own: it starts from its init, x.feedback(stream, "
+                    "init=..., hidden=True), and is no input of the loop."
+                )
             raise ValueError(
                 f"Loop input {key.name!r} is fed back: give its initial value "
                 f"with init=, Loop(..., init={{{key.name!r}: stream}})."

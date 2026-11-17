@@ -56,8 +56,8 @@ class Buffer(Layer):
     ``Buffer(tw=n, init=c)(u)``
         The same, with the values before the first step given by ``c``.
 
-    At step :math:`k` of a :class:`ModelyLoop` or a :class:`Loop` body,
-    ``Buffer(tw=3)(u)`` holds :math:`[u_{k-2}, u_{k-1}, u_k]`. Its newest
+    At step :math:`k` of a rollout, :meth:`Modely.loop`, or a :class:`Loop`
+    body, ``Buffer(tw=3)(u)`` holds :math:`[u_{k-2}, u_{k-1}, u_k]`. Its newest
     sample is ``u`` at this step, as if the reader were connected to ``u``.
     An Input fed back with ``u`` is different: its window ends at the
     previous step.
@@ -65,7 +65,7 @@ class Buffer(Layer):
     Use it where a block reads a window of a signal that the step computes
     one sample at a time. For example, a plant reads the last three commands
     of a controller. The past ``tw - 1`` values are a state: an Input named
-    ``<name>_<u>``, which the ModelyLoop or the Loop feeds back with its
+    ``<name>_<u>``, which the rollout or the Loop feeds back with its
     other states. Built as a plain :class:`Modely`, which has no steps, the
     layer reads ``init`` as the past values.
 
@@ -121,7 +121,7 @@ class Buffer(Layer):
 
     See Also
     --------
-    ModelyLoop : A model declared one step at a time.
+    Modely.loop : The rollout of a model declared one step at a time.
     Loop : The rollout of a one-step model.
     Derivative : A time derivative that keeps past samples the same way.
     Input.feedback : A state that reads the previous step.
@@ -139,10 +139,10 @@ class Buffer(Layer):
 
     >>> import keras
     >>> import numpy as np
-    >>> from nnodely import Buffer, Fir, Input, Modely, ModelyLoop, Output
+    >>> from nnodely import Buffer, Fir, Input, Modely, Output
     >>> u = Input("u", tw=1)
     >>> window = Buffer(tw=3, name="last3")(u)
-    >>> model = ModelyLoop("history", inputs=[u], outputs=[Output("w", window)]).build()
+    >>> model = Modely("history", inputs=[u], outputs=[Output("w", window)]).loop().build()
     >>> steps = np.array([1.0, 2.0, 3.0, 4.0]).reshape(1, 4, 1, 1)
     >>> keras.ops.convert_to_numpy(model({"u": steps})["w"])[0, :, :, 0]
     array([[0., 0., 1.],
@@ -173,10 +173,10 @@ class Buffer(Layer):
     >>> repeated = Buffer(tw=3, init=0.5)(u)
     >>> past = Input("past", tw=2)
     >>> given = Buffer(tw=3, init=past)(u)
-    >>> model = ModelyLoop(
+    >>> model = Modely(
     ...     "starts", inputs=[u, past],
     ...     outputs=[Output("repeated", repeated), Output("given", given)],
-    ... ).build()
+    ... ).loop().build()
     >>> start = np.tile(np.array([-2.0, -1.0]).reshape(1, 1, 2, 1), (1, 4, 1, 1))
     >>> result = model({"u": steps, "past": start})
     >>> keras.ops.convert_to_numpy(result["repeated"])[0, :2, :, 0]
@@ -198,14 +198,14 @@ class Buffer(Layer):
 
     >>> forces = Input("forces", tw=3)
     >>> level = Input("level", tw=1)
-    >>> level_next = level.feedback(0.9 * level + Fir(bias=False)(forces))
+    >>> level_next = level.feedback(0.9 * level + Fir(bias=False)(forces), hidden=True)
     >>> tank = Modely("tank", inputs=[forces], outputs=[Output("level_next", level_next)])
     >>> reference, measured = Input("reference", tw=1), Input("measured", tw=1)
     >>> command = Output("command", 0.5 * (reference - measured))
-    >>> measured_next = measured.feedback(tank([Buffer(tw=3)(command)]))
-    >>> control = ModelyLoop(
+    >>> measured_next = measured.feedback(tank([Buffer(tw=3)(command)]), hidden=True)
+    >>> control = Modely(
     ...     "control", inputs=[reference], outputs=[command, Output("level", measured)]
-    ... )
+    ... ).loop()
 
     Properties & Relations
     ----------------------

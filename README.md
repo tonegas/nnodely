@@ -97,7 +97,7 @@ generator.save("fibonacci_model")  # save the nnodely model
 | **Signals** | `Input` with a sequence and a sample window (`tw`), fed back with its next value (`feedback`), `Output`, `Parameter`, `Constant`, arithmetic on streams |
 | **Structured layers** | `Fir` [[1]](#1), `Linear`, `LocalModel` [[1]](#1) [[3]](#3) [[4]](#4) [[5]](#5), `Fuzzify` [[2]](#2), `EquationLearner` [[6]](#6), `Interpolation`, `BatchNorm` |
 | **Calculus** | `Gradient` w.r.t. inputs, and `DerivativeStep` over a window and `Derivative` step by step w.r.t. time, for physics-informed [[7]](#7) and Sobolev [[8]](#8) training · `IntegrateStep` over a window, and `Integrate` step by step · `Ode` (Euler, midpoint, Heun, RK4) |
-| **Recurrence** | `ModelyLoop` for models declared one step at a time, their states fed back in one rollout, with `Buffer` for the window of a signal computed step by step · `Loop` for rollouts over whole trajectories |
+| **Recurrence** | `model.loop()` for models declared one step at a time, their states fed back in one rollout, with `Buffer` for the window of a signal computed step by step · `Loop` for rollouts over whole trajectories |
 | **Data** | `DataLoader` from dicts, DataFrames or CSV folders, multiple simulations, sequences, masks |
 | **Workflow** | `train` with any Keras optimizer and loss · `validate` with system-identification metrics and plots · model composition · `save`/`load`, Keras and ONNX export, interactive HTML graphs |
 
@@ -134,7 +134,7 @@ a reference written for LLMs and coding agents rather than for people. It is den
 - a table that maps physical concepts and equations to nnodely blocks;
 - the shape convention `(batch, *seq, tw, *dim)` and how windows and sequences are aligned by the `DataLoader`;
 - exact signatures of every block, of `Modely` and of `DataLoader`;
-- when to use `ModelyLoop`, `Loop` or `Ode`, and how to align their training data;
+- when to use `model.loop()`, `Loop` or `Ode`, and how to align their training data;
 - which models can be saved or exported to Keras and ONNX, on which backend;
 - common error messages with their fix, runnable recipes, and a checklist to review generated code.
 

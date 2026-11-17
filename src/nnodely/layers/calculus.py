@@ -15,8 +15,8 @@ of an interval integrates into the value at the end of that interval, and
 ``DerivativeStep`` is a causal finite difference along ``fun``'s own window
 that keeps its length: one derivative per sample, the oldest one reading the
 ``init`` condition. ``Integrate`` and ``Derivative`` are the same rules across
-the steps of a ModelyLoop. The derivative with respect to an Input is
-:class:`~nnodely.layers.gradient.Gradient`.
+the steps of a rollout, ``Modely.loop()``. The derivative with respect to an
+Input is :class:`~nnodely.layers.gradient.Gradient`.
 """
 
 from __future__ import annotations
@@ -212,9 +212,9 @@ class IntegrateStep(Layer):
     window, it gives the whole integrated trajectory in one pass, with no
     rollout.
 
-    For one rate sample per step of a :class:`ModelyLoop` or a :class:`Loop`
-    body, use :class:`Integrate`, which keeps the integral from one step to
-    the next.
+    For one rate sample per step of a rollout, :meth:`Modely.loop`, or a
+    :class:`Loop` body, use :class:`Integrate`, which keeps the integral from
+    one step to the next.
 
     Parameters
     ----------
@@ -485,7 +485,7 @@ class IntegrateStep(Layer):
 
 
 class Integrate:
-    r"""Integral of a rate one step at a time, in a ModelyLoop or a Loop body.
+    r"""Integral of a rate one step at a time, in a rollout or a Loop body.
 
     Syntax
     ------
@@ -497,8 +497,8 @@ class Integrate:
         The trapezoidal rule, with ``r0`` the rate before the first step.
 
     The rate is one sample per step, ``T=1``. The integral is a state: an
-    Input named ``<name>_<rate>``, fed back with the result. The
-    :class:`ModelyLoop`, or the :class:`Loop` whose body holds the layer,
+    Input named ``<name>_<rate>``, fed back with the result. The rollout of
+    :meth:`Modely.loop`, or the :class:`Loop` whose body holds the layer,
     feeds it back with its other states, in one rollout. The trapezoidal rule
     also keeps the rate of the previous step, in the state
     ``<name>_<rate>_rate``. These states are not your Inputs:
@@ -549,7 +549,7 @@ class Integrate:
     Stream
         The shape of ``rate``, ``Shape(S, 1, D)``: the integral at the end of
         this step. For example, ``Input("a", tw=1)`` gives
-        ``Shape(S=(), T=1, D=(1,))``. As an output of a ModelyLoop it is a
+        ``Shape(S=(), T=1, D=(1,))``. As an output of a rollout it is a
         trajectory, one value per step.
 
     Raises
@@ -569,7 +569,7 @@ class Integrate:
     --------
     IntegrateStep : The same integral along a window.
     Derivative : The derivative one step at a time, its inverse.
-    ModelyLoop : A model declared one step at a time.
+    Modely.loop : The rollout of a model declared one step at a time.
     Loop : The rollout of a one-step model.
     Ode : One step of an ODE, with Runge-Kutta methods.
 
@@ -591,10 +591,10 @@ class Integrate:
 
     >>> import keras
     >>> import numpy as np
-    >>> from nnodely import Input, Integrate, IntegrateStep, Loop, Modely, ModelyLoop, Output
+    >>> from nnodely import Input, Integrate, IntegrateStep, Loop, Modely, Output
     >>> a = Input("a", tw=1)
     >>> v = Integrate(dt=0.5, name="v")(a)
-    >>> model = ModelyLoop("velocity", inputs=[a], outputs=[Output("v", v)]).build()
+    >>> model = Modely("velocity", inputs=[a], outputs=[Output("v", v)]).loop().build()
     >>> steps = np.array([2.0, 4.0, 6.0, 8.0]).reshape(1, 4, 1, 1)
     >>> keras.ops.convert_to_numpy(model({"a": steps})["v"]).ravel()
     array([ 1.,  3.,  6., 10.], dtype=float32)
@@ -610,7 +610,7 @@ class Integrate:
 
     >>> v0 = Input("v0", tw=1)
     >>> v = Integrate(dt=0.5, init=v0)(a)
-    >>> model = ModelyLoop("from_v0", inputs=[a, v0], outputs=[Output("v", v)]).build()
+    >>> model = Modely("from_v0", inputs=[a, v0], outputs=[Output("v", v)]).loop().build()
     >>> start = np.array([1.0, 9.0, 9.0, 9.0]).reshape(1, 4, 1, 1)
     >>> keras.ops.convert_to_numpy(model({"a": steps, "v0": start})["v"]).ravel()
     array([ 2.,  4.,  7., 11.], dtype=float32)
@@ -620,7 +620,7 @@ class Integrate:
     :math:`1 + 0.25 \cdot (2 + 2)`:
 
     >>> v = Integrate(dt=0.5, method="trapezoidal", init=1.0, init_rate=2.0)(a)
-    >>> model = ModelyLoop("trapezoid", inputs=[a], outputs=[Output("v", v)]).build()
+    >>> model = Modely("trapezoid", inputs=[a], outputs=[Output("v", v)]).loop().build()
     >>> keras.ops.convert_to_numpy(model({"a": steps})["v"]).ravel()
     array([2. , 3.5, 6. , 9.5], dtype=float32)
 
@@ -997,9 +997,9 @@ class DerivativeStep(_FiniteDifference):
     keeps its length, so the result stays aligned with ``x``. The first
     samples of the window read ``init`` in place of the samples before it.
 
-    For one sample per step of a :class:`ModelyLoop` or a :class:`Loop`
-    body, use :class:`Derivative`. For the derivative with respect to an
-    Input, use :class:`Gradient`.
+    For one sample per step of a rollout, :meth:`Modely.loop`, or a
+    :class:`Loop` body, use :class:`Derivative`. For the derivative with
+    respect to an Input, use :class:`Gradient`.
 
     Parameters
     ----------
@@ -1228,8 +1228,8 @@ class DerivativeStep(_FiniteDifference):
 
 
 class Derivative(_FiniteDifference):
-    r"""Time derivative of a stream one step at a time, in a ModelyLoop or a
-    Loop body.
+    r"""Time derivative of a stream one step at a time, in a rollout or a Loop
+    body.
 
     Syntax
     ------
@@ -1245,9 +1245,10 @@ class Derivative(_FiniteDifference):
 
     ``x`` is one sample per step, ``T=1``. The layer keeps the last
     ``poly_order`` samples of ``x`` from one step to the next. They are a
-    state: an Input named ``<name>_<x>``, which the :class:`ModelyLoop` or
-    the :class:`Loop` feeds back with its other states. It is not one of
-    your Inputs: :attr:`Modely.inputs` lists it as not declared.
+    state: an Input named ``<name>_<x>``, which the rollout of
+    :meth:`Modely.loop` or the :class:`Loop` feeds back with its other
+    states. It is not one of your Inputs: :attr:`Modely.inputs` lists it as
+    not declared.
 
     The rule and the results are those of :class:`DerivativeStep` on a window
     of the same samples. Built as a plain :class:`Modely`, which has no steps,
@@ -1290,7 +1291,7 @@ class Derivative(_FiniteDifference):
     Stream
         The shape of ``x``, ``Shape(S, 1, D)``: the derivative at this step.
         For example, ``Input("x", tw=1)`` gives ``Shape(S=(), T=1, D=(1,))``.
-        As an output of a ModelyLoop it is a trajectory, one value per step.
+        As an output of a rollout it is a trajectory, one value per step.
 
     Raises
     ------
@@ -1309,7 +1310,7 @@ class Derivative(_FiniteDifference):
     --------
     DerivativeStep : The same derivative along a window.
     Integrate : The integral one step at a time, its inverse.
-    ModelyLoop : A model declared one step at a time.
+    Modely.loop : The rollout of a model declared one step at a time.
     Loop : The rollout of a one-step model.
 
     Notes
@@ -1333,11 +1334,11 @@ class Derivative(_FiniteDifference):
     >>> import keras
     >>> import numpy as np
     >>> from nnodely import (
-    ...     Derivative, DerivativeStep, Input, Integrate, Modely, ModelyLoop, Output,
+    ...     Derivative, DerivativeStep, Input, Integrate, Modely, Output,
     ... )
     >>> x = Input("x", tw=1)
     >>> v = Derivative(dt=0.5, name="v")(x)
-    >>> model = ModelyLoop("velocity", inputs=[x], outputs=[Output("v", v)]).build()
+    >>> model = Modely("velocity", inputs=[x], outputs=[Output("v", v)]).loop().build()
     >>> steps = np.array([1.0, 2.0, 4.0, 7.0]).reshape(1, 4, 1, 1)
     >>> keras.ops.convert_to_numpy(model({"x": steps})["v"]).ravel()
     array([2., 2., 4., 6.], dtype=float32)
@@ -1354,10 +1355,10 @@ class Derivative(_FiniteDifference):
 
     >>> from_one = Derivative(dt=0.5, init=1.0, name="from_one")(x)
     >>> second = Derivative(dt=0.5, poly_order=2, name="second")(x)
-    >>> model = ModelyLoop(
+    >>> model = Modely(
     ...     "options", inputs=[x],
     ...     outputs=[Output("from_one", from_one), Output("second", second)],
-    ... ).build()
+    ... ).loop().build()
     >>> result = model({"x": steps})
     >>> keras.ops.convert_to_numpy(result["from_one"]).ravel()
     array([0., 2., 4., 6.], dtype=float32)
@@ -1391,7 +1392,7 @@ class Derivative(_FiniteDifference):
     :class:`Integrate` with the same ``init`` gives ``x`` back:
 
     >>> back = Integrate(dt=0.5, init=3.0)(Derivative(dt=0.5, init=3.0)(x))
-    >>> model = ModelyLoop("inverse", inputs=[x], outputs=[Output("x", back)]).build()
+    >>> model = Modely("inverse", inputs=[x], outputs=[Output("x", back)]).loop().build()
     >>> keras.ops.convert_to_numpy(model({"x": steps})["x"]).ravel()
     array([1., 2., 4., 7.], dtype=float32)
 

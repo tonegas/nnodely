@@ -254,9 +254,9 @@ class Gradient(Layer):
 
     * ``wrt`` is a state of the block, a fed-back Input. Each call of the
       block has its own copy of the state, one per call in a :class:`Loop`
-      or a :class:`ModelyLoop`, and the Gradient of each call differentiates
-      against the copy of that call. The Parameters stay one, shared by the
-      calls.
+      or the rollout of :meth:`Modely.loop`, and the Gradient of each call
+      differentiates against the copy of that call. The Parameters stay one,
+      shared by the calls.
     * ``wrt`` is an input of the block. A call replaces it with the stream
       it is called on, even an Input (``block([z, w])``): the Gradient has
       no Input left to differentiate against, and raises when the model is

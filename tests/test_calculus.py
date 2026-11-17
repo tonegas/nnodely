@@ -18,7 +18,6 @@ from nnodely import (
     Linear,
     Loop,
     Modely,
-    ModelyLoop,
     Output,
     Parameter,
     Sin,
@@ -291,7 +290,7 @@ def test_a_gradient_in_a_block_called_twice_in_a_loop_reads_the_state_of_its_cal
     # Parameter, shared by both calls.
     u, s = Input("gl_u", tw=1), Input("gl_s", tw=1)
     p = Parameter("gl_p", value=[0.5])
-    s.feedback(s + u + p)
+    s.feedback(s + u + p, hidden=True)
     block = Modely(
         "gl_block", inputs=[u], outputs=[Output("gl_d", Gradient(wrt=s)(s * s))]
     )
@@ -322,18 +321,22 @@ def test_a_gradient_in_a_block_called_twice_in_a_loop_reads_the_state_of_its_cal
     np.testing.assert_allclose(to_numpy(result["gl_ob"]).ravel(), [0.0, 6.0, 12.0])
 
 
-def test_a_gradient_in_a_block_called_twice_in_a_modelyloop_reads_its_state():
+def test_a_gradient_in_a_block_called_twice_in_a_model_loop_reads_its_state():
     u, s = Input("gm_u", tw=1), Input("gm_s", tw=1)
-    s.feedback(s + u)
+    s.feedback(s + u, hidden=True)
     block = Modely(
         "gm_block", inputs=[u], outputs=[Output("gm_d", Gradient(wrt=s)(s * s))]
     )
     a, b = Input("gm_a", tw=1), Input("gm_b", tw=1)
-    loop = ModelyLoop(
-        "gm_loop",
-        inputs=[a, b],
-        outputs=[Output("gm_da", block([a])), Output("gm_db", block([b]))],
-    ).build()
+    loop = (
+        Modely(
+            "gm_loop",
+            inputs=[a, b],
+            outputs=[Output("gm_da", block([a])), Output("gm_db", block([b]))],
+        )
+        .loop()
+        .build()
+    )
     result = loop({"gm_a": np.ones((1, 3, 1)), "gm_b": np.full((1, 3, 1), 2.0)})
     np.testing.assert_allclose(to_numpy(result["gm_da"]).ravel(), [0.0, 2.0, 4.0])
     np.testing.assert_allclose(to_numpy(result["gm_db"]).ravel(), [0.0, 4.0, 8.0])
@@ -1764,9 +1767,13 @@ def test_the_trapezoid_starts_from_the_rate_before_the_first_step(tmp_path):
     )
     x_next = x.feedback(IntegrateStep(method="trapezoidal", dt=1.0)(x, previous, u))
     previous.feedback(u)
-    by_hand = ModelyLoop(
-        "trap0_hand", inputs=[u, x, previous], outputs=[Output("trap0_hx", x_next)]
-    ).build()
+    by_hand = (
+        Modely(
+            "trap0_hand", inputs=[u, x, previous], outputs=[Output("trap0_hx", x_next)]
+        )
+        .loop()
+        .build()
+    )
     data = {
         "trap0_u": rates.reshape(1, 5, 1, 1),
         "trap0_x": np.full((1, 5, 1, 1), 10.0, np.float32),
@@ -1797,7 +1804,7 @@ def test_integrate_derivative_and_buffer_take_their_signal_and_init_alike():
         "alike_der",
         "alike_buf",
     )
-    model = ModelyLoop(
+    model = Modely(
         "alike",
         inputs=[signal, scalar],
         outputs=[
@@ -1805,7 +1812,7 @@ def test_integrate_derivative_and_buffer_take_their_signal_and_init_alike():
             Output("alike_d", derivative),
             Output("alike_b", window),
         ],
-    )
+    ).loop()
     hidden = {
         row["input"].name: row["input"].seq
         for row in model.inputs._rows

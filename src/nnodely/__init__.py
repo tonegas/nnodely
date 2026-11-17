@@ -28,7 +28,6 @@ from nnodely.utils.random import get_seed, set_seed  # noqa: E402
 
 # Core
 from nnodely.core.modely import Modely
-from nnodely.core.modelyloop import ModelyLoop
 from nnodely.core.dataloader import DataLoader
 from nnodely.utils.printers import TinyPrinter, LegacyPrinter, NNodelyPrinter
 
@@ -122,7 +121,6 @@ __all__ = [
     "set_seed",
     "get_seed",
     "Modely",
-    "ModelyLoop",
     "DataLoader",
     "TinyPrinter",
     "NNodelyPrinter",

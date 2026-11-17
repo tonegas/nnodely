@@ -73,17 +73,19 @@ error messages. Where a method name uses another word, as ``minimize`` and
       An Input fed back with a value the model computes, so that the next
       step reads it. Also called a *fed-back Input*. Declared with
       :meth:`Input.feedback() <nnodely.Input.feedback>`, or with the
-      ``feedback`` of a :class:`~nnodely.Loop`.
+      ``feedback`` of a :class:`~nnodely.Loop`. A state is declared among the
+      inputs of its model, or hidden, ``hidden=True``: the model's own memory,
+      which starts from its ``init``.
 
    body
-      The one-step model a :class:`~nnodely.Loop` or a
-      :class:`~nnodely.ModelyLoop` rolls out.
+      The one-step model a :class:`~nnodely.Loop` or
+      :meth:`Modely.loop() <nnodely.Modely.loop>` rolls out.
 
    step
-      One execution of a body in a rollout, ``k``. In a
-      :class:`~nnodely.ModelyLoop`, a state holds its value at the end of step
-      ``k - 1``, and the stream it is fed back with its value at the end of
-      step ``k``.
+      One execution of a body in a rollout, ``k``. In the rollout of
+      :meth:`Modely.loop() <nnodely.Modely.loop>`, a state holds its value at
+      the end of step ``k - 1``, and the stream it is fed back with its value
+      at the end of step ``k``.
 
    mask
       Marks the real steps of rollouts padded to a common length, when

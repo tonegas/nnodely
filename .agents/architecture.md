@@ -134,7 +134,7 @@ The checks in place, to keep and to reuse:
 | Data made for another build refused | `Modely._training_arrays` |
 | A renamed Input reaches Keras at the next build | `_refresh_keras_inputs` (`core/modely.py`) |
 | Keras layers named alike | `_claim_keras_name` (`core/layer.py`) |
-| Kept states yield to user Inputs | `_rename_hidden_states` (`core/modely.py`) |
+| Kept states yield to user Inputs; a hidden state the user named, `feedback(hidden=True)`, raises | `_rename_hidden_states` (`core/modely.py`) |
 
 The Keras key of a node is `Modely._keys[id(node)]`, written by the build.
 Read it directly: a node the build never saw is a `KeyError`, never a guess

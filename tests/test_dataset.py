@@ -4,7 +4,7 @@ import os
 import warnings
 import numpy as np
 import pytest
-from nnodely import TimeRange, TimeSelect
+from nnodely import SeqSelect, TimeRange, TimeSelect
 
 
 def test_dataset_creation_and_iteration():
@@ -90,7 +90,8 @@ def test_sequence_windows_are_created_on_temporal_windows():
     x_window = x
     output = Output("out", x_window)
     model = Modely("sequence_dataset", inputs=[x], outputs=[output])
-    model.minimize("error", source=output, target=target, loss="mse")
+    last = SeqSelect(-1)([TimeSelect(-1)(x)])  # one sample, as the target
+    model.minimize("error", source=last, target=target, loss="mse")
     model.build()
 
     loader = DataLoader(
@@ -782,7 +783,7 @@ def test_windowed_data_round_trips_what_the_loader_builds():
         inputs=[x, y, s],
         outputs=[Output("trip_out", TimeSelect(-1)(x) + TimeSelect(-1)(y))],
     )
-    model.minimize("trip", TimeSelect(-1)(s), TimeSelect(-1)(y))
+    model.minimize("trip", SeqSelect(-1)([TimeSelect(-1)(s)]), TimeSelect(-1)(y))
     model.build()
     signals = {
         "trip_x": np.random.rand(40, 2),
@@ -905,17 +906,17 @@ def test_windowed_lengths_that_cannot_be_padded_are_rejected():
     assert loader.mask is not None and loader.mask.shape == (4, 5)
 
 
-def test_windowed_modelyloop_matches_the_windows_it_would_build():
-    from nnodely import IntegrateStep, ModelyLoop, Parameter
+def test_windowed_model_loop_matches_the_windows_it_would_build():
+    from nnodely import IntegrateStep, Parameter
 
     force, x, v = Input("wl_F", tw=1), Input("wl_x", tw=1), Input("wl_v", tw=1)
     k = Parameter("wl_k", value=1.0)
     v_next = v.feedback(IntegrateStep(dt=0.1)(v, force - k * x))
     x_next = x.feedback(IntegrateStep(dt=0.1)(x, v_next))
-    model = ModelyLoop(
+    model = Modely(
         "wl_loop", inputs=[force, x, v], outputs=[Output("wl_x_next", x_next)]
-    )
-    model.minimize("wl", "wl_x_next", Input("wl_x_meas", tw=1))
+    ).loop()
+    model.minimize("wl", "wl_x_next", Input("wl_x_meas", seq=-1, tw=1))
     model.build()
     signals = {
         name: np.random.rand(60) for name in ("wl_F", "wl_x", "wl_v", "wl_x_meas")

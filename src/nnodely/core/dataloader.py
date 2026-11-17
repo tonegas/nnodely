@@ -159,7 +159,7 @@ class DataLoader:
     Input : Declares the window and the sequence of a signal.
     Modely.train : Trains a model on a loader.
     Modely.validate : Measures a model on a loader.
-    ModelyLoop : A model whose Inputs carry a dynamic sequence.
+    Modely.loop : A rollout, whose Inputs carry a dynamic sequence.
 
     Notes
     -----
@@ -196,8 +196,8 @@ class DataLoader:
     **Missing values.** A cell pandas reads as missing (empty, ``n/a``,
     ``NaN``) stays a NaN, and the loader warns about it.
 
-    An Input that a :class:`ModelyLoop` feeds back and lists among its
-    inputs may be left out of the data: it then reads zeros.
+    An Input that the rollout of :meth:`Modely.loop` feeds back and lists
+    among its inputs may be left out of the data: it then reads zeros.
 
     Basic Examples
     --------------

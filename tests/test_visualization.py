@@ -5,7 +5,6 @@ import re
 from nnodely import (
     Input,
     Integrate,
-    ModelyLoop,
     Output,
     EquationLearner,
     Fir,
@@ -310,15 +309,23 @@ def test_a_loop_inlined_from_a_called_model_reads_the_streams_the_call_binds(
     # the call binds to its x; it was once drawn reading x, and k was left
     # alone on the flattened page.
     x = Input("bound_x", tw=1)
-    inner = ModelyLoop(
-        "bound_inner", inputs=[x], outputs=[Output("bound_xx", Integrate(dt=1)(x))]
-    ).build()
+    inner = (
+        Modely(
+            "bound_inner", inputs=[x], outputs=[Output("bound_xx", Integrate(dt=1)(x))]
+        )
+        .loop()
+        .build()
+    )
     k = Input("bound_k", tw=1, seq=-1)
-    outer = ModelyLoop(
-        "bound_outer",
-        inputs=[k],
-        outputs=[Output("bound_kk", Integrate(dt=1)(inner(k)))],
-    ).build()
+    outer = (
+        Modely(
+            "bound_outer",
+            inputs=[k],
+            outputs=[Output("bound_kk", Integrate(dt=1)(inner(k)))],
+        )
+        .loop()
+        .build()
+    )
     outer.export_html(out_dir=tmp_path, filename="bound_outer")
 
     page = (tmp_path / "bound_outer__flattened.html").read_text(encoding="utf-8")
@@ -333,11 +340,15 @@ def test_a_loop_inlined_from_a_called_model_reads_the_streams_the_call_binds(
 
     # The state of a called loop starts from the stream the call binds.
     y0 = Input("bound_y0", tw=1)
-    seeded = ModelyLoop(
-        "bound_seeded",
-        inputs=[x, y0],
-        outputs=[Output("bound_xs", Integrate(dt=1, init=y0)(x))],
-    ).build()
+    seeded = (
+        Modely(
+            "bound_seeded",
+            inputs=[x, y0],
+            outputs=[Output("bound_xs", Integrate(dt=1, init=y0)(x))],
+        )
+        .loop()
+        .build()
+    )
     k0 = Input("bound_k0", tw=1, seq=-1)
     caller = Modely(
         "bound_caller", inputs=[k, k0], outputs=[Output("bound_o", seeded([k, k0]))]
@@ -684,12 +695,12 @@ def test_a_node_named_like_a_loss_is_drawn_apart(tmp_path):
     _assert_no_dangling(standard)
 
 
-def test_a_renamed_modelyloop_state_is_drawn_once(tmp_path):
-    # The rollout Input a ModelyLoop makes of its state is bound to it by
+def test_a_renamed_model_loop_state_is_drawn_once(tmp_path):
+    # The rollout Input model.loop() makes of its state is bound to it by
     # object: renamed, they are still one node (once two, matched by name).
     x, u = Input("ren_x", tw=1), Input("ren_u", tw=1)
     x.feedback(x + u)
-    sim = ModelyLoop("ren_sim", inputs=[x, u], outputs=[Output("ren_out", x)])
+    sim = Modely("ren_sim", inputs=[x, u], outputs=[Output("ren_out", x)]).loop()
     sim.inputs["ren_x"].name = "ren_position"
 
     _, flattened = _pages(sim, tmp_path)

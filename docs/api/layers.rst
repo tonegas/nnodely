@@ -162,8 +162,9 @@ Guide: :doc:`../guide/physics`. Tutorial: :doc:`../tutorial/11_calculus`.
 Recurrence
 ----------
 
-A :class:`Loop` rolls a model out over a sequence. :class:`ModelyLoop`, a
-model declared one step at a time, is with the :doc:`models <model>`.
+A :class:`Loop` rolls a model out over a sequence. :meth:`Modely.loop`, the
+rollout of a model declared one step at a time, is with the
+:doc:`models <model>`.
 
 Guide: :doc:`../guide/recurrent`. Tutorial: :doc:`../tutorial/10_recurrent_loop`.
 
