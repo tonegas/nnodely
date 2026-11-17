@@ -1016,7 +1016,7 @@ def test_a_model_loop_state_keeps_the_row_of_its_input_renamed(tmp_path):
     for model in (sim, Modely.load(tmp_path / "sim")):
         rows = model.inputs._rows
         assert [row["input"].name for row in rows] == ["mr_position", "mr_u"]
-        assert rows[0]["update"].endswith("mr_position₀ = #['mr_position'] or 0")
+        assert rows[0]["update"].endswith("mr_position₀ = 'mr_position' or 0")
 
 
 def test_every_lookup_resolves_a_key_alike():

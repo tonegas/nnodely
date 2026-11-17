@@ -1680,7 +1680,7 @@ class Modely:
           :meth:`loop` has one); ``hidden``, a state that is the model's own
           memory and starts from its init, never from data.
         - update: ``<- v``, what it reads at every step; ``x₀ = v``, what it
-          starts from. ``#['name']`` is the data of an Input, its first step
+          starts from. ``'name'`` is the data of an Input, its first step
           in a rollout. A state shows both: ``<- w``, the stream it is fed
           back with, and its initial value (``0`` without one). The one-step
           model shows them too, though only a rollout feeds a state back: it
@@ -1717,8 +1717,8 @@ class Modely:
         ┏━━━━━┳━━━━━━━━┳━━━━━┳━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓
         ┃ idx ┃ input  ┃ seq ┃ tw ┃ dim  ┃ flags  ┃ update                 ┃
         ┡━━━━━╇━━━━━━━━╇━━━━━╇━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩
-        │ 0   │ x      │ ()  │ 1  │ (1,) │ -      │ <- #['x']              │
-        │ 1   │ y_meas │ ()  │ 1  │ (1,) │ target │ <- #['y_meas']         │
+        │ 0   │ x      │ ()  │ 1  │ (1,) │ -      │ <- 'x'                 │
+        │ 1   │ y_meas │ ()  │ 1  │ (1,) │ target │ <- 'y_meas'            │
         │ 2   │ total  │ ()  │ 1  │ (1,) │ hidden │ <- running, total₀ = 0 │
         └─────┴────────┴─────┴────┴──────┴────────┴────────────────────────┘
 
@@ -1781,7 +1781,7 @@ class Modely:
                 if original in self._optional_inputs
                 else "required"
             )
-            data_cell = f"#[{original.name!r}]"
+            data_cell = f"{original.name!r}"
             by_input[id(original)] = {
                 "input": original,
                 "seq": tuple(node.seq),
@@ -1829,7 +1829,7 @@ class Modely:
                 else None
             )
             if row is not None:
-                starts = f"#[{start.name!r}] or 0"
+                starts = f"{start.name!r} or 0"
             else:
                 row = {
                     "input": state,
@@ -1842,7 +1842,7 @@ class Modely:
                 starts = (
                     "0"
                     if start is None
-                    else f"#[{start.name!r}]"
+                    else f"{start.name!r}"
                     if isinstance(start, Input)
                     else start.name
                     if isinstance(start, Stream)

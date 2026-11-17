@@ -368,7 +368,7 @@ def test_a_call_gives_a_declared_fed_back_input_its_data():
         [[1.5, 1.75, 1.875, 1.9375], [0.0, 1.0, 1.5, 1.75]],
     )
     row = next(row for row in loop.inputs._rows if row["input"].name == "oc_decl_level")
-    assert row["update"].endswith("oc_decl_level₀ = #['oc_decl_start']")
+    assert row["update"].endswith("oc_decl_level₀ = 'oc_decl_start'")
 
     # In a Modely it reads the stream at every step, as it would its data.
     plain = Modely(
@@ -459,12 +459,12 @@ def test_inputs_tells_how_each_input_is_fed():
     assert rows.keys() == {"oc_tab_level", "oc_tab_rate", "oc_tab_target"}
     assert rows["oc_tab_level"]["declared"] is True
     assert rows["oc_tab_level"]["update"] == (
-        f"<- {level_next.name}, oc_tab_level₀ = #['oc_tab_level']"
+        f"<- {level_next.name}, oc_tab_level₀ = 'oc_tab_level'"
     )
     assert rows["oc_tab_level"]["data"] == "required"  # a Modely reads it from data
     assert (
         rows["oc_tab_rate"]["declared"]
-        and rows["oc_tab_rate"]["update"] == "<- #['oc_tab_rate']"
+        and rows["oc_tab_rate"]["update"] == "<- 'oc_tab_rate'"
     )
     assert rows["oc_tab_target"]["data"] == "target"
 
@@ -494,12 +494,12 @@ def test_inputs_tells_how_each_input_is_fed():
         rows["oc_tab_level"]["declared"] and rows["oc_tab_level"]["data"] == "optional"
     )
     assert rows["oc_tab_level"]["update"] == (
-        f"<- {level_next.name}, oc_tab_level₀ = #['oc_tab_level'] or 0"
+        f"<- {level_next.name}, oc_tab_level₀ = 'oc_tab_level' or 0"
     )
     assert rows["oc_tab_rate"]["data"] == "required"
     (state,) = [row for name, row in rows.items() if name.endswith("_oc_tab_rate")]
     assert state["data"] is None
-    assert state["update"].endswith("₀ = #['oc_tab_x0']")
+    assert state["update"].endswith("₀ = 'oc_tab_x0'")
     # The table alone: the header, named after what it lists, and a row per
     # Input.
     lines = str(loop.inputs).splitlines()
@@ -605,16 +605,16 @@ def test_inputs_of_a_loop_are_those_of_its_model_loop():
             "oc_same_y0",
             (None,),
             True,
-            "oc_same_y0₀ = #['oc_same_y0']",
+            "oc_same_y0₀ = 'oc_same_y0'",
             "required",
             None,
         ),
-        ("oc_same_u", (None,), True, "<- #['oc_same_u']", "required", None),
+        ("oc_same_u", (None,), True, "<- 'oc_same_u'", "required", None),
         (
             "oc_same_int_oc_same_u",
             (),
             False,
-            "<- oc_same_int, oc_same_int_oc_same_u₀ = #['oc_same_y0']",
+            "<- oc_same_int, oc_same_int_oc_same_u₀ = 'oc_same_y0'",
             None,
             "hidden",
         ),
@@ -631,7 +631,7 @@ def test_inputs_of_a_loop_are_those_of_its_model_loop():
         "oc_same_x",
         (None,),
         True,
-        f"<- {x_next.name}, oc_same_x₀ = #['oc_same_x'] or 0",
+        f"<- {x_next.name}, oc_same_x₀ = 'oc_same_x' or 0",
         "optional",
         "optional",
     )
@@ -648,7 +648,7 @@ def test_inputs_of_a_loop_are_those_of_its_model_loop():
         "oc_same_x",
         (),
         False,
-        f"<- {x_next.name}, oc_same_x₀ = #['oc_same_x0']",
+        f"<- {x_next.name}, oc_same_x₀ = 'oc_same_x0'",
         None,
         None,
     )

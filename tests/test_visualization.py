@@ -354,7 +354,7 @@ def test_a_loop_inlined_from_a_called_model_reads_the_streams_the_call_binds(
         "bound_caller", inputs=[k, k0], outputs=[Output("bound_o", seeded([k, k0]))]
     ).build()
     table = str(caller.inputs)
-    assert "#['bound_k0']" in table
+    assert "'bound_k0'" in table
     assert "bound_y0" not in table
 
 
