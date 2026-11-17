@@ -587,7 +587,7 @@ def test_a_window_only_a_minimizer_reads_widens_the_training_input():
     x = Input("trained_window_x", tw=(2, 1))
     out = Output("trained_window_out", Fir(features=1)(TimeRange(0, 2)(x)))
     model = Modely("trained_window", inputs=[x], outputs=[out])
-    model.minimize("fit", out, TimeRange(1, 3)(x))  # one sample ahead
+    model.minimize("fit", out, TimeRange(2, 3)(x))  # one sample ahead
     model.build()
     assert (x.past, x.future) == (2, 1)
 

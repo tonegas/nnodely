@@ -4,8 +4,9 @@ Models
 .. currentmodule:: nnodely
 
 A :class:`Modely` is a model: a graph of streams from its inputs to its
-outputs, with the objectives that train it. A :class:`ModelyLoop` is a model
-declared one step at a time, whose states are fed back over a rollout.
+outputs, with the objectives that train it. :class:`ModelyLoop` returns the
+Modely of a model declared one step at a time, whose states are fed back over
+a rollout.
 
 Guides: :doc:`../guide/models`, :doc:`../guide/training`,
 :doc:`../guide/recurrent`, :doc:`../guide/composition`,

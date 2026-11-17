@@ -95,7 +95,7 @@ class _Loading:
 
 class ModelSerializer:
     FORMAT = "nnodely"
-    VERSION = 17
+    VERSION = 18
 
     @staticmethod
     def serialize(model, path, *, weights: bool | str = True, saving=None):
@@ -174,6 +174,7 @@ class ModelSerializer:
                             else node.init
                         ),
                         "hidden": node._hidden,
+                        "hidden_by_user": node._hidden_by_user,
                     }
             if isinstance(node, Layer):
                 node_data["layer"] = saving.id_of(saving.layers, node._source)
@@ -321,10 +322,13 @@ class ModelSerializer:
                     init=node_map[init] if isinstance(init, str) else init,
                 )
                 state._hidden = feedback["hidden"]
+                state._hidden_by_user = feedback["hidden_by_user"]
 
         inputs = [node_map[node_id] for node_id in data["inputs"]]
         outputs = [node_map[node_id] for node_id in data["outputs"]]
-        model = Modely(
+        # Checked when it was declared: the body of a Loop declares its
+        # hidden states too.
+        model = Modely._of(
             name=data["model"]["name"],
             inputs=inputs,
             outputs=outputs,

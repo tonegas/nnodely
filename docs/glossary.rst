@@ -73,7 +73,9 @@ error messages. Where a method name uses another word, as ``minimize`` and
       An Input fed back with a value the model computes, so that the next
       step reads it. Also called a *fed-back Input*. Declared with
       :meth:`Input.feedback() <nnodely.Input.feedback>`, or with the
-      ``feedback`` of a :class:`~nnodely.Loop`.
+      ``feedback`` of a :class:`~nnodely.Loop`. A state is declared among the
+      inputs of its model, or hidden, ``hidden=True``: the model's own memory,
+      which starts from its ``init``.
 
    body
       The one-step model a :class:`~nnodely.Loop` or a

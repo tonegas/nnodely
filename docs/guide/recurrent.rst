@@ -245,7 +245,7 @@ data, with :math:`k` and :math:`c` to identify:
    pos_next = pos.feedback(IntegrateStep(dt=dt)(pos, vel_next))
 
    msd = ModelyLoop("msd", inputs=[F_in, pos, vel], outputs=[Output("pos_next", pos_next)])
-   msd.minimize("position", "pos_next", Input("pos_meas", tw=1))
+   msd.minimize("position", "pos_next", Input("pos_meas", seq=-1, tw=1))
    msd.build()
 
 Every Input of a ModelyLoop carries the rollout as its outermost sequence
@@ -253,20 +253,34 @@ axis, one value per step. Every output is a trajectory, its element ``k``
 computed at step ``k``. The rollout is as long as the data, or ``seq`` steps
 when ``seq`` is given.
 
-The initial value of a state is:
+A state is one of two kinds:
 
-- its first value in the data, for a state listed among the inputs, as
-  ``pos`` and ``vel`` here. Left out of the data, it starts from zero;
-- zero, for a state not listed among the inputs;
-- the ``init`` of the layer, for the state of an ``Integrate``, a
-  ``Derivative`` or a ``Buffer``: a number, a Parameter, a Constant, or an
-  Input whose first step is read. It is zero without one.
+- **declared** among the inputs, as ``pos`` and ``vel`` here: an input of
+  the model. It starts from its first value in the data, and from zero when
+  the data leaves it out.
+- **hidden**, ``x.feedback(stream, init=x0, hidden=True)``: the model's own
+  memory. It is none of its inputs and cannot be declared, and the data does
+  not seed it. It starts from its ``init``: a number, a Parameter (which
+  makes the initial state trainable), a Constant, or a declared Input whose
+  first step is read. It is zero without one.
 
-:meth:`~nnodely.ModelyLoop.minimize` compares the trajectories of streams of
-the step: an output, or an Input that nothing feeds back, such as the
-measured position one step ahead. :attr:`~nnodely.Modely.inputs` prints how
-each Input is fed: whether it is declared, what feeds it back, whether the
-data must hold it, and where it starts from.
+A fed-back Input that is neither is refused when the model is declared. The
+state of an ``Integrate``, a ``Derivative`` or a ``Buffer`` is hidden, and
+starts from the ``init`` of the layer.
+
+``ModelyLoop`` returns a :class:`~nnodely.Modely` of the rollout, and the
+one-step model it rolls out is ``msd.models[0]``. Its
+:meth:`~nnodely.Modely.minimize` compares the outputs of the model,
+``msd.outputs["pos_next"]`` or their names, which are trajectories, with
+targets declared with the horizon, as its Inputs are: the measured position
+one step ahead is ``Input("pos_meas", seq=-1, tw=1)``. Nothing is reshaped:
+a target of one step is refused, naming the ``seq`` to declare. A stream of
+the step is of another graph, and refused too, the error naming the output
+that collects it; a stream no output collects is declared among the outputs
+first. The same holds for the body of any Loop a model rolls out: minimize
+the stream the Loop returns. :attr:`~nnodely.Modely.inputs` prints how each
+Input is fed: whether it is declared, what feeds it back, whether the data
+must hold it, and where it starts from.
 
 The :class:`~nnodely.DataLoader` cuts the signals into sequences of
 ``seq_length`` steps, and the target is the position one step ahead:
@@ -280,11 +294,10 @@ The :class:`~nnodely.DataLoader` cuts the signals into sequences of
    print(k_hat.value_numpy, c_hat.value_numpy)   # about 2.0 and 0.5, the true k and c
 
 Built as a :class:`~nnodely.Modely`, the same graph is the one-step model.
-Nothing feeds the states back, and they are read from the data at every step,
-as any Input. A state that the Modely does not declare is read from the data
-too, with a warning. The hidden state of an ``Integrate``, a ``Derivative``
-or a ``Buffer`` starts from their ``init``, as at the first step of a
-ModelyLoop.
+Nothing feeds the states back: a declared state is read from the data at
+every step, as any Input, and a hidden one (the state of an ``Integrate``, a
+``Derivative`` or a ``Buffer`` too) reads its ``init``, as at the first step
+of a ModelyLoop.
 
 .. code-block:: python
 
@@ -295,8 +308,9 @@ Step 5: blocks and windows inside a step
 ----------------------------------------
 
 A model called as a block in a ModelyLoop keeps the feedback of its own
-states, one state per call. When a block reads a window of a signal that the
-step computes, a :class:`~nnodely.Buffer` holds the past values:
+states, one state per call. A hidden state is the block's own: it starts from
+its ``init`` in each call, and the call does not give it. When a block reads
+a window of a signal that the step computes, a :class:`~nnodely.Buffer` holds the past values:
 ``Buffer(tw=3)(u)`` is ``[u[k-2], u[k-1], u[k]]``. Its ``init`` holds the
 values before the first step: one sample, repeated, or ``tw - 1`` samples,
 oldest first.
@@ -310,13 +324,13 @@ commands:
 
    forces = Input("forces", tw=3)
    level = Input("level", tw=1)
-   level_next = level.feedback(0.9 * level + Fir(bias=False)(forces))
+   level_next = level.feedback(0.9 * level + Fir(bias=False)(forces), hidden=True)
    plant = Modely("plant", inputs=[forces], outputs=[Output("level_next", level_next)])
 
    reference = Input("reference", tw=1)
    measured = Input("measured", tw=1)
    command = Output("command", (reference - measured) * 0.5)
-   measured.feedback(plant([Buffer(tw=3)(command)]))
+   measured.feedback(plant([Buffer(tw=3)(command)]), init=0.0, hidden=True)
    control = ModelyLoop("control", inputs=[reference],
                         outputs=[command, Output("level", measured)]).build()
    result = control({"reference": np.ones((1, 20, 1, 1))})
@@ -327,10 +341,14 @@ commands:
 
    (1, 20, 1, 1)
 
+Both states are hidden: ``level`` is the plant's own, and ``measured`` the
+controller's, starting from zero whatever the data holds. Declared among the
+inputs of ``control`` instead, ``measured`` would start from its data.
+
 A state belongs to the model whose graph reads it:
 
-- a state that a block reads without declaring it, and that the calling
-  graph reads as well, would be two states, and is refused. To read the
+- a hidden state of a block that the calling graph reads as well would be
+  two states, and is refused. To read the
   state of the block, make it an output of the block. To give the block the
   state of the caller, declare an Input for it in the block and pass the
   state in the call;
@@ -356,6 +374,18 @@ Common errors
    * - ``Loop init key 'u' is not fed back``
      - An ``init`` for an Input that is not a state.
      - Pass it among the inputs of the call, ``Loop(...)({u: stream})``.
+   * - ``Model 'm' reads the Inputs ['x'], which are not among its inputs``,
+       naming ``x`` among the fed-back ones
+     - A state the model neither declares nor hides.
+     - Declare it among the inputs, to start it from the data, or feed it
+       back with ``hidden=True``, to start it from its ``init``.
+   * - ``Model 'm' declares the hidden states ['x'] among its inputs``
+     - A hidden state is the model's own, and no input.
+     - Leave it out of the inputs, or feed it back without ``hidden=True``.
+   * - ``Minimizer 'fit': its source ... is a stream of the graph of 'm_step'``
+     - A stream of the step of a ModelyLoop, or of the body of a Loop.
+     - Minimize the output of the model that collects it, as the error names
+       it.
    * - The trajectory is one step late, and the loss does not fall
      - The target is the measured state at the same step.
      - Use the state one step ahead, as Step 1 shows.

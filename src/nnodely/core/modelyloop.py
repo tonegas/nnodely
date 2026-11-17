@@ -2,20 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
-
-import keras
-
 from nnodely.core.modely import Modely
-from nnodely.core.stream import Node, Stream
 from nnodely.layers.input import Input
 from nnodely.layers.loop import Loop, _Step
 from nnodely.layers.output import Output
 
 
-class ModelyLoop(Modely):
-    r"""A model declared one step at a time, rolled out over a sequence of
-    steps: every fed-back Input is fed back at the next step.
+def ModelyLoop(
+    name: str,
+    inputs: list[Input],
+    outputs: list[Output],
+    seq: int | None = None,
+) -> Modely:
+    r"""A :class:`Modely` of a model declared one step at a time, rolled out
+    over a sequence of steps: every fed-back Input is fed back at the next
+    step.
 
     Syntax
     ------
@@ -28,49 +29,51 @@ class ModelyLoop(Modely):
     fed back with :meth:`Input.feedback`: ``x_next = x.feedback(stream)``.
     Inside the step, ``x`` holds the value at the end of the previous step,
     and ``stream`` the value at the end of this one. Every fed-back Input the
-    step reads is fed back together, in one rollout, so states may read each
-    other.
+    step reads, also inside the models it calls (one per call), is fed back
+    together, in one rollout, so states may read each other. A state is
+    declared among ``inputs``, or hidden, ``x.feedback(stream,
+    hidden=True)``: the model's own memory.
 
-    The rollout adds an outermost sequence axis, the steps, to every Input
-    and every output. Every output is a trajectory: its element ``k`` is
-    computed at step ``k``. Everything else works as in a :class:`Modely`:
+    The model returned is a plain :class:`Modely` of the rollout: its Inputs
+    and outputs have the names of those of the step, and the steps as a new
+    outermost sequence axis. Every output is a trajectory: its element ``k``
+    is computed at step ``k``. Everything else works as in any Modely:
     objectives, :meth:`Modely.build`, :meth:`Modely.train`, calls and
-    export.
+    export. The one-step model it rolls out is ``model.models[0]``, named
+    ``<name>_step``.
 
     Parameters
     ----------
     name : str
         The name of the model. The one-step model is named ``<name>_step``.
     inputs : list of Input
-        The Inputs of one step. Every Input the step reads that nothing feeds
-        back is listed. A fed-back Input may be listed too:
+        The Inputs of one step. Every Input the step reads is listed, its
+        declared states too, but its hidden states:
 
-        - listed, it starts from the first step of its own data, and from
-          zero where the data leaves it out;
-        - not listed, it starts from zero.
+        - a declared state starts from the first step of its own data, and
+          from zero where the data leaves it out;
+        - a hidden state starts from its ``init``, zero without one; so does
+          the state of an :class:`Integrate`, a :class:`Derivative` or a
+          :class:`Buffer`, from the ``init`` of the layer.
 
-        The state of an :class:`Integrate`, a :class:`Derivative` or a
-        :class:`Buffer` starts from the ``init`` of the layer. Every Input
-        has a window: ``tw=1`` reads one sample per step.
+        A model the step calls as a block keeps the feedback of the fed-back
+        Inputs it declares: the stream the call gives one is its initial
+        value, read at the first step. Every Input has a window: ``tw=1``
+        reads one sample per step.
     outputs : list of Output
         The streams of the step to collect over the steps.
     seq : int or None, default None
         The number of steps, at least 1. ``None`` takes as many steps as the
         data has.
 
-    Attributes
-    ----------
-    body : Modely
-        The one-step model the rollout repeats, named ``<name>_step``.
-
     Returns
     -------
-    dict of str to tensor, Stream or list of Stream
-        As for a :class:`Modely`. On arrays, an output of the step of
-        ``Shape(S, T, D)`` gives ``(batch, steps, *S, T, *D)``: with
-        ``seq=3``, a step output of ``Shape(S=(), T=1, D=(1,))`` gives
-        ``(batch, 3, 1, 1)``. Every Input is read the same way, with the
-        steps after the batch axis.
+    Modely
+        The model of the rollout. With ``seq=n``, an Input of the step
+        declared with ``seq=s`` is read from data of ``seq=(n, *s)``. On
+        arrays, an output of the step of ``Shape(S, T, D)`` gives ``(batch,
+        steps, *S, T, *D)``: with ``seq=3``, a step output of ``Shape(S=(),
+        T=1, D=(1,))`` gives ``(batch, 3, 1, 1)``.
 
     Raises
     ------
@@ -78,9 +81,10 @@ class ModelyLoop(Modely):
         If the step reads no fed-back Input ("reads no fed-back Input"). If
         ``seq`` is not a positive int or None ("seq is a positive int"). If a
         listed Input has no window ("declare it with tw=1"). If the step reads
-        an Input nothing feeds back without listing it ("not among its
-        inputs"). If a listed fed-back Input also gets an initial value from
-        the call of a block ("is among the inputs").
+        an Input without listing it, a state neither declared nor hidden too
+        ("not among its inputs"), or lists a hidden state ("declares the
+        hidden states"). If a listed fed-back Input also gets an initial value
+        from the call of a block ("is among the inputs").
 
     See Also
     --------
@@ -98,25 +102,24 @@ class ModelyLoop(Modely):
     .. math:: x_{k+1} = f(x_k, u_k), \qquad y_k = x_{k+1}
 
     where the output :math:`y` collects the stream ``x`` is fed back with,
-    and :math:`x_0` is the start of the state. A model
-    the step calls as a block keeps the feedback of the fed-back Inputs it
-    declares: the stream the call gives one is its initial value, read at
-    the first step.
+    and :math:`x_0` is the start of the state.
 
-    :meth:`minimize` takes streams of the step: an output of the model, or an
-    Input nothing feeds back, such as a measured target. It compares their
-    trajectories.
+    :meth:`Modely.minimize` compares the outputs of the model,
+    ``model.outputs["x"]`` or their names, which are trajectories, with
+    targets declared with the horizon, ``Input("x_meas", seq=-1, tw=1)``. A
+    stream of the step is of another graph, and refused.
 
     Basic Examples
     --------------
-    A running total, the state ``total``, fed back with ``total + rate``:
+    A running total, the hidden state ``total``, fed back with
+    ``total + rate``:
 
     >>> import keras
     >>> import numpy as np
-    >>> from nnodely import Input, IntegrateStep, ModelyLoop, Output
+    >>> from nnodely import Input, IntegrateStep, ModelyLoop, Modely, Output
     >>> rate = Input("rate", tw=1)
     >>> total = Input("total", tw=1)
-    >>> total_next = total.feedback(total + rate)
+    >>> total_next = total.feedback(total + rate, hidden=True)
     >>> counter = ModelyLoop("counter", inputs=[rate], outputs=[Output("total", total_next)])
     >>> counter = counter.build()
     >>> result = counter({"rate": np.ones((1, 3, 1, 1))})  # (batch, steps, T, D)
@@ -130,9 +133,12 @@ class ModelyLoop(Modely):
     >>> keras.ops.convert_to_numpy(counter({"rate": np.ones((1, 5, 1, 1))})["total"]).ravel()
     array([1., 2., 3., 4., 5.], dtype=float32)
 
-    The step model is ``body``:
+    The model is a :class:`Modely`, and the step model is its first model,
+    which reads its states as inputs:
 
-    >>> counter.body.name, sorted(node.name for node in counter.body.inputs)
+    >>> type(counter) is Modely
+    True
+    >>> counter.models[0].name, sorted(node.name for node in counter.models[0].inputs)
     ('counter_step', ['rate', 'total'])
 
     Options
@@ -143,16 +149,27 @@ class ModelyLoop(Modely):
     >>> fixed.outputs[0].shape
     Shape(S=(3,), T=1, D=(1,))
 
-    A listed state starts from the first step of its data, and from zero
+    A declared state starts from the first step of its data, and from zero
     when the data leaves it out:
 
-    >>> listed = ModelyLoop("listed", inputs=[rate, total], outputs=[Output("total", total_next)])
+    >>> level = Input("level", tw=1)
+    >>> level_next = level.feedback(level + rate)
+    >>> listed = ModelyLoop("listed", inputs=[rate, level], outputs=[Output("level", level_next)])
     >>> listed = listed.build()
-    >>> data = {"rate": np.ones((1, 3, 1, 1)), "total": np.full((1, 3, 1, 1), 10.0)}
-    >>> keras.ops.convert_to_numpy(listed(data)["total"]).ravel()
+    >>> data = {"rate": np.ones((1, 3, 1, 1)), "level": np.full((1, 3, 1, 1), 10.0)}
+    >>> keras.ops.convert_to_numpy(listed(data)["level"]).ravel()
     array([11., 12., 13.], dtype=float32)
-    >>> keras.ops.convert_to_numpy(listed({"rate": np.ones((1, 3, 1, 1))})["total"]).ravel()
+    >>> keras.ops.convert_to_numpy(listed({"rate": np.ones((1, 3, 1, 1))})["level"]).ravel()
     array([1., 2., 3.], dtype=float32)
+
+    A hidden state starts from its ``init``, whatever the data holds:
+
+    >>> memory = Input("memory", tw=1)
+    >>> memory_next = memory.feedback(memory + rate, init=5.0, hidden=True)
+    >>> kept = ModelyLoop("kept", inputs=[rate], outputs=[Output("memory", memory_next)])
+    >>> data = {"rate": np.ones((1, 3, 1, 1)), "memory": np.full((1, 3, 1, 1), 10.0)}
+    >>> keras.ops.convert_to_numpy(kept.build()(data)["memory"]).ravel()
+    array([6., 7., 8.], dtype=float32)
 
     Applications
     ------------
@@ -161,8 +178,8 @@ class ModelyLoop(Modely):
 
     >>> force = Input("force", tw=1)
     >>> v, x = Input("v", tw=1), Input("x", tw=1)
-    >>> v_next = v.feedback(IntegrateStep(dt=1.0)(v, force / 2.0))
-    >>> x_next = x.feedback(IntegrateStep(dt=1.0)(x, v_next))
+    >>> v_next = v.feedback(IntegrateStep(dt=1.0)(v, force / 2.0), hidden=True)
+    >>> x_next = x.feedback(IntegrateStep(dt=1.0)(x, v_next), hidden=True)
     >>> mass = ModelyLoop("mass", inputs=[force], outputs=[Output("x", x_next)]).build()
     >>> keras.ops.convert_to_numpy(mass({"force": np.ones((1, 3, 1, 1))})["x"]).ravel()
     array([0.5, 1.5, 3. ], dtype=float32)
@@ -186,213 +203,109 @@ class ModelyLoop(Modely):
         ...
     ValueError: ModelyLoop 'plain' reads no fed-back Input, so it has no feedback...
 
+    A state is declared among the inputs, or hidden. One that is neither is
+    refused:
+
+    >>> s = Input("s", tw=1)
+    >>> s_next = s.feedback(s + rate)
+    >>> ModelyLoop("open", inputs=[rate], outputs=[Output("s", s_next)])
+    Traceback (most recent call last):
+        ...
+    ValueError: Model 'open_step' reads the Inputs ['s'], which are not among its inputs: declare them there...
+
+    A stream of the step has no value in the rollout. The model is
+    minimized on its outputs, the trajectories:
+
+    >>> counter.minimize("bad", total_next, Input("measured", seq=-1, tw=1))
+    Traceback (most recent call last):
+        ...
+    ValueError: Minimizer 'bad': its source ... is a stream of the graph of 'counter_step'...
+    >>> counter = counter.minimize("fit", "total", Input("measured", seq=-1, tw=1))
+
     .. versionadded:: 2.0
     """
-
-    def __init__(
-        self,
-        name: str,
-        inputs: list[Input],
-        outputs: list[Output],
-        seq: int | None = None,
-    ) -> None:
-        if seq is not None and (
-            isinstance(seq, bool) or not isinstance(seq, int) or seq < 1
-        ):
-            raise ValueError(
-                f"ModelyLoop {name!r}: seq is a positive int, or None for the "
-                f"length of the data, got {seq!r}."
-            )
-        self.name = name
-        self._length = seq
-        # The Input of the rollout of each Input of the step, by the Input it
-        # stands for (_Step.key).
-        self._rolled_inputs: dict[int, Input] = {}
-
-        # The step, and the one Loop that feeds back every Input it feeds back.
-        step = _Step(
-            Modely(f"{name}_step", inputs=inputs, outputs=outputs),
-            {},
-            who=f"ModelyLoop {name!r}",
-            among="its inputs",
+    if seq is not None and (
+        isinstance(seq, bool) or not isinstance(seq, int) or seq < 1
+    ):
+        raise ValueError(
+            f"ModelyLoop {name!r}: seq is a positive int, or None for the "
+            f"length of the data, got {seq!r}."
         )
-        self._step = step
-        if not step.pairs:
-            raise ValueError(
-                f"ModelyLoop {name!r} reads no fed-back Input, so it has no "
-                "feedback: feed one back with x.feedback(stream), or build it "
-                "as a Modely."
-            )
-        # A fed-back Input among the inputs starts from its data, which may
-        # leave it out: then, as when it is not listed, from zero.
-        listed = {id(node) for node in inputs}
-        from_data = [state for state in step.states if step.key(state) in listed]
-        for state in from_data:
-            if state in step.starts:
-                raise ValueError(
-                    f"ModelyLoop {name!r}: {state.name!r} has an initial "
-                    "value (the stream a call gives it) and is among the "
-                    "inputs, which would start it from its data: leave it out "
-                    "of inputs, or give it no initial value."
-                )
-        declaration = Loop._of(
-            step,
-            init={state: self._rolled_input(state) for state in from_data},
-            name=f"{name}_loop",
-            seq=seq,
+
+    # The step, and the one Loop that feeds back every Input it feeds back.
+    step = _Step(
+        Modely(f"{name}_step", inputs=inputs, outputs=outputs),
+        {},
+        who=f"ModelyLoop {name!r}",
+        among="its inputs",
+    )
+    if not step.pairs:
+        raise ValueError(
+            f"ModelyLoop {name!r} reads no fed-back Input, so it has no "
+            "feedback: feed one back with x.feedback(stream), or build it "
+            "as a Modely."
         )
-        read = [*declaration._static_inputs, *declaration._seed_inputs]
-        if not read and not from_data:
-            raise ValueError(
-                f"ModelyLoop {name!r} reads no Input, in its steps or as the "
-                "initial value of a fed-back Input, so no data sets its batch "
-                "and number of steps."
-            )
-        loop = declaration({node: self._rolled_input(node) for node in read})
-        self.body = declaration._model
 
-        # One trajectory per output of the body, the declared outputs first.
-        trajectories = list(loop)
-        self._trajectories: dict[Node, Output] = {}
-        rolled_outputs = []
-        for output, trajectory in zip(outputs, trajectories):
-            rolled = Output(output.name, trajectory)
-            self._trajectories[output] = rolled
-            self._trajectories.setdefault(output._preds[0], rolled)
-            rolled_outputs.append(rolled)
+    # The Input of the rollout of each Input of the step, by the Input it
+    # stands for (_Step.key): the same name, the horizon its new outermost
+    # sequence axis.
+    rolled_inputs: dict[int, Input] = {}
 
-        super().__init__(
-            name,
-            inputs=[self._rolled_input(node) for node in inputs],
-            outputs=rolled_outputs,
-        )
-        self._optional_inputs = {self._rolled_input(state) for state in from_data}
-
-    def _rolled_input(self, node: Input) -> Input:
-        """The Input of the rollout for an Input of the step: the same name,
-        the horizon its new outermost sequence axis."""
-        key = self._step.key(node)
-        rolled = self._rolled_inputs.get(key)
+    def rolled_input(node: Input) -> Input:
+        key = step.key(node)
+        rolled = rolled_inputs.get(key)
         if rolled is None:
             if node.tw is None:
                 raise ValueError(
-                    f"ModelyLoop {self.name!r} reads its Input {node.name!r} one "
+                    f"ModelyLoop {name!r} reads its Input {node.name!r} one "
                     "step at a time, so its data carries the horizon as a "
                     "sequence axis, which needs a window: declare it with tw=1."
                 )
-            horizon = -1 if self._length is None else self._length
+            horizon = -1 if seq is None else seq
             rolled = Input(
                 node.name,
                 dim=node.dim,
                 seq=(horizon, *(-1 if size is None else size for size in node.seq)),
                 tw=(node.past, node.future),
             )
-            self._rolled_inputs[key] = rolled
+            rolled_inputs[key] = rolled
         return rolled
 
-    def _output_stream(self, output: Output) -> Node:
-        """The stream of the step whose trajectory ``output`` is."""
-        step = next(
-            node for node, rolled in self._trajectories.items() if rolled is output
-        )
-        return step._preds[0]
-
-    def _trajectory(self, value, minimizer: str):
-        """The stream of the rollout a minimizer side of the step compares."""
-        if not isinstance(value, Stream) or value._is_value or value in self._order:
-            return value
-        rolled = self._trajectories.get(value)
-        if rolled is not None:
-            return rolled
-        if isinstance(value, Input) and value.update is None:
-            if value in self._rolled_inputs.values():
-                return value
-            return self._rolled_input(value)
+    # A fed-back Input among the inputs starts from its data, which may
+    # leave it out: then from zero.
+    listed = {id(node) for node in inputs}
+    from_data = [state for state in step.states if step.key(state) in listed]
+    for state in from_data:
+        if state in step.starts:
+            raise ValueError(
+                f"ModelyLoop {name!r}: {state.name!r} has an initial "
+                "value (the stream a call gives it) and is among the "
+                "inputs, which would start it from its data: leave it out "
+                "of inputs, or give it no initial value."
+            )
+    declaration = Loop._of(
+        step,
+        init={state: rolled_input(state) for state in from_data},
+        name=f"{name}_loop",
+        seq=seq,
+    )
+    read = [*declaration._static_inputs, *declaration._seed_inputs]
+    if not read and not from_data:
         raise ValueError(
-            f"Minimizer {minimizer!r}: {value.name!r} is computed inside the "
-            f"step of ModelyLoop {self.name!r}, where it has no trajectory. "
-            "Declare it as an output of the model and minimize that."
+            f"ModelyLoop {name!r} reads no Input, in its steps or as the "
+            "initial value of a fed-back Input, so no data sets its batch "
+            "and number of steps."
         )
+    loop = declaration({node: rolled_input(node) for node in read})
 
-    def minimize(
-        self,
-        name: str,
-        source: Output | Stream | str,
-        target: Output | Stream | str | float | None = None,
-        loss: str | dict[str, Any] | keras.losses.Loss | Callable = "mse",
-        gain: float = 1.0,
-    ):
-        """Register an objective that compares two trajectories, and return
-        the model itself.
-
-        It works as :meth:`Modely.minimize`, with streams of the step: each is
-        compared over every step of the rollout.
-
-        Parameters
-        ----------
-        name : str
-            The name of the objective, logged as ``"loss_<name>"``.
-        source : Output, Stream or str
-            An output of the model, or its name.
-        target : Output, Stream, str, float or None, default None
-            An output of the model, an Input nothing feeds back, such as a
-            measured target, the name of one, or a number. ``None`` is
-            ``0.0``. An Input given here is read with the steps, as the
-            inputs are.
-        loss : str, dict, keras.losses.Loss or callable, default "mse"
-            The loss function, as :meth:`Modely.minimize` takes it.
-        gain : float, default 1.0
-            The weight of the objective in the total loss, not below zero.
-
-        Returns
-        -------
-        ModelyLoop
-            The model itself.
-
-        Raises
-        ------
-        ValueError
-            If a side is a stream computed inside the step that is not an
-            output ("has no trajectory"): declare it as an output. Also the
-            errors of :meth:`Modely.minimize`.
-
-        See Also
-        --------
-        Modely.minimize : The objectives of a model.
-        Modely.train : Minimize the objectives.
-
-        Basic Examples
-        --------------
-        >>> from nnodely import Input, ModelyLoop, Output
-        >>> rate, total = Input("rate", tw=1), Input("total", tw=1)
-        >>> total_out = Output("total", total.feedback(total + rate))
-        >>> counter = ModelyLoop("counter", inputs=[rate], outputs=[total_out])
-        >>> counter = counter.minimize("track", "total", Input("measured", tw=1))
-        >>> print(counter.minimizers)
-        ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━┓
-        ┃ idx ┃ minimizer ┃ source ┃ target   ┃ loss               ┃ gain ┃
-        ┡━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━┩
-        │ 0   │ track     │ total  │ measured │ mean_squared_error │ 1.0  │
-        └─────┴───────────┴────────┴──────────┴────────────────────┴──────┘
-        >>> counter.minimizers[0].target.shape
-        Shape(S=(dyn,), T=1, D=(1,))
-
-        Possible Issues
-        ---------------
-        A stream computed inside the step has no trajectory. Declare it as an
-        output:
-
-        >>> counter.minimize("inner", 2.0 * rate, 0.0)
-        Traceback (most recent call last):
-            ...
-        ValueError: Minimizer 'inner': ... is computed inside the step of ModelyLoop 'counter', where it has no trajectory...
-
-        .. versionadded:: 2.0
-        """
-        return super().minimize(
-            name,
-            self._trajectory(source, name),
-            self._trajectory(target, name),
-            loss=loss,
-            gain=gain,
-        )
+    # One trajectory per output of the body, the declared outputs first.
+    model = Modely(
+        name,
+        inputs=[rolled_input(node) for node in inputs],
+        outputs=[
+            Output(output.name, trajectory) for output, trajectory in zip(outputs, loop)
+        ],
+    )
+    model._optional_inputs = {rolled_input(state) for state in from_data}
+    model._rolled_inputs = rolled_inputs
+    return model

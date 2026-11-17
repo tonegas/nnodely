@@ -2353,7 +2353,7 @@ def test_integrate_is_trained_through():
     k = Parameter("trained_k", value=0.5)
     x = Output("trained_x", Integrate(dt=0.1)(u * k))
     model = ModelyLoop("trained", inputs=[u], outputs=[x], seq=steps)
-    model.minimize("fit", x, Input("trained_target", tw=1))
+    model.minimize("fit", "trained_x", Input("trained_target", seq=steps, tw=1))
     model.build()
     rng = np.random.default_rng(0)
     rates = rng.uniform(-1.0, 1.0, (64, steps)).astype(np.float32)
@@ -2460,7 +2460,9 @@ def test_a_dynamic_integrate_trains_on_simulations_of_different_lengths():
     k = Parameter("dynamic_trained_k", value=0.5)
     x = Output("dynamic_trained_x", Integrate(dt=0.1)(u * k))
     model = ModelyLoop("dynamic_trained", inputs=[u], outputs=[x])
-    model.minimize("fit", x, Input("dynamic_trained_target", tw=1))
+    model.minimize(
+        "fit", "dynamic_trained_x", Input("dynamic_trained_target", seq=-1, tw=1)
+    )
     model.build()
     rng = np.random.default_rng(1)
     simulations = []
@@ -2880,7 +2882,7 @@ def test_derivative_is_trained_through():
     k = Parameter("dtrained_k", value=0.5)
     v = Output("dtrained_v", Derivative(dt=1.0)(x * k))
     model = ModelyLoop("dtrained", inputs=[x], outputs=[v], seq=steps)
-    model.minimize("fit", v, Input("dtrained_target", tw=1))
+    model.minimize("fit", "dtrained_v", Input("dtrained_target", seq=steps, tw=1))
     model.build()
     rng = np.random.default_rng(0)
     positions = np.cumsum(rng.uniform(-1.0, 1.0, (64, steps)), axis=1).astype(

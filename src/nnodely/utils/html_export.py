@@ -12,7 +12,6 @@ from html import escape
 from pathlib import Path
 from nnodely.core.dag import free_name
 from nnodely.core.modely import Modely, ModelCall
-from nnodely.core.modelyloop import ModelyLoop
 
 from nnodely.layers.input import Input
 from nnodely.layers.loop import Loop
@@ -77,7 +76,7 @@ def _block_ports(node, outer_ids: dict[int, str] | None = None, owner=None):
     graph's, the body's own for the body, ``None`` for an outer stream this
     graph does not draw. ``same`` marks a port that binds one stream to
     itself, drawn as one node, by object: the same node, or, in ``owner`` a
-    ModelyLoop, the rollout Input it made of an Input of its step.
+    model ModelyLoop made, the rollout Input it made of an Input of its step.
     """
     held = node._model
     if not isinstance(held, Modely):
@@ -95,7 +94,8 @@ def _block_ports(node, outer_ids: dict[int, str] | None = None, owner=None):
 
     def port(inner, stream, role: str) -> dict:
         same = inner is stream or (
-            isinstance(owner, ModelyLoop)
+            isinstance(owner, Modely)
+            and isinstance(node, Loop)
             and owner._rolled_inputs.get(node._step.key(inner)) is stream
         )
         return {**side(inner, stream), "role": role, "same": same}

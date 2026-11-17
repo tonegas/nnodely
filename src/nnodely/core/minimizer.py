@@ -2,16 +2,21 @@
 the built graph, and turned into the loss the training model minimizes."""
 
 import warnings
+from typing import TYPE_CHECKING, TypeGuard
 
 import keras
 import numpy as np
 
-from nnodely.core.dag import resolve, toposort
+from nnodely.core.dag import _nodes_by_model, resolve, toposort
 from nnodely.core.layer import Layer
 from nnodely.core.shape import OUTER_AXIS, expand_to_rank, outer_view
 from nnodely.core.stream import Node, Stream
 from nnodely.layers.input import Input
+from nnodely.layers.output import Output
 from nnodely.utils.utils import MaskedLoss, _resolve_loss
+
+if TYPE_CHECKING:
+    from nnodely.layers.loop import Loop
 
 
 def _depends_on_dynamic_input(node) -> bool:
@@ -281,6 +286,181 @@ def _minimizer_stream(model, value, side: str, minimizer: str) -> Stream:
             f"is not the name of a stream of model {model.name!r}. Its outputs are "
             f"{sorted(output.name for output in model._outputs)}."
         ),
+    )
+
+
+def _check_sides(model, source, target, minimizer: str) -> None:
+    """Refuse a minimizer of ``model`` whose ``source`` and ``target``,
+    given as streams, are not both computed from the graph of the model, from
+    values, and from Inputs only minimizers read, such as targets; or whose
+    target has another shape than its source.
+
+    A side that reads the graph of another model (the step of a ModelyLoop,
+    the body of a Loop, a block called) is refused: a trajectory is
+    minimized as the output of the model that collects it. Nothing is
+    reshaped, so a target compared with a trajectory is declared with its
+    horizon."""
+    nodes, known = _known_nodes(model)
+    for side, value in (("source", source), ("target", target)):
+        _refuse_foreign(model, nodes, known, value, side, minimizer)
+    _check_shapes(source, target, minimizer)
+
+
+def _is_loop(node) -> TypeGuard["Loop"]:
+    # loop.py imports the module of Modely, which imports this one.
+    from nnodely.layers.loop import Loop
+
+    return isinstance(node, Loop)
+
+
+def _known_nodes(model) -> tuple[list[Node], set[int]]:
+    """Every node of the graph of ``model`` (its outputs, the inputs it
+    declares and the minimizers it has) and their ids."""
+    roots: list[Node] = [*model._outputs, *model._inputs]
+    for registered in model._minimizers:
+        roots.extend((registered["source"], registered["target"]))
+    nodes = toposort(roots)
+    return nodes, {id(node) for node in nodes}
+
+
+def _collected(model) -> dict[int, str]:
+    """The outputs of ``model`` that collect each stream of a Loop body, as
+    the error refusing that stream names them, by the id of the stream as
+    the graph the body was declared over holds it, such as the step of a
+    ModelyLoop. A body rolled out twice has two."""
+    names: dict[int, list[str]] = {}
+    for output in model._outputs:
+        stream = model._output_stream(output)
+        if stream is not output._preds[0]:
+            names.setdefault(id(stream), []).append(output.name)
+    return {
+        key: f"model.outputs[{found[0]!r}]"
+        if len(found) == 1
+        else f"one of model.outputs{found}"
+        for key, found in names.items()
+    }
+
+
+def _refuse_foreign(model, nodes, known: set[int], value, side: str, minimizer: str):
+    """Refuse ``value`` if it reads the graph of another model: a stream
+    another model computes, a fed-back Input the model does not read, or an
+    Input of the name of one the model reads, since the data is fed by name.
+    The error names the output of the model to minimize instead, when one
+    collects the stream refused."""
+    if id(value) in known:
+        return
+    inputs = {
+        node.name: node
+        for node in nodes
+        if isinstance(node, Input) and not node._hidden
+    }
+    owners: dict[int, str] | None = None
+    collected = _collected(model)
+    stack, seen = [value], set()
+    while stack:
+        node = stack.pop()
+        # A call to a block is a node, but no stream.
+        if id(node) in seen or id(node) in known or getattr(node, "_is_value", False):
+            continue
+        seen.add(id(node))
+        reads = (
+            f"its {side} {value.name!r}"
+            if node is value
+            else f"its {side} {value.name!r} reads {node.name!r}, which"
+        )
+        if isinstance(node, Input):
+            # A hidden state a side reads (the state of an Integrate, a
+            # Derivative or a Buffer the side computes) starts from its init.
+            if node.update is not None and (node is value or not node._hidden):
+                output = collected.get(id(node.update))
+                use = (
+                    "Minimize a stream of the model: an output, or one it computes."
+                    if output is None
+                    else "Minimize the trajectory of the stream it is fed back "
+                    f"with, the output {output}."
+                )
+                raise ValueError(
+                    f"Minimizer {minimizer!r}: {reads} is fed back, and model "
+                    f"{model.name!r} does not read it: a state of another graph "
+                    "(the step of a ModelyLoop, the body of a Loop) has no "
+                    f"value in it. {use}"
+                )
+            twin = inputs.get(node.name)
+            if twin is not None and twin is not node:
+                raise ValueError(
+                    f"Minimizer {minimizer!r}: {reads} is not the Input "
+                    f"{node.name!r} model {model.name!r} reads, but another of "
+                    "its name, of another graph such as the step of a "
+                    "ModelyLoop, and the data is fed by input name. Use the "
+                    f"model's own, model.inputs[{node.name!r}], or give the "
+                    "Input a name of its own."
+                )
+            continue
+        if owners is None:
+            owners = _graph_owners(model)
+        owner = owners.get(id(node))
+        if owner is not None:
+            output = collected.get(
+                id(node._preds[0] if isinstance(node, Output) else node)
+            )
+            use = (
+                "Minimize a stream of the model: one of its outputs, "
+                f"{sorted(output.name for output in model._outputs)}, or a "
+                "stream computed from them. A stream of the step of a "
+                "ModelyLoop is declared among its outputs first."
+                if output is None
+                else "Minimize the output of the model that collects it, its "
+                f"trajectory: {output}, or its name."
+            )
+            raise ValueError(
+                f"Minimizer {minimizer!r}: {reads} is a stream of the graph of "
+                f"{owner!r} (the step of a ModelyLoop, the body of a Loop, a "
+                f"model called as a block), which model {model.name!r} does not "
+                f"compute. {use}"
+            )
+        stack.extend(node._preds)
+
+
+def _graph_owners(model) -> dict[int, str]:
+    """The name of the model whose graph holds each node, by id, for every
+    model ``model`` holds (the blocks it calls, the bodies of its Loops,
+    theirs too) and every graph a Loop was declared over, with the blocks
+    it calls: the step of a ModelyLoop, which its body copies."""
+    owners: dict[int, str] = {}
+    groups = _nodes_by_model(model)
+    for held, nodes in groups[1:]:
+        for node in nodes:
+            owners.setdefault(id(node), held.name)
+    for _, nodes in groups:
+        for node in nodes:
+            if _is_loop(node) and node._step.f is not node._model:
+                # The body copies the blocks of the step that hold a state,
+                # so only the step reaches the streams they were declared with.
+                for declared, inner in _nodes_by_model(node._step.f):
+                    for inner_node in inner:
+                        owners.setdefault(id(inner_node), declared.name)
+    return owners
+
+
+def _check_shapes(source, target, minimizer: str) -> None:
+    """Refuse a target of another shape than its source, but for a value,
+    which broadcasts: a loss would broadcast one over the other and silently
+    compare, say, one sample with a whole window."""
+    from nnodely.core.modely import _same_sizes
+
+    if not _reads_input(target) or _same_sizes(source.shape.tuple, target.shape.tuple):
+        return
+    hint = ""
+    if isinstance(target, Input) and target.shape.seq_rank < source.shape.seq_rank:
+        seq = [-1 if size is None else size for size in source.shape.seq]
+        hint = (
+            f" Declare {target.name!r} with the sequence of {source.name!r}, "
+            f"seq={tuple(seq) if len(seq) > 1 else seq[0]}."
+        )
+    raise ValueError(
+        f"Minimizer {minimizer!r} compares {source.name!r} of shape "
+        f"{source.shape} with {target.name!r} of shape {target.shape}. They "
+        f"must have the same shape.{hint}"
     )
 
 

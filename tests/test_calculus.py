@@ -291,7 +291,7 @@ def test_a_gradient_in_a_block_called_twice_in_a_loop_reads_the_state_of_its_cal
     # Parameter, shared by both calls.
     u, s = Input("gl_u", tw=1), Input("gl_s", tw=1)
     p = Parameter("gl_p", value=[0.5])
-    s.feedback(s + u + p)
+    s.feedback(s + u + p, hidden=True)
     block = Modely(
         "gl_block", inputs=[u], outputs=[Output("gl_d", Gradient(wrt=s)(s * s))]
     )
@@ -324,7 +324,7 @@ def test_a_gradient_in_a_block_called_twice_in_a_loop_reads_the_state_of_its_cal
 
 def test_a_gradient_in_a_block_called_twice_in_a_modelyloop_reads_its_state():
     u, s = Input("gm_u", tw=1), Input("gm_s", tw=1)
-    s.feedback(s + u)
+    s.feedback(s + u, hidden=True)
     block = Modely(
         "gm_block", inputs=[u], outputs=[Output("gm_d", Gradient(wrt=s)(s * s))]
     )

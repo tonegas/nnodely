@@ -64,6 +64,13 @@ The **target** is one of:
 - nothing: ``minimize(name, residual)`` drives ``residual`` to zero. This is
   how a physical law is imposed (see :doc:`physics`).
 
+Source and target have one shape (a number aside, which broadcasts), checked
+when the objective is declared. Both are streams of the model: a stream of
+the graph of another model, such as a block it calls, is refused, since the
+model has no value for it. So is a stream of the body of a Loop the model
+rolls out: a trajectory is minimized as the output of the model that
+collects it (see :doc:`recurrent`).
+
 The **loss** is anything Keras accepts:
 
 - a name, such as ``"mse"``, ``"mae"`` or ``"huber"``;

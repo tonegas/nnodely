@@ -198,11 +198,11 @@ class Buffer(Layer):
 
     >>> forces = Input("forces", tw=3)
     >>> level = Input("level", tw=1)
-    >>> level_next = level.feedback(0.9 * level + Fir(bias=False)(forces))
+    >>> level_next = level.feedback(0.9 * level + Fir(bias=False)(forces), hidden=True)
     >>> tank = Modely("tank", inputs=[forces], outputs=[Output("level_next", level_next)])
     >>> reference, measured = Input("reference", tw=1), Input("measured", tw=1)
     >>> command = Output("command", 0.5 * (reference - measured))
-    >>> measured_next = measured.feedback(tank([Buffer(tw=3)(command)]))
+    >>> measured_next = measured.feedback(tank([Buffer(tw=3)(command)]), hidden=True)
     >>> control = ModelyLoop(
     ...     "control", inputs=[reference], outputs=[command, Output("level", measured)]
     ... )

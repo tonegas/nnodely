@@ -30,9 +30,9 @@ a row of a printed table has the fields of the object it stands for.
   fails leaves the model as it was. A model declares every Input it reads,
   including one a layer starts from (`Integrate(init=x0)`) and one it gives a
   block; one it reads undeclared is refused when the model is declared, and
-  the error lists each of them. Only fed-back Inputs and Inputs only an
-  objective reads may be left out. The Keras models a build makes are
-  private.
+  the error lists each of them. Only hidden states and Inputs only an
+  objective reads are left out: a fed-back Input is declared, or hidden. The
+  Keras models a build makes are private.
 - **`DataLoader`** for dicts, DataFrames and CSV files or folders, with
   several simulations, sequences and padding masks. `delimiter` and `header`
   are passed to `pandas.read_csv`; n/a values are reported. An array holds
@@ -46,7 +46,11 @@ a row of a printed table has the fields of the object it stands for.
   model. Its keys are resolved as a call of the model resolves them.
 - **`minimize()`** with any Keras loss and a `gain` per objective. A target
   is an Input, a stream computed from the data, a number, or nothing, which
-  drives the source to zero.
+  drives the source to zero. Both sides are streams of the model and have
+  one shape, a number aside: a stream of another graph (a block called, the
+  body of a Loop, the step of a `ModelyLoop`) or a target of another shape
+  is refused when the objective is declared, naming the output to minimize
+  or the `seq` to declare.
 - **`Modely.minimizers`**: the objectives a model trains, not those of the
   models it calls, printed as a table of their source and target, loss and
   gain. Setting the gain, loss or name of a row changes that objective from
@@ -161,7 +165,7 @@ a row of a printed table has the fields of the object it stands for.
   between rules, each Parameter under the first model whose graph reaches
   it. A `total` row counts the values, all and trainable.
 - **`Modely.inputs`**: every Input a model reads (those it declares, those
-  only an objective reads, the fed-back ones, inside the models it calls
+  only an objective reads, its hidden states, inside the models it calls
   too) and every state of the Loops it rolls out. It prints as a table of
   their shapes and how each is fed: declared, the stream it is fed back
   with, what the data must hold of it (`required` for a call, `target` for
@@ -227,22 +231,32 @@ a row of a printed table has the fields of the object it stands for.
   blocks, the outer model) is one object in the saved model too: loaded
   once, listed once, frozen once. So is an Input a model reads and gives a
   block, and a model called in several places.
-- **`Input.feedback(stream)`**: feeds `stream`, one sample of the Input, back
-  into it at the next step, and returns `stream`. The Inputs of a step read
-  each other's previous values, so coupled dynamics are written as they are,
-  one Input per state variable. A `Loop` or a `ModelyLoop` feeds them back;
-  built as a `Modely`, the same graph is the one-step model, reading them
-  from data. The initial value is given where the feedback is applied:
-  `Loop(init=)`, or the data of the Input in a `ModelyLoop`.
-- **`ModelyLoop(name, inputs, outputs, seq=None)`**: a model declared one
-  step at a time, whose fed-back Inputs are all fed back by a single
-  rollout, one `Loop` over its step. Every listed Input carries the horizon
-  as its outermost sequence axis (`seq` steps, or as many as the data has),
-  and every output is a trajectory. A fed-back Input starts from the first
-  window of its data when it is listed, zeros where the data leaves it out,
-  and from zero when it is not. A model called as a block keeps the
-  feedback of its fed-back Inputs, one per call. `minimize` compares the
-  trajectories of streams of the step, and `body` is the one-step `Modely`.
+- **`Input.feedback(stream, *, init=None, hidden=False)`**: feeds `stream`,
+  one sample of the Input, back into it at the next step, and returns
+  `stream`. The Inputs of a step read each other's previous values, so
+  coupled dynamics are written as they are, one Input per state variable. A
+  `Loop` or a `ModelyLoop` feeds them back; built as a `Modely`, the same
+  graph is the one-step model. A state is declared among the inputs of its
+  model (read from data by a `Modely`, started from `Loop(init=)` or from the
+  data of the Input in a `ModelyLoop`, given by the call in a block), or
+  hidden, `hidden=True`: the model's own memory, as the state of an
+  `Integrate`. A hidden state cannot be declared, and starts from `init` (a
+  number, a `Parameter` for a trainable initial state, a `Constant` or a
+  declared Input), zero without one, in every rollout and every call; a
+  `Modely` reads `init` in its place. It keeps the name it is given: named
+  like another Input of the model, it is refused.
+- **`ModelyLoop(name, inputs, outputs, seq=None)`** returns the `Modely` of
+  a model declared one step at a time, whose fed-back Inputs are all fed
+  back by a single rollout, one `Loop` over its step. Every listed Input
+  carries the horizon as its outermost sequence axis (`seq` steps, or as
+  many as the data has), and every output is a trajectory. A declared
+  fed-back Input starts from the first window of its data, zeros where the
+  data leaves it out, and a hidden one from its `init`. A model called as a
+  block keeps the feedback of its fed-back Inputs, one per call. The model
+  is minimized on its outputs, the trajectories, against targets declared
+  with the horizon (`Input("x_meas", seq=-1, tw=1)`); a stream of the step
+  is refused, naming the output that collects it. The one-step model is
+  `model.models[0]`.
 - **`Loop(f=step)(inputs)`** rolls a step out, finding the Inputs its body
   feeds back (with `Input.feedback`, inside the models it calls, or kept by
   `Integrate`, `Derivative` and `Buffer`) as a `ModelyLoop` does, and adding
@@ -475,7 +489,7 @@ a row of a printed table has the fields of the object it stands for.
   deep, such as a simulation unrolled in Python, is rolled out with a `Loop`
   or `ModelyLoop`, or built after raising `sys.setrecursionlimit`.
 - **The save format is a folder**, `model.json` and `model.weights.h5`, at
-  format version 17. Saves and exports made with 1.x do not load.
+  format version 18. Saves and exports made with 1.x do not load.
 
 ### Removed
 
@@ -509,7 +523,7 @@ a row of a printed table has the fields of the object it stands for.
 | `model.analyzeModel(...)`, performance reports | `model.validate(data)`, returning a `ValidationResult` |
 | `model.trainAndAnalyze(...)` | `model.train(...)` then `model.validate(...)` |
 | `x.closedLoop(...)`, `x.connect(...)`, `ClosedLoop`, `Connect`, `addClosedLoop`, `addConnect`, `prediction_samples=` | `x.feedback(stream)` in a `ModelyLoop` or a `Loop` |
-| `model.resetStates(...)` | the initial value of a fed-back Input: `Loop(init=)`, or the data of the Input in a `ModelyLoop` |
+| `model.resetStates(...)` | the initial value of a fed-back Input: `Loop(init=)`, the data of the Input in a `ModelyLoop`, or the `init` of a hidden state, `x.feedback(stream, init=x0, hidden=True)` |
 | `x.tw(seconds)`, `x.sw(samples)`, `x.z(...)` | `Input("x", tw=samples)` or `tw=(past, future)`, declared once, in samples; `TimeSelect` / `TimeRange` take parts of the window |
 | `model.resetSeed(seed)` | `set_seed(seed)` |
 | `saveModel` / `loadModel` | `model.save(path)` / `Modely.load(path)` |

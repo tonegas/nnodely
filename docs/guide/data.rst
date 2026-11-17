@@ -23,12 +23,12 @@ their sequences, so **build the model before creating the loader**:
 
    import numpy as np
    import pandas as pd
-   from nnodely import DataLoader, Fir, Input, Modely, Output
+   from nnodely import DataLoader, Fir, Input, Linear, Modely, Output
 
    level = Input("level", tw=3)              # level[t-2], level[t-1], level[t]
    inflow = Input("inflow", dim=2, tw=1)     # two inflows, now
    next_level = Input("next_level", tw=(0, 1))  # level[t+1], the target
-   prediction = Output("prediction", Fir()(level) + Fir()(inflow))
+   prediction = Output("prediction", Fir()(level) + Linear()(inflow))
 
    model = Modely("tank", inputs=[level, inflow], outputs=[prediction])
    model.minimize("fit", prediction, next_level)

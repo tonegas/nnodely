@@ -33,6 +33,7 @@ from nnodely import (
 )
 from conftest import CONVERGED, to_numpy
 from nnodely import TimeRange, TimeSelect
+from nnodely.core.stream import Stream
 
 
 DATASETS = os.path.join(os.path.dirname(__file__), "datasets")
@@ -909,17 +910,16 @@ def test_training_a_minimizer_added_after_build_asks_for_a_rebuild():
 
 
 def test_streams_of_different_shapes_are_not_broadcast():
-    """One sample against a whole window is an error, not a broadcast loss."""
+    """One sample against a whole window is an error, not a broadcast loss:
+    refused when the minimizer is declared, not once training runs."""
     x = Input("x", tw=3)
     y = Input("y", tw=1)
     window = Output("window", x * Parameter(value=[2.0]))
     model = Modely("model", inputs=[x], outputs=[window])
-    model.minimize("error", window, y)
-    model.build()
-    data = _load(model)
 
-    with pytest.raises(ValueError, match="same shape"):
-        _training_loss(model, data)
+    with pytest.raises(ValueError, match="'window' of shape .* with 'y' .* same shape"):
+        model.minimize("error", window, y)
+    assert not model.minimizers
 
 
 # -----------------------------------------------------------------------------
@@ -1214,3 +1214,248 @@ def test_setting_a_listed_minimizer_changes_it_in_the_model():
     with pytest.raises(TypeError, match="minimize"):
         rows[0]["source"] = "set_z"
     assert car._minimizers[0]["gain"] == 0.5
+
+
+# -----------------------------------------------------------------------------
+# A model that rolls out a Loop: the streams of its body, and of other graphs
+# -----------------------------------------------------------------------------
+#
+# A ModelyLoop is a Modely of the rollout, minimized on its own outputs, its
+# trajectories. Its step - and the body of any Loop a model rolls out - is
+# another graph, refused as any other is: the error names the output that
+# collects the stream. Nothing is reshaped: a target of another shape than
+# its source is refused when the minimizer is declared.
+
+
+def _lag(name, seq=None):
+    """``x[k+1] = a x[k] + u[k]``, a = 0.5, rolled out by a ModelyLoop."""
+    from nnodely import ModelyLoop
+
+    x, u = Input(f"{name}_x", tw=1), Input(f"{name}_u", tw=1)
+    a = Parameter(f"{name}_a", value=0.5)
+    x_next = Output(f"{name}_next", x.feedback(a * x + u))
+    model = ModelyLoop(name, inputs=[x, u], outputs=[x_next], seq=seq)
+    return x, u, a, x_next, model
+
+
+def _lag_data(name, target):
+    """Four steps from x = 0 with u = 1: the trajectory is 1, 1.5, 1.75,
+    1.875, and the loss against ``target`` is known."""
+    shape = (3, 4, 1, 1)
+    return {
+        f"{name}_x": np.zeros(shape, np.float32),
+        f"{name}_u": np.ones(shape, np.float32),
+        target: np.ones(shape, np.float32),
+    }
+
+
+LAG_LOSS = _mse(np.ones(4), [1.0, 1.5, 1.75, 1.875])
+
+
+def test_a_modelyloop_is_a_modely_of_its_rollout():
+    _, _, _, _, model = _lag("ml_type")
+    assert type(model) is Modely
+    # The one-step model the loop rolls out.
+    assert [node.name for node in model.models[0]._inputs] == ["ml_type_x", "ml_type_u"]
+    assert model.inputs["ml_type_u"].seq == (None,)
+
+
+def test_a_modelyloop_is_minimized_on_its_outputs():
+    _, _, a, _, model = _lag("ml_out")
+    # Its output, by object or by name, against a target declared with the
+    # horizon: compared as they are.
+    target = Input("ml_out_meas", seq=-1, tw=1)
+    model.minimize("fit", model.outputs["ml_out_next"], target)
+    fit = model.minimizers["fit"]
+    assert fit.source is model.outputs["ml_out_next"] and fit.target is target
+    model.minimize("again", "ml_out_next", target)
+    assert model.minimizers["again"].source is fit.source
+    model.minimizers["again"].remove()
+    # A Parameter of the step is a value: it is minimized as it is.
+    model.minimize("small", a, 0.0)
+    assert model.minimizers["small"].source is a
+    model.minimizers["small"].remove()
+
+    model.build()
+    data = DataLoader(model, source=_lag_data("ml_out", "ml_out_meas"), windowed=True)
+    assert data.as_dict()["ml_out_meas"].shape == (3, 4, 1, 1)
+    # The whole trajectory against the target, not one step.
+    assert _training_loss(model, data) == pytest.approx(LAG_LOSS, rel=1e-5)
+
+
+def test_a_loaded_modelyloop_is_minimized_on_its_outputs_too(tmp_path):
+    _, _, _, _, model = _lag("ml_loaded")
+    model.build().save(tmp_path / "model")
+    loaded = Modely.load(tmp_path / "model")
+
+    loaded.minimize("fit", "ml_loaded_next", Input("ml_loaded_meas", seq=-1, tw=1))
+    loaded.build()
+    data = DataLoader(
+        loaded, source=_lag_data("ml_loaded", "ml_loaded_meas"), windowed=True
+    )
+    assert _training_loss(loaded, data) == pytest.approx(LAG_LOSS, rel=1e-5)
+    # The outputs table reads the stream of the body it collects, as it did
+    # before the save.
+    (row,) = loaded.outputs._rows
+    assert row["feeds back"] == ["ml_loaded_x"]
+
+
+def test_the_streams_of_the_step_are_refused_naming_the_output_to_use():
+    x, u, a, x_next, model = _lag("ml_step")
+    meas = Input("ml_step_meas", seq=-1, tw=1)
+    use = re.escape("model.outputs['ml_step_next']")
+    # The Output given to the ModelyLoop, and the stream it names, are of the
+    # step: the model's output is the one that collects them.
+    stream = x_next._preds[0]
+    assert isinstance(stream, Stream)
+    for side in (x_next, stream, stream * 2.0):
+        with pytest.raises(ValueError, match=f"graph of 'ml_step_step'.*{use}"):
+            model.minimize("bad", side, meas)
+    # A state has no value in the model: the trajectory of what it is fed
+    # back with has.
+    with pytest.raises(ValueError, match=f"'ml_step_x' is fed back.*{use}"):
+        model.minimize("bad", "ml_step_next", x)
+    # An Input of the step is not the one the model reads.
+    with pytest.raises(
+        ValueError, match=r"not the Input 'ml_step_u' .*model\.inputs\['ml_step_u'\]"
+    ):
+        model.minimize("bad", "ml_step_next", u)
+    # A stream no output collects is declared among them first.
+    inner = stream._preds[0]  # a * x
+    assert isinstance(inner, Stream)
+    with pytest.raises(ValueError, match="declared among its outputs first"):
+        model.minimize("bad", inner, meas)
+    # A target of one step is not given the horizon.
+    with pytest.raises(
+        ValueError,
+        match="Declare 'ml_step_once' with the sequence of 'ml_step_next', seq=-1",
+    ):
+        model.minimize("bad", "ml_step_next", Input("ml_step_once", tw=1))
+    assert not model.minimizers
+
+
+def _rolled_body(name, horizon=5):
+    """``s[k+1] = s[k] + g v[k]``, g = 0.5, rolled out by an explicit Loop."""
+    from nnodely import Loop
+
+    s, v = Input(f"{name}_s", tw=1), Input(f"{name}_v", tw=1)
+    g = Parameter(f"{name}_g", value=0.5)
+    s_next = Output(f"{name}_s_next", s + g * v)
+    body = Modely(f"{name}_body", inputs=[s, v], outputs=[s_next]).build()
+    s0 = Input(f"{name}_s0", seq=horizon, tw=1)
+    v_seq = Input(f"{name}_v_seq", seq=horizon, tw=1)
+    loop = Loop(f=body, feedback={s: s_next}, init={s: s0}, name=f"{name}_sim")
+    return s, v, s_next, s0, v_seq, loop
+
+
+def test_a_loop_is_minimized_on_the_stream_it_returns():
+    _, v, s_next, s0, v_seq, loop = _rolled_body("lb")
+    traj = Output("lb_traj", loop({v: v_seq}))
+    model = Modely("lb_model", inputs=[s0, v_seq], outputs=[traj])
+    meas = Input("lb_meas", seq=5, tw=1)
+
+    with pytest.raises(
+        ValueError, match=r"graph of 'lb_body'.*model\.outputs\['lb_traj'\]"
+    ):
+        model.minimize("bad", s_next, meas)
+    model.minimize("fit", traj, meas)
+    model.build()
+    shape = (2, 5, 1, 1)
+    data = DataLoader(
+        model,
+        source={
+            "lb_s0": np.zeros(shape, np.float32),
+            "lb_v_seq": np.ones(shape, np.float32),
+            "lb_meas": np.ones(shape, np.float32),
+        },
+        windowed=True,
+    )
+    expected = _mse(np.ones(5), [0.5, 1.0, 1.5, 2.0, 2.5])
+    assert _training_loss(model, data) == pytest.approx(expected, rel=1e-5)
+
+
+def test_a_body_rolled_out_twice_is_minimized_on_either_trajectory():
+    _, v, s_next, s0, v_seq, loop = _rolled_body("lb_twice")
+    model = Modely(
+        "lb_twice_model",
+        inputs=[s0, v_seq],
+        outputs=[
+            Output("lb_twice_a", loop({v: v_seq})),
+            Output("lb_twice_b", loop({v: v_seq * 2.0})),
+        ],
+    )
+    meas = Input("lb_twice_meas", seq=5, tw=1)
+    with pytest.raises(
+        ValueError, match=re.escape("one of model.outputs['lb_twice_a', 'lb_twice_b']")
+    ):
+        model.minimize("bad", s_next, meas)
+    model.minimize("fit", "lb_twice_b", meas)
+
+
+def test_a_stream_of_a_block_is_refused():
+    w = Input("blk_w", tw=1)
+    inner = Output("blk_inner", Linear(features=1)([w]))
+    block = Modely("blk", inputs=[w], outputs=[inner])
+    z = Input("blk_z", tw=1)
+    model = Modely("blk_outer", inputs=[z], outputs=[Output("blk_out", block([z]))])
+
+    # The output of the block itself reads w, not what the model calls it on.
+    with pytest.raises(ValueError, match="a stream of the graph of 'blk'"):
+        model.minimize("bad", inner, Input("blk_meas", tw=1))
+    # Another Input of the name of the model's would read its data.
+    with pytest.raises(
+        ValueError, match="not the Input 'blk_z' model 'blk_outer' reads"
+    ):
+        model.minimize("bad", "blk_out", Input("blk_z", tw=1))
+    # A bare Input is a column of the data, whatever model declares it.
+    model.minimize("fit", "blk_out", w)
+    assert model.minimizers["fit"].target is w
+
+
+def test_a_stream_of_a_block_that_holds_a_state_is_refused():
+    # Called in a step, a block that holds a hidden state is copied once per
+    # call, so its own streams are in no graph the model reads: they were
+    # accepted, and the build then failed without naming the minimizer.
+    from nnodely import ModelyLoop
+
+    w, s = Input("held_w", tw=1), Input("held_s", tw=1)
+    s_next = s.feedback(0.5 * s + w, hidden=True)
+    block = Modely("held_block", inputs=[w], outputs=[Output("held_out", s_next)])
+    drive = Input("held_drive", tw=1)
+    model = ModelyLoop(
+        "held", inputs=[drive], outputs=[Output("held_y", block([drive]))]
+    )
+    with pytest.raises(ValueError, match="a stream of the graph of 'held_block'"):
+        model.minimize("bad", s_next, 0.0)
+    assert not model.minimizers
+    model.minimize("fit", "held_y", 0.0).build()
+
+
+def test_a_target_of_another_shape_is_refused_when_declared():
+    x = Input("shape_x", seq=3, tw=1)
+    out = Output("shape_out", x * Parameter("shape_k", value=[2.0]))
+    model = Modely("shape_model", inputs=[x], outputs=[out])
+    # Compared with a sequence that is no trajectory, one step is not rolled.
+    with pytest.raises(
+        ValueError,
+        match="same shape. Declare 'shape_meas' with the sequence of "
+        "'shape_out', seq=3",
+    ):
+        model.minimize("bad", out, Input("shape_meas", tw=1))
+    # A value broadcasts.
+    model.minimize("zero", out, 0.0)
+
+
+def test_an_input_side_is_keyed_by_its_own_name():
+    x, _, _, out = _gain_model()
+    meas = Input("keyed_meas", tw=1)
+    named_like = Output("keyed_meas", out * 1.0)
+    model = Modely("keyed", inputs=[x], outputs=[out])
+    model.minimize("fit", out, meas)
+    model.build()
+    assert model._minimizer_outputs[meas] == "keyed_meas"
+    # An output of the same name keeps it: the Input is suffixed.
+    model = Modely("keyed_2", inputs=[x], outputs=[out, named_like])
+    model.minimize("fit", out, meas)
+    model.build()
+    assert model._minimizer_outputs[meas] == "keyed_meas_2"
