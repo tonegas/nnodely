@@ -29,8 +29,8 @@ from nnodely.core.stream import object_repr
 from nnodely.utils.printers import _table
 
 #: Samples evaluated per forward pass during validation. Validation is defined
-#: one sample at a time - nothing about the result depends on this number - so
-#: it is a memory bound rather than a parameter worth exposing.
+#: one sample at a time, and nothing about the result depends on this number,
+#: so it is a memory bound rather than a parameter worth exposing.
 _INFERENCE_CHUNK = 256
 
 #: Every metric: what it measures, as the table of a Signal prints it, and
@@ -73,7 +73,7 @@ def _indicators(true: np.ndarray, pred: np.ndarray) -> dict[str, np.ndarray]:
     spread of the target: NRMSE is RMSE as a percentage of its range, FIT is
     ``100 (1 - ||e|| / ||true - mean(true)||)``, R2 is
     ``1 - sum(e^2) / sum((true - mean(true))^2)``, VAF is
-    ``100 (1 - var(e) / var(true))`` - R2 that forgives a constant offset -
+    ``100 (1 - var(e) / var(true))``, the R2 that forgives a constant offset,
     and correlation is Pearson's, 0 for a prediction that never moves. A
     target that never moves has no spread: its relative metrics are NaN.
     A non-finite prediction makes every metric it is in NaN.
@@ -143,7 +143,7 @@ class Signal:
     shape : Shape
         The shape of one sample.
     samples, scored, missing : int
-        The samples, the points scored, and those without a target - the
+        The samples, the points scored, and those without a target: the
         steps padded onto shorter rollouts, NaN in the data. A point is one
         sample at one step of the sequence and of the window.
 
@@ -330,7 +330,7 @@ def _evaluate(model, terms, x_data: dict, mask, n_samples: int) -> list:
     """What each minimizer compares over the dataset, as training sees it.
 
     Returns, for each term in the order of ``terms``, its loss over the whole dataset, its source, its
-    target aligned with it, and the mask of their real points - None when no
+    target aligned with it, and the mask of their real points, None when no
     point was padded.
 
     ``training=False`` is the backend-independent switch: it is what tells

@@ -295,8 +295,8 @@ class Modely:
 
     def __init__(self, name: str, inputs: list[Input], outputs: list[Output]) -> None:
         self.name = name
-        # Lists of its own: one the caller goes on changing - reused for
-        # another model - leaves this one as it was declared.
+        # Lists of its own: one the caller goes on changing, reused for
+        # another model, leaves this one as it was declared.
         self._inputs = list(inputs)
         self._outputs = list(outputs)
         self._order = toposort(self._outputs)
@@ -364,8 +364,8 @@ class Modely:
         at once, as ``model.inputs[name]`` resolves it: a name several Inputs
         carry raises, and so does an Input the model does not read. Keyed by
         the Inputs themselves, two of one name are told apart. A key that
-        names no input the model reads - a target, or another column - is
-        ignored.
+        names no input the model reads, such as a target or another column,
+        is ignored.
         """
         if isinstance(inputs, Node) or hasattr(inputs, "shape"):
             # A stream or an array alone: the value of the one input.
@@ -425,8 +425,8 @@ class Modely:
         return self._call_tensor(given)
 
     def _input_of(self, key, known: list | None = None) -> Input:
-        """The Input a key the user gives stands for - the Input itself, or
-        its name, resolved as ``model.inputs[name]`` resolves it: a name
+        """The Input a key the user gives stands for. The key is the Input
+        itself, or its name, resolved as ``model.inputs[name]`` resolves it: a name
         several Inputs carry raises, listing them, and a name none carries, or
         an Input the model does not read, raises :class:`NameNotFound`.
         ``known`` is ``self.inputs._candidates()``, when the caller holds it."""
@@ -546,7 +546,7 @@ class Modely:
             raise ValueError(
                 f"Model {self.name!r} reads several Inputs named {twins}: the "
                 "data is keyed by input name, so give one of them a name of "
-                "its own, model.inputs[i].name = 'new_name' - then build "
+                "its own, model.inputs[i].name = 'new_name', then build "
                 "again to train with it."
             )
 
@@ -585,7 +585,7 @@ class Modely:
             raise ValueError(
                 f"Model {self.name!r} reads its input {node.name!r} as "
                 f"{node.shape}, so used as a block it takes a stream of that "
-                "shape for it - the same dim, sequence and window; "
+                "shape for it, with the same dim, sequence and window; "
                 f"{stream.name!r} is {stream.shape}. A block keeps "
                 "the shapes it was declared with: give it a stream of that "
                 "shape, or declare the model on the shape it is used with."
@@ -715,7 +715,7 @@ class Modely:
         # only once its Keras models are made.
         # The training model returns them by a key of their own: the name of
         # a declared output for one, else its name when no other output has
-        # it - two calls of one block return streams of one name.
+        # it, since two calls of one block return streams of one name.
         extra_outputs, extra_keys = [], []
         minimizer_outputs: dict[Node, str] = {}
         keys = {node.name for node in self._outputs}
@@ -746,7 +746,7 @@ class Modely:
             # Keras would only say that its outputs are not KerasTensors.
             raise ValueError(
                 f"Model {self.name!r} reads no Input. A model is evaluated on "
-                "data, and its Inputs are what the data feeds - the batch too: "
+                "data, and its Inputs are what the data feeds, the batch too: "
                 "a graph of Parameters, Constants and numbers alone, such as a "
                 "Loop seeded and driven by numbers only, has nothing to run on. "
                 "Read at least one Input."
@@ -801,8 +801,8 @@ class Modely:
         )
 
         # Inference sees the model as it was declared: its outputs, and only
-        # the inputs those read. What the minimizers add - their sides, and the
-        # inputs only they read, such as targets - is there for the loss and
+        # the inputs those read. What the minimizers add (their sides, and the
+        # inputs only they read, such as targets) is there for the loss and
         # stays in the training model. The inputs are read off the Keras graph
         # rather than the DAG, because a Parameter or Constant is wired to an
         # arbitrary input for its batch.
@@ -823,7 +823,7 @@ class Modely:
 
         # Graph flattening builds shallow copies. Keep the public symbolic nodes
         # connected to the concrete Keras layers created from those copies, and
-        # to the input shapes those were built for - the handle and what it
+        # to the input shapes those were built for. The handle and what it
         # fits travel together, so composing this model later can tell whether
         # its layers can be reused where they land.
         for source_node, flat_node in flatten_memo.items():
@@ -843,8 +843,8 @@ class Modely:
         self._keras_inference_model = inference_model
 
         if not keep_weights:
-            # In place, so every model computing with them - a block built on
-            # its own, a body - starts from them too. Each Keras layer once,
+            # In place, so every model computing with them (a block built on
+            # its own, a body) starts from them too. Each Keras layer once,
             # however many nodes apply it.
             layers: dict[int, Layer] = {}
             for node in _nodes_and_models(self)[0]:
@@ -860,7 +860,7 @@ class Modely:
         # application overwrite the previous one. The concrete Keras layer is
         # keyed by the layer object the node applies, its source: applications
         # of one layer share its weights, the way repeated calls do in Keras,
-        # and layers created apart never do - even under one name, as a model
+        # and layers created apart never do, even under one name, as a model
         # and its reloaded copy have.
         tensor_map: dict[Node, Any] = {
             node: node._input for node in order if isinstance(node, Input)
@@ -869,8 +869,8 @@ class Modely:
         keras_names: dict[str, Any] = {
             node._input.name: Input for node in order if isinstance(node, Input)
         }
-        # A Parameter that layers only read as one of their weights - never as
-        # their input, nor as an output - is read whole: it keeps a batch axis
+        # A Parameter that layers only read as one of their weights (never as
+        # their input, nor as an output) is read whole: it keeps a batch axis
         # of one rather than a copy for every sample, which the backward pass
         # would sum again.
         readers: dict[Node, list[tuple[Node, int]]] = {}
@@ -1145,7 +1145,7 @@ class Modely:
             )
 
     def _set_minimizer(self, minimizer: dict, key: str, value):
-        """Set the name, loss or gain - ``key`` - of ``minimizer``, one of
+        """Set the name, loss or gain, ``key``, of ``minimizer``, one of
         the model's, checked as :meth:`minimize` checks it."""
         if not any(m is minimizer for m in self._minimizers):
             raise ValueError(
@@ -1367,7 +1367,7 @@ class Modely:
         state of its Loops that does not start from the data of one."""
         from nnodely.layers.loop import Loop
 
-        # A row per Input object: two Inputs of one name - renamed alike -
+        # A row per Input object: two Inputs of one name (renamed alike)
         # are two rows, and the model refuses them when built.
         declared = {id(node) for node in self._inputs}
         sides = [
@@ -1413,8 +1413,8 @@ class Modely:
             rows.append(by_input[id(original)])
 
         # The states, inside the step: one that starts from an optional Input
-        # - the Input of a ModelyLoop it starts from, by object, renamed or
-        # not - is that Input, read from data.
+        # (the Input of a ModelyLoop it starts from, by object, renamed or
+        # not) is that Input, read from data.
         seen: set[int] = set()
         for loop in (node for node in read if isinstance(node, Loop)):
             for state, update, start, rolled in loop._state_starts():
@@ -1811,7 +1811,7 @@ class Modely:
         if given:
             raise TypeError(
                 f"Model {self.name!r} picks Parameters and models by name, a "
-                "string or a list of strings - one of several of a name is "
+                "string or a list of strings. One of several of a name is "
                 "frozen by itself, model.parameters[i].freeze(); got "
                 f"{type(given[0]).__name__}."
             )
@@ -2558,8 +2558,8 @@ class Modely:
             raise ValueError(f"weights is True, False or 'all', got {weights!r}.")
         # Loaded, a model with weights of its own is built: its Inputs need
         # names of their own, and its weights a Keras model to write them
-        # from - built to write them, not to run: what that would warn about
-        # is said once it is built to run.
+        # from. It is built to write them, not to run: what that would warn
+        # about is said once it is built to run.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             for model in _nodes_and_models(self)[1]:
@@ -3154,17 +3154,17 @@ class Minimizers(Table):
 
 def _refresh_keras_inputs(model: Modely) -> None:
     """Give every Input the model reads a Keras input of its name now: an
-    Input renamed since it was declared - ``x.name = "speed"`` - keeps the
-    Keras input of its first name, which the data would be keyed by."""
+    Input renamed since it was declared, as by ``x.name = "speed"``, keeps
+    the Keras input of its first name, which the data would be keyed by."""
     for node in _nodes_and_models(model)[0]:
         if isinstance(node, Input) and node._input.name != node.name:
             node._input = keras.Input(shape=node.shape.tuple, name=node.name)
 
 
 def _rename_hidden_states(model: Modely) -> None:
-    """Give a free name to every state a layer keeps in an Input of its own
-    - Integrate, Derivative, Buffer - that has the name of another Input the
-    model reads: named after the layer and its signal, ``tank_rate``, it can
+    """Give a free name to every state a layer (Integrate, Derivative,
+    Buffer) keeps in an Input of its own that has the name of another Input
+    the model reads: named after the layer and its signal, ``tank_rate``, it can
     be named like an Input of the user's, ``tank_rate`` too. The user never
     names or reads it, so it yields. The data is fed by input name, so the
     model could not be built otherwise."""

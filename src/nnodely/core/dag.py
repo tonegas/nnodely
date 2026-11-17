@@ -1,5 +1,5 @@
 """
-DAG - Lazy/DAG approach. No global graph.
+DAG: the lazy DAG approach. No global graph.
 Each node has predecessors; Model traverses from output backwards.
 
 Axes: a stream is laid out (batch, *seq, tw, *dim), or (batch, *seq, *dim)
@@ -41,8 +41,8 @@ def next_name(prefix: str) -> str:
 
 def free_name(name: str, taken: Container[str]) -> str:
     """``name``, or the first of ``name_2``, ``name_3``, ... not in
-    ``taken`` - a set of names, or a dict keyed by them: how a name nnodely
-    generates, or shows, keeps apart from those already used. The caller
+    ``taken``, a set of names or a dict keyed by them. It is how a name
+    nnodely generates, or shows, keeps apart from those already used. The caller
     records the name it takes."""
     free, index = name, 2
     while free in taken:
@@ -60,11 +60,11 @@ def free_name(name: str, taken: Container[str]) -> str:
 # name looks it up among the objects the graph reaches, in that order, and
 # refuses a name several carry; the lists the user reads them from are also
 # indexed by position, as the index column of their tables shows. A key is
-# resolved to its object where the user gives it - by resolve() - and inside
+# resolved to its object where the user gives it, by resolve(), and inside
 # nnodely the objects themselves are used, never their names.
 
 #: ``(object, index, where)``: an object a key may pick, its index in the
-#: list it is picked from - or None - and where it is, for the listing of a
+#: list it is picked from (or None) and where it is, for the listing of a
 #: name several carry.
 Candidate = tuple[Any, "int | None", str]
 
@@ -80,15 +80,15 @@ class NameNotFound(KeyError, ValueError):
 
 def by_name_or_index(key, owner: str) -> bool:
     """Whether ``key`` picks by name: a string; an int or a slice picks by
-    position, as in a list. Anything else - a name and an index together -
-    raises ``TypeError``."""
+    position, as in a list. Anything else, such as a name and an index
+    together, raises ``TypeError``."""
     if isinstance(key, str):
         return True
     if isinstance(key, (int, slice)) and not isinstance(key, bool):
         return False
     raise TypeError(
         f"{owner}: an item is picked by its name, a string, or by its index, "
-        f"an int - the index column of the table - not both; got {key!r}."
+        f"an int (the index column of the table), not both; got {key!r}."
     )
 
 
@@ -135,13 +135,13 @@ def resolve(
     same: Callable[[Any, Any], bool] | None = None,
     missing: Callable[[Any], str] | None = None,
 ) -> Any:
-    """The object of ``candidates`` the user's ``key`` picks - the one place
-    a key becomes an object:
+    """The object of ``candidates`` the user's ``key`` picks. It is the one
+    place a key becomes an object:
 
     - a name, a string: the one candidate carrying it; a name several carry
       raises ``ValueError`` listing them (:func:`pick`);
     - with ``indices``, an int or a slice: by position, as in a list;
-    - with ``objects``, an instance of those types: the candidate it is - or,
+    - with ``objects``, an instance of those types: the candidate it is or,
       with ``same(candidate, key)``, the one it stands for, as an Input
       stands for the copies a build makes of it.
 
@@ -180,13 +180,13 @@ def resolve(
 
 
 class Table(list):
-    """A list of the objects of a model a table prints - its Parameters,
-    Inputs, outputs, models or minimizers - picked by name or by index, the
+    """A list of the objects of a model a table prints (its Parameters,
+    Inputs, outputs, models or minimizers), picked by name or by index, the
     index column of the table, as :func:`resolve` picks them. A subclass
     sets ``_kind`` and ``_attr``, the name of its list on a model, and gives
     where each item is with :meth:`_where`.
 
-    It reads as a list - iterated, it gives the objects - and as a dict of
+    It reads as a list, which iterated gives the objects, and as a dict of
     them by name: ``keys()``, ``values()`` and ``items()`` are lists, and
     ``in`` takes a name or an object. ``print`` shows the table, with the
     ``idx`` column; ``repr`` the same items, one per line, as
@@ -210,8 +210,8 @@ class Table(list):
         ]
 
     def __getitem__(self, key):  # type: ignore[override]
-        """An item by its name, or by its index - the index column of the
-        table - as in a list. A name several items carry raises
+        """An item by its name, or by its index (the index column of the
+        table) as in a list. A name several items carry raises
         ``ValueError`` listing them, with their index."""
         return resolve(
             key,
@@ -275,7 +275,7 @@ class Scope:
         self.calls: dict[Node, "Scope"] = {}
         # The Parameters and Constants inlined, one copy each, shared with
         # every call: they are one object in every model that reads them. So
-        # is an Input read from data - one array, whatever reads it - unless a
+        # is an Input read from data, one array whatever reads it, unless a
         # call binds it; a fed-back Input is one state per call in a loop.
         self.values: dict[Node, Any] = {} if values is None else values
         # The fed-back Inputs inlined, with the scope of each, when the
@@ -291,7 +291,7 @@ class Scope:
         self.inits: dict[Node, Any] = {}
         # The Inputs a Modely being built declares, or None outside one: a
         # hidden fed-back Input it does not declare is nothing it feeds back,
-        # and reads its init - zero without one - as the first step of a
+        # and reads its init (zero without one) as the first step of a
         # loop would.
         self.declared = declared
 
@@ -317,7 +317,7 @@ def flatten_node(node: Node, scope: Scope) -> Any:
 
     Without recursion: the steps of each node (:func:`_flatten_steps`) ask
     for the copies of the nodes it reads, and a stack runs the steps of the
-    nodes being copied - in the order a recursion would - so a graph of any
+    nodes being copied, in the order a recursion would. So a graph of any
     depth is inlined."""
     stack = [_flatten_steps(node, scope)]
     copied = None
@@ -482,7 +482,7 @@ def _undeclared_inputs(inputs, outputs) -> list:
     """Every Input the one-step model of ``outputs`` reads that is not among
     ``inputs`` and nothing feeds back: through its streams and the arguments
     of the models it calls, and as the init of a hidden fed-back Input it
-    does not declare - the state of an Integrate, a Derivative or a Buffer,
+    does not declare: the state of an Integrate, a Derivative or a Buffer,
     which a Modely starts from its init. The streams the fed-back Inputs are
     fed back with are a loop's to read, not the one-step model's."""
     from nnodely.layers.input import Input
@@ -571,8 +571,8 @@ def toposort(roots: Sequence[Node]) -> list[Node]:
 
 
 def _copies(scope: Scope) -> dict[int, Node]:
-    """The node of the graph every node ``scope`` - and the scope of every
-    call it makes - holds stands for, by the id of the node held: the copy
+    """The node of the graph every node held by ``scope``, and by the scope
+    of every call it makes, stands for, by the id of the node held: the copy
     inlining made, or what a call returns for the output it is read as. A
     node of the enclosing scope wins over one of a call."""
     found: dict[int, Node] = {}
@@ -633,8 +633,8 @@ def _streams_from(roots) -> list[Stream]:
 def _parameters(model: "Modely") -> list["Parameter"]:
     """Every Parameter ``model`` computes with, each once: reached from its
     outputs and minimizers, through the models it calls and the bodies of its
-    Loops, in the order the graph reaches them - inputs
-    before the nodes they feed, the model's own before its bodies'."""
+    Loops, in the order the graph reaches them: inputs before the nodes
+    they feed, the model's own before its bodies'."""
     return _parameters_and_models(model)[0]
 
 
@@ -661,8 +661,8 @@ def _nodes_by_model(
     model: "Modely", holders: dict[int, "Modely"] | None = None
 ) -> list[tuple["Modely", list[Node]]]:
     """Every model the walk of :func:`_nodes_and_models` reaches, in that
-    order, each with the nodes it reaches first: those of its own graph -
-    not of the models it calls - but those an earlier model reached already.
+    order, each with the nodes it reaches first: those of its own graph, not
+    of the models it calls, but those an earlier model reached already.
     ``holders``, if given, is filled with the model whose graph first reaches
     each one, by id, ``model`` aside."""
     from nnodely.core.modely import Modely

@@ -374,8 +374,8 @@ class LegacyPrinter(keras.callbacks.Callback):
     # ------------------------------------------------------------------
 
     def _print_row(self, epoch: int, logs: dict) -> None:
-        # A row is left unterminated so that whatever ends the training - an
-        # early-stopping notice - reads as a continuation of its own row.
+        # A row is left unterminated so that whatever ends the training, such
+        # as an early-stopping notice, reads as a continuation of its own row.
         prefix = "\n" if self._rows_printed else ""
         print(prefix + self._paint(self._row(epoch, logs), ""), end="", flush=True)
         self._rows_printed += 1
@@ -435,7 +435,7 @@ def _format(value: Any) -> str:
 
 
 # =====================================================================
-# NNodelyPrinter - the machine room
+# NNodelyPrinter: the machine room
 # =====================================================================
 
 #: The nnodely wordmark gradient, sampled from imgs/logo_info.png: sky blue at
@@ -564,9 +564,9 @@ def _bg(rgb: tuple) -> str:
 class _Canvas:
     """A half-block pixel canvas.
 
-    Every character cell carries two stacked pixels - the upper one painted as
-    the foreground of ``▀``, the lower one as its background - which makes the
-    pixels square on a normal terminal grid.
+    Every character cell carries two stacked pixels, which makes the pixels
+    square on a normal terminal grid. The upper one is painted as the
+    foreground of ``▀``, the lower one as its background.
     """
 
     def __init__(self, cols: int, rows: int):
@@ -613,9 +613,9 @@ class _Canvas:
 def _loss_graph(losses: Sequence[float], cols: int, rows: int) -> list[str]:
     """The loss along the epochs as an area chart, ``rows`` lines of ``cols``
     columns: its highest and lowest value on the axis, then a column per
-    epoch - the last epoch of each span of them, when there are more epochs
-    than columns - its height in eighths of a line, on a log scale when every
-    loss is positive. A loss that is not finite leaves its column empty."""
+    epoch, its height in eighths of a line, on a log scale when every loss is
+    positive. With more epochs than columns, a column shows the last epoch of
+    each span of them. A loss that is not finite leaves its column empty."""
     width = cols - _CELL - 2  # the values, a space and the axis
     count = len(losses)
     if count > width:
@@ -764,7 +764,7 @@ class _Channel:
         if not values:
             return " " * width
         # A loss falls over orders of magnitude, so the spark is drawn on a log
-        # scale - otherwise everything after the first few epochs is one flat
+        # scale. Otherwise everything after the first few epochs is one flat
         # line pinned to the bottom of the cell.
         positive = [v for v in values if math.isfinite(v) and v > 0]
         floor = min(positive) if positive else 1.0
@@ -1214,8 +1214,9 @@ class NNodelyPrinter(keras.callbacks.Callback):
 
 
 def _supports_colour(stream: Any) -> bool:
-    """True when it is safe to write 24-bit colour and cursor moves - but in
-    a notebook, whose kernel sets ``FORCE_COLOR``: see :func:`_is_notebook`."""
+    """True when it is safe to write 24-bit colour and cursor moves. A
+    notebook is the exception, whose kernel sets ``FORCE_COLOR``: see
+    :func:`_is_notebook`."""
     if os.environ.get("NO_COLOR"):
         return False
     if os.environ.get("FORCE_COLOR"):
@@ -1229,7 +1230,7 @@ def _supports_colour(stream: Any) -> bool:
 
 
 # =====================================================================
-# Notebooks - colour, but no cursor moves
+# Notebooks: colour, but no cursor moves
 # =====================================================================
 
 #: How many times a second a printer redraws its output in a notebook: each
@@ -1271,7 +1272,7 @@ class _NotebookView:
 
 
 # =====================================================================
-# Tables - what a model prints of its inputs, outputs, Parameters, ...
+# Tables: what a model prints of its inputs, outputs, Parameters, ...
 # =====================================================================
 
 #: The characters the box of a table is drawn with.
@@ -1285,7 +1286,7 @@ def _table(
     indexed: bool = False,
 ) -> str:
     """A table as nnodely prints one: ``header`` in heavy lines, then the
-    rows of each section - a (title, rows) pair - under a row of its title
+    rows of each section, a (title, rows) pair, under a row of its title
     when it has one, under a rule when it has none and is not the first, and,
     given, the ``total`` row last, under a rule. The
     columns line up across the sections. ``indexed`` opens each row with its

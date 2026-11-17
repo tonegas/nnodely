@@ -16,9 +16,9 @@ except ModuleNotFoundError as error:
         raise
     raise ImportError(
         f"nnodely runs on Keras, whose backend needs {missing!r}, which is "
-        "not installed. Install nnodely with a backend - "
-        'pip install "nnodely[tensorflow]", "nnodely[torch]" or "nnodely[jax]" '
-        "- and choose it with the KERAS_BACKEND environment variable, "
+        "not installed. Install nnodely with a backend "
+        '(pip install "nnodely[tensorflow]", "nnodely[torch]" or "nnodely[jax]") '
+        "and choose it with the KERAS_BACKEND environment variable, "
         "tensorflow when it is not set."
     ) from error
 

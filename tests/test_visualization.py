@@ -242,7 +242,7 @@ def _graph(page):
 
 def _names(page):
     """What the page shows for every node id: its label, after the names of
-    the regions it is spliced in - ``block/body/x`` - as a reader finds it.
+    the regions it is spliced in (``block/body/x``), as a reader finds it.
     The ids themselves are the page's own, n0, n1, ..."""
     nodes, _ = _graph(page)
     regions = json.loads(
@@ -651,8 +651,8 @@ def _pages(model, tmp_path):
 
 
 def test_a_name_like_a_path_does_not_hide_a_node(tmp_path):
-    # Once, a node of the graph named like the id of a spliced body node -
-    # "block/x" - took its id and vanished from the flattened page.
+    # Once, a node of the graph named like the id of a spliced body node
+    # ("block/x") took its id and vanished from the flattened page.
     x = Input("path_x", tw=1)
     block = Modely("path_block", inputs=[x], outputs=[Output("path_y", x * 2.0)])
     u = Input("path_u", tw=1)
@@ -686,7 +686,7 @@ def test_a_node_named_like_a_loss_is_drawn_apart(tmp_path):
 
 def test_a_renamed_modelyloop_state_is_drawn_once(tmp_path):
     # The rollout Input a ModelyLoop makes of its state is bound to it by
-    # object: renamed, they are still one node - once two, matched by name.
+    # object: renamed, they are still one node (once two, matched by name).
     x, u = Input("ren_x", tw=1), Input("ren_u", tw=1)
     x.feedback(x + u)
     sim = ModelyLoop("ren_sim", inputs=[x, u], outputs=[Output("ren_out", x)])

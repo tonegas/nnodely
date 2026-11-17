@@ -52,8 +52,8 @@ def _input_ancestors(node) -> list[Input]:
 def _differentiate(function_model, inputs, wrt_index: int, order: int, training):
     """``order``-th derivative of ``function_model`` w.r.t. its ``wrt_index``-th input.
 
-    The backend's own autodiff is used, so the result is differentiable again
-    - both to nest derivatives and to train through them.
+    The backend's own autodiff is used, so the result is differentiable
+    again, both to nest derivatives and to train through them.
     """
     backend = keras.backend.backend()
     arguments = list(inputs)
@@ -130,7 +130,7 @@ class GradientImpl(keras.layers.Layer):
     The layer is applied to the sub-graph's own source tensors, not to the
     value of the relation it differentiates: a value carries no derivative,
     so the relation has to be re-evaluated under the backend's autodiff.
-    The sub-model shares its layers - and therefore its weights - with the
+    The sub-model shares its layers, and therefore its weights, with the
     graph that produced it.
     """
 
@@ -374,8 +374,8 @@ class Gradient(Layer):
         super().__init__(name=name, order=self._order, wrt=self._wrt)
 
     def _copied(self, memo: dict) -> None:
-        # The copy of the Input this call made - a state of a block, one per
-        # call in a Loop - shares its Keras input until renamed; a stream the
+        # The copy of the Input this call made (a state of a block, one per
+        # call in a Loop) shares its Keras input until renamed. A stream the
         # call binds the Input to is another relation, not differentiated.
         copy = memo.get(self._wrt)
         if isinstance(copy, Input) and copy._input is self._wrt._input:
@@ -431,8 +431,8 @@ class Gradient(Layer):
                 "replaced by the streams it is called with, so differentiate in "
                 "the model where the input is declared."
             )
-        # Built for the relation of this application: one built for another -
-        # in an earlier graph, or by another call of the block holding it -
+        # Built for the relation of this application: one built for another
+        # (in an earlier graph, or by another call of the block holding it)
         # would compute that one. Its weights are those of the relation's
         # layers, shared through their own nodes, so none is lost.
         function_model = keras.Model(
@@ -455,7 +455,7 @@ class Gradient(Layer):
         # The Input is saved by its position among the Inputs the relation it
         # differentiates is computed from, and found there again.
         config = super().get_config()
-        # A copy of the Input - in a flattened graph - shares its Keras input.
+        # A copy of the Input in a flattened graph shares its Keras input.
         config["wrt"] = next(
             index
             for index, node in enumerate(_input_ancestors(self._preds[0]))

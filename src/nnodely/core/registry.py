@@ -7,10 +7,10 @@ from nnodely.core.stream import Node, class_path, registered_class
 
 def _saved_order(model) -> list:
     """The nodes of ``model``'s own graph to save, every one after its
-    predecessors: those its outputs are computed from, its declared inputs -
-    read or not, they are what it is called with - and those its fed-back
-    Inputs are fed back with, and start from, which are no predecessors of
-    theirs. A model it calls is a node of it, saved in a folder of its own."""
+    predecessors: those its outputs are computed from; its declared inputs,
+    read or not, since they are what it is called with; and those its
+    fed-back Inputs are fed back with, and start from, which are no
+    predecessors of theirs. A model it calls is a node of it, saved in a folder of its own."""
     from nnodely.core.dag import toposort
     from nnodely.layers.input import Input
 
@@ -52,8 +52,8 @@ class _Loading:
     Every layer was saved under an id, the same for every node applying it
     in any model of the tree. Those nodes are given back one source, so they
     share their weights again, and the Keras layer the first model built for
-    it - a called model, or a body, is built before the model holding it - is
-    handed on to the models built after it. A model and an Input written in
+    it is handed on to the models built after it. A called model, or a body,
+    is built before the model holding it. A model and an Input written in
     several files of the tree are loaded once, and are one object again.
     """
 
@@ -102,7 +102,7 @@ class ModelSerializer:
         """Write ``model`` to the folder ``path``: its own graph in
         ``model.json``, its weights in ``model.weights.h5``, and every model
         it calls as a block, or rolls out in a Loop, in a folder of its own,
-        written the same way - so the models nest as their folders do, and
+        written the same way. So the models nest as their folders do, and
         each folder is a model that loads on its own."""
         from nnodely.core.layer import Layer
         from nnodely.core.modely import IntermediateOutput, ModelCall, Modely
@@ -158,8 +158,8 @@ class ModelSerializer:
                 "preds": [node_ids[pred] for pred in node._preds],
             }
             if isinstance(node, Input):
-                # An Input a called model reads too - one this model gives
-                # it, a fed-back one - is the one this model reads: written
+                # An Input a called model reads too (one this model gives
+                # it, a fed-back one) is the one this model reads: written
                 # in both files, it is loaded as one.
                 node_data["input"] = saving.id_of(saving.inputs, node)
                 # A fed-back Input keeps the stream it is fed back with and
@@ -186,9 +186,8 @@ class ModelSerializer:
                     if output is inner
                 )
             # A model this one calls as a block, or a Loop rolls out, is saved
-            # as a model of its own, in a folder named after it - the model
-            # called, or the Loop - so nested models nest their folders the
-            # same way. Two can share a name, so a folder already taken gets
+            # as a model of its own, in a folder named after the model called
+            # or the Loop, so nested models nest their folders the same way. Two can share a name, so a folder already taken gets
             # a suffix.
             held = node._model
             if isinstance(held, Modely):
@@ -198,8 +197,8 @@ class ModelSerializer:
                     folder = free_name(base, set(folders.values()))
                     folders[id(held)] = folder
                     # Its weights are in this model's file, the ones it
-                    # computes with here. Built - a Loop body always is, a
-                    # block trained alone - or with weights="all", it saves
+                    # computes with here. Built (a Loop body always is, a
+                    # block trained alone) or with weights="all", it saves
                     # its own too, and is built again once loaded.
                     ModelSerializer.serialize(
                         held,
@@ -368,9 +367,9 @@ class ModelSerializer:
 
         model = ModelSerializer.deserialize(data, path, loading=loading)
         # The model loaded is built; a model it calls only to load weights of
-        # its own, saved when it was built - its others are in the file of the
-        # model calling it. A model loaded without its weights - saved
-        # without them, or loaded with weights=False - keeps the ones build()
+        # its own, saved when it was built, since its others are in the file
+        # of the model calling it. A model loaded without its weights (saved
+        # without them, or loaded with weights=False) keeps the ones build()
         # just gave it, as a model declared from scratch would.
         own_weights = loading.weights and weights_path.exists()
         if loaded or own_weights:

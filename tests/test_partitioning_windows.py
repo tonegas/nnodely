@@ -606,7 +606,7 @@ def test_the_newest_sample_and_the_whole_window_in_one_model():
         ],
     ).build()
 
-    ## The data holds the window; TimeSelect(-1) is its newest sample - also
+    ## The data holds the window; TimeSelect(-1) is its newest sample, also
     ## in a relation declared after the build
     assert x.shape.tw == 3
     assert (TimeSelect(-1)(x) * 2.0).shape.tw == 1

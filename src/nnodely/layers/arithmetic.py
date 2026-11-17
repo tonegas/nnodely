@@ -1,5 +1,5 @@
 """Arithmetic layers for nnodely: the elementwise operations of one stream
-or between streams - the ones the operators + - * / ** % of a stream make -
+or between streams (the ones the operators + - * / ** % of a stream make),
 and the reductions over the dim axes."""
 
 import math
@@ -57,7 +57,7 @@ class UnaryOpImpl(keras.layers.Layer):
 
 
 class UnaryOp(Layer):
-    """An elementwise operation of one stream - Exp, Log, Sin, ... - named
+    """An elementwise operation of one stream (Exp, Log, Sin, ...), named
     by ``_operation``; applied to several streams, to each of them."""
 
     _operation = ""

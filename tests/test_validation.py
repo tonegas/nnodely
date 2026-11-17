@@ -80,7 +80,7 @@ def test_relative_indicators_are_undefined_on_a_constant_target():
 
 
 def test_every_element_of_the_tensor_is_scored():
-    ## (samples, tw, dim) - an error hidden past the first scalar still counts
+    ## (samples, tw, dim): an error hidden past the first scalar still counts
     true = np.zeros((4, 3, 2))
     pred = np.zeros((4, 3, 2))
     pred[2, 2, 1] = 1.0
@@ -212,7 +212,7 @@ def test_padded_points_are_left_out_of_every_indicator():
     rng = np.random.default_rng(1)
     true = rng.normal(size=(3, 5, 1, 1))
     pred = true + rng.normal(scale=0.1, size=true.shape)
-    ## Whatever a padded step holds - a rollout that diverged included - is
+    ## Whatever a padded step holds (a rollout that diverged included) is
     ## not the model's error
     pred[~real] = np.array([1e6, -np.inf, np.nan, 7.0])[:, None, None]
 

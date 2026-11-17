@@ -17,8 +17,8 @@ def _traces_backward_pass(model) -> bool:
 
     Layers declare this themselves, so the export path does not have to know
     which ones they are. The walk is recursive because such a layer can sit
-    inside a nested model - a recurrent body, or the sub-graph a Gradient
-    differentiates.
+    inside a nested model, such as a recurrent body or the sub-graph a
+    Gradient differentiates.
     """
     seen: set[int] = set()
     stack = [model]
@@ -38,8 +38,8 @@ def _pair_onnx_names(values, expected, by_name: bool = False):
 
     An exporter that renames the graph also reorders it, so position alone is
     not evidence of identity. A tensor whose shape matches exactly one expected
-    name is that one whatever its position; only tensors left ambiguous - two
-    outputs of the same shape - fall back to pairing in order: the order of
+    name is that one whatever its position. Only tensors left ambiguous, two
+    outputs of the same shape, fall back to pairing in order: the order of
     the names with ``by_name``, as Keras flattens a dict of outputs, else the
     order given.
     """
@@ -87,7 +87,7 @@ def _static_input_signature(model, batch_size: int):
 
 
 def _export_file(path, filename: str | None, model_name: str, suffix: str) -> Path:
-    """The file an exporter writes: ``filename`` - the model name by default -
+    """The file an exporter writes: ``filename`` (the model name by default)
     in the folder ``path``, with ``suffix`` added unless it already ends so."""
     name = model_name if filename is None else str(filename)
     if not name.lower().endswith(suffix):
@@ -119,7 +119,7 @@ def _standalone_copy(keras_model: keras.Model) -> keras.Model:
     nnodely shares layers between Keras graphs: a body rolled out by two
     Loops, a Parameter read inside a Loop body and outside it, the sub-graphs
     a Gradient evaluates again. Keras saves such a layer once, but
-    cannot rebuild a layer called by two graphs - it replays the calls of
+    cannot rebuild a layer called by two graphs: it replays the calls of
     each graph by their position. Serialized outside a sharing scope, every
     nested model and layer is written in full wherever it is used, so the
     copy calls each layer from one graph only; the values of the model are
@@ -211,8 +211,8 @@ def export_onnx(
 
     if _traces_backward_pass(export_model) and keras.backend.backend() == "torch":
         raise NotImplementedError(
-            "ONNX export of a model that differentiates a sub-graph - a "
-            "Gradient with respect to an Input - is not supported on the "
+            "ONNX export of a model that differentiates a sub-graph (a "
+            "Gradient with respect to an Input) is not supported on the "
             "'torch' backend: its exporter traces a forward pass only and "
             "cannot record the backward pass such a layer evaluates. The "
             "'tensorflow' and 'jax' backends export it, because there the "
@@ -252,8 +252,8 @@ def _set_onnx_io_names(model, path: Path) -> None:
     rename = {}
 
     # Only an exporter that dropped the names has to be corrected. One that
-    # kept them may still have reordered them - both tf2onnx and the Torch
-    # exporter sort their outputs - and pairing those off by position would
+    # kept them may still have reordered them, since both tf2onnx and the
+    # Torch exporter sort their outputs. Pairing those off by position would
     # rename each tensor after a different one, silently swapping two
     # outputs' values. The order is restored below, by name.
     for values, expected, by_name in (

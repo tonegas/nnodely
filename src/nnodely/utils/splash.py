@@ -32,8 +32,8 @@ from nnodely.utils.printers import (
 #: The width of the splash: a standard line.
 _WIDTH = 80
 
-#: The network - its neurons (●), every connection between two layers and its
-#: joint into the ``nn`` in Braille dots - the shaft, and the mass, spring
+#: The network (its neurons ●, every connection between two layers and its
+#: joint into the ``nn`` in Braille dots), the shaft, and the mass, spring
 #: and damper: the wordmark is drawn between them. Over its top the network
 #: flows on, in dots of ordinary width, with neurons here and there, broken
 #: by the stems of d and l, down to the spring; a branch drops to a neuron

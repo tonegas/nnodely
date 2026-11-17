@@ -12,7 +12,7 @@ import keras
 
 
 def _positive_sizes(sizes) -> tuple[int, ...] | None:
-    """``sizes`` - an int, or a list or tuple of them - as a tuple of ints;
+    """``sizes`` (an int, or a list or tuple of them) as a tuple of ints;
     None unless each is at least 1."""
     items = (
         (sizes,)
@@ -78,7 +78,7 @@ def _window(name: str, tw) -> tuple[int, int] | None:
 
 
 def _validate_init(owner: str, init, name: str = "init"):
-    """The value before the first step, as configured - a Stream, a number or None."""
+    """The value before the first step, as configured: a Stream, a number or None."""
     if init is None or isinstance(init, Stream):
         return init
     if isinstance(init, bool) or not isinstance(init, (int, float)):
@@ -91,9 +91,9 @@ def _validate_init(owner: str, init, name: str = "init"):
 
 def _check_history(owner: str, init, signal, past: int, name: str = "init") -> None:
     """Refuse ``init``, the samples before the first one ``owner`` reads of
-    ``signal``, unless it holds one sample - repeated when ``past`` are read -
-    or ``past`` of them, oldest first, along its window: a value without a
-    window - a number, a Parameter, a Constant - is one sample. Its dim is a
+    ``signal``, unless it holds one sample (repeated when ``past`` are read)
+    or ``past`` of them, oldest first, along its window. A value without a
+    window (a number, a Parameter, a Constant) is one sample. Its dim is a
     scalar or the signal's, its sequence none or the signal's, a dynamic axis
     matching any length.
 
@@ -388,8 +388,8 @@ class Input(Stream):
         # The value before the first step, given with the feedback: only a
         # layer that keeps its state in the Input has one of its own.
         self.init: Stream | float | None = None
-        # Set by a layer that keeps its state in the Input - Integrate,
-        # Derivative, Buffer - so the user has no handle on it: a Modely that
+        # Set by a layer that keeps its state in the Input (Integrate,
+        # Derivative, Buffer), so the user has no handle on it: a Modely that
         # does not declare it reads its init in its place, not data.
         self._hidden = False
 

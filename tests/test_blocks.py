@@ -513,8 +513,8 @@ def test_fuzzify_with_trainable_centers():
 
 
 def test_fuzzify_on_moving_centers_matches_fixed_centers():
-    # Untrained, centers in a Parameter give what the same numbers give - uneven
-    # ones too, on a time window and a dynamic sequence - and so do a lone
+    # Untrained, centers in a Parameter give what the same numbers give (uneven
+    # ones too, on a time window and a dynamic sequence), and so do a lone
     # center and a list of numbers and scalar Parameters, bounded or not.
     x = Input("same_x", seq=-1, tw=2)
     values = [0.0, 0.5, 2.0]

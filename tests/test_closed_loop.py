@@ -975,8 +975,8 @@ def test_the_outputs_of_a_loop_are_taken_without_a_keras_layer_of_their_own():
 
 @pytest.mark.parametrize("target_name", ["aa_unread_target", "zz_unread_target"])
 def test_loop_feeds_its_body_only_the_inputs_it_reads(tmp_path, target_name):
-    # A body declaring an Input its outputs never read - here the target it is
-    # trained on - was handed it anyway, and Keras, matching the inputs by
+    # A body declaring an Input its outputs never read (here the target it is
+    # trained on) was handed it anyway, and Keras, matching the inputs by
     # position, fed its data to another one. The loop leaves it out.
     s, u = Input("unread_s", tw=1), Input("unread_u", tw=1)
     target = Input(target_name, tw=1)

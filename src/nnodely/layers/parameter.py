@@ -103,13 +103,13 @@ def _declared_shape(owner: str, dim, tw, seq) -> Shape:
     """The shape ``dim``, ``tw`` and ``seq`` declare, the sizes of the axes
     as for an Input: ``dim`` one feature by default, each axis at least 1;
     ``tw`` the window, none by default; ``seq`` the sequence axes,
-    outermost first, each of a fixed length - a value holds every step - and
-    only with a window."""
+    outermost first, each of a fixed length since a value holds every step,
+    and only with a window."""
     sequence = () if seq is None else _positive_sizes(seq)
     if sequence is None:
         raise ValueError(
             f"{owner}: seq is the length of each sequence axis, an int or a "
-            f"tuple of them, outermost first, each at least 1 - a value holds "
+            f"tuple of them, outermost first, each at least 1: a value holds "
             f"every step of its sequence, so none is dynamic; got {seq!r}."
         )
     if sequence and tw is None:
@@ -149,9 +149,9 @@ def _value_layout(owner: str, value, dim, tw, seq) -> tuple[np.ndarray, Shape]:
 
     Without ``dim``, ``seq`` and ``tw`` take the axes of the value of their
     sizes, and the axes they leave are its dim, in their order: all of them
-    when neither is given - like a number, the value then has no window and
+    when neither is given. Like a number, the value then has no window and
     applies to every sample of any stream. A dim of one when they leave none.
-    A value of one axis - a list of numbers - holds as many values as the
+    A value of one axis, a list of numbers, holds as many values as the
     shape, in its order, row-major. A value of several axes has the sizes the
     shape declares, in any order: its axes are moved into place, those of one
     size keeping their order.
@@ -230,7 +230,7 @@ class _Value(Layer):
             initializer=initializer,
         )
         # The value as it is held: its sequence axes, its window if it has
-        # one, then its dim - the shape of one sample of its stream.
+        # one, then its dim: the shape of one sample of its stream.
         self._value_shape = self.shape.tuple
 
     def __repr__(self) -> str:

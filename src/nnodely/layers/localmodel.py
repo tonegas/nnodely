@@ -517,7 +517,7 @@ class LocalModel:
         self._vectorized = bool(vectorized)
         self.name = next_name("LocalModel") if name is None else name
         # The layers made for the cells, kept so every call of this LocalModel
-        # applies the same ones - and so shares their weights.
+        # applies the same ones, and so shares their weights.
         self._cells: dict[tuple[str, int], Callable] = {}
         # The calls made, which name the model of each, and the last model.
         self._calls = 0

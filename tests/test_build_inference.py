@@ -247,8 +247,8 @@ def test_inference_takes_its_arrays_as_a_block_takes_its_streams():
     target = np.ones((4, 1, 1), dtype=np.float32)
     expected = to_numpy(model({"keyed_inference_x": windows})["keyed_inference_pred"])
 
-    # Keyed by Input or by name, or listed in the order of the inputs - the
-    # target too, which the outputs do not read: the same run.
+    # Keyed by Input or by name, or listed in the order of the inputs (the
+    # target too, which the outputs do not read): the same run.
     for given in (
         {x: windows},
         {x: windows, "keyed_inference_unknown": target},

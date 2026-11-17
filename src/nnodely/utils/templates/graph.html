@@ -446,14 +446,14 @@
         <div class="help-grid" id="helpEdges"></div>
         <h3>Shapes</h3>
         <p>A shape is written <span class="mono">(seq…, tw, dim…)</span>, the batch
-           left out. <b>seq</b> are sequence axes - the steps of a rollout, for instance -
+           left out. <b>seq</b> are sequence axes, such as the steps of a rollout,
            and <span class="mono">dyn</span> marks a length set by the data; <b>tw</b>
            is the window, how many samples are read at once; <b>dim</b> are the features
            of each sample.</p>
         <h3>Views</h3>
         <ul>
-            <li><b>Standard</b>: every sub-model - a model called inside another, or a
-                Loop - is one node. Double-click it to open its body on a page of its own.</li>
+            <li><b>Standard</b>: every sub-model, a model called inside another or a
+                Loop, is one node. Double-click it to open its body on a page of its own.</li>
             <li><b>Flattened</b>: every sub-model is spliced in, its body inside a shaded
                 region, and the recurrence of a Loop drawn as a feedback arrow.</li>
         </ul>
@@ -1140,7 +1140,7 @@
             style.label + (extra ? ` · ${extra}` : ""));
     }
     // What the page shows for an id: the label of its node, the name of its
-    // region - ids are the page's own, n0, n1, ..., never shown.
+    // region. Ids are the page's own, n0, n1, ..., never shown.
     function labelOf(id) { const record = records.get(id); return record ? record.label : regionName(id); }
     function regionName(id) { const region = REGIONS.find(r => r.id === id); return region ? region.name : id; }
     function nodeLink(id, meta) {

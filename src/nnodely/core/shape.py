@@ -8,7 +8,7 @@ A stream has three kinds of axes:
   (``None``), its length known only at run time.
 - ``tw``, its time window: the consecutive samples along which the temporal
   operations (filters, derivatives, integrals, time selections) act, or
-  ``None`` for a stream without one - an Input declared without ``tw``, a
+  ``None`` for a stream without one: an Input declared without ``tw``, a
   number, a Parameter or Constant declared without ``tw``.
 - ``dim``, its feature axes, one or more.
 
@@ -32,8 +32,8 @@ import keras
 #: The tensor axis of the batch.
 BATCH_AXIS = 0
 
-#: The first tensor axis after the batch: the outermost sequence axis - the
-#: rollout of the outermost Loop - or the window of a stream without a
+#: The first tensor axis after the batch: the outermost sequence axis (the
+#: rollout of the outermost Loop), or the window of a stream without a
 #: sequence, or its first dim axis. A rollout mask and sequence weights run
 #: along it.
 OUTER_AXIS = 1
@@ -121,25 +121,25 @@ class Shape:
     def broadcast(shapes, owner: str) -> "Shape":
         """The shape of an elementwise operation between streams of ``shapes``.
 
-        Every stream follows the same rule, read from data or not - an Input,
-        a number, a Parameter, a Constant: an axis it does not have broadcasts
-        along the others', an axis it has must match theirs.
+        Every stream follows the same rule, read from data or not (an Input,
+        a number, a Parameter, a Constant): an axis it does not have
+        broadcasts along the others', an axis it has must match theirs.
 
         The window: the same, or none, which applies to every sample of the
         others'. A single sample, ``T=1``, is a window like any other.
 
-        The sequence: the same - a dynamic axis matches any length and stays
-        dynamic - or none, which applies at every step of the others'. A
+        The sequence: the same (a dynamic axis matches any length and stays
+        dynamic), or none, which applies at every step of the others'. A
         single step is a sequence like any other.
 
-        The dim axes: lined up from the last, as Keras broadcasts them - a dim
-        of fewer axes gets leading axes of 1 - each axis the same, or 1 in one
-        of them, which stretches along the others'.
+        The dim axes: lined up from the last, as Keras broadcasts them, a dim
+        of fewer axes getting leading axes of 1. Each axis is the same, or 1
+        in one of them, which stretches along the others'.
 
         And one stream must already have the shape of the result, the others
         broadcasting into it: two streams that would both be broadcast, one
-        along the window of the other and the other along its dim - a matrix
-        without a window and the window of a scalar - are not combined.
+        along the window of the other and the other along its dim, such as a
+        matrix without a window and the window of a scalar, are not combined.
         Streams of the same sequence and window are the exception: their dims
         broadcast both ways, as Keras's do.
         """

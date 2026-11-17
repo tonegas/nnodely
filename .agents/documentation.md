@@ -209,7 +209,9 @@ The same voice in guides, docstrings, error messages and the changelog.
    subordinate clauses ("..., which..., as..., so...").
 2. **No dashes as parentheses** to insert a clause mid-sentence ("a value -
    a number, a Parameter - applies"): use a list or a separate sentence.
-   This holds everywhere, code comments and error messages included.
+   This holds everywhere, code comments and error messages included. A dash
+   separating a title from its subtitle, or a label from its description
+   ("nnodely validation - history"), is no aside and stays.
 3. **The rule first, then the exception**, each in its own sentence.
 4. **Present tense, second person for instructions**: "Call `build()` before
    creating the DataLoader."

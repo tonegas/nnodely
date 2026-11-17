@@ -451,7 +451,7 @@ def test_derivative_wrt_time_reads_a_number_as_the_initial_condition():
 
 
 def test_derivative_wrt_time_reads_a_stream_as_the_initial_condition():
-    """The initial condition is a Stream like any other - here the state the
+    """The initial condition is a Stream like any other: here the state the
     window continues, so consecutive chunks of a trajectory join up instead
     of restarting from zero."""
     dt = 0.1
@@ -535,7 +535,7 @@ def test_derivative_wrt_time_second_order_repeats_a_single_init_sample():
 def test_derivative_wrt_time_a_higher_poly_order_is_more_accurate():
     """poly_order=2 fits a parabola instead of a line, so it differentiates a
     quadratic trajectory exactly where the two-sample difference lags by half
-    a step - same causality, one more sample of history."""
+    a step, with the same causality and one more sample of history."""
     dt = 0.1
     v = Input("time_accuracy_v", dim=1, tw=4)
 
@@ -763,7 +763,7 @@ def test_derivative_wrt_input_in_a_multi_dimensional_relation():
 
 
 def _build_mixed_derivative_model(name):
-    """One model exercising both modes at once - including the tw
+    """One model exercising both modes at once, including the tw
     derivative's configuration (init, window, poly_order), which has to
     survive a round trip like any other layer state."""
     x = Input(f"{name}_x", dim=1, tw=2)
@@ -852,7 +852,7 @@ def test_derivative_export_onnx(tmp_path):
 
     if keras.backend.backend() == "torch":
         # Torch traces a forward pass only, so it cannot record the backward
-        # pass this graph evaluates - and says so instead of writing a model
+        # pass this graph evaluates, and says so instead of writing a model
         # whose gradient operators no runtime implements.
         with pytest.raises(NotImplementedError, match="torch"):
             model.export_onnx(tmp_path, "derivative_export")
@@ -933,10 +933,10 @@ def test_train_through_a_derivative():
 
 def _build_pos_vel_integrators(name_suffix, dt, mass):
     """F=ma -> integrate once for velocity, again for position, entirely as
-    blocks of one model - no separate rate Modely, no state input needed.
+    blocks of one model: no separate rate Modely, no state input needed.
 
     A one-sample rate window is one integration step, so with init set to the
-    current state each IntegrateStep *is* the state update - no '+' around it.
+    current state each IntegrateStep *is* the state update, with no '+' around it.
     """
     force = Input(f"force_{name_suffix}", dim=1, tw=1)
     vel = Input(f"vel_{name_suffix}", dim=1, tw=1)
@@ -1064,7 +1064,7 @@ def test_integrate_trapezoidal_over_a_window():
 
 
 def test_integrate_over_arbitrary_layer_output():
-    """The rate is any Stream, not only a raw Input window - e.g. a relation
+    """The rate is any Stream, not only a raw Input window: e.g. a relation
     computed over one."""
     dt = 0.1
     v = Input("v", dim=1, tw=2)
@@ -1090,7 +1090,7 @@ def test_integrate_over_arbitrary_layer_output():
 def test_integrate_accepts_any_window_length():
     """The rule is a property of the quadrature, not of the window: no length
     is required, and over one sample the trapezoid averages the rate with the
-    one before the window - zero when it is not given, half the rectangle -
+    one before the window (zero when it is not given, half the rectangle),
     and is the rectangle when that rate is the same."""
     dt = 0.1
     v = Input("v", dim=1, tw=5)
@@ -1298,8 +1298,8 @@ def test_integrate_init_number():
 
 
 def test_integrate_init_stream_per_sample_of_the_batch():
-    """init is a Stream like any other - typically the state the window starts
-    from - so each trajectory of the batch integrates from its own."""
+    """init is a Stream like any other, typically the state the window starts
+    from, so each trajectory of the batch integrates from its own."""
     dt = 0.1
     rate = Input("cum_init_rate", dim=1, tw=4)
     state = Input("cum_init_state", dim=1, tw=1)
@@ -1385,7 +1385,7 @@ def test_integrate_init_broadcasts_a_scalar_over_dim():
 
 
 def test_integrate_step_init_returns_the_updated_state():
-    """The step form with init is the state update itself - the same graph the
+    """The step form with init is the state update itself: the same graph the
     caller used to write with '+'."""
     dt, mass = 0.1, 2.0
     force = Input("step_init_force", dim=1, tw=1)
@@ -1468,8 +1468,8 @@ def test_integrate_predicts_a_trajectory_in_one_pass():
 
 
 def test_integrate_with_init_inverts_the_derivative_exactly():
-    """The pair composes: both layers read init at the same instant - the
-    sample just before the window - so integrating a derivative back with the
+    """The pair composes: both layers read init at the same instant (the
+    sample just before the window), so integrating a derivative back with the
     initial condition it differenced against returns the signal itself."""
     dt = 0.1
     v = Input("inverse_v", dim=1, tw=5)
@@ -1513,7 +1513,7 @@ def test_integrate_init_validation():
 
 def test_integrate_init_save_load_round_trip(tmp_path):
     """The initial condition is a predecessor of the node, so it is rebuilt
-    with the graph - in both forms at once."""
+    with the graph, in both forms at once."""
     dt = 0.1
     rate = Input("init_save_rate", dim=1, tw=4)
     state = Input("init_save_state", dim=1, tw=1)
@@ -1613,7 +1613,7 @@ def test_train_a_rate_through_an_integrated_trajectory():
 
     The rate is a constant w of the one trainable weight, so the trajectory is
     dt*w*i and the least-squares fit against a constant target c is known in
-    closed form - which checks that the gradient through the integral is
+    closed form, which checks that the gradient through the integral is
     right, not merely non-zero.
     """
     dt, steps, target_value = 0.1, 4, 0.5

@@ -1,4 +1,4 @@
-"""Ode - fixed-step integration of a derivative function."""
+"""Ode: fixed-step integration of a derivative function."""
 
 from functools import reduce
 from typing import Any

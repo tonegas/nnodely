@@ -41,7 +41,7 @@ def _render_page(**values: str) -> str:
     """The page of one graph: the template with every ``{{ name }}`` filled in.
 
     One pass over the template, so a value is never searched for placeholders
-    of its own - a node may well be named after one.
+    of its own: a node may well be named after one.
     """
     template = _TEMPLATE.read_text(encoding="utf-8")
     return _PLACEHOLDER.sub(lambda match: values[match.group(1)], template)
@@ -60,7 +60,7 @@ def _copy_logo(out_path: Path) -> str | None:
 def _graph_ids(model_obj) -> dict[int, str]:
     """The id every node of ``model_obj``'s graph is drawn under, by the
     node: its position, ``n0``, ``n1``, ... An id is unique by construction
-    and holds no text of the user's, so no name can clash with one - nor
+    and holds no text of the user's, so no name can clash with one, nor
     with the ``/`` a spliced body's ids are prefixed with. What the page
     shows is the label, the node's own name, never changed."""
     return {id(node): f"n{index}" for index, node in enumerate(model_obj._order)}
@@ -72,12 +72,12 @@ def _block_ports(node, outer_ids: dict[int, str] | None = None, owner=None):
     A block hides a whole model behind one node, so the drill-down is only
     readable if both pages name the same ports: which body input every
     predecessor feeds, which body output every successor reads, and which
-    outputs are fed back inside the block. Each side is named by the id its
-    page draws it under - ``outer_ids`` for this graph's, the body's own for
-    the body; ``None`` for an outer stream this graph does not draw - and by
-    its label, its name. ``same`` marks a port that binds one stream to
-    itself - the same node, or, in ``owner`` a ModelyLoop, the rollout Input
-    it made of an Input of its step - drawn as one node: by object.
+    outputs are fed back inside the block. Each side is named by its label,
+    its name, and by the id its page draws it under: ``outer_ids`` for this
+    graph's, the body's own for the body, ``None`` for an outer stream this
+    graph does not draw. ``same`` marks a port that binds one stream to
+    itself, drawn as one node, by object: the same node, or, in ``owner`` a
+    ModelyLoop, the rollout Input it made of an Input of its step.
     """
     held = node._model
     if not isinstance(held, Modely):
@@ -287,8 +287,8 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
             for body_node, nid, kind, attrs in body_nodes:
                 if nid in seen_nodes:
                     continue
-                # The innermost block a node was spliced from - a nested body
-                # has set it already - and every block around it, innermost
+                # The innermost block a node was spliced from (a nested body
+                # has set it already) and every block around it, innermost
                 # first, each a region the page draws.
                 attrs.setdefault("inlined_in", prefix + name)
                 attrs.setdefault("regions", []).append(region)
@@ -301,9 +301,9 @@ def _collect_graph(model_obj, *, inline=False, prefix="", alias=None):
             # Bind the enclosing graph to the body it now contains.
             for port in port_map["inputs"]:
                 outer, body = outer_id(port["outer"]), body_id(port["body"])
-                # A block can read another block spliced before it - one
-                # Loop rolling out another's result - whose node is gone: bind to
-                # the body output that node stood for, as its consumers are.
+                # A block can read another block spliced before it, as one
+                # Loop rolling out another's result does. That node is gone:
+                # bind to the body output it stood for, as its consumers are.
                 if port["outer"] in block_results:
                     outer = block_results[port["outer"]]["primary"]
                 if outer != body:
@@ -456,8 +456,8 @@ def export_html(
     ports that bind the body to the graph above it. Next to the root page a
     flattened one splices every block in, each body inside a shaded region.
 
-    The page says what every node is - its role, coloured the same in the
-    graph, the legend and the inspector - and how the graph is read. The
+    The page says what every node is and how the graph is read. A node's
+    role is coloured the same in the graph, the legend and the inspector. The
     pages open on the left-to-right hierarchical layout; ``physics`` lets the
     force layout settle the nodes by simulation.
     """
@@ -470,7 +470,7 @@ def export_html(
 
     visited_pages: set[tuple[int, str, bool]] = set()
     # The file of every page, by the block node it is the body of: names
-    # alike once slugged - "Blk" and "blk" - each get a file of their own.
+    # alike once slugged, such as "Blk" and "blk", each get a file of their own.
     page_files: dict[tuple[int, int], str] = {}
 
     def _slug(s: str) -> str:
@@ -530,8 +530,8 @@ def export_html(
             return str(file_path)
         visited_pages.add(page_key)
 
-        # Flattened, every block is spliced in where it is called - as plot()
-        # draws it - so each body keeps the region of the call it came from.
+        # Flattened, every block is spliced in where it is called, as plot()
+        # draws it, so each body keeps the region of the call it came from.
         render_model = model_obj
         graph_nodes, graph_edges, inlined_feedbacks = _collect_graph(
             render_model, inline=flattened
@@ -665,9 +665,9 @@ def export_html(
         vis_edges.extend(feedbacks)
 
         # Training objectives, so the loss wiring is visible here too. A side
-        # is the node drawn for it, by object; one the graph does not draw -
-        # a target is usually an Input no output depends on - is drawn here,
-        # under an id of its own.
+        # is the node drawn for it, by object. One the graph does not draw is
+        # drawn here, under an id of its own: a target is usually an Input no
+        # output depends on.
         drawn: dict[int, str] = {}
 
         def endpoint_id(endpoint) -> str:

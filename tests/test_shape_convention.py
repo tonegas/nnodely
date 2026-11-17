@@ -175,8 +175,8 @@ def test_division_and_power_keep_the_samples_apart():
 
 
 def test_a_dynamic_sequence_axis_survives_shape_inference():
-    # A layer whose shape is probed with dummy zeros - elementwise, arithmetic,
-    # a Parameter, a projection - keeps a dynamic sequence axis dynamic.
+    # A layer whose shape is probed with dummy zeros (elementwise, arithmetic,
+    # a Parameter, a projection) keeps a dynamic sequence axis dynamic.
     x = Input("dynamic_shape_x", dim=2, seq=-1, tw=1)
     sample = x
     gain = Parameter("dynamic_shape_gain", value=2.0)

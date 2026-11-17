@@ -713,9 +713,9 @@ class EquationLearner:
                 for j in range(linear._features)
             ]
 
-        # One symbol per feature of each stream, by object - the same stream
-        # given twice is one variable - each of a name of its own: sympy takes
-        # two symbols of one name for one, and would add up their terms.
+        # One symbol per feature of each stream, by object, so the same stream
+        # given twice is one variable. Each symbol has a name of its own: sympy
+        # takes two symbols of one name for one, and would add up their terms.
         taken: set[str] = set()
 
         def symbol(name: str):

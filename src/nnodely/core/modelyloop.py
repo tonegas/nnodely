@@ -231,7 +231,7 @@ class ModelyLoop(Modely):
             if state in step.starts:
                 raise ValueError(
                     f"ModelyLoop {name!r}: {state.name!r} has an initial "
-                    "value - the stream a call gives it - and is among the "
+                    "value (the stream a call gives it) and is among the "
                     "inputs, which would start it from its data: leave it out "
                     "of inputs, or give it no initial value."
                 )

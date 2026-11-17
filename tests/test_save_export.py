@@ -1345,7 +1345,7 @@ def test_loaded_model_rebuilt_with_new_minimizers_keeps_its_weights(
     weight_count = len(loaded._keras_inference_model.weights)
 
     # The user's own minimizers bring new inputs and new graph nodes, so the
-    # model is built again - around the blocks it loaded, not fresh ones.
+    # model is built again, around the blocks it loaded, not fresh ones.
     for output in loaded.outputs:
         loaded.minimize(f"{output.name}_fit", source=output, target=_target_for(output))
     loaded.build()
@@ -2299,8 +2299,8 @@ def test_a_loaded_model_reads_the_window_the_saved_one_read(tmp_path):
 
 
 def test_a_parameter_read_by_several_models_loads_as_one(tmp_path):
-    # Read by a Loop body, by a block and by the outer model, the gain - and
-    # the kernel of the Fir both use - is one object, written in the file of
+    # Read by a Loop body, by a block and by the outer model, the gain (and
+    # the kernel of the Fir both use) is one object, written in the file of
     # each model; it was loaded as one object per file.
     gain = Parameter("one_gain", value=2.0)
     fir = Fir(features=1, bias=False, name="one_fir")
@@ -2485,7 +2485,7 @@ def test_keras_export_of_weights_reached_from_several_graphs(make, tmp_path):
     # "expected 1 variables, but received 0", or a broken graph at the call.
     model, shapes = make()
     rng = np.random.default_rng(0)
-    # Values unlike any initializer - moving statistics included - so a
+    # Values unlike any initializer (moving statistics included), so a
     # weight left at its initial value after the import would show. Constants
     # are left alone: a number's Constant is shared by every model.
     assert model._keras_inference_model is not None

@@ -14,8 +14,8 @@ from nnodely.core.dag import free_name, next_name
 def _claim_keras_name(layer, taken: dict[str, Any]) -> None:
     """Give ``layer`` a name no other layer of the Keras model being built has.
 
-    Two nnodely layers may share a name - a model and its reloaded copy, or
-    layers named alike by hand - while the layers of one Keras model may not:
+    Two nnodely layers may share a name, as a model and its reloaded copy
+    do, or layers named alike by hand. The layers of one Keras model may not:
     a layer arriving at a name already taken takes the first free suffix. A
     layer applied several times keeps the one name it has.
     """
@@ -74,8 +74,8 @@ def _are_streams(value) -> bool:
 class _LayerType(type):
     """Lets a layer that takes no configuration be applied as it is created.
 
-    A layer whose constructor takes nothing but ``name`` - ``Sin``, ``Exp``,
-    ``Sigmoid`` - has nothing to configure, so ``Sin(x)`` is ``Sin()(x)`` and
+    A layer whose constructor takes nothing but ``name``, such as ``Sin``,
+    ``Exp`` or ``Sigmoid``, has nothing to configure, so ``Sin(x)`` is ``Sin()(x)`` and
     ``Sin(x, name="s")`` is ``Sin(name="s")(x)``. Every other layer is
     configured first and then called on its streams.
     """
@@ -252,7 +252,7 @@ class Layer(Stream, metaclass=_LayerType):
         """Declare dynamic again the sequence axes probed with one step.
 
         A sequence axis of the result is dynamic where an input with as many
-        sequence axes has a dynamic one - the same rule a product of streams
+        sequence axes has a dynamic one, the same rule a product of streams
         follows. A layer that adds or removes sequence axes is left as probed.
         """
         dynamic = {
@@ -315,7 +315,7 @@ class Layer(Stream, metaclass=_LayerType):
         """The input shapes a concrete layer was built for.
 
         Weights belong to the shape they were made for, so a layer carried
-        into another graph - a model used as a block brings its own along -
+        into another graph (a model used as a block brings its own along)
         can only be reused where its inputs still look the same. Layers that
         read no input at all (Parameters, Constants) are shape-independent and
         keep a constant signature.
@@ -325,9 +325,9 @@ class Layer(Stream, metaclass=_LayerType):
         try:
             return tuple(tuple(x.shape[1:]) for x in xs)
         except (AttributeError, TypeError):
-            # A layer whose inputs are not plain tensors - a recurrent body
-            # takes structures - cannot be checked this way, and is reused as
-            # it always was.
+            # A layer whose inputs are not plain tensors, such as a recurrent
+            # body, which takes structures, cannot be checked this way. It is
+            # reused as it always was.
             return None
 
     def _copied(self, memo: dict) -> None:
@@ -387,8 +387,8 @@ class Layer(Stream, metaclass=_LayerType):
             node._inputs = inputs
             node.shape = out_shape
             node._preds = inputs  # type: ignore
-            # Computed from values alone - numbers, Parameters, Constants -
-            # a result is a value too.
+            # Computed from values alone (numbers, Parameters, Constants), a
+            # result is a value too.
             node._is_value = all(x._is_value for x in inputs)
             ret.append(node)
         self._source._called_shape = ret[-1].shape
@@ -396,8 +396,8 @@ class Layer(Stream, metaclass=_LayerType):
 
     def __repr__(self) -> str:
         """A stream the layer returned prints as a Stream. The layer itself
-        prints its name, the Parameter of each weight - or, before the first
-        call makes it, its initializer - and the shape its last call
+        prints its name, the Parameter of each weight (or, before the first
+        call makes it, its initializer) and the shape its last call
         returned."""
         if self._source is not self:
             return super().__repr__()

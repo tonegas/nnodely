@@ -37,8 +37,8 @@ DYNAMIC_BUILD_LENGTH = 1
 
 class _SeveralOutputs(ValueError, AttributeError):
     """A Loop with several outputs read as one stream. It has no one shape:
-    an AttributeError too, so what only looks for a shape - ``getattr(node,
-    "shape", None)`` - finds none."""
+    an AttributeError too, so what only looks for a shape (``getattr(node,
+    "shape", None)``) finds none."""
 
 
 @keras.saving.register_keras_serializable(package="nnodely")
@@ -46,13 +46,13 @@ class LoopImpl(keras.layers.Layer):
     """Apply a Keras model recurrently with one or more feedback states.
 
     The rollout runs along the outermost sequence axis of the inputs that
-    carry it - the ``rolled`` ones: such an input has one more sequence axis
+    carry it, the ``rolled`` ones: such an input has one more sequence axis
     than the body input it feeds, so every step consumes a single slice of it
     and the body is evaluated exactly once per step. Collected, the steps
     become the outermost sequence axis of every result.
 
-    The body runs through a backend loop primitive - ``tf.while_loop`` on
-    TensorFlow, ``keras.ops.scan`` on the others - so on TensorFlow and JAX the
+    The body runs through a backend loop primitive (``tf.while_loop`` on
+    TensorFlow, ``keras.ops.scan`` on the others), so on TensorFlow and JAX the
     traced graph holds the body once whatever the rollout length, which keeps
     tracing and XLA compilation fast for long rollouts. Exported from
     TensorFlow, ONNX holds it as a ``Loop`` node.
@@ -156,8 +156,8 @@ class LoopImpl(keras.layers.Layer):
 
         A rollout axis declared as ``None`` follows the sequence it is actually
         given, which is what makes a longer input roll out further; a declared
-        width always wins over the tensor. Traced without a known width - an
-        export, or a retrace with relaxed shapes - TensorFlow reads it at run
+        width always wins over the tensor. Traced without a known width (an
+        export, or a retrace with relaxed shapes), TensorFlow reads it at run
         time, since ``tf.while_loop`` takes its trip count as a tensor; the
         other backends trace with concrete shapes and fall back on the build
         length.
@@ -254,7 +254,7 @@ class LoopImpl(keras.layers.Layer):
                 )
             return self._model_outputs(model_inputs)
 
-        # A dynamic axis an initial value does not carry - a zero, a number -
+        # A dynamic axis an initial value does not carry (a zero, a number)
         # is as long as the value fed back, which the body computes from the
         # inputs that carry it: one evaluation, the state broadcast along that
         # axis by the layer that reads it, tells how long.
@@ -473,7 +473,7 @@ def _fed_back_across_calls(
 
 def _inlined_inputs(scope: Scope) -> dict[int, Input]:
     """The Input every copy of one made inlining a graph stands for, by the
-    id of the copy - in ``scope`` and the scope of every call it makes: a
+    id of the copy, in ``scope`` and the scope of every call it makes. A
     fed-back Input inside a called model is copied once per call."""
     found = {
         id(copied): node
@@ -493,8 +493,8 @@ def _inlined_inputs(scope: Scope) -> dict[int, Input]:
 class _Step:
     """The body a Loop rolls out over the model ``f``, and its states: the
     Inputs ``feedback`` maps to an output of ``f``, then every Input the graph
-    of ``f`` feeds back itself - inside the models it calls too, one per call
-    - each with the output it is fed back from and what it starts from.
+    of ``f`` feeds back itself (inside the models it calls too, one per
+    call), each with the output it is fed back from and what it starts from.
 
     The body is ``f`` when ``f`` declares every state and computes each update
     as an output. Otherwise it is the graph of ``f`` with those Inputs
@@ -655,8 +655,8 @@ class _Step:
         if unlisted:
             raise ValueError(
                 f"{who} reads the Inputs {unlisted}, which nothing feeds back, "
-                f"without declaring them: list them among {among} - "
-                f"model.inputs[{unlisted[0]!r}] of the model that reads them - or "
+                f"without declaring them: list them among {among} "
+                f"(model.inputs[{unlisted[0]!r}] of the model that reads them), or "
                 "feed them back with x.feedback(stream)."
             )
 
@@ -667,7 +667,7 @@ class _Step:
         )
         if fits:
             # f is the body as it is: its own Inputs and outputs, read from
-            # data at every step - the one-step model.
+            # data at every step: the one-step model.
             if not f.built:
                 f.build()
             self.body = f
@@ -706,7 +706,7 @@ class _Step:
     def restored(cls, body: Modely, feedback: list, returns: list[int]):
         """The step of a Loop loaded back: ``body`` is the one it was saved
         with, ``feedback`` pairs every state with the output it is fed back
-        from - their positions among the inputs and outputs of ``body`` - and
+        from (their positions among the inputs and outputs of ``body``), and
         the states start from what the Loop was saved reading; ``returns``
         are the positions of the outputs it returns."""
         step = cls.__new__(cls)
@@ -730,25 +730,25 @@ class _Step:
         return self._originals.get(id(node), node)
 
     def copied_from(self, node: Any) -> Any:
-        """The node of the graph of ``f`` - or of a model it calls - that
+        """The node of the graph of ``f``, or of a model it calls, that
         ``node``, a node of the body, stands for: ``node`` itself if it is
         no copy."""
         return self._copies.get(id(node), node)
 
     def source(self, node: Any) -> Any:
         """The Input ``node`` is a copy of, made inlining ``f`` or a model it
-        calls - a fed-back Input inside a called model is copied once per
-        call: ``node`` itself if it is no copy."""
+        calls (a fed-back Input inside a called model is copied once per
+        call); ``node`` itself if it is no copy."""
         return self._sources.get(id(node), self.original(node))
 
     def key(self, node: Any) -> int:
-        """What tells two inputs apart: the Input ``node`` stands for - never
-        its name, two Inputs of one name are two."""
+        """What tells two inputs apart: the Input ``node`` stands for, never
+        its name. Two Inputs of one name are two."""
         return id(self.source(node))
 
     def state(self, key) -> Input:
         """The state the ``init`` key ``key`` gives a value for: a state
-        itself, or an Input of ``f`` - or its name - that is fed back."""
+        itself, or an Input of ``f`` (or its name) that is fed back."""
         if any(key is state for state in self.states):
             return key
         declared = resolve(
@@ -1205,8 +1205,8 @@ class Loop(Layer):
         self._shape = value
 
     # The streams a bound loop reads are its predecessors, and nothing else:
-    # a copy rewired to other streams - the loop inlined in the graph of a
-    # call to the model that holds it - reads those, and so does what is
+    # a copy rewired to other streams (the loop inlined in the graph of a
+    # call to the model that holds it) reads those, and so does what is
     # drawn or listed of it.
     @property
     def _initial_values(self) -> list[Stream]:
@@ -1355,7 +1355,7 @@ class Loop(Layer):
     def _rolled(node, source):
         """Whether ``source`` feeds ``node`` one step of its outermost
         sequence axis per step of the rollout: it has one more sequence axis
-        than the body reads, the others the same - a dynamic one matching any
+        than the body reads, the others the same, a dynamic one matching any
         length."""
         return source.shape.seq_rank == node.shape.seq_rank + 1 and _same_steps(
             source.seq[1:], node.seq
@@ -1366,8 +1366,8 @@ class Loop(Layer):
         """Shape an initial value must be broadcast to, or None if it fits.
 
         A dynamic axis of the input is 1 where the value carries it, kept as
-        it comes, and None where it does not - a zero, a number, a value of
-        fewer sequence axes: the value fed back sizes it at run time. A
+        it comes, and None where it does not (a zero, a number, a value of
+        fewer sequence axes): the value fed back sizes it at run time. A
         dynamic axis of the value matches any length of the input's.
         """
         if value.shape.tw is None and node.tw is not None and not value._is_value:
@@ -1463,8 +1463,8 @@ class Loop(Layer):
 
     def _resolve_sources(self, inputs):
         """Outer stream feeding each body input that is not fed back, and
-        every input of the loop by the id of its node - those a state starts
-        from too. A key is a body input, its Input of ``f``, or its name."""
+        every input of the loop by the id of its node, those a state starts
+        from included. A key is a body input, its Input of ``f``, or its name."""
         if isinstance(inputs, (Stream, list, tuple)):
             # One stream per input of the loop, in the order f declares them.
             streams = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
@@ -1515,8 +1515,8 @@ class Loop(Layer):
 
     def _loop_input(self, key, known: list[Input]) -> Input:
         """The input of the loop a call's key binds: a body input itself, the
-        Input of ``f`` it stands for, or a name - one input alone carrying
-        it. A state is refused: it starts from its init."""
+        Input of ``f`` it stands for, or a name that one input alone
+        carries. A state is refused: it starts from its init."""
         states = list(self._feedback_inputs)
         key = resolve(
             key,
@@ -1540,7 +1540,7 @@ class Loop(Layer):
 
     def _resolve_initial_values(self, bound):
         """Seed of every state: its init, the init of the layer that keeps it
-        - an input of the loop is its outer stream - or zero."""
+        (an input of the loop is its outer stream), or zero."""
         from nnodely.layers.parameter import Constant
 
         values = []
@@ -1566,7 +1566,7 @@ class Loop(Layer):
 
     def _state_starts(self) -> list[tuple[Input, Stream, Any, bool]]:
         """Every state of the bound loop, with the stream it is fed back with,
-        what it starts from - a stream, a number, or None for zero - and
+        what it starts from (a stream, a number, or None for zero), and
         whether that is read at its first step."""
         starts = []
         for state, output, value, rolled in zip(
@@ -1607,7 +1607,7 @@ class Loop(Layer):
 
     def __repr__(self):
         """Called, a loop of one output is the stream it returns. Not called
-        yet, or with several outputs - no one stream - it is the loop."""
+        yet, or with several outputs (no one stream), it is the loop."""
         if self._shape is None:
             return object_repr(self, name=self.name, model=self._model, bound=False)
         if self._return_all_outputs:
@@ -1635,7 +1635,7 @@ class Loop(Layer):
 
     def __getitem__(self, key):
         """An output by position, as in a list, or by the name it has in
-        ``f`` - one or the other, never both. A name several outputs carry
+        ``f``: one or the other, never both. A name several outputs carry
         raises, listing them with their position."""
         outputs = self._outputs()
         owner = f"Loop {self.name!r}"
@@ -1709,7 +1709,7 @@ class Loop(Layer):
         # the initial value of every state, then the source of every other
         # body input it reads, in the body's order. A body input left unbound
         # was its own source; the reloaded body is a copy of its own, so it is
-        # bound to the predecessor saved for it - the same Input, loaded once
+        # bound to the predecessor saved for it: the same Input, loaded once
         # for every file of the tree that reads it.
         config = dict(config)
         body = config.pop("f")

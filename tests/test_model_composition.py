@@ -248,7 +248,7 @@ def test_model_saving_loading_and_compose(tmp_path):
 
 def test_composition_shares_the_body_weights():
     """A model used as a block keeps its parameters: composing shares them
-    rather than re-initializing, so weights set - or loaded - before the
+    rather than re-initializing, so weights set (or loaded) before the
     composition are the ones the composed graph runs with."""
     u = Input("share_u", dim=1, tw=2)
     body_fir = Fir(features=1, bias=False)([u])
@@ -270,7 +270,7 @@ def test_composition_shares_the_body_weights():
         atol=1e-5,
     )
 
-    # Not a copy of the values - the same variable, so the two graphs cannot
+    # Not a copy of the values: the same variable, so the two graphs cannot
     # drift apart.
     assert body._keras_model is not None and composed._keras_model is not None
     assert (
@@ -350,7 +350,7 @@ def test_composition_shares_parameters_and_constants():
 def test_composition_rebuilds_layers_that_read_their_predecessor():
     """Only stored state travels. A layer configured from its predecessor is
     rebuilt where it now sits: a block that reads the last sample of its input
-    reads the last sample of the stream it is called with - which has the
+    reads the last sample of the stream it is called with, which has the
     shape the block reads, a wider window being refused."""
     u = Input("ctx_u", dim=1, tw=1)
     body = Modely("ctx_body", inputs=[u], outputs=[Output("ctx_out", u * 1.0)]).build()
@@ -392,7 +392,7 @@ def test_rebuilding_a_model_keeps_its_weights():
 def test_building_without_keeping_the_weights_initializes_every_one():
     """build(keep_weights=False) gives every weight its initial value again:
     a Parameter the value it was declared with, a layer's weight a new draw,
-    the statistics of a BatchNorm mean 0 and variance 1 - frozen ones too."""
+    the statistics of a BatchNorm mean 0 and variance 1, frozen ones too."""
     u = Input("reinit_u", dim=2, tw=3)
     gain = Parameter("reinit_gain", value=[2.0]).freeze()
     filtered = Fir(features=1, name="reinit_fir")([u]) * gain
@@ -508,7 +508,7 @@ def test_a_block_on_a_dynamic_sequence_keeps_its_weights_on_a_fixed_one(layer):
 def test_composition_rejects_a_block_whose_input_shape_changes():
     """Weights fit the shape they were made for, and they are Parameters of
     the block's graph: a block called with an input of a different shape
-    cannot use them - and its own weights are left alone."""
+    cannot use them, and its own weights are left alone."""
     u = Input("fit_u", dim=1, tw=1)
     body_fir = Fir(features=1, bias=False)([u])
     body = Modely("fit_body", inputs=[u], outputs=[Output("fit_out", body_fir)]).build()

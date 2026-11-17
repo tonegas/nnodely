@@ -971,7 +971,7 @@ class DataLoader:
     @staticmethod
     def _warn_missing(name: str, values: np.ndarray, label: str) -> None:
         """Warn about the n/a values of an input, which are kept."""
-        # A cell pandas reads as n/a - empty, "n/a", "NaN" - stays a NaN, and a
+        # A cell pandas reads as n/a (empty, "n/a", "NaN") stays a NaN, and a
         # NaN reaching a minimizer turns its loss, and every weight it trains,
         # into NaN.
         missing = int(np.isnan(values).sum())
@@ -1211,7 +1211,7 @@ class DataLoader:
                         f"Input '{node.name}' is {values.shape[1:]} per sample in "
                         f"'{label}', but {first[node].shape[1:]} in '{first_label}': "
                         "only the outermost dynamic sequence axis, the rollout, may "
-                        "differ between simulations - it is padded and masked - so "
+                        "differ between simulations (it is padded and masked), so "
                         "every other length must match."
                     )
 

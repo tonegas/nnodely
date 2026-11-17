@@ -85,8 +85,8 @@ def _validate_method(method, owner: str) -> str:
 
 def _history_and_signal(owner: str, inputs, history: tuple[str, ...]) -> list:
     """The predecessors of a layer called as ``layer(signal)`` or
-    ``layer(*history, signal)``: the signal, then what it starts from - up to
-    the ``history`` it reads, in that order - a number made a Constant."""
+    ``layer(*history, signal)``: the signal, then what it starts from, up to
+    the ``history`` it reads, in that order. A number is made a Constant."""
     if len(inputs) == 1 and isinstance(inputs[0], (list, tuple)):
         inputs = tuple(inputs[0])
     if not 1 <= len(inputs) <= len(history) + 1:
@@ -110,9 +110,9 @@ def _quadrature_matrix(rule: str, window_length: int, dt: float) -> np.ndarray:
 
     Row ``interval`` of the increments holds the weight each rate sample has in
     the step across that interval; summing the increments up to ``i`` gives the
-    value at sample ``i``, so the running integral is a single matmul - the
-    same shape of operation as the derivative's banded stencil, and one the
-    exporters convert without a scan.
+    value at sample ``i``, so the running integral is a single matmul. That
+    is the same shape of operation as the derivative's banded stencil, and
+    one the exporters convert without a scan.
 
     Sample ``i`` of the rate is the rate *of the interval ending at* ``i``,
     which is the interval a backward difference produced it from. The
@@ -783,7 +783,7 @@ def _stencil_coefficients(poly_order: int, dt: float) -> np.ndarray:
     """Weights of the backward difference of order ``poly_order``.
 
     They give the slope, at the newest sample, of the polynomial of degree
-    ``poly_order`` through the ``poly_order + 1`` newest samples - the
+    ``poly_order`` through the ``poly_order + 1`` newest samples. This is the
     backward differentiation formula: ``(-1, 1)/dt`` for 1, ``(1, -4, 3)/(2
     dt)`` for 2, ``(-2, 9, -18, 11)/(6 dt)`` for 3, each exact on a polynomial
     of its degree. The weights are ordered oldest -> newest, as the samples of
@@ -799,8 +799,8 @@ def _stencil_coefficients(poly_order: int, dt: float) -> np.ndarray:
 def _difference_matrix(coefficients, window_length: int) -> np.ndarray:
     """The stencil as the matrix that applies it to a whole window at once.
 
-    Sliding the stencil over a window is a banded matrix product - the
-    discrete differentiation operator of the window - so the layer runs as a
+    Sliding the stencil over a window is a banded matrix product, the
+    discrete differentiation operator of the window. So the layer runs as a
     single matmul rather than a scan, and differentiates (and exports) like
     any other linear operation.
     """
@@ -868,7 +868,7 @@ class TimeDerivativeImpl(keras.layers.Layer):
 
         # One sample of zeros shaped like the window's first: it both stands
         # in for a missing initial condition and gives a given one the axes it
-        # may be broadcasting over - a scalar initial condition carries no dim
+        # may be broadcasting over: a scalar initial condition carries no dim
         # size, and one may leave out the sequence axes.
         reference = keras.ops.zeros_like(slice_axis(x, tw_axis, slice(0, 1)))
         if init is None:

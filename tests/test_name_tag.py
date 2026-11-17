@@ -1,10 +1,10 @@
 """Name tags: how the objects of a model are picked when names clash.
 
-Nothing keeps two objects from sharing a name - layers named alike by hand, a
+Nothing keeps two objects from sharing a name: layers named alike by hand, a
 block and the model calling it, two copies of one loaded model. A call taking
 a name looks it up among the objects the graph reaches, in that order: a name
 one object carries picks it; one several carry raises listing them with
-their index - the index column of the table - which picks one, ``parameters[2]``;
+their index (the index column of the table), which picks one, ``parameters[2]``;
 renaming one, ``obj.name = "new"``, gives each a name of its own. An item is
 picked by its name or by its index, never both. Inside nnodely the objects themselves are
 used, so an object renamed is still found: a renamed Input is read by its new
@@ -413,7 +413,7 @@ def test_a_class_saved_by_its_name_alone_loads_when_one_class_has_it(tmp_path):
     # Output and Input: one class each of that name.
     names = [node["class_name"] for node in saved["nodes"]]
     assert "Sin" in names and "Input" in names
-    # Sin: nnodely's and this module's - which one is not known.
+    # Sin: nnodely's and this module's; which one is not known.
     with pytest.raises(ValueError, match=r"2 classes are named 'Sin'"):
         Modely.load(tmp_path / "bare")
 
@@ -495,7 +495,7 @@ def test_an_input_renamed_after_the_build_is_read_by_its_new_name(tmp_path):
         DataLoader(model, source)
     model.build()
     assert set(DataLoader(model, source).as_dict()) == {"rn_speed", "rn_t"}
-    # Saved under its name now - without the minimizer and its target.
+    # Saved under its name now, without the minimizer and its target.
     model.save(tmp_path / "renamed")
     assert [node.name for node in Modely.load(tmp_path / "renamed").inputs] == [
         "rn_speed"
@@ -737,7 +737,7 @@ def test_every_table_is_picked_by_name_or_index_and_renamed(table):
     assert _index_column(again)[-1] == (len(printed) - 1, "all_renamed")
     with pytest.raises(KeyError, match=repr(old)):
         again[old]
-    # And the model still builds and runs on it - the last Input is the
+    # And the model still builds and runs on it: the last Input is the
     # target, which running does not read.
     model.build()
     data = {"all_x": _WINDOW, "all_w": np.ones((1, 1, 1), np.float32)}
@@ -1076,7 +1076,7 @@ def test_a_dataloader_resolves_its_keys_as_a_call_does():
         DataLoader(model, {Input("dk_x", tw=1): values, "dk_w": values, "dk_t": values})
 
     # Made before the model was built again under other names, it is refused
-    # with the names on both sides - once Keras's own error, in train.
+    # with the names on both sides (once Keras's own error, in train).
     w.name = "dk_w2"
     model.build()
     with pytest.raises(
@@ -1087,8 +1087,8 @@ def test_a_dataloader_resolves_its_keys_as_a_call_does():
 
 def test_a_loop_tells_a_state_inside_a_block_by_object():
     # A fed-back Input inside a block the body calls is a state of the loop:
-    # given as a call key, it is that state - once "not an input the body
-    # model reads", since only the copies of the body's own were matched.
+    # given as a call key, it is that state (once "not an input the body
+    # model reads", since only the copies of the body's own were matched).
     s, u = Input("is_s", tw=1), Input("is_u", tw=1)
     s.feedback(s + u)
     block = Modely("is_block", inputs=[u], outputs=[Output("is_y", s * 1.0)]).build()

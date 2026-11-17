@@ -99,7 +99,8 @@ A change is finished when all of these hold:
   cannot tell the reason (a Keras quirk, a backend limit, a design choice).
 - **No dashes as parentheses** (" - " inserting a clause mid-sentence) in
   comments, docstrings, error messages or docs: use a separate sentence, a
-  list or brackets.
+  list or brackets. A dash separating a title from its subtitle, or a label
+  from its description, is no aside and stays.
 - **Type hints everywhere practical.** The reference pages do not show them,
   so each entry of a docstring's `Parameters` also states its type and
   default as text, `features : int, default 1`, saying the same as the hint.

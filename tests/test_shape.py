@@ -1,10 +1,10 @@
 """The layout of a stream in a tensor, as ``nnodely.core.shape`` owns it:
-``(batch, *seq, tw, *dim)`` - the sequence axes outermost first, where a
+``(batch, *seq, tw, *dim)``: the sequence axes outermost first, where a
 Loop rolls out, then the window, where temporal operations act, then the
 features.
 
-The first tests check what any layout must keep - every axis has one place, a
-shape reads back from its tensor, a rollout lands on the outer axis - rather
+The first tests check what any layout must keep (every axis has one place, a
+shape reads back from its tensor, a rollout lands on the outer axis) rather
 than where the axes are. The last ones fix how streams of different shapes
 combine.
 """

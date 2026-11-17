@@ -10,7 +10,7 @@ from nnodely.core.shape import Shape
 
 #: Every node class, by its module and name (:func:`class_path`): a model
 #: saves the class of each node so, and is loaded with that class, not with
-#: another of the same name - a layer class of the user's named ``Sin``
+#: another of the same name: a layer class of the user's named ``Sin``
 #: leaves nnodely's own in place.
 NODE_REGISTRY: dict[str, type["Node"]] = {}
 
@@ -23,7 +23,7 @@ def class_path(cls: type) -> str:
 def registered_class(saved: str) -> type["Node"] | None:
     """The node class a model was saved with: by its module and name; else
     by its name alone, as a model saved before classes were saved with their
-    module, or one whose class has moved to another module - when exactly one
+    module, or one whose class has moved to another module, when exactly one
     class has that name. None if no class has it."""
     if saved in NODE_REGISTRY:
         return NODE_REGISTRY[saved]
@@ -39,7 +39,7 @@ def registered_class(saved: str) -> type["Node"] | None:
     return alike[0] if alike else None
 
 
-#: Every node name this process has used - given, generated or loaded - with
+#: Every node name this process has used (given, generated or loaded), with
 #: the "_"-separated prefixes it is built from. Layers are told apart by the
 #: object they come from, but names are how a graph is read and searched, so a
 #: generated name avoids all of these.
@@ -53,7 +53,7 @@ def reserve_name(name: str) -> None:
 
 def object_repr(obj, **fields) -> str:
     """How every object of nnodely prints: ``Class(field=value, ...)`` on
-    one line. An object it refers to - a stream, a layer, a model - prints
+    one line. An object it refers to (a stream, a layer, a model) prints
     by its name; reading the attribute gives the object."""
     text = ", ".join(
         f"{key}={getattr(value, 'name', value)!r}" for key, value in fields.items()
@@ -64,7 +64,7 @@ def object_repr(obj, **fields) -> str:
 class Node:
     name: str
     _preds: list[Node]
-    #: The model the node holds - the one it calls, or rolls out - or None.
+    #: The model the node holds (the one it calls, or rolls out), or None.
     _model: Any = None
 
     def __init_subclass__(cls, **kwargs):
@@ -117,8 +117,8 @@ def _arithmetic():
 class Stream(Node):
     _literal_constant_cache = {}
     shape: Shape
-    #: Whether the stream is a value - a number, a Parameter or a Constant, or
-    #: a relation of those alone - rather than read from data. A value without
+    #: Whether the stream is a value (a number, a Parameter or a Constant, or
+    #: a relation of those alone) rather than read from data. A value without
     #: a window applies to every sample of any stream.
     _is_value = False
 
@@ -245,7 +245,7 @@ class Stream(Node):
 
     def __repr__(self):
         """An Input or an Output prints as its class. A stream a call
-        returns - of a layer, an operator, a model or a loop - prints as a
+        returns (of a layer, an operator, a model or a loop) prints as a
         Stream, whatever made it."""
         from nnodely.layers.input import Input
         from nnodely.layers.output import Output

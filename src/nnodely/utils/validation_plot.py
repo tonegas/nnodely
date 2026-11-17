@@ -1,7 +1,7 @@
 """Figures for a validation run.
 
-One figure per minimizer with four panels - response, error, parity, error
-distribution - and a fifth, the error at each step, for a signal with a
+One figure per minimizer with four panels (response, error, parity, error
+distribution) and a fifth, the error at each step, for a signal with a
 sequence; plus one loss-curve figure when the losses of a training are passed.
 
 Figures are built with the normal Matplotlib pyplot interface, so when they
@@ -131,7 +131,7 @@ def figure_signal(signal: Signal, minimizer: dict):
     residual = (source[:, channels] - target[:, channels]).ravel()
     residual = residual[np.isfinite(residual)]
     if residual.size:
-        # A perfect prediction - or a constant offset - has a residual with no
+        # A perfect prediction, or a constant offset, has a residual with no
         # spread to bin, and 40 bins across a zero-width range is an error.
         # The padded range keeps the edges strictly increasing either way.
         low, high = float(np.min(residual)), float(np.max(residual))
@@ -244,8 +244,8 @@ def render(
     import matplotlib.pyplot as plt
 
     # A file per minimizer is named by its index and its name: the index
-    # keeps apart names alike once slugged - "a b" and "a_b", "Fit" and "fit"
-    # on a file system blind to case - and keeps them from the history's.
+    # keeps apart names alike once slugged ("a b" and "a_b", "Fit" and "fit"
+    # on a file system blind to case) and keeps them from the history's.
     figures: list[tuple[str, Any]] = [
         (f"{index}_{_slug(name)}", figure_signal(signal, result.minimizers[name]))
         for index, (name, signal) in enumerate(result.signals.items())

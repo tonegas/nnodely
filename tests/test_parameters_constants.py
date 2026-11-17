@@ -244,7 +244,7 @@ def test_parameter_through_a_layer_keeps_the_batch_axis():
 )
 def test_a_value_is_laid_out_dim_tw_seq(value, dimensions):
     # Unless told otherwise, every axis of a value is a dim axis and the value
-    # has no window - for both classes alike. It is held as given.
+    # has no window, for both classes alike. It is held as given.
     for node in (Constant(value=value), Parameter(value=value)):
         assert node.shape.dimensions == dimensions
         assert node.value is not None
@@ -266,7 +266,7 @@ def test_a_value_of_several_axes_is_moved_into_the_declared_order(
     sizes, dimensions, order
 ):
     # seq, tw and dim are sizes, as for an Input: a value has them, in
-    # any order, and is laid out (*seq, tw, *dim) - its axes moved into
+    # any order, and is laid out (*seq, tw, *dim): its axes moved into
     # place, not its values read again in another order.
     values = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
     for node in (Constant(value=values, **sizes), Parameter(value=values, **sizes)):

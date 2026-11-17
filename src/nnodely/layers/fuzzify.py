@@ -76,8 +76,8 @@ class BumpImpl(keras.layers.Layer):
 class _Bump(Layer):
     """An elementwise function of ``x``, 1 at 0 and fading away from it,
     shaped by a width: a number, a ``(left, right)`` pair where the class
-    allows one, or a :class:`Parameter` - trained with the model, a
-    predecessor of the layer read with ``x``."""
+    allows one, or a :class:`Parameter`. A Parameter is trained with the
+    model, a predecessor of the layer read with ``x``."""
 
     _formula = "triangle"
     _label = "radius"
@@ -1450,8 +1450,8 @@ def _bounds(bounds, owner: str) -> bool | tuple[float, float]:
 
 
 def _centers(centers, owner: str) -> tuple[list[float | None] | None, list[Stream]]:
-    """``centers`` checked, as the list of them - numbers, None for each read
-    from a stream - and the streams they are read from: one stream of shape
+    """``centers`` checked, as the list of them (numbers, None for each read
+    from a stream) and the streams they are read from: one stream of shape
     ``(n,)``, of one sample, with None for the list; or the scalar streams
     of a list of them and numbers."""
     if isinstance(centers, Stream):
@@ -1482,7 +1482,7 @@ def _centers(centers, owner: str) -> tuple[list[float | None] | None, list[Strea
 
 
 def _one_step(stream: Stream) -> bool:
-    """Whether a stream holds one sample - a window of one, or none; its
+    """Whether a stream holds one sample: a window of one, or none. Its
     sequence, if any, must be the signal's."""
     return stream.shape.tw in (None, 1)
 

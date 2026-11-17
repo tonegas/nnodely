@@ -1,8 +1,8 @@
 """What :meth:`Modely.train` and :meth:`Modely.validate` return.
 
-The two results have one form. They are read by their attributes - the name
+The two results have one form. They are read by their attributes (the name
 of the model, the samples, the minimizers they were computed with, the
-losses - and their dictionaries are keyed alike: ``loss`` is the total,
+losses), and their dictionaries are keyed alike: ``loss`` is the total,
 ``loss_<minimizer>`` the loss of each minimizer, as Keras logs them and as
 ``early_stopping`` names them. ``print`` shows a table, a row per minimizer
 and the total; ``repr`` the fields, then the keys of every dictionary.
@@ -41,8 +41,8 @@ def loss_name(loss_fn: Any) -> str:
 
 
 def target_label(target) -> str | float:
-    """How the target of a minimizer prints: a Constant of one value - a
-    number given as the target - as that number, any other by its name."""
+    """How the target of a minimizer prints: a Constant of one value (a
+    number given as the target) as that number, any other by its name."""
     if (
         isinstance(target, Constant)
         and target.value is not None
@@ -291,8 +291,8 @@ class ValidationResult(_Result):
         show: bool = False,
         history: TrainResult | dict | None = None,
     ) -> list[str]:
-        """Draw a figure per minimizer - response, error, parity, error
-        distribution and, along a sequence, the error at each step - and,
+        """Draw a figure per minimizer (response, error, parity, error
+        distribution and, along a sequence, the error at each step) and,
         given ``history``, the loss curves of a training.
 
         Parameters

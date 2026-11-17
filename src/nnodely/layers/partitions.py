@@ -5,8 +5,8 @@ them.
 The dim operations count the dim axes from 0. The time operations act on
 the window, ``T``, of which a stream has one or none: they take no axis,
 always keep it, and refuse a stream without one. The sequence operations act on a sequence axis, counted outermost
-first: ``axis=0``, their default, is the outermost one - the rollout of the
-outermost Loop; a sequence axis may be dynamic (``None``), its length known
+first: ``axis=0``, their default, is the outermost one, the rollout of the
+outermost Loop. A sequence axis may be dynamic (``None``), its length known
 only at run time. Each layer resolves the axis it acts on with the
 :class:`Shape` of its input, and gives its Keras layer that tensor axis.
 """
