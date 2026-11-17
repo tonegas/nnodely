@@ -739,7 +739,7 @@ def export_html(
         logo_html = ""
         if logo_rel is not None:
             logo_html = (
-                f'<img src="./{logo_rel}" alt="nnodely" width="96" height="32"/>'
+                f'<img src="./{logo_rel}" alt="nnodely" width="109" height="32"/>'
             )
 
         page = {
