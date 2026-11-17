@@ -181,7 +181,7 @@ def test_a_value_declares_its_sequence_and_window_sizes():
     assert Parameter("r_time", value=[1.0, 2.0]).shape.dimensions == ((), None, (2,))
     # The window is one size.
     with pytest.raises(ValueError, match="tw is the length of the window"):
-        Parameter("s_time", value=value, tw=(2, 1))
+        Parameter("s_time", value=value, tw=(2, 1))  # type: ignore[arg-type]
 
 
 ## NEW INPUT DEFINITION: Time set only at declaration level

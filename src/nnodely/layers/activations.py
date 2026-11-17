@@ -181,7 +181,7 @@ class ReLU(Layer):
         max_value: float | None = None,
         negative_slope: float = 0.0,
         threshold: float = 0.0,
-        name=None,
+        name: str | None = None,
     ):
         self._max_value = max_value
         self._negative_slope = float(negative_slope)
@@ -331,7 +331,7 @@ class LeakyReLU(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, negative_slope: float = 0.3, name=None):
+    def __init__(self, negative_slope: float = 0.3, name: str | None = None):
         self._negative_slope = float(negative_slope)
         super().__init__(name=name, negative_slope=self._negative_slope)
 
@@ -482,7 +482,7 @@ class ELU(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, alpha: float = 1.0, name=None):
+    def __init__(self, alpha: float = 1.0, name: str | None = None):
         self._alpha = float(alpha)
         super().__init__(name=name, alpha=self._alpha)
 
@@ -676,7 +676,9 @@ class PReLU(Layer):
     _weight_labels = ("alpha",)
     _weight_defaults = {"alpha": "zeros"}
 
-    def __init__(self, shared_axes=None, name=None):
+    def __init__(
+        self, shared_axes: int | list[int] | None = None, name: str | None = None
+    ):
         self._shared_axes = shared_axes
         super().__init__(
             name, weights={"alpha": "zeros"}, shared_axes=self._shared_axes
@@ -857,7 +859,7 @@ class Softmax(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, axis: int | None = None, name=None):
+    def __init__(self, axis: int | None = None, name: str | None = None):
         self._axis = None if axis is None else int(axis)
         super().__init__(name=name, axis=self._axis)
 
@@ -1333,7 +1335,7 @@ class GELU(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, approximate: bool = True, name=None):
+    def __init__(self, approximate: bool = True, name: str | None = None):
         self._approximate = bool(approximate)
         super().__init__(name=name, approximate=self._approximate)
 

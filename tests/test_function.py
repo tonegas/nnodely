@@ -145,10 +145,10 @@ def test_keras_function_rejects_what_is_not_a_keras_layer():
 
         KerasFunction(NeedsArguments)
     with pytest.raises(TypeError, match="keras.layers.Layer subclass or instance"):
-        KerasFunction(lambda x: x * 2)
+        KerasFunction(lambda x: x * 2)  # type: ignore[arg-type]
     # An nnodely layer is not a Keras layer: it is used as it is.
     with pytest.raises(TypeError, match="keras.layers.Layer subclass or instance"):
-        KerasFunction(Linear(features=1))
+        KerasFunction(Linear(features=1))  # type: ignore[arg-type]
 
 
 def _custom_function_model():

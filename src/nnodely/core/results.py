@@ -113,6 +113,10 @@ class TrainResult(_Result):
     You do not create one yourself. The model does not keep it: save it in a
     variable, or it is lost.
 
+    ``print`` shows a table, a row per minimizer with the losses of the last
+    epoch, and the total. Every dictionary has ``keys()``, ``values()`` and
+    ``items()`` that are lists.
+
     Attributes
     ----------
     model : str
@@ -130,10 +134,6 @@ class TrainResult(_Result):
         every minimizer weighted by its gain; ``loss_<minimizer>``, the loss
         of each, not weighted; and, with validation data, the same under
         ``val_``. ``dict(result.losses)`` is the Keras history.
-
-    ``print`` shows a table, a row per minimizer with the losses of the last
-    epoch, and the total. Every dictionary has ``keys()``, ``values()`` and
-    ``items()`` that are lists.
 
     Basic Examples
     --------------
@@ -201,6 +201,10 @@ class ValidationResult(_Result):
 
     You do not create one yourself.
 
+    ``print`` shows a table, a row per minimizer with its loss, and the
+    total. Every dictionary has ``keys()``, ``values()`` and ``items()``
+    that are lists.
+
     Attributes
     ----------
     model : str
@@ -219,10 +223,6 @@ class ValidationResult(_Result):
         signals it compared, whole, and their metrics.
     figures : list of str
         The PNG files the last :meth:`plot` wrote.
-
-    ``print`` shows a table, a row per minimizer with its loss, and the
-    total. Every dictionary has ``keys()``, ``values()`` and ``items()``
-    that are lists.
 
     Basic Examples
     --------------
@@ -309,7 +309,7 @@ class ValidationResult(_Result):
         Returns
         -------
         list of str
-            The files written, also kept in :attr:`figures`.
+            The files written, also kept in ``figures``.
         """
         # Drawing needs Matplotlib: imported here, where it is used.
         from nnodely.utils import validation_plot

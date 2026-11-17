@@ -1675,16 +1675,17 @@ class Modely:
         The table gives the name, ``seq``, ``tw`` and ``dim`` of each Input,
         and how it is fed:
 
-        - declared: whether it is among the inputs of the model;
-        - fed back with: the stream a loop feeds back into it at the next
-          step. A :class:`Modely` reads such an Input from data instead, or
-          its init if it is hidden;
-        - data: what the data holds of it. ``required``; ``optional``, read
-          as zeros where the data leaves it out; ``target``, to train and
-          validate only; or ``-``, a hidden state, or one fed back only;
-        - starts from: for an Input a loop feeds back, what its first step
-          reads; for a hidden state of the one-step model, its init, which it
-          reads at every step.
+        - flags: ``target``, read to train and validate only; ``optional``,
+          read as zeros where the data leaves it out (only the rollout of
+          :meth:`loop` has one); ``hidden``, a state that is the model's own
+          memory and starts from its init, never from data.
+        - update: ``<- v``, what it reads at every step; ``x₀ = v``, what it
+          starts from. ``#['name']`` is the data of an Input, its first step
+          in a rollout. A state shows both: ``<- w``, the stream it is fed
+          back with, and its initial value (``0`` without one). The one-step
+          model shows them too, though only a rollout feeds a state back: it
+          reads a declared one from data at every step, and a hidden one its
+          init.
 
         See Also
         --------
@@ -1704,6 +1705,23 @@ class Modely:
         >>> model.inputs["x"] is x
         True
 
+        A running total, a hidden state, against a target:
+
+        >>> x, total = Input("x", tw=1), Input("total", tw=1)
+        >>> running = x + total
+        >>> running.name = "running"
+        >>> _ = total.feedback(running, hidden=True)
+        >>> model = Modely("sum", inputs=[x], outputs=[Output("y", running)])
+        >>> model = model.minimize("fit", "y", Input("y_meas", tw=1))
+        >>> print(model.inputs)
+        ┏━━━━━┳━━━━━━━━┳━━━━━┳━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓
+        ┃ idx ┃ input  ┃ seq ┃ tw ┃ dim  ┃ flags  ┃ update                 ┃
+        ┡━━━━━╇━━━━━━━━╇━━━━━╇━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩
+        │ 0   │ x      │ ()  │ 1  │ (1,) │ -      │ <- #['x']              │
+        │ 1   │ y_meas │ ()  │ 1  │ (1,) │ target │ <- #['y_meas']         │
+        │ 2   │ total  │ ()  │ 1  │ (1,) │ hidden │ <- running, total₀ = 0 │
+        └─────┴────────┴─────┴────┴──────┴────────┴────────────────────────┘
+
         .. versionadded:: 2.0
         """
         return Inputs(self._input_rows())
@@ -1711,6 +1729,7 @@ class Modely:
     def _input_rows(self) -> list[dict]:
         """A row of :attr:`inputs` per Input the graph reads, then one per
         state of its Loops that does not start from the data of one."""
+        from nnodely.layers.input import _HiddenInit
         from nnodely.layers.loop import Loop
 
         # A row per Input object: two Inputs of one name (renamed alike)
@@ -1735,6 +1754,18 @@ class Modely:
         read = _read_nodes(
             [*self._outputs, *sides], self._inputs, originals, copies, hidden
         )
+        # The Inputs read at every step: not those only the initial value of
+        # a state reads, of a Loop or a hidden one.
+        every_step = {
+            id(originals.get(id(root), root)) for root in [*self._outputs, *sides]
+        }
+        for node in read:
+            preds = node._preds
+            if isinstance(node, Loop):
+                preds = preds[len(node._feedback_inputs) :]
+            elif isinstance(node, _HiddenInit):
+                preds = []
+            every_step.update(id(originals.get(id(pred), pred)) for pred in preds)
         rows = []
         by_input: dict[int, dict] = {}
         for node in read:
@@ -1743,83 +1774,82 @@ class Modely:
             original = originals.get(id(node), node)
             if id(original) in by_input:
                 continue
-            if id(original) not in forward:
-                data = "target"
-            else:
-                data = "optional" if original in self._optional_inputs else "required"
+            data = (
+                "target"
+                if id(original) not in forward
+                else "optional"
+                if original in self._optional_inputs
+                else "required"
+            )
+            data_cell = f"#[{original.name!r}]"
             by_input[id(original)] = {
                 "input": original,
                 "seq": tuple(node.seq),
                 "declared": id(original) in declared,
-                "fed back with": None if node.update is None else node.update.name,
+                "flags": None if data == "required" else data,
+                "update": f"<- {data_cell}"
+                if node.update is None and id(original) in every_step
+                else f"{original.name}₀ = {data_cell}"
+                if node.update is None
+                else f"<- {node.update.name}, {original.name}₀ = {data_cell}",
                 # The stream of the graph it is fed back with.
-                "update": None
+                "update stream": None
                 if node.update is None
                 else copies.get(id(node.update), node.update),
                 "data": data,
-                "starts from": None,
             }
             rows.append(by_input[id(original)])
 
-        # The hidden states the one-step model reads the init of, at every
-        # step.
-        for state in hidden:
-            init = state.init
-            rows.append(
-                {
+        # The states: the hidden ones the one-step model reads the init of, at
+        # every step, then those inside the steps of its Loops, with the
+        # stream of the graph each is fed back with.
+        states: list[tuple[Input, Stream, Any, Any]] = [
+            (state, cast(Stream, state.update), state.init, state.update)
+            for state in hidden
+        ]
+        for loop in (node for node in read if isinstance(node, Loop)):
+            states += [
+                (state, update, start, loop._step.copied_from(update))
+                for state, update, start, _ in loop._state_starts()
+            ]
+        seen: set[int] = set()
+        for state, update, start, graph_update in states:
+            if id(state) in seen:
+                continue
+            seen.add(id(state))
+            # Read here as a copy, too.
+            if isinstance(start, Input):
+                start = originals.get(id(start), start)
+            # One that starts from an optional Input (the Input of a rollout
+            # of loop() it starts from, by object, renamed or not) is that
+            # Input, read from data.
+            row = (
+                by_input.get(id(start))
+                if isinstance(start, Input) and start in self._optional_inputs
+                else None
+            )
+            if row is not None:
+                starts = f"#[{start.name!r}] or 0"
+            else:
+                row = {
                     "input": state,
                     "seq": tuple(state.seq),
                     "declared": False,
-                    "fed back with": cast(Stream, state.update).name,
-                    "update": state.update,
+                    "flags": "hidden" if state._hidden else None,
                     "data": None,
-                    "starts from": "0"
-                    if init is None
-                    else init.name
-                    if isinstance(init, Stream)
-                    else str(init),
                 }
-            )
-
-        # The states, inside the step: one that starts from an optional Input
-        # (the Input of a rollout of loop() it starts from, by object, renamed or
-        # not) is that Input, read from data.
-        seen: set[int] = set()
-        for loop in (node for node in read if isinstance(node, Loop)):
-            for state, update, start, rolled in loop._state_starts():
-                if id(state) in seen:
-                    continue
-                seen.add(id(state))
-                first = ", first step" if rolled else ""
-                # Read here as a copy, too.
-                if isinstance(start, Input):
-                    start = originals.get(id(start), start)
-                row = (
-                    by_input.get(id(start))
-                    if isinstance(start, Input) and start in self._optional_inputs
-                    else None
+                rows.append(row)
+                starts = (
+                    "0"
+                    if start is None
+                    else f"#[{start.name!r}]"
+                    if isinstance(start, Input)
+                    else start.name
+                    if isinstance(start, Stream)
+                    else str(start)
                 )
-                if row is not None:
-                    starts = f"its data{first}"
-                    if start in self._optional_inputs:
-                        starts += ", else 0"
-                else:
-                    row = {
-                        "input": state,
-                        "seq": tuple(state.seq),
-                        "declared": False,
-                        "data": None,
-                    }
-                    rows.append(row)
-                    if start is None:
-                        starts = "0"
-                    elif isinstance(start, Stream):
-                        starts = f"{start.name}{first}"
-                    else:
-                        starts = str(start)
-                row["fed back with"] = update.name
-                row["update"] = loop._step.copied_from(update)
-                row["starts from"] = starts
+            row["update"] = f"<- {update.name}, {row['input'].name}₀ = {starts}"
+            row["update stream"] = graph_update
         return rows
 
     @property
@@ -1834,11 +1864,10 @@ class Modely:
         The table gives the name, ``seq``, ``tw`` and ``dim`` of each output,
         and:
 
-        - stream: the stream the output names; for the trajectory of a Loop
-          (every output of the rollout of :meth:`loop`), the stream of its body it
-          collects over the steps;
-        - feeds back: the Inputs a loop feeds that stream back into at the
-          next step;
+        - update: ``-> s``, the Inputs a loop feeds the stream of the output
+          back into at the next step, as :attr:`inputs` shows them with
+          ``<- w``. In the rollout of :meth:`loop`, that stream is the one of
+          the step the trajectory collects;
         - minimized by: the objectives that read it, as ``name (source)`` or
           ``name (target)``.
 
@@ -1857,11 +1886,11 @@ class Modely:
         >>> y = Output("y", doubled)
         >>> model = Modely("double", inputs=[x], outputs=[y]).minimize("fit", y, 4.0)
         >>> print(model.outputs)
-        ┏━━━━━┳━━━━━━━━┳━━━━━┳━━━━┳━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━┓
-        ┃ idx ┃ output ┃ seq ┃ tw ┃ dim  ┃ stream  ┃ feeds back ┃ minimized by ┃
-        ┡━━━━━╇━━━━━━━━╇━━━━━╇━━━━╇━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━┩
-        │ 0   │ y      │ ()  │ 1  │ (1,) │ doubled │ -          │ fit (source) │
-        └─────┴────────┴─────┴────┴──────┴─────────┴────────────┴──────────────┘
+        ┏━━━━━┳━━━━━━━━┳━━━━━┳━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━┓
+        ┃ idx ┃ output ┃ seq ┃ tw ┃ dim  ┃ update ┃ minimized by ┃
+        ┡━━━━━╇━━━━━━━━╇━━━━━╇━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━┩
+        │ 0   │ y      │ ()  │ 1  │ (1,) │ -      │ fit (source) │
+        └─────┴────────┴─────┴────┴──────┴────────┴──────────────┘
         >>> model.outputs["y"] is y
         True
 
@@ -1875,8 +1904,10 @@ class Modely:
         # of :attr:`inputs` read copies of it, and give it.
         fed_back: dict[int, list[str]] = {}
         for row in self._input_rows():
-            if row.get("update") is not None:
-                fed_back.setdefault(id(row["update"]), []).append(row["input"].name)
+            if row["update stream"] is not None:
+                fed_back.setdefault(id(row["update stream"]), []).append(
+                    row["input"].name
+                )
         minimized: dict[int, list[str]] = {}
         for minimizer in self._minimizers:
             for side in ("source", "target"):
@@ -1890,9 +1921,7 @@ class Modely:
                 {
                     "output": output,
                     "stream": stream.name,
-                    "feeds back": fed_back.get(
-                        id(stream), fed_back.get(id(output), [])
-                    ),
+                    "update": fed_back.get(id(stream), fed_back.get(id(output), [])),
                     "minimized by": [
                         *minimized.get(id(output), []),
                         *minimized.get(id(output._preds[0]), []),
@@ -2247,7 +2276,7 @@ class Modely:
 
     def validate(
         self,
-        val_data,
+        val_data: DataLoader,
         out_dir: str | os.PathLike | None = None,
         show: bool = False,
         history: TrainResult | dict[str, Any] | None = None,
@@ -2266,7 +2295,7 @@ class Modely:
             The data, made for this build of the model. It holds every Input
             training reads, the targets included.
         out_dir : str, os.PathLike or None, default None
-            The folder :meth:`ValidationResult.plot` writes the figures to,
+            The folder :meth:`~nnodely.core.results.ValidationResult.plot` writes the figures to,
             as PNG files. ``None`` writes none.
         show : bool, default False
             ``True`` opens the figures in an interactive Matplotlib window.
@@ -2403,7 +2432,7 @@ class Modely:
         optimizer_kwargs: dict[str, Any] | None = None,
         early_stopping_kwargs: dict[str, Any] | None = None,
         printer: str | keras.callbacks.Callback | None = "legacy",
-        jit_compile: str = "auto",
+        jit_compile: str | bool = "auto",
     ):
         r"""Train the built model on its objectives, and return the losses of
         every epoch.
@@ -2658,7 +2687,11 @@ class Modely:
             val_x, val_mask = self._training_arrays(val_data)
             validation_data = val_x if val_mask is None else (val_x, val_mask)
 
-        self._keras_model.compile(optimizer=resolved_optimizer, jit_compile=jit_compile)
+        # Keras types jit_compile as a str, but takes True and False as well.
+        self._keras_model.compile(
+            optimizer=resolved_optimizer,
+            jit_compile=jit_compile,  # pyright: ignore[reportArgumentType]
+        )
         history = self._keras_model.fit(
             x=x_data,
             y=mask,
@@ -2863,7 +2896,7 @@ class Modely:
     # Save and load
     # -------------------------------------------------------------------------
 
-    def save(self, path, weights: bool | Literal["all"] = True):
+    def save(self, path: str | os.PathLike, weights: bool | Literal["all"] = True):
         """Save the model, its graph and its weights, to a folder.
 
         :meth:`load` makes the model again from the folder. The objectives are
@@ -2955,7 +2988,7 @@ class Modely:
         ModelSerializer.serialize(self, path, weights=weights)
 
     @classmethod
-    def load(cls, path, weights: bool = True):
+    def load(cls, path: str | os.PathLike, weights: bool = True):
         """Load a model saved with :meth:`save`, and return it built.
 
         The models it calls are loaded from their folders, each once however
@@ -3411,6 +3444,13 @@ class Minimizer(Mapping):
     registers the objective, and ``model.minimizers["fit"]`` or
     ``model.minimizers[0]`` picks its row.
 
+    Each is read as an attribute or as a key, ``m.gain`` or ``m["gain"]``.
+    Setting ``name``, ``loss`` or ``gain`` changes the objective in its
+    model, checked as :meth:`~nnodely.Modely.minimize` checks it, from the
+    next :meth:`~nnodely.Modely.train`. Setting anything else raises
+    ``TypeError``: register the objective again to change what it compares.
+    :meth:`remove` removes it from its model.
+
     Attributes
     ----------
     name : str
@@ -3426,13 +3466,6 @@ class Minimizer(Mapping):
         The weight of its loss in the total loss.
     model : Modely
         The model it belongs to.
-
-    Each is read as an attribute or as a key, ``m.gain`` or ``m["gain"]``.
-    Setting ``name``, ``loss`` or ``gain`` changes the objective in its
-    model, checked as :meth:`~nnodely.Modely.minimize` checks it, from the
-    next :meth:`~nnodely.Modely.train`. Setting anything else raises
-    ``TypeError``: register the objective again to change what it compares.
-    :meth:`remove` removes it from its model.
 
     Basic Examples
     --------------

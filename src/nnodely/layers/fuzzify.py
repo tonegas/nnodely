@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, cast
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, cast
 
 import keras
 import numpy as np
@@ -14,7 +15,10 @@ from nnodely.core.shape import expand_to_rank
 from nnodely.core.stream import Stream, class_path, registered_class
 from nnodely.layers.function import KerasFunction, _is_keras_layer
 from nnodely.layers.input import Input
-from nnodely.layers.parameter import _Value
+from nnodely.layers.parameter import Parameter, _Value
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
 
 _EPS = 1e-7
 
@@ -293,7 +297,11 @@ class Triangular(_Bump):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, radius: float | tuple[float, float] | Stream = 1.0, name=None):
+    def __init__(
+        self,
+        radius: float | tuple[float, float] | Parameter = 1.0,
+        name: str | None = None,
+    ):
         super().__init__(radius, name=name)
 
 
@@ -438,7 +446,11 @@ class Rectangular(_Bump):
 
     _formula = "box"
 
-    def __init__(self, radius: float | tuple[float, float] | Stream = 1.0, name=None):
+    def __init__(
+        self,
+        radius: float | tuple[float, float] | Parameter = 1.0,
+        name: str | None = None,
+    ):
         super().__init__(radius, name=name)
 
 
@@ -573,7 +585,7 @@ class Gaussian(_Bump):
     _label = "sigma"
     _pair = False
 
-    def __init__(self, sigma: float | Stream = 1.0, name=None):
+    def __init__(self, sigma: float | Parameter = 1.0, name: str | None = None):
         super().__init__(sigma, name=name)
 
 
@@ -1094,11 +1106,15 @@ class Fuzzify(Layer):
 
     def __init__(
         self,
-        centers,
-        function,
+        centers: Stream | Sequence[float | Stream],
+        function: type
+        | str
+        | Layer
+        | keras.layers.Layer
+        | list[type | str | Layer | keras.layers.Layer],
         bounds: bool | tuple[float, float] = False,
         normalize: bool = False,
-        name=None,
+        name: str | None = None,
     ):
         name = next_name("Fuzzify") if name is None else name
         self._bounds = _bounds(bounds, name)
@@ -1311,7 +1327,12 @@ class Fuzzify(Layer):
         )
         return super().from_config(config, preds=[x])
 
-    def plot(self, x_range: tuple[float, float] | None = None, points=401, ax=None):
+    def plot(
+        self,
+        x_range: tuple[float, float] | None = None,
+        points: int = 401,
+        ax: Axes | None = None,
+    ):
         """Draw the memberships with matplotlib, and return the axes.
 
         The memberships are drawn as the layer computes them now. Centers and

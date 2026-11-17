@@ -682,7 +682,7 @@ def test_the_outputs_table_tells_the_stream_fed_back_by_its_object():
         inputs=[x, u],
         outputs=[Output("ft_next", after), Output("ft_other", other)],
     ).loop()
-    feeds = [row["feeds back"] for row in sim.outputs._rows]
+    feeds = [row["update"] for row in sim.outputs._rows]
     assert feeds == [["ft_x"], []]
 
 
@@ -1016,8 +1016,7 @@ def test_a_model_loop_state_keeps_the_row_of_its_input_renamed(tmp_path):
     for model in (sim, Modely.load(tmp_path / "sim")):
         rows = model.inputs._rows
         assert [row["input"].name for row in rows] == ["mr_position", "mr_u"]
-        assert rows[0]["fed back with"] is not None
-        assert rows[0]["starts from"] == "its data, first step, else 0"
+        assert rows[0]["update"].endswith("mr_position₀ = #['mr_position'] or 0")
 
 
 def test_every_lookup_resolves_a_key_alike():

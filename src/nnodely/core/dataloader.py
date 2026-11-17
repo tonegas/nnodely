@@ -91,9 +91,9 @@ class DataLoader:
         Input or by input name. Each is a column name, a column index, or a
         list of them, one per feature. By default an Input reads the column
         of its name.
-    csv_glob : str, optional
-        The pattern of the files read from a folder. The default,
-        ``"*.csv"``, reads every CSV file.
+    csv_glob : str, default ``"*.csv"``
+        The pattern of the files read from a folder. The default reads every
+        CSV file.
     delimiter : str, default ","
         The separator of the CSV files, the ``sep`` of ``pandas.read_csv``.
     header : int, list of int, "infer" or None, default "infer"

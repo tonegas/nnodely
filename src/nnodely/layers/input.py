@@ -622,19 +622,10 @@ class Inputs(Table):
     It is a list of the Input objects. Pick one by its name,
     ``inputs["x"]``, or by its index, ``inputs[0]``: the ``idx`` column of
     the table. Printed, it is a table of their shapes and of how each is
-    fed: whether it is declared, the stream it is fed back with, what the
-    data must hold of it and, fed back by a Loop, what it starts from."""
+    fed: where its value comes from and, fed back, the stream it reads at
+    the next step and what it starts from."""
 
-    _HEADER = (
-        "input",
-        "seq",
-        "tw",
-        "dim",
-        "declared",
-        "fed back with",
-        "data",
-        "starts from",
-    )
+    _HEADER = ("input", "seq", "tw", "dim", "flags", "update")
 
     _kind, _attr = "Input", "inputs"
 
@@ -652,10 +643,8 @@ class Inputs(Table):
                 _seq_cell(row["seq"]),
                 _tw_cell(row["input"]),
                 str(tuple(row["input"].dim)),
-                "yes" if row["declared"] else "no",
-                row["fed back with"] or "-",
-                row["data"] or "-",
-                row["starts from"] or "-",
+                row["flags"] or "-",
+                row["update"],
             )
             for row in self._rows
         ]

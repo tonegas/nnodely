@@ -1069,7 +1069,7 @@ def test_membership_widths_take_a_parameter():
     with pytest.raises(ValueError, match="Parameter of dim"):
         Gaussian(sigma=radius)  # a pair is no sigma
     with pytest.raises(ValueError, match="Parameter of dim"):
-        Rectangular(radius=x)  # nor an input a width
+        Rectangular(radius=x)  # type: ignore[arg-type]  # nor an input a width
 
 
 @pytest.mark.slow
@@ -1765,7 +1765,7 @@ def test_local_model_rejects_mismatched_inputs():
     activation = Fuzzify(centers=[0.0, 1.0], function=Triangular)([TimeSelect(-1)(k)])
 
     with pytest.raises(TypeError, match=r"pass a factory f\(index\)"):
-        LocalModel([Fir(features=1)] * 2, name="list_local")
+        LocalModel([Fir(features=1)] * 2, name="list_local")  # type: ignore[arg-type]
 
     with pytest.raises(ValueError, match="every cell must have the same shape"):
         LocalModel(lambda index: Fir(features=index[0] + 1), name="uneven_local")(
@@ -3049,8 +3049,6 @@ def test_derivative_rejects_what_it_cannot_differentiate():
         Derivative(dt=0.1)(Input("dno_window"))
     with pytest.raises(ValueError, match="one sample per step"):
         Derivative(dt=0.1)(Input("dwindowed", tw=3))
-    with pytest.raises(ValueError, match="dt is required"):
-        Derivative()
     with pytest.raises(TypeError, match="init must be a Stream"):
         Derivative(dt=0.1, init="zero")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="poly_order"):

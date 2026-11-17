@@ -318,7 +318,7 @@ class BatchNorm(Layer):
         epsilon: float = 1e-3,
         center: bool = True,
         scale: bool = True,
-        name=None,
+        name: str | None = None,
     ):
         self._axis = None if axis is None else int(axis)
         self._momentum = float(momentum)

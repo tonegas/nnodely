@@ -735,10 +735,8 @@ def test_each_derivative_takes_only_its_own_kind_of_variable():
     x = Input("split_x", dim=1, tw=1)
     with pytest.raises(TypeError, match="use Derivative"):
         Gradient(order=1, wrt=0.1)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="must be the Input"):
-        Gradient(order=1)
-    with pytest.raises(ValueError, match="dt is required"):
-        DerivativeStep()
+    with pytest.raises(TypeError, match="wrt"):
+        Gradient(order=1)  # type: ignore[call-arg]
     with pytest.raises(ValueError, match="must be positive"):
         DerivativeStep(dt=0.0)
     with pytest.raises(TypeError, match="dt must be a number"):
@@ -1133,11 +1131,15 @@ def test_integrate_unknown_solver_raises():
             IntegrateStep(method=solver, dt=0.1)
 
 
-def test_integrate_requires_explicit_dt():
-    v = Input("v", dim=1, tw=1)
+def test_calculus_layers_default_dt_to_one():
+    assert IntegrateStep()._dt == 1.0
+    assert Integrate()._dt == 1.0
+    assert DerivativeStep()._dt == 1.0
+    assert Derivative()._dt == 1.0
 
-    with pytest.raises(ValueError, match="dt is required"):
-        IntegrateStep(method="euler")
+
+def test_integrate_with_explicit_dt():
+    v = Input("v", dim=1, tw=1)
 
     model = Modely(
         "integrate_explicit_dt_model",

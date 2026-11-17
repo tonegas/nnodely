@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import inspect
 import re
 from collections.abc import Callable
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import keras
 import numpy as np
@@ -69,6 +69,9 @@ from nnodely.layers.trigonometric import (
     Sinh,
     Tan,
 )
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
 
 
 _NAMED_FUNCTIONS: dict[str, type[Layer]] = {
@@ -567,7 +570,7 @@ class EquationLearner:
         )
         return self._model(streams)
 
-    def plot(self, precision: int = 4, ax=None) -> Any:
+    def plot(self, precision: int = 4, ax: Axes | None = None) -> Any:
         """Draw the learned equation with matplotlib, and return it as a sympy ``Eq``.
 
         It is the equation the model computes now: the current coefficients

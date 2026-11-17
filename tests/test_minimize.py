@@ -1321,7 +1321,7 @@ def test_a_loaded_model_loop_is_minimized_on_its_outputs_too(tmp_path):
     # The outputs table reads the stream of the body it collects, as it did
     # before the save.
     (row,) = loaded.outputs._rows
-    assert row["feeds back"] == ["ml_loaded_x"]
+    assert row["update"] == ["ml_loaded_x"]
 
 
 def test_the_streams_of_the_step_are_refused_naming_the_output_to_use():

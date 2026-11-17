@@ -1,7 +1,10 @@
 """Ode: fixed-step integration of a derivative function."""
 
+from collections.abc import Callable
 from functools import reduce
 from typing import Any
+
+from nnodely.core.stream import Stream
 
 # Butcher tableaux as (stage coefficients, weights): one row of `a` per stage
 # after the first, then the `b` row. Adding an explicit method is one entry.
@@ -36,7 +39,13 @@ def _weighted_sum(coefficients, stages, index):
     return reduce(lambda left, right: left + right, terms)
 
 
-def Ode(f, states, dt, method="rk4", args=()) -> Any:
+def Ode(
+    f: Callable[..., Any],
+    states: Stream | list[Stream],
+    dt: float | Stream,
+    method: str = "rk4",
+    args: tuple = (),
+) -> Any:
     r"""The states one time step later, by an explicit Runge-Kutta method.
 
     Syntax

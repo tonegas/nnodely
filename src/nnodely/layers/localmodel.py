@@ -493,8 +493,8 @@ class LocalModel:
 
     def __init__(
         self,
-        input_function=None,
-        output_function=None,
+        input_function: Layer | Callable[..., Any] | None = None,
+        output_function: Layer | Callable[..., Any] | None = None,
         vectorized: bool = False,
         name: str | None = None,
     ):

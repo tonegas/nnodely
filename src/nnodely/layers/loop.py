@@ -1127,7 +1127,7 @@ class Loop(Layer):
         f: Modely,
         feedback: dict | None = None,
         init: dict | None = None,
-        name=None,
+        name: str | None = None,
         seq: int | None = None,
         collect: bool = True,
     ):

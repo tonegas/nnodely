@@ -67,6 +67,7 @@ nitpick_ignore_regex = [
     ("py:class", r".*\s.*"),
     ("py:class", r"(keras|numpy|np|pandas|pd|sympy|matplotlib|pathlib)\..*"),
     ("py:class", r"str|int|float|bool|dict|list|tuple|callable|None|y_true|y_pred"),
+    ("py:class", r"Stream|Shape"),
 ]
 
 exclude_patterns = ["_build", "**.ipynb_checkpoints"]

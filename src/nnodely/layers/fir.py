@@ -276,7 +276,7 @@ class Fir(Layer):
         kernel: Parameter | str | keras.initializers.Initializer = "glorot_uniform",
         bias: Parameter | str | keras.initializers.Initializer | bool = True,
         shared_kernel: bool = False,
-        name=None,
+        name: str | None = None,
     ):
         self._features = int(features)
         self._shared_kernel = bool(shared_kernel)
