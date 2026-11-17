@@ -1220,7 +1220,7 @@ def test_setting_a_listed_minimizer_changes_it_in_the_model():
 # A model that rolls out a Loop: the streams of its body, and of other graphs
 # -----------------------------------------------------------------------------
 #
-# A ModelyLoop is a Modely of the rollout, minimized on its own outputs, its
+# The rollout of model.loop() is a Modely, minimized on its own outputs, its
 # trajectories. Its step - and the body of any Loop a model rolls out - is
 # another graph, refused as any other is: the error names the output that
 # collects the stream. Nothing is reshaped: a target of another shape than
@@ -1228,13 +1228,11 @@ def test_setting_a_listed_minimizer_changes_it_in_the_model():
 
 
 def _lag(name, seq=None):
-    """``x[k+1] = a x[k] + u[k]``, a = 0.5, rolled out by a ModelyLoop."""
-    from nnodely import ModelyLoop
-
+    """``x[k+1] = a x[k] + u[k]``, a = 0.5, rolled out by model.loop()."""
     x, u = Input(f"{name}_x", tw=1), Input(f"{name}_u", tw=1)
     a = Parameter(f"{name}_a", value=0.5)
     x_next = Output(f"{name}_next", x.feedback(a * x + u))
-    model = ModelyLoop(name, inputs=[x, u], outputs=[x_next], seq=seq)
+    model = Modely(name, inputs=[x, u], outputs=[x_next]).loop(seq=seq)
     return x, u, a, x_next, model
 
 
@@ -1252,7 +1250,7 @@ def _lag_data(name, target):
 LAG_LOSS = _mse(np.ones(4), [1.0, 1.5, 1.75, 1.875])
 
 
-def test_a_modelyloop_is_a_modely_of_its_rollout():
+def test_a_model_loop_is_a_modely_of_its_rollout():
     _, _, _, _, model = _lag("ml_type")
     assert type(model) is Modely
     # The one-step model the loop rolls out.
@@ -1260,7 +1258,33 @@ def test_a_modelyloop_is_a_modely_of_its_rollout():
     assert model.inputs["ml_type_u"].seq == (None,)
 
 
-def test_a_modelyloop_is_minimized_on_its_outputs():
+def test_loop_rolls_out_the_model_it_is_called_on():
+    # The rollout is a new model of the name of the step, which stays a
+    # one-step model; one that declares its states is the model rolled out.
+    x, u = Input("ml_self_x", tw=1), Input("ml_self_u", tw=1)
+    x_next = Output("ml_self_next", x.feedback(0.5 * x + u))
+    step = Modely("ml_self", inputs=[x, u], outputs=[x_next])
+    rollout = step.loop(seq=3)
+    assert rollout is not step and rollout.name == "ml_self"
+    assert rollout.models[0] is step
+    assert step.inputs["ml_self_u"].seq == () and rollout.inputs["ml_self_u"].seq == (
+        3,
+    )
+    assert step.loop().inputs["ml_self_u"].seq == (None,)
+    # A hidden state is an input of the body rolled out: a model of the
+    # graph and the name of the step.
+    h = Input("ml_self_h", tw=1)
+    h_next = Output("ml_self_h_next", h.feedback(0.5 * h + u, hidden=True))
+    hidden = Modely("ml_hidden", inputs=[u], outputs=[h_next])
+    body = hidden.loop().models[0]
+    assert body is not hidden and body.name == "ml_hidden"
+    assert sorted(node.name for node in body._inputs) == ["ml_self_h", "ml_self_u"]
+    for seq in (0, -1, 2.0, True):
+        with pytest.raises(ValueError, match=r"the seq of loop\(\) is a positive int"):
+            step.loop(seq=seq)  # type: ignore
+
+
+def test_a_model_loop_is_minimized_on_its_outputs():
     _, _, a, _, model = _lag("ml_out")
     # Its output, by object or by name, against a target declared with the
     # horizon: compared as they are.
@@ -1283,7 +1307,7 @@ def test_a_modelyloop_is_minimized_on_its_outputs():
     assert _training_loss(model, data) == pytest.approx(LAG_LOSS, rel=1e-5)
 
 
-def test_a_loaded_modelyloop_is_minimized_on_its_outputs_too(tmp_path):
+def test_a_loaded_model_loop_is_minimized_on_its_outputs_too(tmp_path):
     _, _, _, _, model = _lag("ml_loaded")
     model.build().save(tmp_path / "model")
     loaded = Modely.load(tmp_path / "model")
@@ -1304,12 +1328,13 @@ def test_the_streams_of_the_step_are_refused_naming_the_output_to_use():
     x, u, a, x_next, model = _lag("ml_step")
     meas = Input("ml_step_meas", seq=-1, tw=1)
     use = re.escape("model.outputs['ml_step_next']")
-    # The Output given to the ModelyLoop, and the stream it names, are of the
+    # The Output given to model.loop(), and the stream it names, are of the
     # step: the model's output is the one that collects them.
     stream = x_next._preds[0]
     assert isinstance(stream, Stream)
     for side in (x_next, stream, stream * 2.0):
-        with pytest.raises(ValueError, match=f"graph of 'ml_step_step'.*{use}"):
+        # The step is the model rolled out, named as the rollout.
+        with pytest.raises(ValueError, match=f"graph of 'ml_step'.*{use}"):
             model.minimize("bad", side, meas)
     # A state has no value in the model: the trajectory of what it is fed
     # back with has.
@@ -1416,15 +1441,13 @@ def test_a_stream_of_a_block_that_holds_a_state_is_refused():
     # Called in a step, a block that holds a hidden state is copied once per
     # call, so its own streams are in no graph the model reads: they were
     # accepted, and the build then failed without naming the minimizer.
-    from nnodely import ModelyLoop
-
     w, s = Input("held_w", tw=1), Input("held_s", tw=1)
     s_next = s.feedback(0.5 * s + w, hidden=True)
     block = Modely("held_block", inputs=[w], outputs=[Output("held_out", s_next)])
     drive = Input("held_drive", tw=1)
-    model = ModelyLoop(
+    model = Modely(
         "held", inputs=[drive], outputs=[Output("held_y", block([drive]))]
-    )
+    ).loop()
     with pytest.raises(ValueError, match="a stream of the graph of 'held_block'"):
         model.minimize("bad", s_next, 0.0)
     assert not model.minimizers

@@ -17,10 +17,11 @@ tools for this:
     Rolls a built model, the *body*, out over a **sequence**, feeding some of
     its outputs back into its inputs. It returns the whole trajectory, and is
     the tool for multi-step training.
-:class:`~nnodely.ModelyLoop`
-    A model declared one step at a time. Its states are Inputs fed back with
-    their next value by :meth:`Input.feedback() <nnodely.Input.feedback>`. It
-    returns the trajectory of every output.
+:meth:`Modely.loop() <nnodely.Modely.loop>`
+    Rolls out a model declared one step at a time. Its states are Inputs fed
+    back with their next value by :meth:`Input.feedback()
+    <nnodely.Input.feedback>`. It returns a new model, the rollout, whose
+    outputs are the trajectories of those of the step.
 
 **The example.** A mass-spring-damper driven by a force, whose stiffness
 :math:`k` and damping :math:`c` are to be identified:
@@ -56,13 +57,12 @@ from 10, and the inputs are 1, 2 and 3:
 
 .. code-block:: python
 
-   from nnodely import ModelyLoop
-
    u_step = Input("u_step", tw=1)
    total = Input("total", tw=1)
    total_next = total.feedback(total + u_step)
-   counter = ModelyLoop("counter", inputs=[u_step, total],
-                        outputs=[Output("total_next", total_next)]).build()
+   step = Modely("counter", inputs=[u_step, total],
+                 outputs=[Output("total_next", total_next)])
+   counter = step.loop().build()
 
    steps = np.array([1.0, 2.0, 3.0]).reshape(1, 3, 1, 1)   # (batch, steps, tw, dim)
    start = np.array([10.0, 0.0, 0.0]).reshape(1, 3, 1, 1)  # only step 0 is read
@@ -217,8 +217,9 @@ with the stream alone when the body has one input.
 Step 4: a model declared one step at a time
 -------------------------------------------
 
-A :class:`~nnodely.ModelyLoop` is declared one step at a time, as the
-equations of a discrete-time system are written. A state is an Input fed
+A model is declared one step at a time, as the equations of a discrete-time
+system are written, and :meth:`~nnodely.Modely.loop` rolls it out. A state is
+an Input fed
 back with its next value by :meth:`Input.feedback() <nnodely.Input.feedback>`,
 which returns the stream it is given. Within a step:
 
@@ -244,12 +245,13 @@ data, with :math:`k` and :math:`c` to identify:
    vel_next = vel.feedback(IntegrateStep(dt=dt)(vel, acc))
    pos_next = pos.feedback(IntegrateStep(dt=dt)(pos, vel_next))
 
-   msd = ModelyLoop("msd", inputs=[F_in, pos, vel], outputs=[Output("pos_next", pos_next)])
+   msd_step = Modely("msd", inputs=[F_in, pos, vel], outputs=[Output("pos_next", pos_next)])
+   msd = msd_step.loop()
    msd.minimize("position", "pos_next", Input("pos_meas", seq=-1, tw=1))
    msd.build()
 
-Every Input of a ModelyLoop carries the rollout as its outermost sequence
-axis, one value per step. Every output is a trajectory, its element ``k``
+Every Input of the rollout carries the steps as its outermost sequence axis,
+one value per step. Every output is a trajectory, its element ``k``
 computed at step ``k``. The rollout is as long as the data, or ``seq`` steps
 when ``seq`` is given.
 
@@ -268,8 +270,11 @@ A fed-back Input that is neither is refused when the model is declared. The
 state of an ``Integrate``, a ``Derivative`` or a ``Buffer`` is hidden, and
 starts from the ``init`` of the layer.
 
-``ModelyLoop`` returns a :class:`~nnodely.Modely` of the rollout, and the
-one-step model it rolls out is ``msd.models[0]``. Its
+``msd_step.loop()`` returns a new :class:`~nnodely.Modely`, the rollout, of
+the name of ``msd_step``, which stays a one-step model. The rollout computes
+with it: ``msd.models[0]`` is the step it rolls out, ``msd_step`` itself, or,
+when the rollout adds an output for a state (here the velocity), a model of
+its graph and name, which shares its weights. Its
 :meth:`~nnodely.Modely.minimize` compares the outputs of the model,
 ``msd.outputs["pos_next"]`` or their names, which are trajectories, with
 targets declared with the horizon, as its Inputs are: the measured position
@@ -293,21 +298,20 @@ The :class:`~nnodely.DataLoader` cuts the signals into sequences of
    history = msd.train(train_data, epochs=30, batch_size=32, lr=5e-2, printer=None)
    print(k_hat.value_numpy, c_hat.value_numpy)   # about 2.0 and 0.5, the true k and c
 
-Built as a :class:`~nnodely.Modely`, the same graph is the one-step model.
-Nothing feeds the states back: a declared state is read from the data at
-every step, as any Input, and a hidden one (the state of an ``Integrate``, a
-``Derivative`` or a ``Buffer`` too) reads its ``init``, as at the first step
-of a ModelyLoop.
+Built itself, ``msd_step`` is the one-step model, with the weights the
+rollout trained. Nothing feeds the states back: a declared state is read from
+the data at every step, as any Input, and a hidden one (the state of an
+``Integrate``, a ``Derivative`` or a ``Buffer`` too) reads its ``init``, as at
+the first step of the rollout.
 
 .. code-block:: python
 
-   one_step = Modely("msd_one_step", inputs=[F_in, pos, vel],
-                     outputs=[Output("pos_pred", pos_next)]).build()
+   one_step = msd_step.build()
 
 Step 5: blocks and windows inside a step
 ----------------------------------------
 
-A model called as a block in a ModelyLoop keeps the feedback of its own
+A model called as a block in a step keeps the feedback of its own
 states, one state per call. A hidden state is the block's own: it starts from
 its ``init`` in each call, and the call does not give it. When a block reads
 a window of a signal that the step computes, a :class:`~nnodely.Buffer` holds the past values:
@@ -331,8 +335,8 @@ commands:
    measured = Input("measured", tw=1)
    command = Output("command", (reference - measured) * 0.5)
    measured.feedback(plant([Buffer(tw=3)(command)]), init=0.0, hidden=True)
-   control = ModelyLoop("control", inputs=[reference],
-                        outputs=[command, Output("level", measured)]).build()
+   control = Modely("control", inputs=[reference],
+                    outputs=[command, Output("level", measured)]).loop().build()
    result = control({"reference": np.ones((1, 20, 1, 1))})
    print(keras.ops.convert_to_numpy(result["level"]).shape)
 
@@ -382,8 +386,8 @@ Common errors
    * - ``Model 'm' declares the hidden states ['x'] among its inputs``
      - A hidden state is the model's own, and no input.
      - Leave it out of the inputs, or feed it back without ``hidden=True``.
-   * - ``Minimizer 'fit': its source ... is a stream of the graph of 'm_step'``
-     - A stream of the step of a ModelyLoop, or of the body of a Loop.
+   * - ``Minimizer 'fit': its source ... is a stream of the graph of 'm'``
+     - A stream of the step ``loop()`` rolls out, or of the body of a Loop.
      - Minimize the output of the model that collects it, as the error names
        it.
    * - The trajectory is one step late, and the loss does not fall
@@ -396,6 +400,6 @@ Common errors
 See also
 --------
 
-:class:`~nnodely.Loop`, :class:`~nnodely.ModelyLoop`,
+:class:`~nnodely.Loop`, :meth:`Modely.loop <nnodely.Modely.loop>`,
 :meth:`Input.feedback <nnodely.Input.feedback>`, :class:`~nnodely.Buffer`,
 :class:`~nnodely.Integrate`, :class:`~nnodely.IntegrateStep`, :doc:`physics`.

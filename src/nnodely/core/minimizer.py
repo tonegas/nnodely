@@ -295,9 +295,9 @@ def _check_sides(model, source, target, minimizer: str) -> None:
     values, and from Inputs only minimizers read, such as targets; or whose
     target has another shape than its source.
 
-    A side that reads the graph of another model (the step of a ModelyLoop,
-    the body of a Loop, a block called) is refused: a trajectory is
-    minimized as the output of the model that collects it. Nothing is
+    A side that reads the graph of another model (the step model.loop()
+    rolls out, the body of a Loop, a block called) is refused: a trajectory
+    is minimized as the output of the model that collects it. Nothing is
     reshaped, so a target compared with a trajectory is declared with its
     horizon."""
     nodes, known = _known_nodes(model)
@@ -326,8 +326,8 @@ def _known_nodes(model) -> tuple[list[Node], set[int]]:
 def _collected(model) -> dict[int, str]:
     """The outputs of ``model`` that collect each stream of a Loop body, as
     the error refusing that stream names them, by the id of the stream as
-    the graph the body was declared over holds it, such as the step of a
-    ModelyLoop. A body rolled out twice has two."""
+    the graph the body was declared over holds it, such as the step
+    model.loop() rolls out. A body rolled out twice has two."""
     names: dict[int, list[str]] = {}
     for output in model._outputs:
         stream = model._output_stream(output)
@@ -382,16 +382,16 @@ def _refuse_foreign(model, nodes, known: set[int], value, side: str, minimizer: 
                 raise ValueError(
                     f"Minimizer {minimizer!r}: {reads} is fed back, and model "
                     f"{model.name!r} does not read it: a state of another graph "
-                    "(the step of a ModelyLoop, the body of a Loop) has no "
-                    f"value in it. {use}"
+                    "(the step model.loop() rolls out, the body of a Loop) has "
+                    f"no value in it. {use}"
                 )
             twin = inputs.get(node.name)
             if twin is not None and twin is not node:
                 raise ValueError(
                     f"Minimizer {minimizer!r}: {reads} is not the Input "
                     f"{node.name!r} model {model.name!r} reads, but another of "
-                    "its name, of another graph such as the step of a "
-                    "ModelyLoop, and the data is fed by input name. Use the "
+                    "its name, of another graph such as the step model.loop() "
+                    "rolls out, and the data is fed by input name. Use the "
                     f"model's own, model.inputs[{node.name!r}], or give the "
                     "Input a name of its own."
                 )
@@ -406,17 +406,17 @@ def _refuse_foreign(model, nodes, known: set[int], value, side: str, minimizer: 
             use = (
                 "Minimize a stream of the model: one of its outputs, "
                 f"{sorted(output.name for output in model._outputs)}, or a "
-                "stream computed from them. A stream of the step of a "
-                "ModelyLoop is declared among its outputs first."
+                "stream computed from them. A stream of the step model.loop() "
+                "rolls out is declared among its outputs first."
                 if output is None
                 else "Minimize the output of the model that collects it, its "
                 f"trajectory: {output}, or its name."
             )
             raise ValueError(
                 f"Minimizer {minimizer!r}: {reads} is a stream of the graph of "
-                f"{owner!r} (the step of a ModelyLoop, the body of a Loop, a "
-                f"model called as a block), which model {model.name!r} does not "
-                f"compute. {use}"
+                f"{owner!r} (the step model.loop() rolls out, the body of a "
+                f"Loop, a model called as a block), which model {model.name!r} "
+                f"does not compute. {use}"
             )
         stack.extend(node._preds)
 
@@ -425,7 +425,7 @@ def _graph_owners(model) -> dict[int, str]:
     """The name of the model whose graph holds each node, by id, for every
     model ``model`` holds (the blocks it calls, the bodies of its Loops,
     theirs too) and every graph a Loop was declared over, with the blocks
-    it calls: the step of a ModelyLoop, which its body copies."""
+    it calls: the step model.loop() rolls out, which its body copies."""
     owners: dict[int, str] = {}
     groups = _nodes_by_model(model)
     for held, nodes in groups[1:]:

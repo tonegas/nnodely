@@ -906,7 +906,7 @@ class Loop(Layer):
 
     See Also
     --------
-    ModelyLoop : A model declared one step at a time, a Loop over its step.
+    Modely.loop : The rollout of a model declared one step at a time.
     Input.feedback : Feeds an Input back with its next value.
     Ode : One step of an ODE, a body to roll out.
     Integrate : An integral that keeps its state in the body.
@@ -953,7 +953,7 @@ class Loop(Layer):
 
     >>> import keras
     >>> import numpy as np
-    >>> from nnodely import Input, Integrate, Loop, Modely, ModelyLoop, Output, TimeSelect
+    >>> from nnodely import Input, Integrate, Loop, Modely, Output, TimeSelect
     >>> x, u = Input("x", tw=1), Input("u", tw=1)
     >>> step = Modely("step", inputs=[x, u], outputs=[Output("x_next", x + u)])
     >>> x0 = Input("x0", seq=4, tw=1)
@@ -1075,12 +1075,12 @@ class Loop(Layer):
 
     Properties & Relations
     ----------------------
-    A :class:`ModelyLoop` is a Loop over its step. Declared with
+    The rollout of :meth:`Modely.loop` is a Loop over its step. Declared with
     :meth:`Input.feedback`, the same step gives the same trajectory:
 
     >>> xs, us = Input("xs", tw=1), Input("us", tw=1)
     >>> xs_next = xs.feedback(xs + us)
-    >>> declared = ModelyLoop("declared", inputs=[us, xs], outputs=[Output("x", xs_next)])
+    >>> declared = Modely("declared", inputs=[us, xs], outputs=[Output("x", xs_next)]).loop()
     >>> result = declared.build()({"us": pushes, "xs": start})
     >>> keras.ops.convert_to_numpy(result["x"]).ravel()
     array([11., 13., 16., 20.], dtype=float32)

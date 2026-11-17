@@ -234,7 +234,7 @@ class Input(Stream):
     Parameter : A trainable value.
     DataLoader : Cuts recorded signals into samples of the Inputs.
     TimeSelect : One sample of a window.
-    ModelyLoop : A model declared one step at a time, with fed-back Inputs.
+    Modely.loop : The rollout of a model declared one step at a time.
 
     Notes
     -----
@@ -255,7 +255,7 @@ class Input(Stream):
 
     >>> import keras
     >>> import numpy as np
-    >>> from nnodely import Input, Modely, ModelyLoop, Output, TimeSelect
+    >>> from nnodely import Input, Modely, Output, TimeSelect
     >>> x = Input("x", tw=3)
     >>> x.shape
     Shape(S=(), T=3, D=(1,))
@@ -318,7 +318,7 @@ class Input(Stream):
 
     >>> count = Input("count", tw=1)
     >>> count_next = count.feedback(count + 1.0)
-    >>> counter = ModelyLoop("counter", inputs=[count], outputs=[Output("c", count_next)], seq=3)
+    >>> counter = Modely("counter", inputs=[count], outputs=[Output("c", count_next)]).loop(seq=3)
     >>> result = counter.build()({"count": np.full((1, 3, 1, 1), 10.0)})
     >>> keras.ops.convert_to_numpy(result["c"])[0, :, 0, 0]
     array([11., 12., 13.], dtype=float32)
@@ -417,7 +417,7 @@ class Input(Stream):
         as the newest sample. Inside a step, the Input holds the value at the
         end of the previous step.
 
-        Nothing rolls out until a :class:`Loop` or a :class:`ModelyLoop`
+        Nothing rolls out until a :class:`Loop` or :meth:`Modely.loop`
         applies the feedback. Every fed-back Input the model reads, also
         inside the models it calls, is fed back by the same rollout. Built as
         a :class:`Modely` instead, the graph is the one-step model.
@@ -427,7 +427,7 @@ class Input(Stream):
         - declared among the inputs of the model that reads it: an input,
           given by the data or by the model's caller. A Modely reads it from
           data at every step. A Loop starts it from its ``init``,
-          ``Loop(init={x: x0})``; a ModelyLoop from the first window of its
+          ``Loop(init={x: x0})``; a rollout of loop() from the first window of its
           data, zero where the data leaves it out; a block from the stream its
           caller gives it.
         - hidden, ``hidden=True``: the model's own memory, as the state of an
@@ -473,7 +473,7 @@ class Input(Stream):
 
         See Also
         --------
-        ModelyLoop : A model declared one step at a time.
+        Modely.loop : The rollout of a model declared one step at a time.
         Loop : Rolls a model out along the outermost sequence axis.
         IntegrateStep : One step of an integrator, often fed back.
 
@@ -483,10 +483,10 @@ class Input(Stream):
 
         >>> import keras
         >>> import numpy as np
-        >>> from nnodely import Input, ModelyLoop, Output, TimeSelect
+        >>> from nnodely import Input, Modely, Output, TimeSelect
         >>> count = Input("count", tw=1)
         >>> count_next = count.feedback(count + 1.0)
-        >>> counter = ModelyLoop("counter", inputs=[count], outputs=[Output("c", count_next)], seq=3)
+        >>> counter = Modely("counter", inputs=[count], outputs=[Output("c", count_next)]).loop(seq=3)
         >>> result = counter.build()({"count": np.full((1, 3, 1, 1), 10.0)})
         >>> keras.ops.convert_to_numpy(result["c"])[0, :, 0, 0]
         array([11., 12., 13.], dtype=float32)
@@ -506,7 +506,7 @@ class Input(Stream):
 
         >>> total, u = Input("total", tw=1), Input("u", tw=1)
         >>> total_next = total.feedback(total + u, init=10.0, hidden=True)
-        >>> summer = ModelyLoop("summer", inputs=[u], outputs=[Output("s", total_next)], seq=3)
+        >>> summer = Modely("summer", inputs=[u], outputs=[Output("s", total_next)]).loop(seq=3)
         >>> result = summer.build()({"u": np.ones((1, 3, 1, 1))})
         >>> keras.ops.convert_to_numpy(result["s"])[0, :, 0, 0]
         array([11., 12., 13.], dtype=float32)

@@ -78,14 +78,14 @@ error messages. Where a method name uses another word, as ``minimize`` and
       which starts from its ``init``.
 
    body
-      The one-step model a :class:`~nnodely.Loop` or a
-      :class:`~nnodely.ModelyLoop` rolls out.
+      The one-step model a :class:`~nnodely.Loop` or
+      :meth:`Modely.loop() <nnodely.Modely.loop>` rolls out.
 
    step
-      One execution of a body in a rollout, ``k``. In a
-      :class:`~nnodely.ModelyLoop`, a state holds its value at the end of step
-      ``k - 1``, and the stream it is fed back with its value at the end of
-      step ``k``.
+      One execution of a body in a rollout, ``k``. In the rollout of
+      :meth:`Modely.loop() <nnodely.Modely.loop>`, a state holds its value at
+      the end of step ``k - 1``, and the stream it is fed back with its value
+      at the end of step ``k``.
 
    mask
       Marks the real steps of rollouts padded to a common length, when

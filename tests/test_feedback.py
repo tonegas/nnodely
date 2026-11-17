@@ -15,7 +15,6 @@ from nnodely import (
     IntegrateStep,
     Loop,
     Modely,
-    ModelyLoop,
     Output,
 )
 
@@ -93,35 +92,35 @@ def _integrate_loop(tag, seeded):
     )
 
 
-def _integrate_modelyloop(tag, seeded):
+def _integrate_model_loop(tag, seeded):
     u, y0 = Input(f"{tag}_u", tw=1), Input(f"{tag}_y0", tw=1)
     y_next = Integrate(dt=1, init=y0 if seeded else None)(u)
-    return ModelyLoop(
+    return Modely(
         tag,
         inputs=[u, y0] if seeded else [u],
         outputs=[Output(f"{tag}_traj", y_next)],
-    )
+    ).loop()
 
 
-def _feedback_modelyloop(tag, seeded):
+def _feedback_model_loop(tag, seeded):
     # Among the inputs, y starts from its data; hidden, from its init, zero.
     u, y = Input(f"{tag}_u", tw=1), Input(f"{tag}_y", tw=1)
     y_next = y.feedback(IntegrateStep(dt=1)(y, u), hidden=not seeded)
-    return ModelyLoop(
+    return Modely(
         tag,
         inputs=[u, y] if seeded else [u],
         outputs=[Output(f"{tag}_traj", y_next)],
-    )
+    ).loop()
 
 
 # What builds each, the Input of its signal and of its initial value, and
-# whether that carries the horizon: a ModelyLoop reads every Input step by step.
+# whether that carries the horizon: a model.loop() rollout reads every Input step by step.
 CONSTRUCTIONS = {
     "integrate_step_loop": (_integrate_step_loop, "u_seq", "y0", None),
     "feedback_loop": (_feedback_loop, "u_seq", "y0", None),
     "integrate_loop": (_integrate_loop, "u_seq", "y0i", None),
-    "integrate_modelyloop": (_integrate_modelyloop, "u", "y0", STEPS),
-    "feedback_modelyloop": (_feedback_modelyloop, "u", "y", STEPS),
+    "integrate_model_loop": (_integrate_model_loop, "u", "y0", STEPS),
+    "feedback_model_loop": (_feedback_model_loop, "u", "y", STEPS),
 }
 
 
@@ -379,25 +378,33 @@ def test_a_state_starts_from_zero_along_a_dynamic_sequence(tmp_path):
     # A state with a dynamic sequence axis that starts from zero, or from a
     # number, takes the length of that axis from the value fed back.
     x = Input("fb_dyn_x", tw=1)
-    inner = ModelyLoop(
-        "fb_dyn_inner",
-        inputs=[x],
-        outputs=[Output("fb_dyn_xx", Integrate(dt=1)(x))],
-    ).build()
+    inner = (
+        Modely(
+            "fb_dyn_inner",
+            inputs=[x],
+            outputs=[Output("fb_dyn_xx", Integrate(dt=1)(x))],
+        )
+        .loop()
+        .build()
+    )
     k = Input("fb_dyn_k", tw=1, seq=-1)
     s = Input("fb_dyn_s", tw=1, seq=-1)
-    model = ModelyLoop(
-        "fb_dyn",
-        inputs=[k],
-        outputs=[
-            # The inner loop rolls out along the sequence of k, the outer one
-            # integrates what it returns.
-            Output("fb_dyn_kk", Integrate(dt=1)(inner([k]))),
-            Output("fb_dyn_from_two", Integrate(dt=1, init=2.0)(k)),
-            Output("fb_dyn_buf", Buffer(tw=2)(k)),
-            Output("fb_dyn_sum", s.feedback(s + k, hidden=True)),
-        ],
-    ).build()
+    model = (
+        Modely(
+            "fb_dyn",
+            inputs=[k],
+            outputs=[
+                # The inner loop rolls out along the sequence of k, the outer one
+                # integrates what it returns.
+                Output("fb_dyn_kk", Integrate(dt=1)(inner([k]))),
+                Output("fb_dyn_from_two", Integrate(dt=1, init=2.0)(k)),
+                Output("fb_dyn_buf", Buffer(tw=2)(k)),
+                Output("fb_dyn_sum", s.feedback(s + k, hidden=True)),
+            ],
+        )
+        .loop()
+        .build()
+    )
 
     # Three steps of a sequence of four, 1 to 12.
     data = {"fb_dyn_k": np.arange(1, 13, dtype=np.float32).reshape(1, 3, 4, 1, 1)}
@@ -437,11 +444,15 @@ def test_a_dynamic_initial_value_feeds_a_state_of_a_static_sequence():
     k, k0 = Input("fb_pin_k", tw=1, seq=-1), Input("fb_pin_k0", tw=1, seq=-1)
     rate = inner([k])
     assert tuple(rate.seq) == (3,)
-    model = ModelyLoop(
-        "fb_pin",
-        inputs=[k, k0],
-        outputs=[Output("fb_pin_kk", Integrate(dt=1, init=k0)(rate))],
-    ).build()
+    model = (
+        Modely(
+            "fb_pin",
+            inputs=[k, k0],
+            outputs=[Output("fb_pin_kk", Integrate(dt=1, init=k0)(rate))],
+        )
+        .loop()
+        .build()
+    )
 
     rows = np.arange(1, 13, dtype=np.float32).reshape(4, 3)
     data = {

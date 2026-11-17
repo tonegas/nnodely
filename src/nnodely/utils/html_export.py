@@ -76,7 +76,8 @@ def _block_ports(node, outer_ids: dict[int, str] | None = None, owner=None):
     graph's, the body's own for the body, ``None`` for an outer stream this
     graph does not draw. ``same`` marks a port that binds one stream to
     itself, drawn as one node, by object: the same node, or, in ``owner`` a
-    model ModelyLoop made, the rollout Input it made of an Input of its step.
+    rollout model.loop() made, the rollout Input it made of an Input of its
+    step.
     """
     held = node._model
     if not isinstance(held, Modely):

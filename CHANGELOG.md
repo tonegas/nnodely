@@ -48,8 +48,8 @@ a row of a printed table has the fields of the object it stands for.
   is an Input, a stream computed from the data, a number, or nothing, which
   drives the source to zero. Both sides are streams of the model and have
   one shape, a number aside: a stream of another graph (a block called, the
-  body of a Loop, the step of a `ModelyLoop`) or a target of another shape
-  is refused when the objective is declared, naming the output to minimize
+  body of a Loop, the step `model.loop()` rolls out) or a target of another
+  shape is refused when the objective is declared, naming the output to minimize
   or the `seq` to declare.
 - **`Modely.minimizers`**: the objectives a model trains, not those of the
   models it calls, printed as a table of their source and target, loss and
@@ -169,11 +169,13 @@ a row of a printed table has the fields of the object it stands for.
   too) and every state of the Loops it rolls out. It prints as a table of
   their shapes and how each is fed: declared, the stream it is fed back
   with, what the data must hold of it (`required` for a call, `target` for
-  training only) and what it starts from. A ModelyLoop prints the rows of
-  the Loop it is a shortcut for, its Inputs with the horizon.
+  training only) and what it starts from. A rollout of `model.loop()`
+  prints the rows of the Loop it is a shortcut for, its Inputs with the
+  horizon.
 - **`Modely.outputs`**: the outputs a model is declared with, in that order,
-  printed as a table of their shapes, the stream each names (in a
-  ModelyLoop, the stream of the step it collects), the Inputs a loop feeds
+  printed as a table of their shapes, the stream each names (in a rollout
+  of `model.loop()`, the stream of the step it collects), the Inputs a loop
+  feeds
   that stream back into, and the objectives that read it.
 - **Tables** (`inputs`, `outputs`, `parameters`, `minimizers`, `models`)
   pick an item by its name or by its index, never both, from the `idx`
@@ -235,19 +237,22 @@ a row of a printed table has the fields of the object it stands for.
   one sample of the Input, back into it at the next step, and returns
   `stream`. The Inputs of a step read each other's previous values, so
   coupled dynamics are written as they are, one Input per state variable. A
-  `Loop` or a `ModelyLoop` feeds them back; built as a `Modely`, the same
+  `Loop` or `model.loop()` feeds them back; built as a `Modely`, the same
   graph is the one-step model. A state is declared among the inputs of its
   model (read from data by a `Modely`, started from `Loop(init=)` or from the
-  data of the Input in a `ModelyLoop`, given by the call in a block), or
+  data of the Input in a `model.loop()` rollout, given by the call in a
+  block), or
   hidden, `hidden=True`: the model's own memory, as the state of an
   `Integrate`. A hidden state cannot be declared, and starts from `init` (a
   number, a `Parameter` for a trainable initial state, a `Constant` or a
   declared Input), zero without one, in every rollout and every call; a
   `Modely` reads `init` in its place. It keeps the name it is given: named
   like another Input of the model, it is refused.
-- **`ModelyLoop(name, inputs, outputs, seq=None)`** returns the `Modely` of
-  a model declared one step at a time, whose fed-back Inputs are all fed
-  back by a single rollout, one `Loop` over its step. Every listed Input
+- **`model.loop(seq=None)`** returns a new `Modely`, the rollout of a model
+  declared one step at a time, of the name of the model: its fed-back Inputs
+  are all fed back by a single rollout, one `Loop` over the model, its step,
+  which stays a one-step model and shares its weights with the rollout.
+  Every listed Input
   carries the horizon as its outermost sequence axis (`seq` steps, or as
   many as the data has), and every output is a trajectory. A declared
   fed-back Input starts from the first window of its data, zeros where the
@@ -255,11 +260,13 @@ a row of a printed table has the fields of the object it stands for.
   block keeps the feedback of its fed-back Inputs, one per call. The model
   is minimized on its outputs, the trajectories, against targets declared
   with the horizon (`Input("x_meas", seq=-1, tw=1)`); a stream of the step
-  is refused, naming the output that collects it. The one-step model is
-  `model.models[0]`.
+  is refused, naming the output that collects it. The one-step model it
+  rolls out is `rollout.models[0]`: the model itself when it declares every
+  state and outputs every stream a state is fed back with, else a model of
+  its graph and name with its states among its inputs.
 - **`Loop(f=step)(inputs)`** rolls a step out, finding the Inputs its body
   feeds back (with `Input.feedback`, inside the models it calls, or kept by
-  `Integrate`, `Derivative` and `Buffer`) as a `ModelyLoop` does, and adding
+  `Integrate`, `Derivative` and `Buffer`) as `model.loop()` does, and adding
   an output for an update that is not one. The inputs are given as a dict, a
   list in the order the step declares them, or a stream alone. `feedback=`
   adds feedbacks, for a model that is built or loaded, or to reuse one step
@@ -279,22 +286,23 @@ a row of a printed table has the fields of the object it stands for.
   `init` holds them before the first step.
 - **Calculus blocks.** `Gradient(wrt=x)` differentiates with respect to an
   input, also inside a block called several times in a `Loop` or a
-  `ModelyLoop`, against the state of each call. `DerivativeStep(dt=dt)`
-  differentiates with respect to time over a window, `Derivative(dt=dt)`
-  with the same stencil one step at a time in a `ModelyLoop`: the backward
-  difference of order `poly_order`, 1 by default, `(x[i] - x[i-1]) / dt`,
-  each order more reading one sample more and exact on a polynomial of one
-  degree more; the second derivative is one applied to the other's result.
-  `IntegrateStep` integrates over a window and `Integrate` one step at a
-  time in a `ModelyLoop`, with `method="euler"` or `"trapezoidal"`. `Ode(f,
-  states, dt, method=)` integrates a vector field with Euler, midpoint, Heun
-  or RK4.
+  `model.loop()` rollout, against the state of each call.
+  `DerivativeStep(dt=dt)` differentiates with respect to time over a window,
+  `Derivative(dt=dt)` with the same stencil one step at a time in a
+  `model.loop()` rollout: the backward difference of order `poly_order`, 1 by
+  default, `(x[i] - x[i-1]) / dt`, each order more reading one sample more
+  and exact on a polynomial of one degree more; the second derivative is one
+  applied to the other's result. `IntegrateStep` integrates over a window and
+  `Integrate` one step at a time in a `model.loop()` rollout, with
+  `method="euler"` or `"trapezoidal"`. `Ode(f, states, dt, method=)`
+  integrates a vector field with Euler, midpoint, Heun or RK4.
   `Integrate` and `Derivative` keep their state (the integral,
   `<name>_<rate>`, with `<name>_<rate>_rate` for the trapezoid, or the
   samples before the step, `<name>_<signal>`) in hidden Inputs fed back by
-  the `ModelyLoop` or `Loop` with its other fed-back Inputs, so they need no
-  `Loop` of their own; their result is named after the block. `IntegrateStep`
-  and `DerivativeStep` take their initial condition, a stream or a number,
+  the `model.loop()` rollout or `Loop` with its other fed-back Inputs, so
+  they need no `Loop` of their own; their result is named after the block.
+  `IntegrateStep` and `DerivativeStep` take their initial condition, a stream
+  or a number,
   as the first argument of the call, `IntegrateStep(dt=dt)(init, rate)`, and
   start from zero when called on the signal alone. `Integrate`, `Derivative`
   and `Buffer` take it at declaration, `init=`, each checked by one rule:
@@ -399,7 +407,7 @@ a row of a printed table has the fields of the object it stands for.
   documentation with their outputs: model design and the shape convention,
   data management, training, validation and the HTML graph, save, load and
   export, `Parameter` and `Constant`, partitioning, `Fir` and `Linear`,
-  `Fuzzify` and `LocalModel`, recurrent models (`ModelyLoop`, `Loop`,
+  `Fuzzify` and `LocalModel`, recurrent models (`model.loop()`, `Loop`,
   `Buffer`), calculus, custom functions and layers (`KerasFunction`, `Layer`
   subclasses) and the `EquationLearner`.
 - **Documentation for the release**: every public name has a reference page
@@ -487,7 +495,7 @@ a row of a printed table has the fields of the object it stands for.
   model, `flatten()` and `build()` take a graph of any depth. Keras still
   builds its functional models recursively: a graph about a thousand layers
   deep, such as a simulation unrolled in Python, is rolled out with a `Loop`
-  or `ModelyLoop`, or built after raising `sys.setrecursionlimit`.
+  or `model.loop()`, or built after raising `sys.setrecursionlimit`.
 - **The save format is a folder**, `model.json` and `model.weights.h5`, at
   format version 18. Saves and exports made with 1.x do not load.
 
@@ -522,8 +530,8 @@ a row of a printed table has the fields of the object it stands for.
 | `model.trainModel(...)` | `model.train(data, val_data=..., epochs=..., batch_size=..., lr=...)`, returning a `TrainResult` |
 | `model.analyzeModel(...)`, performance reports | `model.validate(data)`, returning a `ValidationResult` |
 | `model.trainAndAnalyze(...)` | `model.train(...)` then `model.validate(...)` |
-| `x.closedLoop(...)`, `x.connect(...)`, `ClosedLoop`, `Connect`, `addClosedLoop`, `addConnect`, `prediction_samples=` | `x.feedback(stream)` in a `ModelyLoop` or a `Loop` |
-| `model.resetStates(...)` | the initial value of a fed-back Input: `Loop(init=)`, the data of the Input in a `ModelyLoop`, or the `init` of a hidden state, `x.feedback(stream, init=x0, hidden=True)` |
+| `x.closedLoop(...)`, `x.connect(...)`, `ClosedLoop`, `Connect`, `addClosedLoop`, `addConnect`, `prediction_samples=` | `x.feedback(stream)` in a `model.loop()` rollout or a `Loop` |
+| `model.resetStates(...)` | the initial value of a fed-back Input: `Loop(init=)`, the data of the Input in a `model.loop()` rollout, or the `init` of a hidden state, `x.feedback(stream, init=x0, hidden=True)` |
 | `x.tw(seconds)`, `x.sw(samples)`, `x.z(...)` | `Input("x", tw=samples)` or `tw=(past, future)`, declared once, in samples; `TimeSelect` / `TimeRange` take parts of the window |
 | `model.resetSeed(seed)` | `set_seed(seed)` |
 | `saveModel` / `loadModel` | `model.save(path)` / `Modely.load(path)` |
@@ -538,8 +546,8 @@ a row of a printed table has the fields of the object it stands for.
 | `Add`, `Sub`, `Mul`, `Div`, `Pow` | `+`, `-`, `*`, `/`, `**` between streams |
 | `Neg` | `-x` or `Negative` |
 | `Sech` | `1 / Cosh(x)` |
-| `Differentiate` | `Gradient(wrt=x)` with respect to an input; with respect to time `DerivativeStep(dt=...)` over a window, `Derivative(dt=...)` one step at a time in a `ModelyLoop` |
-| `Integrate(stream, method=...)` | `IntegrateStep(method=..., dt=...)(init, rate)`; 2.0's `Integrate` integrates one step at a time in a `ModelyLoop` |
+| `Differentiate` | `Gradient(wrt=x)` with respect to an input; with respect to time `DerivativeStep(dt=...)` over a window, `Derivative(dt=...)` one step at a time in a `model.loop()` rollout |
+| `Integrate(stream, method=...)` | `IntegrateStep(method=..., dt=...)(init, rate)`; 2.0's `Integrate` integrates one step at a time in a `model.loop()` rollout |
 | `ForwardEuler`, `RK2`, `RK4` | `Ode(f, states, dt, method=...)` |
 | `NeuralODE` | an `Ode` step, the layers of its field created outside `f`, rolled out by a `Loop` |
 | `Part` | `Range` |

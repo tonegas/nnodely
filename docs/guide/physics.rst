@@ -24,7 +24,7 @@ data.
    import numpy as np
    from nnodely import (
        DataLoader, Derivative, DerivativeStep, Gradient, Input, Integrate, IntegrateStep,
-       Linear, Loop, Modely, ModelyLoop, Ode, Output, Parameter, Sin, Tanh, set_seed,
+       Linear, Loop, Modely, Ode, Output, Parameter, Sin, Tanh, set_seed,
    )
 
    set_seed(0)
@@ -151,9 +151,9 @@ The Euler rule inverts the time derivative with the same ``init``:
 Step 4: integrators and derivatives step by step
 ------------------------------------------------
 
-:class:`~nnodely.Integrate` integrates one step at a time, in a
-:class:`~nnodely.ModelyLoop` or in the body of a :class:`~nnodely.Loop`. The
-rate is one sample of a step, and the integral is a hidden state, fed back
+:class:`~nnodely.Integrate` integrates one step at a time, in a model rolled
+out by :meth:`~nnodely.Modely.loop` or in the body of a :class:`~nnodely.Loop`.
+The rate is one sample of a step, and the integral is a hidden state, fed back
 with the result. The rules, and the results on the same samples, are those of
 ``IntegrateStep``. Its initial values are settings:
 
@@ -161,7 +161,7 @@ with the result. The rules, and the results on the same samples, are those of
 - ``init_rate``, the rate before it, for the trapezoidal rule.
 
 Each is zero without one. An initial value that is an Input reads its first
-step, since every Input of a ModelyLoop carries one element per step:
+step, since every Input of a rollout carries one element per step:
 
 .. code-block:: python
 
@@ -169,8 +169,8 @@ step, since every Input of a ModelyLoop carries one element per step:
    v0, a0 = Input("v0", tw=1), Input("a0", tw=1)
    speed = Integrate(dt=dt, method="trapezoidal", init=v0, init_rate=a0)(acc)
    place = Integrate(dt=dt, method="trapezoidal", init=0.0, init_rate=v0)(speed)
-   kinematics = ModelyLoop("kinematics", inputs=[acc, v0, a0],
-                           outputs=[Output("speed", speed), Output("place", place)])
+   kinematics = Modely("kinematics", inputs=[acc, v0, a0],
+                       outputs=[Output("speed", speed), Output("place", place)]).loop()
    kinematics.build()
    result = kinematics({"acc": np.ones((1, 30, 1, 1)), "v0": np.zeros((1, 30, 1, 1)),
                         "a0": np.ones((1, 30, 1, 1))})
@@ -194,7 +194,7 @@ the Euler rule of ``Integrate`` inverts it:
    p = Input("p", tw=1)               # one position per step
    p0 = Input("p0", tw=1)
    rate = Derivative(dt=dt, init=p0)(p)
-   p_again = Integrate(dt=dt, init=p0)(rate)   # p again, in a ModelyLoop
+   p_again = Integrate(dt=dt, init=p0)(rate)   # p again, in a rollout
 
 Step 5: one ODE step
 --------------------
@@ -264,7 +264,7 @@ Common errors
    * - ``DerivativeStep acts on the window of its stream, and 'x' has none``
      - A time derivative of a stream without a window.
      - Declare the Input with a window, ``tw=n``; step by step, use
-       ``Derivative`` in a ModelyLoop.
+       ``Derivative`` in a model rolled out by ``loop()``.
    * - ``Ode method 'trapezoidal' is not available``
      - ``Ode`` takes only explicit Runge-Kutta methods.
      - Use ``"euler"``, ``"midpoint"``, ``"heun"`` or ``"rk4"``; the

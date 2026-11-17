@@ -62,11 +62,11 @@ length.
 A block reads no Input but those it declares, so all it reads comes from the
 call. To give a block the data of an Input of the larger model, declare that
 Input in the larger model and pass it in the call. A state that a block
-declares reads the stream given for it at every step. In a
-:class:`~nnodely.ModelyLoop` it keeps its feedback instead, and the stream is
+declares reads the stream given for it at every step. In the rollout of
+:meth:`~nnodely.Modely.loop` it keeps its feedback instead, and the stream is
 its initial value (see :doc:`recurrent`). A hidden state of a block,
 ``x.feedback(stream, hidden=True)``, is the block's own: the call does not
-give it, and it reads its ``init``, at every step or, in a ModelyLoop, before
+give it, and it reads its ``init``, at every step or, in a rollout, before
 the first one of each call.
 
 Step 2: weights

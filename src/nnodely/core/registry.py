@@ -138,9 +138,9 @@ class ModelSerializer:
                     f"Model {model.name!r} is saved without the weights of "
                     f"{unsaved}: only the streams its fed-back Inputs are fed "
                     "back with read them, and the model does not compute those, "
-                    "so they load back as declared. Save the Loop or ModelyLoop "
-                    "that computes them, or declare those streams among the "
-                    "outputs.",
+                    "so they load back as declared. Save the Loop, or the "
+                    "rollout of model.loop(), that computes them, or declare "
+                    "those streams among the outputs.",
                     UserWarning,
                     stacklevel=3,
                 )

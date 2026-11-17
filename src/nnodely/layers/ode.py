@@ -54,7 +54,7 @@ def Ode(f, states, dt, method="rk4", args=()) -> Any:
     like any other: it trains, rolls out and exports.
 
     One call is one step. A trajectory is this step used as the body of a
-    :class:`Loop`, or inside a :class:`ModelyLoop`.
+    :class:`Loop`, or inside a model rolled out by :meth:`Modely.loop`.
 
     Parameters
     ----------
@@ -98,7 +98,7 @@ def Ode(f, states, dt, method="rk4", args=()) -> Any:
     See Also
     --------
     Loop : The rollout of a one-step model.
-    ModelyLoop : A model declared one step at a time.
+    Modely.loop : The rollout of a model declared one step at a time.
     IntegrateStep : The running integral of a given rate.
     Integrate : The integral of a rate, one step at a time.
 

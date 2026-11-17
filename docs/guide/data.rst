@@ -230,9 +230,9 @@ data is loaded:
 
    91 2 (2, 80)
 
-A :class:`~nnodely.ModelyLoop` reads every Input as a dynamic sequence (see
-:doc:`recurrent`). A fed-back Input that it declares is optional in the
-data: left out, it reads zeros.
+The rollout of :meth:`~nnodely.Modely.loop` reads every Input as a dynamic
+sequence (see :doc:`recurrent`). A fed-back Input that it declares is
+optional in the data: left out, it reads zeros.
 
 Step 7: data already windowed
 -----------------------------

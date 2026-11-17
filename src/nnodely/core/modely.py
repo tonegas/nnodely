@@ -76,6 +76,9 @@ class Modely:
     ``model({"x": stream})``, ``model([stream_1, stream_2])``, ``model(stream)``
         Uses the model as a block of a larger graph: returns its outputs as
         streams.
+    ``model.loop()``, ``model.loop(seq=n)``
+        Returns the model of the rollout of a model declared one step at a
+        time, over the steps of the data or ``n`` steps: see :meth:`loop`.
 
     A model is declared once, on streams. Objectives, called minimizers in the
     method names (:meth:`minimize`, :attr:`minimizers`,
@@ -137,7 +140,7 @@ class Modely:
 
     See Also
     --------
-    ModelyLoop : A model declared one step at a time, rolled out.
+    Modely.loop : The rollout of a model declared one step at a time.
     DataLoader : The data of a model, laid out for training.
     Input : A signal read from data.
     Output : A stream the model exposes, with its name.
@@ -365,7 +368,7 @@ class Modely:
         self._originals: dict[int, Input] = {}
         self._minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
         self._minimizer_outputs: dict[Node, str] = {}  # minimizer side -> graph output
-        # Set by ModelyLoop: the Input of the rollout it made of each Input of
+        # Set by loop(): the Input of the rollout it made of each Input of
         # its step, by the Input it stands for (_Step.key). The graph draws the
         # two as one node.
         self._rolled_inputs: dict[int, Input] = {}
@@ -548,7 +551,7 @@ class Modely:
                 "missing from the data it was called with."
             )
         # An optional input left out reads zeros, one step of a dynamic
-        # sequence: a ModelyLoop starts from the first step of it alone.
+        # sequence: a rollout of loop() starts from the first step of it alone.
         batch = np.shape(inputs[given[0][0]])[0]
         arrays = {key: inputs[node] for node, key in given}
         for node, key in left_out:
@@ -629,6 +632,308 @@ class Modely:
                 "the shapes it was declared with: give it a stream of that "
                 "shape, or declare the model on the shape it is used with."
             )
+
+    def loop(self, seq: int | None = None) -> "Modely":
+        r"""A new :class:`Modely` that rolls this model out over a sequence
+        of steps: every Input it feeds back is fed back at the next step.
+
+        Syntax
+        ------
+        ``model.loop()``
+            Rolls the model out over as many steps as the data has.
+        ``model.loop(seq=n)``
+            Rolls it out over ``n`` steps.
+
+        This model is one step. A state is an Input fed back with
+        :meth:`Input.feedback`: ``x_next = x.feedback(stream)``. Inside the
+        step, ``x`` holds the value at the end of the previous step, and
+        ``stream`` the value at the end of this one. Every fed-back Input the
+        step reads, also inside the models it calls (one per call), is fed
+        back together, in one rollout, so states may read each other. A state
+        is declared among the inputs of this model, or hidden,
+        ``x.feedback(stream, hidden=True)``: the model's own memory.
+
+        - A declared state starts from the first step of its own data, and
+          from zero where the data leaves it out.
+        - A hidden state starts from its ``init``, zero without one; so does
+          the state of an :class:`Integrate`, a :class:`Derivative` or a
+          :class:`Buffer`, from the ``init`` of the layer.
+
+        A model the step calls as a block keeps the feedback of the fed-back
+        Inputs it declares: the stream the call gives one is its initial
+        value, read at the first step. Every Input has a window: ``tw=1``
+        reads one sample per step.
+
+        The model returned is a plain :class:`Modely` of the rollout, of the
+        name of this one: its Inputs and outputs have the names of those of
+        the step, and the steps as a new outermost sequence axis. Every
+        output is a trajectory: its element ``k`` is computed at step ``k``.
+        Everything else works as in any Modely: objectives, :meth:`build`,
+        :meth:`train`, calls and export.
+
+        The one-step model it rolls out is ``rollout.models[0]``, and shares
+        its weights with this model. It is this model itself when this model
+        declares every state, and has an output for every stream a state is
+        fed back with; it is then built, if it is not. Otherwise it is a model
+        of the same name made of its graph, with its states among its inputs
+        and an output added for each stream they are fed back with, as
+        :class:`Loop` rolls out. The objectives of this model are not those of
+        the rollout.
+
+        Parameters
+        ----------
+        seq : int or None, default None
+            The number of steps, at least 1. ``None`` takes as many steps as
+            the data has.
+
+        Returns
+        -------
+        Modely
+            The model of the rollout. With ``seq=n``, an Input of the step
+            declared with ``seq=s`` is read from data of ``seq=(n, *s)``. On
+            arrays, an output of the step of ``Shape(S, T, D)`` gives
+            ``(batch, steps, *S, T, *D)``: with ``seq=3``, a step output of
+            ``Shape(S=(), T=1, D=(1,))`` gives ``(batch, 3, 1, 1)``.
+
+        Raises
+        ------
+        ValueError
+            If the model reads no fed-back Input ("reads no fed-back Input").
+            If ``seq`` is not a positive int or None ("seq is a positive
+            int"). If an input has no window ("declare it with tw=1"). If the
+            stream a hidden state is fed back with reads an Input the model
+            does not declare ("without declaring them"). If a declared
+            fed-back Input also gets an initial value from the call of a
+            block ("is among the inputs").
+
+        See Also
+        --------
+        Loop : A rollout of a model inside a larger graph.
+        Input.feedback : Feed a stream back into an Input at the next step.
+        IntegrateStep : One step of an integral.
+        DataLoader : The data of a model, cut into sequences with ``seq_length``.
+
+        Notes
+        -----
+        With the state :math:`x_k` at the start of step :math:`k`, the input
+        :math:`u_k` and the step :math:`f`:
+
+        .. math:: x_{k+1} = f(x_k, u_k), \qquad y_k = x_{k+1}
+
+        where the output :math:`y` collects the stream ``x`` is fed back with,
+        and :math:`x_0` is the start of the state.
+
+        :meth:`minimize` compares the outputs of the rollout,
+        ``rollout.outputs["x"]`` or their names, which are trajectories, with
+        targets declared with the horizon, ``Input("x_meas", seq=-1, tw=1)``.
+        A stream of the step is of another graph, and refused.
+
+        Basic Examples
+        --------------
+        A running total, the hidden state ``total``, fed back with
+        ``total + rate``:
+
+        >>> import keras
+        >>> import numpy as np
+        >>> from nnodely import Input, IntegrateStep, Modely, Output
+        >>> rate = Input("rate", tw=1)
+        >>> total = Input("total", tw=1)
+        >>> total_next = total.feedback(total + rate, hidden=True)
+        >>> step = Modely("counter", inputs=[rate], outputs=[Output("total", total_next)])
+        >>> counter = step.loop().build()
+        >>> result = counter({"rate": np.ones((1, 3, 1, 1))})  # (batch, steps, T, D)
+        >>> keras.ops.convert_to_numpy(result["total"]).ravel()
+        array([1., 2., 3.], dtype=float32)
+
+        Scope
+        -----
+        Without ``seq``, the number of steps follows the data:
+
+        >>> keras.ops.convert_to_numpy(counter({"rate": np.ones((1, 5, 1, 1))})["total"]).ravel()
+        array([1., 2., 3., 4., 5.], dtype=float32)
+
+        The rollout is a :class:`Modely` of the same name. Its one-step model,
+        its first model, reads the hidden state as an input:
+
+        >>> type(counter) is Modely, counter.name
+        (True, 'counter')
+        >>> sorted(node.name for node in counter.models[0].inputs)
+        ['rate', 'total']
+
+        Options
+        -------
+        ``seq`` fixes the number of steps:
+
+        >>> fixed = step.loop(seq=3)
+        >>> fixed.outputs[0].shape
+        Shape(S=(3,), T=1, D=(1,))
+
+        A declared state starts from the first step of its data, and from
+        zero when the data leaves it out:
+
+        >>> level = Input("level", tw=1)
+        >>> level_next = level.feedback(level + rate)
+        >>> listed = Modely("listed", inputs=[rate, level], outputs=[Output("level", level_next)])
+        >>> rollout = listed.loop().build()
+        >>> data = {"rate": np.ones((1, 3, 1, 1)), "level": np.full((1, 3, 1, 1), 10.0)}
+        >>> keras.ops.convert_to_numpy(rollout(data)["level"]).ravel()
+        array([11., 12., 13.], dtype=float32)
+        >>> keras.ops.convert_to_numpy(rollout({"rate": np.ones((1, 3, 1, 1))})["level"]).ravel()
+        array([1., 2., 3.], dtype=float32)
+
+        It declares its state, and has the stream it is fed back with as an
+        output, so it is the one-step model itself:
+
+        >>> rollout.models[0] is listed
+        True
+
+        A hidden state starts from its ``init``, whatever the data holds:
+
+        >>> memory = Input("memory", tw=1)
+        >>> memory_next = memory.feedback(memory + rate, init=5.0, hidden=True)
+        >>> kept = Modely("kept", inputs=[rate], outputs=[Output("memory", memory_next)]).loop()
+        >>> data = {"rate": np.ones((1, 3, 1, 1)), "memory": np.full((1, 3, 1, 1), 10.0)}
+        >>> keras.ops.convert_to_numpy(kept.build()(data)["memory"]).ravel()
+        array([6., 7., 8.], dtype=float32)
+
+        Applications
+        ------------
+        A mass of 2 kg pushed by a force, its velocity and position integrated
+        with the Euler method, ``dt = 1``:
+
+        >>> force = Input("force", tw=1)
+        >>> v, x = Input("v", tw=1), Input("x", tw=1)
+        >>> v_next = v.feedback(IntegrateStep(dt=1.0)(v, force / 2.0), hidden=True)
+        >>> x_next = x.feedback(IntegrateStep(dt=1.0)(x, v_next), hidden=True)
+        >>> mass = Modely("mass", inputs=[force], outputs=[Output("x", x_next)]).loop().build()
+        >>> keras.ops.convert_to_numpy(mass({"force": np.ones((1, 3, 1, 1))})["x"]).ravel()
+        array([0.5, 1.5, 3. ], dtype=float32)
+
+        Properties & Relations
+        ----------------------
+        The running total is the cumulative sum of the rates:
+
+        >>> rates = np.array([1.0, -2.0, 4.0]).reshape(1, 3, 1, 1)
+        >>> totals = keras.ops.convert_to_numpy(counter({"rate": rates})["total"]).ravel()
+        >>> bool(np.all(totals == np.cumsum(rates)))
+        True
+
+        Possible Issues
+        ---------------
+        A model without a fed-back Input has nothing to roll out. Feed one
+        back, or use the model as it is:
+
+        >>> Modely("plain", inputs=[rate], outputs=[Output("o", 2.0 * rate)]).loop()
+        Traceback (most recent call last):
+            ...
+        ValueError: Model 'plain' reads no fed-back Input, so it has nothing to roll out...
+
+        A state is declared among the inputs, or hidden. One that is neither
+        is refused when the model is declared:
+
+        >>> s = Input("s", tw=1)
+        >>> s_next = s.feedback(s + rate)
+        >>> Modely("open", inputs=[rate], outputs=[Output("s", s_next)])
+        Traceback (most recent call last):
+            ...
+        ValueError: Model 'open' reads the Inputs ['s'], which are not among its inputs: declare them there...
+
+        A stream of the step has no value in the rollout. The rollout is
+        minimized on its outputs, the trajectories:
+
+        >>> counter.minimize("bad", total_next, Input("measured", seq=-1, tw=1))
+        Traceback (most recent call last):
+            ...
+        ValueError: Minimizer 'bad': its source ... is a stream of the graph of 'counter'...
+        >>> counter = counter.minimize("fit", "total", Input("measured", seq=-1, tw=1))
+
+        .. versionadded:: 2.0
+        """
+        from nnodely.layers.loop import Loop, _Step
+
+        if seq is not None and (
+            isinstance(seq, bool) or not isinstance(seq, int) or seq < 1
+        ):
+            raise ValueError(
+                f"Model {self.name!r}: the seq of loop() is a positive int, or "
+                f"None for the length of the data, got {seq!r}."
+            )
+
+        # This model is the step; the one Loop feeds back every Input it
+        # feeds back.
+        step = _Step(self, {}, who=f"Model {self.name!r}", among="its inputs")
+        if not step.pairs:
+            raise ValueError(
+                f"Model {self.name!r} reads no fed-back Input, so it has nothing "
+                "to roll out: feed one back with x.feedback(stream), or use the "
+                "model as it is."
+            )
+
+        # The Input of the rollout of each Input of the step, by the Input it
+        # stands for (_Step.key): the same name, the horizon its new outermost
+        # sequence axis.
+        rolled_inputs: dict[int, Input] = {}
+
+        def rolled_input(node: Input) -> Input:
+            key = step.key(node)
+            rolled = rolled_inputs.get(key)
+            if rolled is None:
+                if node.tw is None:
+                    raise ValueError(
+                        f"Model {self.name!r} reads its Input {node.name!r} one "
+                        "step at a time when rolled out, so its data carries the "
+                        "horizon as a sequence axis, which needs a window: "
+                        "declare it with tw=1."
+                    )
+                horizon = -1 if seq is None else seq
+                rolled = Input(
+                    node.name,
+                    dim=node.dim,
+                    seq=(horizon, *(-1 if size is None else size for size in node.seq)),
+                    tw=(node.past, node.future),
+                )
+                rolled_inputs[key] = rolled
+            return rolled
+
+        # A fed-back Input among the inputs starts from its data, which may
+        # leave it out: then from zero.
+        listed = {id(node) for node in self._inputs}
+        from_data = [state for state in step.states if step.key(state) in listed]
+        for state in from_data:
+            if state in step.starts:
+                raise ValueError(
+                    f"Model {self.name!r}: {state.name!r} has an initial value "
+                    "(the stream a call gives it) and is among the inputs, "
+                    "which would start it from its data: leave it out of "
+                    "inputs, or give it no initial value."
+                )
+        declaration = Loop._of(
+            step,
+            init={state: rolled_input(state) for state in from_data},
+            name=f"{self.name}_loop",
+            seq=seq,
+        )
+        read = [*declaration._static_inputs, *declaration._seed_inputs]
+        if not read and not from_data:
+            raise ValueError(
+                f"Model {self.name!r} reads no Input, in its steps or as the "
+                "initial value of a fed-back Input, so no data sets the batch "
+                "and number of steps of its rollout."
+            )
+        loop = declaration({node: rolled_input(node) for node in read})
+
+        # One trajectory per output of the body, the declared outputs first.
+        model = Modely(
+            self.name,
+            inputs=[rolled_input(node) for node in self._inputs],
+            outputs=[
+                Output(output.name, trajectory)
+                for output, trajectory in zip(self._outputs, loop)
+            ],
+        )
+        model._optional_inputs = {rolled_input(state) for state in from_data}
+        model._rolled_inputs = rolled_inputs
+        return model
 
     @property
     def built(self):
@@ -990,7 +1295,7 @@ class Modely:
         from Inputs only the objectives read, such as targets. They have one
         shape, but for a value, which broadcasts: nothing is reshaped. A
         stream of the graph of another model (a block called, the body of a
-        :class:`Loop`, the step of a :class:`ModelyLoop`) is refused: the model
+        :class:`Loop`, the step :meth:`loop` rolls out) is refused: the model
         has no value for it. A trajectory is minimized as the output of the
         model that collects it, ``msd.outputs["x"]`` or its name, against a
         target declared with its horizon, ``Input("x_meas", seq=-1, tw=1)``.
@@ -1291,8 +1596,8 @@ class Modely:
         It holds the models it calls as blocks, the bodies of its Loops, and
         theirs, at every depth. They come in the order the graph reaches
         them, each once however many times it is called. A
-        :class:`LocalModel`, an :class:`EquationLearner` and a
-        :class:`ModelyLoop` call models of their own, listed too.
+        :class:`LocalModel`, an :class:`EquationLearner` and the rollout of
+        :meth:`loop` call models of their own, listed too.
 
         The list holds the Modely objects themselves, not copies. They share
         their weights with this model: training, freezing or building one
@@ -1359,8 +1664,8 @@ class Modely:
         - its hidden states (``x.feedback(stream, hidden=True)``, the states
           of an Integrate, a Derivative or a Buffer), which it reads the init
           of;
-        - the states fed back inside the step of a Loop it rolls out, as a
-          :class:`ModelyLoop` does.
+        - the states fed back inside the step of a Loop it rolls out, as the
+          rollout of :meth:`loop` does.
 
         The list holds the Input objects themselves. Pick one by its name,
         ``inputs["x"]``, or by its index, the ``idx`` column of the table.
@@ -1477,7 +1782,7 @@ class Modely:
             )
 
         # The states, inside the step: one that starts from an optional Input
-        # (the Input of a ModelyLoop it starts from, by object, renamed or
+        # (the Input of a rollout of loop() it starts from, by object, renamed or
         # not) is that Input, read from data.
         seen: set[int] = set()
         for loop in (node for node in read if isinstance(node, Loop)):
@@ -1530,7 +1835,7 @@ class Modely:
         and:
 
         - stream: the stream the output names; for the trajectory of a Loop
-          (every output of a :class:`ModelyLoop`), the stream of its body it
+          (every output of the rollout of :meth:`loop`), the stream of its body it
           collects over the steps;
         - feeds back: the Inputs a loop feeds that stream back into at the
           next step;
@@ -1599,7 +1904,7 @@ class Modely:
     def _output_stream(self, output: Output) -> Node:
         """The stream ``output`` names: for the trajectory of a Loop, the
         stream of its body it collects, as the graph the Loop was declared
-        over holds it (the step of a ModelyLoop, which the body copies)."""
+        over holds it (the step of a rollout of loop(), which the body copies)."""
         from nnodely.layers.loop import Loop
 
         stream = output._preds[0]
@@ -2385,7 +2690,7 @@ class Modely:
         The new model, named ``<name>_flat``, computes the same outputs from
         the same inputs. Every model this one calls as a block is replaced by
         its streams, at every depth. Its Loop bodies are not inlined: a
-        :class:`Loop` and a :class:`ModelyLoop` keep their body.
+        :class:`Loop` and the rollout of :meth:`loop` keep their body.
 
         Returns
         -------
@@ -2671,9 +2976,9 @@ class Modely:
         Returns
         -------
         Modely
-            The model, built. A saved :class:`ModelyLoop` loads as a
+            The model, built. A saved rollout of :meth:`loop` loads as a
             :class:`Modely` that rolls out the same step: it computes the
-            same outputs, and has no ``body`` attribute.
+            same outputs.
 
         Raises
         ------

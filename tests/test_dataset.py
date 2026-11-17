@@ -906,16 +906,16 @@ def test_windowed_lengths_that_cannot_be_padded_are_rejected():
     assert loader.mask is not None and loader.mask.shape == (4, 5)
 
 
-def test_windowed_modelyloop_matches_the_windows_it_would_build():
-    from nnodely import IntegrateStep, ModelyLoop, Parameter
+def test_windowed_model_loop_matches_the_windows_it_would_build():
+    from nnodely import IntegrateStep, Parameter
 
     force, x, v = Input("wl_F", tw=1), Input("wl_x", tw=1), Input("wl_v", tw=1)
     k = Parameter("wl_k", value=1.0)
     v_next = v.feedback(IntegrateStep(dt=0.1)(v, force - k * x))
     x_next = x.feedback(IntegrateStep(dt=0.1)(x, v_next))
-    model = ModelyLoop(
+    model = Modely(
         "wl_loop", inputs=[force, x, v], outputs=[Output("wl_x_next", x_next)]
-    )
+    ).loop()
     model.minimize("wl", "wl_x_next", Input("wl_x_meas", seq=-1, tw=1))
     model.build()
     signals = {
