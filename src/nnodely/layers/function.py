@@ -253,7 +253,11 @@ class KerasFunction(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, function, name=None):
+    def __init__(
+        self,
+        function: keras.layers.Layer | type[keras.layers.Layer],
+        name: str | None = None,
+    ):
         if isinstance(function, dict):  # as a saved config holds it
             function = keras.saving.deserialize_keras_object(function)
         elif isinstance(function, type) and issubclass(function, keras.layers.Layer):

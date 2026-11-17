@@ -402,11 +402,11 @@ def test_validate_requires_a_built_model_and_a_minimizer():
     model = Modely("unbuilt", inputs=[x], outputs=[Output("unbuilt_out", x)])
 
     with pytest.raises(ValueError, match="not built"):
-        model.validate(None)
+        model.validate(None)  # type: ignore[arg-type]
 
     model.build()
     with pytest.raises(ValueError, match="No minimizers"):
-        model.validate(None)
+        model.validate(None)  # type: ignore[arg-type]
 
 
 def test_validate_reports_its_table_and_returns_the_numbers(capsys):

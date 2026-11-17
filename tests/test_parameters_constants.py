@@ -72,7 +72,7 @@ def test_parameter_and_constant_declaration():
 
     ## constant error
     with pytest.raises(ValueError, match="requires a value"):
-        Constant("no_value", value=None)
+        Constant("no_value", value=None)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="shape error"):
         Constant("error1", value=[1.0, 2.0, 3.0], tw=2, dim=5)
     with pytest.raises(ValueError, match="shape error"):
@@ -497,7 +497,7 @@ def test_only_a_parameter_is_trained():
 
 def test_a_constant_requires_a_value_and_declares_its_sizes_like_a_parameter():
     with pytest.raises(ValueError, match="requires a value"):
-        Constant("no_value", value=None)
+        Constant("no_value", value=None)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="must not be empty"):
         Constant("empty_value", value=[])
     # With a value, dim is a size, as without one.

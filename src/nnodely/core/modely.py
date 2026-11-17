@@ -1863,7 +1863,7 @@ class Modely:
 
     def validate(
         self,
-        val_data,
+        val_data: DataLoader,
         out_dir: str | os.PathLike | None = None,
         show: bool = False,
         history: TrainResult | dict[str, Any] | None = None,
@@ -2019,7 +2019,7 @@ class Modely:
         optimizer_kwargs: dict[str, Any] | None = None,
         early_stopping_kwargs: dict[str, Any] | None = None,
         printer: str | keras.callbacks.Callback | None = "legacy",
-        jit_compile: str = "auto",
+        jit_compile: str | bool = "auto",
     ):
         r"""Train the built model on its objectives, and return the losses of
         every epoch.
@@ -2274,7 +2274,11 @@ class Modely:
             val_x, val_mask = self._training_arrays(val_data)
             validation_data = val_x if val_mask is None else (val_x, val_mask)
 
-        self._keras_model.compile(optimizer=resolved_optimizer, jit_compile=jit_compile)
+        # Keras types jit_compile as a str, but takes True and False as well.
+        self._keras_model.compile(
+            optimizer=resolved_optimizer,
+            jit_compile=jit_compile,  # pyright: ignore[reportArgumentType]
+        )
         history = self._keras_model.fit(
             x=x_data,
             y=mask,
@@ -2479,7 +2483,7 @@ class Modely:
     # Save and load
     # -------------------------------------------------------------------------
 
-    def save(self, path, weights: bool | Literal["all"] = True):
+    def save(self, path: str | os.PathLike, weights: bool | Literal["all"] = True):
         """Save the model, its graph and its weights, to a folder.
 
         :meth:`load` makes the model again from the folder. The objectives are
@@ -2571,7 +2575,7 @@ class Modely:
         ModelSerializer.serialize(self, path, weights=weights)
 
     @classmethod
-    def load(cls, path, weights: bool = True):
+    def load(cls, path: str | os.PathLike, weights: bool = True):
         """Load a model saved with :meth:`save`, and return it built.
 
         The models it calls are loaded from their folders, each once however
@@ -2766,7 +2770,7 @@ class Modely:
         path: str | os.PathLike,
         filename: str | None = None,
         *,
-        input_signature=None,
+        input_signature: list | None = None,
         batch_size: int | None = None,
         opset_version: int | None = None,
         verbose: bool = False,

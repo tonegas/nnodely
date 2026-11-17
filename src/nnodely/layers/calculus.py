@@ -57,12 +57,7 @@ _HISTORY = {
 
 
 def _validate_dt(dt, owner: str = "IntegrateStep") -> float:
-    """The time step, always given explicitly."""
-    if dt is None:
-        raise ValueError(
-            f"{owner}: dt is required. Pass the time step of the signal, for "
-            f"example {owner}(dt=0.01)."
-        )
+    """The time step, a positive number."""
     if isinstance(dt, bool) or not isinstance(dt, (int, float)):
         raise TypeError(f"{owner}: dt must be a number, got {type(dt).__name__}.")
     if dt <= 0:
@@ -232,10 +227,10 @@ class IntegrateStep(Layer):
           before it.
 
         Only ``"euler"`` is also a method of :func:`Ode`, with the same rule.
-    dt : float
-        The time between two samples, a positive number. It is required:
-        nothing infers it from the data. The integral is in the unit of
-        ``rate`` times the unit of ``dt``.
+    dt : float, default 1.0
+        The time between two samples, a positive number. Nothing infers it
+        from the data. The integral is in the unit of ``rate`` times the unit
+        of ``dt``.
     name : str, optional
         The name of the layer. The default is ``IntegrateStep`` followed by a
         number.
@@ -266,8 +261,7 @@ class IntegrateStep(Layer):
     ------
     ValueError
         If ``method`` is not one of the three ("method must be one of"), if
-        ``dt`` is missing or not positive ("dt is required", "dt must be
-        positive"), if ``rate`` has no window ("acts on the window of its
+        ``dt`` is not positive ("dt must be positive"), if ``rate`` has no window ("acts on the window of its
         stream"), or if ``init`` or ``init_rate`` is not one sample of the
         features and sequence of ``rate`` ("init holds the samples before
         the first").
@@ -434,8 +428,8 @@ class IntegrateStep(Layer):
     def __init__(
         self,
         method: str = "euler",
-        dt: float | None = None,
-        name=None,
+        dt: float = 1.0,
+        name: str | None = None,
     ):
         self._method = _validate_method(method, "IntegrateStep")
         self._dt = _validate_dt(dt)
@@ -519,8 +513,8 @@ class Integrate:
 
     Parameters
     ----------
-    dt : float
-        The time between two steps, a positive number. It is required.
+    dt : float, default 1.0
+        The time between two steps, a positive number.
     method : str, default "euler"
         The integration rule, as in :class:`IntegrateStep`:
 
@@ -561,7 +555,7 @@ class Integrate:
     Raises
     ------
     ValueError
-        If ``dt`` is missing or not positive, if ``method`` is not one of the
+        If ``dt`` is not positive, if ``method`` is not one of the
         three ("method must be one of"), if ``init_rate`` is given to another
         method than ``"trapezoidal"``, if ``rate`` has no window ("acts on the
         window of its stream") or more than one sample ("takes one rate sample
@@ -693,7 +687,7 @@ class Integrate:
 
     def __init__(
         self,
-        dt: float,
+        dt: float = 1.0,
         method: str = "euler",
         init: Stream | float | None = None,
         init_rate: Stream | float | None = None,
@@ -917,9 +911,9 @@ class _FiniteDifference(Layer):
 
     def __init__(
         self,
-        dt: float | None = None,
+        dt: float = 1.0,
         poly_order: int = 1,
-        name=None,
+        name: str | None = None,
         **properties,
     ):
         layer = type(self).__name__
@@ -1009,10 +1003,10 @@ class DerivativeStep(_FiniteDifference):
 
     Parameters
     ----------
-    dt : float
-        The time between two samples, a positive number. It is required:
-        nothing infers it from the data. The derivative is in the unit of
-        ``x`` per unit of ``dt``.
+    dt : float, default 1.0
+        The time between two samples, a positive number. Nothing infers it
+        from the data. The derivative is in the unit of ``x`` per unit of
+        ``dt``.
     poly_order : int, default 1
         The degree of the polynomial through the ``poly_order + 1`` newest
         samples: each derivative is its slope at the newest one. Any positive
@@ -1055,8 +1049,7 @@ class DerivativeStep(_FiniteDifference):
     Raises
     ------
     ValueError
-        If ``dt`` is missing or not positive ("dt is required", "dt must be
-        positive"), if ``poly_order`` is not a positive integer, if ``x`` has
+        If ``dt`` is not positive ("dt must be positive"), if ``poly_order`` is not a positive integer, if ``x`` has
         no window ("acts on the window of its stream"), or if ``init`` has
         another number of samples, features or sequence ("init holds the
         samples before the first").
@@ -1197,7 +1190,7 @@ class DerivativeStep(_FiniteDifference):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, dt: float | None = None, poly_order: int = 1, name=None):
+    def __init__(self, dt: float = 1.0, poly_order: int = 1, name: str | None = None):
         # Its own arguments only: one it does not take is refused, rather than
         # kept as a setting that changes nothing.
         super().__init__(dt=dt, poly_order=poly_order, name=name)
@@ -1262,8 +1255,8 @@ class Derivative(_FiniteDifference):
 
     Parameters
     ----------
-    dt : float
-        The time between two steps, a positive number. It is required.
+    dt : float, default 1.0
+        The time between two steps, a positive number.
     poly_order : int, default 1
         The degree of the backward difference, a positive integer, as in
         :class:`DerivativeStep`: ``1`` reads the previous step, ``2`` the
@@ -1302,7 +1295,7 @@ class Derivative(_FiniteDifference):
     Raises
     ------
     ValueError
-        If ``dt`` is missing or not positive, if ``poly_order`` is not a
+        If ``dt`` is not positive, if ``poly_order`` is not a
         positive integer, if ``x`` has no window ("acts on the window of its
         stream") or more than one sample ("takes one sample per step"), or if
         ``init`` has another number of samples, features or sequence ("init
@@ -1426,10 +1419,10 @@ class Derivative(_FiniteDifference):
 
     def __init__(
         self,
-        dt: float | None = None,
+        dt: float = 1.0,
         poly_order: int = 1,
         init: Stream | float | None = None,
-        name=None,
+        name: str | None = None,
     ):
         self._init = _validate_init("Derivative", init)
         self._calls = 0

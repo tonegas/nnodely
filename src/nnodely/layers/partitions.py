@@ -205,7 +205,9 @@ class Select(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, idx: int, axis: int = 0, keep_dim: bool = False, name=None):
+    def __init__(
+        self, idx: int, axis: int = 0, keep_dim: bool = False, name: str | None = None
+    ):
         self._idx = int(idx)
         self._axis = int(axis)
         self._keep_dim = bool(keep_dim)
@@ -409,7 +411,7 @@ class Range(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, start: int, end: int, axis: int = 0, name=None):
+    def __init__(self, start: int, end: int, axis: int = 0, name: str | None = None):
         self._start = int(start)
         self._end = int(end)
         self._axis = int(axis)
@@ -595,7 +597,7 @@ class TimeSelect(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, idx: int, keep_tw: bool = True, name=None):
+    def __init__(self, idx: int, keep_tw: bool = True, name: str | None = None):
         self._idx = int(idx)
         self._keep_tw = bool(keep_tw)
         super().__init__(name=name, idx=self._idx, keep_tw=self._keep_tw)
@@ -751,7 +753,7 @@ class TimeRange(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, start: int | None, end: int | None, name=None):
+    def __init__(self, start: int | None, end: int | None, name: str | None = None):
         self._start = None if start is None else int(start)
         self._end = None if end is None else int(end)
         super().__init__(name=name, start=self._start, end=self._end)
@@ -1183,7 +1185,7 @@ class SeqSelect(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, idx: int, axis: int = 0, name=None):
+    def __init__(self, idx: int, axis: int = 0, name: str | None = None):
         self._idx = int(idx)
         self._axis = int(axis)
         super().__init__(name=name, idx=self._idx, axis=self._axis)
@@ -1337,7 +1339,9 @@ class SeqRange(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, start: int | None, end: int | None, axis: int = 0, name=None):
+    def __init__(
+        self, start: int | None, end: int | None, axis: int = 0, name: str | None = None
+    ):
         self._start = None if start is None else int(start)
         self._end = None if end is None else int(end)
         self._axis = int(axis)
@@ -1498,7 +1502,7 @@ class SeqConcatenate(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, axis: int = 0, name=None):
+    def __init__(self, axis: int = 0, name: str | None = None):
         self._axis = int(axis)
         super().__init__(name=name, axis=self._axis)
 
@@ -1656,7 +1660,7 @@ class SeqStack(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, axis: int = 0, name=None):
+    def __init__(self, axis: int = 0, name: str | None = None):
         self._axis = int(axis)
         super().__init__(name=name, axis=self._axis)
 
@@ -1799,7 +1803,7 @@ class SeqReverse(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, axis: int = 0, name=None):
+    def __init__(self, axis: int = 0, name: str | None = None):
         self._axis = int(axis)
         super().__init__(name=name, axis=self._axis)
 
@@ -2003,7 +2007,7 @@ class Concatenate(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, axis: int = 0, name=None):
+    def __init__(self, axis: int = 0, name: str | None = None):
         self._axis = int(axis)
         super().__init__(name=name, axis=self._axis)
 

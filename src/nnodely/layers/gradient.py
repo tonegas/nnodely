@@ -205,7 +205,7 @@ class Gradient(Layer):
         The order of the derivative, ``1`` or ``2``.
     wrt : Input
         The Input to differentiate with respect to, as declared in the model
-        that holds the layer. It is required.
+        that holds the layer. It is required, and passed by name.
     name : str, optional
         The name of the layer. The default is ``Gradient`` followed by a
         number.
@@ -353,7 +353,7 @@ class Gradient(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, order: int = 1, wrt: Input | None = None, name=None):
+    def __init__(self, order: int = 1, *, wrt: Input, name: str | None = None):
         if order not in _SUPPORTED_ORDERS:
             raise ValueError(
                 f"Gradient supports order in {list(_SUPPORTED_ORDERS)}, got {order}."

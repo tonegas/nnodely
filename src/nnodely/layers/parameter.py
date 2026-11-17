@@ -558,13 +558,13 @@ class Parameter(_Value):
         self,
         name: str | None = None,
         *,
-        value=None,
-        initializer="random_normal",
-        tw=None,
-        dim=None,
-        seq=None,
+        value: float | list | np.ndarray | None = None,
+        initializer: str | keras.initializers.Initializer = "random_normal",
+        tw: int | None = None,
+        dim: int | tuple[int, ...] | None = None,
+        seq: int | tuple[int, ...] | None = None,
         trainable: bool = True,
-        draw=None,
+        draw: tuple[int, ...] | None = None,
     ):
         self._trainable = bool(trainable)
         super().__init__(name, value, initializer, dim, tw, seq)
@@ -917,7 +917,15 @@ class Constant(_Value):
     _impl = ConstantImpl
     _trainable = False
 
-    def __init__(self, name: str | None = None, *, value, tw=None, dim=None, seq=None):
+    def __init__(
+        self,
+        name: str | None = None,
+        *,
+        value: float | list | np.ndarray,
+        tw: int | None = None,
+        dim: int | tuple[int, ...] | None = None,
+        seq: int | tuple[int, ...] | None = None,
+    ):
         if value is None:
             raise ValueError("Constant requires a value.")
         super().__init__(name, value, None, dim, tw, seq)

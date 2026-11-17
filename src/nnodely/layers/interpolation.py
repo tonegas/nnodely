@@ -275,7 +275,13 @@ class Interpolation(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, x_points, y_points, mode="linear", name=None):
+    def __init__(
+        self,
+        x_points: list[float],
+        y_points: list[float],
+        mode: str = "linear",
+        name: str | None = None,
+    ):
         x_values, y_values, mode = _prepare_points(x_points, y_points, mode)
         self._x_points = x_values.tolist()
         self._y_points = y_values.tolist()

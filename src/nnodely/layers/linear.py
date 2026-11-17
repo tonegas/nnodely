@@ -384,7 +384,7 @@ class Linear(Layer):
         bias: Parameter | str | keras.initializers.Initializer | bool = True,
         axis: int | None = None,
         shared_kernel: bool = False,
-        name=None,
+        name: str | None = None,
     ):
         if shared_kernel and axis is None:
             raise ValueError(

@@ -1422,7 +1422,12 @@ class Clamp(Layer):
 
     _one_stream = True
 
-    def __init__(self, min: float | None = None, max: float | None = None, name=None):
+    def __init__(
+        self,
+        min: float | None = None,
+        max: float | None = None,
+        name: str | None = None,
+    ):
         if min is not None and max is not None and min > max:
             raise ValueError(
                 f"{name or 'Clamp'}: min {min} must not be greater than max {max}."
@@ -1734,7 +1739,7 @@ class Reduction(Layer):
 
     _operation = ""
 
-    def __init__(self, axis: int | None = None, name=None):
+    def __init__(self, axis: int | None = None, name: str | None = None):
         self._axis = axis if axis is None else int(axis)
         super().__init__(name=name, axis=self._axis)
 
@@ -2501,7 +2506,7 @@ class Cross(BinaryOp):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, axis: int = -1, name=None):
+    def __init__(self, axis: int = -1, name: str | None = None):
         self._axis = int(axis)
         super().__init__(name=name, axis=self._axis)
 

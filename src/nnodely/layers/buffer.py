@@ -236,7 +236,9 @@ class Buffer(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, tw: int, init: Stream | float | None = None, name=None):
+    def __init__(
+        self, tw: int, init: Stream | float | None = None, name: str | None = None
+    ):
         if isinstance(tw, Stream):
             raise TypeError(
                 "Buffer is configured first and called on the signal, like every "

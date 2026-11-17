@@ -274,7 +274,8 @@ a row of a printed table has the fields of the object it stands for.
   `IntegrateStep` integrates over a window and `Integrate` one step at a
   time in a `ModelyLoop`, with `method="euler"` or `"trapezoidal"`. `Ode(f,
   states, dt, method=)` integrates a vector field with Euler, midpoint, Heun
-  or RK4.
+  or RK4. `IntegrateStep`, `Integrate`, `DerivativeStep` and `Derivative`
+  take the time step `dt`, 1.0 by default.
   `Integrate` and `Derivative` keep their state (the integral,
   `<name>_<rate>`, with `<name>_<rate>_rate` for the trapezoid, or the
   samples before the step, `<name>_<signal>`) in hidden Inputs fed back by
