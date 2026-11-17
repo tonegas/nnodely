@@ -81,26 +81,24 @@ def _pair_onnx_names(values, expected, by_name: bool = False):
 _CONVERTERS = {"tensorflow": "tf2onnx", "torch": "onnxscript", "jax": "jax2onnx"}
 
 
-def _static_input_signature(
-    keras_model, batch_size: int, seq_length: int | None, name: str
-):
+def _static_input_signature(keras_model, batch_size: int, seq: int | None, name: str):
     """The input structure of ``keras_model``, every axis fixed: the batch to
-    ``batch_size``, a sequence of dynamic length to ``seq_length``. ``name``
+    ``batch_size``, a sequence of dynamic length to ``seq``. ``name``
     is the Modely's, for the error."""
 
     def spec(tensor):
         sizes = []
         for axis in tensor.shape[1:]:
             if axis is None:
-                if seq_length is None:
+                if seq is None:
                     raise ValueError(
                         f"Model {name!r} reads {tensor.name!r} as a "
                         "sequence of dynamic length, and an ONNX file has "
                         "fixed shapes: give its length, export_onnx(..., "
-                        "seq_length=n). The exported file computes sequences "
+                        "seq=n). The exported file computes sequences "
                         "of that length."
                     )
-                axis = seq_length
+                axis = seq
             sizes.append(int(axis))
         return keras.InputSpec(
             shape=(batch_size, *sizes), dtype=tensor.dtype, name=tensor.name
@@ -184,7 +182,7 @@ def export_onnx(
     *,
     input_signature=None,
     batch_size: int = 1,
-    seq_length: int | None = None,
+    seq: int | None = None,
     opset_version: int | None = None,
     verbose: bool = False,
 ) -> None:
@@ -193,8 +191,8 @@ def export_onnx(
         raise ValueError("Model is not built. Call build() before export_onnx().")
     model._check_names_built()
     _positive_int(batch_size, "batch_size")
-    if seq_length is not None:
-        _positive_int(seq_length, "seq_length")
+    if seq is not None:
+        _positive_int(seq, "seq")
 
     backend = keras.backend.backend()
     converter = _CONVERTERS.get(backend)
@@ -252,7 +250,7 @@ def export_onnx(
     # jax2onnx none through nnodely's layers.
     if input_signature is None:
         input_signature = _static_input_signature(
-            export_model, batch_size, seq_length, model.name
+            export_model, batch_size, seq, model.name
         )
 
     export_kwargs: dict[str, Any] = {
@@ -264,7 +262,7 @@ def export_onnx(
 
     export_model.export(file, format="onnx", **export_kwargs)
     _refuse_unknown_operators(file, model.name)
-    _set_onnx_io_names(model, file, seq_length)
+    _set_onnx_io_names(model, file, seq)
 
 
 def _refuse_unknown_operators(path: Path, name: str) -> None:
@@ -295,16 +293,16 @@ def _refuse_unknown_operators(path: Path, name: str) -> None:
         )
 
 
-def _set_onnx_io_names(model, path: Path, seq_length: int | None = None) -> None:
+def _set_onnx_io_names(model, path: Path, seq: int | None = None) -> None:
     """Restore Modely input/output names if an exporter replaced them; a
-    dynamic sequence axis was exported ``seq_length`` long."""
+    dynamic sequence axis was exported ``seq`` long."""
     import onnx
 
     onnx_model = onnx.load(str(path))
     graph = onnx_model.graph
 
     def exported(shape) -> tuple:
-        sizes = (seq_length if axis is None else axis for axis in shape)
+        sizes = (seq if axis is None else axis for axis in shape)
         return tuple(int(size) for size in sizes if size is not None)
 
     expected_inputs = [

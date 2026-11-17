@@ -3026,14 +3026,14 @@ def test_derivative_exports_to_onnx(tmp_path):
 
 def test_derivative_exports_to_onnx_with_the_horizon_it_is_given(tmp_path):
     # Once exported with a dynamic horizon, which only tensorflow kept: every
-    # backend now exports the horizon seq_length gives.
+    # backend now exports the horizon seq gives.
     pytest.importorskip("onnxruntime")
     model = _saved_derivative_model("donnx_dynamic", seq=None)
-    with pytest.raises(ValueError, match="seq_length=n"):
+    with pytest.raises(ValueError, match="seq=n"):
         model.export_onnx(tmp_path)
 
     for steps in (2, 6):
-        model.export_onnx(tmp_path, f"donnx_{steps}", seq_length=steps)
+        model.export_onnx(tmp_path, f"donnx_{steps}", seq=steps)
         data = _saved_derivative_data("donnx_dynamic", steps)
         actual = Modely.validate_onnx(
             tmp_path / f"donnx_{steps}.onnx", data, return_dict=True

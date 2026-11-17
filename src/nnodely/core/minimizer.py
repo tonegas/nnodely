@@ -1,6 +1,3 @@
-"""The objectives of a Modely: how a minimizer is checked, resolved against
-the built graph, and turned into the loss the training model minimizes."""
-
 import warnings
 from typing import TYPE_CHECKING, TypeGuard
 

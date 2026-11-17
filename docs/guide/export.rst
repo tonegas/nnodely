@@ -164,7 +164,7 @@ Every axis of an ONNX file is fixed:
 - every **sequence** has its declared length. A sequence of dynamic length,
   ``seq=-1``, such as every Input of a rollout of
   :meth:`~nnodely.Modely.loop` without ``seq``, has the length
-  ``seq_length`` gives; without it the export raises.
+  ``seq`` gives; without it the export raises.
 
 The file refuses arrays of other shapes: export it again for another batch or
 another rollout length. ``input_signature`` sets the shape of every input
@@ -251,11 +251,11 @@ Common errors
    * - ``ValueError: Model 'm' reads 'x' as a sequence of dynamic length``
      - An ONNX file has fixed shapes, and the model reads a sequence of
        dynamic length.
-     - Give the length to export, ``export_onnx(..., seq_length=n)``.
+     - Give the length to export, ``export_onnx(..., seq=n)``.
    * - ONNX Runtime: ``Got invalid dimensions for input``
      - The file is run with another batch, or another sequence length, than
        it was exported with.
-     - Export it again with ``batch_size=`` or ``seq_length=``.
+     - Export it again with ``batch_size=`` or ``seq=``.
 
 See also
 --------

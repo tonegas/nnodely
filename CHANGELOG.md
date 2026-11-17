@@ -393,7 +393,7 @@ a row of a printed table has the fields of the object it stands for.
   tf2onnx, the PyTorch exporter or jax2onnx. Every axis
   of the file is fixed: the batch is `batch_size` samples, one by default,
   and a sequence of dynamic length, such as a rollout of `model.loop()`, is
-  exported `seq_length` steps long; without it the export raises. Every block
+  exported `seq` steps long; without it the export raises. Every block
   exports, `Cross` and `Log2` included, but a `Gradient`
   with respect to an Input: it exports from JAX, from TensorFlow when tf2onnx
   converts the gradient of every layer it differentiates, and not from

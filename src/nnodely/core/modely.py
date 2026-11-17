@@ -3185,7 +3185,7 @@ class Modely:
         *,
         input_signature=None,
         batch_size: int = 1,
-        seq_length: int | None = None,
+        seq: int | None = None,
         opset_version: int | None = None,
         verbose: bool = False,
     ) -> None:
@@ -3200,7 +3200,7 @@ class Modely:
         Every axis of the file is fixed: the batch is ``batch_size`` samples,
         one by default, and every sequence has its declared length. A
         sequence of dynamic length, ``seq=-1``, as every Input of a rollout
-        of :meth:`loop` without ``seq`` has, is exported ``seq_length`` long.
+        of :meth:`loop` without ``seq`` has, is exported ``seq`` long.
         The file runs on arrays of those shapes only.
 
         Parameters
@@ -3213,10 +3213,10 @@ class Modely:
         input_signature : list or None, default None
             The shapes the exported graph takes, as Keras'
             ``Model.export`` takes them. ``None`` fixes them from
-            ``batch_size`` and ``seq_length``, which it overrides.
+            ``batch_size`` and ``seq``, which it overrides.
         batch_size : int, default 1
             The number of samples the file computes at once, a positive int.
-        seq_length : int or None, default None
+        seq : int or None, default None
             The length of every sequence of dynamic length, a positive int.
             Needed when the model reads one, unused otherwise.
         opset_version : int or None, default None
@@ -3228,9 +3228,9 @@ class Modely:
         ------
         ValueError
             If the model is not built ("Call build() before export_onnx()").
-            If ``batch_size`` or ``seq_length`` is not a positive int ("is a
+            If ``batch_size`` or ``seq`` is not a positive int ("is a
             positive int"). If the model reads a sequence of dynamic length
-            and ``seq_length`` is None ("give its length").
+            and ``seq`` is None ("give its length").
         ImportError
             If the converter of the backend is missing, nnodely installed
             without its backend extra ("comes with the backend").
@@ -3283,13 +3283,13 @@ class Modely:
         >>> Modely.validate_onnx(f"{folder}/four.onnx", {"x": np.ones((4, 1, 1))})[0].shape
         (4, 1, 1)
 
-        ``seq_length`` fixes the number of steps of a rollout that follows
+        ``seq`` fixes the number of steps of a rollout that follows
         the data:
 
         >>> total = Input("total", tw=1)
         >>> step = Modely("counter", inputs=[x], outputs=[Output("s", total.feedback(total + x, hidden=True))])
         >>> counter = step.loop().build()
-        >>> counter.export_onnx(folder, seq_length=3)
+        >>> counter.export_onnx(folder, seq=3)
         >>> result = Modely.validate_onnx(f"{folder}/counter.onnx", {"x": np.ones((1, 3, 1, 1))})
         >>> result[0].ravel()
         array([1., 2., 3.], dtype=float32)
@@ -3297,7 +3297,7 @@ class Modely:
         Possible Issues
         ---------------
         A sequence of dynamic length has no length to export without
-        ``seq_length``:
+        ``seq``:
 
         >>> counter.export_onnx(folder)
         Traceback (most recent call last):
@@ -3315,7 +3315,7 @@ class Modely:
             filename,
             input_signature=input_signature,
             batch_size=batch_size,
-            seq_length=seq_length,
+            seq=seq,
             opset_version=opset_version,
             verbose=verbose,
         )

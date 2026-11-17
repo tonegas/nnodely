@@ -426,8 +426,8 @@ def test_export_onnx_fixes_the_batch_it_is_given(tmp_path):
         model.export_onnx(tmp_path, "wrong", batch_size=0)
     with pytest.raises(ValueError, match="batch_size is a positive int"):
         model.export_onnx(tmp_path, "wrong", batch_size=1.5)  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="seq_length is a positive int"):
-        model.export_onnx(tmp_path, "wrong", seq_length=0)
+    with pytest.raises(ValueError, match="seq is a positive int"):
+        model.export_onnx(tmp_path, "wrong", seq=0)
 
 
 def test_validate_onnx_rejects_missing_input(tmp_path):
@@ -1280,7 +1280,7 @@ def test_export_onnx_loop_model(tmp_path, model_factory):
 def test_export_onnx_dynamic_loop_takes_the_length_it_is_given(tmp_path):
     # Once exported with a dynamic length, which only tensorflow kept, while
     # torch baked in the traced one and silently computed wrong at another:
-    # every backend now exports the length seq_length gives, and ONNX Runtime
+    # every backend now exports the length seq gives, and ONNX Runtime
     # refuses another.
     pytest.importorskip("onnxruntime")
     x, u = Input("dyn_onnx_x", dim=1, tw=1), Input("dyn_onnx_u", dim=1, tw=1)
@@ -1294,7 +1294,7 @@ def test_export_onnx_dynamic_loop_takes_the_length_it_is_given(tmp_path):
         inputs=[x_seq, u_seq],
         outputs=[Output("dyn_onnx_out", loop)],
     ).build()
-    with pytest.raises(ValueError, match="sequence of dynamic length.*seq_length=n"):
+    with pytest.raises(ValueError, match="sequence of dynamic length.*seq=n"):
         model.export_onnx(tmp_path)
     assert not (tmp_path / f"{model.name}.onnx").exists()
 
@@ -1307,7 +1307,7 @@ def test_export_onnx_dynamic_loop_takes_the_length_it_is_given(tmp_path):
         }
 
     for steps in (1, 7):
-        model.export_onnx(tmp_path, f"dyn_onnx_{steps}", seq_length=steps)
+        model.export_onnx(tmp_path, f"dyn_onnx_{steps}", seq=steps)
         expected = to_numpy(model(inputs(steps))["dyn_onnx_out"])
         actual = Modely.validate_onnx(
             tmp_path / f"dyn_onnx_{steps}.onnx", inputs(steps), return_dict=True
@@ -1320,7 +1320,7 @@ def test_export_onnx_dynamic_loop_takes_the_length_it_is_given(tmp_path):
 
 def test_export_onnx_seq_ops_take_the_length_they_are_given(tmp_path):
     # Counted from the end, the selected elements are those of the length
-    # seq_length gives, not of the length the graph was declared with.
+    # seq gives, not of the length the graph was declared with.
     pytest.importorskip("onnxruntime")
     x = Input("dyn_seq_ops_x", dim=1, seq=-1, tw=1)
     sequence = x
@@ -1340,7 +1340,7 @@ def test_export_onnx_seq_ops_take_the_length_they_are_given(tmp_path):
     ).build()
 
     for steps in (2, 6):
-        model.export_onnx(tmp_path, f"dyn_seq_ops_{steps}", seq_length=steps)
+        model.export_onnx(tmp_path, f"dyn_seq_ops_{steps}", seq=steps)
         inputs = {
             "dyn_seq_ops_x": np.arange(steps, dtype=np.float32).reshape(1, steps, 1, 1)
         }
@@ -2996,9 +2996,7 @@ def test_every_block_family_exports_to_onnx_on_this_backend(tmp_path, build, req
         for tensor in model._keras_inference_model.inputs
         for axis in tensor.shape[1:]
     )
-    model.export_onnx(
-        tmp_path, batch_size=3, seq_length=_COVERAGE_STEPS if dynamic else None
-    )
+    model.export_onnx(tmp_path, batch_size=3, seq=_COVERAGE_STEPS if dynamic else None)
     rng = np.random.default_rng(0)
     data = {
         tensor.name: rng.uniform(
