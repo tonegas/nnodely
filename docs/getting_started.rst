@@ -9,8 +9,8 @@ Installation
 ------------
 
 *nnodely* runs on `Keras 3 <https://keras.io>`_, which needs one backend:
-TensorFlow, PyTorch or JAX. Install *nnodely* together with the backend you
-want:
+TensorFlow, PyTorch or JAX. ``pip install nnodely`` installs none of them:
+install *nnodely* together with the backend you want:
 
 .. code-block:: bash
 
@@ -30,18 +30,32 @@ you need:
    cd nnodely
    pip install ".[tensorflow]"
 
-Choosing the backend
-~~~~~~~~~~~~~~~~~~~~
+Backends
+~~~~~~~~
 
-Keras reads the backend from the ``KERAS_BACKEND`` environment variable when
-it is first imported. Without it, Keras uses TensorFlow. Set it before
-importing *nnodely*, in the shell:
+A model is written once and runs on all three backends. The backend is chosen
+**once, when nnodely is imported** (Keras with it), and kept until the Python
+process ends. In order:
+
+1. the ``KERAS_BACKEND`` environment variable, when it is set;
+2. else the ``"backend"`` of the Keras configuration file,
+   ``~/.keras/keras.json``, which Keras writes on its first import;
+3. else TensorFlow, the default of Keras.
+
+Without ``KERAS_BACKEND``, a backend of 2 or 3 that is not installed gives way
+to the first installed of TensorFlow, PyTorch and JAX: after
+``pip install "nnodely[jax]"`` alone, nnodely runs on JAX. A backend set with
+``KERAS_BACKEND`` is always the one used, and the import fails with an error
+naming it, and the backends installed, when it is not installed.
+
+To choose the backend, set ``KERAS_BACKEND`` **before importing nnodely**, or
+anything else that imports Keras. In the shell:
 
 .. code-block:: bash
 
-   export KERAS_BACKEND=torch
+   export KERAS_BACKEND=torch      # or for one run: KERAS_BACKEND=torch python train.py
 
-or at the very top of your script:
+at the very top of a script, before its other imports:
 
 .. code-block:: python
    :class: skip-test
@@ -52,9 +66,24 @@ or at the very top of your script:
 
    import nnodely
 
-A model is written once and runs on all three backends. The few features that
-depend on the backend, mostly the ONNX export, are listed in
-:doc:`guide/export`.
+or in the first cell of a notebook, ``%env KERAS_BACKEND=torch``.
+:func:`~nnodely.get_backend` tells the backend nnodely runs on:
+
+.. code-block:: python
+   :class: skip-test
+
+   print(nnodely.get_backend())   # torch
+
+Setting ``KERAS_BACKEND`` after the import changes nothing. To change the
+backend, start a new Python process, or restart the kernel of the notebook,
+with the new value.
+
+On a Mac, PyTorch computes on the Apple GPU (MPS) when there is one. For
+models as small as most *nnodely* models, the CPU is faster: set
+``KERAS_TORCH_DEVICE=cpu`` with ``KERAS_BACKEND``.
+
+The few features that depend on the backend, mostly the ONNX export, are
+listed in :doc:`guide/export`.
 
 A first model: mass-spring-damper
 ---------------------------------

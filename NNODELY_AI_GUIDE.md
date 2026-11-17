@@ -39,7 +39,7 @@ Use this order:
 15. **`Softmax()` normalizes each sample as a whole**: its values over every sequence, window and dim axis sum to one [verified]. For a softmax over the features use `Softmax(axis=-1)` [verified]: `axis` is a raw tensor axis (batch 0, then the sequence, the window, the dims last), so `-1` is the last dim axis. `BatchNorm()` already normalizes per feature (its default axis is the first dim axis).
 16. **`Gradient(wrt=x)`**: `x` must be the `Input` object. The result has the shape of `x`, its whole window: zero for the samples the differentiated relation does not read [verified]. Inside a block it differentiates against the copy of `x` each call makes, a state of the block, one per call in a Loop or a `loop()` rollout; against an input of the block, which a call replaces by its stream, it raises (§12) [verified].
 17. **`train()` defaults to `batch_size=1` and `epochs=10`.** Always pass both (typical batch sizes are 32–256).
-18. **Set `KERAS_BACKEND` before the first import** of `keras` or `nnodely`. With no value set, the backend is TensorFlow. A backend that is not installed raises `ImportError` naming the extra to install.
+18. **Set `KERAS_BACKEND` before the first import** of `keras` or `nnodely`: the backend is read once, at the import, and kept until the process ends (setting it later changes nothing; restart the process or kernel). Order: `KERAS_BACKEND`, else the `backend` of `~/.keras/keras.json` (`KERAS_HOME`), else TensorFlow. Without `KERAS_BACKEND`, one of those that is not installed gives way to the first installed of tensorflow, torch, jax (`nnodely[jax]` alone runs on jax) [verified]. A `KERAS_BACKEND` that is not installed raises `ImportError` naming it, `pip install "nnodely[<backend>]"`, and the backends installed [verified]. `nnodely.get_backend()` returns the active one. `pip install nnodely` installs no backend. On a Mac, torch computes on MPS unless `KERAS_TORCH_DEVICE=cpu` (faster for small models).
 19. **`Parameter` initializes to `random_normal` when no value is given.** For physical constants pass `value=<initial guess>`.
 20. **`dt` is always explicit** for `IntegrateStep`, `Integrate`, `DerivativeStep` and `Derivative`; nothing is inferred from data. Windows are counted in samples, not seconds.
 21. **A `Loop` returns every output of `f`, in `f.outputs` order.** With one output the loop is that output's trajectory, a stream. With more it is all of them: unpack them (`a, b = Loop(...)(inputs)`) or pick one, by position (`loop[1]`) or by its output name in `f` (`loop["b"]`; an unknown name raises `KeyError`, an output the loop adds is not picked); read as one stream (`Output("y", loop)`, `loop + 1`, a layer) it raises `ValueError` ("returns the 2 outputs [...] ..., and is read as one stream") [verified]. An output the loop adds for an update `f` does not declare, as the hidden state of `Integrate`, is not returned.
@@ -148,7 +148,7 @@ Stream attributes: `s.shape` (a `Shape(dim, tw, seq)`, tuple-like over its axes)
 ```python
 import os; os.environ["KERAS_BACKEND"] = "torch"   # or "tensorflow" / "jax"; BEFORE imports
 from nnodely import (
-    Modely, DataLoader, Input, Output, Parameter, Constant, set_seed, get_seed,
+    Modely, DataLoader, Input, Output, Parameter, Constant, set_seed, get_seed, get_backend,
     # layers with weights
     Linear, Fir, LocalModel, EquationLearner, BatchNorm,
     # fuzzy / lookup
@@ -496,7 +496,7 @@ Every axis of the file is fixed (Keras 3.15.1 exports through tf2onnx on TensorF
 | Error (substring) | Cause | Fix |
 |---|---|---|
 | `Model X is not built` / `Model is not built` | `DataLoader` / `train` / call before `build()` | Call `model.build()` first. |
-| `nnodely runs on Keras, whose backend needs '...'` | The backend chosen by `KERAS_BACKEND` is not installed | `pip install "nnodely[<backend>]"`. |
+| `nnodely runs on Keras, whose '<backend>' backend (set by KERAS_BACKEND) needs '...'` | The backend `KERAS_BACKEND` names is not installed (or none is installed at all) | `pip install "nnodely[<backend>]"`, or set `KERAS_BACKEND` to one the error lists as installed. |
 | `reads the inputs [...], which are missing from the data it was called with` | An input the outputs read is not in the dict (§1.12) | Add it. |
 | `expected shape=(None, ...), found shape=(...)` at inference | An array laid out in the old `(batch, *dim, tw)` order, or without its batch axis, e.g. `loader[i]` (§1.24; a missing batch axis may also fail inside a layer, or be misread) | Lay it out `(batch, *seq, tw, *dim)`; add a batch axis: `v[None]`. |
 | `called with a list it takes one value for each, in that order` | A model called with a list of more or fewer streams or arrays than its inputs | Pass one per input the model was declared with, or a dict. |
@@ -778,7 +778,7 @@ Rules:
 
 ```
 src/nnodely/
-  __init__.py            public exports (see §4), __version__, the missing-backend check
+  __init__.py            public exports (see §4), __version__, the backend choice (an installed one when KERAS_BACKEND is unset), get_backend, the missing-backend error
   core/shape.py          Shape(dim, tw, seq), the only module that knows the layout (batch, *seq, tw, *dim): axes helpers,
                          Shape.broadcast and align (arithmetic), BATCH_AXIS, OUTER_AXIS = 1, tensor helpers
   core/stream.py         Node, Stream (operator overloads, literal→Constant cache), NODE_REGISTRY (by class_path, module.qualname; registered_class), NODE_NAMES

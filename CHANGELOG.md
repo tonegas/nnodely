@@ -430,6 +430,13 @@ a row of a printed table has the fields of the object it stands for.
 
 ### Changed
 
+- **The backend is chosen at the import**: `KERAS_BACKEND`, else the
+  `backend` of `~/.keras/keras.json`, else TensorFlow. Without
+  `KERAS_BACKEND`, a backend that is not installed gives way to the first
+  installed of TensorFlow, PyTorch and JAX, so `nnodely[jax]` alone runs on
+  JAX. A `KERAS_BACKEND` that is not installed fails the import, naming it,
+  how to install it and the backends installed. `nnodely.get_backend()`
+  returns the backend in use.
 - **The package installs no backend**: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`, which brings the converter Keras
   exports ONNX with from it (tf2onnx, onnxscript, jax2onnx); `onnx` and

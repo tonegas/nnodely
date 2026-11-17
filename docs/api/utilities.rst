@@ -3,6 +3,18 @@ Utilities
 
 .. currentmodule:: nnodely
 
+Backend
+-------
+
+:func:`get_backend` tells the Keras backend *nnodely* runs on, chosen at the
+import: see :doc:`../getting_started`.
+
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   get_backend
+
 Random seed
 -----------
 

@@ -86,6 +86,10 @@ exclude = ["experimental", "docs/_build", "**/.venv", "**/__pycache__", "**/node
 [tool.ruff]
 target-version = "py311"
 
+[tool.ruff.lint.per-file-ignores]
+# The backend is chosen, and Keras imported, before the package imports.
+"src/nnodely/__init__.py" = ["E402"]
+
 [[tool.uv.index]]
 name = "testpypi"
 url = "https://test.pypi.org/simple/"

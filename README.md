@@ -48,10 +48,15 @@ pip install "nnodely[torch]"        # or [tensorflow], or [jax]
 
 Each backend comes with what nnodely needs to export the model to ONNX.
 
-Pick the backend with `KERAS_BACKEND` (TensorFlow if unset) before importing nnodely:
+`pip install nnodely` alone installs no backend: name one, as above.
+
+Choose the backend with `KERAS_BACKEND`, **before importing nnodely**: it is
+read once, at the import, and kept until the process ends. Unset, nnodely runs
+on TensorFlow, the default of Keras, or on the backend installed when only
+one is. `nnodely.get_backend()` tells which.
 
 ```sh
-export KERAS_BACKEND=torch
+export KERAS_BACKEND=torch      # or, at the top of a script: os.environ["KERAS_BACKEND"] = "torch"
 ```
 
 ## Hello, world

@@ -86,17 +86,78 @@ def test_the_html_logo_ships_with_the_package(tmp_path):
     )
 
 
-@pytest.mark.parametrize("backend", ["tensorflow", "torch", "jax"])
-def test_a_missing_backend_is_named_with_how_to_install_one(backend):
-    # Once a bare "No module named 'tensorflow'" from inside Keras.
-    code = f"import sys; sys.modules[{backend!r}] = None; import nnodely"
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        env={**os.environ, "KERAS_BACKEND": backend, "PYTHONIOENCODING": "utf-8"},
-        capture_output=True,
-        encoding="utf-8",
+def _import_nnodely(tmp_path, missing=(), backend=None, config=None):
+    """Import nnodely in a new process where the backends ``missing`` are not
+    installed, with ``KERAS_BACKEND`` set to ``backend`` (unset for None) and
+    a Keras configuration of its own, whose backend is ``config``: what it
+    prints, the backend it runs on, or its error."""
+    home = tmp_path / "keras_home"
+    home.mkdir()
+    if config is not None:
+        (home / "keras.json").write_text(f'{{"backend": "{config}"}}')
+    env = {**os.environ, "KERAS_HOME": str(home), "PYTHONIOENCODING": "utf-8"}
+    env.pop("KERAS_BACKEND", None)
+    if backend is not None:
+        env["KERAS_BACKEND"] = backend
+    code = (
+        f"import sys; sys.modules.update(dict.fromkeys({list(missing)!r})); "
+        "import nnodely; print(nnodely.get_backend())"
+    )
+    return subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True, encoding="utf-8"
     )
 
+
+@pytest.mark.parametrize("backend", ["tensorflow", "torch", "jax"])
+def test_a_missing_backend_is_named_with_how_to_install_one(tmp_path, backend):
+    # Once a bare "No module named 'tensorflow'" from inside Keras, then a
+    # message that listed every backend without saying which was chosen.
+    result = _import_nnodely(tmp_path, missing=[backend], backend=backend)
+
     assert result.returncode != 0
-    assert f"backend needs {backend!r}, which is not installed" in result.stderr
+    assert (
+        f"{backend!r} backend (set by KERAS_BACKEND) needs {backend!r}" in result.stderr
+    )
+    assert f'pip install "nnodely[{backend}]"' in result.stderr
+    # The others are installed here: the error names them.
+    others = [name for name in ("tensorflow", "torch", "jax") if name != backend]
+    assert f"run on an installed one, {others}" in result.stderr
+
+
+def test_without_any_backend_the_error_says_how_to_install_one(tmp_path):
+    result = _import_nnodely(tmp_path, missing=["tensorflow", "torch", "jax"])
+
+    assert result.returncode != 0
+    assert "'tensorflow' backend (the default) needs 'tensorflow'" in result.stderr
     assert 'pip install "nnodely[tensorflow]"' in result.stderr
+    assert "choose one with the KERAS_BACKEND environment variable" in result.stderr
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "missing, config, expected",
+    [
+        ([], None, "tensorflow"),  # the default of Keras
+        ([], "jax", "jax"),  # the backend of its configuration file
+        (["tensorflow"], None, "torch"),  # the default missing: the first installed
+        (["tensorflow", "torch"], None, "jax"),  # nnodely[jax] alone
+        (["jax"], "jax", "tensorflow"),  # the configured one missing
+    ],
+)
+def test_a_backend_not_installed_gives_way_to_an_installed_one(
+    tmp_path, missing, config, expected
+):
+    # Once the default, tensorflow, even where only jax was installed: the
+    # import failed, telling to install a backend.
+    result = _import_nnodely(tmp_path, missing=missing, config=config)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split()[-1] == expected
+
+
+@pytest.mark.slow
+def test_keras_backend_is_the_users_choice_over_the_configuration(tmp_path):
+    result = _import_nnodely(tmp_path, backend="jax", config="torch")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split()[-1] == "jax"
