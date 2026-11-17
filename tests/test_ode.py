@@ -1,4 +1,3 @@
-import keras
 import numpy as np
 import pytest
 
@@ -14,13 +13,6 @@ from nnodely import (
     Sin,
 )
 from conftest import to_numpy
-
-# Ode is not tested on torch: the suite does not run reliably on
-# that backend yet.
-pytestmark = pytest.mark.skipif(
-    keras.backend.backend() == "torch",
-    reason="the Ode tests are not run on the torch backend",
-)
 
 
 def _decay(state):

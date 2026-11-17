@@ -8,7 +8,7 @@
   <a href="https://pypi.org/project/nnodely/"><img src="https://img.shields.io/pypi/v/nnodely?color=6F84FE&label=PyPI" alt="PyPI"></a>
   <a href="https://nnodely.readthedocs.io/"><img src="https://img.shields.io/readthedocs/nnodely?color=80BFFF&label=docs" alt="Documentation"></a>
   <a href="https://codecov.io/github/tonegas/nnodely"><img src="https://codecov.io/github/tonegas/nnodely/graph/badge.svg?token=8V6P2PSYT4" alt="codecov"></a>
-  <img src="https://img.shields.io/badge/python-3.10%20%E2%80%93%203.13-5B4BFB" alt="Python 3.10 - 3.13">
+  <img src="https://img.shields.io/badge/python-3.11%20%E2%80%93%203.13-5B4BFB" alt="Python 3.11 - 3.13">
   <img src="https://img.shields.io/badge/Keras%203-TensorFlow%20%7C%20PyTorch%20%7C%20JAX-7A3FE8" alt="Keras 3: TensorFlow, PyTorch, JAX">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-A5D8FF" alt="License: MIT"></a>
 </p>
@@ -44,8 +44,9 @@ nnodely is not a replacement for general-purpose deep learning frameworks — it
 
 ```sh
 pip install "nnodely[torch]"        # or [tensorflow], or [jax]
-pip install "nnodely[torch,onnx]"   # + ONNX export
 ```
+
+Each backend comes with what nnodely needs to export the model to ONNX.
 
 Pick the backend with `KERAS_BACKEND` (TensorFlow if unset) before importing nnodely:
 

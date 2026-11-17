@@ -99,7 +99,11 @@ class Shape:
         """The Shape of a tensor of ``shape``, batch axis excluded, told apart
         by how many sequence axes, or dim axes, it has, and whether it has a
         window."""
-        shape = tuple(shape)
+        # Traced by the TorchScript ONNX exporter, a size is a 0-d tensor;
+        # jax passes symbolic sizes, which stay as they are.
+        shape = tuple(
+            int(axis) if getattr(axis, "ndim", None) == 0 else axis for axis in shape
+        )
         window = 1 if tw else 0
         if seq_rank is None:
             seq_rank = len(shape) - window - int(dim_rank)  # type: ignore[arg-type]

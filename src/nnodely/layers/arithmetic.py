@@ -21,11 +21,14 @@ def _norm(x, axis, keepdims):
     )
 
 
-#: The operations keras.ops does not have, by the name a Keras layer of this
-#: module is given; every other is keras.ops's own.
+#: The operations keras.ops does not have, or has in a form an ONNX exporter
+#: cannot convert, by the name a Keras layer of this module is given; every
+#: other is keras.ops's own.
 _OPERATIONS = {
     "rad2deg": lambda x: keras.ops.multiply(x, 180.0 / math.pi),
     "norm": _norm,
+    # jax2onnx has no converter for log2.
+    "log2": lambda x: keras.ops.multiply(keras.ops.log(x), 1.0 / math.log(2.0)),
 }
 
 
@@ -210,7 +213,6 @@ class Exp(UnaryOp):
 
     See Also
     --------
-    Expm1 : :math:`e^x - 1`, accurate near 0.
     Log : Natural logarithm.
     Sinh : Hyperbolic sine.
 
@@ -253,75 +255,6 @@ class Exp(UnaryOp):
     _operation = "exp"
 
 
-class Expm1(UnaryOp):
-    r"""Exponential minus one, :math:`e^x - 1`, of every value of a stream, accurate near 0.
-
-    Syntax
-    ------
-    ``Expm1(x)``
-        The value :math:`e^x - 1` of ``x``; the same as ``Expm1()(x)``.
-    ``Expm1(name="e")(x)``
-        The same, with the layer named.
-    ``Expm1([a, b])``
-        The value :math:`e^x - 1` of each stream of the list, as a list.
-
-    Parameters
-    ----------
-    name : str, optional
-        The name of the layer. The default is ``Expm1`` followed by a number.
-
-    Call arguments
-    --------------
-    x : Stream or list of Stream
-        A stream of any shape, or a list of streams.
-
-    Returns
-    -------
-    Stream or list of Stream
-        A stream of the shape of ``x``: ``Shape(S, T, D)`` gives
-        ``Shape(S, T, D)``. A list of streams gives a list, in its order.
-
-    See Also
-    --------
-    Exp : Exponential.
-    Log1p : :math:`\ln(1 + x)`, its inverse.
-
-    Notes
-    -----
-    .. math:: y = e^x - 1
-
-    Defined for every real ``x``, with values in :math:`(-1, \infty)`. The
-    gradient is :math:`e^x`. Near 0 it keeps the digits that
-    ``Exp(x) - 1`` loses in float32.
-
-    Basic Examples
-    --------------
-    >>> import keras
-    >>> import numpy as np
-    >>> from nnodely import Exp, Expm1, Input, Modely, Output
-    >>> x = Input("x", dim=2)
-    >>> model = Modely("expm1", inputs=[x], outputs=[Output("y", Expm1(x))]).build()
-    >>> keras.ops.convert_to_numpy(model({"x": np.array([[0.0, 1.0]])})["y"]).round(4)
-    array([[0.    , 1.7183]], dtype=float32)
-
-    Properties & Relations
-    ----------------------
-    ``Expm1(x)`` is ``Exp(x) - 1``, more accurate for a small ``x``. For
-    :math:`x = 10^{-7}`, scaled by :math:`10^7`:
-
-    >>> s = Input("s")
-    >>> outputs = [Output("expm1", Expm1(s)), Output("exp", Exp(s) - 1.0)]
-    >>> model = Modely("small", inputs=[s], outputs=outputs).build()
-    >>> result = model({"s": np.array([[1e-7]])})
-    >>> [(keras.ops.convert_to_numpy(result[k]) * 1e7).round(2) for k in ("expm1", "exp")]
-    [array([[1.]], dtype=float32), array([[1.19]], dtype=float32)]
-
-    .. versionadded:: 2.0
-    """
-
-    _operation = "expm1"
-
-
 class Log(UnaryOp):
     r"""Natural logarithm of every value of a stream.
 
@@ -353,7 +286,6 @@ class Log(UnaryOp):
     See Also
     --------
     Exp : Exponential, its inverse.
-    Log1p : :math:`\ln(1 + x)`, accurate near 0.
     Log10 : Base-10 logarithm.
     Log2 : Base-2 logarithm.
 
@@ -388,83 +320,6 @@ class Log(UnaryOp):
     """
 
     _operation = "log"
-
-
-class Log1p(UnaryOp):
-    r"""Logarithm of one plus every value of a stream, :math:`\ln(1 + x)`, accurate near 0.
-
-    Syntax
-    ------
-    ``Log1p(x)``
-        The value :math:`\ln(1 + x)` of ``x``; the same as ``Log1p()(x)``.
-    ``Log1p(name="l")(x)``
-        The same, with the layer named.
-    ``Log1p([a, b])``
-        The value :math:`\ln(1 + x)` of each stream of the list, as a list.
-
-    Parameters
-    ----------
-    name : str, optional
-        The name of the layer. The default is ``Log1p`` followed by a number.
-
-    Call arguments
-    --------------
-    x : Stream or list of Stream
-        A stream of any shape, or a list of streams.
-
-    Returns
-    -------
-    Stream or list of Stream
-        A stream of the shape of ``x``: ``Shape(S, T, D)`` gives
-        ``Shape(S, T, D)``. A list of streams gives a list, in its order.
-
-    See Also
-    --------
-    Log : Natural logarithm.
-    Expm1 : :math:`e^x - 1`, its inverse.
-
-    Notes
-    -----
-    .. math:: y = \ln(1 + x)
-
-    Defined for :math:`x > -1`. At :math:`-1` the result is :math:`-\infty`,
-    and below it NaN, with no error. The gradient is :math:`1 / (1 + x)`.
-    Near 0 it keeps the digits that ``Log(1 + x)`` loses in float32.
-
-    Basic Examples
-    --------------
-    >>> import keras
-    >>> import numpy as np
-    >>> from nnodely import Input, Log, Log1p, Modely, Output
-    >>> x = Input("x", dim=2)
-    >>> model = Modely("log1p", inputs=[x], outputs=[Output("y", Log1p(x))]).build()
-    >>> keras.ops.convert_to_numpy(model({"x": np.array([[0.0, 1.0]])})["y"]).round(4)
-    array([[0.    , 0.6931]], dtype=float32)
-
-    Properties & Relations
-    ----------------------
-    ``Log1p(x)`` is ``Log(1 + x)``, more accurate for a small ``x``. For
-    :math:`x = 10^{-7}`, scaled by :math:`10^7`:
-
-    >>> s = Input("s")
-    >>> outputs = [Output("log1p", Log1p(s)), Output("log", Log(s + 1.0))]
-    >>> small = Modely("small", inputs=[s], outputs=outputs).build()
-    >>> result = small({"s": np.array([[1e-7]])})
-    >>> [(keras.ops.convert_to_numpy(result[k]) * 1e7).round(2) for k in ("log1p", "log")]
-    [array([[1.]], dtype=float32), array([[1.19]], dtype=float32)]
-
-    Possible Issues
-    ---------------
-    At :math:`-1` the result is minus infinity, and below it NaN, with no
-    error:
-
-    >>> keras.ops.convert_to_numpy(model({"x": np.array([[-1.0, -2.0]])})["y"])
-    array([[-inf,  nan]], dtype=float32)
-
-    .. versionadded:: 2.0
-    """
-
-    _operation = "log1p"
 
 
 class Log10(UnaryOp):
@@ -2349,13 +2204,17 @@ class Norm(Reduction):
 
 
 def _cross(a, b, axis):
-    # Written out with gathers rather than keras.ops.cross, whose axis the
-    # backends choose differently.
-    def turned(x, order):
-        return keras.ops.take(x, order, axis=axis)
-
-    ahead = turned(a, [1, 2, 0]) * turned(b, [2, 0, 1])
-    return ahead - turned(a, [2, 0, 1]) * turned(b, [1, 2, 0])
+    # Written out component by component rather than with keras.ops.cross,
+    # whose axis the backends choose differently, or with gathers, which the
+    # torch ONNX exporter writes as a Squeeze ONNX Runtime refuses.
+    a = keras.ops.moveaxis(a, axis, -1)
+    b = keras.ops.moveaxis(b, axis, -1)
+    a0, a1, a2 = a[..., 0], a[..., 1], a[..., 2]
+    b0, b1, b2 = b[..., 0], b[..., 1], b[..., 2]
+    c = keras.ops.stack(
+        [a1 * b2 - a2 * b1, a2 * b0 - a0 * b2, a0 * b1 - a1 * b0], axis=-1
+    )
+    return keras.ops.moveaxis(c, -1, axis)
 
 
 @keras.saving.register_keras_serializable(package="nnodely")

@@ -1395,8 +1395,8 @@ import nnodely  # noqa: E402
 
 _APPLIED_ON_CREATION = [
     "Abs", "Acos", "Acosh", "Asin", "Asinh", "Atan", "Atanh", "Ceil", "Cos",
-    "Cosh", "Deg2Rad", "Exp", "Expm1", "Floor", "Log", "Log10", "Log1p",
-    "Log2", "Negative", "Rad2Deg", "Round", "Sigmoid", "Sign", "Sin", "Sinh",
+    "Cosh", "Deg2Rad", "Exp", "Floor", "Log", "Log10", "Log2", "Negative",
+    "Rad2Deg", "Round", "Sigmoid", "Sign", "Sin", "Sinh",
     "Softplus", "Sqrt", "Square", "Swish", "Tan", "Tanh",
 ]  # fmt: skip
 

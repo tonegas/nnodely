@@ -10,10 +10,8 @@ from nnodely.layers.arithmetic import (
     Cross,
     Deg2Rad,
     Exp,
-    Expm1,
     Floor,
     Log,
-    Log1p,
     Log10,
     Log2,
     Max,
@@ -51,8 +49,6 @@ import pytest
         (Sign, np.sign, -3.0, 3.0),
         (Negative, np.negative, -3.0, 3.0),
         (Deg2Rad, np.deg2rad, -180.0, 180.0),
-        (Expm1, np.expm1, -2.0, 2.0),
-        (Log1p, np.log1p, 0.0, 5.0),
         (Log2, np.log2, 0.5, 5.0),
         (Square, np.square, -3.0, 3.0),
         (Round, np.round, -3.0, 3.0),
@@ -310,7 +306,7 @@ def test_math_layers_save_load_and_export(tmp_path):
         "norm": Norm(axis=0, name="norm_layer")([x]),
         "reductions": Mean()([x]) + Max()([y]) - Min()([y]) + Sum()([x]),
         "extremum": Maximum([Minimum([x, y]), bound]),
-        "unary": Rad2Deg(Round(Square(Sinh(x) + Cosh(y)))) + Log1p(abs(x)),
+        "unary": Rad2Deg(Round(Square(Sinh(x) + Cosh(y)))) + Log(abs(x) + 1.0),
         "operators": 2.0**x % 1.5 - y,
     }
     model = Modely(

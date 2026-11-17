@@ -90,8 +90,9 @@ In short: **let the tools do the work**.
 
 ## Python Version
 
-We support Python 3.10 and later (`requires-python` in `pyproject.toml` has no
-upper bound). Pull requests to `main` are tested on 3.10 to 3.13 with the full
+We support Python 3.11 and later (`requires-python` in `pyproject.toml` has no
+upper bound; Keras 3.13 and later need 3.11). Pull requests to `main` are
+tested on 3.11 to 3.13 with the full
 suite; pull requests to `develop` only on 3.13, with the fast suite (the full
 suite runs only for coverage, on Ubuntu). Tests will
 catch most of the version specific behaviour, but please keep it in mind.
@@ -365,7 +366,7 @@ These settings on GitHub enforce the model.
 - **Ruleset `main-protection`** (default branch, no bypass): deletion and
   force pushes blocked; required checks `lint`, every
   `test (os, python, backend)` job of `run-tests.yml` (three systems, Python
-  3.10 to 3.13, three backends), `Compute coverage (backend)` and
+  3.11 to 3.13, three backends), `Compute coverage (backend)` and
   `codecov/patch`. It is separate from `main` so that bypassing the review
   never bypasses the tests.
 - **Ruleset `develop`** (`develop`, no bypass): deletion and force pushes

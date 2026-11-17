@@ -4,6 +4,7 @@ A model is exported as it was declared, without its minimizers: only its
 outputs, and only the inputs they read.
 """
 
+import importlib.util
 import os
 from pathlib import Path
 from typing import Any
@@ -76,14 +77,41 @@ def _pair_onnx_names(values, expected, by_name: bool = False):
     }
 
 
-def _static_input_signature(model, batch_size: int):
-    """The model's own input structure, with the batch axis fixed."""
+#: The package Keras converts a model to ONNX with, on each backend.
+_CONVERTERS = {"tensorflow": "tf2onnx", "torch": "onnxscript", "jax": "jax2onnx"}
+
+
+def _static_input_signature(
+    keras_model, batch_size: int, seq_length: int | None, name: str
+):
+    """The input structure of ``keras_model``, every axis fixed: the batch to
+    ``batch_size``, a sequence of dynamic length to ``seq_length``. ``name``
+    is the Modely's, for the error."""
 
     def spec(tensor):
-        shape = (batch_size,) + tuple(int(axis) for axis in tensor.shape[1:])
-        return keras.InputSpec(shape=shape, dtype=tensor.dtype, name=tensor.name)
+        sizes = []
+        for axis in tensor.shape[1:]:
+            if axis is None:
+                if seq_length is None:
+                    raise ValueError(
+                        f"Model {name!r} reads {tensor.name!r} as a "
+                        "sequence of dynamic length, and an ONNX file has "
+                        "fixed shapes: give its length, export_onnx(..., "
+                        "seq_length=n). The exported file computes sequences "
+                        "of that length."
+                    )
+                axis = seq_length
+            sizes.append(int(axis))
+        return keras.InputSpec(
+            shape=(batch_size, *sizes), dtype=tensor.dtype, name=tensor.name
+        )
 
-    return [keras.tree.map_structure(spec, model._inputs_struct)]
+    return [keras.tree.map_structure(spec, keras_model._inputs_struct)]
+
+
+def _positive_int(value, name: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"export_onnx(): {name} is a positive int, got {value!r}.")
 
 
 def _export_file(path, filename: str | None, model_name: str, suffix: str) -> Path:
@@ -155,7 +183,8 @@ def export_onnx(
     filename: str | None = None,
     *,
     input_signature=None,
-    batch_size: int | None = None,
+    batch_size: int = 1,
+    seq_length: int | None = None,
     opset_version: int | None = None,
     verbose: bool = False,
 ) -> None:
@@ -163,16 +192,16 @@ def export_onnx(
     if model._keras_inference_model is None:
         raise ValueError("Model is not built. Call build() before export_onnx().")
     model._check_names_built()
+    _positive_int(batch_size, "batch_size")
+    if seq_length is not None:
+        _positive_int(seq_length, "seq_length")
 
-    if keras.backend.backend() == "jax":
-        # Keras reaches ONNX from jax through jax2tf, and jax 0.4.36 removed
-        # graph serialization, so jax2tf now emits the whole model as one
-        # opaque XlaCallModule node that tf2onnx has no converter for.
-        raise NotImplementedError(
-            "ONNX export is not available on the jax backend: jax>=0.4.36 "
-            "makes jax2tf emit an XlaCallModule node that tf2onnx cannot "
-            "convert. Export from the tensorflow or torch backend instead "
-            "(set KERAS_BACKEND before importing keras)."
+    backend = keras.backend.backend()
+    converter = _CONVERTERS.get(backend)
+    if converter is not None and importlib.util.find_spec(converter) is None:
+        raise ImportError(
+            f"ONNX export on the {backend} backend needs the {converter} "
+            f'package, which comes with the backend: pip install "nnodely[{backend}]".'
         )
 
     file = _export_file(path, filename, model.name, ".onnx")
@@ -214,41 +243,77 @@ def export_onnx(
             "ONNX export of a model that differentiates a sub-graph (a "
             "Gradient with respect to an Input) is not supported on the "
             "'torch' backend: its exporter traces a forward pass only and "
-            "cannot record the backward pass such a layer evaluates. The "
-            "'tensorflow' and 'jax' backends export it, because there the "
-            "backward pass becomes ordinary graph operations."
+            "cannot record the backward pass such a layer evaluates. Export "
+            "it from the 'jax' backend, or from 'tensorflow' when tf2onnx "
+            "converts the gradients of its layers."
         )
 
+    # Every axis fixed: the torch exporter keeps no dynamic axis right, and
+    # jax2onnx none through nnodely's layers.
     if input_signature is None:
-        if batch_size is None and _traces_backward_pass(export_model):
-            batch_size = 1
-        if batch_size is not None:
-            input_signature = _static_input_signature(export_model, batch_size)
+        input_signature = _static_input_signature(
+            export_model, batch_size, seq_length, model.name
+        )
 
-    export_kwargs: dict[str, Any] = {"verbose": verbose}
-    if input_signature is not None:
-        export_kwargs["input_signature"] = input_signature
+    export_kwargs: dict[str, Any] = {
+        "verbose": verbose,
+        "input_signature": input_signature,
+    }
     if opset_version is not None:
         export_kwargs["opset_version"] = opset_version
 
     export_model.export(file, format="onnx", **export_kwargs)
-    _set_onnx_io_names(model, file)
+    _refuse_unknown_operators(file, model.name)
+    _set_onnx_io_names(model, file, seq_length)
 
 
-def _set_onnx_io_names(model, path: Path) -> None:
-    """Restore Modely input/output names if an exporter replaced them."""
-    try:
-        import onnx
-    except ImportError:
-        return
+def _refuse_unknown_operators(path: Path, name: str) -> None:
+    """Remove the file and raise when it holds operators ONNX does not
+    define, which tf2onnx copies as they are when it cannot convert them,
+    rather than leave a file no runtime loads."""
+    import onnx
+
+    unknown: set[str] = set()
+
+    def walk(graph) -> None:
+        for node in graph.node:
+            for attribute in node.attribute:
+                for body in (attribute.g, *attribute.graphs):
+                    walk(body)
+            if node.domain in ("", "ai.onnx") and not onnx.defs.has(node.op_type):
+                unknown.add(node.op_type)
+
+    walk(onnx.load(str(path)).graph)
+    if unknown:
+        path.unlink()
+        raise NotImplementedError(
+            f"Model {name!r} cannot be exported to ONNX on the "
+            f"{keras.backend.backend()!r} backend: its exporter has no ONNX "
+            f"operator for {sorted(unknown)}. A Gradient records the gradient "
+            "of every layer it differentiates, such as TanhGrad for a Tanh: "
+            "export such a model from the 'jax' backend."
+        )
+
+
+def _set_onnx_io_names(model, path: Path, seq_length: int | None = None) -> None:
+    """Restore Modely input/output names if an exporter replaced them; a
+    dynamic sequence axis was exported ``seq_length`` long."""
+    import onnx
 
     onnx_model = onnx.load(str(path))
     graph = onnx_model.graph
+
+    def exported(shape) -> tuple:
+        sizes = (seq_length if axis is None else axis for axis in shape)
+        return tuple(int(size) for size in sizes if size is not None)
+
     expected_inputs = [
-        (tensor.name, tuple(int(axis) for axis in tensor.shape[1:] if axis))
+        (tensor.name, exported(tensor.shape[1:]))
         for tensor in model._keras_inference_model.inputs
     ]
-    expected_outputs = [(node.name, tuple(node.shape.tuple)) for node in model._outputs]
+    expected_outputs = [
+        (node.name, exported(node.shape.tuple)) for node in model._outputs
+    ]
     rename = {}
 
     # Only an exporter that dropped the names has to be corrected. One that
@@ -308,12 +373,7 @@ def validate_onnx(
     providers: list[str] | None = None,
 ):
     """The implementation of :meth:`Modely.validate_onnx`."""
-    try:
-        import onnxruntime as ort
-    except ImportError as exc:
-        raise ImportError(
-            "validate_onnx() requires the optional 'onnxruntime' package."
-        ) from exc
+    import onnxruntime as ort
 
     path = Path(filename)
     if path.suffix.lower() != ".onnx":

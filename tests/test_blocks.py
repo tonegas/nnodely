@@ -27,7 +27,7 @@ from nnodely.layers.fuzzify import Fuzzify, Gaussian, Rectangular, Triangular
 from nnodely.core.layer import Identity
 import keras
 import numpy as np
-from conftest import requires_onnx_export, to_numpy
+from conftest import to_numpy
 
 import pytest
 from nnodely import TimeRange, TimeSelect
@@ -1925,8 +1925,6 @@ def test_equation_learner_rejects_invalid_calls():
         ("ceil", np.ceil),
         ("round", np.round),
         ("square", np.square),
-        ("expm1", np.expm1),
-        ("log1p", np.log1p),
         ("log2", np.log2),
         ("sinh", np.sinh),
         ("cosh", np.cosh),
@@ -3011,7 +3009,6 @@ def test_derivative_round_trips_through_save_and_the_keras_file(tmp_path):
     )
 
 
-@requires_onnx_export
 def test_derivative_exports_to_onnx(tmp_path):
     pytest.importorskip("onnxruntime")
     model = _saved_derivative_model("donnx", seq=5)
@@ -3027,20 +3024,19 @@ def test_derivative_exports_to_onnx(tmp_path):
     )
 
 
-@pytest.mark.skipif(
-    keras.backend.backend() != "tensorflow",
-    reason="only the tensorflow exporter keeps the sequence axis dynamic",
-)
-@requires_onnx_export
-def test_derivative_exports_to_onnx_following_the_horizon(tmp_path):
+def test_derivative_exports_to_onnx_with_the_horizon_it_is_given(tmp_path):
+    # Once exported with a dynamic horizon, which only tensorflow kept: every
+    # backend now exports the horizon seq_length gives.
     pytest.importorskip("onnxruntime")
     model = _saved_derivative_model("donnx_dynamic", seq=None)
-    model.export_onnx(tmp_path)
+    with pytest.raises(ValueError, match="seq_length=n"):
+        model.export_onnx(tmp_path)
 
     for steps in (2, 6):
+        model.export_onnx(tmp_path, f"donnx_{steps}", seq_length=steps)
         data = _saved_derivative_data("donnx_dynamic", steps)
         actual = Modely.validate_onnx(
-            tmp_path / "donnx_dynamic.onnx", data, return_dict=True
+            tmp_path / f"donnx_{steps}.onnx", data, return_dict=True
         )["donnx_dynamic_out"]  # type: ignore
         expected = to_numpy(model(data)["donnx_dynamic_out"])
         assert expected.shape == (1, steps, 1, 1)

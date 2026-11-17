@@ -4,7 +4,7 @@ import keras
 import numpy as np
 import pytest
 
-from conftest import CONVERGED, requires_onnx_export, to_numpy
+from conftest import CONVERGED, to_numpy
 from nnodely import (
     Buffer,
     DataLoader,
@@ -839,10 +839,8 @@ def test_derivative_export_keras_round_trip(tmp_path):
         np.testing.assert_allclose(to_numpy(result[name]), value, rtol=1e-5, atol=1e-5)
 
 
-@requires_onnx_export
 def test_derivative_export_onnx(tmp_path):
-    """A differentiated graph carries its backward pass into ONNX; the batch
-    axis is fixed for it, which is what the exporter can convert."""
+    """A differentiated graph carries its backward pass into ONNX."""
     _, _, model = _build_mixed_derivative_model("derivative_onnx_model")
     model.build()
 
@@ -868,11 +866,9 @@ def test_derivative_export_onnx(tmp_path):
         np.testing.assert_allclose(result[name], value, rtol=1e-4, atol=1e-4)  # type: ignore
 
 
-@requires_onnx_export
-def test_derivative_wrt_time_needs_no_fixed_batch_to_export():
-    """Only automatic differentiation constrains the export: the finite
-    difference is ordinary arithmetic, so the tw mode leaves the batch axis
-    exactly as the backend's exporter would."""
+def test_derivative_wrt_time_exports_as_ordinary_arithmetic():
+    """Only automatic differentiation records a backward pass: the finite
+    difference is ordinary arithmetic, which every backend exports."""
     v = Input("onnx_time_v", dim=1, tw=2)
     time_model = Modely(
         "derivative_time_onnx_model",
@@ -1211,7 +1207,6 @@ def test_integrate_export_keras(tmp_path):
     )
 
 
-@requires_onnx_export
 def test_integrate_export_onnx(tmp_path):
     model, inputs = _integrate_export_model()
     expected = model(inputs)["integral"]
@@ -1596,7 +1591,6 @@ def test_integrate_init_export_keras(tmp_path):
         )
 
 
-@requires_onnx_export
 def test_integrate_init_export_onnx(tmp_path):
     model, inputs = _integrate_init_export_model()
     expected = {name: to_numpy(value) for name, value in model(inputs).items()}

@@ -26,16 +26,44 @@ def test_the_package_is_marked_as_typed():
     assert (_PACKAGE / "py.typed").is_file()
 
 
-def test_the_onnx_extra_brings_the_tensorflow_exporter():
-    # Once a development dependency only: Keras converts a TensorFlow graph
-    # with tf2onnx, so nnodely[tensorflow,onnx] could not export ONNX.
-    onnx_extra = [
+def _requirements(extra=None):
+    """The requirements of the installed nnodely: its own, or an extra's."""
+    marker = re.compile(r"extra\s*==\s*['\"]([\w-]+)['\"]")
+    found = []
+    for requirement in requires("nnodely") or []:
+        match = marker.search(requirement)
+        if (match.group(1) if match else None) == extra:
+            found.append(requirement)
+    return found
+
+
+def test_every_installation_exports_and_runs_onnx():
+    # Once an onnx extra of its own: ONNX export is part of every model, and
+    # validate_onnx runs the file.
+    names = [re.split(r"[<>=; ]", requirement)[0] for requirement in _requirements()]
+
+    assert "onnx" in names and "onnxruntime" in names
+
+
+@pytest.mark.parametrize(
+    "backend, converter",
+    [("tensorflow", "tf2onnx"), ("torch", "onnxscript"), ("jax", "jax2onnx")],
+)
+def test_every_backend_extra_brings_its_onnx_converter(backend, converter):
+    # Once an extra apart, onnx and onnx-jax: nnodely[jax] could not export.
+    assert any(r.startswith(converter) for r in _requirements(backend))
+
+
+def test_keras_is_one_that_exports_onnx_from_every_backend():
+    # Once capped below 3.14: the export now relies on its jax2onnx path and
+    # on its torch exporter with fixed shapes.
+    keras_requirement = next(
         requirement
         for requirement in requires("nnodely") or []
-        if re.search(r"extra\s*==\s*['\"]onnx['\"]", requirement)
-    ]
+        if requirement.startswith("keras")
+    )
 
-    assert any(requirement.startswith("tf2onnx") for requirement in onnx_extra)
+    assert ">=3.15.1" in keras_requirement and "<" not in keras_requirement
 
 
 def test_newer_pythons_are_not_turned_away():

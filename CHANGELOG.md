@@ -8,9 +8,10 @@ All notable changes to nnodely are recorded here. The format follows
 
 nnodely 2.0 is a rewrite of the library on **Keras 3**. The same model runs on
 TensorFlow, PyTorch or JAX, chosen with the `KERAS_BACKEND` environment
-variable, and trains, validates and exports through Keras. It needs Python
-3.10 or later, and is tested on 3.10 to 3.13. Models saved with 1.x cannot
-be loaded by 2.0: see
+variable, and trains, validates and exports through Keras 3.15.1 or later,
+which clears five Keras security advisories of earlier versions. It needs
+Python 3.11 or later, as Keras does, and is tested on 3.11 to 3.13. Models
+saved with 1.x cannot be loaded by 2.0: see
 [Migrating from 1.x](#migrating-from-1x) for the 1.x names and their
 replacements.
 
@@ -102,8 +103,8 @@ a row of a printed table has the fields of the object it stands for.
 - **Layers new in 2.0**: `BatchNorm`, `LeakyReLU`, `PReLU`, `Swish`, `GELU`,
   `Softplus`, `Asin`, `Acos`, `Atan`, `Exp`, `Log`, `Log10`, `Sqrt`, `Abs`,
   `Floor`, `Ceil`, `Deg2Rad`, `Negative` and `Clamp`.
-- **Math layers** `Sinh`, `Asinh`, `Acosh`, `Atanh`, `Expm1`, `Log1p`,
-  `Log2`, `Square`, `Round` and `Rad2Deg`; `Maximum([a, b, ...])` and
+- **Math layers** `Sinh`, `Asinh`, `Acosh`, `Atanh`, `Log2`, `Square`,
+  `Round` and `Rad2Deg`; `Maximum([a, b, ...])` and
   `Minimum([a, b, ...])`, elementwise and broadcast as the operators are, so
   that a bound can be a learned Parameter; `Mean`, `Max`, `Min` and `Norm`
   over the dim axes, as `Sum`, `Norm` with gradient 0 at the zero vector;
@@ -386,9 +387,17 @@ a row of a printed table has the fields of the object it stands for.
   every model, a weight read from several Keras graphs (a body rolled out by
   two Loops, a Parameter read inside and outside a body, several `Gradient`
   of one relation) written once per graph with the same value.
-  **`export_onnx` and `Modely.validate_onnx`** with the `onnx` extra, on the
-  TensorFlow and PyTorch backends; on JAX it raises, saying why. Both exports
-  refuse a model renamed since its build.
+  **`export_onnx` and `Modely.validate_onnx`** on every backend, through
+  tf2onnx, the PyTorch exporter or jax2onnx. Every axis
+  of the file is fixed: the batch is `batch_size` samples, one by default,
+  and a sequence of dynamic length, such as a rollout of `model.loop()`, is
+  exported `seq_length` steps long; without it the export raises. Every block
+  exports, `Cross` and `Log2` included, but a `Gradient`
+  with respect to an Input: it exports from JAX, from TensorFlow when tf2onnx
+  converts the gradient of every layer it differentiates, and not from
+  PyTorch. A file with an operator ONNX does not define is removed, and the
+  error names the operators. Both exports refuse a model renamed since its
+  build.
 - **`export_html`**, an interactive HTML graph of the model. Every node is
   coloured by its role, with a legend that highlights a role, and labelled
   with its name; two nodes of one name are both drawn. A panel explains the
@@ -422,7 +431,9 @@ a row of a printed table has the fields of the object it stands for.
 ### Changed
 
 - **The package installs no backend**: install `nnodely[tensorflow]`,
-  `nnodely[torch]` or `nnodely[jax]`; `nnodely[onnx]` adds ONNX export.
+  `nnodely[torch]` or `nnodely[jax]`, which brings the converter Keras
+  exports ONNX with from it (tf2onnx, onnxscript, jax2onnx); `onnx` and
+  `onnxruntime` are dependencies of nnodely itself.
 - **Every stream is laid out `(batch, *seq, tw, *dim)`**, a `Parameter` or a
   `Constant` included: their value is repeated for every sample. The
   sequence axes come first, outermost first, where a `Loop` rolls out. Then

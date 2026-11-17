@@ -227,9 +227,7 @@ reaches the loss through them does not train.
    :nosignatures:
 
    Exp
-   Expm1
    Log
-   Log1p
    Log10
    Log2
 

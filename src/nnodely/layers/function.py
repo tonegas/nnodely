@@ -273,7 +273,7 @@ class KerasFunction(Layer):
         keras.saving.get_custom_objects()[
             keras.saving.get_registered_name(type(function))
         ] = type(function)
-        self._function = function
+        self._function: keras.layers.Layer = function
         super().__init__(name=name, function=function)
         # One Keras layer is one layer however many times it is wrapped: every
         # wrapper of an instance applies it, so they save and load as one.

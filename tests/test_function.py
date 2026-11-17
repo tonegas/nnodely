@@ -1,7 +1,7 @@
 import keras
 import numpy as np
 import pytest
-from conftest import requires_onnx_export, to_numpy
+from conftest import to_numpy
 
 from nnodely import DataLoader, Input, KerasFunction, Linear, Modely, Output
 
@@ -212,7 +212,6 @@ def test_keras_functions_save_load_and_export_to_keras(tmp_path):
 
 
 @pytest.mark.slow
-@requires_onnx_export
 def test_keras_functions_export_to_onnx(tmp_path):
     pytest.importorskip("onnxruntime")
     model = _custom_function_model()

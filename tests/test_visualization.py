@@ -541,12 +541,12 @@ def test_equation_learner_plot_writes_the_new_math_functions():
     import sympy
 
     learner = _equation_learner(
-        "math_drawn", ["sinh", "log2", "log1p", "square", "round"], features=5
+        "math_drawn", ["sinh", "log2", "log10", "square", "round"], features=5
     )
     assert [sympy.latex(equation.rhs) for equation in learner.plot()] == [
         r"\sinh{\left(x \right)}",
         r"\log_{2}{\left(x \right)}",
-        r"\log{\left(x + 1 \right)}",
+        r"\log_{10}{\left(x \right)}",
         "x^{2}",
         r"\operatorname{round}{\left(x \right)}",
     ]

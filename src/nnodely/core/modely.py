@@ -3151,7 +3151,8 @@ class Modely:
         filename: str | None = None,
         *,
         input_signature=None,
-        batch_size: int | None = None,
+        batch_size: int = 1,
+        seq_length: int | None = None,
         opset_version: int | None = None,
         verbose: bool = False,
     ) -> None:
@@ -3160,8 +3161,14 @@ class Modely:
 
         The file holds the model as declared: its outputs, and only the
         inputs they read, under their names. The objectives are left out.
-        The export needs the ``onnx`` extra, ``pip install "nnodely[onnx]"``,
-        and the TensorFlow or PyTorch backend.
+        Every backend exports: its extra, such as ``pip install
+        "nnodely[torch]"``, brings the converter Keras exports with.
+
+        Every axis of the file is fixed: the batch is ``batch_size`` samples,
+        one by default, and every sequence has its declared length. A
+        sequence of dynamic length, ``seq=-1``, as every Input of a rollout
+        of :meth:`loop` without ``seq`` has, is exported ``seq_length`` long.
+        The file runs on arrays of those shapes only.
 
         Parameters
         ----------
@@ -3172,11 +3179,13 @@ class Modely:
             suffix ``.onnx`` is added when missing.
         input_signature : list or None, default None
             The shapes the exported graph takes, as Keras'
-            ``Model.export`` takes them, to fix axes left dynamic. ``None``
-            keeps the shapes of the model, the batch axis dynamic.
-        batch_size : int or None, default None
-            Fixes the batch axis to that many samples. ``None`` leaves it
-            dynamic. ``input_signature`` overrides it.
+            ``Model.export`` takes them. ``None`` fixes them from
+            ``batch_size`` and ``seq_length``, which it overrides.
+        batch_size : int, default 1
+            The number of samples the file computes at once, a positive int.
+        seq_length : int or None, default None
+            The length of every sequence of dynamic length, a positive int.
+            Needed when the model reads one, unused otherwise.
         opset_version : int or None, default None
             The ONNX opset. ``None`` takes the exporter's default.
         verbose : bool, default False
@@ -3186,10 +3195,15 @@ class Modely:
         ------
         ValueError
             If the model is not built ("Call build() before export_onnx()").
+            If ``batch_size`` or ``seq_length`` is not a positive int ("is a
+            positive int"). If the model reads a sequence of dynamic length
+            and ``seq_length`` is None ("give its length").
+        ImportError
+            If the converter of the backend is missing, nnodely installed
+            without its backend extra ("comes with the backend").
         NotImplementedError
-            On the JAX backend ("not available on the jax backend"). On the
-            PyTorch backend, for a model with a :class:`Gradient` with respect
-            to an Input.
+            On the PyTorch backend, for a model with a :class:`Gradient` with
+            respect to an Input.
 
         See Also
         --------
@@ -3199,18 +3213,66 @@ class Modely:
 
         Notes
         -----
+        A model deployed in another system mostly runs one sample at a time,
+        in a controller or an estimator: hence a batch of one. A batch of
+        ``n`` runs ``n`` samples at every call, with ``n`` known when the
+        model is deployed: the candidates of a sampling-based predictive
+        controller, the particles of a filter, several agents served by one
+        model.
+
+        The file computes what the model computes, up to float32 rounding.
+
         A :class:`Gradient` with respect to an Input records the backward
-        pass in the exported graph. Its shape arithmetic converts only with a
-        fixed batch axis: such a model is exported with a batch of 1, unless
-        ``batch_size`` or ``input_signature`` says otherwise.
+        pass in the exported graph: it exports from JAX, from TensorFlow
+        when tf2onnx converts the gradient of every layer it differentiates
+        (that of :class:`Sin` but not that of :class:`Tanh`), and not from
+        PyTorch.
 
         Basic Examples
         --------------
-        A built model named ``double``, on the TensorFlow or the PyTorch
-        backend::
+        A model that doubles its input, exported, then run by ONNX Runtime:
 
-            model.export_onnx("exports")                 # exports/double.onnx
-            model.export_onnx("exports", "fixed", batch_size=4)
+        >>> import tempfile
+        >>> import numpy as np
+        >>> from nnodely import Input, Modely, Output
+        >>> x = Input("x", tw=1)
+        >>> double = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)]).build()
+        >>> folder = tempfile.mkdtemp()
+        >>> double.export_onnx(folder)  # folder/double.onnx, one sample
+        >>> Modely.validate_onnx(f"{folder}/double.onnx", {"x": np.ones((1, 1, 1))})
+        [array([[[2.]]], dtype=float32)]
+
+        Options
+        -------
+        ``batch_size`` fixes the number of samples of every call:
+
+        >>> double.export_onnx(folder, "four", batch_size=4)
+        >>> Modely.validate_onnx(f"{folder}/four.onnx", {"x": np.ones((4, 1, 1))})[0].shape
+        (4, 1, 1)
+
+        ``seq_length`` fixes the number of steps of a rollout that follows
+        the data:
+
+        >>> total = Input("total", tw=1)
+        >>> step = Modely("counter", inputs=[x], outputs=[Output("s", total.feedback(total + x, hidden=True))])
+        >>> counter = step.loop().build()
+        >>> counter.export_onnx(folder, seq_length=3)
+        >>> result = Modely.validate_onnx(f"{folder}/counter.onnx", {"x": np.ones((1, 3, 1, 1))})
+        >>> result[0].ravel()
+        array([1., 2., 3.], dtype=float32)
+
+        Possible Issues
+        ---------------
+        A sequence of dynamic length has no length to export without
+        ``seq_length``:
+
+        >>> counter.export_onnx(folder)
+        Traceback (most recent call last):
+            ...
+        ValueError: Model 'counter' reads 'x' as a sequence of dynamic length, and an ONNX file has fixed shapes...
+
+        The file refuses arrays of another shape than it was exported with,
+        another batch or another number of steps: export it again with those.
 
         .. versionadded:: 2.0
         """
@@ -3220,6 +3282,7 @@ class Modely:
             filename,
             input_signature=input_signature,
             batch_size=batch_size,
+            seq_length=seq_length,
             opset_version=opset_version,
             verbose=verbose,
         )
@@ -3260,8 +3323,6 @@ class Modely:
 
         Raises
         ------
-        ImportError
-            If ``onnxruntime`` is not installed.
         FileNotFoundError
             If the file does not exist ("ONNX model not found").
         ValueError

@@ -165,6 +165,10 @@ class LoopImpl(keras.layers.Layer):
         if self.horizon_index is not None:
             value = inputs[self.horizon_index]
             width = value.shape[OUTER_AXIS]
+            if getattr(width, "ndim", None) == 0:
+                # Traced by the TorchScript ONNX exporter, a size is a 0-d
+                # tensor: the size it has.
+                width = int(width)
             if isinstance(width, int):
                 return width
             if keras.backend.backend() == "tensorflow":

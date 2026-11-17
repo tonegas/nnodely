@@ -3,7 +3,7 @@ Getting Started
 
 This page installs *nnodely* and builds a first model: it learns to predict
 the motion of a mass-spring-damper from data, then runs on new samples. It
-takes a few minutes, and assumes only Python 3.10 to 3.13 and NumPy.
+takes a few minutes, and assumes only Python 3.11 to 3.13 and NumPy.
 
 Installation
 ------------
@@ -18,11 +18,8 @@ want:
    # or: pip install "nnodely[torch]"
    # or: pip install "nnodely[jax]"
 
-The ``onnx`` extra adds what is needed to export and run ONNX models:
-
-.. code-block:: bash
-
-   pip install "nnodely[torch,onnx]"
+Each backend comes with what is needed to export the model to ONNX and run
+the file: nothing more to install.
 
 To install from source, clone the repository and install it with the extras
 you need:
