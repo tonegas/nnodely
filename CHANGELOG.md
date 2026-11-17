@@ -437,6 +437,10 @@ a row of a printed table has the fields of the object it stands for.
   JAX. A `KERAS_BACKEND` that is not installed fails the import, naming it,
   how to install it and the backends installed. `nnodely.get_backend()`
   returns the backend in use.
+- **nnodely computes on the CPU by default, on every backend**, where its
+  small models run fastest. `NNODELY_DEVICE=gpu`, set before the import, takes the accelerator of the
+  backend, and the import fails, saying how to have one, when there is none.
+  `nnodely.get_device()` returns the device in use.
 - **The package installs no backend**: install `nnodely[tensorflow]`,
   `nnodely[torch]` or `nnodely[jax]`, which brings the converter Keras
   exports ONNX with from it (tf2onnx, onnxscript, jax2onnx); `onnx` and

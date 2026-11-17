@@ -48,6 +48,28 @@ if "keras" not in _sys.modules and not _os.environ.get("KERAS_BACKEND"):
 # What chose the backend, read before Keras writes its configuration file.
 _chosen, _origin = _configured_backend()
 
+# The device: the CPU, where nnodely's small models run fastest, unless
+# NNODELY_DEVICE is "gpu". It is set through the variable each backend reads
+# when it starts; unset, one the user gave the backend is kept.
+_device = _os.environ.get("NNODELY_DEVICE", "").strip().lower()
+if _device not in ("", "cpu", "gpu"):
+    raise ValueError(
+        f"NNODELY_DEVICE is 'cpu' or 'gpu', got {_os.environ['NNODELY_DEVICE']!r}."
+    )
+_keras_loaded = "keras" in _sys.modules
+_variable = {"torch": "KERAS_TORCH_DEVICE", "jax": "JAX_PLATFORMS"}.get(_chosen)
+# The CPU, unless asked for the GPU or given a device of the backend's own.
+_wants_cpu = _device == "cpu" or (
+    _device == "" and (_variable is None or _variable not in _os.environ)
+)
+if _variable is not None:
+    if _device == "":
+        _os.environ.setdefault(_variable, "cpu")
+    elif _device == "cpu":
+        _os.environ[_variable] = "cpu"
+    elif _os.environ.get(_variable, "").lower() == "cpu":
+        del _os.environ[_variable]  # the backend takes its accelerator
+
 # Keras imports its backend on import, and names only the missing module when
 # that backend is not installed.
 try:
@@ -70,6 +92,39 @@ except ModuleNotFoundError as error:
             "the KERAS_BACKEND environment variable before importing nnodely."
         )
     ) from error
+
+import warnings as _warnings
+
+# TensorFlow has no variable of Keras for its device: its GPUs are hidden,
+# which it allows until it computes for the first time.
+_restricted = True
+if _device != "gpu" and keras.backend.backend() == "tensorflow":
+    import tensorflow as _tf
+
+    if _tf.config.list_physical_devices("GPU"):
+        try:
+            _tf.config.set_visible_devices([], "GPU")
+        except RuntimeError:  # it has computed already
+            _restricted = False
+
+#: What makes a GPU available to each backend, on each system.
+_GPU_HINTS = {
+    ("torch", "macos"): "PyTorch computes on the Apple GPU (MPS) of Apple silicon only",
+    ("torch", "linux"): "install a CUDA build of PyTorch, from pytorch.org",
+    ("torch", "windows"): "install a CUDA build of PyTorch, from pytorch.org",
+    ("tensorflow", "macos"): "TensorFlow has no GPU on macOS: use the torch backend",
+    (
+        "tensorflow",
+        "linux",
+    ): 'install TensorFlow with CUDA: pip install "tensorflow[and-cuda]"',
+    (
+        "tensorflow",
+        "windows",
+    ): "TensorFlow has no GPU on native Windows: run it in WSL2",
+    ("jax", "macos"): "JAX has no GPU on macOS: use the torch backend",
+    ("jax", "linux"): 'install JAX with CUDA: pip install "jax[cuda12]"',
+    ("jax", "windows"): "JAX has no GPU on native Windows: run it in WSL2",
+}
 
 
 def get_backend() -> str:
@@ -114,6 +169,90 @@ def get_backend() -> str:
     .. versionadded:: 2.0
     """
     return keras.backend.backend()
+
+
+def get_device() -> str:
+    """The device nnodely computes on: ``"cpu"``, or the accelerator of the
+    backend, such as ``"cuda:0"`` or ``"mps:0"`` (PyTorch), ``"gpu:0"``
+    (TensorFlow, JAX).
+
+    The device is chosen once, when nnodely is imported, from the
+    ``NNODELY_DEVICE`` environment variable:
+
+    - unset, or ``"cpu"``: the CPU, on every backend. nnodely's models are
+      small, and run faster there than on a GPU. Unset, a device given to the
+      backend itself, ``KERAS_TORCH_DEVICE`` or ``JAX_PLATFORMS``, is kept;
+    - ``"gpu"``: the accelerator the backend has, CUDA, or the Apple GPU
+      (MPS) on PyTorch. Without one, the import raises ``RuntimeError``
+      saying what makes one available on the system.
+
+    A ``keras.device(...)`` block changes the device inside it, and so what
+    this returns there.
+
+    Returns
+    -------
+    str
+        The device a new tensor is placed on.
+
+    See Also
+    --------
+    get_backend : The Keras backend nnodely runs on.
+
+    Notes
+    -----
+    Set ``NNODELY_DEVICE`` before importing nnodely, or Keras, as
+    ``KERAS_BACKEND``: ``NNODELY_DEVICE=gpu python train.py``. The device of
+    a model is the one it is built on, kept until the Python process ends.
+
+    Basic Examples
+    --------------
+    >>> import nnodely
+    >>> nnodely.get_device()  # NNODELY_DEVICE unset
+    'cpu'
+
+    .. versionadded:: 2.0
+    """
+    tensor = keras.ops.zeros(())
+    backend = keras.backend.backend()
+    if backend == "torch":
+        name = str(tensor.device)
+    elif backend == "jax":
+        device = next(iter(tensor.devices()))
+        name = f"{device.platform}:{device.id}"
+    else:
+        name = tensor.device.rsplit("device:", 1)[-1]
+    name = name.lower()
+    return "cpu" if name.split(":")[0] == "cpu" else name
+
+
+if _device == "gpu":
+    _backend = keras.backend.backend()
+    if _backend == "tensorflow":
+        import tensorflow as _tf
+
+        # Its GPUs listed, without starting it.
+        _has_gpu = bool(_tf.config.list_physical_devices("GPU"))
+    else:
+        _has_gpu = get_device() != "cpu"
+    if not _has_gpu:
+        _system = {"darwin": "macos", "win32": "windows"}.get(_sys.platform, "linux")
+        raise RuntimeError(
+            f"NNODELY_DEVICE=gpu, but the {_backend!r} backend has no GPU here: "
+            f"{_GPU_HINTS[(_backend, _system)]}. Unset NNODELY_DEVICE to compute "
+            "on the CPU."
+        )
+elif _wants_cpu and (_keras_loaded or not _restricted) and get_device() != "cpu":
+    _cpu_variable = {
+        "torch": "KERAS_TORCH_DEVICE=cpu",
+        "jax": "JAX_PLATFORMS=cpu",
+        "tensorflow": 'CUDA_VISIBLE_DEVICES=""',
+    }[keras.backend.backend()]
+    _warnings.warn(
+        f"nnodely computes on {get_device()!r}, not on the CPU: Keras, or the "
+        "backend, chose its device before nnodely was imported. Import nnodely "
+        f"first, or set {_cpu_variable} before the backend starts.",
+        stacklevel=2,
+    )
 
 
 # Randomness is configured before importing layers so an environment seed is
@@ -213,6 +352,7 @@ __all__ = [
     "set_seed",
     "get_seed",
     "get_backend",
+    "get_device",
     "Modely",
     "DataLoader",
     "TinyPrinter",

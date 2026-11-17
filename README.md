@@ -59,6 +59,11 @@ one is. `nnodely.get_backend()` tells which.
 export KERAS_BACKEND=torch      # or, at the top of a script: os.environ["KERAS_BACKEND"] = "torch"
 ```
 
+nnodely computes on the CPU, where its small models run fastest. Set
+`NNODELY_DEVICE=gpu`, also before the import, for the accelerator of the
+backend: CUDA, or the Apple GPU with PyTorch. `nnodely.get_device()` tells
+which device it uses.
+
 ## Hello, world
 
 To check that nnodely is installed, teach it the Fibonacci rule: two

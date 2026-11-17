@@ -11,9 +11,11 @@ import pytest
 
 from typing import Any, cast
 
+# Before Keras: nnodely chooses the device, the CPU, which the torch backend
+# reads when Keras imports it.
+import nnodely
 import keras
 import numpy.typing as npt
-import nnodely
 
 
 def to_numpy(value: Any) -> npt.NDArray[Any]:
@@ -39,15 +41,3 @@ CONVERGED = {
         "restore_best_weights": True,
     },
 }
-
-
-@pytest.fixture(autouse=True)
-def torch_on_cpu():
-    # Keras's torch backend picks the Apple GPU (MPS) whenever there is one,
-    # and runs eagerly: each of the many small ops of a model is then its own
-    # GPU kernel launch, which makes the suite about twice as slow as the CPU.
-    if keras.backend.backend() != "torch":
-        yield
-        return
-    with keras.device("cpu"):
-        yield

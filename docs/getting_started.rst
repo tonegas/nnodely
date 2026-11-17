@@ -78,9 +78,79 @@ Setting ``KERAS_BACKEND`` after the import changes nothing. To change the
 backend, start a new Python process, or restart the kernel of the notebook,
 with the new value.
 
-On a Mac, PyTorch computes on the Apple GPU (MPS) when there is one. For
-models as small as most *nnodely* models, the CPU is faster: set
-``KERAS_TORCH_DEVICE=cpu`` with ``KERAS_BACKEND``.
+Devices
+~~~~~~~
+
+*nnodely* computes on the **CPU** by default, on every backend. Its models are
+small, and on a GPU each of their many small operations is a launch of its
+own: on an Apple M1, a model of a few hundred weights trained up to four times
+slower on the GPU than on the CPU, and only a network of millions of weights
+was faster on the GPU.
+
+The ``NNODELY_DEVICE`` environment variable chooses the device. As
+``KERAS_BACKEND``, it is read when *nnodely* is imported:
+
+- unset, or ``cpu``: the CPU;
+- ``gpu``: the accelerator the backend has. Without one, the import fails,
+  saying what makes one available on your system.
+
+In the shell, for one run:
+
+.. code-block:: bash
+
+   NNODELY_DEVICE=gpu python train.py
+
+at the very top of a script:
+
+.. code-block:: python
+   :class: skip-test
+
+   import os
+
+   os.environ["KERAS_BACKEND"] = "torch"
+   os.environ["NNODELY_DEVICE"] = "gpu"
+
+   import nnodely
+
+   print(nnodely.get_device())   # cuda:0 with an NVIDIA GPU, mps:0 on a Mac
+
+or in the first cell of a notebook, ``%env NNODELY_DEVICE=gpu``.
+:func:`~nnodely.get_device` tells the device *nnodely* computes on: ``cpu``,
+or the accelerator, such as ``cuda:0``. A model is built on that device and
+stays there: to change it, start a new Python process, or restart the kernel.
+
+What ``gpu`` takes on each system:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 28 28 28
+
+   * - Backend
+     - Linux
+     - Windows
+     - macOS (Apple silicon)
+   * - PyTorch
+     - an NVIDIA GPU, with a CUDA build of PyTorch
+     - an NVIDIA GPU, with a CUDA build of PyTorch, from pytorch.org
+     - the Apple GPU (MPS)
+   * - TensorFlow
+     - an NVIDIA GPU, with ``pip install "tensorflow[and-cuda]"``
+     - none on native Windows; an NVIDIA GPU in WSL2
+     - none
+   * - JAX
+     - an NVIDIA GPU, with ``pip install "jax[cuda12]"``
+     - none on native Windows; an NVIDIA GPU in WSL2
+     - none
+
+- With several GPUs, ``CUDA_VISIBLE_DEVICES=1`` chooses one, on every
+  backend.
+- A device given to the backend itself, ``KERAS_TORCH_DEVICE`` on PyTorch
+  (such as ``cuda:1``) or ``JAX_PLATFORMS`` on JAX, is kept while
+  ``NNODELY_DEVICE`` is unset. ``NNODELY_DEVICE`` overrides it.
+- Import *nnodely* before Keras: Keras chooses the device of PyTorch when it
+  is imported, and *nnodely* warns when it cannot set it any more.
+- On a Mac, do not install ``jax-metal``: with this version of JAX, JAX
+  takes the Apple GPU and fails at its first computation.
 
 The few features that depend on the backend, mostly the ONNX export, are
 listed in :doc:`guide/export`.
