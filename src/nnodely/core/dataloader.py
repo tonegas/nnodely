@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import warnings
+from enum import StrEnum
 from pathlib import Path
 from typing import (
     Any,
@@ -34,6 +35,39 @@ Columns: TypeAlias = str | int | Sequence[str | int]
 InputFormat: TypeAlias = (
     Mapping[str, Columns] | Mapping[Input, Columns] | Mapping[Input | str, Columns]
 )
+
+
+class OnShort(StrEnum):
+    """What :class:`DataLoader` does with a simulation too short to give one
+    sample, ``on_short=``.
+
+    A member is also the string of its value: ``OnShort.SKIP`` and ``"skip"``
+    are the same.
+
+    Attributes
+    ----------
+    ERROR
+        ``"error"``: raise ``ValueError``, naming the simulation.
+    SKIP
+        ``"skip"``: leave the simulation out.
+
+    See Also
+    --------
+    DataLoader : The data of a model, laid out for training.
+
+    Basic Examples
+    --------------
+    >>> from nnodely import OnShort
+    >>> OnShort.SKIP == "skip"
+    True
+    >>> [choice.value for choice in OnShort]
+    ['error', 'skip']
+
+    .. versionadded:: 2.0
+    """
+
+    ERROR = "error"
+    SKIP = "skip"
 
 
 class DataLoader:
@@ -110,8 +144,9 @@ class DataLoader:
     step : int, default 1
         The samples between the current samples of two consecutive samples,
         at least 1. ``step=10`` keeps one sample in ten.
-    on_short : {"error", "skip"}, default "error"
-        What happens to a simulation too short to give one sample:
+    on_short : OnShort or str, default OnShort.ERROR
+        What happens to a simulation too short to give one sample, a member
+        of :class:`OnShort` or its string:
 
         - ``"error"`` raises ``ValueError``;
         - ``"skip"`` leaves it out.
@@ -403,7 +438,7 @@ class DataLoader:
         dtype: Any = np.float32,
         seq_length: int | Literal["full"] | None = None,
         step: int = 1,
-        on_short: Literal["error", "skip"] = "error",
+        on_short: OnShort | str = OnShort.ERROR,
         windowed: bool = False,
     ):
         if step < 1:
@@ -433,7 +468,12 @@ class DataLoader:
         self._dtype = dtype
         self._seq_length = seq_length
         self._step = step
-        self._on_short = on_short
+        try:
+            self._on_short = OnShort(on_short)
+        except ValueError:
+            raise ValueError(
+                f"DataLoader: on_short is 'error' or 'skip', got {on_short!r}."
+            ) from None
         self._windowed = windowed
 
         if model._keras_model is None:
@@ -476,7 +516,6 @@ class DataLoader:
         self._dataset = {node.name: values for node, values in dataset.items()}
         if self._mask is not None:
             self._mask.flags.writeable = False
-        if self._mask is not None:
             self._warn_uncollected_loops()
 
         self._num_steps = min(len(values) for values in self._dataset.values())
@@ -1103,7 +1142,7 @@ class DataLoader:
         for label, simulation in simulations:
             samples = next(iter(simulation.values())).shape[0]
             if samples < required:
-                if self._on_short == "skip":
+                if self._on_short is OnShort.SKIP:
                     skipped.append(label)
                     continue
                 raise ValueError(

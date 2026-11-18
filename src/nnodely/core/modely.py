@@ -105,7 +105,9 @@ class Modely:
           memory, which cannot be declared, see :meth:`Input.feedback`;
         - an Input only an objective reads, such as a measured target.
 
-        The list is copied: changing it later leaves the model as it was.
+        An Input the outputs do not read, in one step or through the streams
+        the model feeds back, is refused. The list is copied: changing it
+        later leaves the model as it was.
     outputs : list of Output
         The streams the model exposes, each named by its :class:`Output`.
 
@@ -125,7 +127,8 @@ class Modely:
     ValueError
         If the outputs read an Input that is not among ``inputs`` ("which are
         not among its inputs: declare them there"), or if ``inputs`` holds a
-        hidden state ("declares the hidden states"). If the model is called on
+        hidden state ("declares the hidden states") or an Input the outputs
+        do not read ("which its outputs do not read"). If the model is called on
         arrays before :meth:`build` ("Model is not built"), or without an
         input it reads ("which are missing from the data"). If a list holds
         one value too many or too few ("takes one value for each"). If a
@@ -299,7 +302,8 @@ class Modely:
     _order: list[Node]
 
     def __init__(self, name: str, inputs: list[Input], outputs: list[Output]) -> None:
-        self._declare(name, inputs, outputs)
+        read: set[int] = set()
+        self._declare(name, inputs, outputs, read)
         hidden = [node.name for node in self._inputs if node._hidden]
         if hidden:
             raise ValueError(
@@ -309,6 +313,14 @@ class Modely:
                 "memory, which starts from its init, and none of its inputs: "
                 "leave it out of inputs, or feed it back without hidden=True "
                 "to read it from data."
+            )
+        unread = [node.name for node in self._inputs if id(node) not in read]
+        if unread:
+            raise ValueError(
+                f"Model {name!r} declares the Inputs {unread} among its inputs, "
+                "which its outputs do not read, neither in one step nor through "
+                "the streams it feeds back: leave them out of inputs. An Input "
+                "only an objective reads, such as a target, is not declared."
             )
 
     @classmethod
@@ -320,7 +332,15 @@ class Modely:
         model._declare(name, inputs, outputs)
         return model
 
-    def _declare(self, name: str, inputs: list[Input], outputs: list[Output]) -> None:
+    def _declare(
+        self,
+        name: str,
+        inputs: list[Input],
+        outputs: list[Output],
+        read: set[int] | None = None,
+    ) -> None:
+        """``read``, if given, is filled with the id of every one of
+        ``inputs`` the outputs read."""
         self.name = name
         # Lists of its own: one the caller goes on changing, reused for
         # another model, leaves this one as it was declared.
@@ -329,7 +349,7 @@ class Modely:
         self._order = _toposort(self._outputs)
         # Read as an output, or bound to a Loop, it passed no layer call.
         _refuse_uncalled(self._order)
-        undeclared = _undeclared_inputs(self._inputs, self._outputs)
+        undeclared = _undeclared_inputs(self._inputs, self._outputs, read)
         if undeclared:
             # One entry per Input: two of one name are listed twice.
             fed_back = sorted(
@@ -1674,10 +1694,12 @@ class Modely:
         The table gives the name, ``seq``, ``tw`` and ``dim`` of each Input,
         and how it is fed:
 
-        - flags: ``target``, read to train and validate only; ``optional``,
-          read as zeros where the data leaves it out (only the rollout of
-          :meth:`loop` has one); ``hidden``, a state that is the model's own
-          memory and starts from its init, never from data.
+        - flags: ``required``, an input of the model, which the data or the
+          caller gives; ``optional``, an input read as zeros where the data
+          leaves it out (only the rollout of :meth:`loop` has one);
+          ``target``, read only by an objective, to train and validate; or
+          ``hidden``, the model's own memory, which the data does not hold:
+          a hidden state, or a state of a Loop it rolls out.
         - update: ``<- v``, what it reads at every step; ``x₀ = v``, what it
           starts from. ``'name'`` is the data of an Input, its first step
           in a rollout. A state shows both: ``<- w``, the stream it is fed
@@ -1713,13 +1735,13 @@ class Modely:
         >>> model = Modely("sum", inputs=[x], outputs=[Output("y", running)])
         >>> model = model.minimize("fit", "y", Input("y_meas", tw=1))
         >>> print(model.inputs)
-        ┏━━━━━┳━━━━━━━━┳━━━━━┳━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓
-        ┃ idx ┃ input  ┃ seq ┃ tw ┃ dim  ┃ flags  ┃ update                 ┃
-        ┡━━━━━╇━━━━━━━━╇━━━━━╇━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩
-        │ 0   │ x      │ ()  │ 1  │ (1,) │ -      │ <- 'x'                 │
-        │ 1   │ y_meas │ ()  │ 1  │ (1,) │ target │ <- 'y_meas'            │
-        │ 2   │ total  │ ()  │ 1  │ (1,) │ hidden │ <- running, total₀ = 0 │
-        └─────┴────────┴─────┴────┴──────┴────────┴────────────────────────┘
+        ┏━━━━━┳━━━━━━━━┳━━━━━┳━━━━┳━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓
+        ┃ idx ┃ input  ┃ seq ┃ tw ┃ dim  ┃ flags    ┃ update                 ┃
+        ┡━━━━━╇━━━━━━━━╇━━━━━╇━━━━╇━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩
+        │ 0   │ x      │ ()  │ 1  │ (1,) │ required │ <- 'x'                 │
+        │ 1   │ y_meas │ ()  │ 1  │ (1,) │ target   │ <- 'y_meas'            │
+        │ 2   │ total  │ ()  │ 1  │ (1,) │ hidden   │ <- running, total₀ = 0 │
+        └─────┴────────┴─────┴────┴──────┴──────────┴────────────────────────┘
 
         .. versionadded:: 2.0
         """
@@ -1741,12 +1763,6 @@ class Modely:
         ]
         # The rows give the Inputs of the graph, not the copies reading it
         # makes: an Input a called model reads is the one to pass on.
-        forward_originals: dict[int, Input] = {}
-        forward = {
-            id(forward_originals.get(id(node), node))
-            for node in _read_nodes(self._outputs, self._inputs, forward_originals)
-            if isinstance(node, Input)
-        }
         originals: dict[int, Input] = {}
         copies: dict[int, Node] = {}
         hidden: list[Input] = []
@@ -1773,19 +1789,17 @@ class Modely:
             original = originals.get(id(node), node)
             if id(original) in by_input:
                 continue
-            data = (
-                "target"
-                if id(original) not in forward
-                else "optional"
-                if original in self._optional_inputs
-                else "required"
-            )
+            # The outputs read every declared Input, and no other but a
+            # hidden state, which is read as its init: the rest are targets.
+            if id(original) not in declared:
+                flags = "target"
+            else:
+                flags = "optional" if original in self._optional_inputs else "required"
             data_cell = f"{original.name!r}"
             by_input[id(original)] = {
                 "input": original,
                 "seq": tuple(node.seq),
-                "declared": id(original) in declared,
-                "flags": None if data == "required" else data,
+                "flags": flags,
                 "update": f"<- {data_cell}"
                 if node._update is None and id(original) in every_step
                 else f"{original.name}₀ = {data_cell}"
@@ -1795,7 +1809,6 @@ class Modely:
                 "update stream": None
                 if node._update is None
                 else copies.get(id(node._update), node._update),
-                "data": data,
             }
             rows.append(by_input[id(original)])
 
@@ -1833,9 +1846,7 @@ class Modely:
                 row = {
                     "input": state,
                     "seq": tuple(state.seq),
-                    "declared": False,
-                    "flags": "hidden" if state._hidden else None,
-                    "data": None,
+                    "flags": "hidden",
                 }
                 rows.append(row)
                 starts = (

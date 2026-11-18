@@ -56,6 +56,7 @@ Tutorials: :doc:`../tutorial/08_fir_linear`,
    Fir
    LocalModel
    EquationLearner
+   EquationFunction
    BatchNorm
 
 Fuzzy sets and lookup tables
@@ -68,10 +69,12 @@ Tutorial: :doc:`../tutorial/09_fuzzify_localmodel`.
    :nosignatures:
 
    Fuzzify
+   MembershipName
    Triangular
    Rectangular
    Gaussian
    Interpolation
+   InterpolationMode
 
 Custom layers
 -------------
@@ -157,7 +160,9 @@ Guide: :doc:`../guide/physics`. Tutorial: :doc:`../tutorial/11_calculus`.
    Derivative
    IntegrateStep
    Integrate
+   IntegrationMethod
    Ode
+   OdeMethod
 
 Recurrence
 ----------

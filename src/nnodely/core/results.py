@@ -1,13 +1,3 @@
-"""What :meth:`Modely.train` and :meth:`Modely.validate` return.
-
-The two results have one form. They are read by their attributes (the name
-of the model, the samples, the minimizers they were computed with, the
-losses), and their dictionaries are keyed alike: ``loss`` is the total,
-``loss_<minimizer>`` the loss of each minimizer, as Keras logs them and as
-``early_stopping`` names them. ``print`` shows a table, a row per minimizer
-and the total; ``repr`` the fields, then the keys of every dictionary.
-"""
-
 from __future__ import annotations
 
 import os

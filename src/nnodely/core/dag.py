@@ -1,11 +1,3 @@
-"""
-DAG: the lazy DAG approach. No global graph.
-Each node has predecessors; Model traverses from output backwards.
-
-Axes: a stream is laid out (batch, *seq, tw, *dim), or (batch, *seq, *dim)
-without a window, see core/shape.py. Default: dim=1, no window, no sequence.
-"""
-
 from copy import copy
 
 import keras
@@ -481,7 +473,7 @@ def _flatten_graph(
     return flat_outputs, scope.merged_memo()
 
 
-def _undeclared_inputs(inputs, outputs) -> list:
+def _undeclared_inputs(inputs, outputs, read=None) -> list:
     """Every Input the model of ``outputs`` reads that is not among
     ``inputs`` and is no hidden state, the model's own memory, which it
     starts from its init:
@@ -490,7 +482,10 @@ def _undeclared_inputs(inputs, outputs) -> list:
       arguments of the models it calls, and as the init of a hidden state;
     - every fed-back one a rollout reads, through the streams the fed-back
       Inputs are fed back with too: a state is declared or hidden. The
-      others read there are the loop's to check."""
+      others read there are the loop's to check.
+
+    ``read``, if given, is filled with the id of every one of ``inputs``
+    the model reads, in one step or in a rollout."""
     from nnodely.layers.input import Input
 
     declared = {id(node) for node in inputs}
@@ -508,7 +503,8 @@ def _undeclared_inputs(inputs, outputs) -> list:
                 if rollout and fed_back:
                     stack.append(node._update)
                 if id(node) in declared:
-                    pass
+                    if read is not None:
+                        read.add(id(node))
                 elif node._hidden and fed_back:
                     stack.append(node._init)
                 elif fed_back or not rollout:

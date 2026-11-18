@@ -1473,7 +1473,7 @@ def _minimized_model():
     x = Input("minimized_x", dim=1, tw=3)
     target = Input("minimized_target", dim=1, tw=1)
     prediction = Output("minimized_out", Fir(features=1, name="minimized_fir")(x))
-    model = Modely("minimized", inputs=[x, target], outputs=[prediction])
+    model = Modely("minimized", inputs=[x], outputs=[prediction])
     model.minimize("minimized_fit", source=prediction, target=target)
     # A stream only a minimizer reads, computed by a weight of its own.
     auxiliary = Linear(features=1, name="minimized_auxiliary")(TimeSelect(-1)(x))
@@ -1496,12 +1496,9 @@ def test_save_load_leaves_minimizers_out(tmp_path):
     assert [node.name for node in restored._train_inputs] == ["minimized_x"]
     saved = json.loads((tmp_path / "saved" / "model.json").read_text(encoding="utf-8"))
     saved_names = {node["config"]["name"] for node in saved["nodes"]}
-    # The target is one of the inputs the model is declared with, so it is
-    # saved with it; nothing the model computes reads it.
-    assert [node.name for node in restored._inputs] == [
-        "minimized_x",
-        "minimized_target",
-    ]
+    # The target is read only by a minimizer: it is not saved either.
+    assert [node.name for node in restored._inputs] == ["minimized_x"]
+    assert "minimized_target" not in saved_names
     assert "minimized_auxiliary" not in saved_names
     # The auxiliary layer trains with the model, but is not part of it.
     assert model._keras_model is not None and model._keras_inference_model is not None
@@ -1967,21 +1964,6 @@ def test_a_model_called_in_a_loop_body_and_outside_is_one_model_once_loaded(tmp_
     np.testing.assert_allclose(to_numpy(result["cl_once"]).ravel(), [1.0, 1.0])
     np.testing.assert_allclose(
         to_numpy(result["cl_roll"])[0].ravel(), [2.0, 3.0, 4.0, 5.0]
-    )
-
-
-def test_a_declared_input_nothing_reads_is_saved(tmp_path):
-    # It is part of how the model is called: a list holds a value for it.
-    x, unused = Input("cd_x", tw=3), Input("cd_unused", tw=1)
-    model = Modely(
-        "cd_model", inputs=[x, unused], outputs=[Output("cd_out", Fir(features=1)([x]))]
-    ).build()
-    model.save(tmp_path / "cd_model")
-    loaded = Modely.load(tmp_path / "cd_model")
-    assert [node.name for node in loaded._inputs] == ["cd_x", "cd_unused"]
-    values = [_window(), np.zeros((2, 1, 1), np.float32)]
-    np.testing.assert_allclose(
-        to_numpy(loaded(values)["cd_out"]), to_numpy(model(values)["cd_out"]), rtol=1e-6
     )
 
 
@@ -2644,6 +2626,42 @@ def test_a_parameter_declared_by_its_sizes_round_trips(tmp_path):
     np.testing.assert_allclose(
         to_numpy(loaded(data)["rt_sizes_out"]),
         to_numpy(model(data)["rt_sizes_out"]),
+    )
+
+
+def test_options_given_as_members_save_as_their_strings(tmp_path):
+    # Every option enum is a StrEnum: a model declared with its members saves
+    # the strings a model declared with the strings saves, and loads back.
+    x, g = nn.Input("opt_x", tw=4), nn.Input("opt_g", tw=1)
+    integral = nn.IntegrateStep(method=nn.IntegrationMethod.TRAPEZOIDAL, dt=0.1)(x)
+    curve = nn.Interpolation(
+        [0.0, 1.0, 2.0], [0.0, 1.0, 4.0], mode=nn.InterpolationMode.POLYNOMIAL
+    )(g)
+    sets = nn.Fuzzify([0.0, 1.0], function=nn.MembershipName.GAUSSIAN)(g)
+    model = nn.Modely(
+        "options",
+        inputs=[x, g],
+        outputs=[
+            nn.Output("opt_integral", integral),
+            nn.Output("opt_curve", curve),
+            nn.Output("opt_sets", sets),
+        ],
+    ).build()
+    model.save(tmp_path / "options")
+    saved = (tmp_path / "options" / "model.json").read_text()
+    assert '"method": "trapezoidal"' in saved
+    assert '"mode": "polynomial"' in saved
+    for enum in ("IntegrationMethod", "InterpolationMode", "MembershipName"):
+        assert enum not in saved
+
+    data = {
+        "opt_x": np.arange(4.0, dtype=np.float32).reshape(1, 4, 1),
+        "opt_g": np.array([[[1.5]]], dtype=np.float32),
+    }
+    loaded = Modely.load(tmp_path / "options")
+    _assert_same_outputs(
+        {k: to_numpy(v) for k, v in loaded(data).items()},
+        {k: to_numpy(v) for k, v in model(data).items()},
     )
 
 

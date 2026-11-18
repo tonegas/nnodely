@@ -32,7 +32,8 @@ a row of a printed table has the fields of the object it stands for.
   including one a layer starts from (`Integrate(init=x0)`) and one it gives a
   block; one it reads undeclared is refused when the model is declared, and
   the error lists each of them. Only hidden states and Inputs only an
-  objective reads are left out: a fed-back Input is declared, or hidden. The
+  objective reads are left out: a fed-back Input is declared, or hidden. A
+  declared Input the outputs do not read is refused too. The
   Keras models a build makes are private.
 - **`DataLoader`** for dicts, DataFrames and CSV files or folders, with
   several simulations, sequences and padding masks. `delimiter` and `header`
@@ -168,11 +169,11 @@ a row of a printed table has the fields of the object it stands for.
 - **`Modely.inputs`**: every Input a model reads (those it declares, those
   only an objective reads, its hidden states, inside the models it calls
   too) and every state of the Loops it rolls out. It prints as a table of
-  their shapes, their flags (`target` for training only, `optional`,
-  `hidden`) and how each is fed: `<- v`, what it reads at every step, and
-  `x₀ = v`, what it starts from, with `'name'` for the data of an Input.
-  A state shows both, the stream it is fed back with and its initial
-  value. A rollout of `model.loop()`
+  their shapes, their flags (`required` or `optional` for a declared input,
+  `target` for training only, `hidden` for the model's own memory) and how
+  each is fed: `<- v`, what it reads at every step, and `x₀ = v`, what it
+  starts from, with `'name'` for the data of an Input. A state shows both,
+  the stream it is fed back with and its initial value. A rollout of `model.loop()`
   prints the rows of the Loop it is a shortcut for, its Inputs with the
   horizon.
 - **`Modely.outputs`**: the outputs a model is declared with, in that order,
@@ -429,6 +430,15 @@ a row of a printed table has the fields of the object it stands for.
   table of the common errors, and link their tutorials. A glossary defines
   the terms. A test runs every example of the reference pages, every guide
   page and the README, and checks what they print.
+
+- **Options with a fixed set of names are `StrEnum`s**, each in the module
+  that uses it and exported by `nnodely`: `IntegrationMethod`
+  (`IntegrateStep`, `Integrate`), `OdeMethod` (`Ode`), `InterpolationMode`
+  (`Interpolation`), `MembershipName` (`Fuzzify`), `EquationFunction`
+  (`EquationLearner`) and `OnShort` (`DataLoader(on_short=)`). A member is its string:
+  `method=IntegrationMethod.TRAPEZOIDAL` and `method="trapezoidal"` are the
+  same, and a model saves the string. An unknown name raises where it is
+  given, `on_short` included. `seq` keeps `-1` and `"dyn"`.
 
 ### Changed
 

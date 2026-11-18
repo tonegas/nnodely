@@ -104,15 +104,6 @@ _INTERNAL_MEMBERS = {
     "from_config",
     "get_config",
     "output_shape",
-    # the hooks Keras calls on a training printer
-    "on_epoch_begin",
-    "on_epoch_end",
-    "on_train_batch_begin",
-    "on_train_batch_end",
-    "on_train_begin",
-    "on_train_end",
-    "set_model",
-    "set_params",
 }
 
 

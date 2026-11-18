@@ -1,28 +1,3 @@
-"""The shape of a stream, and where its axes sit in a tensor.
-
-A stream has three kinds of axes:
-
-- ``seq``, its sequence axes, outermost first, possibly none: the steps of a
-  trajectory. A Loop rolls out along the outermost one, and adds its rollout
-  as a new outermost sequence axis. A sequence axis may be dynamic
-  (``None``), its length known only at run time.
-- ``tw``, its time window: the consecutive samples along which the temporal
-  operations (filters, derivatives, integrals, time selections) act, or
-  ``None`` for a stream without one: an Input declared without ``tw``, a
-  number, a Parameter or Constant declared without ``tw``.
-- ``dim``, its feature axes, one or more.
-
-A tensor holds them after its batch axis, the window only when there is one::
-
-    (batch, *seq, tw, *dim)        (batch, *seq, *dim)
-
-This module is the only one that knows that layout. A layer asks the Shape
-of its stream where an axis is (:attr:`Shape.seq_axes`,
-:attr:`Shape.tw_axis`, :attr:`Shape.dim_axes`) and hands its Keras layer
-the tensor axis to act on; code that sees only tensors uses the helpers at
-the end of this module.
-"""
-
 from __future__ import annotations
 
 from typing import Callable

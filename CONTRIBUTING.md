@@ -1,7 +1,7 @@
 # Contributing
 
 Thanks for your interest in **nnodely**! 🎉
-We welcome contributions of all kinds — bug reports, documentation fixes,
+We welcome contributions of all kinds: bug reports, documentation fixes,
 examples, and new features.
 
 ## Contributing with an AI assistant
@@ -51,14 +51,13 @@ nvim .` in the project root.
 uv run pytest tests -m "not slow"                  # the fast suite, under a minute
 uv run pytest tests                                # everything
 KERAS_BACKEND=torch uv run pytest tests -m "not slow"
-scripts/test_all_backends.sh                       # every backend in turn
 ```
 
 - A test that takes 1 s or more is marked `@pytest.mark.slow`.
 - Every behaviour change comes with a test; a bug fix with one that fails
   without it. Changes to documentation, comments or tooling alone need none.
 - A test for one backend only is marked so it is skipped on the others (see
-  `requires_onnx_export` in `tests/conftest.py`).
+  `test_train_with_loop_under_xla` in `tests/test_train.py`).
 
 ## Documentation
 
@@ -158,20 +157,24 @@ We use:
   CustomType: TypeAlias = list[dict[str, list[int]]]
   ```
 
-- Heavily prefer strong typing (e.g., `Enum` and `dataclass`), for example:
+- Heavily prefer strong typing (e.g., `Enum` and `dataclass`). A public
+  option with a fixed set of names is a `StrEnum`, defined in the module that
+  uses it and exported by `nnodely`. The function takes the member or its
+  string, and resolves it once, where it enters:
 
   ```python
-  # Instead of this
-  def func(flag: str) -> None:
-    ...
+  class IntegrationMethod(StrEnum):
+      EULER = "euler"
+      TRAPEZOIDAL = "trapezoidal"
 
-  # Do this
-  class Flag(Enum):
-    ...
-
-  def func(flag: Flag) -> None:
-    ...
+  def __init__(self, method: IntegrationMethod | str = IntegrationMethod.EULER):
+      self._method = IntegrationMethod(method)  # an unknown name fails here
   ```
+
+  Configs, error messages and printed tables hold `member.value`, so a saved
+  model holds plain strings. Open sets stay strings, as Keras keeps them:
+  optimizer, loss and initializer names. So does a word among numbers, such
+  as `seq=-1` or `"dyn"`, which a user writes without importing anything.
 
 ---
 

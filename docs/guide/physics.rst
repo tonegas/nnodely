@@ -121,6 +121,10 @@ The calling forms are:
 - ``IntegrateStep(method="trapezoidal", dt=dt)(init, init_rate, rate)``,
   where ``init_rate`` is the rate before the window, zero when left out.
 
+A method is a string, or the member of :class:`~nnodely.IntegrationMethod`
+that is that string: ``method=IntegrationMethod.TRAPEZOIDAL`` is the same.
+The methods of :func:`~nnodely.Ode` are those of :class:`~nnodely.OdeMethod`.
+
 On a one-sample window it is exactly one integration step, the state update
 of a recurrent model:
 

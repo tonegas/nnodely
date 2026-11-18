@@ -370,6 +370,28 @@ def test_on_short_skips_simulations_that_are_too_short():
         DataLoader(model, source=simulations[1:], on_short="skip")
 
 
+def test_on_short_is_a_member_or_its_string():
+    # Once read only where a simulation was short, so a misspelt choice
+    # silently raised: now checked where it enters.
+    from nnodely import OnShort
+
+    x = Input("on_short_x", dim=1, tw=4)
+    model = Modely(
+        "on_short_model", inputs=[x], outputs=[Output("on_short_out", x)]
+    ).build()
+    simulations = [
+        {"on_short_x": np.arange(1, 6, dtype=np.float32)},
+        {"on_short_x": np.arange(10, 13, dtype=np.float32)},
+    ]
+    by_member = DataLoader(model, source=simulations, on_short=OnShort.SKIP)
+    by_name = DataLoader(model, source=simulations, on_short="skip")
+    np.testing.assert_array_equal(
+        by_member._dataset["on_short_x"], by_name._dataset["on_short_x"]
+    )
+    with pytest.raises(ValueError, match="on_short is 'error' or 'skip', got 'Skip'"):
+        DataLoader(model, source=simulations, on_short="Skip")
+
+
 def test_simulations_are_windowed_independently():
     x = Input("independent_x", dim=1, tw=2)
     model = Modely(
@@ -609,7 +631,7 @@ def _samples_model():
     window = x
     pred = Output("samples_pred", TimeSelect(-1)(x) * Parameter(value=[2.0]))
     model = Modely(
-        "samples_model", inputs=[x, y], outputs=[pred, Output("samples_window", window)]
+        "samples_model", inputs=[x], outputs=[pred, Output("samples_window", window)]
     )
     model.minimize("error", pred, y)
     return model.build()
@@ -810,7 +832,7 @@ def test_windowed_data_round_trips_what_the_loader_builds():
     s = Input("trip_s", seq=3, tw=2)
     model = Modely(
         "trip_model",
-        inputs=[x, y, s],
+        inputs=[x, y],
         outputs=[Output("trip_out", TimeSelect(-1)(x) + TimeSelect(-1)(y))],
     )
     model.minimize("trip", SeqSelect(-1)([TimeSelect(-1)(s)]), TimeSelect(-1)(y))

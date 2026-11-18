@@ -930,6 +930,27 @@ def test_fuzzify_rejects_what_it_cannot_use():
     Fuzzify([0.0, 1.0], function=OneArgument)([x])
 
 
+def test_a_membership_is_named_by_a_member_or_its_string():
+    from nnodely import MembershipName
+
+    x = Input("mn_x", tw=1)
+    functions = [MembershipName.GAUSSIAN, "gaussian", "GAUSSIAN", Gaussian]
+    model = Modely(
+        "mn_model",
+        inputs=[x],
+        outputs=[
+            Output(f"mn_{index}", Fuzzify([0.0, 1.0, 2.0], function=function)(x))
+            for index, function in enumerate(functions)
+        ],
+    ).build()
+    values = np.linspace(-0.5, 2.5, 7, dtype=np.float32).reshape(-1, 1, 1)
+    result = model({"mn_x": values})
+    for index in range(1, len(functions)):
+        np.testing.assert_array_equal(
+            to_numpy(result[f"mn_{index}"]), to_numpy(result["mn_0"])
+        )
+
+
 def test_fuzzify_shares_a_keras_layer_instance_between_its_centers():
     class Scaled(keras.layers.Layer):
         def build(self, input_shape):
@@ -1901,6 +1922,20 @@ def test_equation_learner_rejects_invalid_configuration():
     assert learner.threshold is None
 
 
+def test_every_equation_function_names_a_layer():
+    # The names EquationLearner takes are the members of EquationFunction,
+    # each made the layer it names, given as a member or its string.
+    from nnodely import EquationFunction
+    from nnodely.layers.equationlearner import _NAMED_FUNCTIONS
+
+    assert set(_NAMED_FUNCTIONS) == set(EquationFunction)
+    by_member = EquationLearner([EquationFunction.SIN, EquationFunction.MULTIPLY])
+    by_name = EquationLearner(["sin", "MULTIPLY"])
+    assert [spec.function for spec in by_member._function_specs] == [
+        spec.function for spec in by_name._function_specs
+    ]
+
+
 def test_equation_learner_rejects_invalid_calls():
     x = Input("invalid_eql_x", tw=1)
     with pytest.raises(TypeError, match="must return a Stream"):
@@ -2534,6 +2569,36 @@ def test_integrate_rejects_what_it_cannot_integrate():
             dt=0.1,
             init_rate=Input("wide_rate", dim=3, tw=1),
         )(rate)
+
+
+def test_an_integration_method_is_a_member_or_its_string():
+    # A member of IntegrationMethod is its string: the model, the config it
+    # saves and the errors are the same whichever is given.
+    from nnodely import IntegrationMethod
+
+    rate = Input("im_rate", tw=4)
+    by_name = IntegrateStep(method="trapezoidal", dt=0.1)
+    by_member = IntegrateStep(method=IntegrationMethod.TRAPEZOIDAL, dt=0.1)
+    assert by_name._method is by_member._method is IntegrationMethod.TRAPEZOIDAL
+    assert type(by_member.get_config()["method"]) is str
+    model = Modely(
+        "im_model",
+        inputs=[rate],
+        outputs=[
+            Output("im_name", by_name(rate)),
+            Output("im_member", by_member(rate)),
+        ],
+    ).build()
+    result = model({"im_rate": np.arange(4.0, dtype=np.float32).reshape(1, 4, 1)})
+    np.testing.assert_array_equal(
+        to_numpy(result["im_name"]), to_numpy(result["im_member"])
+    )
+    stepwise = Integrate(dt=0.1, method=IntegrationMethod.TRAPEZOIDAL, init_rate=0.0)
+    assert "method='trapezoidal'" in repr(stepwise)
+    with pytest.raises(
+        ValueError, match=r"one of \['euler', 'rectangular', 'trapezoidal'\]"
+    ):
+        IntegrateStep(method="rk4")
 
 
 def test_derivative():

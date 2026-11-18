@@ -1,5 +1,3 @@
-"""Output: names a stream as an output of the model."""
-
 from nnodely.core.dag import Table
 from nnodely.core.stream import Stream
 from nnodely.utils.printers import _table

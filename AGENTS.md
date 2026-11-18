@@ -89,9 +89,10 @@ A change is finished when all of these hold:
   recurrent loops, seeding: see `layers/gradient.py`), import `tensorflow`,
   `torch` or `jax` inside the function, with one branch per backend. A
   feature that cannot be implemented on a backend raises a clear error there,
-  saying why and what to use instead (see the jax branch of `export_onnx` in
-  `core/export.py`); its tests are skipped on that backend with a marker
-  (see `requires_onnx_export` in `tests/conftest.py`), never deleted.
+  saying why and what to use instead (see the torch branch of `export_onnx`
+  in `core/export.py`); its tests are skipped on that backend with a
+  `skipif` marker (see `test_train_with_loop_under_xla` in
+  `tests/test_train.py`), never deleted.
 - **Error messages say what to do.** A `ValueError` or `TypeError` names the
   layer or stream, states what is wrong, and tells the user how to fix it.
   Follow the existing messages in `src/nnodely/core/layer.py`.

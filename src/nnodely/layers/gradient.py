@@ -1,18 +1,3 @@
-"""The derivative of a Stream with respect to an Input.
-
-It is configured first and then called on the Stream to differentiate, like
-every other layer::
-
-    Gradient(order=1, wrt=x)(fun)        # d fun / d x   (automatic differentiation)
-
-``Gradient`` is exact: the sub-graph that produces ``fun`` is differentiated
-by the backend's automatic differentiation, so any relation in between
-(activations, Fir/Linear weights, a whole sub-network) is taken into account.
-The derivatives with respect to time are
-:class:`~nnodely.layers.calculus.DerivativeStep` and
-:class:`~nnodely.layers.calculus.Derivative`.
-"""
-
 from __future__ import annotations
 
 import keras
@@ -345,7 +330,7 @@ class Gradient(Layer):
     built:
 
     >>> z = Input("z")
-    >>> Modely("unrelated", inputs=[x, z], outputs=[Output("g", Gradient(wrt=z)(x * x))]).build()
+    >>> Modely("unrelated", inputs=[x], outputs=[Output("g", Gradient(wrt=z)(x * x))]).build()
     Traceback (most recent call last):
         ...
     ValueError: ...the differentiated relation does not depend on input 'z' (it reads ['x'])...

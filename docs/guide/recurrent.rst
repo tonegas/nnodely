@@ -284,8 +284,8 @@ the step is of another graph, and refused too, the error naming the output
 that collects it; a stream no output collects is declared among the outputs
 first. The same holds for the body of any Loop a model rolls out: minimize
 the stream the Loop returns. :attr:`~nnodely.Modely.inputs` prints how each
-Input is fed: whether it is declared, what feeds it back, whether the data
-must hold it, and where it starts from.
+Input is fed: its flags (``required``, ``optional``, ``target`` or
+``hidden``), what feeds it back, and where it starts from.
 
 The :class:`~nnodely.DataLoader` cuts the signals into sequences of
 ``seq_length`` steps, and the target is the position one step ahead:

@@ -34,12 +34,10 @@ layer rather than starting from scratch:
    `.. versionadded:: <next version>`.
 6. **Tests** (see [`testing.md`](testing.md)): output shape for every calling
    form, values against NumPy, gradient when it is trainable, `save` /
-   `load` round-trip, `export_keras`, and ONNX export with
-   `@requires_onnx_export`.
+   `load` round-trip, `export_keras`, and ONNX export.
 7. **Changelog**: an entry under `### Added`.
 8. Run the fast suite on all three backends:
-   `scripts/test_all_backends.sh` runs the full suite on each; for a quick
-   check run `KERAS_BACKEND=<b> uv run pytest tests -m "not slow"` for each.
+   `KERAS_BACKEND=<b> uv run pytest tests -m "not slow"` for each.
 
 ## Changing an existing layer
 

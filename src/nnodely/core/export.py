@@ -1,9 +1,3 @@
-"""Exporting a built Modely to a Keras file or to ONNX, and reading them back.
-
-A model is exported as it was declared, without its minimizers: only its
-outputs, and only the inputs they read.
-"""
-
 import importlib.util
 import os
 from pathlib import Path

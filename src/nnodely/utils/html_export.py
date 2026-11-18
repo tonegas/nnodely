@@ -1,9 +1,3 @@
-"""An interactive HTML page of a Modely graph, drawn with vis-network.
-
-Every block that wraps a model gets a page of its own. The page itself is
-the template ``templates/graph.html``, filled in with the graph's data.
-"""
-
 import os
 import re
 import json

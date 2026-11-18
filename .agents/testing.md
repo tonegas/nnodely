@@ -7,7 +7,6 @@ uv run pytest tests -m "not slow"                       # fast suite
 uv run pytest tests/test_layers.py -k atan2              # one area
 uv run pytest tests                                      # everything
 KERAS_BACKEND=jax uv run pytest tests -m "not slow"      # another backend
-scripts/test_all_backends.sh                             # full suite, every backend
 ```
 
 `tests/conftest.py` sets `KERAS_BACKEND=tensorflow` when it is not set, and
@@ -31,8 +30,8 @@ keeps the torch backend on the CPU.
 - **Mark slow tests**: a test that takes 1 s or more gets
   `@pytest.mark.slow`. Check with `--durations=10`.
 - **Backend limits are skips, not deletions**: use a `skipif` marker like
-  `requires_onnx_export` in `tests/conftest.py`, with a reason that says why
-  the backend cannot do it.
+  the one of `test_train_with_loop_under_xla` in `tests/test_train.py`, with
+  a reason that says why the backend cannot do it.
 - Keep a test independent of the others: no shared state, no order.
 
 ## What the suite also checks

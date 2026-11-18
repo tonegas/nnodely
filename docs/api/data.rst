@@ -13,3 +13,4 @@ Guide: :doc:`../guide/data`. Tutorial: :doc:`../tutorial/02_data_management`.
    :nosignatures:
 
    DataLoader
+   OnShort

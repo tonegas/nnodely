@@ -429,7 +429,7 @@ class Parameter(_Value):
     ``dim=(3, 2), tw=4``                                ``S=(), T=4, D=(3, 2)``
     ==================================================  ===========================
 
-    The variable the model trains is :attr:`param`, and ``value`` reads it
+    The variable the model trains is ``param``, and ``value`` reads it
     as a NumPy array.
 
     Basic Examples
@@ -575,7 +575,7 @@ class Parameter(_Value):
     ValueError: ...seq is the length of each sequence axis...
 
     The variable exists only once the model is built: before,
-    :attr:`param` is ``None``.
+    ``param`` is ``None``.
 
     >>> Parameter("unbuilt", value=1.0).param is None
     True

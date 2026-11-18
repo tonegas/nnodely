@@ -1,9 +1,8 @@
-"""Fuzzify, and the membership functions it places on its centers."""
-
 from __future__ import annotations
 
 import inspect
 from collections.abc import Sequence
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, cast
 
 import keras
@@ -623,10 +622,47 @@ def _width(width, owner: str, label: str, pair: bool) -> list[float] | Stream:
     return values
 
 
+class MembershipName(StrEnum):
+    """The membership functions :class:`Fuzzify` places on its centers, by
+    name.
+
+    A member is also the string of its value: ``MembershipName.GAUSSIAN`` and
+    ``"gaussian"`` are the same ``function``, in any case. The class itself,
+    :class:`Gaussian`, is the same too.
+
+    Attributes
+    ----------
+    TRIANGULAR
+        ``"triangular"``: :class:`Triangular`, 1 at the center, 0 at its
+        neighbors.
+    RECTANGULAR
+        ``"rectangular"``: :class:`Rectangular`, 1 halfway to its neighbors.
+    GAUSSIAN
+        ``"gaussian"``: :class:`Gaussian`, a bell over the center.
+
+    See Also
+    --------
+    Fuzzify : The membership of a value to fuzzy sets.
+
+    Basic Examples
+    --------------
+    >>> from nnodely import Fuzzify, MembershipName
+    >>> MembershipName.GAUSSIAN == "gaussian"
+    True
+    >>> sets = Fuzzify([0.0, 1.0, 2.0], function=MembershipName.GAUSSIAN)
+
+    .. versionadded:: 2.0
+    """
+
+    TRIANGULAR = "triangular"
+    RECTANGULAR = "rectangular"
+    GAUSSIAN = "gaussian"
+
+
 _MEMBERSHIPS = {
-    "triangular": Triangular,
-    "rectangular": Rectangular,
-    "gaussian": Gaussian,
+    MembershipName.TRIANGULAR: Triangular,
+    MembershipName.RECTANGULAR: Rectangular,
+    MembershipName.GAUSSIAN: Gaussian,
 }
 
 
@@ -733,7 +769,7 @@ class FuzzifyImpl(keras.layers.Layer):
         memberships: list = [None] * self.count
         for name in dict.fromkeys(f for f in self.functions if isinstance(f, str)):
             # The name the config holds, resolved once: the class from here on.
-            membership = _MEMBERSHIPS[name.lower()]
+            membership = _MEMBERSHIPS[MembershipName(name.lower())]
             formula = _FORMULAS[membership._formula]
             values = formula(shifted, *_PLACED[membership](left, right))
             if self.functions.count(name) == self.count:
@@ -822,8 +858,9 @@ class Fuzzify(Layer):
         with ``centers`` as given, before they are sorted. Each is one of:
 
         - :class:`Triangular`, :class:`Rectangular` or :class:`Gaussian`, as
-          a class or by name, in any case (``"triangular"``): placed on the
-          center and sized by its neighbors, see Notes;
+          a class, a member of :class:`MembershipName` or its string, in any
+          case (``"triangular"``): placed on the center and sized by its
+          neighbors, see Notes;
         - another nnodely layer class, such as :class:`Sin`: made anew for
           each center and applied to ``x - center``;
         - an nnodely layer instance, such as ``Triangular(radius=0.2)``:
@@ -1530,8 +1567,8 @@ def _membership_function(function):
     refused."""
     if isinstance(function, str):
         try:
-            return _MEMBERSHIPS[function.lower()]
-        except KeyError:
+            return _MEMBERSHIPS[MembershipName(function.lower())]
+        except ValueError:
             raise ValueError(
                 f"Unsupported fuzzify function: {function!r}. Supported names: "
                 "'Triangular', 'Rectangular', 'Gaussian'; or any nnodely layer."

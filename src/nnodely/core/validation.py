@@ -1,16 +1,3 @@
-"""A validation run: the built model evaluated on a dataset, and every
-minimizer scored on what it compared.
-
-Validation sees what training sees. The forward pass is the one training runs
-on its validation data, each target is aligned with its source as training
-aligns it, the padding mask of simulations of different lengths is the same,
-and the loss is computed by the code that trains the minimizer.
-
-One minimizer gives one :class:`Signal`: the two signals it compared, whole,
-and the metrics a system-identification report is read for, as functions of
-the axes to keep.
-"""
-
 from __future__ import annotations
 
 import keras

@@ -1,5 +1,3 @@
-"""Stream: a node of the graph, with its shape and its predecessors."""
-
 from __future__ import annotations
 import inspect
 

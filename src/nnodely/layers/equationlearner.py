@@ -1,9 +1,8 @@
-"""Composable Equation Learner block."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
 import inspect
+from enum import StrEnum
 import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
@@ -74,51 +73,120 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
 
 
-_NAMED_FUNCTIONS: dict[str, type[Layer]] = {
-    "identity": Identity,
-    "sin": Sin,
-    "cos": Cos,
-    "tan": Tan,
-    "asin": Asin,
-    "acos": Acos,
-    "atan": Atan,
-    "atan2": Atan2,
-    "sinh": Sinh,
-    "cosh": Cosh,
-    "asinh": Asinh,
-    "acosh": Acosh,
-    "atanh": Atanh,
-    "exp": Exp,
-    "log": Log,
-    "log10": Log10,
-    "log2": Log2,
-    "sqrt": Sqrt,
-    "square": Square,
-    "abs": Abs,
-    "sign": Sign,
-    "floor": Floor,
-    "ceil": Ceil,
-    "round": Round,
-    "gaussian": Gaussian,
-    "triangular": Triangular,
-    "rectangular": Rectangular,
-    "relu": ReLU,
-    "leaky_relu": LeakyReLU,
-    "elu": ELU,
-    "prelu": PReLU,
-    "sigmoid": Sigmoid,
-    "tanh": Tanh,
-    "swish": Swish,
-    "gelu": GELU,
-    "softplus": Softplus,
-    "add": Add,
-    "subtract": Subtract,
-    "multiply": Multiply,
-    "divide": Divide,
-    "power": Power,
-    "mod": Mod,
-    "maximum": Maximum,
-    "minimum": Minimum,
+class EquationFunction(StrEnum):
+    """The functions :class:`EquationLearner` takes by name.
+
+    A member is also the string of its value: ``EquationFunction.SIN`` and
+    ``"sin"`` are the same function, in any case. Each names an nnodely
+    layer: ``SIN`` is :class:`Sin`, ``LEAKY_RELU`` is :class:`LeakyReLU`.
+    ``ADD``, ``SUBTRACT``, ``MULTIPLY``, ``DIVIDE``, ``POWER``, ``MOD``,
+    ``MAXIMUM``, ``MINIMUM`` and ``ATAN2`` take two arguments, the others one.
+
+    See Also
+    --------
+    EquationLearner : A layer of named functions between two Linear layers.
+
+    Basic Examples
+    --------------
+    >>> from nnodely import EquationFunction, EquationLearner
+    >>> EquationFunction.SIN == "sin"
+    True
+    >>> learner = EquationLearner([EquationFunction.SIN, EquationFunction.MULTIPLY])
+
+    .. versionadded:: 2.0
+    """
+
+    IDENTITY = "identity"
+    SIN = "sin"
+    COS = "cos"
+    TAN = "tan"
+    ASIN = "asin"
+    ACOS = "acos"
+    ATAN = "atan"
+    ATAN2 = "atan2"
+    SINH = "sinh"
+    COSH = "cosh"
+    ASINH = "asinh"
+    ACOSH = "acosh"
+    ATANH = "atanh"
+    EXP = "exp"
+    LOG = "log"
+    LOG10 = "log10"
+    LOG2 = "log2"
+    SQRT = "sqrt"
+    SQUARE = "square"
+    ABS = "abs"
+    SIGN = "sign"
+    FLOOR = "floor"
+    CEIL = "ceil"
+    ROUND = "round"
+    GAUSSIAN = "gaussian"
+    TRIANGULAR = "triangular"
+    RECTANGULAR = "rectangular"
+    RELU = "relu"
+    LEAKY_RELU = "leaky_relu"
+    ELU = "elu"
+    PRELU = "prelu"
+    SIGMOID = "sigmoid"
+    TANH = "tanh"
+    SWISH = "swish"
+    GELU = "gelu"
+    SOFTPLUS = "softplus"
+    ADD = "add"
+    SUBTRACT = "subtract"
+    MULTIPLY = "multiply"
+    DIVIDE = "divide"
+    POWER = "power"
+    MOD = "mod"
+    MAXIMUM = "maximum"
+    MINIMUM = "minimum"
+
+
+_NAMED_FUNCTIONS: dict[EquationFunction, type[Layer]] = {
+    EquationFunction.IDENTITY: Identity,
+    EquationFunction.SIN: Sin,
+    EquationFunction.COS: Cos,
+    EquationFunction.TAN: Tan,
+    EquationFunction.ASIN: Asin,
+    EquationFunction.ACOS: Acos,
+    EquationFunction.ATAN: Atan,
+    EquationFunction.ATAN2: Atan2,
+    EquationFunction.SINH: Sinh,
+    EquationFunction.COSH: Cosh,
+    EquationFunction.ASINH: Asinh,
+    EquationFunction.ACOSH: Acosh,
+    EquationFunction.ATANH: Atanh,
+    EquationFunction.EXP: Exp,
+    EquationFunction.LOG: Log,
+    EquationFunction.LOG10: Log10,
+    EquationFunction.LOG2: Log2,
+    EquationFunction.SQRT: Sqrt,
+    EquationFunction.SQUARE: Square,
+    EquationFunction.ABS: Abs,
+    EquationFunction.SIGN: Sign,
+    EquationFunction.FLOOR: Floor,
+    EquationFunction.CEIL: Ceil,
+    EquationFunction.ROUND: Round,
+    EquationFunction.GAUSSIAN: Gaussian,
+    EquationFunction.TRIANGULAR: Triangular,
+    EquationFunction.RECTANGULAR: Rectangular,
+    EquationFunction.RELU: ReLU,
+    EquationFunction.LEAKY_RELU: LeakyReLU,
+    EquationFunction.ELU: ELU,
+    EquationFunction.PRELU: PReLU,
+    EquationFunction.SIGMOID: Sigmoid,
+    EquationFunction.TANH: Tanh,
+    EquationFunction.SWISH: Swish,
+    EquationFunction.GELU: GELU,
+    EquationFunction.SOFTPLUS: Softplus,
+    EquationFunction.ADD: Add,
+    EquationFunction.SUBTRACT: Subtract,
+    EquationFunction.MULTIPLY: Multiply,
+    EquationFunction.DIVIDE: Divide,
+    EquationFunction.POWER: Power,
+    EquationFunction.MOD: Mod,
+    EquationFunction.MAXIMUM: Maximum,
+    EquationFunction.MINIMUM: Minimum,
 }
 _BINARY_LAYER_TYPES = (
     Add,
@@ -169,7 +237,8 @@ class EquationLearner:
     functions : list
         The functions of the basis, in order. Each item is one of:
 
-        - a name, in any case. Of one argument: ``identity``, ``sin``,
+        - a name, a member of :class:`EquationFunction` or its string, in
+          any case. Of one argument: ``identity``, ``sin``,
           ``cos``, ``tan``, ``asin``, ``acos``, ``atan``, ``sinh``, ``cosh``,
           ``asinh``, ``acosh``, ``atanh``, ``exp``, ``log``, ``log10``,
           ``log2``, ``sqrt``, ``square``, ``abs``, ``sign``, ``floor``,
@@ -842,13 +911,14 @@ def _resolve_function(function) -> _FunctionSpec:
             raise TypeError("Function pairs must have the form (callable, arity).")
         function, explicit_arity = function
 
-    resolved = (
-        _NAMED_FUNCTIONS.get(function.lower())
-        if isinstance(function, str)
-        else function
-    )
+    resolved = function
+    if isinstance(function, str):
+        try:
+            resolved = _NAMED_FUNCTIONS[EquationFunction(function.lower())]
+        except ValueError:
+            resolved = None
     if resolved is None:
-        available = ", ".join(sorted(_NAMED_FUNCTIONS))
+        available = ", ".join(sorted(member.value for member in EquationFunction))
         raise ValueError(
             f"Unknown EquationLearner function. Available names: {available}."
         )

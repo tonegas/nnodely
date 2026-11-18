@@ -1,7 +1,3 @@
-"""Arithmetic layers for nnodely: the elementwise operations of one stream
-or between streams (the ones the operators + - * / ** % of a stream make),
-and the reductions over the dim axes."""
-
 import math
 
 import keras

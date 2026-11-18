@@ -1,5 +1,3 @@
-"""Global random-seed configuration for nnodely."""
-
 from __future__ import annotations
 
 import os

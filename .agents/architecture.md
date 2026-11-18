@@ -67,8 +67,8 @@ receives `[x, *weights]` and owns no weight itself.
 - `Modely` (`core/modely.py`): inputs, outputs, objectives (`minimize`),
   `build`, `train`, `validate`, `save` / `load`, exports. The Keras model
   that trains the objectives is in `core/minimizer.py`. A `Modely` called on streams is a block of another model.
-- `ModelyLoop` (`core/modelyloop.py`) and `Loop` (`layers/loop.py`):
-  multi-step rollouts and recurrent models.
+- `Loop` (`layers/loop.py`) and `Modely.loop`: multi-step rollouts and
+  recurrent models.
 - `DataLoader` (`core/dataloader.py`): turns arrays or files into the
   windows and sequences a built model reads.
 - Results and printed tables: `core/results.py`, `utils/printers.py`. Every
@@ -164,8 +164,14 @@ These are boundaries, protected by rule 2. They stay strings on purpose:
 - File and folder names.
 - Class and operation registries for serialization, and a user's Keras layer
   class known by its registered name (`KerasFunction`).
-- Option enums: `method`, `mode`, `seq="dyn"`, `printer`, initializer and
-  optimizer names.
+- Option values. A closed set of names is a `StrEnum` of the module that
+  uses it (`IntegrationMethod` in `layers/calculus.py`, `OdeMethod`,
+  `InterpolationMode`, `MembershipName`, `EquationFunction`, `OnShort`),
+  exported by `nnodely`. Its members are the strings, so a caller passes
+  either, and configs, messages and tables hold `member.value`. Open sets stay plain strings: initializer, optimizer and
+  loss names (Keras's), the `keras.ops` names of the arithmetic Impls. So
+  does a word among numbers: `seq="dyn"`, `seq_length="full"`,
+  `weights="all"`.
 - The fields of a `TrainResult` or `ValidationResult` (`core/results.py`):
   a result is a snapshot, so `model` and the `minimizers` and `losses`
   dicts hold the names as they were when it was made. It holds no stream or
@@ -186,9 +192,10 @@ These are boundaries, protected by rule 2. They stay strings on purpose:
   `model.minimizers["fit"].remove()`, `model.parameters[2].freeze()`. A
   removed row refuses later settings.
 - An option string is resolved to what it names once, where it enters, so
-  an unknown one fails there, not deep in a call: the Impls of
-  `layers/arithmetic.py` resolve their operation in `__init__` with
-  `_operation`.
+  an unknown one fails there, not deep in a call: a closed set by its
+  `StrEnum`, `IntegrationMethod(method)`, with the message listing the
+  values; the Impls of `layers/arithmetic.py` resolve their operation in
+  `__init__` with `_operation`.
 - A key of a model call or of the DataLoader that is an Input of another
   model is refused. A string key that names no Input is ignored.
 - A file nnodely writes for each of several objects is named by position, or

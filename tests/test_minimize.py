@@ -453,7 +453,7 @@ def _case_input_window_vs_output():
     # The orientation examples/mass_estimation uses: the measured signal first.
     x, _, _, out = _gain_model()
     y = Input("y", tw=1)
-    model = Modely("model", inputs=[x, y], outputs=[out])
+    model = Modely("model", inputs=[x], outputs=[out])
     model.minimize("error", y, out)
     X, Y = _column("data_1"), _column("data_3")
     return model, {"error": _mse(2 * X, Y)}
@@ -596,7 +596,7 @@ def _case_next_source_vs_output():
     # examples/mass_estimation: minimize(name, TimeSelect(-1)(signal), Output)
     x, _, _, out = _gain_model()
     y = Input("y", tw=(0, 1))
-    model = Modely("model", inputs=[x, y], outputs=[out])
+    model = Modely("model", inputs=[x], outputs=[out])
     model.minimize("error", y, out)
     X = _column("data_1", future=1)
     Y_next = _column("data_3", future=1, shift=1)
@@ -784,7 +784,7 @@ def test_output_is_trained_whichever_side_it_is_declared_on(swapped):
     y = Input("y", tw=1)
     k = Parameter(value=[1.0])
     out = Output("pred", x * k)
-    model = Modely("model", inputs=[x, y], outputs=[out])
+    model = Modely("model", inputs=[x], outputs=[out])
     if swapped:
         model.minimize("error", y, out)
     else:
@@ -1163,7 +1163,7 @@ def test_a_model_ignores_the_minimizers_of_a_block_it_calls():
     losses = _epoch_losses(top, {"ign_z": np.ones((1, 1))})
     assert [key for key in losses if key.startswith("loss_")] == ["loss_top_fit"]
     assert losses["loss"] == pytest.approx(1.0)
-    assert {row["input"].name: row["data"] for row in top.inputs._rows} == {
+    assert {row["input"].name: row["flags"] for row in top.inputs._rows} == {
         "ign_z": "required",
     }
     assert [row.name for row in top.minimizers] == ["top_fit"]

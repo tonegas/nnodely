@@ -104,3 +104,7 @@ addopts = "-ra"
 markers = [
   "slow: marks tests that perform longer-running training or application workflows",
 ]
+
+[tool.coverage.run]
+# The import-time code of nnodely is tested in subprocesses (test_packaging).
+patch = ["subprocess"]

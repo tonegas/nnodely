@@ -1,15 +1,3 @@
-"""Figures for a validation run.
-
-One figure per minimizer with four panels (response, error, parity, error
-distribution) and a fifth, the error at each step, for a signal with a
-sequence; plus one loss-curve figure when the losses of a training are passed.
-
-Figures are built with the normal Matplotlib pyplot interface, so when they
-are shown they come with the interactive toolbar: zoom, pan, rescale, edit
-curve and axis properties, and save. The response and error panels share an
-x axis, so zooming into a stretch of the run zooms both.
-"""
-
 from __future__ import annotations
 
 import os

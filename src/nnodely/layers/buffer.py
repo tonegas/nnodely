@@ -1,5 +1,3 @@
-"""Buffer: the last values of a signal computed one sample per step."""
-
 from __future__ import annotations
 
 import keras

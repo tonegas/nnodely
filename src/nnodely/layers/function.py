@@ -1,5 +1,3 @@
-"""KerasFunction: a custom function, a Keras layer, as an nnodely layer."""
-
 from __future__ import annotations
 
 import weakref

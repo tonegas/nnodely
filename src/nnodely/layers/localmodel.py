@@ -1,5 +1,3 @@
-"""Local model block: local functions blended by fuzzy memberships."""
-
 from __future__ import annotations
 
 from collections.abc import Callable
