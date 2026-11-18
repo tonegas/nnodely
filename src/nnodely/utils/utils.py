@@ -1,8 +1,10 @@
 # This file contains utility functions for the nnodely library.
-import keras
-from typing import Any, Callable, Collection
+import math
 
-SUPPORTED_OPTIMIZERS = {
+import keras
+from typing import Any, Callable, Collection, cast
+
+_SUPPORTED_OPTIMIZERS = {
     "sgd",
     "rmsprop",
     "adam",
@@ -22,6 +24,33 @@ def _serialized_initializer(initializer):
     if isinstance(initializer, str):
         return initializer
     return keras.initializers.serialize(initializer)
+
+
+def _per_slice_initializer(initializer, draw_shape):
+    """Fill a tensor with draws of ``initializer`` of shape ``draw_shape``,
+    each as if it owned its own tensor, laid out one after the other.
+
+    Variance scaling reads the fans from the shape it draws, so initialising
+    ``[cells, features, out_features]`` in one shot would divide the scale by
+    the number of cells: a cell only ever sees ``features`` inputs. Drawn as
+    ``[features, out_features]`` each, every cell gets the scale of its own.
+    """
+    draw_shape = tuple(int(axis) for axis in draw_shape)
+    base = cast(keras.initializers.Initializer, keras.initializers.get(initializer))
+
+    def initialize(shape, dtype=None):
+        # A random initializer draws its seed once and then repeats itself, so
+        # reusing one instance would give every slice the same values.
+        config = base.get_config()
+        slices = []
+        for index in range(math.prod(shape) // math.prod(draw_shape)):
+            slice_config = dict(config)
+            if slice_config.get("seed") is not None:
+                slice_config["seed"] = config["seed"] + index
+            slices.append(type(base).from_config(slice_config)(draw_shape, dtype=dtype))
+        return keras.ops.reshape(keras.ops.stack(slices, axis=0), shape)
+
+    return initialize
 
 
 def _resolve_loss(
@@ -63,8 +92,11 @@ class MaskedLoss(keras.losses.Loss):
         zero = keras.ops.zeros_like(y_pred)
         y_true = keras.ops.where(valid, y_true, zero)
         y_pred = keras.ops.where(valid, y_pred, zero)
-        if callable(self.loss):
-            return self.loss(y_true, y_pred)
+        # A Loss instance is called unreduced, like a loss function: this Loss
+        # reduces.
+        loss = self.loss.call if isinstance(self.loss, keras.losses.Loss) else self.loss
+        if callable(loss):
+            return loss(y_true, y_pred)
         else:
             raise TypeError("Wrapped loss must be callable.")
 
@@ -80,20 +112,6 @@ class MaskedLoss(keras.losses.Loss):
         return cls(**config)
 
 
-def _weighted_sequence_loss(loss, y_true, y_pred, weights):
-    """Mean of ``loss`` with each step of the last axis scaled by ``weights``.
-
-    A Keras loss reduces the last axis, which is the sequence the weights are
-    laid along: a trailing axis of one is added for it to reduce instead, so
-    every step keeps its own value. The weights have mean one, so uniform
-    weights give back the unweighted loss.
-    """
-    if isinstance(loss, keras.losses.Loss):
-        loss = loss.call  # one value per element, before the Loss reduces them
-    values = loss(keras.ops.expand_dims(y_true, -1), keras.ops.expand_dims(y_pred, -1))
-    return keras.ops.mean(values * keras.ops.cast(weights, values.dtype))
-
-
 def _resolve_optimizer(
     optimizer: str | dict[str, Any] | keras.optimizers.Optimizer | None,
     learning_rate: float,
@@ -102,10 +120,17 @@ def _resolve_optimizer(
     if optimizer is None:
         optimizer = "adam"
 
+    if optimizer_kwargs and "learning_rate" in optimizer_kwargs:
+        raise ValueError(
+            "The learning rate is train()'s lr argument: optimizer_kwargs would "
+            "be overridden by it, so it cannot hold 'learning_rate'."
+        )
+
     if isinstance(optimizer, str):
-        if optimizer.lower() not in SUPPORTED_OPTIMIZERS:
+        if optimizer.lower() not in _SUPPORTED_OPTIMIZERS:
             raise ValueError(
-                f"Unknown or invalid Keras optimizer {optimizer!r}. the following optimizers are supported: [{', '.join(SUPPORTED_OPTIMIZERS)}]"
+                f"Unknown or invalid Keras optimizer {optimizer!r}. The supported "
+                f"optimizers are: {', '.join(sorted(_SUPPORTED_OPTIMIZERS))}."
             )
         config = keras.optimizers.serialize(keras.optimizers.get(optimizer))
         if type(config) is dict and "config" in config:
@@ -134,7 +159,6 @@ def _resolve_optimizer(
 
 def _resolve_early_stopping(
     early_stopping: str | dict[str, Any] | keras.callbacks.Callback | None,
-    early_stopping_kwargs: dict[str, Any] | None,
     logged: Collection[str],
 ) -> keras.callbacks.Callback | None:
     """Turn the ``early_stopping`` argument of :meth:`train` into a callback.
@@ -143,23 +167,10 @@ def _resolve_early_stopping(
     ``EarlyStopping`` can monitor.
     """
     if early_stopping is None:
-        if early_stopping_kwargs:
-            raise ValueError(
-                "early_stopping_kwargs needs early_stopping to name the "
-                "quantity to monitor."
-            )
         return None
 
     if isinstance(early_stopping, str):
-        callback = keras.callbacks.EarlyStopping(
-            monitor=early_stopping, **(early_stopping_kwargs or {})
-        )
-    elif early_stopping_kwargs:
-        raise ValueError(
-            "early_stopping_kwargs can only be used when early_stopping is the "
-            "name of the quantity to monitor. Configure callbacks and "
-            "configurations before passing them to train()."
-        )
+        callback = keras.callbacks.EarlyStopping(monitor=early_stopping)
     elif isinstance(early_stopping, dict):
         callback = keras.callbacks.EarlyStopping(**early_stopping)
     elif isinstance(early_stopping, keras.callbacks.Callback):
@@ -188,7 +199,7 @@ def _resolve_early_stopping(
             f"does not log: it logs {sorted(logged)}.{hint}"
         )
     # Every quantity training logs is a loss, but Keras infers a direction only
-    # for the names "loss" and "val_loss": "fit_loss" would raise in "auto" mode.
+    # for the names "loss" and "val_loss": "loss_fit" would raise in "auto" mode.
     if isinstance(callback, keras.callbacks.EarlyStopping) and callback.mode == "auto":
         callback.mode = "min"
     return callback

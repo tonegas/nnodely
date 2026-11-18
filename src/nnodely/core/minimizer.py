@@ -1,16 +1,22 @@
-"""The objectives of a Modely: how a minimizer is checked, resolved against
-the built graph, and turned into the loss the training model minimizes."""
-
 import warnings
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 import keras
 import numpy as np
 
-from nnodely.core.dag import _streams_from
+from nnodely.core.dag import Table, _nodes_by_model, _resolve, _toposort
 from nnodely.core.layer import Layer
-from nnodely.core.stream import Node, Stream
+from nnodely.core.shape import OUTER_AXIS, expand_to_rank, outer_view
+from nnodely.core.results import _loss_name, _target_label
+from nnodely.core.stream import Node, Stream, _object_repr
 from nnodely.layers.input import Input
-from nnodely.utils.utils import MaskedLoss, _resolve_loss, _weighted_sequence_loss
+from nnodely.layers.output import Output
+from nnodely.utils.printers import _table
+from nnodely.utils.utils import MaskedLoss, _resolve_loss
+
+if TYPE_CHECKING:
+    from nnodely.core.modely import Modely
+    from nnodely.layers.loop import Loop
 
 
 def _depends_on_dynamic_input(node) -> bool:
@@ -28,7 +34,7 @@ def _depends_on_dynamic_input(node) -> bool:
         seen.add(id(current))
         if isinstance(current, Input) and any(n is None for n in current.seq):
             return True
-        stack.extend(current.preds)
+        stack.extend(current._preds)
     return False
 
 
@@ -43,7 +49,7 @@ def _reads_input(node) -> bool:
         seen.add(id(current))
         if isinstance(current, Input):
             return True
-        stack.extend(current.preds)
+        stack.extend(current._preds)
     return False
 
 
@@ -67,10 +73,10 @@ def _reaches_trainable_weight(node) -> bool:
             layer = current._layer
             if layer is None or layer.trainable_weights:
                 return True
-        inner = getattr(current, "model", None)
+        inner = current._model
         if isinstance(inner, Modely):
-            stack.extend(inner.outputs)
-        stack.extend(current.preds)
+            stack.extend(inner._outputs)
+        stack.extend(current._preds)
     return False
 
 
@@ -95,44 +101,6 @@ def _validate_gain(gain, minimizer: str) -> float:
     return gain
 
 
-def _seq_weights_for(seq_weights, steps: int | None, minimizer: str):
-    """One weight per step of a last axis ``steps`` long, normalized to mean one.
-
-    A callable is given the number of steps. Weights are not negative, and not
-    all zero: a negative weight would maximize the error of its step, and all
-    zeros would train nothing. ``steps=None`` leaves the length unchecked.
-    """
-    weights = seq_weights(steps) if callable(seq_weights) else seq_weights
-    weights = np.asarray(weights, dtype=np.float32)
-    if weights.ndim != 1 or steps is not None and weights.shape != (steps,):
-        raise ValueError(
-            f"The seq_weights of minimizer {minimizer!r} must be one weight per "
-            f"step of the last axis, {steps} of them, got shape {weights.shape}."
-        )
-    if not np.isfinite(weights).all() or (weights < 0).any() or not weights.any():
-        raise ValueError(
-            f"The seq_weights of minimizer {minimizer!r} must be finite, not "
-            f"negative and not all zero, got {weights.tolist()}."
-        )
-    return weights / weights.mean()
-
-
-def _validate_seq_weights(seq_weights, source: Stream, minimizer: str):
-    """The seq_weights of a minimizer, checked as far as its source allows.
-
-    A dynamic sequence follows the data, whatever length its stream declares,
-    so its weights are checked once the data sets the length.
-    """
-    if seq_weights is None:
-        return None
-    steps = None if _depends_on_dynamic_input(source) else source.shape.tuple[-1]
-    if callable(seq_weights):
-        if steps is not None:
-            _seq_weights_for(seq_weights, steps, minimizer)
-        return seq_weights
-    return _seq_weights_for(seq_weights, steps, minimizer)
-
-
 class _MinimizerTerm:
     """One minimizer, resolved against the outputs of the built graph."""
 
@@ -145,12 +113,9 @@ class _MinimizerTerm:
         loss,
         masked,
         gain=1.0,
-        seq_weights=None,
     ):
         self.name = name
         self.gain = gain  # weight of this term in the total loss
-        # weight of each step of the last axis, or a callable of its length
-        self.seq_weights = seq_weights
         self.source = source  # name of the graph output holding the prediction
         self.target = target  # name of the graph output holding the reference
         # a target computed from constants alone, which broadcasts to its source
@@ -158,7 +123,21 @@ class _MinimizerTerm:
         self.masked = masked
         self.loss = MaskedLoss(loss) if masked else loss
         # Logged under the minimizer's name: two minimizers can share a source.
-        self.tracker = keras.metrics.Mean(name=f"{name}_loss")
+        self.tracker = keras.metrics.Mean(name=f"loss_{name}")
+
+
+def _rollout_mask(term, target, y):
+    """The padding mask ``y`` laid out to broadcast against ``target``, or
+    None when it does not apply to the minimizer.
+
+    The mask is one row per sample, one column per rollout step, and the
+    rollout is the outer step axis of every padded stream.
+    """
+    if not term.masked or y is None:
+        return None
+    if target.shape[OUTER_AXIS] not in (None, y.shape[-1]):
+        return None
+    return outer_view(keras.ops.cast(y, "bool"), len(target.shape))
 
 
 class _MinimizerTerms:
@@ -205,8 +184,7 @@ class MinimizerModel(keras.Model):
         """
         broadcast = term.target_constant
         if broadcast:
-            while len(target.shape) < len(source.shape):
-                target = keras.ops.expand_dims(target, axis=-1)
+            target = expand_to_rank(target, len(source.shape))
 
         source_axes, target_axes = tuple(source.shape[1:]), tuple(target.shape[1:])
         compatible = len(source_axes) == len(target_axes) and all(
@@ -222,6 +200,21 @@ class MinimizerModel(keras.Model):
         if broadcast:
             target = keras.ops.broadcast_to(target, keras.ops.shape(source))
         return target
+
+    @staticmethod
+    def _term_loss(term, source, target, y):
+        """One minimizer's loss: ``source`` against its aligned ``target``,
+        with the padded rollout steps the mask ``y`` marks left out.
+
+        Validation computes its loss here too, so a model is scored on its
+        validation data exactly as it was trained.
+        """
+        valid = _rollout_mask(term, target, y)
+        if valid is not None:
+            target = keras.ops.where(valid, target, keras.ops.full_like(target, np.nan))
+        # A loss function returns one value per sample, a Loss instance the
+        # reduced value: the mean is how compile() reduces either.
+        return keras.ops.mean(term.loss(target, source))
 
     def compute_loss(
         self, x=None, y=None, y_pred=None, sample_weight=None, training=True
@@ -241,32 +234,12 @@ class MinimizerModel(keras.Model):
                 )
             source = y_pred[term.source]
             target = self._align_target(term, y_pred[term.target], source)
-            # The mask is one row per sample, one column per rollout step, and
-            # the rollout is the last axis of every padded stream.
-            rollout = (
-                target.shape[-1] in (None, y.shape[-1]) if y is not None else False
-            )
-            if term.masked and rollout:
-                valid = keras.ops.cast(y, "bool")
-                for _ in range(len(target.shape) - 2):
-                    valid = keras.ops.expand_dims(valid, axis=1)
-                target = keras.ops.where(
-                    valid, target, keras.ops.full_like(target, np.nan)
-                )
-            if term.seq_weights is not None:
-                # The rollout is unrolled, so its length is static here.
-                weights = _seq_weights_for(
-                    term.seq_weights, source.shape[-1], term.name
-                )
-                value = _weighted_sequence_loss(term.loss, target, source, weights)
-            else:
-                # A loss function returns one value per sample, a Loss instance
-                # the reduced value: the mean is how compile() reduces either.
-                value = keras.ops.mean(term.loss(target, source))
+            value = self._term_loss(term, source, target, y)
             # Logged unweighted by the gain, as Keras logs a per-output loss
             # under loss_weights; only the total the optimizer sees is weighted.
-            # The seq_weights are part of the loss itself, so they are logged.
-            term.tracker.update_state(value)
+            # Each batch weighs as many samples as it holds, as in Keras's own
+            # loss: a short last batch would otherwise count as a full one.
+            term.tracker.update_state(value, sample_weight=keras.ops.shape(source)[0])
             weighted = value if term.gain == 1.0 else value * term.gain
             total = weighted if total is None else total + weighted
         if self.losses:
@@ -283,7 +256,8 @@ def _minimizer_stream(model, value, side: str, minimizer: str) -> Stream:
     """A minimizer side as a Stream, looking a name up in the model.
 
     A name can be any stream of the model's graph, one of its declared inputs,
-    or a stream the registered minimizers already compare.
+    or a stream the registered minimizers already compare. A name several
+    streams carry raises, listing them: the stream itself is passed then.
     """
     if isinstance(value, Stream):
         return value
@@ -292,37 +266,226 @@ def _minimizer_stream(model, value, side: str, minimizer: str) -> Stream:
             f"The {side} of minimizer {minimizer!r} must be a Stream or the "
             f"name of one, got {type(value).__name__}."
         )
-    roots: list[Node] = [*model.outputs, *model.inputs]
-    for registered in model.minimizers:
+    roots: list[Node] = [*model._outputs, *model._inputs]
+    for registered in model._minimizers:
         roots.extend((registered["source"], registered["target"]))
-    matches = [stream for stream in _streams_from(roots) if stream.name == value]
-    if not matches:
-        outputs = sorted(output.name for output in model.outputs)
-        raise ValueError(
-            f"The {side} {value!r} of minimizer {minimizer!r} is not the name "
-            f"of a stream of model {model.name!r}. Its outputs are {outputs}."
+    candidates = [
+        (stream, None, _where(stream))
+        for stream in _toposort(roots)
+        if isinstance(stream, Stream)
+    ]
+    return _resolve(
+        value,
+        candidates,
+        kind="stream",
+        owner=f"The {side} of minimizer {minimizer!r} in model {model.name!r}",
+        hint="Pass the stream itself, or give it a name of its own, "
+        "stream.name = 'new_name'.",
+        missing=lambda value: (
+            f"The {side} {value!r} of minimizer {minimizer!r} "
+            f"is not the name of a stream of model {model.name!r}. Its outputs are "
+            f"{sorted(output.name for output in model._outputs)}."
+        ),
+    )
+
+
+def _check_sides(model, source, target, minimizer: str) -> None:
+    """Refuse a minimizer of ``model`` whose ``source`` and ``target``,
+    given as streams, are not both computed from the graph of the model, from
+    values, and from Inputs only minimizers read, such as targets; or whose
+    target has another shape than its source.
+
+    A side that reads the graph of another model (the step model.loop()
+    rolls out, the body of a Loop, a block called) is refused: a trajectory
+    is minimized as the output of the model that collects it. Nothing is
+    reshaped, so a target compared with a trajectory is declared with its
+    horizon."""
+    nodes, known = _known_nodes(model)
+    for side, value in (("source", source), ("target", target)):
+        _refuse_foreign(model, nodes, known, value, side, minimizer)
+    _check_shapes(source, target, minimizer)
+
+
+def _is_loop(node) -> TypeGuard["Loop"]:
+    # loop.py imports the module of Modely, which imports this one.
+    from nnodely.layers.loop import Loop
+
+    return isinstance(node, Loop)
+
+
+def _known_nodes(model) -> tuple[list[Node], set[int]]:
+    """Every node of the graph of ``model`` (its outputs, the inputs it
+    declares and the minimizers it has) and their ids."""
+    roots: list[Node] = [*model._outputs, *model._inputs]
+    for registered in model._minimizers:
+        roots.extend((registered["source"], registered["target"]))
+    nodes = _toposort(roots)
+    return nodes, {id(node) for node in nodes}
+
+
+def _collected(model) -> dict[int, str]:
+    """The outputs of ``model`` that collect each stream of a Loop body, as
+    the error refusing that stream names them, by the id of the stream as
+    the graph the body was declared over holds it, such as the step
+    model.loop() rolls out. A body rolled out twice has two."""
+    names: dict[int, list[str]] = {}
+    for output in model._outputs:
+        stream = model._output_stream(output)
+        if stream is not output._preds[0]:
+            names.setdefault(id(stream), []).append(output.name)
+    return {
+        key: f"model.outputs[{found[0]!r}]"
+        if len(found) == 1
+        else f"one of model.outputs{found}"
+        for key, found in names.items()
+    }
+
+
+def _refuse_foreign(model, nodes, known: set[int], value, side: str, minimizer: str):
+    """Refuse ``value`` if it reads the graph of another model: a stream
+    another model computes, a fed-back Input the model does not read, or an
+    Input of the name of one the model reads, since the data is fed by name.
+    The error names the output of the model to minimize instead, when one
+    collects the stream refused."""
+    if id(value) in known:
+        return
+    inputs = {
+        node.name: node
+        for node in nodes
+        if isinstance(node, Input) and not node._hidden
+    }
+    owners: dict[int, str] | None = None
+    collected = _collected(model)
+    stack, seen = [value], set()
+    while stack:
+        node = stack.pop()
+        # A call to a block is a node, but no stream.
+        if id(node) in seen or id(node) in known or getattr(node, "_is_value", False):
+            continue
+        seen.add(id(node))
+        reads = (
+            f"its {side} {value.name!r}"
+            if node is value
+            else f"its {side} {value.name!r} reads {node.name!r}, which"
         )
-    if len(matches) > 1:
-        raise ValueError(
-            f"The {side} {value!r} of minimizer {minimizer!r} is ambiguous: "
-            f"{len(matches)} streams of model {model.name!r} carry that name. "
-            "Pass the stream itself."
+        if isinstance(node, Input):
+            # A hidden state a side reads (the state of an Integrate, a
+            # Derivative or a Buffer the side computes) starts from its init.
+            if node._update is not None and (node is value or not node._hidden):
+                output = collected.get(id(node._update))
+                use = (
+                    "Minimize a stream of the model: an output, or one it computes."
+                    if output is None
+                    else "Minimize the trajectory of the stream it is fed back "
+                    f"with, the output {output}."
+                )
+                raise ValueError(
+                    f"Minimizer {minimizer!r}: {reads} is fed back, and model "
+                    f"{model.name!r} does not read it: a state of another graph "
+                    "(the step model.loop() rolls out, the body of a Loop) has "
+                    f"no value in it. {use}"
+                )
+            twin = inputs.get(node.name)
+            if twin is not None and twin is not node:
+                raise ValueError(
+                    f"Minimizer {minimizer!r}: {reads} is not the Input "
+                    f"{node.name!r} model {model.name!r} reads, but another of "
+                    "its name, of another graph such as the step model.loop() "
+                    "rolls out, and the data is fed by input name. Use the "
+                    f"model's own, model.inputs[{node.name!r}], or give the "
+                    "Input a name of its own."
+                )
+            continue
+        if owners is None:
+            owners = _graph_owners(model)
+        owner = owners.get(id(node))
+        if owner is not None:
+            output = collected.get(
+                id(node._preds[0] if isinstance(node, Output) else node)
+            )
+            use = (
+                "Minimize a stream of the model: one of its outputs, "
+                f"{sorted(output.name for output in model._outputs)}, or a "
+                "stream computed from them. A stream of the step model.loop() "
+                "rolls out is declared among its outputs first."
+                if output is None
+                else "Minimize the output of the model that collects it, its "
+                f"trajectory: {output}, or its name."
+            )
+            raise ValueError(
+                f"Minimizer {minimizer!r}: {reads} is a stream of the graph of "
+                f"{owner!r} (the step model.loop() rolls out, the body of a "
+                f"Loop, a model called as a block), which model {model.name!r} "
+                f"does not compute. {use}"
+            )
+        stack.extend(node._preds)
+
+
+def _graph_owners(model) -> dict[int, str]:
+    """The name of the model whose graph holds each node, by id, for every
+    model ``model`` holds (the blocks it calls, the bodies of its Loops,
+    theirs too) and every graph a Loop was declared over, with the blocks
+    it calls: the step model.loop() rolls out, which its body copies."""
+    owners: dict[int, str] = {}
+    groups = _nodes_by_model(model)
+    for held, nodes in groups[1:]:
+        for node in nodes:
+            owners.setdefault(id(node), held.name)
+    for _, nodes in groups:
+        for node in nodes:
+            if _is_loop(node) and node._step.f is not node._model:
+                # The body copies the blocks of the step that hold a state,
+                # so only the step reaches the streams they were declared with.
+                for declared, inner in _nodes_by_model(node._step.f):
+                    for inner_node in inner:
+                        owners.setdefault(id(inner_node), declared.name)
+    return owners
+
+
+def _check_shapes(source, target, minimizer: str) -> None:
+    """Refuse a target of another shape than its source, but for a value,
+    which broadcasts: a loss would broadcast one over the other and silently
+    compare, say, one sample with a whole window."""
+    from nnodely.core.modely import _same_sizes
+
+    if not _reads_input(target) or _same_sizes(source.shape.tuple, target.shape.tuple):
+        return
+    hint = ""
+    if isinstance(target, Input) and target.shape.seq_rank < source.shape.seq_rank:
+        seq = [-1 if size is None else size for size in source.shape.seq]
+        hint = (
+            f" Declare {target.name!r} with the sequence of {source.name!r}, "
+            f"seq={tuple(seq) if len(seq) > 1 else seq[0]}."
         )
-    return matches[0]
+    raise ValueError(
+        f"Minimizer {minimizer!r} compares {source.name!r} of shape "
+        f"{source.shape} with {target.name!r} of shape {target.shape}. They "
+        f"must have the same shape.{hint}"
+    )
+
+
+def _where(stream: Stream) -> str:
+    """What ``stream`` is, for the listing of a name several carry: its
+    kind, and the call that returns it, for the output of a block."""
+    call = getattr(stream, "_pred", None)
+    returned = (
+        f" returned by {call.name!r} on {[pred.name for pred in call._preds]}"
+        if call is not None
+        else ""
+    )
+    kind = type(stream).__name__
+    return f"({'an' if kind[0] in 'AEIOU' else 'a'} {kind}{returned})"
 
 
 def _resolve_minimizer_terms(model) -> list[_MinimizerTerm]:
     """Resolve every minimizer of ``model`` to the graph outputs of its build."""
-    assert model.model is not None
-    # The forward pass returns a dict keyed by the names of these nodes.
-    output_names = {node.name for node in model.train_outputs}
+    assert model._keras_model is not None
 
     def output_name(minimizer, side):
+        # The key the forward pass returns the side under, given by build().
         node = minimizer[side]
         name = model._minimizer_outputs.get(node)
-        if name is None and not isinstance(node, Input):
-            name = node.name
-        if name not in output_names:
+        if name is None:
             raise ValueError(
                 f"The {side} {node.name!r} of minimizer {minimizer['name']!r} "
                 "is not an output of the built model. Call build() after "
@@ -340,9 +503,8 @@ def _resolve_minimizer_terms(model) -> list[_MinimizerTerm]:
             masked=_depends_on_dynamic_input(minimizer["source"])
             or _depends_on_dynamic_input(minimizer["target"]),
             gain=minimizer.get("gain", 1.0),
-            seq_weights=minimizer.get("seq_weights"),
         )
-        for minimizer in model.minimizers
+        for minimizer in model._minimizers
     ]
 
 
@@ -358,11 +520,11 @@ def _check_minimizers_train_weights(model, km: keras.Model) -> None:
         return  # Keras itself warns that the model has nothing to train
     weightless = [
         minimizer["name"]
-        for minimizer in model.minimizers
+        for minimizer in model._minimizers
         if not _reaches_trainable_weight(minimizer["source"])
         and not _reaches_trainable_weight(minimizer["target"])
     ]
-    if len(weightless) == len(model.minimizers):
+    if len(weightless) == len(model._minimizers):
         raise ValueError(
             f"No minimizer of model {model.name!r} depends on a trainable "
             f"weight: {weightless} compare streams computed without any, so "
@@ -377,3 +539,217 @@ def _check_minimizers_train_weights(model, km: keras.Model) -> None:
             UserWarning,
             stacklevel=3,
         )
+
+
+class Minimizer:
+    """One objective of a model, as :attr:`~nnodely.Modely.minimizers` lists
+    it.
+
+    You do not create one yourself: :meth:`~nnodely.Modely.minimize`
+    registers the objective, and ``model.minimizers["fit"]`` or
+    ``model.minimizers[0]`` picks its row.
+
+    It is read by its attributes, ``m.gain``. Setting ``name``, ``loss`` or
+    ``gain`` changes the objective in its
+    model, checked as :meth:`~nnodely.Modely.minimize` checks it, from the
+    next :meth:`~nnodely.Modely.train`. Setting anything else raises
+    ``TypeError``: register the objective again to change what it compares.
+    :meth:`remove` removes it from its model.
+
+    Attributes
+    ----------
+    name : str
+        The name of the objective, the key of its loss, ``loss_<name>``.
+    source : Stream
+        The prediction it compares.
+    target : Stream
+        The reference it compares the prediction with. A number given as the
+        target is a :class:`~nnodely.Constant`.
+    loss : keras.losses.Loss or callable
+        The loss function.
+    gain : float
+        The weight of its loss in the total loss.
+    model : Modely
+        The model it belongs to.
+
+    Basic Examples
+    --------------
+    >>> from nnodely import Input, Modely, Output
+    >>> x = Input("x", tw=1)
+    >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)])
+    >>> model = model.minimize("fit", "y", Input("y_meas", tw=1))
+    >>> fit = model.minimizers["fit"]
+    >>> fit.name, fit.source.name, fit.target.name, fit.gain
+    ('fit', 'y', 'y_meas', 1.0)
+    >>> fit.gain = 2.0
+    >>> model.minimizers[0].gain
+    2.0
+
+    Possible Issues
+    ---------------
+    What it compares is set by :meth:`~nnodely.Modely.minimize`:
+
+    >>> fit.source = x
+    Traceback (most recent call last):
+        ...
+    TypeError: Minimizer 'fit': its name, loss and gain can be set, not its 'source'; ...
+
+    .. versionadded:: 2.0
+    """
+
+    _SETTABLE = ("name", "loss", "gain")
+    # No attribute of its own to set: one set by mistake would be lost.
+    __slots__ = ("_minimizer", "_model")
+
+    def __init__(self, minimizer: dict, model: "Modely"):
+        # The model's own entry, not a copy: what is set is set there.
+        object.__setattr__(self, "_minimizer", minimizer)
+        object.__setattr__(self, "_model", model)
+
+    @property
+    def name(self) -> str:
+        return self._minimizer["name"]
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._model._set_minimizer(self._minimizer, "name", value)
+
+    @property
+    def source(self) -> Stream:
+        return self._minimizer["source"]
+
+    @property
+    def target(self) -> Stream:
+        return self._minimizer["target"]
+
+    @property
+    def loss(self) -> Any:
+        return self._minimizer["loss"]
+
+    @loss.setter
+    def loss(self, value: Any) -> None:
+        self._model._set_minimizer(self._minimizer, "loss", value)
+
+    @property
+    def gain(self) -> float:
+        return self._minimizer["gain"]
+
+    @gain.setter
+    def gain(self, value: float) -> None:
+        self._model._set_minimizer(self._minimizer, "gain", value)
+
+    @property
+    def model(self) -> "Modely":
+        return self._model
+
+    def __setattr__(self, key, value):
+        if key not in self._SETTABLE:
+            raise TypeError(
+                f"Minimizer {self._minimizer['name']!r}: its name, loss and gain "
+                f"can be set, not its {key!r}; declare it again with minimize() "
+                "to change what it compares."
+            )
+        object.__setattr__(self, key, value)
+
+    def __repr__(self):
+        return _object_repr(
+            self,
+            name=self.name,
+            source=self.source,
+            target=_target_label(self.target),
+            loss=_loss_name(self.loss),
+            gain=self.gain,
+            model=self._model,
+        )
+
+    def remove(self) -> None:
+        """Remove this objective from its model.
+
+        Pick it first, by its name or by its index in
+        :attr:`~nnodely.Modely.minimizers`. The next
+        :meth:`~nnodely.Modely.train` and :meth:`~nnodely.Modely.validate`
+        leave it out. The model needs no new build. The row stays readable,
+        but no longer belongs to the model: setting it raises.
+
+        Raises
+        ------
+        KeyError
+            When it is picked, if no objective has that name. Nothing is
+            removed.
+        IndexError
+            When it is picked, if the index is out of range.
+
+        See Also
+        --------
+        nnodely.Modely.minimize : Register an objective.
+        nnodely.Modely.minimizers : The objectives, as a table.
+
+        Basic Examples
+        --------------
+        >>> from nnodely import Input, Modely, Output
+        >>> x = Input("x", tw=1)
+        >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)])
+        >>> model = model.minimize("a", "y", 1.0).minimize("b", "y", 2.0)
+        >>> model.minimizers["a"].remove()
+        >>> [m.name for m in model.minimizers]
+        ['b']
+
+        Options
+        -------
+        By index:
+
+        >>> model.minimizers[0].remove()
+        >>> len(model.minimizers)
+        0
+
+        Possible Issues
+        ---------------
+        A name no objective has raises, as in every table:
+
+        >>> model.minimizers["c"].remove()
+        Traceback (most recent call last):
+            ...
+        nnodely.core.dag.NameNotFound: ...no minimizer named 'c'...
+
+        A row removed is no longer the model's:
+
+        >>> fit = model.minimize("fit", "y", 1.0).minimizers["fit"]
+        >>> fit.remove()
+        >>> fit.gain = 2.0
+        Traceback (most recent call last):
+            ...
+        ValueError: Minimizer 'fit' was removed from model 'double': declare it again with minimize().
+
+        .. versionadded:: 2.0
+        """
+        model = self._model
+        model._minimizers = [m for m in model._minimizers if m is not self._minimizer]
+
+
+class Minimizers(Table):
+    """The minimizers of a model, as :attr:`Modely.minimizers` lists them: a
+    tuple of :class:`Minimizer`, printed as a table of the streams each
+    compares, its loss and its gain."""
+
+    _HEADER = ("minimizer", "source", "target", "loss", "gain")
+
+    _kind, _attr = "minimizer", "minimizers"
+
+    def clear(self) -> None:
+        """Remove every objective from the model, as
+        :meth:`Minimizer.remove` removes one."""
+        for minimizer in self:
+            minimizer.remove()
+
+    def __str__(self):
+        rows = [
+            (
+                m.name,
+                m.source.name,
+                str(_target_label(m.target)),
+                _loss_name(m.loss),
+                str(m.gain),
+            )
+            for m in self
+        ]
+        return _table(self._HEADER, [("", rows)], indexed=True)

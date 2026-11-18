@@ -12,14 +12,16 @@ from nnodely import Input, Linear, Modely, Output
 
 def _initialized_linear_weights(seed: int, suffix: str):
     nnodely.set_seed(seed)
-    x = Input(f"seed_x_{suffix}", dim=3)
-    linear = Linear(out_features=2, name=f"seed_linear_{suffix}")(x.last())
+    x = Input(f"seed_x_{suffix}", dim=3, tw=1)
+    linear = Linear(features=2, name=f"seed_linear_{suffix}")(x)
     Modely(
         f"seed_model_{suffix}",
         inputs=[x],
         outputs=[Output(f"seed_out_{suffix}", linear)],
     ).build()
-    return to_numpy(linear.kernel), to_numpy(linear.bias)
+    return to_numpy(linear.weights["kernel"].param), to_numpy(
+        linear.weights["bias"].param
+    )
 
 
 def test_set_seed_repeats_python_numpy_and_keras_initialization():

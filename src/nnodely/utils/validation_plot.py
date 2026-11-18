@@ -1,14 +1,3 @@
-"""Figures for a validation run.
-
-One figure per minimizer with four panels - response, error, parity, error
-distribution - plus one loss-curve figure when a training history is passed.
-
-Figures are built with the normal Matplotlib pyplot interface, so when they
-are shown they come with the interactive toolbar: zoom, pan, rescale, edit
-curve and axis properties, and save. The response and error panels share an
-x axis, so zooming into a stretch of the run zooms both.
-"""
-
 from __future__ import annotations
 
 import os
@@ -16,68 +5,92 @@ from typing import Any
 
 import numpy as np
 
-from nnodely.core.validation import SignalScore, ValidationResult
+from nnodely.core.results import ValidationResult
+from nnodely.core.validation import Signal
 
 #: Channels drawn per panel, worst first. Metrics always cover every channel;
 #: this only keeps a figure of a 64-channel signal readable.
-MAX_LINES = 6
+_MAX_LINES = 6
 
 # _TARGET_STYLE = dict(color="#2E3440", linewidth=1.4, linestyle="--", alpha=0.85)
 _PREDICT = ("#6F84FE", "#5B4BFB", "#80BFFF", "#7A3FE8", "#3FA7E8", "#9B6BFF")
 
 
-def _worst_channels(score: SignalScore) -> list[int]:
-    order = np.argsort(score.channel_rmse())[::-1]
-    return sorted(int(index) for index in order[:MAX_LINES])
+def _points(signal: Signal) -> tuple[np.ndarray, np.ndarray]:
+    """The source and the target at the points that have a target, laid out
+    ``(points, channels)``."""
+    channels = int(np.prod(signal.shape.dim))
+    keep = signal._valid.reshape(-1)
+    return (
+        signal.source.reshape(-1, channels)[keep],
+        signal.target.reshape(-1, channels)[keep],
+    )
 
 
-def _label(score: SignalScore, channel: int) -> str:
-    return score.source if score.channels == 1 else f"{score.source}[{channel}]"
+def _worst_channels(signal: Signal) -> list[int]:
+    order = np.argsort(np.ravel(signal.rmse(dim=True)))[::-1]
+    return sorted(int(index) for index in order[:_MAX_LINES])
 
 
-def figure_signal(score: SignalScore):
-    """Response, error, parity and error distribution for one minimizer."""
+def _label(source: str, channels: int, channel: int) -> str:
+    return source if channels == 1 else f"{source}[{channel}]"
+
+
+def _figure_signal(signal: Signal, minimizer: dict):
+    """Response, error, parity and error distribution for one minimizer, and
+    the error at each step when its signal has a sequence."""
     import matplotlib.pyplot as plt
 
-    channels = _worst_channels(score)
-    hidden = score.channels - len(channels)
+    source, target = _points(signal)
+    source_name, total = minimizer["source"], source.shape[1]
+    channels = _worst_channels(signal)
+    hidden = total - len(channels)
+    # The error at each step of the sequence, every channel apart.
+    step_rmse = (
+        np.reshape(signal.rmse(seq=True, dim=True), (-1, total))
+        if signal.shape.seq_rank
+        else None
+    )
 
-    figure = plt.figure(figsize=(12.0, 8.0))
-    grid = figure.add_gridspec(3, 2, height_ratios=(2.0, 1.4, 1.4), hspace=0.35)
+    rows = 3 if step_rmse is None else 4
+    figure = plt.figure(figsize=(12.0, 8.0 if rows == 3 else 10.5))
+    grid = figure.add_gridspec(
+        rows, 2, height_ratios=(2.0, 1.4, 1.4, 1.4)[:rows], hspace=0.35
+    )
     ax_time = figure.add_subplot(grid[0, :])
     ax_error = figure.add_subplot(grid[1, :], sharex=ax_time)
     ax_parity = figure.add_subplot(grid[2, 0])
     ax_hist = figure.add_subplot(grid[2, 1])
 
-    samples = np.arange(len(score.y_true))
+    points = np.arange(len(source))
     for position, channel in enumerate(channels):
         colour = _PREDICT[position % len(_PREDICT)]
         ax_time.plot(
-            samples,
-            score.y_true[:, channel],
-            label=f"target {_label(score, channel)}",
+            points,
+            target[:, channel],
+            label=f"target {_label(source_name, total, channel)}",
             color="#2E3440",
             linewidth=1.4,
             linestyle="--",
             alpha=0.85,
         )
         ax_time.plot(
-            samples,
-            score.y_pred[:, channel],
+            points,
+            source[:, channel],
             color=colour,
             linewidth=1.2,
-            label=f"predicted {_label(score, channel)}",
+            label=f"predicted {_label(source_name, total, channel)}",
         )
         ax_error.plot(
-            samples,
-            score.y_pred[:, channel] - score.y_true[:, channel],
+            points,
+            source[:, channel] - target[:, channel],
             color=colour,
             linewidth=1.0,
         )
 
-    title = f"{score.name}   {score.source} vs {score.target}"
+    title = f"{signal.name}   {source_name} vs {minimizer['target']}"
     if hidden:
-        title += f"   ({len(channels)} of {score.channels} channels, worst first)"
+        title += f"   ({len(channels)} of {total} channels, worst first)"
     ax_time.set_title(title)
     ax_time.set_ylabel("value")
     ax_time.grid(alpha=0.25)
@@ -88,24 +101,25 @@ def figure_signal(score: SignalScore):
 
     ax_error.axhline(0.0, color="#2E3440", linewidth=0.8)
     ax_error.set_ylabel("prediction - target")
-    ax_error.set_xlabel("sample")
+    # A point is one sample at one time step; padded steps are left out.
+    ax_error.set_xlabel("point")
     ax_error.grid(alpha=0.25)
 
-    flat_true = score.y_true[:, channels].ravel()
-    flat_pred = score.y_pred[:, channels].ravel()
-    ax_parity.scatter(flat_true, flat_pred, s=6, alpha=0.35, color=_PREDICT[0])
-    if flat_true.size:
-        limits = (float(np.min(flat_true)), float(np.max(flat_true)))
+    flat_target = target[:, channels].ravel()
+    flat_source = source[:, channels].ravel()
+    ax_parity.scatter(flat_target, flat_source, s=6, alpha=0.35, color=_PREDICT[0])
+    if flat_target.size:
+        limits = (float(np.min(flat_target)), float(np.max(flat_target)))
         ax_parity.plot(limits, limits, color="#2E3440", linewidth=1.0, linestyle="--")
     ax_parity.set_xlabel("target")
     ax_parity.set_ylabel("prediction")
     ax_parity.set_title("parity")
     ax_parity.grid(alpha=0.25)
 
-    residual = (score.y_pred[:, channels] - score.y_true[:, channels]).ravel()
+    residual = (source[:, channels] - target[:, channels]).ravel()
     residual = residual[np.isfinite(residual)]
     if residual.size:
-        # A perfect prediction - or a constant offset - has a residual with no
+        # A perfect prediction, or a constant offset, has a residual with no
         # spread to bin, and 40 bins across a zero-width range is an error.
         # The padded range keeps the edges strictly increasing either way.
         low, high = float(np.min(residual)), float(np.max(residual))
@@ -129,22 +143,41 @@ def figure_signal(score: SignalScore):
     ax_hist.set_title("error distribution")
     ax_hist.grid(alpha=0.25)
 
-    metrics = score.metrics
+    if step_rmse is not None:
+        ax_steps = figure.add_subplot(grid[3, :])
+        steps = np.arange(1, len(step_rmse) + 1)
+        for position, channel in enumerate(channels):
+            ax_steps.plot(
+                steps,
+                step_rmse[:, channel],
+                color=_PREDICT[position % len(_PREDICT)],
+                linewidth=1.2,
+                marker="o",
+                markersize=3,
+                label=_label(source_name, total, channel),
+            )
+        ax_steps.set_xlabel("step")
+        ax_steps.set_ylabel("RMSE")
+        ax_steps.set_title("error at each step of the sequence")
+        ax_steps.grid(alpha=0.25)
+        if len(channels) > 1:
+            ax_steps.legend(fontsize=8)
+
     figure.text(
         0.5,
         0.005,
-        f"RMSE {metrics['rmse']:.4e}    MAE {metrics['mae']:.4e}    "
-        f"max {metrics['max_error']:.4e}    FIT {metrics['fit_pct']:.2f}%    "
-        f"R2 {metrics['r2']:.4f}",
+        f"RMSE {signal.rmse():.4e}    MAE {signal.mae():.4e}    "
+        f"max {signal.max_error():.4e}    FIT {signal.fit_pct():.2f}%    "
+        f"R2 {signal.r2():.4f}",
         ha="center",
         fontsize=9,
         color="#4C566A",
     )
-    _name_window(figure, f"nnodely validation - {score.name}")
+    _name_window(figure, f"nnodely validation - {signal.name}")
     return figure
 
 
-def figure_history(history: dict[str, Any]):
+def _figure_history(history: dict[str, Any]):
     """Training and validation loss curves, if the history carries any."""
     import matplotlib.pyplot as plt
 
@@ -188,20 +221,25 @@ def _slug(text: str) -> str:
     return "".join(c if c.isalnum() or c in "-_" else "_" for c in text)
 
 
-def render(
+def _render(
     result: ValidationResult,
     *,
     out_dir: str | os.PathLike | None = None,
     show: bool = False,
+    history: dict[str, Any] | None = None,
 ) -> list[str]:
     """Draw every figure, save it when asked, and return the paths written."""
     import matplotlib.pyplot as plt
 
-    figures: list[tuple[str, Any]] = []
-    for name, score in result.signals.items():
-        figures.append((name, figure_signal(score)))
-    if result.history:
-        history_figure = figure_history(result.history)
+    # A file per minimizer is named by its index and its name: the index
+    # keeps apart names alike once slugged ("a b" and "a_b", "Fit" and "fit"
+    # on a file system blind to case) and keeps them from the history's.
+    figures: list[tuple[str, Any]] = [
+        (f"{index}_{_slug(name)}", _figure_signal(signal, result.minimizers[name]))
+        for index, (name, signal) in enumerate(result.signals.items())
+    ]
+    if history:
+        history_figure = _figure_history(history)
         if history_figure is not None:
             figures.append(("history", history_figure))
 
@@ -209,9 +247,7 @@ def render(
     if out_dir is not None:
         os.makedirs(out_dir, exist_ok=True)
         for name, figure in figures:
-            path = os.path.join(
-                str(out_dir), f"{_slug(result.model)}_{_slug(name)}.png"
-            )
+            path = os.path.join(str(out_dir), f"{_slug(result.model)}_{name}.png")
             figure.savefig(path, dpi=150, bbox_inches="tight")
             saved.append(path)
 

@@ -2,7 +2,11 @@ name: Run Tests
 
 on:
   pull_request:
-    branches: ["main", "develop"]
+    branches: ["main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -11,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13"]
         keras-backend: [tensorflow, torch, jax]
     env:
       KERAS_BACKEND: ${{ matrix.keras-backend }}

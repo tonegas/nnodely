@@ -2,19 +2,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from nnodely import DataLoader, Input, Modely, Output
+from nnodely import DataLoader, Input, Linear, Loop, Modely, Output
 from nnodely.core import validation
+from nnodely.core.shape import Shape
 from nnodely.utils import validation_plot
+from nnodely import TimeSelect
 
 
 def _identity_model(name, *, dim=None, window=1, loss="mse"):
     """A model whose prediction is its input, so the error is fully controlled."""
-    x = Input(f"{name}_x", dim=dim)
-    target = Input(f"{name}_target", dim=dim)
-    prediction = Output(f"{name}_prediction", x.sw(window))
+    x = Input(f"{name}_x", dim=dim, tw=window)
+    target = Input(f"{name}_target", dim=dim, tw=window)
+    prediction = Output(f"{name}_prediction", x)
 
     model = Modely(name, inputs=[x], outputs=[prediction])
-    reference = target if window == 1 else target.sw(window)
+    reference = TimeSelect(-1)(target) if window == 1 else target
     model.minimize("tracking", source=prediction, target=reference, loss=loss)
     model.build()
     return model
@@ -35,98 +37,210 @@ def _data(model, name, x_values, target_values):
 # ---------------------------------------------------------------------------
 
 
+def _signal(true, pred, valid=None, seq_rank=0, window=False):
+    """The Signal of a prediction ``pred`` of ``true``, both laid out
+    ``(samples, *seq, tw, *dim)``, with ``seq_rank`` sequence axes and a
+    window axis when ``window``."""
+    true, pred = np.asarray(true, dtype=float), np.asarray(pred, dtype=float)
+    shape = Shape.from_tensor_shape(true.shape[1:], seq_rank=seq_rank, tw=window)
+    return validation.Signal("t", pred, true, valid, shape)
+
+
 def test_a_perfect_prediction_scores_as_perfect():
     values = np.linspace(0.0, 1.0, 32)[:, None]
-    score = validation.score_signal(
-        name="tracking",
-        source="pred",
-        target="ref",
-        loss_fn=None,
-        y_true=values,
-        y_pred=values,
-    )
+    signal = _signal(values, values)
 
-    assert score.metrics["rmse"] == pytest.approx(0.0)
-    assert score.metrics["fit_pct"] == pytest.approx(100.0)
-    assert score.metrics["r2"] == pytest.approx(1.0)
-    assert score.metrics["max_error"] == pytest.approx(0.0)
+    assert signal.rmse() == pytest.approx(0.0)
+    assert signal.fit_pct() == pytest.approx(100.0)
+    assert signal.r2() == pytest.approx(1.0)
+    assert signal.max_error() == pytest.approx(0.0)
 
 
 def test_metrics_measure_error_not_magnitude():
     true = np.array([[0.0], [1.0], [2.0], [3.0]])
-    pred = true + 0.5
-    score = validation.score_signal(
-        name="t", source="p", target="r", loss_fn=None, y_true=true, y_pred=pred
-    )
+    signal = _signal(true, true + 0.5)
 
-    assert score.metrics["rmse"] == pytest.approx(0.5)
-    assert score.metrics["mae"] == pytest.approx(0.5)
-    assert score.metrics["max_error"] == pytest.approx(0.5)
+    assert signal.rmse() == pytest.approx(0.5)
+    assert signal.mae() == pytest.approx(0.5)
+    assert signal.max_error() == pytest.approx(0.5)
     ## A constant offset is a bias, which is what separates it from noise
-    assert score.metrics["bias"] == pytest.approx(0.5)
-    assert score.metrics["std_error"] == pytest.approx(0.0)
+    assert signal.bias() == pytest.approx(0.5)
+    assert signal.std_error() == pytest.approx(0.0)
     ## RMSE as a percentage of the target's peak-to-peak range
-    assert score.metrics["nrmse_pct"] == pytest.approx(100.0 * 0.5 / 3.0)
+    assert signal.nrmse_pct() == pytest.approx(100.0 * 0.5 / 3.0)
 
 
 def test_relative_indicators_are_undefined_on_a_constant_target():
     ## Saying "100% fit" against a signal that never moves would be a lie
-    score = validation.score_signal(
-        name="t",
-        source="p",
-        target="r",
-        loss_fn=None,
-        y_true=np.ones((8, 1)),
-        y_pred=np.ones((8, 1)) + 0.1,
-    )
+    signal = _signal(np.ones((8, 1)), np.ones((8, 1)) + 0.1)
 
-    assert score.metrics["rmse"] == pytest.approx(0.1)
-    for key in ("fit_pct", "r2", "correlation", "nrmse_pct"):
-        assert np.isnan(score.metrics[key])
+    assert signal.rmse() == pytest.approx(0.1)
+    for metric in (signal.fit_pct, signal.r2, signal.correlation, signal.nrmse_pct):
+        assert np.isnan(metric())
 
 
 def test_every_element_of_the_tensor_is_scored():
-    ## (samples, dim, time) - an error hidden past the first scalar still counts
-    true = np.zeros((4, 2, 3))
-    pred = np.zeros((4, 2, 3))
-    pred[2, 1, 2] = 1.0
-    score = validation.score_signal(
-        name="t", source="p", target="r", loss_fn=None, y_true=true, y_pred=pred
+    ## (samples, tw, dim): an error hidden past the first scalar still counts
+    true = np.zeros((4, 3, 2))
+    pred = np.zeros((4, 3, 2))
+    pred[2, 2, 1] = 1.0
+    signal = _signal(true, pred, window=True)
+
+    ## A channel is a feature; every sample at every step is a point of it
+    assert signal.shape.dim == (2,)
+    assert signal.scored == 12
+    assert signal.max_error() == pytest.approx(1.0)
+    assert signal.rmse() == pytest.approx(np.sqrt(1.0 / 24.0))
+    np.testing.assert_allclose(signal.rmse(dim=True), [0.0, np.sqrt(1 / 12)])
+
+
+def test_the_metrics_keep_the_axes_they_are_asked_for():
+    ## (samples, seq, tw, dim): the samples are pooled, the axes kept are not
+    rng = np.random.default_rng(2)
+    true = rng.normal(size=(6, 4, 3, 2))
+    pred = true + rng.normal(scale=0.1, size=true.shape)
+    signal = _signal(true, pred, seq_rank=1, window=True)
+    error = pred - true
+
+    np.testing.assert_allclose(
+        signal.rmse(seq=True), np.sqrt(np.mean(error**2, axis=(0, 2, 3)))
     )
-
-    assert score.channels == 6
-    assert score.metrics["max_error"] == pytest.approx(1.0)
-    assert score.metrics["rmse"] == pytest.approx(np.sqrt(1.0 / 24.0))
-
-
-def test_shapes_that_do_not_match_are_refused():
-    ## Truncating to the shorter of the two hides exactly the mistakes that
-    ## matter - a target window offset by one step
-    with pytest.raises(ValueError, match="They must match"):
-        validation.score_signal(
-            name="t",
-            source="p",
-            target="r",
-            loss_fn=None,
-            y_true=np.zeros((4, 1)),
-            y_pred=np.zeros((4, 3)),
-        )
+    np.testing.assert_allclose(
+        signal.rmse(tw=True), np.sqrt(np.mean(error**2, axis=(0, 1, 3)))
+    )
+    assert np.shape(signal.rmse(seq=True, tw=True, dim=True)) == (4, 3, 2)
+    ## A tuple keeps those positions alone
+    np.testing.assert_allclose(
+        signal.rmse(seq=(1, 2)), np.asarray(signal.rmse(seq=True))[1:3]
+    )
+    ## Without a sequence there is no axis to keep: a number
+    window_only = _signal(true[:, 0], pred[:, 0], window=True)
+    assert np.ndim(window_only.rmse(seq=True)) == 0
 
 
 def test_non_finite_predictions_are_counted_and_not_hidden():
     pred = np.zeros((6, 1))
     pred[2] = np.nan
-    score = validation.score_signal(
-        name="t",
-        source="p",
-        target="r",
-        loss_fn=None,
-        y_true=np.linspace(0, 1, 6)[:, None],
-        y_pred=pred,
+    signal = _signal(np.linspace(0, 1, 6)[:, None], pred)
+
+    assert signal.non_finite == 1
+    assert np.isnan(signal.fit_pct())
+    assert np.isnan(signal.rmse())
+
+
+def test_the_indicators_match_a_worked_example():
+    ## e = [0, 0, 0, 1]: sum(e^2) = 1, and the target's spread
+    ## sum((y - 1.5)^2) = 5, var(y) = 1.25, var(e) = 0.25 - 0.25^2 = 0.1875
+    true = np.array([0.0, 1.0, 2.0, 3.0])[:, None]
+    pred = np.array([0.0, 1.0, 2.0, 4.0])[:, None]
+    signal = _signal(true, pred)
+
+    assert signal.rmse() == pytest.approx(0.5)
+    assert signal.mae() == pytest.approx(0.25)
+    assert signal.max_error() == pytest.approx(1.0)
+    assert signal.bias() == pytest.approx(0.25)
+    assert signal.std_error() == pytest.approx(np.sqrt(0.1875))
+    assert signal.nrmse_pct() == pytest.approx(100.0 * 0.5 / 3.0)
+    assert signal.fit_pct() == pytest.approx(100.0 * (1.0 - 1.0 / np.sqrt(5.0)))
+    assert signal.r2() == pytest.approx(1.0 - 1.0 / 5.0)
+    assert signal.vaf_pct() == pytest.approx(100.0 * (1.0 - 0.1875 / 1.25))
+    ## cov(y, y_hat) / (std(y) std(y_hat)), in sums: 6.5 / sqrt(5 * 8.75)
+    assert signal.correlation() == pytest.approx(6.5 / np.sqrt(5.0 * 8.75))
+
+
+def test_the_indicators_keep_the_identities_that_relate_them():
+    rng = np.random.default_rng(0)
+    true = rng.normal(2.0, 3.0, size=(500, 1))
+    pred = 0.9 * true + rng.normal(0.4, 0.5, size=(500, 1))
+    signal = _signal(true, pred)
+
+    ## The error splits into a systematic part and a random one
+    assert signal.rmse() ** 2 == pytest.approx(
+        signal.bias() ** 2 + signal.std_error() ** 2
+    )
+    ## FIT and R2 weigh the same residual, as a norm and as its square
+    assert (1.0 - signal.fit_pct() / 100.0) ** 2 == pytest.approx(1.0 - signal.r2())
+    ## VAF is R2 that forgives a constant offset
+    assert signal.vaf_pct() / 100.0 - signal.r2() == pytest.approx(
+        signal.bias() ** 2 / np.var(true)
     )
 
-    assert score.metrics["non_finite"] == 1
-    assert np.isnan(score.metrics["fit_pct"])
+
+def test_each_channel_is_scored_against_its_own_spread():
+    ## A position in metres and a velocity a thousand times smaller: pooled,
+    ## the position's spread made a prediction of the velocity by its mean
+    ## alone look perfect
+    t = np.linspace(0.0, 10.0, 200)
+    true = np.stack([1000.0 * np.sin(t), 0.01 * np.cos(t)], axis=-1)
+    pred = true.copy()
+    pred[:, 1] = np.mean(true[:, 1])
+    signal = _signal(true, pred)
+
+    assert signal.shape.dim == (2,)
+    np.testing.assert_allclose(signal.r2(dim=True), [1.0, 0.0], atol=1e-12)
+    np.testing.assert_allclose(signal.fit_pct(dim=True), [100.0, 0.0], atol=1e-9)
+    ## A prediction that never moves follows none of the target
+    np.testing.assert_allclose(signal.correlation(dim=True), [1.0, 0.0], atol=1e-12)
+    ## The whole signal: the relative indicators average the channels...
+    assert signal.r2() == pytest.approx(0.5)
+    assert signal.fit_pct() == pytest.approx(50.0)
+    ## ... and the absolute ones pool every point of every channel
+    assert signal.rmse() == pytest.approx(np.sqrt(np.mean((pred - true) ** 2)))
+    assert signal.max_error() == pytest.approx(np.max(np.abs(pred - true)))
+
+
+def test_a_constant_channel_is_left_out_of_the_relative_indicators():
+    true = np.stack([np.full(20, 2.0), np.linspace(0.0, 1.0, 20)], axis=-1)
+    signal = _signal(true, true + [0.1, 0.0])
+
+    r2 = np.asarray(signal.r2(dim=True))
+    assert np.isnan(r2[0])
+    assert r2[1] == pytest.approx(1.0)
+    ## The channel that moves still has a fit to report
+    assert signal.r2() == pytest.approx(1.0)
+    np.testing.assert_allclose(signal.rmse(dim=True), [0.1, 0.0], atol=1e-12)
+
+
+def _rollout_mask(lengths, steps):
+    """The DataLoader's mask: one row per simulation, True on its real steps."""
+    return np.arange(steps) < np.asarray(lengths)[:, np.newaxis]
+
+
+def test_padded_points_are_left_out_of_every_indicator():
+    ## Three simulations rolled out over 5 steps, (samples, steps, window, dim)
+    real = _rollout_mask([5, 2, 4], 5)
+    rng = np.random.default_rng(1)
+    true = rng.normal(size=(3, 5, 1, 1))
+    pred = true + rng.normal(scale=0.1, size=true.shape)
+    ## Whatever a padded step holds (a rollout that diverged included) is
+    ## not the model's error
+    pred[~real] = np.array([1e6, -np.inf, np.nan, 7.0])[:, None, None]
+
+    signal = _signal(true, pred, valid=real[:, :, None, None], seq_rank=1, window=True)
+    alone = _signal(true[real], pred[real], window=True)
+
+    assert (signal.scored, signal.missing) == (11, 4)
+    assert signal.non_finite == 0
+    ## A point without a target is NaN in both signals
+    assert np.isnan(signal.source[~real]).all() and np.isnan(signal.target[~real]).all()
+    for key in ("rmse", "mae", "max_error", "bias", "std_error", "fit_pct", "r2"):
+        assert getattr(signal, key)() == pytest.approx(getattr(alone, key)()), key
+    np.testing.assert_array_equal(signal.source[real], alone.source)
+
+
+def test_the_rollout_error_is_reported_step_by_step():
+    ## Every real point is 0.1 off per step of the rollout, on both channels
+    real = _rollout_mask([5, 2, 4], 5)
+    true = np.zeros((3, 5, 1, 2))
+    pred = np.broadcast_to(0.1 * np.arange(1.0, 6.0)[:, None, None], true.shape).copy()
+    pred[~real] = 1e3
+
+    signal = _signal(true, pred, valid=real[:, :, None, None], seq_rank=1, window=True)
+
+    np.testing.assert_allclose(
+        signal.rmse(seq=True, dim=True),
+        np.repeat(0.1 * np.arange(1.0, 6.0)[:, None], 2, axis=1),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -142,11 +256,11 @@ def test_validate_scores_every_minimizer():
 
     assert result.model == name
     assert result.samples == 20
-    assert set(result.metrics()) == {"tracking"}
-    assert result["tracking"].metrics["rmse"] == pytest.approx(0.0, abs=1e-6)
-    ## The result maps minimizer name to score
-    assert list(result) == ["tracking"]
-    assert len(result) == 1
+    assert list(result.signals) == ["tracking"]
+    assert result.signals["tracking"].rmse() == pytest.approx(0.0, abs=1e-6)
+    ## The result is read by its attributes, not as a dict or a list
+    with pytest.raises(TypeError, match="read by its attributes"):
+        result["tracking"]
 
 
 def test_validate_reports_the_configured_loss():
@@ -155,18 +269,50 @@ def test_validate_reports_the_configured_loss():
     values = np.linspace(0.0, 1.0, 12)
     result = model.validate(_data(model, name, values, values + 0.25))
 
-    assert result["tracking"].loss == "mean_absolute_error"
-    assert result["tracking"].metrics["loss"] == pytest.approx(0.25, abs=1e-5)
+    assert result.minimizers["tracking"]["loss"] == "mean_absolute_error"
+    assert result.losses["loss_tracking"] == pytest.approx(0.25, abs=1e-5)
 
 
 def test_validate_names_the_source_and_the_target_signal():
+    # Each side is labelled by its own stream: the target is a time selection
+    # of an Input, named by the Output that wraps it.
     name = "label_model"
-    model = _identity_model(name)
+    x = Input(f"{name}_x", tw=1)
+    prediction = Output(f"{name}_prediction", x)
+    reference = Output(
+        f"{name}_reference", TimeSelect(-1)(Input(f"{name}_target", tw=1))
+    )
+    model = Modely(name, inputs=[x], outputs=[prediction])
+    model.minimize("tracking", source=prediction, target=reference)
+    model.build()
     values = np.linspace(0.0, 1.0, 10)
-    score = model.validate(_data(model, name, values, values))["tracking"]
 
-    assert score.source == f"{name}_prediction"
-    assert score.target == f"{name}_target"
+    minimizer = model.validate(_data(model, name, values, values)).minimizers[
+        "tracking"
+    ]
+
+    assert minimizer["source"] == f"{name}_prediction"
+    assert minimizer["target"] == f"{name}_reference"
+
+
+def test_validate_labels_the_target_by_its_own_name_not_by_what_it_reads():
+    # The target is a selection of the target Input that the user named like
+    # the other Input: its label is the name it was given.
+    name = "homonym_model"
+    x = Input(f"{name}_x", tw=1)
+    reference = TimeSelect(-1)(Input(f"{name}_target", tw=1))
+    reference.name = f"{name}_x"
+    prediction = Output(f"{name}_prediction", x)
+    model = Modely(name, inputs=[x], outputs=[prediction])
+    model.minimize("tracking", source=prediction, target=reference)
+    model.build()
+    values = np.linspace(0.0, 1.0, 10)
+
+    minimizer = model.validate(_data(model, name, values, values)).minimizers[
+        "tracking"
+    ]
+
+    assert minimizer["target"] == f"{name}_x"
 
 
 def test_validate_draws_nothing_unless_asked():
@@ -179,38 +325,65 @@ def test_validate_draws_nothing_unless_asked():
     assert result.figures == []
 
 
-def test_validate_writes_one_png_per_minimizer(tmp_path):
+def test_plot_writes_one_png_per_minimizer(tmp_path):
     name = "figure_model"
     model = _identity_model(name)
     values = np.linspace(0.0, 1.0, 16)
 
-    result = model.validate(_data(model, name, values, values), out_dir=tmp_path)
+    result = model.validate(_data(model, name, values, values))
+    returned = result.plot(out_dir=tmp_path)
 
     written = sorted(p.name for p in tmp_path.glob("*.png"))
-    assert written == [f"{name}_tracking.png"]
-    assert result.figures == [str(tmp_path / f"{name}_tracking.png")]
+    assert written == [f"{name}_0_tracking.png"]
+    assert result.figures == [str(tmp_path / f"{name}_0_tracking.png")]
+    assert returned == result.figures
 
 
-def test_validate_adds_a_history_figure_when_given_one(tmp_path):
+def test_plot_writes_a_file_of_its_own_for_every_figure(tmp_path):
+    # Names alike once slugged, or alike but for case, and a minimizer named
+    # like the history figure: each figure is a file of its own.
+    name = "files_model"
+    model = _identity_model(name)
+    for other in ("history", "a b", "a_b", "Tracking"):
+        prediction, reference = (
+            model.minimizers[0].source,
+            model.minimizers[0].target,
+        )
+        model.minimize(other, source=prediction, target=reference)
+    model.build()
+    values = np.linspace(0.0, 1.0, 16)
+    data = _data(model, name, values, values)
+    history = model.train(train_data=data, epochs=1, batch_size=4, verbose=False)
+
+    result = model.validate(data)
+    result.plot(out_dir=tmp_path, history=history)
+
+    written = sorted(p.name.lower() for p in tmp_path.glob("*.png"))
+    assert len(written) == len(set(written)) == 6
+    assert len(result.figures) == 6
+
+
+def test_plot_adds_a_history_figure_when_given_one(tmp_path):
     name = "history_model"
     model = _identity_model(name)
     values = np.linspace(0.0, 1.0, 16)
     data = _data(model, name, values, values)
-    history = model.train(train_data=data, epochs=2, batch_size=4, printer=None)
+    history = model.train(train_data=data, epochs=2, batch_size=4, verbose=False)
 
-    model.validate(data, out_dir=tmp_path, history=history)
+    model.validate(data).plot(out_dir=tmp_path, history=history)
 
     assert (tmp_path / f"{name}_history.png").exists()
 
 
-def test_validate_shows_the_figures_on_request(monkeypatch):
+def test_plot_shows_the_figures_on_request(monkeypatch):
     name = "show_model"
     model = _identity_model(name)
     values = np.linspace(0.0, 1.0, 10)
     shown = []
     monkeypatch.setattr("matplotlib.pyplot.show", lambda *a, **k: shown.append(True))
 
-    result = model.validate(_data(model, name, values, values), show=True)
+    result = model.validate(_data(model, name, values, values))
+    result.plot(show=True)
 
     assert shown == [True]
     ## Shown but not saved: there was nowhere to save to
@@ -229,53 +402,210 @@ def test_validate_rejects_an_empty_dataset():
 
 
 def test_validate_requires_a_built_model_and_a_minimizer():
-    x = Input("unbuilt_x")
-    model = Modely("unbuilt", inputs=[x], outputs=[Output("unbuilt_out", x.sw(1))])
+    x = Input("unbuilt_x", tw=1)
+    model = Modely("unbuilt", inputs=[x], outputs=[Output("unbuilt_out", x)])
 
     with pytest.raises(ValueError, match="not built"):
-        model.validate(None)
+        model.validate(None)  # type: ignore[arg-type]
 
     model.build()
     with pytest.raises(ValueError, match="No minimizers"):
-        model.validate(None)
+        model.validate(None)  # type: ignore[arg-type]
 
 
-def test_validate_reports_its_summary_and_returns_the_numbers(capsys):
+def test_validate_reports_its_table_and_returns_the_numbers(capsys):
     name = "summary_model"
     model = _identity_model(name)
     values = np.linspace(0.0, 1.0, 12)
 
-    result = model.validate(_data(model, name, values, values + 0.1))
+    result = model.validate(_data(model, name, values, values + 0.1), verbose=True)
     ## Reported on the way out, and still available as data afterwards
-    assert "nnodely Validation" in capsys.readouterr().out
+    text = str(result)
+    assert capsys.readouterr().out == text + "\n"
+    lines = text.splitlines()
+    assert lines[0].startswith("┏") and "loss value" in lines[1]
+    assert f"{name}: 12 samples" in lines[3]
+    ## The repr lists the fields, then the keys of every dictionary
+    assert repr(result).splitlines() == [
+        f"ValidationResult(model={name!r}, samples=12, loss=0.01,",
+        "  minimizers: ['tracking'],",
+        "  losses:     ['loss', 'loss_tracking'],",
+        "  signals:    ['tracking'],",
+        "  figures:    [],",
+        ")",
+    ]
+    ## The table of a signal lists every metric
+    table = str(result.signals["tracking"])
+    for metric in ("rmse", "mae", "max_error", "bias", "fit_pct", "r2", "correlation"):
+        assert f"│ {metric} " in table
 
-    text = result.summary()
-    assert text == repr(result)
-    assert "nnodely Validation" in text
-    for label in ("RMSE", "MAE", "Max error", "Bias", "FIT", "R2", "Correlation"):
-        assert label in text
-    ## Every line fits the 80-column banner the rest of nnodely prints in
-    assert all(len(line) <= 80 for line in text.splitlines())
+
+def test_validate_scores_each_channel_of_a_signal():
+    name = "channels_model"
+    model = _identity_model(name, dim=2)
+    t = np.linspace(0.0, 10.0, 50)
+    target = np.stack([1000.0 * np.sin(t), 0.01 * np.cos(t)], axis=-1)
+    x = target.copy()
+    x[:, 1] = np.mean(target[:, 1])
+
+    result = model.validate(_data(model, name, x, target), verbose=False)
+    signal = result.signals["tracking"]
+
+    assert (signal.shape.dim, signal.scored) == ((2,), 50)
+    np.testing.assert_allclose(signal.r2(dim=True), [1.0, 0.0], atol=1e-5)
+    assert signal.r2() == pytest.approx(0.5, abs=1e-5)
+
+
+def _decay_model(name):
+    """x[k + 1] = w x[k], rolled out over each whole simulation.
+
+    The weight is 1 and the data decays by 0.8 a step, so the error grows
+    along the rollout.
+    """
+    body_x = Input(f"{name}_body_x", tw=1)
+    body_out = Output(
+        f"{name}_body_out", Linear(features=1, kernel="ones", bias=False)(body_x)
+    )
+    body = Modely(f"{name}_body", inputs=[body_x], outputs=[body_out]).build()
+    seed = Input(f"{name}_x", seq=-1, tw=1)
+    loop = Loop(
+        f=body,
+        feedback={body_x: body_out},
+        seq=6,
+        init={body_x: seed},
+    )()
+    out = Output(f"{name}_out", loop)
+    model = Modely(name, inputs=[seed], outputs=[out])
+    model.minimize("rollout", out, Input(f"{name}_target", seq=-1, tw=1))
+    model.build()
+    return model
+
+
+def _simulations(name):
+    """Three simulations of 6, 3 and 5 steps."""
+    return [
+        {f"{name}_x": signal, f"{name}_target": 0.8 * signal}
+        for signal in (
+            start * 0.8 ** np.arange(length)
+            for start, length in ((1.0, 6), (2.0, 3), (-1.5, 5))
+        )
+    ]
+
+
+def test_validate_reports_the_loss_train_reports_on_the_same_data():
+    ## Padded simulations: masked the same way
+    name = "same_loss"
+    model = _decay_model(name)
+    data = DataLoader(model, source=_simulations(name), seq_length="full")
+    assert data.mask is not None
+
+    history = model.train(
+        data,
+        val_data=data,
+        epochs=1,
+        batch_size=len(data),
+        optimizer="sgd",
+        lr=0.0,
+        shuffle=False,
+        verbose=False,
+    )
+    result = model.validate(data, verbose=False)
+
+    assert result.losses["loss_rollout"] == pytest.approx(
+        history.losses["val_loss_rollout"][0], rel=1e-5
+    )
+
+
+def test_a_short_last_batch_weighs_only_its_samples():
+    ## 10 samples in batches of 4 leave a last batch of 2. The loss of each
+    ## minimizer was logged as the plain mean of the batch losses, so it
+    ## disagreed with Keras's own loss and with the loss of the dataset
+    name = "batches_model"
+    model = _identity_model(name)
+    values = np.linspace(0.0, 1.0, 10)
+    data = _data(model, name, values, values**2)
+
+    history = model.train(
+        train_data=data,
+        val_data=data,
+        epochs=1,
+        batch_size=4,
+        shuffle=False,
+        verbose=False,
+    )
+    loss = model.validate(data, verbose=False).losses["loss_tracking"]
+
+    expected = np.mean((values - values**2) ** 2)
+    assert history.losses["loss_tracking"][0] == pytest.approx(expected, rel=1e-5)
+    assert history.losses["val_loss_tracking"][0] == pytest.approx(expected, rel=1e-5)
+    assert history.losses["val_loss"][0] == pytest.approx(expected, rel=1e-5)
+    assert loss == pytest.approx(expected, rel=1e-5)
+
+
+def test_padded_simulations_are_scored_as_if_each_ran_alone():
+    name = "fair_model"
+    model = _decay_model(name)
+    simulations = _simulations(name)
+
+    result = model.validate(
+        DataLoader(model, source=simulations, seq_length="full"), verbose=False
+    )
+    padded = result.signals["rollout"]
+    alone = [
+        model.validate(
+            DataLoader(model, source=[simulation], seq_length="full"), verbose=False
+        ).signals["rollout"]
+        for simulation in simulations
+    ]
+
+    ## Every real step is scored once, and no padded one: 3 + 1 steps pad the
+    ## two shorter simulations to the longest
+    assert (padded.scored, padded.missing) == (6 + 3 + 5, 4)
+    assert all(signal.missing == 0 for signal in alone)
+    # Every point of each alone has a target: all of them, one per row.
+    reference = _signal(
+        np.concatenate([signal.target.reshape(-1, 1) for signal in alone]),
+        np.concatenate([signal.source.reshape(-1, 1) for signal in alone]),
+    )
+    for key in (
+        "rmse",
+        "mae",
+        "max_error",
+        "bias",
+        "std_error",
+        "nrmse_pct",
+        "fit_pct",
+        "r2",
+        "vaf_pct",
+        "correlation",
+    ):
+        value = getattr(reference, key)()
+        assert getattr(padded, key)() == pytest.approx(value, rel=1e-5), key
+    ## The error grows along the rollout, step by step
+    steps = padded.rmse(seq=True, dim=True)
+    assert steps.shape == (6, 1)
+    assert steps[-1, 0] > steps[0, 0]
 
 
 # ---------------------------------------------------------------------------
 # Figures
 # ---------------------------------------------------------------------------
 
+#: The names of the streams a figure labels its signal with.
+_NAMES = {"source": "p", "target": "r"}
+
 
 def test_a_wide_signal_caps_the_drawn_lines_but_never_the_metrics():
-    channels = validation_plot.MAX_LINES + 4
+    channels = validation_plot._MAX_LINES + 4
     true = np.zeros((20, channels))
     pred = np.tile(np.arange(channels, dtype=float), (20, 1))
-    score = validation.score_signal(
-        name="wide", source="p", target="r", loss_fn=None, y_true=true, y_pred=pred
-    )
+    signal = _signal(true, pred)
 
-    figure = validation_plot.figure_signal(score)
+    figure = validation_plot._figure_signal(signal, _NAMES)
     try:
         ## Metrics see every channel; the figure draws the worst few
-        assert score.channels == channels
-        assert score.metrics["max_error"] == pytest.approx(channels - 1)
+        assert signal.shape.dim == (channels,)
+        assert signal.max_error() == pytest.approx(channels - 1)
         assert f"of {channels} channels" in figure.axes[0].get_title()
     finally:
         plt.close(figure)
@@ -283,16 +613,9 @@ def test_a_wide_signal_caps_the_drawn_lines_but_never_the_metrics():
 
 def test_the_response_and_error_panels_share_an_x_axis():
     values = np.linspace(0.0, 1.0, 20)[:, None]
-    score = validation.score_signal(
-        name="t",
-        source="p",
-        target="r",
-        loss_fn=None,
-        y_true=values,
-        y_pred=values + 0.05,
-    )
+    signal = _signal(values, values + 0.05)
 
-    figure = validation_plot.figure_signal(score)
+    figure = validation_plot._figure_signal(signal, _NAMES)
     try:
         ## Zooming a stretch of the run has to zoom both panels
         response, error = figure.axes[0], figure.axes[1]
@@ -301,13 +624,31 @@ def test_the_response_and_error_panels_share_an_x_axis():
         plt.close(figure)
 
 
+def test_a_rollout_figure_draws_the_error_step_by_step():
+    real = _rollout_mask([5, 2, 4], 5)
+    true = np.zeros((3, 5, 1, 1))
+    pred = np.broadcast_to(0.1 * np.arange(1.0, 6.0)[:, None, None], true.shape)
+    signal = _signal(true, pred, valid=real[:, :, None, None], seq_rank=1, window=True)
+
+    figure = validation_plot._figure_signal(signal, _NAMES)
+    try:
+        steps = figure.axes[-1]
+        assert steps.get_title() == "error at each step of the sequence"
+        np.testing.assert_allclose(
+            np.asarray(steps.lines[0].get_ydata()),
+            np.asarray(signal.rmse(seq=True, dim=True))[:, 0],
+        )
+    finally:
+        plt.close(figure)
+
+
 def test_the_history_figure_is_skipped_without_curves():
-    assert validation_plot.figure_history({}) is None
-    assert validation_plot.figure_history({"loss": []}) is None
+    assert validation_plot._figure_history({}) is None
+    assert validation_plot._figure_history({"loss": []}) is None
 
 
 def test_the_history_figure_draws_every_curve():
-    figure = validation_plot.figure_history(
+    figure = validation_plot._figure_history(
         {"loss": [1.0, 0.5, 0.25], "val_loss": [1.1, 0.6, 0.4]}
     )
     try:
@@ -320,18 +661,18 @@ def test_the_history_figure_draws_every_curve():
         plt.close(figure)
 
 
-def test_validate_prints_its_summary_unless_told_not_to(capsys):
+def test_validate_prints_its_table_only_when_told_to(capsys):
     # Once printed on every call, with no way to keep a log or a loop quiet.
     name = "verbose_model"
     model = _identity_model(name)
     values = np.linspace(0.0, 1.0, 10)
     data = _data(model, name, values, values + 0.25)
 
-    shown = model.validate(data)
-    assert "nnodely Validation" in capsys.readouterr().out
-
-    quiet = model.validate(data, verbose=False)
+    quiet = model.validate(data)
     assert capsys.readouterr().out == ""
-    assert quiet["tracking"].metrics["mae"] == pytest.approx(
-        shown["tracking"].metrics["mae"]
+
+    shown = model.validate(data, verbose=True)
+    assert "loss value" in capsys.readouterr().out
+    assert quiet.signals["tracking"].mae() == pytest.approx(
+        shown.signals["tracking"].mae()
     )

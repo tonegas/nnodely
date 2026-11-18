@@ -1,218 +1,205 @@
-"""Stream: a node of the graph, with its shape and its predecessors."""
-
 from __future__ import annotations
 import inspect
 
 from copy import copy
 from typing import Any, Sequence
 
-NODE_REGISTRY: dict[str, type["Node"]] = {}
+from nnodely.core.shape import Shape
 
-#: Every node name this process has used - given, generated or loaded - with
+#: Every node class, by its module and name (:func:`_class_path`): a model
+#: saves the class of each node so, and is loaded with that class, not with
+#: another of the same name: a layer class of the user's named ``Sin``
+#: leaves nnodely's own in place.
+_NODE_REGISTRY: dict[str, type["Node"]] = {}
+
+
+def _class_path(cls: type) -> str:
+    """``cls`` by its module and its name, as a model saves it."""
+    return f"{cls.__module__}.{cls.__qualname__}"
+
+
+def _registered_class(saved: str) -> type["Node"] | None:
+    """The node class a model was saved with: by its module and name; else
+    by its name alone, as a model saved before classes were saved with their
+    module, or one whose class has moved to another module, when exactly one
+    class has that name. None if no class has it."""
+    if saved in _NODE_REGISTRY:
+        return _NODE_REGISTRY[saved]
+    name = saved.rsplit(".", 1)[-1]
+    alike = [cls for cls in _NODE_REGISTRY.values() if cls.__qualname__ == name]
+    if len(alike) > 1:
+        raise ValueError(
+            f"The saved model holds a {saved!r} node, and {len(alike)} classes "
+            f"are named {name!r}: {sorted(_class_path(cls) for cls in alike)}. "
+            "Import the module that defines the one it was saved with, from "
+            "where it was saved."
+        )
+    return alike[0] if alike else None
+
+
+#: Every node name this process has used (given, generated or loaded), with
 #: the "_"-separated prefixes it is built from. Layers are told apart by the
 #: object they come from, but names are how a graph is read and searched, so a
 #: generated name avoids all of these.
-NODE_NAMES: set[str] = set()
+_NODE_NAMES: set[str] = set()
 
 
-def reserve_name(name: str) -> None:
+def _reserve_name(name: str) -> None:
     parts = name.split("_")
-    NODE_NAMES.update("_".join(parts[:index]) for index in range(1, len(parts) + 1))
+    _NODE_NAMES.update("_".join(parts[:index]) for index in range(1, len(parts) + 1))
+
+
+def _object_repr(obj, **fields) -> str:
+    """How every object of nnodely prints: ``Class(field=value, ...)`` on
+    one line. An object it refers to (a stream, a layer, a model) prints
+    by its name; reading the attribute gives the object."""
+    text = ", ".join(
+        f"{key}={getattr(value, 'name', value)!r}" for key, value in fields.items()
+    )
+    return f"{type(obj).__name__}({text})"
 
 
 class Node:
     name: str
-    preds: list[Node]
+    _preds: list[Node]
+    #: The model the node holds (the one it calls, or rolls out), or None.
+    _model: Any = None
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
 
         if not inspect.isabstract(cls):
-            NODE_REGISTRY[cls.__name__] = cls
+            _NODE_REGISTRY[_class_path(cls)] = cls
 
     def __init__(self, name: str, preds: list[Node] | None = None) -> None:
         self.name = name
-        self.preds = preds or []
-        reserve_name(name)
+        self._preds = preds or []
+        _reserve_name(name)
 
     def __call__(self, inputs: Sequence[Node]) -> Any:
         node = copy(self)
-        node.preds = list(inputs)
+        node._preds = list(inputs)
 
         return node
 
     def __repr__(self) -> str:
         return str(
-            f'{self.__class__.__name__}("{self.name}: {[pred.name for pred in self.preds]}")'
+            f'{self.__class__.__name__}("{self.name}: {[pred.name for pred in self._preds]}")'
         )
 
     def __hash__(self) -> int:
         return id(self)
 
     def get_config(self) -> dict:
+        """The arguments of the constructor that rebuild the node: every class
+        adds those its own constructor takes to its parent's."""
         return {
             "name": self.name,
         }
 
     @classmethod
     def from_config(cls, config, preds=None):
+        """The node ``config`` describes, made by the constructor of ``cls``.
+        A class that reads predecessors takes ``preds`` from here."""
         return cls(**config)
 
 
-class Shape:
-    dim: tuple[int]
-    time: int
-    seq: tuple[int] | tuple[()]
+def _arithmetic():
+    """The module of the layers the operators of a stream make, imported when
+    first used: it imports this one."""
+    from nnodely.layers import arithmetic
 
-    def __init__(self, dim=None, time=None, seq=None):
-        # Always tuples: a shape read back from JSON arrives as lists, and two
-        # shapes that describe the same axes have to compare equal.
-        self.dim = (
-            (1,) if dim is None else (dim,) if isinstance(dim, int) else tuple(dim)
-        )
-        self.time = 1 if time is None else int(time)
-        self.seq = () if seq is None else (seq,) if isinstance(seq, int) else tuple(seq)
-
-    @property
-    def tuple(self) -> tuple:
-        return tuple(self.dim) + (self.time,) + tuple(self.seq)
-
-    @property
-    def dimensions(self) -> tuple:
-        return self.dim, self.time, self.seq
-
-    @property
-    def rank(self) -> int:
-        return len(self.tuple)
-
-    @property
-    def dim_rank(self) -> int:
-        return len(self.dim)
-
-    @property
-    def seq_rank(self) -> int:
-        return len(self.seq)
-
-    def get_config(self):
-        return {
-            "dim": tuple(self.dim),
-            "time": self.time,
-            "seq": tuple(self.seq),
-        }
-
-    @classmethod
-    def from_config(cls, config: dict) -> "Shape":
-        return cls(
-            dim=config.get("dim"),
-            time=config.get("time"),
-            seq=config.get("seq"),
-        )
-
-    def __iter__(self):
-        return iter(self.tuple)
-
-    def __len__(self):
-        return len(self.tuple)
-
-    def __getitem__(self, item):
-        return self.tuple[item]
-
-    def __repr__(self):
-        return str(self.tuple)
+    return arithmetic
 
 
 class Stream(Node):
     _literal_constant_cache = {}
     shape: Shape
+    #: Whether the stream is a value (a number, a Parameter or a Constant, or
+    #: a relation of those alone) rather than read from data. A value without
+    #: a window applies to every sample of any stream.
+    _is_value = False
 
     def __init__(
         self,
         name: str,
         dim=None,
-        time=None,
-        seq=None,
+        tw=None,
         preds: list[Node] | None = None,
+        seq=None,
     ):
         super().__init__(name, preds)
-        self.shape = Shape(dim=dim, time=time, seq=seq)
+        self.shape = Shape(dim=dim, tw=tw, seq=seq)
 
     @property
-    def dim(self) -> tuple[int]:
+    def dim(self) -> tuple[int, ...]:
         return self.shape.dim
 
     @property
-    def time(self) -> int:
-        return self.shape.time
+    def tw(self) -> int | None:
+        """The length of the window, None without one."""
+        return self.shape.tw
 
     @property
-    def seq(self) -> tuple[int] | tuple[()]:
+    def seq(self) -> tuple[int | None, ...]:
+        """The sequence axes, outermost first."""
         return self.shape.seq
 
-    @property
-    def dimensions(self):
-        """
-        Return seq, time, dim separately
-        """
-        return self.shape.dimensions
-
-    @property
-    def rank(self) -> int:
-        """
-        Rank without batch dimension.
-        """
-        return self.shape.rank
-
     def __add__(self, other):
-        from nnodely.core.layer import Add
-
-        return Add()([self, self._coerce_operand(other)])
+        return _arithmetic().Add()([self, self._coerce_operand(other)])
 
     def __radd__(self, other):
-        from nnodely.core.layer import Add
-
-        return Add()([self._coerce_operand(other), self])
+        return _arithmetic().Add()([self._coerce_operand(other), self])
 
     def __sub__(self, other):
-        from nnodely.core.layer import Subtract
-
-        return Subtract()([self, self._coerce_operand(other)])
+        return _arithmetic().Subtract()([self, self._coerce_operand(other)])
 
     def __rsub__(self, other):
-        from nnodely.core.layer import Subtract
-
-        return Subtract()([self._coerce_operand(other), self])
+        return _arithmetic().Subtract()([self._coerce_operand(other), self])
 
     def __mul__(self, other):
-        from nnodely.core.layer import Multiply
-
-        return Multiply()([self, self._coerce_operand(other)])
+        return _arithmetic().Multiply()([self, self._coerce_operand(other)])
 
     def __rmul__(self, other):
-        from nnodely.core.layer import Multiply
-
-        return Multiply()([self._coerce_operand(other), self])
+        return _arithmetic().Multiply()([self._coerce_operand(other), self])
 
     def __truediv__(self, other):
-        from nnodely.core.layer import Divide
-
-        return Divide()([self, self._coerce_operand(other)])
+        return _arithmetic().Divide()([self, self._coerce_operand(other)])
 
     def __rtruediv__(self, other):
-        from nnodely.core.layer import Divide
-
-        return Divide()([self._coerce_operand(other), self])
+        return _arithmetic().Divide()([self._coerce_operand(other), self])
 
     def __pow__(self, other):
-        from nnodely.core.layer import Power
+        return _arithmetic().Power()([self, self._coerce_operand(other)])
 
-        return Power()([self, self._coerce_operand(other)])
+    def __rpow__(self, other):
+        return _arithmetic().Power()([self._coerce_operand(other), self])
+
+    def __mod__(self, other):
+        return _arithmetic().Mod()([self, self._coerce_operand(other)])
+
+    def __rmod__(self, other):
+        return _arithmetic().Mod()([self._coerce_operand(other), self])
+
+    def __neg__(self):
+        from nnodely.layers.arithmetic import Negative
+
+        return Negative()([self])
+
+    def __pos__(self):
+        return self
+
+    def __abs__(self):
+        from nnodely.layers.arithmetic import Abs
+
+        return Abs()([self])
 
     @staticmethod
     def _coerce_operand(value):
         if isinstance(value, Stream):
             return value
 
-        from nnodely.layers.constant import Constant
+        from nnodely.layers.parameter import Constant
 
         key = Stream._literal_constant_key(value)
         if key is not None:
@@ -241,17 +228,12 @@ class Stream(Node):
         return None
 
     def __repr__(self):
-        pred_names = [pred.name for pred in self.preds]
-        return (
-            f"{self.__class__.__name__}("
-            f"name={self.name!r}, "
-            f"type={self.__class__.__name__!r}, "
-            f"shape={self.shape}, "
-            f"predecessors={pred_names}"
-            f")"
-        )
+        """An Input or an Output prints as its class. A stream a call
+        returns (of a layer, an operator, a model or a loop) prints as a
+        Stream, whatever made it."""
+        from nnodely.layers.input import Input
+        from nnodely.layers.output import Output
 
-    def get_config(self) -> dict:
-        config = super().get_config()
-        config.update(self.shape.get_config())
-        return config
+        if type(self) in (Input, Output):
+            return _object_repr(self, name=self.name, shape=self.shape)
+        return f"Stream(name={self.name!r}, shape={self.shape})"

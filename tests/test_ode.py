@@ -1,4 +1,3 @@
-import keras
 import numpy as np
 import pytest
 
@@ -15,13 +14,6 @@ from nnodely import (
 )
 from conftest import to_numpy
 
-# Ode and OdeNet are not tested on torch: the suite does not run reliably on
-# that backend yet.
-pytestmark = pytest.mark.skipif(
-    keras.backend.backend() == "torch",
-    reason="the Ode and OdeNet tests are not run on the torch backend",
-)
-
 
 def _decay(state):
     """dx/dt = -x, whose solution from x(0) = 1 is exp(-t)."""
@@ -30,8 +22,8 @@ def _decay(state):
 
 def _integrate_decay(method, steps, horizon=1.0):
     """Integrate the decay over `horizon` with `steps` steps of the method."""
-    x0 = Input(f"x0_{method}_{steps}", dim=1)
-    state = x0.last()
+    x0 = Input(f"x0_{method}_{steps}", dim=1, tw=1)
+    state = x0
     for _ in range(steps):
         state = Ode(_decay, state, horizon / steps, method=method)
 
@@ -61,23 +53,33 @@ def test_ode_rk4_accuracy():
 
 def test_ode_unknown_method():
     with pytest.raises(ValueError, match="is not available"):
-        Ode(_decay, Input("x_bad_method", dim=1).last(), 0.1, method="dopri5")
+        Ode(_decay, Input("x_bad_method", dim=1, tw=1), 0.1, method="dopri5")
+
+
+def test_ode_takes_a_member_of_ode_method_or_its_string():
+    from nnodely import OdeMethod
+
+    assert _integrate_decay(OdeMethod.HEUN, 10) == _integrate_decay("heun", 10)
+    with pytest.raises(
+        ValueError, match=r"choose one of \['euler', 'heun', 'midpoint', 'rk4'\]"
+    ):
+        Ode(_decay, Input("x_member", dim=1, tw=1), 0.1, method="dopri5")
 
 
 def test_ode_derivative_count_mismatch():
-    x = Input("x_mismatch", dim=1).last()
-    y = Input("y_mismatch", dim=1).last()
+    x = Input("x_mismatch", dim=1, tw=1)
+    y = Input("y_mismatch", dim=1, tw=1)
     with pytest.raises(ValueError, match="one derivative per state"):
         Ode(lambda a, b: [-1.0 * a], [x, y], 0.1)
 
 
 @pytest.mark.slow
 def test_ode_matches_hand_written_rk4():
-    pos = Input(name="Xpos", dim=1)
-    vel = Input(name="Xvelocity", dim=1)
-    angle = Input(name="Xangle", dim=1)
-    ang_vel = Input(name="Xangular_velocity", dim=1)
-    force = Input(name="action", dim=1)
+    pos = Input(name="Xpos", dim=1, tw=1)
+    vel = Input(name="Xvelocity", dim=1, tw=1)
+    angle = Input(name="Xangle", dim=1, tw=1)
+    ang_vel = Input(name="Xangular_velocity", dim=1, tw=1)
+    force = Input(name="action", dim=1, tw=1)
 
     g = Constant(name="g", value=9.81)
     dt = Constant(name="dt", value=0.02)
@@ -174,16 +176,16 @@ def test_ode_matches_hand_written_rk4():
 def test_ode_in_loop():
     steps, dt = 10, 0.05
 
-    x = Input("x", dim=1)
-    body_output = Output("x_next", Ode(_decay, x.last(), dt, method="rk4"))
+    x = Input("x", dim=1, tw=1)
+    body_output = Output("x_next", Ode(_decay, x, dt, method="rk4"))
     body = Modely("ode_body", inputs=[x], outputs=[body_output]).build()
 
-    seed = Input("x_seq", dim=1, seq=steps)
-    loop = Loop(f=body, callback={x: body_output}, initial={x: seed}, collect=False)
+    seed = Input("x_seq", dim=1, seq=steps, tw=1)
+    loop = Loop(f=body, feedback={x: body_output}, collect=False, init={x: seed})()
     model = Modely("ode_loop", inputs=[seed], outputs=[Output("x_end", loop)]).build()
 
-    seed_values = np.zeros((1, 1, 1, steps), dtype=np.float32)
-    seed_values[..., 0] = 1.0
+    seed_values = np.zeros((1, steps, 1, 1), dtype=np.float32)
+    seed_values[:, 0] = 1.0
     result = to_numpy(model({"x_seq": seed_values})["x_end"])
 
     assert result.shape == (1, 1, 1)
