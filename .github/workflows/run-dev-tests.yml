@@ -4,8 +4,12 @@ on:
   pull_request:
     branches: ["develop"]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  dev-test:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

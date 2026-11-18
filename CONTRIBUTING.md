@@ -92,8 +92,8 @@ In short: **let the tools do the work**.
 We support Python 3.11 and later (`requires-python` in `pyproject.toml` has no
 upper bound; Keras 3.13 and later need 3.11). Pull requests to `main` are
 tested on 3.11 to 3.13 with the full
-suite; pull requests to `develop` only on 3.13, with the fast suite (the full
-suite runs only for coverage, on Ubuntu). Tests will
+suite; pull requests to `develop` only on 3.13, with the fast suite (coverage,
+on Ubuntu, also runs the fast suite there). Tests will
 catch most of the version specific behaviour, but please keep it in mind.
 
 ---
@@ -374,8 +374,10 @@ These settings on GitHub enforce the model.
   never bypasses the tests.
 - **Ruleset `develop`** (`develop`, no bypass): deletion and force pushes
   blocked; a pull request required, merge methods **merge** and **squash**;
-  required checks `lint`, every `test (os, 3.13, backend)` job of
-  `run-dev-tests.yml` and `codecov/patch`.
+  required checks `lint`, every `dev-test (os, 3.13, backend)` job of
+  `run-dev-tests.yml` and `codecov/patch`. The job has its own name so that
+  the `test` jobs of `run-tests.yml`, run on the same commit when one branch
+  has pull requests open to both `develop` and `main`, never stand in for it.
 - **Ruleset `release`** (`release/**`, `hotfix/**`, no bypass): force pushes
   blocked, so nobody rewrites commits that others may have pushed. Direct
   pushes and deletion stay allowed; no check is required, because the pull

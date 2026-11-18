@@ -49,4 +49,5 @@ keeps the torch backend on the CPU.
 | `develop` | fast suite, Python 3.13, 3 OSes x 3 backends; ruff, pyright |
 | `main` | full suite, Python 3.10-3.13, 3 OSes x 3 backends; ruff, pyright |
 
-Both also run the full suite with coverage on Ubuntu, one job per backend.
+Both also run coverage on Ubuntu, one job per backend: the fast suite for
+`develop`, the full suite for `main`.
